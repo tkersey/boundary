@@ -225,13 +225,17 @@ pub const ContinuationControl = struct {
     destroySelfFn: *const fn (*ContinuationControl) void,
 
     /// Increment the number of live wrapper references.
-    pub fn retain(self: *ContinuationControl) void {
+    pub fn retain(self: *ContinuationControl) Error!void {
+        if (self.thread_id != std.Thread.getCurrentId()) return error.CrossThread;
+        if (self.ref_count == 0) return error.AlreadyResolved;
         self.ref_count += 1;
     }
 
     /// Drop one wrapper reference and free the tombstone when possible.
-    pub fn release(self: *ContinuationControl) void {
-        std.debug.assert(self.ref_count > 0);
+    pub fn release(self: *ContinuationControl) Error!void {
+        if (self.thread_id != std.Thread.getCurrentId()) return error.CrossThread;
+        if (self.ref_count == 0) return error.AlreadyResolved;
+        std.debug.assert(!(self.box_ptr != null and self.ref_count == 1));
         self.ref_count -= 1;
         if (self.ref_count == 0 and self.box_ptr == null) {
             if (self.owner_session) |session| {

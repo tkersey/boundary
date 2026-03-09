@@ -1,7 +1,7 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const StateSpec = shift.ControlSpec(struct {
+const StateSpec = shift.EffectSpec(struct {
     /// Prompt marker for the effect-state example.
     pub const TagType = enum { token };
     /// Resume payload for the effect-state example.
@@ -26,7 +26,7 @@ const Machine = struct {
     } = .need_get,
     cached: i32 = 0,
 
-    /// Advance the state-effect machine by one step.
+    /// Advance the stateful computation by one step.
     pub fn step(self: *@This(), input: StateSpec.ResumeInput) StateSpec.StepResult {
         return switch (self.phase) {
             .need_get => switch (input) {
@@ -61,7 +61,7 @@ const Machine = struct {
 const Handler = struct {
     state: i32,
 
-    /// Resolve one effect operation and continue the machine.
+    /// Resolve one effect operation and resume the computation.
     pub fn handle(
         self: *@This(),
         operation: StateSpec.OperationValue,
@@ -83,7 +83,7 @@ fn cleanupSession(session: *shift.raw.Session) void {
         else => unreachable,
     };
     session.destroy() catch |err| switch (err) {
-        error.SessionBusy, error.SessionOpen => {},
+        error.SessionOpen => {},
         else => unreachable,
     };
 }

@@ -1,7 +1,7 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const GeneratorSpec = shift.ControlSpec(struct {
+const GeneratorSpec = shift.EffectSpec(struct {
     /// Prompt marker for the generator example.
     pub const TagType = enum { token };
     /// Resume payload for the generator example.
@@ -18,7 +18,7 @@ const Machine = struct {
     next_value: i32 = 1,
     remaining: usize = 3,
 
-    /// Advance the generator machine by one step.
+    /// Advance the generator computation by one step.
     pub fn step(self: *@This(), input: GeneratorSpec.ResumeInput) GeneratorSpec.StepResult {
         switch (input) {
             .start => {},
@@ -40,7 +40,7 @@ fn cleanupSession(session: *shift.raw.Session) void {
         else => unreachable,
     };
     session.destroy() catch |err| switch (err) {
-        error.SessionBusy, error.SessionOpen => {},
+        error.SessionOpen => {},
         else => unreachable,
     };
 }

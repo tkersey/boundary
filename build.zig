@@ -67,6 +67,12 @@ pub fn build(b: *std.Build) void {
             .step_name = "run-generator",
             .step_desc = "Run the generator example.",
         },
+        .{
+            .name = "effect_handlers",
+            .src = "examples/effect_handlers.zig",
+            .step_name = "run-effect-handlers",
+            .step_desc = "Run the typed effect-handler example.",
+        },
     };
 
     inline for (examples) |example| {

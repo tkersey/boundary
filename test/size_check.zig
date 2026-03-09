@@ -43,4 +43,5 @@ test "continuation shells stay compact" {
     };
 
     try std.testing.expect(@sizeOf(spec_t.Continuation(machine_t)) <= 5 * @sizeOf(usize));
+    try std.testing.expect(@sizeOf(spec_t.ContinuationAlias(machine_t)) <= 5 * @sizeOf(usize));
 }
