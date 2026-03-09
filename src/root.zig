@@ -19,14 +19,14 @@ pub fn ResetError(comptime ErrorSet: type) type {
     return raw.ResetError(ErrorSet);
 }
 
-/// Result of driving a delimiter until completion or suspension.
-pub fn Step(comptime Spec: type) type {
-    return raw.Step(Spec);
+/// Result of driving a delimiter until completion, tokenization, or cancellation.
+pub fn Outcome(comptime Spec: type) type {
+    return raw.Outcome(Spec);
 }
 
-/// Escaped one-shot suspension handle for `shift`.
-pub fn Suspension(comptime Spec: type) type {
-    return raw.Suspension(Spec);
+/// Linear one-shot token that owns the suspended computation.
+pub fn Token(comptime Spec: type) type {
+    return raw.Token(Spec);
 }
 
 /// Run `body` under the nearest dynamic delimiter identified by `Tag`.
@@ -34,7 +34,7 @@ pub fn reset(
     comptime Spec: type,
     runtime: *Runtime,
     body: *const fn () ResetError(Spec.ErrorSet)!Spec.Answer,
-) ResetError(Spec.ErrorSet)!Step(Spec) {
+) ResetError(Spec.ErrorSet)!Outcome(Spec) {
     return raw.reset(Spec, runtime, body);
 }
 

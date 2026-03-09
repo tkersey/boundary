@@ -34,10 +34,10 @@ pub fn main() anyerror!void {
     var i: usize = 0;
     while (i < iterations) : (i += 1) {
         bench_state.current = i;
-        const step = try shift.reset(bench_spec, &runtime, bench_state.body);
-        sum += switch (step) {
+        const outcome = try shift.reset(bench_spec, &runtime, bench_state.body);
+        sum += switch (outcome) {
             .complete => |answer| answer,
-            .suspended => unreachable,
+            .cancelled, .token => unreachable,
         };
     }
 

@@ -34,13 +34,14 @@ pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
     defer runtime.deinit();
 
-    var step = try shift.reset(generator_spec, &runtime, demo.body);
-    while (true) switch (step) {
+    var outcome = try shift.reset(generator_spec, &runtime, demo.body);
+    while (true) switch (outcome) {
         .complete => break,
-        .suspended => |*suspension| {
-            demo.yielded[demo.yield_count] = suspension.request;
+        .cancelled => unreachable,
+        .token => |*token| {
+            demo.yielded[demo.yield_count] = token.request;
             demo.yield_count += 1;
-            step = try suspension.resumeWith({});
+            outcome = try token.resumeWith({});
         },
     };
 

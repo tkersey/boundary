@@ -1,13 +1,14 @@
 # Research Notes
 
-This repo is now exploring the stackful side of one-shot `shift/reset` through an escaping, step-driven public API rather than an immediate callback handler.
+This repo is now exploring the stackful side of one-shot `shift/reset` through a framework-builder-facing linear token API.
 
 Current implementation choices:
 
 - Audited assembly context-switch stubs instead of a large inline-assembly surface.
 - Fiber-backed reset frames.
-- Runtime-local reset-frame reuse to keep the escaping core within the preserved no-capture benchmark budget.
-- Heap-backed, one-shot suspension records with explicit `resumeWith` and `discontinue`.
+- Runtime-local reset-frame reuse to keep the no-capture path reasonable.
+- Heap-backed, one-shot token records with explicit `resumeWith`, `discontinue`, and `cancel`.
+- Library-owned terminal cancellation plus token auto-cancel on `deinit()`.
 - Explicit spec structs that carry `tag`, `Request`, `Resume`, `Answer`, and `ErrorSet`.
 - Collision-free internal prompt identity via per-type tokens rather than hashed type names.
 - A hard runtime guard for known unsafe suspension regions.
@@ -15,4 +16,4 @@ Current implementation choices:
 
 Current open research edge:
 
-- The escaping API now clears the initial no-capture regression budget with runtime-local frame reuse, but future work may still need to trim first-suspend overhead if the suspension-record allocation path becomes the next dominant cost.
+- The product semantics are now clearer than the older step/suspension surface, but future work may still revisit whether framework builders ultimately want a stable session object instead of a linear token.

@@ -35,14 +35,15 @@ pub fn main() anyerror!void {
     var i: usize = 0;
     while (i < iterations) : (i += 1) {
         bench_state.current = i;
-        var step = try shift.reset(bench_spec, &runtime, bench_state.body);
-        while (true) switch (step) {
+        var outcome = try shift.reset(bench_spec, &runtime, bench_state.body);
+        while (true) switch (outcome) {
             .complete => |answer| {
                 sum += answer;
                 break;
             },
-            .suspended => |*suspension| {
-                step = try suspension.resumeWith(bench_state.current);
+            .cancelled => unreachable,
+            .token => |*token| {
+                outcome = try token.resumeWith(bench_state.current);
             },
         };
     }

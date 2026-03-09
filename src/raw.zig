@@ -4,14 +4,16 @@ const std = @import("std");
 /// Runtime errors surfaced by the fiber-backed control core.
 pub const Error = error{
     AlreadyResolved,
+    Cancelled,
+    CancellationRecovered,
     CrossThread,
     MissingPrompt,
     OutOfMemory,
+    TokenAliased,
     RuntimeAliased,
     RuntimeBusy,
     RuntimeDestroyed,
     ShiftForbidden,
-    SuspensionAliased,
 };
 
 /// Setup failures that can occur before user code enters `reset`.
@@ -344,6 +346,7 @@ fn ResetFrame(comptime Tag: type, comptime Answer: type, comptime ErrorSet: type
         cached: CachedFrame,
         base: FiberBase,
         body: *const fn () ResetError(ErrorSet)!Answer,
+        cancellation_required: bool = false,
         result: union(enum) {
             answer: Answer,
             err: ResetError(ErrorSet),
@@ -445,6 +448,9 @@ export fn shiftFiberEntry() callconv(.c) noreturn {
 }
 
 fn finishCurrentFiberWithAnswer(comptime Tag: type, comptime Answer: type, comptime ErrorSet: type, frame: *ResetFrame(Tag, Answer, ErrorSet), answer: Answer) noreturn {
+    if (frame.cancellation_required) {
+        finishCurrentFiberWithError(Tag, Answer, ErrorSet, frame, error.CancellationRecovered);
+    }
     frame.result = .{ .answer = answer };
     frame.base.state = .done;
     frame.base.outcome = .none;
@@ -454,7 +460,8 @@ fn finishCurrentFiberWithAnswer(comptime Tag: type, comptime Answer: type, compt
 }
 
 fn finishCurrentFiberWithError(comptime Tag: type, comptime Answer: type, comptime ErrorSet: type, frame: *ResetFrame(Tag, Answer, ErrorSet), err: ResetError(ErrorSet)) noreturn {
-    frame.result = .{ .err = err };
+    const final_err = if (frame.cancellation_required and err != error.Cancelled) @as(ResetError(ErrorSet), error.CancellationRecovered) else err;
+    frame.result = .{ .err = final_err };
     frame.base.state = .failed;
     frame.base.outcome = .none;
     tls_current_fiber = frame.base.parent_fiber;
@@ -462,16 +469,17 @@ fn finishCurrentFiberWithError(comptime Tag: type, comptime Answer: type, compti
     unreachable;
 }
 
-/// Result of driving a delimiter until completion or suspension.
-pub fn Step(comptime Spec: type) type {
+/// Result of driving a delimiter until completion, tokenization, or cancellation.
+pub fn Outcome(comptime Spec: type) type {
     return union(enum) {
+        cancelled: void,
         complete: AnswerOf(Spec),
-        suspended: Suspension(Spec),
+        token: Token(Spec),
     };
 }
 
-/// Escaped one-shot suspension handle for `shift`.
-pub fn Suspension(comptime Spec: type) type {
+/// Linear one-shot token that owns a suspended computation.
+pub fn Token(comptime Spec: type) type {
     const Record = SuspensionRecord(Spec);
     return struct {
         request: RequestOf(Spec),
@@ -481,19 +489,19 @@ pub fn Suspension(comptime Spec: type) type {
         fn prepare(self: *@This()) Error!*Record {
             const record = self.record orelse return error.AlreadyResolved;
             try record.runtime.ensureThread();
-            if (record.generation != self.generation) return error.SuspensionAliased;
+            if (record.generation != self.generation) return error.TokenAliased;
             if (record.owner_cookie == 0) {
                 record.owner_cookie = @intFromPtr(self);
             } else if (record.owner_cookie != @intFromPtr(self)) {
-                return error.SuspensionAliased;
+                return error.TokenAliased;
             }
             if (record.state != .pending) return error.AlreadyResolved;
             self.record = null;
             return record;
         }
 
-        /// Resume the escaped one-shot suspension with `value`.
-        pub fn resumeWith(self: *@This(), value: ResumeOf(Spec)) ResetError(ErrorSetOf(Spec))!Step(Spec) {
+        /// Resume the owned token with `value`.
+        pub fn resumeWith(self: *@This(), value: ResumeOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
             const record = try self.prepare();
             record.state = .resumed;
             record.resume_value = value;
@@ -508,8 +516,8 @@ pub fn Suspension(comptime Spec: type) type {
             return try driveFrame(Spec, record.target_frame);
         }
 
-        /// Inject `err` into the escaped suspension.
-        pub fn discontinue(self: *@This(), err: ErrorSetOf(Spec)) ResetError(ErrorSetOf(Spec))!Step(Spec) {
+        /// Inject a user-owned `err` into the token.
+        pub fn discontinue(self: *@This(), err: ErrorSetOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
             const record = try self.prepare();
             record.state = .discontinued;
             record.discontinue_error = err;
@@ -522,6 +530,41 @@ pub fn Suspension(comptime Spec: type) type {
                 record.runtime.pushCachedSuspension(&record.cached);
             }
             return try driveFrame(Spec, record.target_frame);
+        }
+
+        /// Issue library-owned terminal cancellation for the token.
+        pub fn cancel(self: *@This()) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+            const record = try self.prepare();
+            record.state = .cancelled;
+            record.target_frame.cancellation_required = true;
+            record.runtime.active_suspension_count -= 1;
+            defer {
+                record.owner_cookie = 0;
+                record.resume_value = null;
+                record.discontinue_error = null;
+                record.generation += 1;
+                record.runtime.pushCachedSuspension(&record.cached);
+            }
+            return try driveFrame(Spec, record.target_frame);
+        }
+
+        /// Auto-cancel unresolved tokens and ignore the terminal result.
+        pub fn deinit(self: *@This()) void {
+            self.deinitChecked() catch |err| switch (err) {
+                error.AlreadyResolved => return,
+                error.CrossThread, error.CancellationRecovered => unreachable,
+                else => unreachable,
+            };
+        }
+
+        /// Checked auto-cancel for unresolved tokens.
+        pub fn deinitChecked(self: *@This()) ResetError(ErrorSetOf(Spec))!void {
+            if (self.record == null) return error.AlreadyResolved;
+            const outcome = try self.cancel();
+            switch (outcome) {
+                .cancelled => return,
+                .complete, .token => return error.CancellationRecovered,
+            }
         }
     };
 }
@@ -536,6 +579,7 @@ fn SuspensionRecord(comptime Spec: type) type {
         generation: usize = 1,
         owner_cookie: usize = 0,
         state: enum {
+            cancelled,
             discontinued,
             pending,
             resumed,
@@ -550,7 +594,7 @@ fn SuspensionRecord(comptime Spec: type) type {
     };
 }
 
-fn driveFrame(comptime Spec: type, frame: *ResetFrame(TagOf(Spec), AnswerOf(Spec), ErrorSetOf(Spec))) ResetError(ErrorSetOf(Spec))!Step(Spec) {
+fn driveFrame(comptime Spec: type, frame: *ResetFrame(TagOf(Spec), AnswerOf(Spec), ErrorSetOf(Spec))) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
     const runtime = frame.base.runtime;
     try runtime.ensureThread();
     runtime.active_reset_count += 1;
@@ -581,6 +625,7 @@ fn driveFrame(comptime Spec: type, frame: *ResetFrame(TagOf(Spec), AnswerOf(Spec
                     else => unreachable,
                 };
                 frame.destroy();
+                if (err == error.Cancelled) return .{ .cancelled = {} };
                 return err;
             },
             .suspended => switch (frame.base.outcome) {
@@ -595,7 +640,7 @@ fn driveFrame(comptime Spec: type, frame: *ResetFrame(TagOf(Spec), AnswerOf(Spec
                     }
                     const record: *SuspensionRecord(Spec) = @fieldParentPtr("base", base);
                     return .{
-                        .suspended = .{
+                        .token = .{
                             .request = record.request,
                             .record = record,
                             .generation = record.generation,
@@ -614,7 +659,7 @@ pub fn reset(
     comptime Spec: type,
     runtime: *Runtime,
     body: *const fn () ResetError(ErrorSetOf(Spec))!AnswerOf(Spec),
-) ResetError(ErrorSetOf(Spec))!Step(Spec) {
+) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
     try runtime.ensureThread();
     const frame = try ResetFrame(TagOf(Spec), AnswerOf(Spec), ErrorSetOf(Spec)).create(runtime, body);
     return try driveFrame(Spec, frame);
@@ -637,6 +682,7 @@ pub fn shift(
     }
 
     const frame: *ResetFrame(TagOf(Spec), AnswerOf(Spec), ErrorSetOf(Spec)) = @fieldParentPtr("base", target_fiber);
+    if (frame.cancellation_required) return error.CancellationRecovered;
     const record, const generation = blk: {
         if (runtime.popCachedSuspension(SuspensionRecord(Spec), suspensionCacheKey(Spec))) |cached| {
             break :blk .{ cached, cached.generation };
@@ -665,11 +711,12 @@ pub fn shift(
     switch (record.state) {
         .resumed => return record.resume_value.?,
         .discontinued => return record.discontinue_error.?,
+        .cancelled => return error.Cancelled,
         .pending => unreachable,
     }
 }
 
-test "no-capture reset returns complete step" {
+test "no-capture reset returns complete outcome" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -681,15 +728,15 @@ test "no-capture reset returns complete step" {
         const ErrorSet = error{};
     };
 
-    const step = try reset(demo_spec, &runtime, struct {
+    const outcome = try reset(demo_spec, &runtime, struct {
         fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
             return 7;
         }
     }.body);
 
-    switch (step) {
+    switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(usize, 7), answer),
-        .suspended => unreachable,
+        .token, .cancelled => unreachable,
     }
 }
 
@@ -714,7 +761,7 @@ test "prompt token differs across local namespaces" {
     try std.testing.expect(@intFromPtr(promptToken(scope_a.tag)) != @intFromPtr(promptToken(scope_b.tag)));
 }
 
-test "shift returns a suspended step and resume completes it" {
+test "token resume returns the next outcome" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -733,21 +780,21 @@ test "shift returns a suspended step and resume completes it" {
         }
     };
 
-    var step = try reset(demo_spec, &runtime, demo.body);
-    switch (step) {
-        .complete => unreachable,
-        .suspended => |*suspension| {
-            try std.testing.expectEqual(@as(i32, 41), suspension.request);
-            step = try suspension.resumeWith(41);
+    var outcome = try reset(demo_spec, &runtime, demo.body);
+    switch (outcome) {
+        .complete, .cancelled => unreachable,
+        .token => |*token| {
+            try std.testing.expectEqual(@as(i32, 41), token.request);
+            outcome = try token.resumeWith(41);
         },
     }
-    switch (step) {
+    switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(i32, 42), answer),
-        .suspended => unreachable,
+        .token, .cancelled => unreachable,
     }
 }
 
-test "discontinue injects the supplied error" {
+test "token discontinue injects the supplied user error" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -766,14 +813,17 @@ test "discontinue injects the supplied error" {
         }
     };
 
-    var step = try reset(demo_spec, &runtime, demo.body);
-    switch (step) {
-        .complete => unreachable,
-        .suspended => |*suspension| try std.testing.expectError(error.Stop, suspension.discontinue(error.Stop)),
+    const outcome = try reset(demo_spec, &runtime, demo.body);
+    switch (outcome) {
+        .complete, .cancelled => unreachable,
+        .token => |token| {
+            var owned = token;
+            try std.testing.expectError(error.Stop, owned.discontinue(error.Stop));
+        },
     }
 }
 
-test "discontinue can be caught and produce another suspension" {
+test "user discontinue can be caught and continue into another token" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -796,28 +846,28 @@ test "discontinue can be caught and produce another suspension" {
         }
     };
 
-    var step = try reset(demo_spec, &runtime, demo.body);
-    switch (step) {
-        .complete => unreachable,
-        .suspended => |*suspension| {
-            try std.testing.expectEqualStrings("first", suspension.request);
-            step = try suspension.discontinue(error.Stop);
+    var outcome = try reset(demo_spec, &runtime, demo.body);
+    switch (outcome) {
+        .complete, .cancelled => unreachable,
+        .token => |*token| {
+            try std.testing.expectEqualStrings("first", token.request);
+            outcome = try token.discontinue(error.Stop);
         },
     }
-    switch (step) {
-        .complete => unreachable,
-        .suspended => |*suspension| {
-            try std.testing.expectEqualStrings("after-stop", suspension.request);
-            step = try suspension.resumeWith({});
+    switch (outcome) {
+        .complete, .cancelled => unreachable,
+        .token => |*token| {
+            try std.testing.expectEqualStrings("after-stop", token.request);
+            outcome = try token.resumeWith({});
         },
     }
-    switch (step) {
+    switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(usize, 7), answer),
-        .suspended => unreachable,
+        .token, .cancelled => unreachable,
     }
 }
 
-test "suspension can escape the immediate reset call and resume later" {
+test "token can escape reset and resume later" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -836,23 +886,23 @@ test "suspension can escape the immediate reset call and resume later" {
         }
     };
 
-    var saved: ?Suspension(demo_spec) = null;
-    var step = try reset(demo_spec, &runtime, demo.body);
-    switch (step) {
-        .complete => unreachable,
-        .suspended => |suspension| {
-            try std.testing.expectEqualStrings("later", suspension.request);
-            saved = suspension;
+    var saved: ?Token(demo_spec) = null;
+    var outcome = try reset(demo_spec, &runtime, demo.body);
+    switch (outcome) {
+        .complete, .cancelled => unreachable,
+        .token => |token| {
+            try std.testing.expectEqualStrings("later", token.request);
+            saved = token;
         },
     }
-    step = try saved.?.resumeWith(41);
-    switch (step) {
+    outcome = try saved.?.resumeWith(41);
+    switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(usize, 42), answer),
-        .suspended => unreachable,
+        .token, .cancelled => unreachable,
     }
 }
 
-test "copied suspension alias is rejected" {
+test "copied token alias is rejected" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -871,23 +921,114 @@ test "copied suspension alias is rejected" {
         }
     };
 
-    var step = try reset(demo_spec, &runtime, demo.body);
-    switch (step) {
-        .complete => unreachable,
-        .suspended => |suspension| {
-            var owner = suspension;
-            var alias = suspension;
-            step = try owner.resumeWith(41);
-            try std.testing.expectError(error.SuspensionAliased, alias.resumeWith(41));
+    var outcome = try reset(demo_spec, &runtime, demo.body);
+    switch (outcome) {
+        .complete, .cancelled => unreachable,
+        .token => |token| {
+            var owner = token;
+            var alias = token;
+            outcome = try owner.resumeWith(41);
+            try std.testing.expectError(error.TokenAliased, alias.resumeWith(41));
         },
     }
-    switch (step) {
+    switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(usize, 42), answer),
-        .suspended => unreachable,
+        .token, .cancelled => unreachable,
     }
 }
 
-test "resolved suspension records are recycled instead of retained linearly" {
+test "token cancel returns cancelled outcome" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    const demo_spec = struct {
+        const tag = struct {};
+        const Request = i32;
+        const Resume = i32;
+        const Answer = i32;
+        const ErrorSet = error{};
+    };
+
+    const demo = struct {
+        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
+            const current = try shift(demo_spec, 41);
+            return current + 1;
+        }
+    };
+
+    const outcome = try reset(demo_spec, &runtime, demo.body);
+    switch (outcome) {
+        .complete, .cancelled => unreachable,
+        .token => |token| {
+            var owned = token;
+            switch (try owned.cancel()) {
+                .cancelled => {},
+                .complete, .token => unreachable,
+            }
+        },
+    }
+}
+
+test "token deinit auto-cancels unresolved token" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+
+    const demo_spec = struct {
+        const tag = struct {};
+        const Request = i32;
+        const Resume = i32;
+        const Answer = i32;
+        const ErrorSet = error{};
+    };
+
+    const demo = struct {
+        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
+            const current = try shift(demo_spec, 41);
+            return current + 1;
+        }
+    };
+
+    const outcome = try reset(demo_spec, &runtime, demo.body);
+    switch (outcome) {
+        .complete, .cancelled => unreachable,
+        .token => |token| {
+            var owned = token;
+            owned.deinit();
+        },
+    }
+    try runtime.deinitChecked();
+}
+
+test "cancellation cannot recover into another token" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    const demo_spec = struct {
+        const tag = struct {};
+        const Request = []const u8;
+        const Resume = void;
+        const Answer = usize;
+        const ErrorSet = error{};
+    };
+
+    const demo = struct {
+        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
+            _ = shift(demo_spec, "first") catch |err| switch (err) {
+                error.Cancelled => {},
+                else => return err,
+            };
+            _ = try shift(demo_spec, "should-not-happen");
+            return 9;
+        }
+    };
+
+    var outcome = try reset(demo_spec, &runtime, demo.body);
+    switch (outcome) {
+        .complete, .cancelled => unreachable,
+        .token => |*token| try std.testing.expectError(error.CancellationRecovered, token.cancel()),
+    }
+}
+
+test "token records are recycled after resolution" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -906,32 +1047,32 @@ test "resolved suspension records are recycled instead of retained linearly" {
         }
     };
 
-    var first_step = try reset(demo_spec, &runtime, demo.body);
-    const first_record = switch (first_step) {
-        .complete => unreachable,
-        .suspended => |*suspension| blk: {
-            const record = suspension.record.?;
-            first_step = try suspension.resumeWith(41);
+    var first_outcome = try reset(demo_spec, &runtime, demo.body);
+    const first_record = switch (first_outcome) {
+        .complete, .cancelled => unreachable,
+        .token => |*token| blk: {
+            const record = token.record.?;
+            first_outcome = try token.resumeWith(41);
             break :blk record;
         },
     };
-    switch (first_step) {
+    switch (first_outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(usize, 42), answer),
-        .suspended => unreachable,
+        .token, .cancelled => unreachable,
     }
     try std.testing.expect(runtime.cached_suspensions != null);
 
-    var second_step = try reset(demo_spec, &runtime, demo.body);
-    switch (second_step) {
-        .complete => unreachable,
-        .suspended => |*suspension| {
-            try std.testing.expectEqual(first_record, suspension.record.?);
-            second_step = try suspension.resumeWith(41);
+    var second_outcome = try reset(demo_spec, &runtime, demo.body);
+    switch (second_outcome) {
+        .complete, .cancelled => unreachable,
+        .token => |*token| {
+            try std.testing.expectEqual(first_record, token.record.?);
+            second_outcome = try token.resumeWith(41);
         },
     }
-    switch (second_step) {
+    switch (second_outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(usize, 42), answer),
-        .suspended => unreachable,
+        .token, .cancelled => unreachable,
     }
 }
 
@@ -1027,48 +1168,17 @@ test "runtime checked deinit rejects active reset" {
             try std.testing.expectError(error.RuntimeBusy, runtime_ptr.deinitChecked());
             return switch (inner) {
                 .complete => |answer| answer,
-                .suspended => unreachable,
+                .token, .cancelled => unreachable,
             };
         }
     };
 
     demo.runtime_ptr = &runtime;
-    const step = try reset(demo_spec, &runtime, demo.body);
-    switch (step) {
+    const outcome = try reset(demo_spec, &runtime, demo.body);
+    switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(usize, 7), answer),
-        .suspended => unreachable,
+        .token, .cancelled => unreachable,
     }
-}
-
-test "runtime checked deinit rejects unresolved suspension and allows teardown after resolution" {
-    var runtime = Runtime.init(std.testing.allocator, .{});
-
-    const demo_spec = struct {
-        const tag = struct {};
-        const Request = usize;
-        const Resume = usize;
-        const Answer = usize;
-        const ErrorSet = error{};
-    };
-
-    const demo = struct {
-        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
-            const resumed = try shift(demo_spec, 41);
-            return resumed + 1;
-        }
-    };
-
-    var step = try reset(demo_spec, &runtime, demo.body);
-    try std.testing.expectError(error.RuntimeBusy, runtime.deinitChecked());
-    switch (step) {
-        .complete => unreachable,
-        .suspended => |*suspension| step = try suspension.resumeWith(41),
-    }
-    switch (step) {
-        .complete => |answer| try std.testing.expectEqual(@as(usize, 42), answer),
-        .suspended => unreachable,
-    }
-    try runtime.deinitChecked();
 }
 
 test "runtime copied alias is rejected after first use" {
@@ -1082,14 +1192,14 @@ test "runtime copied alias is rejected after first use" {
         const ErrorSet = error{};
     };
 
-    const step = try reset(demo_spec, &runtime, struct {
+    const outcome = try reset(demo_spec, &runtime, struct {
         fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
             return 7;
         }
     }.body);
-    switch (step) {
+    switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(usize, 7), answer),
-        .suspended => unreachable,
+        .token, .cancelled => unreachable,
     }
 
     var alias = runtime;
@@ -1118,7 +1228,7 @@ test "runtime checked deinit rejects double teardown and later reset use" {
     }.body));
 }
 
-test "outer prompt suspension can bubble through an inner reset" {
+test "outer prompt token can bubble through an inner reset" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -1147,28 +1257,29 @@ test "outer prompt suspension can bubble through an inner reset" {
         }
 
         fn outerBody() ResetError(outer_spec.ErrorSet)!outer_spec.Answer {
-            var inner_step = try reset(inner_spec, runtime_ptr, innerBody);
-            while (true) switch (inner_step) {
+            var inner_outcome = try reset(inner_spec, runtime_ptr, innerBody);
+            while (true) switch (inner_outcome) {
                 .complete => |answer| return answer,
-                .suspended => |*suspension| {
-                    const resumed = try shift(outer_spec, suspension.request);
-                    inner_step = try suspension.resumeWith(resumed);
+                .cancelled => return error.Cancelled,
+                .token => |*token| {
+                    const resumed = try shift(outer_spec, token.request);
+                    inner_outcome = try token.resumeWith(resumed);
                 },
             };
         }
     };
 
     demo.runtime_ptr = &runtime;
-    var step = try reset(outer_spec, &runtime, demo.outerBody);
-    switch (step) {
-        .complete => unreachable,
-        .suspended => |*suspension| {
-            try std.testing.expectEqual(@as(i32, 41), suspension.request);
-            step = try suspension.resumeWith(41);
+    var outcome = try reset(outer_spec, &runtime, demo.outerBody);
+    switch (outcome) {
+        .complete, .cancelled => unreachable,
+        .token => |*token| {
+            try std.testing.expectEqual(@as(i32, 41), token.request);
+            outcome = try token.resumeWith(41);
         },
     }
-    switch (step) {
+    switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(i32, 42), answer),
-        .suspended => unreachable,
+        .token, .cancelled => unreachable,
     }
 }

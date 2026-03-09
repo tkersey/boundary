@@ -49,20 +49,21 @@ pub fn main() anyerror!void {
     var stdout_buffer: [256]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     const stdout = &stdout_writer.interface;
-    var step = try shift.reset(handler_spec, &runtime, demo.body);
-    while (true) switch (step) {
+    var outcome = try shift.reset(handler_spec, &runtime, demo.body);
+    while (true) switch (outcome) {
         .complete => |value| {
             try stdout.print("result={s}\n", .{value});
             break;
         },
-        .suspended => |*suspension| switch (suspension.request) {
+        .cancelled => unreachable,
+        .token => |*token| switch (token.request) {
             .emit => |message| {
                 demo.trace[demo.trace_count] = message;
                 demo.trace_count += 1;
-                step = try suspension.resumeWith({});
+                outcome = try token.resumeWith({});
             },
             .abort => {
-                step = suspension.discontinue(error.Abort) catch |err| switch (err) {
+                outcome = token.discontinue(error.Abort) catch |err| switch (err) {
                     error.Abort => {
                         try stdout.print("aborted=yes trace=[", .{});
                         for (demo.trace[0..demo.trace_count], 0..) |entry, index| {

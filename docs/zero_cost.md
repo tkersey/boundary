@@ -8,8 +8,8 @@ This runtime is not zero-cost in the old managed-frame sense.
 - Every `reset` uses heap-backed reset-frame storage.
 - The first `reset` on a runtime allocates a stack mapping.
 - Later resets usually reuse a cached stack.
-- Every `shift(...)` allocates one suspension record and returns `Step.suspended`.
-- Every `resumeWith` or `discontinue` performs another context switch back into the captured frame.
+- Every `shift(...)` allocates one token record and returns `Outcome.token`.
+- Every `resumeWith`, `discontinue`, or `cancel` performs another context switch back into the captured frame.
 
 ## Current cheap path
 
@@ -18,7 +18,7 @@ This runtime is not zero-cost in the old managed-frame sense.
 
 ## Current expensive path
 
-- First suspension involves a cached-or-fresh reset frame, one heap allocation for the suspension record, two context switches, and caller-side driver logic.
-- Nested reset frames keep paying stackful control costs even though outer-prompt bubbling still works.
+- First tokenization involves a cached-or-fresh reset frame, one heap allocation for the token record, two context switches, and caller-side lifecycle logic.
+- Nested reset frames still pay stackful control costs even though outer-prompt bubbling still works.
 
-The README, benchmark artifacts, and benchmark outputs are the source of truth for current performance claims.
+The README and benchmark artifacts remain the source of truth for current performance claims, but performance is no longer the primary design driver of this pass.

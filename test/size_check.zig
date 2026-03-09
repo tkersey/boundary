@@ -1,7 +1,7 @@
 const shift = @import("shift");
 const std = @import("std");
 
-test "continuation shell stays compact" {
+test "token shell stays compact" {
     const demo_spec = struct {
         /// Prompt tag.
         pub const tag = struct {};
@@ -14,7 +14,7 @@ test "continuation shell stays compact" {
         /// User error surface.
         pub const ErrorSet = error{};
     };
-    try std.testing.expect(@sizeOf(shift.Suspension(demo_spec)) <= 2 * @sizeOf(usize));
+    try std.testing.expect(@sizeOf(shift.Token(demo_spec)) <= 2 * @sizeOf(usize));
 }
 
 test "runtime defaults stay explicit" {

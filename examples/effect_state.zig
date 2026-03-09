@@ -28,19 +28,21 @@ pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
     defer runtime.deinit();
 
-    var step = try shift.reset(state_spec, &runtime, demo.body);
-    const answer = while (true) switch (step) {
-        .complete => |value| break value,
-        .suspended => |*suspension| {
-            _ = suspension.request;
-            demo.resumed = 41;
-            step = try suspension.resumeWith(demo.resumed);
+    var outcome = try shift.reset(state_spec, &runtime, demo.body);
+    while (true) switch (outcome) {
+        .complete => unreachable,
+        .cancelled => break,
+        .token => |*token| {
+            demo.resumed = 0;
+            _ = token.request;
+            _ = try token.cancel();
+            break;
         },
     };
 
     var stdout_buffer: [256]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     const stdout = &stdout_writer.interface;
-    try stdout.print("answer={d} resumed={d}\n", .{ answer, demo.resumed });
+    try stdout.print("cancelled=yes resumed={d}\n", .{demo.resumed});
     try stdout.flush();
 }
