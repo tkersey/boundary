@@ -1,62 +1,78 @@
 # shift
 
-`shift` is a Zig 0.15.2 library for one-shot delimited control with explicit, typed effect interpretation in userland Zig. Managed frames are the implementation boundary, not the headline abstraction.
+`shift` is a Zig 0.15.2 implementation of one-shot, stackful `shift/reset`.
 
-The current implementation is intentionally explicit:
+The current runtime is direct-style:
 
-- `EffectSpec` generates typed effect surfaces at comptime, while `ControlSpec` remains as the lower-level compatibility alias.
-- Operations and interpreters stay explicit at the type level instead of disappearing behind a registry.
-- No-capture starts stay allocation-free.
-- Continuations use linear ownership: `resumeWith()` and `discard()` consume the owner, `alias()` creates extra release-only references, and owner `release()` is reserved for draining non-active tombstones.
-- `Session` still names the effect scope lifetime boundary: `close(mode)` changes continuation semantics and `destroy()` releases the scope owner even if copied continuation handles still exist.
-- After `Session.destroy()`, outstanding continuations fail cleanly with `error.SessionDestroyed`.
-- Managed frames only: the library does not capture arbitrary native Zig stacks.
+- `shift.reset(Tag, Answer, ErrorSet, &runtime, body)` installs a dynamic delimiter and runs `body` on a fiber-backed stack.
+- `shift.shift(Resume, Tag, Answer, ErrorSet, handler)` captures to the nearest active `reset` for `Tag` on the current reset frame.
+- `Continuation.resumeWith(value)` resumes the captured continuation exactly once.
+- `Continuation.discontinue(err)` discontinues the continuation and propagates `err`.
+
+- `NoShiftGuard` marks regions where suspension is forbidden; `leaveChecked()` returns an error instead of trapping on misuse.
+- `Runtime.deinitChecked()` returns an error instead of trapping if the runtime is still active or already destroyed.
+
+The current implementation is intentionally narrower than the end-state plan:
+
+- Handlers must consume the continuation exactly once.
+- Public APIs now thread an explicit `ErrorSet` through `reset`, `shift`, and `Continuation`.
+- Prompt identity is now collision-free per `Tag` type and is implemented as an internal per-type token rather than a hash of the type name.
+- The supplied context-switch stubs cover `x86_64` and `aarch64` hosts.
 
 ## Build
 
 ```bash
 zig build
 zig build test
-zig build lint -- --fix
 zig build lint -- --max-warnings 0
 zig build size-check
 zig build bench
+zig build bench-first-suspend
 ```
+
+`zig build bench` runs the direct-style no-capture benchmark in `ReleaseFast`.
+`zig build bench-first-suspend` runs the direct-style first-suspend benchmark in `ReleaseFast`.
 
 ## Examples
 
 ```bash
-zig build run-effect-state
 zig build run-generator
+zig build run-effect-state
 zig build run-effect-handlers
 ```
 
-## Typed Effect Handling
+Expected outputs:
 
-`EffectSpec` is the PL-facing name. The new `effect_handlers` example shows how a single tagged effect surface can be interpreted by a composable chain of environment, state, and trace interpreters without adding a new helper API to `shift` itself.
+- `run-generator`: yields `1`, `2`, `3`, then reports `done=3`
+- `run-effect-state`: prints `answer=42 resumed=41`
+- `run-effect-handlers`: prints `aborted=yes trace=[enter, before-abort]`
 
-## Migration
-
-The compatibility `clone()` bridge is gone in the end-state API.
-
-Before:
+## Minimal Example
 
 ```zig
-var extra = try continuation.clone();
+const shift = @import("shift");
+
+const tag = struct {};
+const DemoError = error{};
+
+const demo = struct {
+    fn handle(k: *shift.Continuation(i32, tag, i32, DemoError)) shift.ResetError(DemoError)!i32 {
+        return try k.resumeWith(41);
+    }
+
+    fn body() shift.ResetError(DemoError)!i32 {
+        const value = try shift.shift(i32, tag, i32, DemoError, handle);
+        return value + 1;
+    }
+};
+
+pub fn main() anyerror!void {
+    var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
+    defer runtime.deinit();
+
+    const answer = try shift.reset(tag, i32, DemoError, &runtime, demo.body);
+    _ = answer;
+}
 ```
-
-After:
-
-```zig
-var extra = try continuation.alias();
-```
-
-`release()` remains available only for non-active owners and aliases. Active owners must still end in `resumeWith()` or `discard()`.
-
-## Public Surface
-
-- `shift.EffectSpec`: primary PL-facing alias for generating typed effect surfaces.
-- `shift.ControlSpec`: compatibility alias for the same low-level primitive.
-- `shift.raw.Session`: effect-scope lifetime owner, close modes, active continuation tracking, and explicit destruction.
 
 See `docs/semantics.md`, `docs/zero_cost.md`, and `docs/research.md` for the current contract.

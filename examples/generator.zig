@@ -1,78 +1,47 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const GeneratorSpec = shift.EffectSpec(struct {
-    /// Prompt marker for the generator example.
-    pub const TagType = enum { token };
-    /// Resume payload for the generator example.
-    pub const ResumeValue = void;
-    /// Final answer for the generator example.
-    pub const AnswerValue = usize;
-    /// Operation payload for the generator example.
-    pub const OperationValue = union(enum) {
-        yield_value: i32,
-    };
-});
+const tag = struct {};
+const NoError = error{};
 
-const Machine = struct {
-    next_value: i32 = 1,
-    remaining: usize = 3,
+const demo = struct {
+    var yielded = [_]i32{ 0, 0, 0 };
+    var yield_count: usize = 0;
+    var pending_value: i32 = 0;
 
-    /// Advance the generator computation by one step.
-    pub fn step(self: *@This(), input: GeneratorSpec.ResumeInput) GeneratorSpec.StepResult {
-        switch (input) {
-            .start => {},
-            .value => {},
-        }
+    fn yieldValue(value: i32) shift.ResetError(NoError)!void {
+        pending_value = value;
+        _ = try shift.shift(void, tag, void, NoError, handleYield);
+    }
 
-        if (self.remaining == 0) return .{ .done = @intCast(self.next_value - 1) };
+    fn handleYield(k: *shift.Continuation(void, tag, void, NoError)) shift.ResetError(NoError)!void {
+        yielded[yield_count] = pending_value;
+        yield_count += 1;
+        return try k.resumeWith({});
+    }
 
-        const current = self.next_value;
-        self.next_value += 1;
-        self.remaining -= 1;
-        return .{ .suspended = .{ .yield_value = current } };
+    fn body() shift.ResetError(NoError)!void {
+        yield_count = 0;
+        try yieldValue(1);
+        try yieldValue(2);
+        try yieldValue(3);
     }
 };
 
-fn cleanupSession(session: *shift.raw.Session) void {
-    session.close(.cancel) catch |err| switch (err) {
-        error.SessionClosed => {},
-        else => unreachable,
-    };
-    session.destroy() catch |err| switch (err) {
-        error.SessionOpen => {},
-        else => unreachable,
-    };
-}
-
-/// Run the generator example.
+/// Run the direct-style generator example.
 pub fn main() anyerror!void {
-    var gpa: std.heap.DebugAllocator(.{}) = .init;
-    defer _ = gpa.deinit();
+    var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
+    defer runtime.deinit();
 
-    const session = try shift.raw.Session.create(gpa.allocator());
-    var destroyed = false;
-    defer if (!destroyed) cleanupSession(session);
+    try shift.reset(tag, void, NoError, &runtime, demo.body);
 
-    var state = try GeneratorSpec.start(Machine, session, .{});
     var stdout_buffer: [256]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     const stdout = &stdout_writer.interface;
-
-    while (true) {
-        switch (state) {
-            .done => |answer| {
-                try session.close(.graceful);
-                try session.destroy();
-                destroyed = true;
-                try stdout.print("done={d}\n", .{answer});
-                try stdout.flush();
-                break;
-            },
-            .suspended => |*suspension| {
-                try stdout.print("yield={d}\n", .{suspension.operation.yield_value});
-                state = try suspension.continuation.resumeWith({});
-            },
-        }
+    var i: usize = 0;
+    while (i < demo.yield_count) : (i += 1) {
+        try stdout.print("yield={d}\n", .{demo.yielded[i]});
     }
+    try stdout.print("done={d}\n", .{demo.yield_count});
+    try stdout.flush();
 }

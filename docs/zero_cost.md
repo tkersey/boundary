@@ -1,18 +1,23 @@
-# Zero-Cost Contract
+# Cost Model
 
-`shift` uses comptime to generate typed effect surfaces while keeping the low-level continuation machinery explicit and measurable.
+This runtime is not zero-cost in the old managed-frame sense.
 
-Guaranteed by design:
+## Current costs
 
-- Prompt tokens are zero-sized marker types.
-- `EffectSpec` / `ControlSpec` perform shape validation and adapter generation at comptime.
-- No-capture starts do not allocate.
-- Operation dispatch is a tagged-union switch, not a hidden registry or string lookup.
+- Every `reset` enters a stackful fiber.
+- The first `reset` on a runtime allocates a stack mapping.
+- Later resets usually reuse a cached stack.
+- Every `shift` performs a context switch to the parent context.
+- Every `resumeWith` or `discontinue` performs another context switch back into the captured frame.
 
-Allowed runtime costs:
+## Current cheap path
 
-- One-time `Session.create` allocation up front.
-- Heap boxing only after the first real suspension.
-- One-shot terminal-state checks on resume or discard plus explicit `alias()` refcount traffic when callers duplicate continuation references, plus alias or retired-owner `release()` calls when those wrappers are drained.
-- Prompt or continuation replay through precomputed static descriptors.
-- Intrusive active continuation bookkeeping in `Session` and separate continuation control blocks that can outlive session destruction.
+- A no-capture `reset` still switches into a fiber, but it does not allocate after the stack cache is warm.
+- The benchmark in `bench/no_capture_bench.zig` measures this direct-style fast path.
+
+## Current expensive path
+
+- Capturing and resuming involves two explicit context switches plus handler execution.
+- Nested reset frames still pay stackful control costs even though outer-prompt capture now works across them.
+
+The README and benchmark outputs are the source of truth for current performance claims.

@@ -1,10 +1,16 @@
 # Research Notes
 
-This implementation is informed by the same families of systems that shaped the plan:
+This repo is now exploring the stackful side of one-shot `shift/reset` rather than the earlier managed-frame effect-machine model.
 
-- Racket prompts and composable continuations.
-- SRFI delimited continuation operators.
-- OCaml 5 one-shot continuation handling.
-- `libmprompt` and delimcc-style direct implementations.
+Current implementation choices:
 
-The current code deliberately narrows the scope to a managed-frame model so the implementation stays honest in Zig without pretending to capture arbitrary native call stacks.
+- Audited assembly context-switch stubs instead of a large inline-assembly surface.
+- Fiber-backed continuation capture.
+- One-shot continuation ownership with explicit `resumeWith` and `discontinue`.
+- Explicit `ErrorSet` threading through the public `reset`/`shift` surface.
+- Collision-free internal prompt identity via per-type tokens rather than hashed type names.
+- A hard runtime guard for known unsafe suspension regions.
+
+Current open research edge:
+
+- The benchmark suite still needs a preserved pre-rewrite baseline artifact if this project is going to make strong comparative performance claims.

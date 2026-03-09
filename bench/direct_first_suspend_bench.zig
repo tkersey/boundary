@@ -7,12 +7,17 @@ const NoError = error{};
 const bench_state = struct {
     var current: usize = 0;
 
+    fn handleValue(k: *shift.Continuation(usize, tag, usize, NoError)) shift.ResetError(NoError)!usize {
+        return try k.resumeWith(current);
+    }
+
     fn body() shift.ResetError(NoError)!usize {
-        return current;
+        const value = try shift.shift(usize, tag, usize, NoError, handleValue);
+        return value + 1;
     }
 };
 
-/// Run the no-capture benchmark for the direct-style reset fast path.
+/// Run the direct-style first-suspend benchmark.
 pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
     defer runtime.deinit();

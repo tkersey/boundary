@@ -1,16 +1,26 @@
 const std = @import("std");
 const zlinter = @import("zlinter");
 
+fn addRuntimeAssembly(b: *std.Build, module: *std.Build.Module, target: std.Build.ResolvedTarget) void {
+    switch (target.result.cpu.arch) {
+        .x86_64 => module.addAssemblyFile(b.path("src/runtime/x86_64_switch.S")),
+        .aarch64 => module.addAssemblyFile(b.path("src/runtime/aarch64_switch.S")),
+        else => {},
+    }
+}
+
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
 
     const shift_mod = b.addModule("shift", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
+    addRuntimeAssembly(b, shift_mod, target);
 
     const check_step = b.step("check", "Compile the shift module and examples.");
     b.default_step.dependOn(check_step);
@@ -23,6 +33,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    addRuntimeAssembly(b, lib_check.root_module, target);
     check_step.dependOn(&lib_check.step);
 
     const root_tests = b.addTest(.{
@@ -32,6 +43,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    addRuntimeAssembly(b, root_tests.root_module, target);
     const run_root_tests = b.addRunArtifact(root_tests);
     const test_step = b.step("test", "Run shift unit tests.");
     test_step.dependOn(&run_root_tests.step);
@@ -96,21 +108,50 @@ pub fn build(b: *std.Build) void {
         run_step.dependOn(&run.step);
     }
 
-    const bench_mod = b.createModule(.{
-        .root_source_file = b.path("bench/no_capture_bench.zig"),
+    const shift_bench_mod = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
         .target = target,
-        .optimize = optimize,
+        .optimize = bench_optimize,
     });
-    bench_mod.addImport("shift", shift_mod);
-    const bench_exe = b.addExecutable(.{
-        .name = "shift-no-capture-bench",
-        .root_module = bench_mod,
-    });
-    b.installArtifact(bench_exe);
-    const bench_run = b.addRunArtifact(bench_exe);
-    bench_run.step.dependOn(b.getInstallStep());
-    const bench_step = b.step("bench", "Run the no-capture benchmark.");
-    bench_step.dependOn(&bench_run.step);
+    addRuntimeAssembly(b, shift_bench_mod, target);
+
+    const bench_specs = [_]struct {
+        name: []const u8,
+        src: []const u8,
+        step_name: []const u8,
+        step_desc: []const u8,
+    }{
+        .{
+            .name = "shift-direct-no-capture-bench",
+            .src = "bench/no_capture_bench.zig",
+            .step_name = "bench",
+            .step_desc = "Run the direct-style no-capture benchmark.",
+        },
+        .{
+            .name = "shift-direct-first-suspend-bench",
+            .src = "bench/direct_first_suspend_bench.zig",
+            .step_name = "bench-first-suspend",
+            .step_desc = "Run the direct-style first-suspend benchmark.",
+        },
+    };
+
+    inline for (bench_specs) |bench_spec| {
+        const bench_mod = b.createModule(.{
+            .root_source_file = b.path(bench_spec.src),
+            .target = target,
+            .optimize = bench_optimize,
+        });
+        bench_mod.addImport("shift", shift_bench_mod);
+        const bench_exe = b.addExecutable(.{
+            .name = bench_spec.name,
+            .root_module = bench_mod,
+        });
+        b.installArtifact(bench_exe);
+        const bench_run = b.addRunArtifact(bench_exe);
+        bench_run.step.dependOn(b.getInstallStep());
+        const bench_step = b.step(bench_spec.step_name, bench_spec.step_desc);
+        bench_step.dependOn(&bench_run.step);
+    }
 
     const lint_step = b.step("lint", "Lint source code.");
     lint_step.dependOn(step: {
