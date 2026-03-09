@@ -48,6 +48,26 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run shift unit tests.");
     test_step.dependOn(&run_root_tests.step);
 
+    const job_workflow_mod = b.createModule(.{
+        .root_source_file = b.path("examples/job_workflow/workflow.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    job_workflow_mod.addImport("shift", shift_mod);
+
+    const job_workflow_test_mod = b.createModule(.{
+        .root_source_file = b.path("test/job_workflow_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    job_workflow_test_mod.addImport("shift", shift_mod);
+    job_workflow_test_mod.addImport("job_workflow", job_workflow_mod);
+    const job_workflow_tests = b.addTest(.{
+        .root_module = job_workflow_test_mod,
+    });
+    const run_job_workflow_tests = b.addRunArtifact(job_workflow_tests);
+    test_step.dependOn(&run_job_workflow_tests.step);
+
     const size_check_mod = b.createModule(.{
         .root_source_file = b.path("test/size_check.zig"),
         .target = target,
@@ -93,6 +113,12 @@ pub fn build(b: *std.Build) void {
             .src = "examples/effect_handlers.zig",
             .step_name = "run-effect-handlers",
             .step_desc = "Run the typed effect-handler example.",
+        },
+        .{
+            .name = "job_workflow",
+            .src = "examples/job_workflow/main.zig",
+            .step_name = "run-job-workflow",
+            .step_desc = "Run the advanced job-workflow example.",
         },
     };
 

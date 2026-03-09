@@ -39,6 +39,7 @@ zig build bench-first-suspend
 zig build run-generator
 zig build run-effect-state
 zig build run-effect-handlers
+zig build run-job-workflow
 ```
 
 Expected outputs:
@@ -46,6 +47,39 @@ Expected outputs:
 - `run-generator`: yields `1`, `2`, `3`, then reports `done=3`
 - `run-effect-state`: prints `cancelled=yes resumed=0`
 - `run-effect-handlers`: prints `aborted=yes trace=[enter, before-abort]`
+
+Advanced example:
+
+```bash
+zig build run-job-workflow
+```
+
+Walkthrough: `docs/job_workflow.md`
+
+Expected output:
+
+```text
+scenario=approved
+log=queued ingest
+log=critical metadata prepared
+log=nested audit started
+approval=ingest
+log=nested audit finished
+result=completed
+
+scenario=rejected
+log=queued publish
+log=critical metadata prepared
+approval=publish
+log=recovered publish skipped
+result=recovered
+
+scenario=cancelled
+log=queued cleanup
+log=critical metadata prepared
+approval=cleanup
+result=cancelled
+```
 
 ## Minimal Example
 
