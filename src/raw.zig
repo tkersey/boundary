@@ -4,16 +4,18 @@ const std = @import("std");
 /// Runtime errors surfaced by the fiber-backed control core.
 pub const Error = error{
     AlreadyResolved,
-    ContinuationNotConsumed,
     CrossThread,
     MissingPrompt,
+    OutOfMemory,
+    RuntimeAliased,
     RuntimeBusy,
     RuntimeDestroyed,
     ShiftForbidden,
+    SuspensionAliased,
 };
 
 /// Setup failures that can occur before user code enters `reset`.
-pub const SetupError = error{OutOfMemory} || std.posix.MMapError || std.posix.MProtectError;
+pub const SetupError = std.posix.MMapError || std.posix.MProtectError;
 
 /// Runtime-visible error union for user-provided errors.
 pub fn ControlError(comptime ErrorSet: type) type {
@@ -25,111 +27,39 @@ pub fn ResetError(comptime ErrorSet: type) type {
     return ControlError(ErrorSet) || SetupError;
 }
 
-/// Thread-affine runtime that owns stackful continuations.
-pub const Runtime = struct {
-    allocator: std.mem.Allocator,
-    options: Options,
-    thread_id: std.Thread.Id,
-    state: enum {
-        alive,
-        destroyed,
-    } = .alive,
-    root_context: Context = .{},
-    active_reset_count: usize = 0,
-    no_shift_depth: usize = 0,
-    cached_stacks: std.ArrayList(Stack) = .empty,
+fn TagOf(comptime Spec: type) type {
+    return Spec.tag;
+}
 
-    /// Fixed runtime defaults for the experimental stackful backend.
-    pub const Options = struct {
-        stack_bytes: usize = 256 * 1024,
-        guard_pages: usize = 1,
-        max_cached_stacks: usize = 16,
-    };
+fn RequestOf(comptime Spec: type) type {
+    return Spec.Request;
+}
 
-    /// Initialize a runtime on the current thread.
-    pub fn init(allocator: std.mem.Allocator, options: Options) Runtime {
-        return .{
-            .allocator = allocator,
-            .options = options,
-            .thread_id = std.Thread.getCurrentId(),
-        };
-    }
+fn ResumeOf(comptime Spec: type) type {
+    return Spec.Resume;
+}
 
-    /// Release cached stacks owned by the runtime.
-    pub fn deinit(self: *Runtime) void {
-        self.deinitChecked() catch |err| switch (err) {
-            error.CrossThread, error.RuntimeBusy => unreachable,
-            else => unreachable,
-        };
-    }
+fn AnswerOf(comptime Spec: type) type {
+    return Spec.Answer;
+}
 
-    /// Release cached stacks owned by the runtime, returning an error on misuse.
-    pub fn deinitChecked(self: *Runtime) Error!void {
-        try self.ensureThread();
-        if (self.state == .destroyed) return error.RuntimeDestroyed;
-        if (self.active_reset_count != 0 or self.no_shift_depth != 0) return error.RuntimeBusy;
-        var i: usize = 0;
-        while (i < self.cached_stacks.items.len) : (i += 1) {
-            self.cached_stacks.items[i].deinit();
-        }
-        self.cached_stacks.deinit(self.allocator);
-        self.cached_stacks = .empty;
-        self.state = .destroyed;
-    }
-
-    fn ensureThread(self: *Runtime) Error!void {
-        if (self.thread_id != std.Thread.getCurrentId()) return error.CrossThread;
-        if (self.state == .destroyed) return error.RuntimeDestroyed;
-    }
-
-    fn acquireStack(self: *Runtime) !Stack {
-        if (self.cached_stacks.pop()) |stack| return stack;
-        return Stack.init(self.options);
-    }
-
-    fn releaseStack(self: *Runtime, stack: Stack) void {
-        if (self.cached_stacks.items.len >= self.options.max_cached_stacks) {
-            stack.deinit();
-            return;
-        }
-        self.cached_stacks.append(self.allocator, stack) catch {
-            stack.deinit();
-        };
-    }
-};
-
-/// Region guard that forbids `shift` while unsafe work is active.
-pub const NoShiftGuard = struct {
-    runtime: ?*Runtime,
-
-    /// Mark the current thread as unable to suspend until `leave`.
-    pub fn enter(runtime: *Runtime) Error!NoShiftGuard {
-        try runtime.ensureThread();
-        runtime.no_shift_depth += 1;
-        return .{ .runtime = runtime };
-    }
-
-    /// Leave a previously-entered no-shift region.
-    pub fn leave(self: *NoShiftGuard) void {
-        self.leaveChecked() catch |err| switch (err) {
-            error.AlreadyResolved, error.CrossThread => unreachable,
-            else => unreachable,
-        };
-    }
-
-    /// Leave a previously-entered no-shift region, returning an error on misuse.
-    pub fn leaveChecked(self: *NoShiftGuard) Error!void {
-        if (self.runtime) |runtime| {
-            try runtime.ensureThread();
-            runtime.no_shift_depth -= 1;
-            self.runtime = null;
-            return;
-        }
-        return error.AlreadyResolved;
-    }
-};
+fn ErrorSetOf(comptime Spec: type) type {
+    return Spec.ErrorSet;
+}
 
 const page_size = std.heap.page_size_min;
+
+const CachedSuspension = struct {
+    next: ?*CachedSuspension = null,
+    key: usize,
+    deinitFn: *const fn (*CachedSuspension, std.mem.Allocator) void,
+};
+
+const CachedFrame = struct {
+    next: ?*CachedFrame = null,
+    key: usize,
+    deinitFn: *const fn (*CachedFrame, std.mem.Allocator) void,
+};
 
 const Stack = struct {
     mapping: []align(page_size) u8,
@@ -161,6 +91,175 @@ const Stack = struct {
 
     fn top(self: Stack) usize {
         return @intFromPtr(self.usable.ptr) + self.usable.len;
+    }
+};
+
+/// Thread-affine runtime that owns stackful continuations.
+pub const Runtime = struct {
+    allocator: std.mem.Allocator,
+    options: Options,
+    thread_id: std.Thread.Id,
+    owner_cookie: usize = 0,
+    state: enum {
+        alive,
+        destroyed,
+    } = .alive,
+    root_context: Context = .{},
+    active_reset_count: usize = 0,
+    active_suspension_count: usize = 0,
+    no_shift_depth: usize = 0,
+    cached_stacks: std.ArrayList(Stack) = .empty,
+    cached_frames: ?*CachedFrame = null,
+    cached_suspensions: ?*CachedSuspension = null,
+
+    /// Fixed runtime defaults for the experimental stackful backend.
+    pub const Options = struct {
+        stack_bytes: usize = 256 * 1024,
+        guard_pages: usize = 1,
+        max_cached_stacks: usize = 16,
+    };
+
+    /// Initialize a runtime on the current thread.
+    pub fn init(allocator: std.mem.Allocator, options: Options) Runtime {
+        return .{
+            .allocator = allocator,
+            .options = options,
+            .thread_id = std.Thread.getCurrentId(),
+        };
+    }
+
+    /// Release cached stacks owned by the runtime.
+    pub fn deinit(self: *Runtime) void {
+        self.deinitChecked() catch |err| switch (err) {
+            error.CrossThread, error.RuntimeBusy => unreachable,
+            else => unreachable,
+        };
+    }
+
+    /// Release cached stacks owned by the runtime, returning an error on misuse.
+    pub fn deinitChecked(self: *Runtime) Error!void {
+        try self.ensureThread();
+        if (self.state == .destroyed) return error.RuntimeDestroyed;
+        if (self.active_reset_count != 0 or self.active_suspension_count != 0 or self.no_shift_depth != 0) {
+            return error.RuntimeBusy;
+        }
+        while (self.cached_stacks.pop()) |stack| {
+            stack.deinit();
+        }
+        self.cached_stacks.deinit(self.allocator);
+        self.cached_stacks = .empty;
+
+        var cached_frame = self.cached_frames;
+        while (cached_frame) |node| {
+            const next = node.next;
+            node.deinitFn(node, self.allocator);
+            cached_frame = next;
+        }
+        self.cached_frames = null;
+
+        var cached_suspension = self.cached_suspensions;
+        while (cached_suspension) |node| {
+            const next = node.next;
+            node.deinitFn(node, self.allocator);
+            cached_suspension = next;
+        }
+        self.cached_suspensions = null;
+        self.state = .destroyed;
+    }
+
+    fn ensureThread(self: *Runtime) Error!void {
+        if (self.thread_id != std.Thread.getCurrentId()) return error.CrossThread;
+        if (self.owner_cookie == 0) {
+            self.owner_cookie = @intFromPtr(self);
+        } else if (self.owner_cookie != @intFromPtr(self)) {
+            return error.RuntimeAliased;
+        }
+        if (self.state == .destroyed) return error.RuntimeDestroyed;
+    }
+
+    fn acquireStack(self: *Runtime) !Stack {
+        if (self.cached_stacks.pop()) |stack| return stack;
+        return Stack.init(self.options);
+    }
+
+    fn releaseStack(self: *Runtime, stack: Stack) void {
+        if (self.cached_stacks.items.len >= self.options.max_cached_stacks) {
+            stack.deinit();
+            return;
+        }
+        self.cached_stacks.append(self.allocator, stack) catch {
+            stack.deinit();
+        };
+    }
+
+    fn popCachedSuspension(self: *Runtime, comptime Record: type, key: usize) ?*Record {
+        var cursor = &self.cached_suspensions;
+        while (cursor.*) |node| {
+            if (node.key == key) {
+                cursor.* = node.next;
+                return @fieldParentPtr("cached", node);
+            }
+            cursor = &node.next;
+        }
+        return null;
+    }
+
+    fn pushCachedSuspension(self: *Runtime, node: *CachedSuspension) void {
+        node.next = self.cached_suspensions;
+        self.cached_suspensions = node;
+    }
+
+    fn popCachedFrame(self: *Runtime, comptime Frame: type, key: usize) ?*Frame {
+        var cursor = &self.cached_frames;
+        while (cursor.*) |node| {
+            if (node.key == key) {
+                cursor.* = node.next;
+                return @fieldParentPtr("cached", node);
+            }
+            cursor = &node.next;
+        }
+        return null;
+    }
+
+    fn pushCachedFrame(self: *Runtime, node: *CachedFrame) void {
+        node.next = self.cached_frames;
+        self.cached_frames = node;
+    }
+};
+
+/// Region guard that forbids `shift` while unsafe work is active.
+pub const NoShiftGuard = struct {
+    runtime: ?*Runtime = null,
+    owner_cookie: usize = 0,
+
+    /// Mark the current thread as unable to suspend until `leave`.
+    pub fn enter(self: *NoShiftGuard, runtime: *Runtime) Error!void {
+        if (self.runtime != null) return error.AlreadyResolved;
+        try runtime.ensureThread();
+        runtime.no_shift_depth += 1;
+        self.runtime = runtime;
+        self.owner_cookie = @intFromPtr(self);
+    }
+
+    /// Leave a previously-entered no-shift region.
+    pub fn leave(self: *NoShiftGuard) void {
+        self.leaveChecked() catch |err| switch (err) {
+            error.AlreadyResolved, error.CrossThread => unreachable,
+            else => unreachable,
+        };
+    }
+
+    /// Leave a previously-entered no-shift region, returning an error on misuse.
+    pub fn leaveChecked(self: *NoShiftGuard) Error!void {
+        if (self.runtime) |runtime| {
+            try runtime.ensureThread();
+            if (self.owner_cookie != @intFromPtr(self)) return error.AlreadyResolved;
+            runtime.no_shift_depth -= 1;
+            self.runtime = null;
+            self.owner_cookie = 0;
+            return;
+        }
+        return error.AlreadyResolved;
     }
 };
 
@@ -220,8 +319,8 @@ const FiberState = enum {
 };
 
 const FiberOutcome = union(enum) {
-    captured: *CaptureBase,
     none,
+    suspension: *SuspensionBase,
 };
 
 const FiberBase = struct {
@@ -236,13 +335,13 @@ const FiberBase = struct {
     startFn: *const fn (*FiberBase) noreturn,
 };
 
-const CaptureBase = struct {
-    invokeFn: *const fn (*CaptureBase, *anyopaque) anyerror!void,
+const SuspensionBase = struct {
     target_fiber: *FiberBase,
 };
 
 fn ResetFrame(comptime Tag: type, comptime Answer: type, comptime ErrorSet: type) type {
     return struct {
+        cached: CachedFrame,
         base: FiberBase,
         body: *const fn () ResetError(ErrorSet)!Answer,
         result: union(enum) {
@@ -251,11 +350,16 @@ fn ResetFrame(comptime Tag: type, comptime Answer: type, comptime ErrorSet: type
             none,
         } = .none,
 
-        fn init(runtime: *Runtime, body: *const fn () ResetError(ErrorSet)!Answer) ResetError(ErrorSet)!@This() {
+        fn create(runtime: *Runtime, body: *const fn () ResetError(ErrorSet)!Answer) ResetError(ErrorSet)!*@This() {
+            const frame = runtime.popCachedFrame(@This(), frameCacheKey(Tag, Answer, ErrorSet)) orelse try runtime.allocator.create(@This());
             const parent_fiber = tls_current_fiber;
             const parent_context = if (parent_fiber) |fiber| &fiber.context else &runtime.root_context;
             const stack = try runtime.acquireStack();
-            return .{
+            frame.* = .{
+                .cached = .{
+                    .key = frameCacheKey(Tag, Answer, ErrorSet),
+                    .deinitFn = freeCached,
+                },
                 .base = .{
                     .runtime = runtime,
                     .parent_fiber = parent_fiber,
@@ -266,14 +370,22 @@ fn ResetFrame(comptime Tag: type, comptime Answer: type, comptime ErrorSet: type
                 },
                 .body = body,
             };
+            frame.setup();
+            return frame;
         }
 
         fn setup(self: *@This()) void {
             initializeContext(&self.base.context, self.base.stack.top());
         }
 
-        fn deinit(self: *@This()) void {
+        fn destroy(self: *@This()) void {
             self.base.runtime.releaseStack(self.base.stack);
+            self.base.runtime.pushCachedFrame(&self.cached);
+        }
+
+        fn freeCached(node: *CachedFrame, allocator: std.mem.Allocator) void {
+            const self: *@This() = @fieldParentPtr("cached", node);
+            allocator.destroy(self);
         }
 
         fn start(base: *FiberBase) noreturn {
@@ -285,6 +397,30 @@ fn ResetFrame(comptime Tag: type, comptime Answer: type, comptime ErrorSet: type
             finishCurrentFiberWithAnswer(Tag, Answer, ErrorSet, self, answer);
         }
     };
+}
+
+fn FrameCacheMarker(comptime Tag: type, comptime Answer: type, comptime ErrorSet: type) type {
+    return struct {
+        const _tag = Tag;
+        const _answer = Answer;
+        const _error_set = ErrorSet;
+        var marker: u8 = 0;
+    };
+}
+
+fn frameCacheKey(comptime Tag: type, comptime Answer: type, comptime ErrorSet: type) usize {
+    return @intFromPtr(&FrameCacheMarker(Tag, Answer, ErrorSet).marker);
+}
+
+fn SuspensionCacheMarker(comptime Spec: type) type {
+    return struct {
+        const _spec = Spec;
+        var marker: u8 = 0;
+    };
+}
+
+fn suspensionCacheKey(comptime Spec: type) usize {
+    return @intFromPtr(&SuspensionCacheMarker(Spec).marker);
 }
 
 fn initializeContext(context: *Context, stack_top: usize) void {
@@ -326,197 +462,246 @@ fn finishCurrentFiberWithError(comptime Tag: type, comptime Answer: type, compti
     unreachable;
 }
 
-fn defineResetFrameStart(comptime Tag: type, comptime Answer: type, comptime ErrorSet: type) void {
-    _ = Tag;
-    _ = Answer;
-    _ = ErrorSet;
+/// Result of driving a delimiter until completion or suspension.
+pub fn Step(comptime Spec: type) type {
+    return union(enum) {
+        complete: AnswerOf(Spec),
+        suspended: Suspension(Spec),
+    };
 }
 
-fn DriveFrame(comptime Tag: type, comptime Answer: type, comptime ErrorSet: type) type {
+/// Escaped one-shot suspension handle for `shift`.
+pub fn Suspension(comptime Spec: type) type {
+    const Record = SuspensionRecord(Spec);
     return struct {
-        fn run(frame: *ResetFrame(Tag, Answer, ErrorSet)) ResetError(ErrorSet)!Answer {
-            const runtime = frame.base.runtime;
-            try runtime.ensureThread();
-            const previous_runtime = tls_runtime;
-            const previous_fiber = tls_current_fiber;
+        request: RequestOf(Spec),
+        record: ?*Record,
+        generation: usize,
+
+        fn prepare(self: *@This()) Error!*Record {
+            const record = self.record orelse return error.AlreadyResolved;
+            try record.runtime.ensureThread();
+            if (record.generation != self.generation) return error.SuspensionAliased;
+            if (record.owner_cookie == 0) {
+                record.owner_cookie = @intFromPtr(self);
+            } else if (record.owner_cookie != @intFromPtr(self)) {
+                return error.SuspensionAliased;
+            }
+            if (record.state != .pending) return error.AlreadyResolved;
+            self.record = null;
+            return record;
+        }
+
+        /// Resume the escaped one-shot suspension with `value`.
+        pub fn resumeWith(self: *@This(), value: ResumeOf(Spec)) ResetError(ErrorSetOf(Spec))!Step(Spec) {
+            const record = try self.prepare();
+            record.state = .resumed;
+            record.resume_value = value;
+            record.runtime.active_suspension_count -= 1;
             defer {
-                tls_runtime = previous_runtime;
-                tls_current_fiber = previous_fiber;
+                record.owner_cookie = 0;
+                record.resume_value = null;
+                record.discontinue_error = null;
+                record.generation += 1;
+                record.runtime.pushCachedSuspension(&record.cached);
             }
+            return try driveFrame(Spec, record.target_frame);
+        }
 
-            while (true) {
-                tls_runtime = runtime;
-                tls_current_fiber = &frame.base;
-                shift_swap_context(frame.base.parent_context, &frame.base.context);
-                switch (frame.base.state) {
-                    .done => switch (frame.result) {
-                        .answer => |answer| return answer,
-                        else => unreachable,
-                    },
-                    .failed => switch (frame.result) {
-                        .err => |err| return err,
-                        else => unreachable,
-                    },
-                    .suspended => switch (frame.base.outcome) {
-                        .captured => |capture| {
-                            if (capture.target_fiber != &frame.base) {
-                                const active_parent = tls_current_fiber.?;
-                                active_parent.state = .suspended;
-                                active_parent.outcome = .{ .captured = capture };
-                                tls_current_fiber = active_parent.parent_fiber;
-                                shift_swap_context(&active_parent.context, active_parent.parent_context);
-                                continue;
-                            }
-                            var answer: ?Answer = null;
-                            capture.invokeFn(capture, @ptrCast(&answer)) catch |err| return @errorCast(err);
-                            return answer.?;
-                        },
-                        else => unreachable,
-                    },
-                    else => unreachable,
-                }
+        /// Inject `err` into the escaped suspension.
+        pub fn discontinue(self: *@This(), err: ErrorSetOf(Spec)) ResetError(ErrorSetOf(Spec))!Step(Spec) {
+            const record = try self.prepare();
+            record.state = .discontinued;
+            record.discontinue_error = err;
+            record.runtime.active_suspension_count -= 1;
+            defer {
+                record.owner_cookie = 0;
+                record.resume_value = null;
+                record.discontinue_error = null;
+                record.generation += 1;
+                record.runtime.pushCachedSuspension(&record.cached);
             }
+            return try driveFrame(Spec, record.target_frame);
         }
     };
 }
 
-/// One-shot continuation handle for a captured `shift`.
-pub fn Continuation(comptime Resume: type, comptime Tag: type, comptime Answer: type, comptime ErrorSet: type) type {
-    const Capture = ShiftCapture(Resume, Tag, Answer, ErrorSet);
+fn SuspensionRecord(comptime Spec: type) type {
     return struct {
-        capture: *Capture,
-
-        /// Resume the captured continuation once with `value`.
-        pub fn resumeWith(self: *@This(), value: Resume) ResetError(ErrorSet)!Answer {
-            if (self.capture.consumed) return error.AlreadyResolved;
-            self.capture.consumed = true;
-            self.capture.disposition = .resumed;
-            self.capture.resume_value = value;
-            return DriveFrame(Tag, Answer, ErrorSet).run(self.capture.target_frame);
-        }
-
-        /// Discontinue the captured continuation with `err`.
-        pub fn discontinue(self: *@This(), err: ErrorSet) ResetError(ErrorSet)!Answer {
-            if (self.capture.consumed) return error.AlreadyResolved;
-            self.capture.consumed = true;
-            self.capture.disposition = .discontinued;
-            self.capture.discontinue_error = err;
-            return DriveFrame(Tag, Answer, ErrorSet).run(self.capture.target_frame);
-        }
-    };
-}
-
-fn ShiftCapture(comptime Resume: type, comptime Tag: type, comptime Answer: type, comptime ErrorSet: type) type {
-    return struct {
-        base: CaptureBase,
-        target_frame: *ResetFrame(Tag, Answer, ErrorSet),
-        handler: *const fn (*Continuation(Resume, Tag, Answer, ErrorSet)) ResetError(ErrorSet)!Answer,
-        consumed: bool = false,
-        disposition: enum {
+        base: SuspensionBase,
+        cached: CachedSuspension,
+        runtime: *Runtime,
+        target_frame: *ResetFrame(TagOf(Spec), AnswerOf(Spec), ErrorSetOf(Spec)),
+        request: RequestOf(Spec),
+        generation: usize = 1,
+        owner_cookie: usize = 0,
+        state: enum {
             discontinued,
             pending,
             resumed,
         } = .pending,
-        resume_value: ?Resume = null,
-        discontinue_error: ?ErrorSet = null,
+        resume_value: ?ResumeOf(Spec) = null,
+        discontinue_error: ?ErrorSetOf(Spec) = null,
 
-            fn invoke(base: *CaptureBase, answer_out: *anyopaque) anyerror!void {
-            const self: *@This() = @fieldParentPtr("base", base);
-            var continuation = Continuation(Resume, Tag, Answer, ErrorSet){ .capture = self };
-            const answer = self.handler(&continuation) catch |err| return err;
-            if (!self.consumed) return error.ContinuationNotConsumed;
-            const out: *?Answer = @ptrCast(@alignCast(answer_out));
-            out.* = answer;
+        fn deinitCached(node: *CachedSuspension, allocator: std.mem.Allocator) void {
+            const self: *@This() = @fieldParentPtr("cached", node);
+            allocator.destroy(self);
         }
     };
 }
 
-/// Run `body` under a fresh delimiter tagged by `Tag`.
-pub fn reset(
-    comptime Tag: type,
-    comptime Answer: type,
-    comptime ErrorSet: type,
-    runtime: *Runtime,
-    body: *const fn () ResetError(ErrorSet)!Answer,
-) ResetError(ErrorSet)!Answer {
+fn driveFrame(comptime Spec: type, frame: *ResetFrame(TagOf(Spec), AnswerOf(Spec), ErrorSetOf(Spec))) ResetError(ErrorSetOf(Spec))!Step(Spec) {
+    const runtime = frame.base.runtime;
     try runtime.ensureThread();
     runtime.active_reset_count += 1;
     defer runtime.active_reset_count -= 1;
-    var frame = try ResetFrame(Tag, Answer, ErrorSet).init(runtime, body);
-    defer frame.deinit();
-    frame.setup();
-    defineResetFrameStart(Tag, Answer, ErrorSet);
-    return DriveFrame(Tag, Answer, ErrorSet).run(&frame);
+    const previous_runtime = tls_runtime;
+    const previous_fiber = tls_current_fiber;
+    defer {
+        tls_runtime = previous_runtime;
+        tls_current_fiber = previous_fiber;
+    }
+
+    while (true) {
+        tls_runtime = runtime;
+        tls_current_fiber = &frame.base;
+        shift_swap_context(frame.base.parent_context, &frame.base.context);
+        switch (frame.base.state) {
+            .done => {
+                const answer = switch (frame.result) {
+                    .answer => |value| value,
+                    else => unreachable,
+                };
+                frame.destroy();
+                return .{ .complete = answer };
+            },
+            .failed => {
+                const err = switch (frame.result) {
+                    .err => |value| value,
+                    else => unreachable,
+                };
+                frame.destroy();
+                return err;
+            },
+            .suspended => switch (frame.base.outcome) {
+                .suspension => |base| {
+                    if (base.target_fiber != &frame.base) {
+                        const active_parent = tls_current_fiber.?;
+                        active_parent.state = .suspended;
+                        active_parent.outcome = .{ .suspension = base };
+                        tls_current_fiber = active_parent.parent_fiber;
+                        shift_swap_context(&active_parent.context, active_parent.parent_context);
+                        continue;
+                    }
+                    const record: *SuspensionRecord(Spec) = @fieldParentPtr("base", base);
+                    return .{
+                        .suspended = .{
+                            .request = record.request,
+                            .record = record,
+                            .generation = record.generation,
+                        },
+                    };
+                },
+                else => unreachable,
+            },
+            else => unreachable,
+        }
+    }
+}
+
+/// Run `body` under a fresh delimiter tagged by `Tag`.
+pub fn reset(
+    comptime Spec: type,
+    runtime: *Runtime,
+    body: *const fn () ResetError(ErrorSetOf(Spec))!AnswerOf(Spec),
+) ResetError(ErrorSetOf(Spec))!Step(Spec) {
+    try runtime.ensureThread();
+    const frame = try ResetFrame(TagOf(Spec), AnswerOf(Spec), ErrorSetOf(Spec)).create(runtime, body);
+    return try driveFrame(Spec, frame);
 }
 
 /// Capture the nearest active delimiter tagged by `Tag`.
 pub fn shift(
-    comptime Resume: type,
-    comptime Tag: type,
-    comptime Answer: type,
-    comptime ErrorSet: type,
-    handler: *const fn (*Continuation(Resume, Tag, Answer, ErrorSet)) ResetError(ErrorSet)!Answer,
-) ControlError(ErrorSet)!Resume {
+    comptime Spec: type,
+    request: RequestOf(Spec),
+) ControlError(ErrorSetOf(Spec))!ResumeOf(Spec) {
     const runtime = tls_runtime orelse return error.MissingPrompt;
     try runtime.ensureThread();
     if (runtime.no_shift_depth != 0) return error.ShiftForbidden;
 
     const current_fiber = tls_current_fiber orelse return error.MissingPrompt;
-    const wanted_prompt = promptToken(Tag);
+    const wanted_prompt = promptToken(TagOf(Spec));
     var target_fiber = current_fiber;
     while (target_fiber.prompt_token != wanted_prompt) {
         target_fiber = target_fiber.parent_fiber orelse return error.MissingPrompt;
     }
 
-    const frame: *ResetFrame(Tag, Answer, ErrorSet) = @fieldParentPtr("base", target_fiber);
-    var capture = ShiftCapture(Resume, Tag, Answer, ErrorSet){
-        .base = .{
-            .invokeFn = ShiftCapture(Resume, Tag, Answer, ErrorSet).invoke,
-            .target_fiber = target_fiber,
-        },
-        .target_frame = frame,
-        .handler = handler,
+    const frame: *ResetFrame(TagOf(Spec), AnswerOf(Spec), ErrorSetOf(Spec)) = @fieldParentPtr("base", target_fiber);
+    const record, const generation = blk: {
+        if (runtime.popCachedSuspension(SuspensionRecord(Spec), suspensionCacheKey(Spec))) |cached| {
+            break :blk .{ cached, cached.generation };
+        }
+        const fresh = runtime.allocator.create(SuspensionRecord(Spec)) catch {
+            return error.OutOfMemory;
+        };
+        break :blk .{ fresh, 1 };
     };
+    record.* = .{
+        .base = .{ .target_fiber = target_fiber },
+        .cached = .{
+            .key = suspensionCacheKey(Spec),
+            .deinitFn = SuspensionRecord(Spec).deinitCached,
+        },
+        .runtime = runtime,
+        .target_frame = frame,
+        .request = request,
+        .generation = generation,
+    };
+    runtime.active_suspension_count += 1;
     current_fiber.state = .suspended;
-    current_fiber.outcome = .{ .captured = &capture.base };
+    current_fiber.outcome = .{ .suspension = &record.base };
     tls_current_fiber = current_fiber.parent_fiber;
     shift_swap_context(&current_fiber.context, current_fiber.parent_context);
-    switch (capture.disposition) {
-        .resumed => return capture.resume_value.?,
-        .discontinued => return capture.discontinue_error.?,
+    switch (record.state) {
+        .resumed => return record.resume_value.?,
+        .discontinued => return record.discontinue_error.?,
         .pending => unreachable,
     }
 }
 
-test "no-capture reset runs on a fresh runtime" {
+test "no-capture reset returns complete step" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
-    const tag = struct {};
-    const NoError = error{};
-    const answer = try reset(tag, usize, NoError, &runtime, struct {
-        fn body() ResetError(NoError)!usize {
+    const demo_spec = struct {
+        const tag = struct {};
+        const Request = void;
+        const Resume = void;
+        const Answer = usize;
+        const ErrorSet = error{};
+    };
+
+    const step = try reset(demo_spec, &runtime, struct {
+        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
             return 7;
         }
     }.body);
 
-    try std.testing.expectEqual(@as(usize, 7), answer);
+    switch (step) {
+        .complete => |answer| try std.testing.expectEqual(@as(usize, 7), answer),
+        .suspended => unreachable,
+    }
 }
 
 test "prompt token stays stable for the same tag type" {
     const tag = struct {};
-    try std.testing.expectEqual(
-        @intFromPtr(promptToken(tag)),
-        @intFromPtr(promptToken(tag)),
-    );
+    try std.testing.expectEqual(@intFromPtr(promptToken(tag)), @intFromPtr(promptToken(tag)));
 }
 
 test "prompt token differs for distinct tag types" {
     const tag_a = struct {};
     const tag_b = struct {};
-    try std.testing.expect(
-        @intFromPtr(promptToken(tag_a)) != @intFromPtr(promptToken(tag_b)),
-    );
+    try std.testing.expect(@intFromPtr(promptToken(tag_a)) != @intFromPtr(promptToken(tag_b)));
 }
 
 test "prompt token differs across local namespaces" {
@@ -526,105 +711,264 @@ test "prompt token differs across local namespaces" {
     const scope_b = struct {
         const tag = struct {};
     };
-    try std.testing.expect(
-        @intFromPtr(promptToken(scope_a.tag)) != @intFromPtr(promptToken(scope_b.tag)),
-    );
+    try std.testing.expect(@intFromPtr(promptToken(scope_a.tag)) != @intFromPtr(promptToken(scope_b.tag)));
 }
 
-test "shift resumes with a direct-style value" {
+test "shift returns a suspended step and resume completes it" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
-    const tag = struct {};
-    const NoError = error{};
+    const demo_spec = struct {
+        const tag = struct {};
+        const Request = i32;
+        const Resume = i32;
+        const Answer = i32;
+        const ErrorSet = error{};
+    };
+
     const demo = struct {
-        var resumed_value: i32 = 0;
-
-        fn handle(k: *Continuation(i32, tag, i32, NoError)) ResetError(NoError)!i32 {
-            resumed_value = 41;
-            return try k.resumeWith(resumed_value);
-        }
-
-        fn body() ResetError(NoError)!i32 {
-            const current = try shift(i32, tag, i32, NoError, handle);
+        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
+            const current = try shift(demo_spec, 41);
             return current + 1;
         }
     };
 
-    const answer = try reset(tag, i32, NoError, &runtime, demo.body);
-    try std.testing.expectEqual(@as(i32, 42), answer);
-    try std.testing.expectEqual(@as(i32, 41), demo.resumed_value);
+    var step = try reset(demo_spec, &runtime, demo.body);
+    switch (step) {
+        .complete => unreachable,
+        .suspended => |*suspension| {
+            try std.testing.expectEqual(@as(i32, 41), suspension.request);
+            step = try suspension.resumeWith(41);
+        },
+    }
+    switch (step) {
+        .complete => |answer| try std.testing.expectEqual(@as(i32, 42), answer),
+        .suspended => unreachable,
+    }
 }
 
-test "discontinue returns the injected error" {
+test "discontinue injects the supplied error" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
-    const tag = struct {};
-    const DemoError = error{Stop};
-    const demo = struct {
-        fn handle(k: *Continuation(void, tag, usize, DemoError)) ResetError(DemoError)!usize {
-            return k.discontinue(error.Stop);
-        }
+    const demo_spec = struct {
+        const tag = struct {};
+        const Request = void;
+        const Resume = void;
+        const Answer = usize;
+        const ErrorSet = error{Stop};
+    };
 
-        fn body() ResetError(DemoError)!usize {
-            _ = try shift(void, tag, usize, DemoError, handle);
+    const demo = struct {
+        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
+            _ = try shift(demo_spec, {});
             return 99;
         }
     };
 
-    try std.testing.expectError(error.Stop, reset(tag, usize, DemoError, &runtime, demo.body));
+    var step = try reset(demo_spec, &runtime, demo.body);
+    switch (step) {
+        .complete => unreachable,
+        .suspended => |*suspension| try std.testing.expectError(error.Stop, suspension.discontinue(error.Stop)),
+    }
 }
 
-test "continuation is strictly one-shot" {
+test "discontinue can be caught and produce another suspension" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
-    const tag = struct {};
-    const TestHelperError = error{ TestExpectedError, TestUnexpectedError };
-    const demo = struct {
-        fn handle(k: *Continuation(void, tag, void, TestHelperError)) ResetError(TestHelperError)!void {
-            try k.resumeWith({});
-            try std.testing.expectError(error.AlreadyResolved, k.resumeWith({}));
-        }
+    const demo_spec = struct {
+        const tag = struct {};
+        const Request = []const u8;
+        const Resume = void;
+        const Answer = usize;
+        const ErrorSet = error{Stop};
+    };
 
-        fn body() ResetError(TestHelperError)!void {
-            _ = try shift(void, tag, void, TestHelperError, handle);
+    const demo = struct {
+        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
+            _ = shift(demo_spec, "first") catch |err| switch (err) {
+                error.Stop => {},
+                else => return err,
+            };
+            _ = try shift(demo_spec, "after-stop");
+            return 7;
         }
     };
 
-    try reset(tag, void, TestHelperError, &runtime, demo.body);
+    var step = try reset(demo_spec, &runtime, demo.body);
+    switch (step) {
+        .complete => unreachable,
+        .suspended => |*suspension| {
+            try std.testing.expectEqualStrings("first", suspension.request);
+            step = try suspension.discontinue(error.Stop);
+        },
+    }
+    switch (step) {
+        .complete => unreachable,
+        .suspended => |*suspension| {
+            try std.testing.expectEqualStrings("after-stop", suspension.request);
+            step = try suspension.resumeWith({});
+        },
+    }
+    switch (step) {
+        .complete => |answer| try std.testing.expectEqual(@as(usize, 7), answer),
+        .suspended => unreachable,
+    }
+}
+
+test "suspension can escape the immediate reset call and resume later" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    const demo_spec = struct {
+        const tag = struct {};
+        const Request = []const u8;
+        const Resume = usize;
+        const Answer = usize;
+        const ErrorSet = error{};
+    };
+
+    const demo = struct {
+        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
+            const resumed = try shift(demo_spec, "later");
+            return resumed + 1;
+        }
+    };
+
+    var saved: ?Suspension(demo_spec) = null;
+    var step = try reset(demo_spec, &runtime, demo.body);
+    switch (step) {
+        .complete => unreachable,
+        .suspended => |suspension| {
+            try std.testing.expectEqualStrings("later", suspension.request);
+            saved = suspension;
+        },
+    }
+    step = try saved.?.resumeWith(41);
+    switch (step) {
+        .complete => |answer| try std.testing.expectEqual(@as(usize, 42), answer),
+        .suspended => unreachable,
+    }
+}
+
+test "copied suspension alias is rejected" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    const demo_spec = struct {
+        const tag = struct {};
+        const Request = usize;
+        const Resume = usize;
+        const Answer = usize;
+        const ErrorSet = error{};
+    };
+
+    const demo = struct {
+        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
+            const resumed = try shift(demo_spec, 41);
+            return resumed + 1;
+        }
+    };
+
+    var step = try reset(demo_spec, &runtime, demo.body);
+    switch (step) {
+        .complete => unreachable,
+        .suspended => |suspension| {
+            var owner = suspension;
+            var alias = suspension;
+            step = try owner.resumeWith(41);
+            try std.testing.expectError(error.SuspensionAliased, alias.resumeWith(41));
+        },
+    }
+    switch (step) {
+        .complete => |answer| try std.testing.expectEqual(@as(usize, 42), answer),
+        .suspended => unreachable,
+    }
+}
+
+test "resolved suspension records are recycled instead of retained linearly" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    const demo_spec = struct {
+        const tag = struct {};
+        const Request = usize;
+        const Resume = usize;
+        const Answer = usize;
+        const ErrorSet = error{};
+    };
+
+    const demo = struct {
+        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
+            const resumed = try shift(demo_spec, 41);
+            return resumed + 1;
+        }
+    };
+
+    var first_step = try reset(demo_spec, &runtime, demo.body);
+    const first_record = switch (first_step) {
+        .complete => unreachable,
+        .suspended => |*suspension| blk: {
+            const record = suspension.record.?;
+            first_step = try suspension.resumeWith(41);
+            break :blk record;
+        },
+    };
+    switch (first_step) {
+        .complete => |answer| try std.testing.expectEqual(@as(usize, 42), answer),
+        .suspended => unreachable,
+    }
+    try std.testing.expect(runtime.cached_suspensions != null);
+
+    var second_step = try reset(demo_spec, &runtime, demo.body);
+    switch (second_step) {
+        .complete => unreachable,
+        .suspended => |*suspension| {
+            try std.testing.expectEqual(first_record, suspension.record.?);
+            second_step = try suspension.resumeWith(41);
+        },
+    }
+    switch (second_step) {
+        .complete => |answer| try std.testing.expectEqual(@as(usize, 42), answer),
+        .suspended => unreachable,
+    }
 }
 
 test "no-shift guard rejects capture" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
-    const tag = struct {};
-    const NoError = error{};
+    const demo_spec = struct {
+        const tag = struct {};
+        const Request = void;
+        const Resume = void;
+        const Answer = usize;
+        const ErrorSet = error{};
+    };
+
     const demo = struct {
         var runtime_ptr: *Runtime = undefined;
 
-        fn handle(_: *Continuation(void, tag, void, NoError)) ResetError(NoError)!void {
-            unreachable;
-        }
-
-        fn body() ResetError(NoError)!void {
-            var guard = try NoShiftGuard.enter(runtime_ptr);
+        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
+            var guard: NoShiftGuard = .{};
+            try guard.enter(runtime_ptr);
             defer guard.leave();
-            _ = try shift(void, tag, void, NoError, handle);
+            _ = try shift(demo_spec, {});
+            return 1;
         }
     };
 
     demo.runtime_ptr = &runtime;
-    try std.testing.expectError(error.ShiftForbidden, reset(tag, void, NoError, &runtime, demo.body));
+    try std.testing.expectError(error.ShiftForbidden, reset(demo_spec, &runtime, demo.body));
 }
 
 test "no-shift guard checked leave rejects cross-thread use" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
-    var guard = try NoShiftGuard.enter(&runtime);
+    var guard: NoShiftGuard = .{};
+    try guard.enter(&runtime);
     var attempt = struct {
         guard: NoShiftGuard,
         result: ?Error = null,
@@ -645,24 +989,112 @@ test "no-shift guard checked leave rejects cross-thread use" {
     try guard.leaveChecked();
 }
 
+test "no-shift guard copied alias cannot release owner depth" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    var guard: NoShiftGuard = .{};
+    try guard.enter(&runtime);
+    var alias = guard;
+
+    try std.testing.expectError(error.AlreadyResolved, alias.leaveChecked());
+    try std.testing.expectEqual(@as(usize, 1), runtime.no_shift_depth);
+    try guard.leaveChecked();
+    try std.testing.expectEqual(@as(usize, 0), runtime.no_shift_depth);
+}
+
 test "runtime checked deinit rejects active reset" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
-    const tag = struct {};
-    const TestHelperError = error{ TestExpectedError, TestUnexpectedError };
+    const demo_spec = struct {
+        const tag = struct {};
+        const Request = void;
+        const Resume = void;
+        const Answer = usize;
+        const ErrorSet = error{ TestExpectedError, TestUnexpectedError };
+    };
+
     const demo = struct {
         var runtime_ptr: *Runtime = undefined;
 
-        fn body() ResetError(TestHelperError)!usize {
+        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
+            const inner = try reset(demo_spec, runtime_ptr, struct {
+                fn nested() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
+                    return 7;
+                }
+            }.nested);
             try std.testing.expectError(error.RuntimeBusy, runtime_ptr.deinitChecked());
-            return 7;
+            return switch (inner) {
+                .complete => |answer| answer,
+                .suspended => unreachable,
+            };
         }
     };
 
     demo.runtime_ptr = &runtime;
-    const answer = try reset(tag, usize, TestHelperError, &runtime, demo.body);
-    try std.testing.expectEqual(@as(usize, 7), answer);
+    const step = try reset(demo_spec, &runtime, demo.body);
+    switch (step) {
+        .complete => |answer| try std.testing.expectEqual(@as(usize, 7), answer),
+        .suspended => unreachable,
+    }
+}
+
+test "runtime checked deinit rejects unresolved suspension and allows teardown after resolution" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+
+    const demo_spec = struct {
+        const tag = struct {};
+        const Request = usize;
+        const Resume = usize;
+        const Answer = usize;
+        const ErrorSet = error{};
+    };
+
+    const demo = struct {
+        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
+            const resumed = try shift(demo_spec, 41);
+            return resumed + 1;
+        }
+    };
+
+    var step = try reset(demo_spec, &runtime, demo.body);
+    try std.testing.expectError(error.RuntimeBusy, runtime.deinitChecked());
+    switch (step) {
+        .complete => unreachable,
+        .suspended => |*suspension| step = try suspension.resumeWith(41),
+    }
+    switch (step) {
+        .complete => |answer| try std.testing.expectEqual(@as(usize, 42), answer),
+        .suspended => unreachable,
+    }
+    try runtime.deinitChecked();
+}
+
+test "runtime copied alias is rejected after first use" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+
+    const demo_spec = struct {
+        const tag = struct {};
+        const Request = void;
+        const Resume = void;
+        const Answer = usize;
+        const ErrorSet = error{};
+    };
+
+    const step = try reset(demo_spec, &runtime, struct {
+        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
+            return 7;
+        }
+    }.body);
+    switch (step) {
+        .complete => |answer| try std.testing.expectEqual(@as(usize, 7), answer),
+        .suspended => unreachable,
+    }
+
+    var alias = runtime;
+    try std.testing.expectError(error.RuntimeAliased, alias.deinitChecked());
+    try runtime.deinitChecked();
 }
 
 test "runtime checked deinit rejects double teardown and later reset use" {
@@ -671,43 +1103,72 @@ test "runtime checked deinit rejects double teardown and later reset use" {
     try runtime.deinitChecked();
     try std.testing.expectError(error.RuntimeDestroyed, runtime.deinitChecked());
 
-    const tag = struct {};
-    const NoError = error{};
-    try std.testing.expectError(error.RuntimeDestroyed, reset(tag, usize, NoError, &runtime, struct {
-        fn body() ResetError(NoError)!usize {
+    const demo_spec = struct {
+        const tag = struct {};
+        const Request = void;
+        const Resume = void;
+        const Answer = usize;
+        const ErrorSet = error{};
+    };
+
+    try std.testing.expectError(error.RuntimeDestroyed, reset(demo_spec, &runtime, struct {
+        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
             return 7;
         }
     }.body));
 }
 
-test "outer prompt capture bubbles through nested resets" {
+test "outer prompt suspension can bubble through an inner reset" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
-    const outer_tag = struct {};
-    const inner_tag = struct {};
-    const NoError = error{};
+    const outer_spec = struct {
+        const tag = struct {};
+        const Request = i32;
+        const Resume = i32;
+        const Answer = i32;
+        const ErrorSet = error{};
+    };
+
+    const inner_spec = struct {
+        const tag = struct {};
+        const Request = i32;
+        const Resume = i32;
+        const Answer = i32;
+        const ErrorSet = error{};
+    };
+
     const demo = struct {
         var runtime_ptr: *Runtime = undefined;
-        var resumed_value: i32 = 0;
 
-        fn outerHandle(k: *Continuation(i32, outer_tag, i32, NoError)) ResetError(NoError)!i32 {
-            resumed_value = 41;
-            return try k.resumeWith(resumed_value);
-        }
-
-        fn innerBody() ResetError(NoError)!i32 {
-            const current = try shift(i32, outer_tag, i32, NoError, outerHandle);
+        fn innerBody() ResetError(inner_spec.ErrorSet)!inner_spec.Answer {
+            const current = try shift(outer_spec, 41);
             return current + 1;
         }
 
-        fn outerBody() ResetError(NoError)!i32 {
-            return try reset(inner_tag, i32, NoError, runtime_ptr, innerBody);
+        fn outerBody() ResetError(outer_spec.ErrorSet)!outer_spec.Answer {
+            var inner_step = try reset(inner_spec, runtime_ptr, innerBody);
+            while (true) switch (inner_step) {
+                .complete => |answer| return answer,
+                .suspended => |*suspension| {
+                    const resumed = try shift(outer_spec, suspension.request);
+                    inner_step = try suspension.resumeWith(resumed);
+                },
+            };
         }
     };
 
     demo.runtime_ptr = &runtime;
-    const answer = try reset(outer_tag, i32, NoError, &runtime, demo.outerBody);
-    try std.testing.expectEqual(@as(i32, 42), answer);
-    try std.testing.expectEqual(@as(i32, 41), demo.resumed_value);
+    var step = try reset(outer_spec, &runtime, demo.outerBody);
+    switch (step) {
+        .complete => unreachable,
+        .suspended => |*suspension| {
+            try std.testing.expectEqual(@as(i32, 41), suspension.request);
+            step = try suspension.resumeWith(41);
+        },
+    }
+    switch (step) {
+        .complete => |answer| try std.testing.expectEqual(@as(i32, 42), answer),
+        .suspended => unreachable,
+    }
 }

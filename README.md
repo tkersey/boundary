@@ -1,23 +1,22 @@
 # shift
 
-`shift` is a Zig 0.15.2 implementation of one-shot, stackful `shift/reset`.
+`shift` is a Zig 0.15.2 implementation of one-shot, stackful `shift/reset` with an escaping, step-driven suspension API.
 
-The current runtime is direct-style:
+The current runtime is explicit rather than callback-driven:
 
-- `shift.reset(Tag, Answer, ErrorSet, &runtime, body)` installs a dynamic delimiter and runs `body` on a fiber-backed stack.
-- `shift.shift(Resume, Tag, Answer, ErrorSet, handler)` captures to the nearest active `reset` for `Tag` on the current reset frame.
-- `Continuation.resumeWith(value)` resumes the captured continuation exactly once.
-- `Continuation.discontinue(err)` discontinues the continuation and propagates `err`.
-
-- `NoShiftGuard` marks regions where suspension is forbidden; `leaveChecked()` returns an error instead of trapping on misuse.
-- `Runtime.deinitChecked()` returns an error instead of trapping if the runtime is still active or already destroyed.
+- `shift.reset(Spec, &runtime, body)` runs `body` under `Spec.tag` and returns either `.complete` or `.suspended`.
+- `shift.shift(Spec, request)` suspends to the nearest active delimiter for `Spec.tag` and yields `request` to the caller.
+- `shift.Suspension(Spec).resumeWith(value)` resumes the captured continuation exactly once.
+- `shift.Suspension(Spec).discontinue(err)` injects `err` into the suspended `shift(...)` site.
 
 The current implementation is intentionally narrower than the end-state plan:
 
-- Handlers must consume the continuation exactly once.
-- Public APIs now thread an explicit `ErrorSet` through `reset`, `shift`, and `Continuation`.
-- Prompt identity is now collision-free per `Tag` type and is implemented as an internal per-type token rather than a hash of the type name.
-- The supplied context-switch stubs cover `x86_64` and `aarch64` hosts.
+- Suspensions are one-shot only.
+- Unresolved suspensions keep `Runtime.deinitChecked()` busy until they are resumed or discontinued.
+- `NoShiftGuard` is an in-place owner handle for regions where suspension is forbidden.
+- `Runtime` seals to the first stable owner address that uses it; copied runtime aliases fail with `error.RuntimeAliased`.
+- `Suspension` owner handles reject copied aliases with `error.SuspensionAliased`.
+- The runtime is still experimental and does not recover from actual guard-page stack overflow faults.
 
 ## Build
 
@@ -26,12 +25,13 @@ zig build
 zig build test
 zig build lint -- --max-warnings 0
 zig build size-check
+zig build docs-sanity
 zig build bench
 zig build bench-first-suspend
 ```
 
-`zig build bench` runs the direct-style no-capture benchmark in `ReleaseFast`.
-`zig build bench-first-suspend` runs the direct-style first-suspend benchmark in `ReleaseFast`.
+`zig build bench` runs the current no-capture reset benchmark in `ReleaseFast`.
+`zig build bench-first-suspend` runs the current first-suspend benchmark in `ReleaseFast`.
 
 ## Examples
 
@@ -51,17 +51,24 @@ Expected outputs:
 
 ```zig
 const shift = @import("shift");
+const std = @import("std");
 
-const tag = struct {};
-const DemoError = error{};
+const demo_spec = struct {
+    /// Prompt tag.
+    pub const tag = struct {};
+    /// Outbound request type.
+    pub const Request = i32;
+    /// Resume value type.
+    pub const Resume = i32;
+    /// Final answer type.
+    pub const Answer = i32;
+    /// User error surface.
+    pub const ErrorSet = error{};
+};
 
 const demo = struct {
-    fn handle(k: *shift.Continuation(i32, tag, i32, DemoError)) shift.ResetError(DemoError)!i32 {
-        return try k.resumeWith(41);
-    }
-
-    fn body() shift.ResetError(DemoError)!i32 {
-        const value = try shift.shift(i32, tag, i32, DemoError, handle);
+    fn body() shift.ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
+        const value = try shift.shift(demo_spec, 41);
         return value + 1;
     }
 };
@@ -70,8 +77,16 @@ pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
     defer runtime.deinit();
 
-    const answer = try shift.reset(tag, i32, DemoError, &runtime, demo.body);
-    _ = answer;
+    var step = try shift.reset(demo_spec, &runtime, demo.body);
+    while (true) switch (step) {
+        .complete => |answer| {
+            _ = answer;
+            break;
+        },
+        .suspended => |*suspension| {
+            step = try suspension.resumeWith(suspension.request);
+        },
+    };
 }
 ```
 

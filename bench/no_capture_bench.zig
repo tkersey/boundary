@@ -1,13 +1,23 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const tag = struct {};
-const NoError = error{};
+const bench_spec = struct {
+    /// Prompt tag.
+    pub const tag = struct {};
+    /// Outbound request type.
+    pub const Request = void;
+    /// Resume value type.
+    pub const Resume = void;
+    /// Final answer type.
+    pub const Answer = usize;
+    /// User error surface.
+    pub const ErrorSet = error{};
+};
 
 const bench_state = struct {
     var current: usize = 0;
 
-    fn body() shift.ResetError(NoError)!usize {
+    fn body() shift.ResetError(bench_spec.ErrorSet)!bench_spec.Answer {
         return current;
     }
 };
@@ -24,7 +34,11 @@ pub fn main() anyerror!void {
     var i: usize = 0;
     while (i < iterations) : (i += 1) {
         bench_state.current = i;
-        sum += try shift.reset(tag, usize, NoError, &runtime, bench_state.body);
+        const step = try shift.reset(bench_spec, &runtime, bench_state.body);
+        sum += switch (step) {
+            .complete => |answer| answer,
+            .suspended => unreachable,
+        };
     }
 
     const elapsed = timer.read();

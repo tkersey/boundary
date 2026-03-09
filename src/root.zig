@@ -19,31 +19,31 @@ pub fn ResetError(comptime ErrorSet: type) type {
     return raw.ResetError(ErrorSet);
 }
 
+/// Result of driving a delimiter until completion or suspension.
+pub fn Step(comptime Spec: type) type {
+    return raw.Step(Spec);
+}
+
+/// Escaped one-shot suspension handle for `shift`.
+pub fn Suspension(comptime Spec: type) type {
+    return raw.Suspension(Spec);
+}
+
 /// Run `body` under the nearest dynamic delimiter identified by `Tag`.
 pub fn reset(
-    comptime Tag: type,
-    comptime Answer: type,
-    comptime ErrorSet: type,
+    comptime Spec: type,
     runtime: *Runtime,
-    body: *const fn () ResetError(ErrorSet)!Answer,
-) ResetError(ErrorSet)!Answer {
-    return raw.reset(Tag, Answer, ErrorSet, runtime, body);
+    body: *const fn () ResetError(Spec.ErrorSet)!Spec.Answer,
+) ResetError(Spec.ErrorSet)!Step(Spec) {
+    return raw.reset(Spec, runtime, body);
 }
 
-/// Capture the computation up to the nearest active `reset(Tag, ...)`.
+/// Suspend with `request` up to the nearest active `reset(Tag, ...)`.
 pub fn shift(
-    comptime Resume: type,
-    comptime Tag: type,
-    comptime Answer: type,
-    comptime ErrorSet: type,
-    handler: *const fn (*raw.Continuation(Resume, Tag, Answer, ErrorSet)) ResetError(ErrorSet)!Answer,
-) ControlError(ErrorSet)!Resume {
-    return raw.shift(Resume, Tag, Answer, ErrorSet, handler);
-}
-
-/// One-shot continuation handle for `shift`.
-pub fn Continuation(comptime Resume: type, comptime Tag: type, comptime Answer: type, comptime ErrorSet: type) type {
-    return raw.Continuation(Resume, Tag, Answer, ErrorSet);
+    comptime Spec: type,
+    request: Spec.Request,
+) ControlError(Spec.ErrorSet)!Spec.Resume {
+    return raw.shift(Spec, request);
 }
 
 test {

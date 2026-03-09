@@ -1,38 +1,46 @@
 # Semantics
 
-`shift` currently implements a one-shot, fiber-backed `shift/reset` subset.
+`shift` currently implements a one-shot, fiber-backed `shift/reset` subset with explicit suspended steps.
 
 ## What is true today
 
-- `reset(Tag, Answer, ErrorSet, ...)` runs `body` on a separate stack and installs a dynamic delimiter identified by `Tag`.
-- `shift(Resume, Tag, Answer, ErrorSet, handler)` captures to the nearest active delimiter for `Tag` on the current reset frame.
-- Calling `Continuation.resumeWith(value)` reinstalls that delimiter and makes the suspended `shift` expression evaluate to `value`.
-- Calling `Continuation.discontinue(err)` resumes the suspended frame in error mode and propagates `err`.
-- Handlers must consume the continuation exactly once. Returning from a handler without consuming it raises `error.ContinuationNotConsumed`.
+- `reset(Spec, ...)` runs `body` on a separate stack and installs a dynamic delimiter identified by `Spec.tag`.
+- `reset(Spec, ...)` returns `shift.Step(Spec)`:
+  - `.complete`: the body finished with `Spec.Answer`
+  - `.suspended`: the body hit `shift.shift(Spec, request)` and yielded a `shift.Suspension(Spec)`
+- Calling `shift.shift(Spec, request)` captures to the nearest active delimiter for `Spec.tag`, hands `request` to the caller, and later evaluates to the value supplied by `resumeWith`.
+- Calling `Suspension.resumeWith(value)` reinstalls the delimiter and makes the suspended `shift(...)` expression evaluate to `value`.
+- Calling `Suspension.discontinue(err)` resumes the suspended frame in error mode and propagates `err` through the suspended `shift(...)` site.
+- Suspensions are one-shot. Reusing the same owner handle returns `error.AlreadyResolved`.
+- Copied suspension aliases fail with `error.SuspensionAliased`.
 - `NoShiftGuard` rejects suspension with `error.ShiftForbidden`.
 - `NoShiftGuard.leaveChecked()` returns `error.CrossThread` or `error.AlreadyResolved` on misuse.
-- `Runtime.deinitChecked()` returns `error.RuntimeBusy` if called while a reset is active or a guard is still held, and `error.RuntimeDestroyed` on a second teardown or later reuse.
+- `Runtime.deinitChecked()` returns `error.RuntimeBusy` if reset execution, outstanding suspensions, or guard ownership are still active, and `error.RuntimeDestroyed` on a second teardown or later reuse.
 - The public surface exposes `shift.ControlError(ErrorSet)` and `shift.ResetError(ErrorSet)` so user errors stay explicit instead of collapsing to `anyerror`.
-- Prompt matching is collision-free per `Tag` type and no longer depends on hashing `@typeName(Tag)`.
+- Prompt matching is collision-free per `Spec.tag` type and no longer depends on hashing `@typeName`.
 
 ## What is intentionally not true yet
 
 - The runtime is still experimental and does not recover from actual guard-page stack overflow faults.
+- Continuations are not multi-shot.
+- There is no compatibility bridge for the older callback-based public API.
 
-## Operational model
+## Operational Model
 
 1. `Runtime.init` creates a thread-affine runtime and stack cache.
-2. `reset` allocates or reuses a stack, switches to that fiber, and runs `body`.
-3. `shift` packages the suspended frame plus handler into a one-shot continuation record and switches back to the parent context.
-4. The parent context invokes the handler.
-5. `resumeWith` or `discontinue` drives the suspended frame to completion and returns the enclosing `Answer` or error.
+2. `reset(Spec, ...)` acquires a heap-backed reset frame from the runtime-local frame cache (or allocates one on a cold path), switches to that fiber, and runs `body`.
+3. `shift(Spec, request)` allocates a one-shot suspension record, suspends the current fiber, and returns control to the caller as `Step.suspended`.
+4. The caller stores, resumes, or discontinues the returned `Suspension`.
+5. `resumeWith` or `discontinue` drives the suspended frame until it completes or suspends again.
 
 ## Errors
 
-- `error.AlreadyResolved`: the continuation was consumed already.
-- `error.ContinuationNotConsumed`: the handler returned without resuming or discontinuing.
-- `error.CrossThread`: the runtime or continuation was used from a different thread.
-- `error.MissingPrompt`: `shift` ran without a matching active `reset`.
-- `error.RuntimeBusy`: a checked runtime teardown happened while reset execution or guard ownership was still active.
+- `error.AlreadyResolved`: the same suspension owner was used already.
+- `error.CrossThread`: the runtime or suspension was used from a different thread.
+- `error.MissingPrompt`: `shift(...)` ran without a matching active `reset`.
+- `error.OutOfMemory`: the runtime could not allocate a suspension record.
+- `error.RuntimeAliased`: a copied runtime alias attempted to use or tear down state owned by another stable runtime instance.
+- `error.RuntimeBusy`: a checked runtime teardown happened while reset execution, suspension ownership, or guard ownership was still active.
 - `error.RuntimeDestroyed`: the runtime was torn down already and can no longer be entered.
-- `error.ShiftForbidden`: `shift` ran while a `NoShiftGuard` was active.
+- `error.ShiftForbidden`: `shift(...)` ran while a `NoShiftGuard` was active.
+- `error.SuspensionAliased`: a copied suspension alias attempted to resolve a one-shot suspension owned by a different handle.

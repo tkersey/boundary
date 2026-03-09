@@ -2,9 +2,19 @@ const shift = @import("shift");
 const std = @import("std");
 
 test "continuation shell stays compact" {
-    const tag = struct {};
-    const NoError = error{};
-    try std.testing.expect(@sizeOf(shift.Continuation(void, tag, void, NoError)) <= 2 * @sizeOf(usize));
+    const demo_spec = struct {
+        /// Prompt tag.
+        pub const tag = struct {};
+        /// Outbound request type.
+        pub const Request = void;
+        /// Resume value type.
+        pub const Resume = void;
+        /// Final answer type.
+        pub const Answer = void;
+        /// User error surface.
+        pub const ErrorSet = error{};
+    };
+    try std.testing.expect(@sizeOf(shift.Suspension(demo_spec)) <= 2 * @sizeOf(usize));
 }
 
 test "runtime defaults stay explicit" {
