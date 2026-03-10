@@ -82,6 +82,7 @@ zig build run-generator
 zig build run-effect-state
 zig build run-effect-handlers
 zig build run-job-workflow
+zig build run-control-studio -- list
 ```
 
 Expected outputs:
@@ -97,6 +98,14 @@ zig build run-job-workflow
 ```
 
 Walkthrough: `docs/job_workflow.md`
+
+Advanced control-lab entrypoint:
+
+```bash
+zig build run-control-studio -- run escape_redelimit
+```
+
+Walkthrough: `docs/control_lab.md`
 
 Expected output:
 

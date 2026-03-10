@@ -22,6 +22,19 @@ pub fn build(b: *std.Build) void {
     });
     addRuntimeAssembly(b, shift_mod, target);
 
+    const control_lab_registry_mod = b.addModule("control_lab_registry", .{
+        .root_source_file = b.path("src/control_lab/registry.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const control_lab_scenarios_mod = b.addModule("control_lab_scenarios", .{
+        .root_source_file = b.path("src/control_lab/scenarios.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    control_lab_scenarios_mod.addImport("shift", shift_mod);
+    control_lab_scenarios_mod.addImport("control_lab_registry", control_lab_registry_mod);
+
     const check_step = b.step("check", "Compile the shift module and examples.");
     b.default_step.dependOn(check_step);
 
@@ -149,6 +162,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         });
         mod.addImport("shift", shift_mod);
+        mod.addImport("control_lab_scenarios", control_lab_scenarios_mod);
 
         const exe = b.addExecutable(.{
             .name = example.name,
@@ -162,6 +176,43 @@ pub fn build(b: *std.Build) void {
         const run_step = b.step(example.step_name, example.step_desc);
         run_step.dependOn(&run.step);
     }
+
+    const control_studio_mod = b.createModule(.{
+        .root_source_file = b.path("examples/control_studio/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    control_studio_mod.addImport("shift", shift_mod);
+    control_studio_mod.addImport("control_lab_registry", control_lab_registry_mod);
+    control_studio_mod.addImport("control_lab_scenarios", control_lab_scenarios_mod);
+    const control_studio_exe = b.addExecutable(.{
+        .name = "control_studio",
+        .root_module = control_studio_mod,
+    });
+    b.installArtifact(control_studio_exe);
+    check_step.dependOn(&control_studio_exe.step);
+
+    const control_studio_run = b.addRunArtifact(control_studio_exe);
+    control_studio_run.step.dependOn(b.getInstallStep());
+    if (b.args) |args| control_studio_run.addArgs(args);
+    const control_studio_run_step = b.step("run-control-studio", "Run the control studio.");
+    control_studio_run_step.dependOn(&control_studio_run.step);
+
+    const control_studio_test_mod = b.createModule(.{
+        .root_source_file = b.path("test/control_studio_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    control_studio_test_mod.addImport("shift", shift_mod);
+    control_studio_test_mod.addImport("control_lab_registry", control_lab_registry_mod);
+    control_studio_test_mod.addImport("control_lab_scenarios", control_lab_scenarios_mod);
+    const control_studio_tests = b.addTest(.{
+        .root_module = control_studio_test_mod,
+    });
+    const run_control_studio_tests = b.addRunArtifact(control_studio_tests);
+    const control_studio_check_step = b.step("control-studio-check", "Verify control studio transcripts and registry coverage.");
+    control_studio_check_step.dependOn(&run_control_studio_tests.step);
+    test_step.dependOn(&run_control_studio_tests.step);
 
     const shift_bench_mod = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
