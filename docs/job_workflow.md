@@ -2,6 +2,8 @@
 
 `examples/job_workflow/` is the repo's larger "why would I use this?" example.
 
+Its request loop now goes through `examples/support/driver.zig`. That helper is shared example infrastructure only; it is not part of the public `shift` API.
+
 Run it with:
 
 ```bash

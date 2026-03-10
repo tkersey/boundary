@@ -1,3 +1,4 @@
+const example_driver = @import("example_driver");
 const shift = @import("shift");
 const std = @import("std");
 
@@ -41,6 +42,19 @@ const demo = struct {
     }
 };
 
+const driver = struct {
+    fn handle(_: *@This(), request: handler_spec.Request) anyerror!example_driver.Decision(handler_spec) {
+        return switch (request) {
+            .emit => |message| blk: {
+                demo.trace[demo.trace_count] = message;
+                demo.trace_count += 1;
+                break :blk .{ .resume_value = {} };
+            },
+            .abort => .{ .discontinue = error.Abort },
+        };
+    }
+};
+
 /// Run the discontinue example.
 pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
@@ -49,34 +63,25 @@ pub fn main() anyerror!void {
     var stdout_buffer: [256]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     const stdout = &stdout_writer.interface;
-    var outcome = try shift.reset(handler_spec, &runtime, demo.body);
-    while (true) switch (outcome) {
+    var loop_driver: driver = .{};
+    const outcome = example_driver.run(handler_spec, &runtime, demo.body, &loop_driver, driver.handle) catch |err| switch (err) {
+        error.Abort => {
+            try stdout.print("aborted=yes trace=[", .{});
+            for (demo.trace[0..demo.trace_count], 0..) |entry, index| {
+                if (index != 0) try stdout.print(", ", .{});
+                try stdout.print("{s}", .{entry});
+            }
+            try stdout.print("]\n", .{});
+            try stdout.flush();
+            return;
+        },
+        else => return err,
+    };
+    switch (outcome) {
         .complete => |value| {
             try stdout.print("result={s}\n", .{value});
-            break;
         },
         .cancelled => unreachable,
-        .token => |*token| switch (token.request) {
-            .emit => |message| {
-                demo.trace[demo.trace_count] = message;
-                demo.trace_count += 1;
-                outcome = try token.resumeWith({});
-            },
-            .abort => {
-                outcome = token.discontinue(error.Abort) catch |err| switch (err) {
-                    error.Abort => {
-                        try stdout.print("aborted=yes trace=[", .{});
-                        for (demo.trace[0..demo.trace_count], 0..) |entry, index| {
-                            if (index != 0) try stdout.print(", ", .{});
-                            try stdout.print("{s}", .{entry});
-                        }
-                        try stdout.print("]\n", .{});
-                        break;
-                    },
-                    else => return err,
-                };
-            },
-        },
-    };
+    }
     try stdout.flush();
 }

@@ -48,11 +48,32 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run shift unit tests.");
     test_step.dependOn(&run_root_tests.step);
 
+    const example_driver_mod = b.createModule(.{
+        .root_source_file = b.path("examples/support/driver.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    example_driver_mod.addImport("shift", shift_mod);
+
+    const example_driver_test_mod = b.createModule(.{
+        .root_source_file = b.path("test/example_driver_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    example_driver_test_mod.addImport("shift", shift_mod);
+    example_driver_test_mod.addImport("example_driver", example_driver_mod);
+    const example_driver_tests = b.addTest(.{
+        .root_module = example_driver_test_mod,
+    });
+    const run_example_driver_tests = b.addRunArtifact(example_driver_tests);
+    test_step.dependOn(&run_example_driver_tests.step);
+
     const job_workflow_mod = b.createModule(.{
         .root_source_file = b.path("examples/job_workflow/workflow.zig"),
         .target = target,
         .optimize = optimize,
     });
+    job_workflow_mod.addImport("example_driver", example_driver_mod);
     job_workflow_mod.addImport("shift", shift_mod);
 
     const job_workflow_test_mod = b.createModule(.{
@@ -128,6 +149,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
         });
+        mod.addImport("example_driver", example_driver_mod);
         mod.addImport("shift", shift_mod);
 
         const exe = b.addExecutable(.{

@@ -1,3 +1,4 @@
+const example_driver = @import("example_driver");
 const shift = @import("shift");
 const std = @import("std");
 
@@ -125,29 +126,30 @@ fn ScenarioDriver(comptime Writer: type) type {
             current = self;
             defer current = null;
 
-            var outcome = try shift.reset(workflow_spec, self.runtime, body);
-            const result = while (true) switch (outcome) {
-                .complete => |value| break value,
-                .cancelled => break .cancelled,
-                .token => |*token| switch (token.request) {
-                    .log => |message| {
-                        errdefer token.deinit();
-                        try self.writer.print("log={s}\n", .{message});
-                        outcome = try token.resumeWith(.{ .ack = {} });
-                    },
-                    .approval => |job| {
-                        errdefer token.deinit();
-                        try self.writer.print("approval={s}\n", .{job});
-                        outcome = switch (self.scenario) {
-                            .approved => try token.resumeWith(.{ .approved = true }),
-                            .rejected => try token.discontinue(error.ApprovalDenied),
-                            .cancelled => try token.cancel(),
-                        };
-                    },
-                },
+            const outcome = try example_driver.run(workflow_spec, self.runtime, body, self, handle);
+            const result = switch (outcome) {
+                .complete => |value| value,
+                .cancelled => .cancelled,
             };
             try self.writer.print("result={s}\n", .{@tagName(result)});
             return result;
+        }
+
+        fn handle(self: *@This(), request: WorkflowRequest) anyerror!example_driver.Decision(workflow_spec) {
+            return switch (request) {
+                .log => |message| blk: {
+                    try self.writer.print("log={s}\n", .{message});
+                    break :blk .{ .resume_value = .{ .ack = {} } };
+                },
+                .approval => |job| blk: {
+                    try self.writer.print("approval={s}\n", .{job});
+                    break :blk switch (self.scenario) {
+                        .approved => .{ .resume_value = .{ .approved = true } },
+                        .rejected => .{ .discontinue = error.ApprovalDenied },
+                        .cancelled => .{ .cancel = {} },
+                    };
+                },
+            };
         }
 
         fn body() shift.ResetError(workflow_spec.ErrorSet)!workflow_spec.Answer {
