@@ -52,3 +52,5 @@ run_fixture() {
 run_fixture "$repo_root/test/compile_fail/pending_deinit_forbidden.zig" "deinit"
 run_fixture "$repo_root/test/compile_fail/pending_discontinue_empty_error_set.zig" "discontinue"
 run_fixture "$repo_root/test/compile_fail/escaped_discontinue_empty_error_set.zig" "discontinue"
+run_fixture "$repo_root/test/compile_fail/escaped_token_removed.zig" "EscapedToken"
+run_fixture "$repo_root/test/compile_fail/token_aliased_removed.zig" "TokenAliased"

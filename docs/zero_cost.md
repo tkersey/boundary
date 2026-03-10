@@ -8,7 +8,7 @@ This runtime is not zero-cost in the old managed-frame sense.
 - Every `reset` uses heap-backed reset-frame storage.
 - The first `reset` on a runtime allocates a stack mapping.
 - Later resets usually reuse a cached stack.
-- Every `shift(...)` allocates one token record and returns `Outcome.pending`.
+- Every `shift(...)` allocates one owner record and returns `Outcome.pending`.
 - Every `resumeWith`, `discontinue`, or `cancel` performs another context switch back into the captured frame.
 
 ## Current cheap path
@@ -18,7 +18,7 @@ This runtime is not zero-cost in the old managed-frame sense.
 
 ## Current expensive path
 
-- First tokenization involves a cached-or-fresh reset frame, one heap allocation for the token record, two context switches, and caller-side lifecycle logic.
+- First pending-owner creation involves a cached-or-fresh reset frame, one heap allocation for the owner record, two context switches, and caller-side lifecycle logic.
 - Nested reset frames still pay stackful control costs even though outer-prompt bubbling still works.
 - The benchmark in `bench/direct_first_suspend_bench.zig` uses the same warmed five-sample median contract for the steady-state first-suspend path.
 

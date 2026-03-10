@@ -55,7 +55,7 @@ Use this machine vocabulary:
 | Semantic role | Current runtime structure | Why it matters |
 |---|---|---|
 | Delimiter frame | `ResetFrame(...)` | Delimits capture and stores result/cancellation state |
-| Pending owner | `Pending(Spec)` + `EscapedToken(Spec)` + `SuspensionRecord(Spec)` | Represents one-shot unresolved ownership and explicit delayed escape |
+| Pending owner | `Pending(Spec)` + `EscapedOwner(Spec)` + `SuspensionRecord(Spec)` | Represents one-shot unresolved ownership and explicit delayed escape |
 | Prompt identity | `promptToken(Tag)` + `FiberBase.prompt_token` | Explains nested reset bubbling and collision-free matching |
 | Current machine state | `FiberBase.state` and `FiberBase.outcome` | Makes suspension/termination explicit |
 | Terminal cancel law | `cancellation_required` + `CancellationRecovered` checks | Distinguishes runtime cancellation from user discontinuation |

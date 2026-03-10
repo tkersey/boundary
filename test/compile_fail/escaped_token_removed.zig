@@ -14,6 +14,6 @@ const spec = struct {
 };
 
 comptime {
-    const Escaped = shift.EscapedOwner(spec);
-    _ = Escaped.discontinue;
+    const Escaped = shift.EscapedToken(spec);
+    _ = Escaped;
 }

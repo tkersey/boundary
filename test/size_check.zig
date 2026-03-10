@@ -15,7 +15,7 @@ test "pending and escaped-owner shells stay compact" {
         pub const ErrorSet = error{};
     };
     try std.testing.expect(@sizeOf(shift.Pending(demo_spec)) <= 2 * @sizeOf(usize));
-    try std.testing.expect(@sizeOf(shift.EscapedToken(demo_spec)) <= 3 * @sizeOf(usize));
+    try std.testing.expect(@sizeOf(shift.EscapedOwner(demo_spec)) <= 3 * @sizeOf(usize));
 }
 
 test "runtime defaults stay explicit" {
@@ -41,5 +41,5 @@ test "pending and escaped owners keep discontinue for anyerror" {
     };
 
     try std.testing.expect(@hasDecl(shift.Pending(anyerror_spec), "discontinue"));
-    try std.testing.expect(@hasDecl(shift.EscapedToken(anyerror_spec), "discontinue"));
+    try std.testing.expect(@hasDecl(shift.EscapedOwner(anyerror_spec), "discontinue"));
 }

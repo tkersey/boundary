@@ -1,6 +1,6 @@
 # shift
 
-`shift` is a Zig 0.15.2 implementation of one-shot, stackful `shift/reset` with a linear token lifecycle API.
+`shift` is a Zig 0.15.2 implementation of one-shot, stackful `shift/reset` with a linear pending-owner lifecycle API.
 
 The current runtime is pending-owner-driven:
 
@@ -10,8 +10,13 @@ The current runtime is pending-owner-driven:
 - `shift.Pending(Spec).resumeWith(value)` resolves the current pending owner exactly once.
 - `shift.Pending(Spec).discontinue(err)` injects a user-owned `Spec.ErrorSet` error into the suspended `shift(...)` site when `Spec.ErrorSet` is non-empty.
 - `shift.Pending(Spec).cancel()` issues library-owned terminal cancellation.
-- `shift.Pending(Spec).escape()` promotes the current pending owner into an explicit `shift.EscapedToken(Spec)` for delayed resolution.
-- `shift.EscapedToken(Spec).deinit()` auto-cancels unresolved escaped owners.
+- `shift.Pending(Spec).escape()` promotes the current pending owner into an explicit `shift.EscapedOwner(Spec)` for delayed resolution.
+- `shift.EscapedOwner(Spec).deinit()` auto-cancels unresolved escaped owners.
+
+Migration note:
+- `shift.EscapedToken(Spec)` was renamed to `shift.EscapedOwner(Spec)`.
+- `error.TokenAliased` was renamed to `error.OwnerAliased`.
+- `Pending.escape()` is unchanged; only the escaped-owner spelling changed.
 
 For workflow-style consumers, the library also exposes a namespaced helper layer:
 
@@ -26,7 +31,7 @@ The current implementation is intentionally narrower than the end-state plan:
 - User `discontinue(err)` remains distinct from library cancellation.
 - `NoShiftGuard` is an in-place owner handle for regions where suspension is forbidden.
 - `Runtime` seals to the first stable owner address that uses it; copied runtime aliases fail with `error.RuntimeAliased`.
-- Copied escaped-owner aliases fail with `error.TokenAliased`.
+- Copied escaped-owner aliases fail with `error.OwnerAliased`.
 - The runtime is still experimental and does not recover from actual guard-page stack overflow faults.
 
 ## Build

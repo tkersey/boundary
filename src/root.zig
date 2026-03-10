@@ -21,7 +21,7 @@ pub fn ResetError(comptime ErrorSet: type) type {
     return raw.ResetError(ErrorSet);
 }
 
-/// Result of driving a delimiter until completion, tokenization, or cancellation.
+/// Result of driving a delimiter until completion, pending ownership, or cancellation.
 pub fn Outcome(comptime Spec: type) type {
     return raw.Outcome(Spec);
 }
@@ -32,8 +32,8 @@ pub fn Pending(comptime Spec: type) type {
 }
 
 /// Explicit escaped owner for delayed resolution.
-pub fn EscapedToken(comptime Spec: type) type {
-    return raw.EscapedToken(Spec);
+pub fn EscapedOwner(comptime Spec: type) type {
+    return raw.EscapedOwner(Spec);
 }
 
 /// Run `body` under the nearest dynamic delimiter identified by `Tag`.

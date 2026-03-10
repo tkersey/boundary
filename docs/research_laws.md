@@ -20,21 +20,21 @@ Consequence:
 - `.cancelled`
 - `.pending`
 
-The `.pending` branch represents a single unresolved continuation owner. A copied escaped alias is not another owner; it is misuse and fails with `error.TokenAliased`.
+The `.pending` branch represents a single unresolved continuation owner. A copied escaped alias is not another owner; it is misuse and fails with `error.OwnerAliased`.
 
 Consequence:
 - The semantic unit is not a reusable continuation value. It is an owned pending decision point.
 
 ### 3. User discontinuation is distinct from runtime cancellation
 
-`discontinue(err)` injects a user-owned `Spec.ErrorSet` branch back into the suspended site. The body may catch that branch and continue into another token.
+`discontinue(err)` injects a user-owned `Spec.ErrorSet` branch back into the suspended site. The body may catch that branch and continue into another pending owner.
 
 Consequence:
 - User discontinuation is recoverable control flow, not terminal teardown.
 
 ### 4. Runtime cancellation is terminal
 
-`cancel()` marks the target frame as cancellation-required. If user code tries to convert that cancellation into another token or a normal answer, the runtime produces `error.CancellationRecovered`.
+`cancel()` marks the target frame as cancellation-required. If user code tries to convert that cancellation into another pending owner or a normal answer, the runtime produces `error.CancellationRecovered`.
 
 Consequence:
 - Cancellation is a monotonic semantic event. It is not “just another error path.”
@@ -71,7 +71,7 @@ It is *not* well described as:
 Use this vocabulary when reasoning about the repo:
 
 - delimiter: an active reset frame tagged by `Spec.tag`
-- pending owner: an unresolved one-shot token returned to the caller
+- pending owner: an unresolved one-shot owner returned to the caller
 - resumed branch: a pending owner resolved with a resume value
 - discontinued branch: a pending owner resolved with a user error
 - cancelled branch: a pending owner resolved by terminal runtime cancellation
@@ -81,5 +81,5 @@ Use this vocabulary when reasoning about the repo:
 
 - Why does the approved job-workflow path prove outer-prompt bubbling?
 - Why can rejection recover but cancellation cannot?
-- Why is token aliasing a semantic error rather than an implementation footgun?
+- Why is owner aliasing a semantic error rather than an implementation footgun?
 - Why should a future public API treat “normal pending resolution” and “advanced delayed escape” as different kinds of use?

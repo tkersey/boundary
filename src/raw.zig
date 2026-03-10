@@ -9,7 +9,7 @@ pub const Error = error{
     CrossThread,
     MissingPrompt,
     OutOfMemory,
-    TokenAliased,
+    OwnerAliased,
     RuntimeAliased,
     RuntimeBusy,
     RuntimeDestroyed,
@@ -476,7 +476,7 @@ fn finishCurrentFiberWithError(comptime Tag: type, comptime Answer: type, compti
     unreachable;
 }
 
-/// Result of driving a delimiter until completion, tokenization, or cancellation.
+/// Result of driving a delimiter until completion, pending ownership, or cancellation.
 pub fn Outcome(comptime Spec: type) type {
     return union(enum) {
         cancelled: void,
@@ -486,7 +486,7 @@ pub fn Outcome(comptime Spec: type) type {
 }
 
 /// Explicit escaped owner for one-shot delayed resolution.
-pub fn EscapedToken(comptime Spec: type) type {
+pub fn EscapedOwner(comptime Spec: type) type {
     const Record = SuspensionRecord(Spec);
     return if (comptime supportsDiscontinue(ErrorSetOf(Spec)))
         struct {
@@ -499,18 +499,18 @@ pub fn EscapedToken(comptime Spec: type) type {
             fn prepare(self: *Self) Error!*Record {
                 const record = self.record orelse return error.AlreadyResolved;
                 try record.runtime.ensureThread();
-                if (record.generation != self.generation) return error.TokenAliased;
+                if (record.generation != self.generation) return error.OwnerAliased;
                 if (record.owner_cookie == 0) {
                     record.owner_cookie = @intFromPtr(self);
                 } else if (record.owner_cookie != @intFromPtr(self)) {
-                    return error.TokenAliased;
+                    return error.OwnerAliased;
                 }
                 if (record.state != .pending) return error.AlreadyResolved;
                 self.record = null;
                 return record;
             }
 
-            /// Resume the owned token with `value`.
+            /// Resume the escaped owner with `value`.
             pub inline fn resumeWith(self: *Self, value: ResumeOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
                 const record = try self.prepare();
                 record.state = .resumed;
@@ -542,7 +542,7 @@ pub fn EscapedToken(comptime Spec: type) type {
                 return try driveFrame(Spec, record.target_frame);
             }
 
-            /// Issue library-owned terminal cancellation for the token.
+            /// Issue library-owned terminal cancellation for the escaped owner.
             pub inline fn cancel(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
                 const record = try self.prepare();
                 record.state = .cancelled;
@@ -558,7 +558,7 @@ pub fn EscapedToken(comptime Spec: type) type {
                 return try driveFrame(Spec, record.target_frame);
             }
 
-            /// Auto-cancel unresolved tokens and ignore the terminal result.
+            /// Auto-cancel unresolved escaped owners and ignore the terminal result.
             pub fn deinit(self: *Self) void {
                 self.deinitChecked() catch |err| switch (err) {
                     error.AlreadyResolved => return,
@@ -567,7 +567,7 @@ pub fn EscapedToken(comptime Spec: type) type {
                 };
             }
 
-            /// Checked auto-cancel for unresolved tokens.
+            /// Checked auto-cancel for unresolved escaped owners.
             pub fn deinitChecked(self: *Self) ResetError(ErrorSetOf(Spec))!void {
                 if (self.record == null) return error.AlreadyResolved;
                 const outcome = try self.cancel();
@@ -588,18 +588,18 @@ pub fn EscapedToken(comptime Spec: type) type {
             fn prepare(self: *Self) Error!*Record {
                 const record = self.record orelse return error.AlreadyResolved;
                 try record.runtime.ensureThread();
-                if (record.generation != self.generation) return error.TokenAliased;
+                if (record.generation != self.generation) return error.OwnerAliased;
                 if (record.owner_cookie == 0) {
                     record.owner_cookie = @intFromPtr(self);
                 } else if (record.owner_cookie != @intFromPtr(self)) {
-                    return error.TokenAliased;
+                    return error.OwnerAliased;
                 }
                 if (record.state != .pending) return error.AlreadyResolved;
                 self.record = null;
                 return record;
             }
 
-            /// Resume the owned token with `value`.
+            /// Resume the escaped owner with `value`.
             pub inline fn resumeWith(self: *Self, value: ResumeOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
                 const record = try self.prepare();
                 record.state = .resumed;
@@ -615,7 +615,7 @@ pub fn EscapedToken(comptime Spec: type) type {
                 return try driveFrame(Spec, record.target_frame);
             }
 
-            /// Issue library-owned terminal cancellation for the token.
+            /// Issue library-owned terminal cancellation for the escaped owner.
             pub inline fn cancel(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
                 const record = try self.prepare();
                 record.state = .cancelled;
@@ -631,7 +631,7 @@ pub fn EscapedToken(comptime Spec: type) type {
                 return try driveFrame(Spec, record.target_frame);
             }
 
-            /// Auto-cancel unresolved tokens and ignore the terminal result.
+            /// Auto-cancel unresolved escaped owners and ignore the terminal result.
             pub fn deinit(self: *Self) void {
                 self.deinitChecked() catch |err| switch (err) {
                     error.AlreadyResolved => return,
@@ -640,7 +640,7 @@ pub fn EscapedToken(comptime Spec: type) type {
                 };
             }
 
-            /// Checked auto-cancel for unresolved tokens.
+            /// Checked auto-cancel for unresolved escaped owners.
             pub fn deinitChecked(self: *Self) ResetError(ErrorSetOf(Spec))!void {
                 if (self.record == null) return error.AlreadyResolved;
                 const outcome = try self.cancel();
@@ -654,7 +654,7 @@ pub fn EscapedToken(comptime Spec: type) type {
 
 /// Primary one-shot pending owner used by the direct-style loop.
 pub fn Pending(comptime Spec: type) type {
-    const Escaped = EscapedToken(Spec);
+    const Escaped = EscapedOwner(Spec);
     return if (comptime supportsDiscontinue(ErrorSetOf(Spec)))
         struct {
             const Self = @This();
@@ -1039,7 +1039,7 @@ test "pending owner can escape reset and resume later" {
         }
     };
 
-    var saved: ?EscapedToken(demo_spec) = null;
+    var saved: ?EscapedOwner(demo_spec) = null;
     var outcome = try reset(demo_spec, &runtime, demo.body);
     switch (outcome) {
         .complete, .cancelled => unreachable,
@@ -1117,7 +1117,7 @@ test "copied escaped-owner alias is rejected" {
             var owner = try pending.escape();
             var alias = owner;
             outcome = try owner.resumeWith(41);
-            try std.testing.expectError(error.TokenAliased, alias.resumeWith(41));
+            try std.testing.expectError(error.OwnerAliased, alias.resumeWith(41));
         },
     }
     switch (outcome) {
@@ -1188,7 +1188,7 @@ test "escaped owner deinit auto-cancels unresolved token" {
     try runtime.deinitChecked();
 }
 
-test "cancellation cannot recover into another token" {
+test "cancellation cannot recover into another pending owner" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
