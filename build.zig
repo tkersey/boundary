@@ -93,6 +93,14 @@ pub fn build(b: *std.Build) void {
     const size_step = b.step("size-check", "Run size and layout invariants.");
     size_step.dependOn(&run_size_tests.step);
 
+    const compile_fail_cmd = b.addSystemCommand(&.{
+        "sh",
+        "test/compile_fail/run.sh",
+    });
+    const compile_fail_step = b.step("compile-fail", "Verify compile-fail misuse fixtures.");
+    compile_fail_step.dependOn(&compile_fail_cmd.step);
+    test_step.dependOn(&compile_fail_cmd.step);
+
     const docs_sanity_cmd = b.addSystemCommand(&.{
         "sh",
         "-c",

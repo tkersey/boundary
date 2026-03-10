@@ -8,7 +8,7 @@ The current runtime is pending-owner-driven:
 - `shift.shift(Spec, request)` suspends to the nearest active delimiter for `Spec.tag` and yields `request` to the caller.
 - `shift.Pending(Spec).request()` reads the request carried by `Outcome.pending`.
 - `shift.Pending(Spec).resumeWith(value)` resolves the current pending owner exactly once.
-- `shift.Pending(Spec).discontinue(err)` injects a user-owned `Spec.ErrorSet` error into the suspended `shift(...)` site.
+- `shift.Pending(Spec).discontinue(err)` injects a user-owned `Spec.ErrorSet` error into the suspended `shift(...)` site when `Spec.ErrorSet` is non-empty.
 - `shift.Pending(Spec).cancel()` issues library-owned terminal cancellation.
 - `shift.Pending(Spec).escape()` promotes the current pending owner into an explicit `shift.EscapedToken(Spec)` for delayed resolution.
 - `shift.EscapedToken(Spec).deinit()` auto-cancels unresolved escaped owners.
@@ -36,6 +36,7 @@ zig build
 zig build test
 zig build lint -- --max-warnings 0
 zig build size-check
+zig build compile-fail
 zig build docs-sanity
 zig build bench
 zig build bench-first-suspend

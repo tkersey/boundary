@@ -25,3 +25,21 @@ test "runtime defaults stay explicit" {
     try std.testing.expectEqual(@as(usize, 256 * 1024), runtime.options.stack_bytes);
     try std.testing.expectEqual(@as(usize, 1), runtime.options.guard_pages);
 }
+
+test "pending and escaped owners keep discontinue for anyerror" {
+    const anyerror_spec = struct {
+        /// Prompt tag for the anyerror surface probe.
+        pub const tag = struct {};
+        /// The probe emits no request payload.
+        pub const Request = void;
+        /// The probe accepts no resume payload.
+        pub const Resume = void;
+        /// The probe completes without a value.
+        pub const Answer = void;
+        /// The probe uses the open anyerror surface.
+        pub const ErrorSet = anyerror;
+    };
+
+    try std.testing.expect(@hasDecl(shift.Pending(anyerror_spec), "discontinue"));
+    try std.testing.expect(@hasDecl(shift.EscapedToken(anyerror_spec), "discontinue"));
+}

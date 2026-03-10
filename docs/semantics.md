@@ -11,7 +11,7 @@
   - `.cancelled`: library-owned terminal cancellation completed
 - Calling `shift.shift(Spec, request)` captures to the nearest active delimiter for `Spec.tag`, hands `request` to the pending owner, and later evaluates to the value supplied by `resumeWith`.
 - Calling `Pending.resumeWith(value)` reinstalls the delimiter and makes the suspended `shift(...)` expression evaluate to `value`.
-- Calling `Pending.discontinue(err)` resumes the suspended frame in user-error mode and propagates `err` through the suspended `shift(...)` site.
+- Calling `Pending.discontinue(err)` resumes the suspended frame in user-error mode and propagates `err` through the suspended `shift(...)` site when `Spec.ErrorSet` is non-empty.
 - Calling `Pending.cancel()` issues library-owned terminal cancellation.
 - Calling `Pending.escape()` promotes the current pending owner into `EscapedToken`.
 - Calling `EscapedToken.deinit()` auto-cancels unresolved escaped owners.
