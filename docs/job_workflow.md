@@ -2,7 +2,7 @@
 
 `examples/job_workflow/` is the repo's larger "why would I use this?" example.
 
-Its request loop now goes through `examples/support/driver.zig`. That helper is shared example infrastructure only; it is not part of the public `shift` API.
+Its request loop now goes through `shift.driver.run(...)`. That helper is the public workflow layer built on top of the token API.
 
 Run it with:
 
@@ -18,7 +18,7 @@ The example keeps one idea per branch:
 
 ## What the driver owns
 
-`runScenario(...)` drives `shift.reset(...)` until the workflow either:
+`runScenario(...)` uses `shift.driver.run(...)` to drive `shift.reset(...)` until the workflow either:
 
 - completes with a `ScenarioResult`
 - yields a token carrying a `WorkflowRequest`

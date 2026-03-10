@@ -11,6 +11,12 @@ The current runtime is token-driven:
 - `shift.Token(Spec).cancel()` issues library-owned terminal cancellation.
 - `shift.Token(Spec).deinit()` auto-cancels unresolved tokens.
 
+For workflow-style consumers, the library also exposes a namespaced helper layer:
+
+- `shift.driver.run(Spec, &runtime, body, context, handle)` drives the `shift.Outcome(Spec)` loop for you.
+- `shift.driver.Decision(Spec)` encodes `.resume_value`, `.cancel`, and `.discontinue` when `Spec.ErrorSet` is non-empty.
+- Tokens remain the canonical low-level surface; the driver helper is additive rather than a replacement.
+
 The current implementation is intentionally narrower than the end-state plan:
 
 - Tokens are one-shot and linear.
@@ -126,3 +132,31 @@ pub fn main() anyerror!void {
 ```
 
 See `docs/semantics.md`, `docs/zero_cost.md`, and `docs/research.md` for the current contract.
+
+## Workflow Helper Example
+
+```zig
+const shift = @import("shift");
+
+const workflow_spec = struct {
+    pub const tag = struct {};
+    pub const Request = []const u8;
+    pub const Resume = void;
+    pub const Answer = void;
+    pub const ErrorSet = error{};
+};
+
+const workflow = struct {
+    fn body() shift.ResetError(workflow_spec.ErrorSet)!workflow_spec.Answer {
+        _ = try shift.shift(workflow_spec, "step");
+    }
+};
+
+const handler = struct {
+    fn handle(_: *@This(), _: workflow_spec.Request) anyerror!shift.driver.Decision(workflow_spec) {
+        return .{ .resume_value = {} };
+    }
+};
+```
+
+Use the helper when you want a supported request/response driver loop without taking direct token ownership yourself. The `effect_handlers` and `job_workflow` examples use this layer; the smaller `generator` and `effect_state` examples stay token-first.

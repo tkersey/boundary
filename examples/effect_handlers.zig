@@ -1,4 +1,3 @@
-const example_driver = @import("example_driver");
 const shift = @import("shift");
 const std = @import("std");
 
@@ -43,7 +42,7 @@ const demo = struct {
 };
 
 const driver = struct {
-    fn handle(_: *@This(), request: handler_spec.Request) anyerror!example_driver.Decision(handler_spec) {
+    fn handle(_: *@This(), request: handler_spec.Request) anyerror!shift.driver.Decision(handler_spec) {
         return switch (request) {
             .emit => |message| blk: {
                 demo.trace[demo.trace_count] = message;
@@ -64,7 +63,7 @@ pub fn main() anyerror!void {
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     const stdout = &stdout_writer.interface;
     var loop_driver: driver = .{};
-    const outcome = example_driver.run(handler_spec, &runtime, demo.body, &loop_driver, driver.handle) catch |err| switch (err) {
+    const outcome = shift.driver.run(handler_spec, &runtime, demo.body, &loop_driver, driver.handle) catch |err| switch (err) {
         error.Abort => {
             try stdout.print("aborted=yes trace=[", .{});
             for (demo.trace[0..demo.trace_count], 0..) |entry, index| {

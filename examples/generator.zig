@@ -1,4 +1,3 @@
-const example_driver = @import("example_driver");
 const shift = @import("shift");
 const std = @import("std");
 
@@ -30,24 +29,21 @@ const demo = struct {
     }
 };
 
-const driver = struct {
-    fn handle(_: *@This(), value: generator_spec.Request) anyerror!example_driver.Decision(generator_spec) {
-        demo.yielded[demo.yield_count] = value;
-        demo.yield_count += 1;
-        return .{ .resume_value = {} };
-    }
-};
-
 /// Run the direct-style generator example.
 pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
     defer runtime.deinit();
 
-    var loop_driver: driver = .{};
-    switch (try example_driver.run(generator_spec, &runtime, demo.body, &loop_driver, driver.handle)) {
-        .complete => {},
+    var outcome = try shift.reset(generator_spec, &runtime, demo.body);
+    while (true) switch (outcome) {
+        .complete => break,
         .cancelled => unreachable,
-    }
+        .token => |*token| {
+            demo.yielded[demo.yield_count] = token.request;
+            demo.yield_count += 1;
+            outcome = try token.resumeWith({});
+        },
+    };
 
     var stdout_buffer: [256]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);

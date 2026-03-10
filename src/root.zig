@@ -1,5 +1,7 @@
 const raw = @import("raw.zig");
 
+/// Public workflow driver helpers layered on top of the token API.
+pub const driver = @import("driver.zig");
 /// Runtime owner for fiber-backed one-shot `shift/reset`.
 pub const Runtime = raw.Runtime;
 /// Guard that forbids suspension in unsafe regions.
@@ -47,6 +49,7 @@ pub fn shift(
 }
 
 test {
+    _ = driver;
     _ = Runtime;
     _ = NoShiftGuard;
 }

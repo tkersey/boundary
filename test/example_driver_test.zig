@@ -1,4 +1,3 @@
-const example_driver = @import("example_driver");
 const shift = @import("shift");
 const std = @import("std");
 
@@ -24,7 +23,7 @@ const demo = struct {
 
 test "resume decision reaches complete" {
     const resume_handler = struct {
-        fn handle(_: *@This(), request: demo_spec.Request) anyerror!example_driver.Decision(demo_spec) {
+        fn handle(_: *@This(), request: demo_spec.Request) anyerror!shift.driver.Decision(demo_spec) {
             return .{ .resume_value = request };
         }
     };
@@ -33,7 +32,7 @@ test "resume decision reaches complete" {
     defer runtime.deinit();
 
     var handler: resume_handler = .{};
-    const outcome = try example_driver.run(demo_spec, &runtime, demo.body, &handler, resume_handler.handle);
+    const outcome = try shift.driver.run(demo_spec, &runtime, demo.body, &handler, resume_handler.handle);
     switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(i32, 42), answer),
         .cancelled => unreachable,
@@ -42,7 +41,7 @@ test "resume decision reaches complete" {
 
 test "cancel decision reaches terminal cancellation" {
     const cancel_handler = struct {
-        fn handle(_: *@This(), _: demo_spec.Request) anyerror!example_driver.Decision(demo_spec) {
+        fn handle(_: *@This(), _: demo_spec.Request) anyerror!shift.driver.Decision(demo_spec) {
             return .{ .cancel = {} };
         }
     };
@@ -51,7 +50,7 @@ test "cancel decision reaches terminal cancellation" {
     defer runtime.deinit();
 
     var handler: cancel_handler = .{};
-    const outcome = try example_driver.run(demo_spec, &runtime, demo.body, &handler, cancel_handler.handle);
+    const outcome = try shift.driver.run(demo_spec, &runtime, demo.body, &handler, cancel_handler.handle);
     switch (outcome) {
         .complete => unreachable,
         .cancelled => {},
@@ -60,7 +59,7 @@ test "cancel decision reaches terminal cancellation" {
 
 test "discontinue decision propagates user error" {
     const discontinue_handler = struct {
-        fn handle(_: *@This(), _: demo_spec.Request) anyerror!example_driver.Decision(demo_spec) {
+        fn handle(_: *@This(), _: demo_spec.Request) anyerror!shift.driver.Decision(demo_spec) {
             return .{ .discontinue = error.Stop };
         }
     };
@@ -69,12 +68,12 @@ test "discontinue decision propagates user error" {
     defer runtime.deinit();
 
     var handler: discontinue_handler = .{};
-    try std.testing.expectError(error.Stop, example_driver.run(demo_spec, &runtime, demo.body, &handler, discontinue_handler.handle));
+    try std.testing.expectError(error.Stop, shift.driver.run(demo_spec, &runtime, demo.body, &handler, discontinue_handler.handle));
 }
 
 test "handler failure drains unresolved token" {
     const failing_handler = struct {
-        fn handle(_: *@This(), _: demo_spec.Request) anyerror!example_driver.Decision(demo_spec) {
+        fn handle(_: *@This(), _: demo_spec.Request) anyerror!shift.driver.Decision(demo_spec) {
             return error.HandlerFailed;
         }
     };
@@ -82,6 +81,23 @@ test "handler failure drains unresolved token" {
     var runtime = shift.Runtime.init(std.testing.allocator, .{});
 
     var handler: failing_handler = .{};
-    try std.testing.expectError(error.HandlerFailed, example_driver.run(demo_spec, &runtime, demo.body, &handler, failing_handler.handle));
+    try std.testing.expectError(error.HandlerFailed, shift.driver.run(demo_spec, &runtime, demo.body, &handler, failing_handler.handle));
     try runtime.deinitChecked();
+}
+
+test "driver decision omits discontinue when the user error set is empty" {
+    const no_error_spec = struct {
+        /// Prompt tag for the empty-error-set specialization probe.
+        pub const tag = struct {};
+        /// The specialization probe does not emit requests.
+        pub const Request = void;
+        /// The specialization probe does not accept resume values.
+        pub const Resume = void;
+        /// The specialization probe completes without a value.
+        pub const Answer = void;
+        /// The specialization probe has no user-owned error surface.
+        pub const ErrorSet = error{};
+    };
+
+    try std.testing.expect(!@hasField(shift.driver.Decision(no_error_spec), "discontinue"));
 }

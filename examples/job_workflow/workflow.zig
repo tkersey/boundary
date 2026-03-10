@@ -1,4 +1,3 @@
-const example_driver = @import("example_driver");
 const shift = @import("shift");
 const std = @import("std");
 
@@ -126,7 +125,7 @@ fn ScenarioDriver(comptime Writer: type) type {
             current = self;
             defer current = null;
 
-            const outcome = try example_driver.run(workflow_spec, self.runtime, body, self, handle);
+            const outcome = try shift.driver.run(workflow_spec, self.runtime, body, self, handle);
             const result = switch (outcome) {
                 .complete => |value| value,
                 .cancelled => .cancelled,
@@ -135,7 +134,7 @@ fn ScenarioDriver(comptime Writer: type) type {
             return result;
         }
 
-        fn handle(self: *@This(), request: WorkflowRequest) anyerror!example_driver.Decision(workflow_spec) {
+        fn handle(self: *@This(), request: WorkflowRequest) anyerror!shift.driver.Decision(workflow_spec) {
             return switch (request) {
                 .log => |message| blk: {
                     try self.writer.print("log={s}\n", .{message});

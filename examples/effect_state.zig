@@ -1,4 +1,3 @@
-const example_driver = @import("example_driver");
 const shift = @import("shift");
 const std = @import("std");
 
@@ -24,23 +23,20 @@ const demo = struct {
     }
 };
 
-const driver = struct {
-    fn handle(_: *@This(), _: state_spec.Request) anyerror!example_driver.Decision(state_spec) {
-        demo.resumed = 0;
-        return .{ .cancel = {} };
-    }
-};
-
 /// Run the state example.
 pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
     defer runtime.deinit();
 
-    var loop_driver: driver = .{};
-    switch (try example_driver.run(state_spec, &runtime, demo.body, &loop_driver, driver.handle)) {
+    var outcome = try shift.reset(state_spec, &runtime, demo.body);
+    while (true) switch (outcome) {
         .complete => unreachable,
-        .cancelled => {},
-    }
+        .cancelled => break,
+        .token => |*token| {
+            demo.resumed = 0;
+            outcome = try token.cancel();
+        },
+    };
 
     var stdout_buffer: [256]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);

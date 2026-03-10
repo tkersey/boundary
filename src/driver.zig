@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const raw = @import("raw.zig");
 
 fn supportsDiscontinue(comptime Spec: type) bool {
     return switch (@typeInfo(Spec.ErrorSet)) {
@@ -7,7 +7,7 @@ fn supportsDiscontinue(comptime Spec: type) bool {
     };
 }
 
-/// The next action a request handler wants the driver to apply.
+/// The next action a workflow handler wants the driver to apply.
 pub fn Decision(comptime Spec: type) type {
     return if (comptime supportsDiscontinue(Spec))
         union(enum) {
@@ -22,7 +22,7 @@ pub fn Decision(comptime Spec: type) type {
         };
 }
 
-/// The terminal states the shared example driver can return.
+/// The terminal states the public workflow driver can return.
 pub fn TerminalOutcome(comptime Spec: type) type {
     return union(enum) {
         cancelled: void,
@@ -30,15 +30,15 @@ pub fn TerminalOutcome(comptime Spec: type) type {
     };
 }
 
-/// Run `body` under `reset` and resolve each yielded request through `handler.handle`.
+/// Run `body` under `reset` and resolve each yielded request through `handle`.
 pub inline fn run(
     comptime Spec: type,
-    runtime: *shift.Runtime,
-    body: *const fn () shift.ResetError(Spec.ErrorSet)!Spec.Answer,
+    runtime: *raw.Runtime,
+    body: *const fn () raw.ResetError(Spec.ErrorSet)!Spec.Answer,
     context: anytype,
     comptime handle: fn (@TypeOf(context), Spec.Request) anyerror!Decision(Spec),
 ) anyerror!TerminalOutcome(Spec) {
-    var outcome = try shift.reset(Spec, runtime, body);
+    var outcome = try raw.reset(Spec, runtime, body);
     while (true) {
         switch (outcome) {
             .complete => |answer| return .{ .complete = answer },
@@ -56,9 +56,9 @@ pub inline fn run(
 
 inline fn applyDecision(
     comptime Spec: type,
-    token: *shift.Token(Spec),
+    token: *raw.Token(Spec),
     decision: Decision(Spec),
-) shift.ResetError(Spec.ErrorSet)!shift.Outcome(Spec) {
+) raw.ResetError(Spec.ErrorSet)!raw.Outcome(Spec) {
     return if (comptime supportsDiscontinue(Spec))
         switch (decision) {
             .cancel => try token.cancel(),
