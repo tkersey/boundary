@@ -39,6 +39,12 @@ zig build bench
 zig build bench-first-suspend
 ```
 
+Benchmark contract:
+
+- `zig build bench` and `zig build bench-first-suspend` now report warmed five-sample medians from a single invocation instead of one cold-start-sensitive timing.
+- Steady-state baseline artifacts live in `bench/baselines/direct_style_v2.json`.
+- The public-driver regression proof against `HEAD` lives in `bench/baselines/public_driver_perf_proof_v1.json`.
+
 ## Examples
 
 ```bash

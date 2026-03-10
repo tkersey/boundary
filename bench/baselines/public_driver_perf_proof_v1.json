@@ -1,0 +1,35 @@
+{
+  "label": "public_driver_perf_proof_v1",
+  "captured_at": "2026-03-10T01:10:12Z",
+  "comparison_target": {
+    "git_rev": "4aec919",
+    "description": "HEAD before the public shift.driver layer"
+  },
+  "candidate": {
+    "git_rev": "working-tree-public-driver",
+    "description": "working tree with public shift.driver layer and workflow example migration"
+  },
+  "measurement_contract": {
+    "timed_iterations": 50000,
+    "warmup_iterations": 20000,
+    "samples_per_run": 5,
+    "summary_stat": "median_ns from one warmed invocation",
+    "same_machine": true
+  },
+  "results": {
+    "bench": {
+      "target_median_ns": 3164125,
+      "candidate_median_ns": 3222042,
+      "delta_pct": 1.83,
+      "threshold_pct": 5.0,
+      "pass": true
+    },
+    "bench_first_suspend": {
+      "target_median_ns": 5726125,
+      "candidate_median_ns": 5481416,
+      "delta_pct": -4.27,
+      "threshold_pct": 5.0,
+      "pass": true
+    }
+  }
+}
