@@ -576,12 +576,12 @@ pub fn Pending(comptime Spec: type) type {
         escaped: Escaped,
 
         /// Read the request carried by the pending owner.
-        pub fn request(self: *const @This()) RequestOf(Spec) {
+        pub inline fn request(self: *const @This()) RequestOf(Spec) {
             return self.escaped.request;
         }
 
         /// Promote the pending owner into an explicit escaped owner.
-        pub fn escape(self: *@This()) Error!Escaped {
+        pub inline fn escape(self: *@This()) Error!Escaped {
             if (self.escaped.record == null) return error.AlreadyResolved;
             const escaped = self.escaped;
             self.escaped.record = null;
@@ -589,17 +589,17 @@ pub fn Pending(comptime Spec: type) type {
         }
 
         /// Resolve the pending owner with `value`.
-        pub fn resumeWith(self: *@This(), value: ResumeOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+        pub inline fn resumeWith(self: *@This(), value: ResumeOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
             return self.escaped.resumeWith(value);
         }
 
         /// Inject a user-owned `err` through the pending owner.
-        pub fn discontinue(self: *@This(), err: ErrorSetOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+        pub inline fn discontinue(self: *@This(), err: ErrorSetOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
             return self.escaped.discontinue(err);
         }
 
         /// Issue library-owned terminal cancellation for the pending owner.
-        pub fn cancel(self: *@This()) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+        pub inline fn cancel(self: *@This()) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
             return self.escaped.cancel();
         }
     };
@@ -934,6 +934,42 @@ test "pending owner can escape reset and resume later" {
         },
     }
     outcome = try saved.?.resumeWith(41);
+    switch (outcome) {
+        .complete => |answer| try std.testing.expectEqual(@as(usize, 42), answer),
+        .pending, .cancelled => unreachable,
+    }
+}
+
+test "escaping consumes the pending owner and preserves delayed resolution" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    const demo_spec = struct {
+        const tag = struct {};
+        const Request = []const u8;
+        const Resume = usize;
+        const Answer = usize;
+        const ErrorSet = error{};
+    };
+
+    const demo = struct {
+        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
+            const resumed = try shift(demo_spec, "later");
+            return resumed + 1;
+        }
+    };
+
+    var outcome = try reset(demo_spec, &runtime, demo.body);
+    switch (outcome) {
+        .complete, .cancelled => unreachable,
+        .pending => |pending| {
+            var owned = pending;
+            var escaped = try owned.escape();
+            try std.testing.expectEqualStrings("later", escaped.request);
+            try std.testing.expectError(error.AlreadyResolved, owned.resumeWith(41));
+            outcome = try escaped.resumeWith(41);
+        },
+    }
     switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(usize, 42), answer),
         .pending, .cancelled => unreachable,
