@@ -4,6 +4,12 @@
 
 Its request loop now goes through `shift.driver.run(...)`. That helper is the public workflow layer built on top of the pending-owner API.
 
+Read the example as proof that the driver is additive:
+
+- the workflow body still emits ordinary pending-owner requests through `shift.shift(...)`
+- the driver only decides how to resolve each pending edge
+- nested prompt bubbling, terminal cancellation, guarded regions, and user discontinuation are still the underlying runtime semantics, not driver-only behavior
+
 Run it with:
 
 ```bash
@@ -23,6 +29,13 @@ The example keeps one idea per branch:
 - completes with a `ScenarioResult`
 - yields a pending owner carrying a `WorkflowRequest`
 - reaches terminal cancellation
+
+What the driver does not own:
+
+- prompt matching
+- nested reset bubbling
+- `NoShiftGuard` enforcement
+- the distinction between user `discontinue(err)` and library `cancel()`
 
 The driver prints each request before resolving it:
 

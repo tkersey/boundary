@@ -13,6 +13,7 @@ The immediate goal is not to genericize `shift` into a broad PL project. The goa
 - Library-owned terminal cancellation plus escaped-owner auto-cancel on `deinit()`.
 - Explicit spec structs that carry `tag`, `Request`, `Resume`, `Answer`, and `ErrorSet`.
 - Collision-free internal prompt identity via per-type tokens rather than hashed type names.
+- Internal machine vocabulary in the implementation now mirrors the research language: machine state, machine signal, delimiter frame, pending edge, and resolution.
 - A hard runtime guard for known unsafe suspension regions.
 - A repo-local docs-sanity gate so learnings records cannot silently contaminate markdown docs.
 

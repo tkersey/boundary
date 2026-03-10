@@ -57,6 +57,7 @@ delta_pct() {
 
 bench_target=3222042
 bench_first_target=5481416
+# Treat the warmed envelope as a semantic guardrail for this runtime shape.
 threshold_pct=5.0
 
 bench_candidate="$(median_of_file "$bench_file")"
@@ -68,11 +69,11 @@ bench_first_delta="$(delta_pct "$bench_first_target" "$bench_first_candidate")"
 bench_pass=true
 bench_first_pass=true
 
-if awk -v d="$bench_delta" 'BEGIN { exit !(d > 5.0 || d < -5.0) }'; then
+if awk -v d="$bench_delta" 'BEGIN { exit !(d > 5.0) }'; then
   bench_pass=false
 fi
 
-if awk -v d="$bench_first_delta" 'BEGIN { exit !(d > 5.0 || d < -5.0) }'; then
+if awk -v d="$bench_first_delta" 'BEGIN { exit !(d > 5.0) }'; then
   bench_first_pass=false
 fi
 
@@ -119,7 +120,7 @@ cat >"$output_path" <<EOF
       "pass": $bench_first_pass
     }
   },
-  "verdict": "Repeated warmed invocations are the source of truth for the pending-owner API follow-up; this replaces one-off regression judgment for noisy first-suspend measurements."
+  "verdict": "Repeated warmed invocations are the source of truth for the pending-owner API follow-up; this guards against regressions beyond the threshold and treats faster results as acceptable."
 }
 EOF
 

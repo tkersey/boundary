@@ -48,7 +48,7 @@ pub fn EscapedOwner(comptime Spec: type) type {
                     } else if (record.owner_cookie != @intFromPtr(self)) {
                         return error.OwnerAliased;
                     }
-                    if (record.state != .pending) return error.AlreadyResolved;
+                    if (record.resolution != .pending) return error.AlreadyResolved;
                     self.record = null;
                     return record;
                 }
@@ -56,7 +56,7 @@ pub fn EscapedOwner(comptime Spec: type) type {
                 /// Continue the escaped owner when the suspended site expects no payload.
                 pub inline fn proceed(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
                     const record = try self.prepare();
-                    record.state = .resumed;
+                    record.resolution = .resumed;
                     record.resume_value = {};
                     record.runtime.active_suspension_count -= 1;
                     defer {
@@ -66,13 +66,13 @@ pub fn EscapedOwner(comptime Spec: type) type {
                         record.generation += 1;
                         record.runtime.pushCachedSuspension(&record.cached);
                     }
-                    return try driveFrame(Spec, record.target_frame);
+                    return try driveDelimiter(Spec, record.target_frame);
                 }
 
                 /// Inject a user-owned `err` into the escaped owner.
                 pub inline fn discontinue(self: *Self, err: ErrorSetOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
                     const record = try self.prepare();
-                    record.state = .discontinued;
+                    record.resolution = .discontinued;
                     record.discontinue_error = err;
                     record.runtime.active_suspension_count -= 1;
                     defer {
@@ -82,13 +82,13 @@ pub fn EscapedOwner(comptime Spec: type) type {
                         record.generation += 1;
                         record.runtime.pushCachedSuspension(&record.cached);
                     }
-                    return try driveFrame(Spec, record.target_frame);
+                    return try driveDelimiter(Spec, record.target_frame);
                 }
 
                 /// Issue library-owned terminal cancellation for the escaped owner.
                 pub inline fn cancel(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
                     const record = try self.prepare();
-                    record.state = .cancelled;
+                    record.resolution = .cancelled;
                     record.target_frame.cancellation_required = true;
                     record.runtime.active_suspension_count -= 1;
                     defer {
@@ -98,7 +98,7 @@ pub fn EscapedOwner(comptime Spec: type) type {
                         record.generation += 1;
                         record.runtime.pushCachedSuspension(&record.cached);
                     }
-                    return try driveFrame(Spec, record.target_frame);
+                    return try driveDelimiter(Spec, record.target_frame);
                 }
 
                 /// Auto-cancel unresolved escaped owners and ignore the terminal result.
@@ -137,7 +137,7 @@ pub fn EscapedOwner(comptime Spec: type) type {
                     } else if (record.owner_cookie != @intFromPtr(self)) {
                         return error.OwnerAliased;
                     }
-                    if (record.state != .pending) return error.AlreadyResolved;
+                    if (record.resolution != .pending) return error.AlreadyResolved;
                     self.record = null;
                     return record;
                 }
@@ -145,7 +145,7 @@ pub fn EscapedOwner(comptime Spec: type) type {
                 /// Resume the escaped owner with `value`.
                 pub inline fn resumeWith(self: *Self, value: ResumeOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
                     const record = try self.prepare();
-                    record.state = .resumed;
+                    record.resolution = .resumed;
                     record.resume_value = value;
                     record.runtime.active_suspension_count -= 1;
                     defer {
@@ -155,13 +155,13 @@ pub fn EscapedOwner(comptime Spec: type) type {
                         record.generation += 1;
                         record.runtime.pushCachedSuspension(&record.cached);
                     }
-                    return try driveFrame(Spec, record.target_frame);
+                    return try driveDelimiter(Spec, record.target_frame);
                 }
 
                 /// Inject a user-owned `err` into the escaped owner.
                 pub inline fn discontinue(self: *Self, err: ErrorSetOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
                     const record = try self.prepare();
-                    record.state = .discontinued;
+                    record.resolution = .discontinued;
                     record.discontinue_error = err;
                     record.runtime.active_suspension_count -= 1;
                     defer {
@@ -171,13 +171,13 @@ pub fn EscapedOwner(comptime Spec: type) type {
                         record.generation += 1;
                         record.runtime.pushCachedSuspension(&record.cached);
                     }
-                    return try driveFrame(Spec, record.target_frame);
+                    return try driveDelimiter(Spec, record.target_frame);
                 }
 
                 /// Issue library-owned terminal cancellation for the escaped owner.
                 pub inline fn cancel(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
                     const record = try self.prepare();
-                    record.state = .cancelled;
+                    record.resolution = .cancelled;
                     record.target_frame.cancellation_required = true;
                     record.runtime.active_suspension_count -= 1;
                     defer {
@@ -187,7 +187,7 @@ pub fn EscapedOwner(comptime Spec: type) type {
                         record.generation += 1;
                         record.runtime.pushCachedSuspension(&record.cached);
                     }
-                    return try driveFrame(Spec, record.target_frame);
+                    return try driveDelimiter(Spec, record.target_frame);
                 }
 
                 /// Auto-cancel unresolved escaped owners and ignore the terminal result.
@@ -228,7 +228,7 @@ pub fn EscapedOwner(comptime Spec: type) type {
                     } else if (record.owner_cookie != @intFromPtr(self)) {
                         return error.OwnerAliased;
                     }
-                    if (record.state != .pending) return error.AlreadyResolved;
+                    if (record.resolution != .pending) return error.AlreadyResolved;
                     self.record = null;
                     return record;
                 }
@@ -236,7 +236,7 @@ pub fn EscapedOwner(comptime Spec: type) type {
                 /// Continue the escaped owner when the suspended site expects no payload.
                 pub inline fn proceed(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
                     const record = try self.prepare();
-                    record.state = .resumed;
+                    record.resolution = .resumed;
                     record.resume_value = {};
                     record.runtime.active_suspension_count -= 1;
                     defer {
@@ -246,13 +246,13 @@ pub fn EscapedOwner(comptime Spec: type) type {
                         record.generation += 1;
                         record.runtime.pushCachedSuspension(&record.cached);
                     }
-                    return try driveFrame(Spec, record.target_frame);
+                    return try driveDelimiter(Spec, record.target_frame);
                 }
 
                 /// Issue library-owned terminal cancellation for the escaped owner.
                 pub inline fn cancel(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
                     const record = try self.prepare();
-                    record.state = .cancelled;
+                    record.resolution = .cancelled;
                     record.target_frame.cancellation_required = true;
                     record.runtime.active_suspension_count -= 1;
                     defer {
@@ -262,7 +262,7 @@ pub fn EscapedOwner(comptime Spec: type) type {
                         record.generation += 1;
                         record.runtime.pushCachedSuspension(&record.cached);
                     }
-                    return try driveFrame(Spec, record.target_frame);
+                    return try driveDelimiter(Spec, record.target_frame);
                 }
 
                 /// Auto-cancel unresolved escaped owners and ignore the terminal result.
@@ -301,7 +301,7 @@ pub fn EscapedOwner(comptime Spec: type) type {
                     } else if (record.owner_cookie != @intFromPtr(self)) {
                         return error.OwnerAliased;
                     }
-                    if (record.state != .pending) return error.AlreadyResolved;
+                    if (record.resolution != .pending) return error.AlreadyResolved;
                     self.record = null;
                     return record;
                 }
@@ -309,7 +309,7 @@ pub fn EscapedOwner(comptime Spec: type) type {
                 /// Resume the escaped owner with `value`.
                 pub inline fn resumeWith(self: *Self, value: ResumeOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
                     const record = try self.prepare();
-                    record.state = .resumed;
+                    record.resolution = .resumed;
                     record.resume_value = value;
                     record.runtime.active_suspension_count -= 1;
                     defer {
@@ -319,13 +319,13 @@ pub fn EscapedOwner(comptime Spec: type) type {
                         record.generation += 1;
                         record.runtime.pushCachedSuspension(&record.cached);
                     }
-                    return try driveFrame(Spec, record.target_frame);
+                    return try driveDelimiter(Spec, record.target_frame);
                 }
 
                 /// Issue library-owned terminal cancellation for the escaped owner.
                 pub inline fn cancel(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
                     const record = try self.prepare();
-                    record.state = .cancelled;
+                    record.resolution = .cancelled;
                     record.target_frame.cancellation_required = true;
                     record.runtime.active_suspension_count -= 1;
                     defer {
@@ -335,7 +335,7 @@ pub fn EscapedOwner(comptime Spec: type) type {
                         record.generation += 1;
                         record.runtime.pushCachedSuspension(&record.cached);
                     }
-                    return try driveFrame(Spec, record.target_frame);
+                    return try driveDelimiter(Spec, record.target_frame);
                 }
 
                 /// Auto-cancel unresolved escaped owners and ignore the terminal result.
@@ -497,7 +497,8 @@ pub fn Pending(comptime Spec: type) type {
     };
 }
 
-fn driveFrame(comptime Spec: type, frame: *ResetFrame(TagOf(Spec), AnswerOf(Spec), ErrorSetOf(Spec))) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+/// Drive one delimiter frame until it completes, fails, or yields a pending edge.
+fn driveDelimiter(comptime Spec: type, frame: *ResetFrame(TagOf(Spec), AnswerOf(Spec), ErrorSetOf(Spec))) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
     const runtime = frame.base.runtime;
     try runtime.ensureThread();
     runtime.active_reset_count += 1;
@@ -513,7 +514,7 @@ fn driveFrame(comptime Spec: type, frame: *ResetFrame(TagOf(Spec), AnswerOf(Spec
         kernel.tls_runtime = runtime;
         kernel.tls_current_fiber = &frame.base;
         shift_swap_context(frame.base.parent_context, &frame.base.context);
-        switch (frame.base.state) {
+        switch (frame.base.machine_state) {
             .done => {
                 const answer = switch (frame.result) {
                     .answer => |value| value,
@@ -531,12 +532,12 @@ fn driveFrame(comptime Spec: type, frame: *ResetFrame(TagOf(Spec), AnswerOf(Spec
                 if (err == error.Cancelled) return .{ .cancelled = {} };
                 return err;
             },
-            .suspended => switch (frame.base.outcome) {
+            .suspended => switch (frame.base.machine_signal) {
                 .suspension => |base| {
                     if (base.target_fiber != &frame.base) {
                         const active_parent = kernel.tls_current_fiber.?;
-                        active_parent.state = .suspended;
-                        active_parent.outcome = .{ .suspension = base };
+                        active_parent.machine_state = .suspended;
+                        active_parent.machine_signal = .{ .suspension = base };
                         kernel.tls_current_fiber = active_parent.parent_fiber;
                         shift_swap_context(&active_parent.context, active_parent.parent_context);
                         continue;
@@ -567,7 +568,7 @@ pub fn reset(
 ) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
     try runtime.ensureThread();
     const frame = try ResetFrame(TagOf(Spec), AnswerOf(Spec), ErrorSetOf(Spec)).create(runtime, body);
-    return try driveFrame(Spec, frame);
+    return try driveDelimiter(Spec, frame);
 }
 
 /// Capture the nearest active delimiter tagged by `Tag`.
@@ -609,11 +610,11 @@ pub fn shift(
         .generation = generation,
     };
     runtime.active_suspension_count += 1;
-    current_fiber.state = .suspended;
-    current_fiber.outcome = .{ .suspension = &record.base };
+    current_fiber.machine_state = .suspended;
+    current_fiber.machine_signal = .{ .suspension = &record.base };
     kernel.tls_current_fiber = current_fiber.parent_fiber;
     shift_swap_context(&current_fiber.context, current_fiber.parent_context);
-    switch (record.state) {
+    switch (record.resolution) {
         .resumed => return record.resume_value.?,
         .discontinued => return record.discontinue_error.?,
         .cancelled => return error.Cancelled,

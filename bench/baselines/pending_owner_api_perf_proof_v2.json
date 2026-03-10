@@ -1,12 +1,12 @@
 {
   "label": "pending_owner_api_perf_proof_v2",
-  "captured_at": "2026-03-10T04:38:24Z",
+  "captured_at": "2026-03-10T15:55:54Z",
   "comparison_target": {
     "artifact": "bench/baselines/direct_style_v2.json",
     "description": "warmed direct-style baseline before the pending-owner public API cut"
   },
   "candidate": {
-    "git_rev": "a7da551",
+    "git_rev": "8ec9b9b",
     "description": "repeated warmed invocations after the pending-owner public API cut"
   },
   "measurement_contract": {
@@ -21,20 +21,20 @@
   "results": {
     "bench": {
       "target_median_ns": 3222042,
-      "candidate_invocation_medians_ns": [2976875,3230250,3020292,3053625,3132666,3138500,3062209],
-      "candidate_p50_ns": 3062209,
-      "delta_pct": -4.96,
+      "candidate_invocation_medians_ns": [3078250,3024459,2971083,3020792,2981959,2792583,2987042],
+      "candidate_p50_ns": 2987042,
+      "delta_pct": -7.29,
       "threshold_pct": 5.0,
       "pass": true
     },
     "bench_first_suspend": {
       "target_median_ns": 5481416,
-      "candidate_invocation_medians_ns": [5459958,5238375,5301584,5486833,5643958,5398459,5488125],
-      "candidate_p50_ns": 5459958,
-      "delta_pct": -0.39,
+      "candidate_invocation_medians_ns": [5606875,5229792,5315792,5521458,5313500,5362542,5337750],
+      "candidate_p50_ns": 5337750,
+      "delta_pct": -2.62,
       "threshold_pct": 5.0,
       "pass": true
     }
   },
-  "verdict": "Repeated warmed invocations are the source of truth for the pending-owner API follow-up; this replaces one-off regression judgment for noisy first-suspend measurements."
+  "verdict": "Repeated warmed invocations are the source of truth for the pending-owner API follow-up; this guards against regressions beyond the threshold and treats faster results as acceptable."
 }

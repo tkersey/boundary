@@ -141,3 +141,81 @@ test "void resume decision reaches complete through payloadless proceed" {
         .cancelled => unreachable,
     }
 }
+
+test "driver remains a loop over repeated pending owners" {
+    const loop_spec = struct {
+        pub const tag = struct {};
+        pub const Request = i32;
+        pub const Resume = i32;
+        pub const Answer = i32;
+        pub const ErrorSet = error{};
+    };
+
+    const loop_demo = struct {
+        fn body() shift.ResetError(loop_spec.ErrorSet)!loop_spec.Answer {
+            const first = try shift.shift(loop_spec, 20);
+            const second = try shift.shift(loop_spec, first + 1);
+            return second + 1;
+        }
+    };
+
+    const loop_handler = struct {
+        seen: [2]i32 = .{ 0, 0 },
+        seen_count: usize = 0,
+
+        fn handle(self: *@This(), request: loop_spec.Request) anyerror!shift.driver.Decision(loop_spec) {
+            self.seen[self.seen_count] = request;
+            self.seen_count += 1;
+            return .{ .resume_value = request };
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    var handler: loop_handler = .{};
+    const outcome = try shift.driver.run(loop_spec, &runtime, loop_demo.body, &handler, loop_handler.handle);
+    switch (outcome) {
+        .complete => |answer| try std.testing.expectEqual(@as(i32, 22), answer),
+        .cancelled => unreachable,
+    }
+    try std.testing.expectEqual(@as(usize, 2), handler.seen_count);
+    try std.testing.expectEqual(@as(i32, 20), handler.seen[0]);
+    try std.testing.expectEqual(@as(i32, 21), handler.seen[1]);
+}
+
+test "handler failure after partial progress still drains the outstanding owner" {
+    const loop_spec = struct {
+        pub const tag = struct {};
+        pub const Request = i32;
+        pub const Resume = i32;
+        pub const Answer = i32;
+        pub const ErrorSet = error{};
+    };
+
+    const loop_demo = struct {
+        fn body() shift.ResetError(loop_spec.ErrorSet)!loop_spec.Answer {
+            const first = try shift.shift(loop_spec, 20);
+            const second = try shift.shift(loop_spec, first + 1);
+            return second + 1;
+        }
+    };
+
+    const failing_handler = struct {
+        seen_count: usize = 0,
+
+        fn handle(self: *@This(), request: loop_spec.Request) anyerror!shift.driver.Decision(loop_spec) {
+            _ = request;
+            self.seen_count += 1;
+            if (self.seen_count == 2) return error.SecondStepFailed;
+            return .{ .resume_value = 20 };
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+
+    var handler: failing_handler = .{};
+    try std.testing.expectError(error.SecondStepFailed, shift.driver.run(loop_spec, &runtime, loop_demo.body, &handler, failing_handler.handle));
+    try std.testing.expectEqual(@as(usize, 2), handler.seen_count);
+    try runtime.deinitChecked();
+}
