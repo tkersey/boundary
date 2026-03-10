@@ -474,12 +474,12 @@ pub fn Outcome(comptime Spec: type) type {
     return union(enum) {
         cancelled: void,
         complete: AnswerOf(Spec),
-        token: Token(Spec),
+        pending: Pending(Spec),
     };
 }
 
-/// Linear one-shot token that owns a suspended computation.
-pub fn Token(comptime Spec: type) type {
+/// Explicit escaped owner for one-shot delayed resolution.
+pub fn EscapedToken(comptime Spec: type) type {
     const Record = SuspensionRecord(Spec);
     return struct {
         request: RequestOf(Spec),
@@ -563,8 +563,44 @@ pub fn Token(comptime Spec: type) type {
             const outcome = try self.cancel();
             switch (outcome) {
                 .cancelled => return,
-                .complete, .token => return error.CancellationRecovered,
+                .complete, .pending => return error.CancellationRecovered,
             }
+        }
+    };
+}
+
+/// Primary one-shot pending owner used by the direct-style loop.
+pub fn Pending(comptime Spec: type) type {
+    const Escaped = EscapedToken(Spec);
+    return struct {
+        escaped: Escaped,
+
+        /// Read the request carried by the pending owner.
+        pub fn request(self: *const @This()) RequestOf(Spec) {
+            return self.escaped.request;
+        }
+
+        /// Promote the pending owner into an explicit escaped owner.
+        pub fn escape(self: *@This()) Error!Escaped {
+            if (self.escaped.record == null) return error.AlreadyResolved;
+            const escaped = self.escaped;
+            self.escaped.record = null;
+            return escaped;
+        }
+
+        /// Resolve the pending owner with `value`.
+        pub fn resumeWith(self: *@This(), value: ResumeOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+            return self.escaped.resumeWith(value);
+        }
+
+        /// Inject a user-owned `err` through the pending owner.
+        pub fn discontinue(self: *@This(), err: ErrorSetOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+            return self.escaped.discontinue(err);
+        }
+
+        /// Issue library-owned terminal cancellation for the pending owner.
+        pub fn cancel(self: *@This()) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+            return self.escaped.cancel();
         }
     };
 }
@@ -640,10 +676,12 @@ fn driveFrame(comptime Spec: type, frame: *ResetFrame(TagOf(Spec), AnswerOf(Spec
                     }
                     const record: *SuspensionRecord(Spec) = @fieldParentPtr("base", base);
                     return .{
-                        .token = .{
-                            .request = record.request,
-                            .record = record,
-                            .generation = record.generation,
+                        .pending = .{
+                            .escaped = .{
+                                .request = record.request,
+                                .record = record,
+                                .generation = record.generation,
+                            },
                         },
                     };
                 },
@@ -736,7 +774,7 @@ test "no-capture reset returns complete outcome" {
 
     switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(usize, 7), answer),
-        .token, .cancelled => unreachable,
+        .pending, .cancelled => unreachable,
     }
 }
 
@@ -761,7 +799,7 @@ test "prompt token differs across local namespaces" {
     try std.testing.expect(@intFromPtr(promptToken(scope_a.tag)) != @intFromPtr(promptToken(scope_b.tag)));
 }
 
-test "token resume returns the next outcome" {
+test "pending owner resume returns the next outcome" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -783,18 +821,18 @@ test "token resume returns the next outcome" {
     var outcome = try reset(demo_spec, &runtime, demo.body);
     switch (outcome) {
         .complete, .cancelled => unreachable,
-        .token => |*token| {
-            try std.testing.expectEqual(@as(i32, 41), token.request);
-            outcome = try token.resumeWith(41);
+        .pending => |*pending| {
+            try std.testing.expectEqual(@as(i32, 41), pending.request());
+            outcome = try pending.resumeWith(41);
         },
     }
     switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(i32, 42), answer),
-        .token, .cancelled => unreachable,
+        .pending, .cancelled => unreachable,
     }
 }
 
-test "token discontinue injects the supplied user error" {
+test "pending owner discontinue injects the supplied user error" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -816,14 +854,14 @@ test "token discontinue injects the supplied user error" {
     const outcome = try reset(demo_spec, &runtime, demo.body);
     switch (outcome) {
         .complete, .cancelled => unreachable,
-        .token => |token| {
-            var owned = token;
+        .pending => |pending| {
+            var owned = pending;
             try std.testing.expectError(error.Stop, owned.discontinue(error.Stop));
         },
     }
 }
 
-test "user discontinue can be caught and continue into another token" {
+test "user discontinue can be caught and continue into another pending owner" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -849,25 +887,25 @@ test "user discontinue can be caught and continue into another token" {
     var outcome = try reset(demo_spec, &runtime, demo.body);
     switch (outcome) {
         .complete, .cancelled => unreachable,
-        .token => |*token| {
-            try std.testing.expectEqualStrings("first", token.request);
-            outcome = try token.discontinue(error.Stop);
+        .pending => |*pending| {
+            try std.testing.expectEqualStrings("first", pending.request());
+            outcome = try pending.discontinue(error.Stop);
         },
     }
     switch (outcome) {
         .complete, .cancelled => unreachable,
-        .token => |*token| {
-            try std.testing.expectEqualStrings("after-stop", token.request);
-            outcome = try token.resumeWith({});
+        .pending => |*pending| {
+            try std.testing.expectEqualStrings("after-stop", pending.request());
+            outcome = try pending.resumeWith({});
         },
     }
     switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(usize, 7), answer),
-        .token, .cancelled => unreachable,
+        .pending, .cancelled => unreachable,
     }
 }
 
-test "token can escape reset and resume later" {
+test "pending owner can escape reset and resume later" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -886,23 +924,23 @@ test "token can escape reset and resume later" {
         }
     };
 
-    var saved: ?Token(demo_spec) = null;
+    var saved: ?EscapedToken(demo_spec) = null;
     var outcome = try reset(demo_spec, &runtime, demo.body);
     switch (outcome) {
         .complete, .cancelled => unreachable,
-        .token => |token| {
-            try std.testing.expectEqualStrings("later", token.request);
-            saved = token;
+        .pending => |*pending| {
+            try std.testing.expectEqualStrings("later", pending.request());
+            saved = try pending.escape();
         },
     }
     outcome = try saved.?.resumeWith(41);
     switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(usize, 42), answer),
-        .token, .cancelled => unreachable,
+        .pending, .cancelled => unreachable,
     }
 }
 
-test "copied token alias is rejected" {
+test "copied escaped-owner alias is rejected" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -924,20 +962,20 @@ test "copied token alias is rejected" {
     var outcome = try reset(demo_spec, &runtime, demo.body);
     switch (outcome) {
         .complete, .cancelled => unreachable,
-        .token => |token| {
-            var owner = token;
-            var alias = token;
+        .pending => |*pending| {
+            var owner = try pending.escape();
+            var alias = owner;
             outcome = try owner.resumeWith(41);
             try std.testing.expectError(error.TokenAliased, alias.resumeWith(41));
         },
     }
     switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(usize, 42), answer),
-        .token, .cancelled => unreachable,
+        .pending, .cancelled => unreachable,
     }
 }
 
-test "token cancel returns cancelled outcome" {
+test "pending owner cancel returns cancelled outcome" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -959,17 +997,17 @@ test "token cancel returns cancelled outcome" {
     const outcome = try reset(demo_spec, &runtime, demo.body);
     switch (outcome) {
         .complete, .cancelled => unreachable,
-        .token => |token| {
-            var owned = token;
+        .pending => |pending| {
+            var owned = pending;
             switch (try owned.cancel()) {
                 .cancelled => {},
-                .complete, .token => unreachable,
+                .complete, .pending => unreachable,
             }
         },
     }
 }
 
-test "token deinit auto-cancels unresolved token" {
+test "escaped owner deinit auto-cancels unresolved token" {
     var runtime = Runtime.init(std.testing.allocator, .{});
 
     const demo_spec = struct {
@@ -990,9 +1028,10 @@ test "token deinit auto-cancels unresolved token" {
     const outcome = try reset(demo_spec, &runtime, demo.body);
     switch (outcome) {
         .complete, .cancelled => unreachable,
-        .token => |token| {
-            var owned = token;
-            owned.deinit();
+        .pending => |pending| {
+            var owned = pending;
+            var escaped = try owned.escape();
+            escaped.deinit();
         },
     }
     try runtime.deinitChecked();
@@ -1024,11 +1063,11 @@ test "cancellation cannot recover into another token" {
     var outcome = try reset(demo_spec, &runtime, demo.body);
     switch (outcome) {
         .complete, .cancelled => unreachable,
-        .token => |*token| try std.testing.expectError(error.CancellationRecovered, token.cancel()),
+        .pending => |*pending| try std.testing.expectError(error.CancellationRecovered, pending.cancel()),
     }
 }
 
-test "token records are recycled after resolution" {
+test "pending records are recycled after resolution" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -1050,29 +1089,29 @@ test "token records are recycled after resolution" {
     var first_outcome = try reset(demo_spec, &runtime, demo.body);
     const first_record = switch (first_outcome) {
         .complete, .cancelled => unreachable,
-        .token => |*token| blk: {
-            const record = token.record.?;
-            first_outcome = try token.resumeWith(41);
+        .pending => |*pending| blk: {
+            const record = pending.escaped.record.?;
+            first_outcome = try pending.resumeWith(41);
             break :blk record;
         },
     };
     switch (first_outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(usize, 42), answer),
-        .token, .cancelled => unreachable,
+        .pending, .cancelled => unreachable,
     }
     try std.testing.expect(runtime.cached_suspensions != null);
 
     var second_outcome = try reset(demo_spec, &runtime, demo.body);
     switch (second_outcome) {
         .complete, .cancelled => unreachable,
-        .token => |*token| {
-            try std.testing.expectEqual(first_record, token.record.?);
-            second_outcome = try token.resumeWith(41);
+        .pending => |*pending| {
+            try std.testing.expectEqual(first_record, pending.escaped.record.?);
+            second_outcome = try pending.resumeWith(41);
         },
     }
     switch (second_outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(usize, 42), answer),
-        .token, .cancelled => unreachable,
+        .pending, .cancelled => unreachable,
     }
 }
 
@@ -1168,7 +1207,7 @@ test "runtime checked deinit rejects active reset" {
             try std.testing.expectError(error.RuntimeBusy, runtime_ptr.deinitChecked());
             return switch (inner) {
                 .complete => |answer| answer,
-                .token, .cancelled => unreachable,
+                .pending, .cancelled => unreachable,
             };
         }
     };
@@ -1177,7 +1216,7 @@ test "runtime checked deinit rejects active reset" {
     const outcome = try reset(demo_spec, &runtime, demo.body);
     switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(usize, 7), answer),
-        .token, .cancelled => unreachable,
+        .pending, .cancelled => unreachable,
     }
 }
 
@@ -1199,7 +1238,7 @@ test "runtime copied alias is rejected after first use" {
     }.body);
     switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(usize, 7), answer),
-        .token, .cancelled => unreachable,
+        .pending, .cancelled => unreachable,
     }
 
     var alias = runtime;
@@ -1261,9 +1300,9 @@ test "outer prompt token can bubble through an inner reset" {
             while (true) switch (inner_outcome) {
                 .complete => |answer| return answer,
                 .cancelled => return error.Cancelled,
-                .token => |*token| {
-                    const resumed = try shift(outer_spec, token.request);
-                    inner_outcome = try token.resumeWith(resumed);
+                .pending => |*pending| {
+                    const resumed = try shift(outer_spec, pending.request());
+                    inner_outcome = try pending.resumeWith(resumed);
                 },
             };
         }
@@ -1273,13 +1312,13 @@ test "outer prompt token can bubble through an inner reset" {
     var outcome = try reset(outer_spec, &runtime, demo.outerBody);
     switch (outcome) {
         .complete, .cancelled => unreachable,
-        .token => |*token| {
-            try std.testing.expectEqual(@as(i32, 41), token.request);
-            outcome = try token.resumeWith(41);
+        .pending => |*pending| {
+            try std.testing.expectEqual(@as(i32, 41), pending.request());
+            outcome = try pending.resumeWith(41);
         },
     }
     switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(i32, 42), answer),
-        .token, .cancelled => unreachable,
+        .pending, .cancelled => unreachable,
     }
 }

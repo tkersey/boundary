@@ -32,9 +32,9 @@ pub fn main() anyerror!void {
     while (true) switch (outcome) {
         .complete => unreachable,
         .cancelled => break,
-        .token => |*token| {
+        .pending => |*pending| {
             demo.resumed = 0;
-            outcome = try token.cancel();
+            outcome = try pending.cancel();
         },
     };
 

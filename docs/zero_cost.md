@@ -8,7 +8,7 @@ This runtime is not zero-cost in the old managed-frame sense.
 - Every `reset` uses heap-backed reset-frame storage.
 - The first `reset` on a runtime allocates a stack mapping.
 - Later resets usually reuse a cached stack.
-- Every `shift(...)` allocates one token record and returns `Outcome.token`.
+- Every `shift(...)` allocates one token record and returns `Outcome.pending`.
 - Every `resumeWith`, `discontinue`, or `cancel` performs another context switch back into the captured frame.
 
 ## Current cheap path

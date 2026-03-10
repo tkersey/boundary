@@ -38,10 +38,10 @@ pub fn main() anyerror!void {
     while (true) switch (outcome) {
         .complete => break,
         .cancelled => unreachable,
-        .token => |*token| {
-            demo.yielded[demo.yield_count] = token.request;
+        .pending => |*pending| {
+            demo.yielded[demo.yield_count] = pending.request();
             demo.yield_count += 1;
-            outcome = try token.resumeWith({});
+            outcome = try pending.resumeWith({});
         },
     };
 

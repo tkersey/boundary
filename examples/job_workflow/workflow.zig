@@ -108,7 +108,7 @@ pub fn proveGuardRejectsSuspend(runtime: *shift.Runtime) shift.ResetError(error{
     const outcome = try shift.reset(guard_spec, runtime, guard_probe.body);
     switch (outcome) {
         .complete => return,
-        .token, .cancelled => unreachable,
+        .pending, .cancelled => unreachable,
     }
 }
 
@@ -162,7 +162,7 @@ fn ScenarioDriver(comptime Writer: type) type {
                     const audit_outcome = try shift.reset(audit_spec, self.runtime, auditBody);
                     switch (audit_outcome) {
                         .complete => {},
-                        .token, .cancelled => unreachable,
+                        .pending, .cancelled => unreachable,
                     }
                     try self.logRequest("nested audit finished");
                     return .completed;

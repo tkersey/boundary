@@ -2,7 +2,7 @@
 
 `examples/job_workflow/` is the repo's larger "why would I use this?" example.
 
-Its request loop now goes through `shift.driver.run(...)`. That helper is the public workflow layer built on top of the token API.
+Its request loop now goes through `shift.driver.run(...)`. That helper is the public workflow layer built on top of the pending-owner API.
 
 Run it with:
 
@@ -21,7 +21,7 @@ The example keeps one idea per branch:
 `runScenario(...)` uses `shift.driver.run(...)` to drive `shift.reset(...)` until the workflow either:
 
 - completes with a `ScenarioResult`
-- yields a token carrying a `WorkflowRequest`
+- yields a pending owner carrying a `WorkflowRequest`
 - reaches terminal cancellation
 
 The driver prints each request before resolving it:
@@ -32,7 +32,7 @@ The driver prints each request before resolving it:
   - `rejected` -> `discontinue(error.ApprovalDenied)`
   - `cancelled` -> `cancel()`
 
-If the writer fails while a token is outstanding, the driver drains that token before returning the I/O error. That keeps the runtime teardown invariant intact.
+If the writer fails while a pending owner is outstanding, the driver promotes it to an escaped owner, drains it, and then returns the I/O error. That keeps the runtime teardown invariant intact.
 
 ## How each branch maps to control flow
 
@@ -51,7 +51,7 @@ If the writer fails while a token is outstanding, the driver drains that token b
 1. The workflow logs `queued publish`.
 2. It performs the same guarded critical section and logs `critical metadata prepared`.
 3. It requests approval for `publish`.
-4. The driver resolves that token with `discontinue(error.ApprovalDenied)`.
+4. The driver resolves that pending owner with `discontinue(error.ApprovalDenied)`.
 5. The workflow catches that user-owned error and converts it into a recovery path by logging `recovered publish skipped`.
 6. The scenario returns `recovered`.
 

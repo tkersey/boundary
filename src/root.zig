@@ -1,6 +1,6 @@
 const raw = @import("raw.zig");
 
-/// Public workflow driver helpers layered on top of the token API.
+/// Public workflow driver helpers layered on top of the pending-owner API.
 pub const driver = @import("driver.zig");
 /// Runtime owner for fiber-backed one-shot `shift/reset`.
 pub const Runtime = raw.Runtime;
@@ -26,9 +26,14 @@ pub fn Outcome(comptime Spec: type) type {
     return raw.Outcome(Spec);
 }
 
-/// Linear one-shot token that owns the suspended computation.
-pub fn Token(comptime Spec: type) type {
-    return raw.Token(Spec);
+/// Primary one-shot pending owner returned from `Outcome.pending`.
+pub fn Pending(comptime Spec: type) type {
+    return raw.Pending(Spec);
+}
+
+/// Explicit escaped owner for delayed resolution.
+pub fn EscapedToken(comptime Spec: type) type {
+    return raw.EscapedToken(Spec);
 }
 
 /// Run `body` under the nearest dynamic delimiter identified by `Tag`.

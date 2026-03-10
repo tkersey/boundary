@@ -2,29 +2,31 @@
 
 `shift` is a Zig 0.15.2 implementation of one-shot, stackful `shift/reset` with a linear token lifecycle API.
 
-The current runtime is token-driven:
+The current runtime is pending-owner-driven:
 
 - `shift.reset(Spec, &runtime, body)` runs `body` under `Spec.tag` and returns a `shift.Outcome(Spec)`.
 - `shift.shift(Spec, request)` suspends to the nearest active delimiter for `Spec.tag` and yields `request` to the caller.
-- `shift.Token(Spec).resumeWith(value)` resumes the owned token exactly once.
-- `shift.Token(Spec).discontinue(err)` injects a user-owned `Spec.ErrorSet` error into the suspended `shift(...)` site.
-- `shift.Token(Spec).cancel()` issues library-owned terminal cancellation.
-- `shift.Token(Spec).deinit()` auto-cancels unresolved tokens.
+- `shift.Pending(Spec).request()` reads the request carried by `Outcome.pending`.
+- `shift.Pending(Spec).resumeWith(value)` resolves the current pending owner exactly once.
+- `shift.Pending(Spec).discontinue(err)` injects a user-owned `Spec.ErrorSet` error into the suspended `shift(...)` site.
+- `shift.Pending(Spec).cancel()` issues library-owned terminal cancellation.
+- `shift.Pending(Spec).escape()` promotes the current pending owner into an explicit `shift.EscapedToken(Spec)` for delayed resolution.
+- `shift.EscapedToken(Spec).deinit()` auto-cancels unresolved escaped owners.
 
 For workflow-style consumers, the library also exposes a namespaced helper layer:
 
 - `shift.driver.run(Spec, &runtime, body, context, handle)` drives the `shift.Outcome(Spec)` loop for you.
 - `shift.driver.Decision(Spec)` encodes `.resume_value`, `.cancel`, and `.discontinue` when `Spec.ErrorSet` is non-empty.
-- Tokens remain the canonical low-level surface; the driver helper is additive rather than a replacement.
+- The pending-owner loop remains the canonical low-level surface; the driver helper is additive rather than a replacement.
 
 The current implementation is intentionally narrower than the end-state plan:
 
-- Tokens are one-shot and linear.
+- Pending owners are one-shot and linear.
 - Cancellation is terminal once issued.
 - User `discontinue(err)` remains distinct from library cancellation.
 - `NoShiftGuard` is an in-place owner handle for regions where suspension is forbidden.
 - `Runtime` seals to the first stable owner address that uses it; copied runtime aliases fail with `error.RuntimeAliased`.
-- Copied token aliases fail with `error.TokenAliased`.
+- Copied escaped-owner aliases fail with `error.TokenAliased`.
 - The runtime is still experimental and does not recover from actual guard-page stack overflow faults.
 
 ## Build
@@ -130,14 +132,15 @@ pub fn main() anyerror!void {
             break;
         },
         .cancelled => break,
-        .token => |*token| {
-            outcome = try token.resumeWith(token.request);
+        .pending => |*pending| {
+            outcome = try pending.resumeWith(pending.request());
         },
     };
 }
 ```
 
 See `docs/semantics.md`, `docs/zero_cost.md`, and `docs/research.md` for the current contract.
+The research track now branches into `docs/research_laws.md`, `docs/research_machine.md`, and `docs/research_decision.md`.
 
 ## Workflow Helper Example
 
@@ -165,4 +168,4 @@ const handler = struct {
 };
 ```
 
-Use the helper when you want a supported request/response driver loop without taking direct token ownership yourself. The `effect_handlers` and `job_workflow` examples use this layer; the smaller `generator` and `effect_state` examples stay token-first.
+Use the helper when you want a supported request/response driver loop without taking direct pending-owner resolution yourself. The `effect_handlers` and `job_workflow` examples use this layer; the smaller `generator` and `effect_state` examples stay pending-owner-first.

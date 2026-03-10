@@ -39,8 +39,8 @@ fn runSample() !struct { elapsed: u64, checksum: usize } {
         while (true) switch (warmup_outcome) {
             .complete => break,
             .cancelled => unreachable,
-            .token => |*token| {
-                warmup_outcome = try token.resumeWith(bench_state.current);
+            .pending => |*pending| {
+                warmup_outcome = try pending.resumeWith(bench_state.current);
             },
         };
     }
@@ -58,8 +58,8 @@ fn runSample() !struct { elapsed: u64, checksum: usize } {
                 break;
             },
             .cancelled => unreachable,
-            .token => |*token| {
-                outcome = try token.resumeWith(bench_state.current);
+            .pending => |*pending| {
+                outcome = try pending.resumeWith(bench_state.current);
             },
         };
     }

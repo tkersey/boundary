@@ -37,7 +37,7 @@ fn runSample() !struct { elapsed: u64, checksum: usize } {
         const outcome = try shift.reset(bench_spec, &runtime, bench_state.body);
         switch (outcome) {
             .complete => {},
-            .cancelled, .token => unreachable,
+            .cancelled, .pending => unreachable,
         }
     }
 
@@ -50,7 +50,7 @@ fn runSample() !struct { elapsed: u64, checksum: usize } {
         const outcome = try shift.reset(bench_spec, &runtime, bench_state.body);
         sum += switch (outcome) {
             .complete => |answer| answer,
-            .cancelled, .token => unreachable,
+            .cancelled, .pending => unreachable,
         };
     }
 
