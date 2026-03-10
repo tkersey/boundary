@@ -47,6 +47,7 @@ Benchmark contract:
 - Steady-state baseline artifacts live in `bench/baselines/direct_style_v2.json`.
 - The public-driver regression proof against `HEAD` lives in `bench/baselines/public_driver_perf_proof_v1.json`.
 - The pending-owner API follow-up investigation lives in `bench/baselines/pending_owner_api_perf_proof_v1.json`.
+- For noisy follow-up investigation, regenerate `bench/baselines/pending_owner_api_perf_proof_v2.json` with `bench/capture_pending_owner_perf_proof.sh` so the decision uses repeated warmed invocations rather than a single run.
 
 ## Examples
 

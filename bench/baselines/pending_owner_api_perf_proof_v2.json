@@ -1,0 +1,40 @@
+{
+  "label": "pending_owner_api_perf_proof_v2",
+  "captured_at": "2026-03-10T04:38:24Z",
+  "comparison_target": {
+    "artifact": "bench/baselines/direct_style_v2.json",
+    "description": "warmed direct-style baseline before the pending-owner public API cut"
+  },
+  "candidate": {
+    "git_rev": "a7da551",
+    "description": "repeated warmed invocations after the pending-owner public API cut"
+  },
+  "measurement_contract": {
+    "command": "zig build bench / zig build bench-first-suspend",
+    "timed_iterations": 50000,
+    "warmup_iterations": 20000,
+    "samples_per_run": 5,
+    "repeated_invocations": 7,
+    "summary_stat": "p50 of warmed invocation medians",
+    "same_machine": true
+  },
+  "results": {
+    "bench": {
+      "target_median_ns": 3222042,
+      "candidate_invocation_medians_ns": [2976875,3230250,3020292,3053625,3132666,3138500,3062209],
+      "candidate_p50_ns": 3062209,
+      "delta_pct": -4.96,
+      "threshold_pct": 5.0,
+      "pass": true
+    },
+    "bench_first_suspend": {
+      "target_median_ns": 5481416,
+      "candidate_invocation_medians_ns": [5459958,5238375,5301584,5486833,5643958,5398459,5488125],
+      "candidate_p50_ns": 5459958,
+      "delta_pct": -0.39,
+      "threshold_pct": 5.0,
+      "pass": true
+    }
+  },
+  "verdict": "Repeated warmed invocations are the source of truth for the pending-owner API follow-up; this replaces one-off regression judgment for noisy first-suspend measurements."
+}
