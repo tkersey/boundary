@@ -41,7 +41,7 @@ pub fn main() anyerror!void {
         .pending => |*pending| {
             demo.yielded[demo.yield_count] = pending.request();
             demo.yield_count += 1;
-            outcome = try pending.resumeWith({});
+            outcome = try pending.proceed();
         },
     };
 

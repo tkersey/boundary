@@ -100,4 +100,44 @@ test "driver decision omits discontinue when the user error set is empty" {
     };
 
     try std.testing.expect(!@hasField(shift.driver.Decision(no_error_spec), "discontinue"));
+    try std.testing.expect(@hasField(shift.driver.Decision(no_error_spec), "proceed"));
+    try std.testing.expect(!@hasField(shift.driver.Decision(no_error_spec), "resume_value"));
+}
+
+test "void resume decision reaches complete through payloadless proceed" {
+    const void_resume_spec = struct {
+        /// Prompt tag for the payloadless driver probe.
+        pub const tag = struct {};
+        /// The probe emits a unit request.
+        pub const Request = void;
+        /// The probe accepts no resume payload.
+        pub const Resume = void;
+        /// The probe completes with an integer answer.
+        pub const Answer = i32;
+        /// The probe has no user-owned error surface.
+        pub const ErrorSet = error{};
+    };
+
+    const void_resume_demo = struct {
+        fn body() shift.ResetError(void_resume_spec.ErrorSet)!void_resume_spec.Answer {
+            _ = try shift.shift(void_resume_spec, {});
+            return 7;
+        }
+    };
+
+    const resume_handler = struct {
+        fn handle(_: *@This(), _: void_resume_spec.Request) anyerror!shift.driver.Decision(void_resume_spec) {
+            return .{ .proceed = {} };
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    var handler: resume_handler = .{};
+    const outcome = try shift.driver.run(void_resume_spec, &runtime, void_resume_demo.body, &handler, resume_handler.handle);
+    switch (outcome) {
+        .complete => |answer| try std.testing.expectEqual(@as(i32, 7), answer),
+        .cancelled => unreachable,
+    }
 }

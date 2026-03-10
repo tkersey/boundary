@@ -51,6 +51,9 @@ run_fixture() {
 
 run_fixture "$repo_root/test/compile_fail/pending_deinit_forbidden.zig" "deinit"
 run_fixture "$repo_root/test/compile_fail/pending_discontinue_empty_error_set.zig" "discontinue"
+run_fixture "$repo_root/test/compile_fail/pending_resume_with_void_forbidden.zig" "resumeWith"
 run_fixture "$repo_root/test/compile_fail/escaped_discontinue_empty_error_set.zig" "discontinue"
+run_fixture "$repo_root/test/compile_fail/escaped_resume_with_void_forbidden.zig" "resumeWith"
+run_fixture "$repo_root/test/compile_fail/driver_decision_resume_value_void_forbidden.zig" "resume_value"
 run_fixture "$repo_root/test/compile_fail/escaped_token_removed.zig" "EscapedToken"
 run_fixture "$repo_root/test/compile_fail/token_aliased_removed.zig" "TokenAliased"

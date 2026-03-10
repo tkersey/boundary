@@ -47,7 +47,7 @@ const driver = struct {
             .emit => |message| blk: {
                 demo.trace[demo.trace_count] = message;
                 demo.trace_count += 1;
-                break :blk .{ .resume_value = {} };
+                break :blk .{ .proceed = {} };
             },
             .abort => .{ .discontinue = error.Abort },
         };

@@ -49,6 +49,10 @@ fn ErrorSetOf(comptime Spec: type) type {
     return Spec.ErrorSet;
 }
 
+fn resumeIsVoid(comptime Spec: type) bool {
+    return ResumeOf(Spec) == void;
+}
+
 fn supportsDiscontinue(comptime ErrorSet: type) bool {
     return switch (@typeInfo(ErrorSet)) {
         .error_set => |errors| errors == null or errors.?.len != 0,
@@ -488,236 +492,471 @@ pub fn Outcome(comptime Spec: type) type {
 /// Explicit escaped owner for one-shot delayed resolution.
 pub fn EscapedOwner(comptime Spec: type) type {
     const Record = SuspensionRecord(Spec);
-    return if (comptime supportsDiscontinue(ErrorSetOf(Spec)))
-        struct {
-            const Self = @This();
+    return if (comptime supportsDiscontinue(ErrorSetOf(Spec))) blk: {
+        break :blk if (comptime resumeIsVoid(Spec)) blk_inner: {
+            break :blk_inner struct {
+                const Self = @This();
 
-            request: RequestOf(Spec),
-            record: ?*Record,
-            generation: usize,
+                request: RequestOf(Spec),
+                record: ?*Record,
+                generation: usize,
 
-            fn prepare(self: *Self) Error!*Record {
-                const record = self.record orelse return error.AlreadyResolved;
-                try record.runtime.ensureThread();
-                if (record.generation != self.generation) return error.OwnerAliased;
-                if (record.owner_cookie == 0) {
-                    record.owner_cookie = @intFromPtr(self);
-                } else if (record.owner_cookie != @intFromPtr(self)) {
-                    return error.OwnerAliased;
+                fn prepare(self: *Self) Error!*Record {
+                    const record = self.record orelse return error.AlreadyResolved;
+                    try record.runtime.ensureThread();
+                    if (record.generation != self.generation) return error.OwnerAliased;
+                    if (record.owner_cookie == 0) {
+                        record.owner_cookie = @intFromPtr(self);
+                    } else if (record.owner_cookie != @intFromPtr(self)) {
+                        return error.OwnerAliased;
+                    }
+                    if (record.state != .pending) return error.AlreadyResolved;
+                    self.record = null;
+                    return record;
                 }
-                if (record.state != .pending) return error.AlreadyResolved;
-                self.record = null;
-                return record;
-            }
 
-            /// Resume the escaped owner with `value`.
-            pub inline fn resumeWith(self: *Self, value: ResumeOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
-                const record = try self.prepare();
-                record.state = .resumed;
-                record.resume_value = value;
-                record.runtime.active_suspension_count -= 1;
-                defer {
-                    record.owner_cookie = 0;
-                    record.resume_value = null;
-                    record.discontinue_error = null;
-                    record.generation += 1;
-                    record.runtime.pushCachedSuspension(&record.cached);
+                /// Continue the escaped owner when the suspended site expects no payload.
+                pub inline fn proceed(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    const record = try self.prepare();
+                    record.state = .resumed;
+                    record.resume_value = {};
+                    record.runtime.active_suspension_count -= 1;
+                    defer {
+                        record.owner_cookie = 0;
+                        record.resume_value = null;
+                        record.discontinue_error = null;
+                        record.generation += 1;
+                        record.runtime.pushCachedSuspension(&record.cached);
+                    }
+                    return try driveFrame(Spec, record.target_frame);
                 }
-                return try driveFrame(Spec, record.target_frame);
-            }
 
-            /// Inject a user-owned `err` into the escaped owner.
-            pub inline fn discontinue(self: *Self, err: ErrorSetOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
-                const record = try self.prepare();
-                record.state = .discontinued;
-                record.discontinue_error = err;
-                record.runtime.active_suspension_count -= 1;
-                defer {
-                    record.owner_cookie = 0;
-                    record.resume_value = null;
-                    record.discontinue_error = null;
-                    record.generation += 1;
-                    record.runtime.pushCachedSuspension(&record.cached);
+                /// Inject a user-owned `err` into the escaped owner.
+                pub inline fn discontinue(self: *Self, err: ErrorSetOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    const record = try self.prepare();
+                    record.state = .discontinued;
+                    record.discontinue_error = err;
+                    record.runtime.active_suspension_count -= 1;
+                    defer {
+                        record.owner_cookie = 0;
+                        record.resume_value = null;
+                        record.discontinue_error = null;
+                        record.generation += 1;
+                        record.runtime.pushCachedSuspension(&record.cached);
+                    }
+                    return try driveFrame(Spec, record.target_frame);
                 }
-                return try driveFrame(Spec, record.target_frame);
-            }
 
-            /// Issue library-owned terminal cancellation for the escaped owner.
-            pub inline fn cancel(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
-                const record = try self.prepare();
-                record.state = .cancelled;
-                record.target_frame.cancellation_required = true;
-                record.runtime.active_suspension_count -= 1;
-                defer {
-                    record.owner_cookie = 0;
-                    record.resume_value = null;
-                    record.discontinue_error = null;
-                    record.generation += 1;
-                    record.runtime.pushCachedSuspension(&record.cached);
+                /// Issue library-owned terminal cancellation for the escaped owner.
+                pub inline fn cancel(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    const record = try self.prepare();
+                    record.state = .cancelled;
+                    record.target_frame.cancellation_required = true;
+                    record.runtime.active_suspension_count -= 1;
+                    defer {
+                        record.owner_cookie = 0;
+                        record.resume_value = null;
+                        record.discontinue_error = null;
+                        record.generation += 1;
+                        record.runtime.pushCachedSuspension(&record.cached);
+                    }
+                    return try driveFrame(Spec, record.target_frame);
                 }
-                return try driveFrame(Spec, record.target_frame);
-            }
 
-            /// Auto-cancel unresolved escaped owners and ignore the terminal result.
-            pub fn deinit(self: *Self) void {
-                self.deinitChecked() catch |err| switch (err) {
-                    error.AlreadyResolved => return,
-                    error.CrossThread, error.CancellationRecovered => unreachable,
-                    else => unreachable,
-                };
-            }
-
-            /// Checked auto-cancel for unresolved escaped owners.
-            pub fn deinitChecked(self: *Self) ResetError(ErrorSetOf(Spec))!void {
-                if (self.record == null) return error.AlreadyResolved;
-                const outcome = try self.cancel();
-                switch (outcome) {
-                    .cancelled => return,
-                    .complete, .pending => return error.CancellationRecovered,
+                /// Auto-cancel unresolved escaped owners and ignore the terminal result.
+                pub fn deinit(self: *Self) void {
+                    self.deinitChecked() catch |err| switch (err) {
+                        error.AlreadyResolved => return,
+                        error.CrossThread, error.CancellationRecovered => unreachable,
+                        else => unreachable,
+                    };
                 }
-            }
-        }
-    else
-        struct {
-            const Self = @This();
 
-            request: RequestOf(Spec),
-            record: ?*Record,
-            generation: usize,
-
-            fn prepare(self: *Self) Error!*Record {
-                const record = self.record orelse return error.AlreadyResolved;
-                try record.runtime.ensureThread();
-                if (record.generation != self.generation) return error.OwnerAliased;
-                if (record.owner_cookie == 0) {
-                    record.owner_cookie = @intFromPtr(self);
-                } else if (record.owner_cookie != @intFromPtr(self)) {
-                    return error.OwnerAliased;
+                /// Checked auto-cancel for unresolved escaped owners.
+                pub fn deinitChecked(self: *Self) ResetError(ErrorSetOf(Spec))!void {
+                    if (self.record == null) return error.AlreadyResolved;
+                    const outcome = try self.cancel();
+                    switch (outcome) {
+                        .cancelled => return,
+                        .complete, .pending => return error.CancellationRecovered,
+                    }
                 }
-                if (record.state != .pending) return error.AlreadyResolved;
-                self.record = null;
-                return record;
-            }
+            };
+        } else blk_inner: {
+            break :blk_inner struct {
+                const Self = @This();
 
-            /// Resume the escaped owner with `value`.
-            pub inline fn resumeWith(self: *Self, value: ResumeOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
-                const record = try self.prepare();
-                record.state = .resumed;
-                record.resume_value = value;
-                record.runtime.active_suspension_count -= 1;
-                defer {
-                    record.owner_cookie = 0;
-                    record.resume_value = null;
-                    record.discontinue_error = null;
-                    record.generation += 1;
-                    record.runtime.pushCachedSuspension(&record.cached);
+                request: RequestOf(Spec),
+                record: ?*Record,
+                generation: usize,
+
+                fn prepare(self: *Self) Error!*Record {
+                    const record = self.record orelse return error.AlreadyResolved;
+                    try record.runtime.ensureThread();
+                    if (record.generation != self.generation) return error.OwnerAliased;
+                    if (record.owner_cookie == 0) {
+                        record.owner_cookie = @intFromPtr(self);
+                    } else if (record.owner_cookie != @intFromPtr(self)) {
+                        return error.OwnerAliased;
+                    }
+                    if (record.state != .pending) return error.AlreadyResolved;
+                    self.record = null;
+                    return record;
                 }
-                return try driveFrame(Spec, record.target_frame);
-            }
 
-            /// Issue library-owned terminal cancellation for the escaped owner.
-            pub inline fn cancel(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
-                const record = try self.prepare();
-                record.state = .cancelled;
-                record.target_frame.cancellation_required = true;
-                record.runtime.active_suspension_count -= 1;
-                defer {
-                    record.owner_cookie = 0;
-                    record.resume_value = null;
-                    record.discontinue_error = null;
-                    record.generation += 1;
-                    record.runtime.pushCachedSuspension(&record.cached);
+                /// Resume the escaped owner with `value`.
+                pub inline fn resumeWith(self: *Self, value: ResumeOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    const record = try self.prepare();
+                    record.state = .resumed;
+                    record.resume_value = value;
+                    record.runtime.active_suspension_count -= 1;
+                    defer {
+                        record.owner_cookie = 0;
+                        record.resume_value = null;
+                        record.discontinue_error = null;
+                        record.generation += 1;
+                        record.runtime.pushCachedSuspension(&record.cached);
+                    }
+                    return try driveFrame(Spec, record.target_frame);
                 }
-                return try driveFrame(Spec, record.target_frame);
-            }
 
-            /// Auto-cancel unresolved escaped owners and ignore the terminal result.
-            pub fn deinit(self: *Self) void {
-                self.deinitChecked() catch |err| switch (err) {
-                    error.AlreadyResolved => return,
-                    error.CrossThread, error.CancellationRecovered => unreachable,
-                    else => unreachable,
-                };
-            }
-
-            /// Checked auto-cancel for unresolved escaped owners.
-            pub fn deinitChecked(self: *Self) ResetError(ErrorSetOf(Spec))!void {
-                if (self.record == null) return error.AlreadyResolved;
-                const outcome = try self.cancel();
-                switch (outcome) {
-                    .cancelled => return,
-                    .complete, .pending => return error.CancellationRecovered,
+                /// Inject a user-owned `err` into the escaped owner.
+                pub inline fn discontinue(self: *Self, err: ErrorSetOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    const record = try self.prepare();
+                    record.state = .discontinued;
+                    record.discontinue_error = err;
+                    record.runtime.active_suspension_count -= 1;
+                    defer {
+                        record.owner_cookie = 0;
+                        record.resume_value = null;
+                        record.discontinue_error = null;
+                        record.generation += 1;
+                        record.runtime.pushCachedSuspension(&record.cached);
+                    }
+                    return try driveFrame(Spec, record.target_frame);
                 }
-            }
+
+                /// Issue library-owned terminal cancellation for the escaped owner.
+                pub inline fn cancel(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    const record = try self.prepare();
+                    record.state = .cancelled;
+                    record.target_frame.cancellation_required = true;
+                    record.runtime.active_suspension_count -= 1;
+                    defer {
+                        record.owner_cookie = 0;
+                        record.resume_value = null;
+                        record.discontinue_error = null;
+                        record.generation += 1;
+                        record.runtime.pushCachedSuspension(&record.cached);
+                    }
+                    return try driveFrame(Spec, record.target_frame);
+                }
+
+                /// Auto-cancel unresolved escaped owners and ignore the terminal result.
+                pub fn deinit(self: *Self) void {
+                    self.deinitChecked() catch |err| switch (err) {
+                        error.AlreadyResolved => return,
+                        error.CrossThread, error.CancellationRecovered => unreachable,
+                        else => unreachable,
+                    };
+                }
+
+                /// Checked auto-cancel for unresolved escaped owners.
+                pub fn deinitChecked(self: *Self) ResetError(ErrorSetOf(Spec))!void {
+                    if (self.record == null) return error.AlreadyResolved;
+                    const outcome = try self.cancel();
+                    switch (outcome) {
+                        .cancelled => return,
+                        .complete, .pending => return error.CancellationRecovered,
+                    }
+                }
+            };
         };
+    } else blk: {
+        break :blk if (comptime resumeIsVoid(Spec)) blk_inner: {
+            break :blk_inner struct {
+                const Self = @This();
+
+                request: RequestOf(Spec),
+                record: ?*Record,
+                generation: usize,
+
+                fn prepare(self: *Self) Error!*Record {
+                    const record = self.record orelse return error.AlreadyResolved;
+                    try record.runtime.ensureThread();
+                    if (record.generation != self.generation) return error.OwnerAliased;
+                    if (record.owner_cookie == 0) {
+                        record.owner_cookie = @intFromPtr(self);
+                    } else if (record.owner_cookie != @intFromPtr(self)) {
+                        return error.OwnerAliased;
+                    }
+                    if (record.state != .pending) return error.AlreadyResolved;
+                    self.record = null;
+                    return record;
+                }
+
+                /// Continue the escaped owner when the suspended site expects no payload.
+                pub inline fn proceed(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    const record = try self.prepare();
+                    record.state = .resumed;
+                    record.resume_value = {};
+                    record.runtime.active_suspension_count -= 1;
+                    defer {
+                        record.owner_cookie = 0;
+                        record.resume_value = null;
+                        record.discontinue_error = null;
+                        record.generation += 1;
+                        record.runtime.pushCachedSuspension(&record.cached);
+                    }
+                    return try driveFrame(Spec, record.target_frame);
+                }
+
+                /// Issue library-owned terminal cancellation for the escaped owner.
+                pub inline fn cancel(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    const record = try self.prepare();
+                    record.state = .cancelled;
+                    record.target_frame.cancellation_required = true;
+                    record.runtime.active_suspension_count -= 1;
+                    defer {
+                        record.owner_cookie = 0;
+                        record.resume_value = null;
+                        record.discontinue_error = null;
+                        record.generation += 1;
+                        record.runtime.pushCachedSuspension(&record.cached);
+                    }
+                    return try driveFrame(Spec, record.target_frame);
+                }
+
+                /// Auto-cancel unresolved escaped owners and ignore the terminal result.
+                pub fn deinit(self: *Self) void {
+                    self.deinitChecked() catch |err| switch (err) {
+                        error.AlreadyResolved => return,
+                        error.CrossThread, error.CancellationRecovered => unreachable,
+                        else => unreachable,
+                    };
+                }
+
+                /// Checked auto-cancel for unresolved escaped owners.
+                pub fn deinitChecked(self: *Self) ResetError(ErrorSetOf(Spec))!void {
+                    if (self.record == null) return error.AlreadyResolved;
+                    const outcome = try self.cancel();
+                    switch (outcome) {
+                        .cancelled => return,
+                        .complete, .pending => return error.CancellationRecovered,
+                    }
+                }
+            };
+        } else blk_inner: {
+            break :blk_inner struct {
+                const Self = @This();
+
+                request: RequestOf(Spec),
+                record: ?*Record,
+                generation: usize,
+
+                fn prepare(self: *Self) Error!*Record {
+                    const record = self.record orelse return error.AlreadyResolved;
+                    try record.runtime.ensureThread();
+                    if (record.generation != self.generation) return error.OwnerAliased;
+                    if (record.owner_cookie == 0) {
+                        record.owner_cookie = @intFromPtr(self);
+                    } else if (record.owner_cookie != @intFromPtr(self)) {
+                        return error.OwnerAliased;
+                    }
+                    if (record.state != .pending) return error.AlreadyResolved;
+                    self.record = null;
+                    return record;
+                }
+
+                /// Resume the escaped owner with `value`.
+                pub inline fn resumeWith(self: *Self, value: ResumeOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    const record = try self.prepare();
+                    record.state = .resumed;
+                    record.resume_value = value;
+                    record.runtime.active_suspension_count -= 1;
+                    defer {
+                        record.owner_cookie = 0;
+                        record.resume_value = null;
+                        record.discontinue_error = null;
+                        record.generation += 1;
+                        record.runtime.pushCachedSuspension(&record.cached);
+                    }
+                    return try driveFrame(Spec, record.target_frame);
+                }
+
+                /// Issue library-owned terminal cancellation for the escaped owner.
+                pub inline fn cancel(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    const record = try self.prepare();
+                    record.state = .cancelled;
+                    record.target_frame.cancellation_required = true;
+                    record.runtime.active_suspension_count -= 1;
+                    defer {
+                        record.owner_cookie = 0;
+                        record.resume_value = null;
+                        record.discontinue_error = null;
+                        record.generation += 1;
+                        record.runtime.pushCachedSuspension(&record.cached);
+                    }
+                    return try driveFrame(Spec, record.target_frame);
+                }
+
+                /// Auto-cancel unresolved escaped owners and ignore the terminal result.
+                pub fn deinit(self: *Self) void {
+                    self.deinitChecked() catch |err| switch (err) {
+                        error.AlreadyResolved => return,
+                        error.CrossThread, error.CancellationRecovered => unreachable,
+                        else => unreachable,
+                    };
+                }
+
+                /// Checked auto-cancel for unresolved escaped owners.
+                pub fn deinitChecked(self: *Self) ResetError(ErrorSetOf(Spec))!void {
+                    if (self.record == null) return error.AlreadyResolved;
+                    const outcome = try self.cancel();
+                    switch (outcome) {
+                        .cancelled => return,
+                        .complete, .pending => return error.CancellationRecovered,
+                    }
+                }
+            };
+        };
+    };
 }
 
 /// Primary one-shot pending owner used by the direct-style loop.
 pub fn Pending(comptime Spec: type) type {
     const Escaped = EscapedOwner(Spec);
-    return if (comptime supportsDiscontinue(ErrorSetOf(Spec)))
-        struct {
-            const Self = @This();
+    return if (comptime supportsDiscontinue(ErrorSetOf(Spec))) blk: {
+        break :blk if (comptime resumeIsVoid(Spec)) blk_inner: {
+            break :blk_inner struct {
+                const Self = @This();
 
-            escaped: Escaped,
+                escaped: Escaped,
 
-            /// Read the request carried by the pending owner.
-            pub inline fn request(self: *const Self) RequestOf(Spec) {
-                return self.escaped.request;
-            }
+                /// Read the request carried by the pending owner.
+                pub inline fn request(self: *const Self) RequestOf(Spec) {
+                    return self.escaped.request;
+                }
 
-            /// Promote the pending owner into an explicit escaped owner.
-            pub inline fn escape(self: *Self) Error!Escaped {
-                if (self.escaped.record == null) return error.AlreadyResolved;
-                const escaped = self.escaped;
-                self.escaped.record = null;
-                return escaped;
-            }
+                /// Promote the pending owner into an explicit escaped owner.
+                pub inline fn escape(self: *Self) Error!Escaped {
+                    if (self.escaped.record == null) return error.AlreadyResolved;
+                    const escaped = self.escaped;
+                    self.escaped.record = null;
+                    return escaped;
+                }
 
-            /// Resolve the pending owner with `value`.
-            pub inline fn resumeWith(self: *Self, value: ResumeOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
-                return self.escaped.resumeWith(value);
-            }
+                /// Continue the pending owner when the suspended site expects no payload.
+                pub inline fn proceed(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    return self.escaped.proceed();
+                }
 
-            /// Inject a user-owned `err` through the pending owner.
-            pub inline fn discontinue(self: *Self, err: ErrorSetOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
-                return self.escaped.discontinue(err);
-            }
+                /// Inject a user-owned `err` through the pending owner.
+                pub inline fn discontinue(self: *Self, err: ErrorSetOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    return self.escaped.discontinue(err);
+                }
 
-            /// Issue library-owned terminal cancellation for the pending owner.
-            pub inline fn cancel(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
-                return self.escaped.cancel();
-            }
-        }
-    else
-        struct {
-            const Self = @This();
+                /// Issue library-owned terminal cancellation for the pending owner.
+                pub inline fn cancel(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    return self.escaped.cancel();
+                }
+            };
+        } else blk_inner: {
+            break :blk_inner struct {
+                const Self = @This();
 
-            escaped: Escaped,
+                escaped: Escaped,
 
-            /// Read the request carried by the pending owner.
-            pub inline fn request(self: *const Self) RequestOf(Spec) {
-                return self.escaped.request;
-            }
+                /// Read the request carried by the pending owner.
+                pub inline fn request(self: *const Self) RequestOf(Spec) {
+                    return self.escaped.request;
+                }
 
-            /// Promote the pending owner into an explicit escaped owner.
-            pub inline fn escape(self: *Self) Error!Escaped {
-                if (self.escaped.record == null) return error.AlreadyResolved;
-                const escaped = self.escaped;
-                self.escaped.record = null;
-                return escaped;
-            }
+                /// Promote the pending owner into an explicit escaped owner.
+                pub inline fn escape(self: *Self) Error!Escaped {
+                    if (self.escaped.record == null) return error.AlreadyResolved;
+                    const escaped = self.escaped;
+                    self.escaped.record = null;
+                    return escaped;
+                }
 
-            /// Resolve the pending owner with `value`.
-            pub inline fn resumeWith(self: *Self, value: ResumeOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
-                return self.escaped.resumeWith(value);
-            }
+                /// Resolve the pending owner with `value`.
+                pub inline fn resumeWith(self: *Self, value: ResumeOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    return self.escaped.resumeWith(value);
+                }
 
-            /// Issue library-owned terminal cancellation for the pending owner.
-            pub inline fn cancel(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
-                return self.escaped.cancel();
-            }
+                /// Inject a user-owned `err` through the pending owner.
+                pub inline fn discontinue(self: *Self, err: ErrorSetOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    return self.escaped.discontinue(err);
+                }
+
+                /// Issue library-owned terminal cancellation for the pending owner.
+                pub inline fn cancel(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    return self.escaped.cancel();
+                }
+            };
         };
+    } else blk: {
+        break :blk if (comptime resumeIsVoid(Spec)) blk_inner: {
+            break :blk_inner struct {
+                const Self = @This();
+
+                escaped: Escaped,
+
+                /// Read the request carried by the pending owner.
+                pub inline fn request(self: *const Self) RequestOf(Spec) {
+                    return self.escaped.request;
+                }
+
+                /// Promote the pending owner into an explicit escaped owner.
+                pub inline fn escape(self: *Self) Error!Escaped {
+                    if (self.escaped.record == null) return error.AlreadyResolved;
+                    const escaped = self.escaped;
+                    self.escaped.record = null;
+                    return escaped;
+                }
+
+                /// Continue the pending owner when the suspended site expects no payload.
+                pub inline fn proceed(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    return self.escaped.proceed();
+                }
+
+                /// Issue library-owned terminal cancellation for the pending owner.
+                pub inline fn cancel(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    return self.escaped.cancel();
+                }
+            };
+        } else blk_inner: {
+            break :blk_inner struct {
+                const Self = @This();
+
+                escaped: Escaped,
+
+                /// Read the request carried by the pending owner.
+                pub inline fn request(self: *const Self) RequestOf(Spec) {
+                    return self.escaped.request;
+                }
+
+                /// Promote the pending owner into an explicit escaped owner.
+                pub inline fn escape(self: *Self) Error!Escaped {
+                    if (self.escaped.record == null) return error.AlreadyResolved;
+                    const escaped = self.escaped;
+                    self.escaped.record = null;
+                    return escaped;
+                }
+
+                /// Resolve the pending owner with `value`.
+                pub inline fn resumeWith(self: *Self, value: ResumeOf(Spec)) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    return self.escaped.resumeWith(value);
+                }
+
+                /// Issue library-owned terminal cancellation for the pending owner.
+                pub inline fn cancel(self: *Self) ResetError(ErrorSetOf(Spec))!Outcome(Spec) {
+                    return self.escaped.cancel();
+                }
+            };
+        };
+    };
 }
 
 fn SuspensionRecord(comptime Spec: type) type {
@@ -1011,7 +1250,7 @@ test "user discontinue can be caught and continue into another pending owner" {
         .complete, .cancelled => unreachable,
         .pending => |*pending| {
             try std.testing.expectEqualStrings("after-stop", pending.request());
-            outcome = try pending.resumeWith({});
+            outcome = try pending.proceed();
         },
     }
     switch (outcome) {
@@ -1049,6 +1288,41 @@ test "pending owner can escape reset and resume later" {
         },
     }
     outcome = try saved.?.resumeWith(41);
+    switch (outcome) {
+        .complete => |answer| try std.testing.expectEqual(@as(usize, 42), answer),
+        .pending, .cancelled => unreachable,
+    }
+}
+
+test "payloadless escaped owner can proceed later" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    const demo_spec = struct {
+        const tag = struct {};
+        const Request = []const u8;
+        const Resume = void;
+        const Answer = usize;
+        const ErrorSet = error{};
+    };
+
+    const demo = struct {
+        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
+            _ = try shift(demo_spec, "later");
+            return 42;
+        }
+    };
+
+    var saved: ?EscapedOwner(demo_spec) = null;
+    var outcome = try reset(demo_spec, &runtime, demo.body);
+    switch (outcome) {
+        .complete, .cancelled => unreachable,
+        .pending => |*pending| {
+            try std.testing.expectEqualStrings("later", pending.request());
+            saved = try pending.escape();
+        },
+    }
+    outcome = try saved.?.proceed();
     switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(usize, 42), answer),
         .pending, .cancelled => unreachable,

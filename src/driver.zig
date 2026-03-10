@@ -7,19 +7,37 @@ fn supportsDiscontinue(comptime Spec: type) bool {
     };
 }
 
+fn resumeIsVoid(comptime Spec: type) bool {
+    return Spec.Resume == void;
+}
+
 /// The next action a workflow handler wants the driver to apply.
 pub fn Decision(comptime Spec: type) type {
-    return if (comptime supportsDiscontinue(Spec))
-        union(enum) {
+    return if (comptime supportsDiscontinue(Spec)) blk: {
+        break :blk if (comptime resumeIsVoid(Spec)) blk_inner: {
+            break :blk_inner union(enum) {
+                cancel: void,
+                discontinue: Spec.ErrorSet,
+                proceed: void,
+            };
+        } else blk_inner: {
+            break :blk_inner union(enum) {
+                cancel: void,
+                discontinue: Spec.ErrorSet,
+                resume_value: Spec.Resume,
+            };
+        };
+    } else if (comptime resumeIsVoid(Spec)) blk: {
+        break :blk union(enum) {
             cancel: void,
-            discontinue: Spec.ErrorSet,
-            resume_value: Spec.Resume,
-        }
-    else
-        union(enum) {
+            proceed: void,
+        };
+    } else blk: {
+        break :blk union(enum) {
             cancel: void,
             resume_value: Spec.Resume,
         };
+    };
 }
 
 /// The terminal states the public workflow driver can return.
@@ -60,15 +78,27 @@ inline fn applyDecision(
     pending: *raw.Pending(Spec),
     decision: Decision(Spec),
 ) raw.ResetError(Spec.ErrorSet)!raw.Outcome(Spec) {
-    return if (comptime supportsDiscontinue(Spec))
-        switch (decision) {
+    return if (comptime supportsDiscontinue(Spec)) blk: {
+        break :blk if (comptime resumeIsVoid(Spec)) blk_inner: {
+            break :blk_inner switch (decision) {
+                .cancel => try pending.cancel(),
+                .discontinue => |err| try pending.discontinue(err),
+                .proceed => try pending.proceed(),
+            };
+        } else switch (decision) {
             .cancel => try pending.cancel(),
             .discontinue => |err| try pending.discontinue(err),
             .resume_value => |value| try pending.resumeWith(value),
-        }
-    else
-        switch (decision) {
+        };
+    } else if (comptime resumeIsVoid(Spec)) blk: {
+        break :blk switch (decision) {
+            .cancel => try pending.cancel(),
+            .proceed => try pending.proceed(),
+        };
+    } else blk: {
+        break :blk switch (decision) {
             .cancel => try pending.cancel(),
             .resume_value => |value| try pending.resumeWith(value),
         };
+    };
 }

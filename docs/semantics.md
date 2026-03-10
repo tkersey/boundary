@@ -9,11 +9,12 @@
   - `.complete`: the body finished with `Spec.Answer`
   - `.pending`: the body hit `shift.shift(Spec, request)` and yielded an owned `shift.Pending(Spec)`
   - `.cancelled`: library-owned terminal cancellation completed
-- Calling `shift.shift(Spec, request)` captures to the nearest active delimiter for `Spec.tag`, hands `request` to the pending owner, and later evaluates to the value supplied by `resumeWith`.
-- Calling `Pending.resumeWith(value)` reinstalls the delimiter and makes the suspended `shift(...)` expression evaluate to `value`.
+- Calling `shift.shift(Spec, request)` captures to the nearest active delimiter for `Spec.tag`, hands `request` to the pending owner, and later evaluates to the value supplied by `resumeWith`, or completes the payloadless proceed transition when `Spec.Resume` is `void`.
+- Calling `Pending.resumeWith(value)` reinstalls the delimiter and makes the suspended `shift(...)` expression evaluate to `value` when `Spec.Resume` is non-`void`; `Pending.proceed()` performs the same transition when `Spec.Resume` is `void`.
 - Calling `Pending.discontinue(err)` resumes the suspended frame in user-error mode and propagates `err` through the suspended `shift(...)` site when `Spec.ErrorSet` is non-empty.
 - Calling `Pending.cancel()` issues library-owned terminal cancellation.
 - Calling `Pending.escape()` promotes the current pending owner into `EscapedOwner`.
+- Calling `EscapedOwner.resumeWith(value)` resolves delayed ownership when `Spec.Resume` is non-`void`; `EscapedOwner.proceed()` performs the same delayed transition when `Spec.Resume` is `void`.
 - Calling `EscapedOwner.deinit()` auto-cancels unresolved escaped owners.
 - Pending owners are one-shot. Reusing the same owner returns `error.AlreadyResolved`.
 - Copied escaped-owner aliases fail with `error.OwnerAliased`.
@@ -36,7 +37,7 @@
 2. `reset(Spec, ...)` acquires a heap-backed reset frame from the runtime-local frame cache (or allocates one on a cold path), switches to that fiber, and runs `body`.
 3. `shift(Spec, request)` allocates a one-shot owner record, suspends the current fiber, and returns control to the caller as `Outcome.pending`.
 4. The caller owns the returned pending owner and must resolve it or explicitly promote it to `EscapedOwner`.
-5. `resumeWith`, `discontinue`, or `cancel` drive the suspended frame until it completes, yields another pending owner, or reaches terminal cancellation.
+5. `resumeWith` or `proceed`, `discontinue`, or `cancel` drive the suspended frame until it completes, yields another pending owner, or reaches terminal cancellation.
 
 ## Errors
 

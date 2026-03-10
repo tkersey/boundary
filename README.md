@@ -7,21 +7,23 @@ The current runtime is pending-owner-driven:
 - `shift.reset(Spec, &runtime, body)` runs `body` under `Spec.tag` and returns a `shift.Outcome(Spec)`.
 - `shift.shift(Spec, request)` suspends to the nearest active delimiter for `Spec.tag` and yields `request` to the caller.
 - `shift.Pending(Spec).request()` reads the request carried by `Outcome.pending`.
-- `shift.Pending(Spec).resumeWith(value)` resolves the current pending owner exactly once.
+- `shift.Pending(Spec).resumeWith(value)` resolves the current pending owner exactly once when `Spec.Resume` is non-`void`; `shift.Pending(Spec).proceed()` does the same when `Spec.Resume` is `void`.
 - `shift.Pending(Spec).discontinue(err)` injects a user-owned `Spec.ErrorSet` error into the suspended `shift(...)` site when `Spec.ErrorSet` is non-empty.
 - `shift.Pending(Spec).cancel()` issues library-owned terminal cancellation.
 - `shift.Pending(Spec).escape()` promotes the current pending owner into an explicit `shift.EscapedOwner(Spec)` for delayed resolution.
+- `shift.EscapedOwner(Spec).resumeWith(value)` resolves delayed ownership when `Spec.Resume` is non-`void`; `shift.EscapedOwner(Spec).proceed()` does the same when `Spec.Resume` is `void`.
 - `shift.EscapedOwner(Spec).deinit()` auto-cancels unresolved escaped owners.
 
 Migration note:
 - `shift.EscapedToken(Spec)` was renamed to `shift.EscapedOwner(Spec)`.
 - `error.TokenAliased` was renamed to `error.OwnerAliased`.
 - `Pending.escape()` is unchanged; only the escaped-owner spelling changed.
+- `resumeWith({})` and `.resume_value = {}` were replaced by `proceed()` and `.proceed` when `Spec.Resume` is `void`.
 
 For workflow-style consumers, the library also exposes a namespaced helper layer:
 
 - `shift.driver.run(Spec, &runtime, body, context, handle)` drives the `shift.Outcome(Spec)` loop for you.
-- `shift.driver.Decision(Spec)` encodes `.resume_value`, `.cancel`, and `.discontinue` when `Spec.ErrorSet` is non-empty.
+- `shift.driver.Decision(Spec)` encodes `.resume_value` for non-`void` resumes, `.proceed` for `void` resumes, plus `.cancel` and `.discontinue` when `Spec.ErrorSet` is non-empty.
 - The pending-owner loop remains the canonical low-level surface; the driver helper is additive rather than a replacement.
 
 The current implementation is intentionally narrower than the end-state plan:
@@ -171,7 +173,7 @@ const workflow = struct {
 
 const handler = struct {
     fn handle(_: *@This(), _: workflow_spec.Request) anyerror!shift.driver.Decision(workflow_spec) {
-        return .{ .resume_value = {} };
+        return .{ .proceed = {} };
     }
 };
 ```

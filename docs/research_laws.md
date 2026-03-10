@@ -72,7 +72,7 @@ Use this vocabulary when reasoning about the repo:
 
 - delimiter: an active reset frame tagged by `Spec.tag`
 - pending owner: an unresolved one-shot owner returned to the caller
-- resumed branch: a pending owner resolved with a resume value
+- resumed branch: a pending owner resolved by `resumeWith(value)` or `proceed()`, depending on whether the resume edge carries a payload
 - discontinued branch: a pending owner resolved with a user error
 - cancelled branch: a pending owner resolved by terminal runtime cancellation
 - guarded region: a dynamic extent where capture is forbidden

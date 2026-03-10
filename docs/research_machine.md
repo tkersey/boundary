@@ -34,6 +34,7 @@ Use this machine vocabulary:
 - `Running(frame)`: executing inside a reset frame
 - `Suspended(frame, pending)`: yielded a one-shot owner to the caller
 - `DeliverResume(frame, value)`: returning through the pending owner with a resume value
+- `DeliverResume(frame)`: returning through the pending owner when the proceed transition carries no payload
 - `DeliverDiscontinue(frame, err)`: returning through the pending owner with a user error
 - `DeliverCancel(frame)`: returning through the pending owner with terminal cancellation
 - `Complete(answer)`: reset finished normally
@@ -44,7 +45,8 @@ Use this machine vocabulary:
 1. `reset` allocates or reuses a frame and enters `Running(frame)`.
 2. `shift` searches upward for the nearest matching prompt token and creates `Suspended(frame, pending)`.
 3. Caller chooses exactly one transition from the pending owner:
-   - `resumeWith` -> `DeliverResume`
+   - `resumeWith` -> `DeliverResume(frame, value)`
+   - `proceed` -> `DeliverResume(frame)`
    - `discontinue` -> `DeliverDiscontinue`
    - `cancel` -> `DeliverCancel`
 4. The frame runs until it reaches another suspension, completes, or fails.
@@ -68,4 +70,4 @@ This machine read suggests the next public surface should expose two different s
 - the normal pending-resolution story, which corresponds to `Suspended(frame, pending)`
 - the advanced escaped-owner story, which corresponds to persisting the pending machine edge beyond the immediate loop
 
-That is why the follow-on choice is not “token or no token.” The real choice is which machine edge should be first-class for normal users.
+That is why the follow-on choice is not “token or no token.” The real choice is which machine edge should be first-class for normal users, and whether a given edge actually carries a payload.

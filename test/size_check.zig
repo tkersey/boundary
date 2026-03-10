@@ -18,6 +18,46 @@ test "pending and escaped-owner shells stay compact" {
     try std.testing.expect(@sizeOf(shift.EscapedOwner(demo_spec)) <= 3 * @sizeOf(usize));
 }
 
+test "void resume specializations expose payloadless proceed helpers" {
+    const void_resume_spec = struct {
+        /// Prompt tag for the payloadless resume probe.
+        pub const tag = struct {};
+        /// The probe emits no request payload.
+        pub const Request = void;
+        /// The probe accepts no resume payload.
+        pub const Resume = void;
+        /// The probe completes without a value.
+        pub const Answer = void;
+        /// The probe has no user-owned error surface.
+        pub const ErrorSet = error{};
+    };
+
+    try std.testing.expect(@hasDecl(shift.Pending(void_resume_spec), "proceed"));
+    try std.testing.expect(!@hasDecl(shift.Pending(void_resume_spec), "resumeWith"));
+    try std.testing.expect(@hasDecl(shift.EscapedOwner(void_resume_spec), "proceed"));
+    try std.testing.expect(!@hasDecl(shift.EscapedOwner(void_resume_spec), "resumeWith"));
+}
+
+test "value-carrying resume specializations omit payloadless proceed helpers" {
+    const value_resume_spec = struct {
+        /// Prompt tag for the value-carrying resume probe.
+        pub const tag = struct {};
+        /// The probe emits no request payload.
+        pub const Request = void;
+        /// The probe accepts an integer resume payload.
+        pub const Resume = i32;
+        /// The probe completes without a value.
+        pub const Answer = void;
+        /// The probe has no user-owned error surface.
+        pub const ErrorSet = error{};
+    };
+
+    try std.testing.expect(!@hasDecl(shift.Pending(value_resume_spec), "proceed"));
+    try std.testing.expect(@hasDecl(shift.Pending(value_resume_spec), "resumeWith"));
+    try std.testing.expect(!@hasDecl(shift.EscapedOwner(value_resume_spec), "proceed"));
+    try std.testing.expect(@hasDecl(shift.EscapedOwner(value_resume_spec), "resumeWith"));
+}
+
 test "runtime defaults stay explicit" {
     var runtime = shift.Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
