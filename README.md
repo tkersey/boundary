@@ -14,6 +14,17 @@ The current runtime is pending-owner-driven:
 - `shift.EscapedOwner(Spec).resumeWith(value)` resolves delayed ownership when `Spec.Resume` is non-`void`; `shift.EscapedOwner(Spec).proceed()` does the same when `Spec.Resume` is `void`.
 - `shift.EscapedOwner(Spec).deinit()` auto-cancels unresolved escaped owners.
 
+Contract matrix:
+
+| Spec shape | Pending surface | Escaped surface | Driver surface |
+|---|---|---|---|
+| `Resume != void`, non-empty `ErrorSet` | `request`, `resumeWith`, `discontinue`, `cancel`, `escape` | `resumeWith`, `discontinue`, `cancel`, `deinit` | `.resume_value`, `.discontinue`, `.cancel` |
+| `Resume == void`, non-empty `ErrorSet` | `request`, `proceed`, `discontinue`, `cancel`, `escape` | `proceed`, `discontinue`, `cancel`, `deinit` | `.proceed`, `.discontinue`, `.cancel` |
+| `Resume != void`, empty `ErrorSet` | `request`, `resumeWith`, `cancel`, `escape` | `resumeWith`, `cancel`, `deinit` | `.resume_value`, `.cancel` |
+| `Resume == void`, empty `ErrorSet` | `request`, `proceed`, `cancel`, `escape` | `proceed`, `cancel`, `deinit` | `.proceed`, `.cancel` |
+
+If a method is absent for a specialization, that absence is intentional and is enforced by compile-fail and size-check coverage.
+
 Migration note:
 - `shift.EscapedToken(Spec)` was renamed to `shift.EscapedOwner(Spec)`.
 - `error.TokenAliased` was renamed to `error.OwnerAliased`.
@@ -25,6 +36,12 @@ For workflow-style consumers, the library also exposes a namespaced helper layer
 - `shift.driver.run(Spec, &runtime, body, context, handle)` drives the `shift.Outcome(Spec)` loop for you.
 - `shift.driver.Decision(Spec)` encodes `.resume_value` for non-`void` resumes, `.proceed` for `void` resumes, plus `.cancel` and `.discontinue` when `Spec.ErrorSet` is non-empty.
 - The pending-owner loop remains the canonical low-level surface; the driver helper is additive rather than a replacement.
+
+Driver boundary:
+
+- `shift.driver.run(...)` owns the loop over `Outcome.pending`, not the underlying prompt, cancellation, or guard semantics.
+- The driver does not introduce a session-primary public model.
+- If a handler fails while a pending owner is outstanding, the driver must drain that owner before returning the handler error.
 
 The current implementation is intentionally narrower than the end-state plan:
 
@@ -56,6 +73,7 @@ Benchmark contract:
 - The public-driver regression proof against `HEAD` lives in `bench/baselines/public_driver_perf_proof_v1.json`.
 - The pending-owner API follow-up investigation lives in `bench/baselines/pending_owner_api_perf_proof_v2.json`.
 - Regenerate `bench/baselines/pending_owner_api_perf_proof_v2.json` with `bench/capture_pending_owner_perf_proof.sh` so the decision uses repeated warmed invocations rather than a single run.
+- Treat the warmed benchmark envelope as part of the semantic contract for this runtime shape; semantic cleanup is only done when neither tracked benchmark path regresses by more than the documented threshold versus baseline.
 
 ## Examples
 

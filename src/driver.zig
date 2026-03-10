@@ -48,7 +48,7 @@ pub fn TerminalOutcome(comptime Spec: type) type {
     };
 }
 
-/// Run `body` under `reset` and resolve each yielded pending request through `handle`.
+/// Semantic adapter: run `body` under `reset` and resolve each yielded pending edge through `handle`.
 pub inline fn run(
     comptime Spec: type,
     runtime: *raw.Runtime,

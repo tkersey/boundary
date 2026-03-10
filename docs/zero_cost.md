@@ -23,3 +23,5 @@ This runtime is not zero-cost in the old managed-frame sense.
 - The benchmark in `bench/direct_first_suspend_bench.zig` uses the same warmed five-sample median contract for the steady-state first-suspend path.
 
 The README and benchmark artifacts remain the source of truth for current performance claims, but performance is no longer the primary design driver of this pass.
+
+The warmed benchmark envelope is still a semantic guardrail for the current runtime shape: changes that clarify the machine model or public contract are only accepted when neither tracked path becomes more than the documented threshold slower than baseline.

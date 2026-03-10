@@ -297,3 +297,138 @@ test "outer prompt token can bubble through an inner reset" {
         .pending, .cancelled => unreachable,
     }
 }
+
+test "user discontinue can recover across outer-prompt bubbling" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    const outer_spec = struct {
+        pub const tag = struct {};
+        pub const Request = []const u8;
+        pub const Resume = void;
+        pub const Answer = usize;
+        pub const ErrorSet = error{Stop};
+    };
+
+    const inner_spec = struct {
+        pub const tag = struct {};
+        pub const Request = []const u8;
+        pub const Resume = void;
+        pub const Answer = usize;
+        pub const ErrorSet = error{Stop};
+    };
+
+    const demo = struct {
+        var runtime_ptr: *Runtime = undefined;
+
+        fn innerBody() ResetError(inner_spec.ErrorSet)!inner_spec.Answer {
+            _ = shift(outer_spec, "first") catch |err| switch (err) {
+                error.Stop => {},
+                else => return err,
+            };
+            _ = try shift(outer_spec, "after-stop");
+            return 7;
+        }
+
+        fn outerBody() ResetError(outer_spec.ErrorSet)!outer_spec.Answer {
+            var inner_outcome = try reset(inner_spec, runtime_ptr, innerBody);
+            while (true) switch (inner_outcome) {
+                .complete => |answer| return answer,
+                .cancelled => return error.Cancelled,
+                .pending => |*pending| {
+                    _ = shift(outer_spec, pending.request()) catch |err| switch (err) {
+                        error.Stop => {
+                            inner_outcome = try pending.discontinue(error.Stop);
+                            continue;
+                        },
+                        else => return err,
+                    };
+                    inner_outcome = try pending.proceed();
+                },
+            };
+        }
+    };
+
+    demo.runtime_ptr = &runtime;
+    var outcome = try reset(outer_spec, &runtime, demo.outerBody);
+    switch (outcome) {
+        .complete, .cancelled => unreachable,
+        .pending => |*pending| {
+            try std.testing.expectEqualStrings("first", pending.request());
+            outcome = try pending.discontinue(error.Stop);
+        },
+    }
+    switch (outcome) {
+        .complete, .cancelled => unreachable,
+        .pending => |*pending| {
+            try std.testing.expectEqualStrings("after-stop", pending.request());
+            outcome = try pending.proceed();
+        },
+    }
+    switch (outcome) {
+        .complete => |answer| try std.testing.expectEqual(@as(usize, 7), answer),
+        .pending, .cancelled => unreachable,
+    }
+}
+
+test "terminal cancellation stays terminal across outer-prompt bubbling" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    const outer_spec = struct {
+        pub const tag = struct {};
+        pub const Request = []const u8;
+        pub const Resume = void;
+        pub const Answer = usize;
+        pub const ErrorSet = error{};
+    };
+
+    const inner_spec = struct {
+        pub const tag = struct {};
+        pub const Request = []const u8;
+        pub const Resume = void;
+        pub const Answer = usize;
+        pub const ErrorSet = error{};
+    };
+
+    const demo = struct {
+        var runtime_ptr: *Runtime = undefined;
+
+        fn innerBody() ResetError(inner_spec.ErrorSet)!inner_spec.Answer {
+            _ = shift(outer_spec, "first") catch |err| switch (err) {
+                error.Cancelled => {},
+                else => return err,
+            };
+            _ = try shift(outer_spec, "should-not-happen");
+            return 9;
+        }
+
+        fn outerBody() ResetError(outer_spec.ErrorSet)!outer_spec.Answer {
+            var inner_outcome = try reset(inner_spec, runtime_ptr, innerBody);
+            while (true) switch (inner_outcome) {
+                .complete => |answer| return answer,
+                .cancelled => return error.Cancelled,
+                .pending => |*pending| {
+                    _ = shift(outer_spec, pending.request()) catch |err| switch (err) {
+                        error.Cancelled => {
+                            _ = try pending.cancel();
+                            unreachable;
+                        },
+                        else => return err,
+                    };
+                    inner_outcome = try pending.proceed();
+                },
+            };
+        }
+    };
+
+    demo.runtime_ptr = &runtime;
+    var outcome = try reset(outer_spec, &runtime, demo.outerBody);
+    switch (outcome) {
+        .complete, .cancelled => unreachable,
+        .pending => |*pending| {
+            try std.testing.expectEqualStrings("first", pending.request());
+            try std.testing.expectError(error.CancellationRecovered, pending.cancel());
+        },
+    }
+}

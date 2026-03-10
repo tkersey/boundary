@@ -336,7 +336,8 @@ pub threadlocal var tls_runtime: ?*Runtime = null;
 /// Current fiber active on this thread while executing inside `shift`.
 pub threadlocal var tls_current_fiber: ?*FiberBase = null;
 
-const FiberState = enum {
+/// Internal machine state for the currently executing delimited computation.
+const MachineState = enum {
     done,
     failed,
     ready,
@@ -344,7 +345,8 @@ const FiberState = enum {
     suspended,
 };
 
-const FiberOutcome = union(enum) {
+/// Signal emitted by the machine when control returns to a parent frame.
+const MachineSignal = union(enum) {
     none,
     suspension: *SuspensionBase,
 };
@@ -357,8 +359,8 @@ const FiberBase = struct {
     context: Context = .{},
     stack: Stack,
     prompt_token: PromptToken,
-    state: FiberState = .ready,
-    outcome: FiberOutcome = .none,
+    machine_state: MachineState = .ready,
+    machine_signal: MachineSignal = .none,
     startFn: *const fn (*FiberBase) noreturn,
 };
 
@@ -367,7 +369,7 @@ const SuspensionBase = struct {
     target_fiber: *FiberBase,
 };
 
-/// Construct the reset-frame type for a particular prompt specialization.
+/// Construct the delimiter frame type for a particular prompt specialization.
 pub fn ResetFrame(comptime Tag: type, comptime Answer: type, comptime ErrorSet: type) type {
     return struct {
         cached: CachedFrame,
@@ -424,7 +426,7 @@ pub fn ResetFrame(comptime Tag: type, comptime Answer: type, comptime ErrorSet: 
             const self: *@This() = @fieldParentPtr("base", base);
             tls_runtime = base.runtime;
             tls_current_fiber = base;
-            base.state = .running;
+            base.machine_state = .running;
             const answer = self.body() catch |err| finishCurrentFiberWithError(Tag, Answer, ErrorSet, self, err);
             finishCurrentFiberWithAnswer(Tag, Answer, ErrorSet, self, answer);
         }
@@ -482,8 +484,8 @@ fn finishCurrentFiberWithAnswer(comptime Tag: type, comptime Answer: type, compt
         finishCurrentFiberWithError(Tag, Answer, ErrorSet, frame, error.CancellationRecovered);
     }
     frame.result = .{ .answer = answer };
-    frame.base.state = .done;
-    frame.base.outcome = .none;
+    frame.base.machine_state = .done;
+    frame.base.machine_signal = .none;
     tls_current_fiber = frame.base.parent_fiber;
     shift_swap_context(&frame.base.context, frame.base.parent_context);
     unreachable;
@@ -492,14 +494,14 @@ fn finishCurrentFiberWithAnswer(comptime Tag: type, comptime Answer: type, compt
 fn finishCurrentFiberWithError(comptime Tag: type, comptime Answer: type, comptime ErrorSet: type, frame: *ResetFrame(Tag, Answer, ErrorSet), err: ResetError(ErrorSet)) noreturn {
     const final_err = if (frame.cancellation_required and err != error.Cancelled) @as(ResetError(ErrorSet), error.CancellationRecovered) else err;
     frame.result = .{ .err = final_err };
-    frame.base.state = .failed;
-    frame.base.outcome = .none;
+    frame.base.machine_state = .failed;
+    frame.base.machine_signal = .none;
     tls_current_fiber = frame.base.parent_fiber;
     shift_swap_context(&frame.base.context, frame.base.parent_context);
     unreachable;
 }
 
-/// Construct the suspension-record type for a public specialization.
+/// Construct the suspension record that represents one unresolved pending edge.
 pub fn SuspensionRecord(comptime Spec: type) type {
     return struct {
         base: SuspensionBase,
@@ -509,7 +511,7 @@ pub fn SuspensionRecord(comptime Spec: type) type {
         request: RequestOf(Spec),
         generation: usize = 1,
         owner_cookie: usize = 0,
-        state: enum {
+        resolution: enum {
             cancelled,
             discontinued,
             pending,

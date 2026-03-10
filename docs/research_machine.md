@@ -59,8 +59,9 @@ Use this machine vocabulary:
 | Delimiter frame | `ResetFrame(...)` | Delimits capture and stores result/cancellation state |
 | Pending owner | `Pending(Spec)` + `EscapedOwner(Spec)` + `SuspensionRecord(Spec)` | Represents one-shot unresolved ownership and explicit delayed escape |
 | Prompt identity | `promptToken(Tag)` + `FiberBase.prompt_token` | Explains nested reset bubbling and collision-free matching |
-| Current machine state | `FiberBase.state` and `FiberBase.outcome` | Makes suspension/termination explicit |
+| Current machine state | `FiberBase.machine_state` and `FiberBase.machine_signal` | Makes suspension/termination explicit and aligns code with the machine vocabulary |
 | Terminal cancel law | `cancellation_required` + `CancellationRecovered` checks | Distinguishes runtime cancellation from user discontinuation |
+| Pending-edge resolution | `SuspensionRecord(Spec).resolution` | Makes resume, discontinue, and cancel choices explicit in the runtime |
 | Dynamic no-capture region | `NoShiftGuard` + `no_shift_depth` | Encodes forbidden suspension as machine state, not policy prose |
 
 ## Why this matters for the next API
