@@ -946,6 +946,55 @@ test "escaping consumes the pending owner and preserves delayed resolution" {
     }
 }
 
+test "escaped owner delayed resolution re-delimits resumed work" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    const demo_spec = struct {
+        /// Prompt tag.
+        pub const tag = struct {};
+        /// Outbound request type.
+        pub const Request = usize;
+        /// Resume value type.
+        pub const Resume = usize;
+        /// Final answer type.
+        pub const Answer = usize;
+        /// User error surface.
+        pub const ErrorSet = error{};
+    };
+
+    const demo = struct {
+        fn body() ResetError(demo_spec.ErrorSet)!demo_spec.Answer {
+            const first = try shift(demo_spec, 41);
+            const second = try shift(demo_spec, first + 1);
+            return second + 1;
+        }
+    };
+
+    var saved: ?EscapedOwner(demo_spec) = null;
+    var outcome = try reset(demo_spec, &runtime, demo.body);
+    switch (outcome) {
+        .complete, .cancelled => unreachable,
+        .pending => |*pending| {
+            try std.testing.expectEqual(@as(usize, 41), pending.request());
+            saved = try pending.escape();
+        },
+    }
+
+    outcome = try saved.?.resumeWith(41);
+    switch (outcome) {
+        .complete, .cancelled => unreachable,
+        .pending => |*pending| {
+            try std.testing.expectEqual(@as(usize, 42), pending.request());
+            outcome = try pending.resumeWith(pending.request());
+        },
+    }
+    switch (outcome) {
+        .complete => |answer| try std.testing.expectEqual(@as(usize, 43), answer),
+        .pending, .cancelled => unreachable,
+    }
+}
+
 test "copied escaped-owner alias is rejected" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();

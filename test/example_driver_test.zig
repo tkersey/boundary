@@ -144,10 +144,15 @@ test "void resume decision reaches complete through payloadless proceed" {
 
 test "driver remains a loop over repeated pending owners" {
     const loop_spec = struct {
+        /// Prompt tag for the repeated-pending driver probe.
         pub const tag = struct {};
+        /// The probe emits integer requests.
         pub const Request = i32;
+        /// The probe resumes with integer payloads.
         pub const Resume = i32;
+        /// The probe completes with an integer answer.
         pub const Answer = i32;
+        /// The probe has no user-owned error surface.
         pub const ErrorSet = error{};
     };
 
@@ -159,7 +164,7 @@ test "driver remains a loop over repeated pending owners" {
         }
     };
 
-    const loop_handler = struct {
+    const LoopHandler = struct {
         seen: [2]i32 = .{ 0, 0 },
         seen_count: usize = 0,
 
@@ -173,8 +178,8 @@ test "driver remains a loop over repeated pending owners" {
     var runtime = shift.Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
-    var handler: loop_handler = .{};
-    const outcome = try shift.driver.run(loop_spec, &runtime, loop_demo.body, &handler, loop_handler.handle);
+    var handler: LoopHandler = .{};
+    const outcome = try shift.driver.run(loop_spec, &runtime, loop_demo.body, &handler, LoopHandler.handle);
     switch (outcome) {
         .complete => |answer| try std.testing.expectEqual(@as(i32, 22), answer),
         .cancelled => unreachable,
@@ -186,10 +191,15 @@ test "driver remains a loop over repeated pending owners" {
 
 test "handler failure after partial progress still drains the outstanding owner" {
     const loop_spec = struct {
+        /// Prompt tag for the failure-after-progress probe.
         pub const tag = struct {};
+        /// The probe emits integer requests.
         pub const Request = i32;
+        /// The probe resumes with integer payloads.
         pub const Resume = i32;
+        /// The probe completes with an integer answer.
         pub const Answer = i32;
+        /// The probe has no user-owned error surface.
         pub const ErrorSet = error{};
     };
 
@@ -201,7 +211,7 @@ test "handler failure after partial progress still drains the outstanding owner"
         }
     };
 
-    const failing_handler = struct {
+    const FailingHandler = struct {
         seen_count: usize = 0,
 
         fn handle(self: *@This(), request: loop_spec.Request) anyerror!shift.driver.Decision(loop_spec) {
@@ -214,8 +224,8 @@ test "handler failure after partial progress still drains the outstanding owner"
 
     var runtime = shift.Runtime.init(std.testing.allocator, .{});
 
-    var handler: failing_handler = .{};
-    try std.testing.expectError(error.SecondStepFailed, shift.driver.run(loop_spec, &runtime, loop_demo.body, &handler, failing_handler.handle));
+    var handler: FailingHandler = .{};
+    try std.testing.expectError(error.SecondStepFailed, shift.driver.run(loop_spec, &runtime, loop_demo.body, &handler, FailingHandler.handle));
     try std.testing.expectEqual(@as(usize, 2), handler.seen_count);
     try runtime.deinitChecked();
 }

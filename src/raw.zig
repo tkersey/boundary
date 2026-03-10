@@ -303,18 +303,28 @@ test "user discontinue can recover across outer-prompt bubbling" {
     defer runtime.deinit();
 
     const outer_spec = struct {
+        /// Prompt tag.
         pub const tag = struct {};
+        /// Outbound request type.
         pub const Request = []const u8;
+        /// Resume value type.
         pub const Resume = void;
+        /// Final answer type.
         pub const Answer = usize;
+        /// User error surface.
         pub const ErrorSet = error{Stop};
     };
 
     const inner_spec = struct {
+        /// Prompt tag.
         pub const tag = struct {};
+        /// Outbound request type.
         pub const Request = []const u8;
+        /// Resume value type.
         pub const Resume = void;
+        /// Final answer type.
         pub const Answer = usize;
+        /// User error surface.
         pub const ErrorSet = error{Stop};
     };
 
@@ -376,18 +386,28 @@ test "terminal cancellation stays terminal across outer-prompt bubbling" {
     defer runtime.deinit();
 
     const outer_spec = struct {
+        /// Prompt tag.
         pub const tag = struct {};
+        /// Outbound request type.
         pub const Request = []const u8;
+        /// Resume value type.
         pub const Resume = void;
+        /// Final answer type.
         pub const Answer = usize;
+        /// User error surface.
         pub const ErrorSet = error{};
     };
 
     const inner_spec = struct {
+        /// Prompt tag.
         pub const tag = struct {};
+        /// Outbound request type.
         pub const Request = []const u8;
+        /// Resume value type.
         pub const Resume = void;
+        /// Final answer type.
         pub const Answer = usize;
+        /// User error surface.
         pub const ErrorSet = error{};
     };
 

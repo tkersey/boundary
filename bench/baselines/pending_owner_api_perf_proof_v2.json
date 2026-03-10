@@ -1,12 +1,12 @@
 {
   "label": "pending_owner_api_perf_proof_v2",
-  "captured_at": "2026-03-10T15:55:54Z",
+  "captured_at": "2026-03-10T16:57:01Z",
   "comparison_target": {
     "artifact": "bench/baselines/direct_style_v2.json",
     "description": "warmed direct-style baseline before the pending-owner public API cut"
   },
   "candidate": {
-    "git_rev": "8ec9b9b",
+    "git_rev": "eaca495",
     "description": "repeated warmed invocations after the pending-owner public API cut"
   },
   "measurement_contract": {
@@ -21,17 +21,17 @@
   "results": {
     "bench": {
       "target_median_ns": 3222042,
-      "candidate_invocation_medians_ns": [3078250,3024459,2971083,3020792,2981959,2792583,2987042],
-      "candidate_p50_ns": 2987042,
-      "delta_pct": -7.29,
+      "candidate_invocation_medians_ns": [3268083,2828458,3012208,3066125,3116292,3018708,2950833],
+      "candidate_p50_ns": 3018708,
+      "delta_pct": -6.31,
       "threshold_pct": 5.0,
       "pass": true
     },
     "bench_first_suspend": {
       "target_median_ns": 5481416,
-      "candidate_invocation_medians_ns": [5606875,5229792,5315792,5521458,5313500,5362542,5337750],
-      "candidate_p50_ns": 5337750,
-      "delta_pct": -2.62,
+      "candidate_invocation_medians_ns": [5213792,5576750,5305625,5186541,5481625,5824417,5252625],
+      "candidate_p50_ns": 5305625,
+      "delta_pct": -3.21,
       "threshold_pct": 5.0,
       "pass": true
     }

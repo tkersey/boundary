@@ -2,7 +2,7 @@
 
 This repo is now treating research as a first-class implementation lane rather than background reading.
 
-The immediate goal is not to genericize `shift` into a broad PL project. The goal is to explain the current runtime precisely enough that the next public API wave can be *derived* from it instead of guessed. The repo is still the source of truth: the runtime, tests, examples, and benchmark artifacts come first, and external literature only counts when it sharpens a concrete repo decision.
+The immediate goal is not to genericize `shift` into a broad PL project. The goal is to explain the current runtime precisely enough that future ergonomic waves can be *derived* from it instead of guessed. The repo is still the source of truth: the runtime, tests, examples, and benchmark artifacts come first, and external literature only counts when it sharpens a concrete repo decision.
 
 ## Current implementation choices
 
@@ -19,15 +19,15 @@ The immediate goal is not to genericize `shift` into a broad PL project. The goa
 
 ## Current research questions
 
-- Which operator family best explains the current runtime: plain `shift/reset`, a one-shot tokenized refinement of `shift/reset`, or something that should become a different public story entirely?
-- What continuation structure does the current runtime actually imply once written in an explicit evaluator/CPS style?
-- Which public API should follow from that structure: refined token-first, pending-token-first, or a session-oriented surface?
+- Which witness best pins the repo’s actual semantic boundary?
+- What evaluator-to-machine derivation best explains escaped-owner delayed resolution without inventing a new semantic surface?
+- Which future public breaks remain allowed once the witness and machine story are fixed?
 
 ## Research artifacts in this repo
 
-- [research_laws.md](research_laws.md): the current law set and operator-position note
-- [research_machine.md](research_machine.md): CPS sketch, defunctionalized machine, and runtime correspondence matrix
-- [research_decision.md](research_decision.md): public-surface decision dossier for the next breaking API wave
+- [research_laws.md](research_laws.md): witness-first law set and operator-position note
+- [research_machine.md](research_machine.md): evaluator-to-machine sketch and runtime correspondence matrix
+- [research_decision.md](research_decision.md): future-break constraints for the pending-owner-first public surface
 
 ## How to use this track
 
@@ -35,8 +35,8 @@ Read the three documents in order:
 
 1. Start with the laws to pin what the runtime actually promises today.
 2. Read the machine account to see which parts of the runtime are already explicit control-machine structure.
-3. Use the decision dossier to decide what public API work should happen next.
+3. Use the decision dossier to decide which future ergonomic layers are still faithful to that machine.
 
 ## Current open research edge
 
-- The product semantics are now clearer than the older step/suspension surface, but future work may still revisit whether framework builders ultimately want a stable session object instead of a linear owner surface.
+- A future ergonomic wrapper may still be useful for framework builders, but it must remain additive rather than replacing the pending-owner-first semantic center.

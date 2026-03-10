@@ -1,82 +1,77 @@
 # Public-Surface Decision Dossier
 
-This document chose the next public API direction from the current semantics and machine read. That direction is now the active repo direction.
+The repo already runs on a pending-owner-first surface.
+This document no longer chooses between live candidates.
+Its job is to state which future public breaks remain allowed once the escaped-owner witness and machine derivation are taken as ground truth.
 
-## Candidates
+## Problem Frame
 
-### Candidate A: refined token-first API
+- Boundary: `shift` captures to the nearest active `reset` for `Spec.tag`.
+- Captured slice: the rest of the current body until that delimiter.
+- Reinstatement: ordinary pending resolution and delayed escaped-owner resolution both re-enter the same delimiter.
+- Observable witness: escaped-owner delayed resolution can suspend again, proving that advanced delayed escape is still the same control edge, just resolved later.
 
-Keep the old `Outcome.token` and `Token(Spec)` model as the main public story, but tighten naming and docs.
+## Concrete Witness
 
-Pros:
-- Closest to the current runtime
-- Preserves delayed-resolution power directly
+The API story must explain this trace without lying:
 
-Cons:
-- Keeps the advanced escape case as the everyday user model
-- Leaves ordinary linear usage looking more flexible than it really is
+1. `reset` yields `.pending`
+2. caller promotes the pending owner with `escape()`
+3. caller resumes the escaped owner later
+4. resumed work can yield another `.pending`
+5. copied aliases and repeated resolutions still fail
 
-Verdict:
-- not chosen as the next primary surface
+Any future public framing that cannot explain that trace is not faithful to the runtime.
 
-### Candidate B: pending-token primary path with explicit escaped owner
+## Proposal Constraints
 
-Make the normal public loop revolve around a pending resolution surface, and move delayed resolution into an explicit advanced owner type.
+Future public breaks may improve ergonomics, but they must preserve these constraints:
 
-Pros:
-- Matches the machine split between ordinary pending resolution and advanced delayed escape
-- Preserves current continuation power without forcing every user to think in escape-capability terms
-- Gives the cleanest path for compile-time-first linearity pressure in normal code
+- ordinary use stays pending-owner-first
+- delayed resume-later behavior stays explicit through an advanced escaped-owner surface
+- `shift.driver` remains additive and derived from the pending-owner path
+- user `discontinue` stays distinct from terminal cancellation
+- prompt-tagged bubbling and `NoShiftGuard` remain part of the law set
+- the warmed benchmark envelope remains a hard gate
 
-Cons:
-- Breaking public redesign
-- Requires careful migration of driver/examples/docs
+## Candidate Pressure
 
-Verdict:
-- chosen
+### Legacy token-first framing
 
-### Candidate C: session-oriented primary API
+Do not revive a public story that makes the advanced delayed escape case look like the everyday control value.
 
-Reframe the library around a stable session/driver surface and make token ownership secondary or internal.
+Reason:
+- it blurs the difference between ordinary one-shot pending resolution and advanced delayed ownership
 
-Pros:
-- Potentially friendlier for workflow builders
+### Session-primary surface
 
-Cons:
-- The current runtime and examples still read token-first
-- Risks hiding the repo’s real law set behind a friendlier but less faithful story
-- Would be a product pivot before the semantics justify it
+Do not make a stable session object the semantic center of the library in the next wave.
 
-Verdict:
-- not chosen for the next wave
+Reason:
+- it hides the repo’s actual machine split and invites documentation that overstates what is linear, resumable, or clonable
 
-## Decision
+### `control/prompt` or handler-first reframing
 
-The active breaking public API direction is:
+Do not retell the repo as a dynamic-extent or handler-primary system.
 
-- pending-token-first for normal loops
-- explicit escaped-owner for advanced delayed resolution
-- driver rebuilt on top of the pending path rather than treated as the semantic center
+Reason:
+- the shipped runtime, examples, and tests are still reset-delimited and pending-owner-first
 
-## Why this wins
+## Repository Application
 
-- It matches the current law split between ordinary one-shot resolution and advanced escape.
-- It preserves the repo’s direct-style identity.
-- It supports the desired compile-time-first direction without pretending Zig can make all escaped continuation misuse impossible.
-- It keeps the session-object question open for future builder ergonomics without forcing that pivot now.
+- README and `docs/semantics.md` should keep teaching the ordinary path as `Outcome.pending` plus resolution methods.
+- The research packet should keep the escaped-owner witness as the advanced path that constrains future ergonomic layers.
+- Examples may add helpers, but those helpers must not become the semantic source of truth.
 
-## Follow-on implementation contract
+## Rejected Shortcuts
 
-This implementation wave should:
+- Do not add a friendlier wrapper and then backfill the semantics around it.
+- Do not collapse cancel and discontinue into one public terminal branch.
+- Do not generalize the repo into a broad effects project just because effect-handler examples exist.
 
-- replace the everyday `.token` story with a normal pending-resolution story
-- keep a named advanced escape surface for resume-later behavior
-- preserve user `discontinue` and terminal cancellation as distinct branches
-- preserve nested prompt bubbling and `NoShiftGuard`
-- keep the current warmed benchmark envelope
+## Sources
 
-## Rejected shortcuts
-
-- Do not jump straight to a session-object primary API because the docs mention workflow builders.
-- Do not keep the current token surface untouched just because it is already implemented.
-- Do not collapse user discontinuation and terminal cancellation into one public concept.
+- `[DC-AC-1990]` Danvy and Filinski, *Abstracting Control*: https://doi.org/10.1145/91556.91622
+- `[DC-DYN-2005]` Biernacki, Danvy, and Shan, *On the Dynamic Extent of Delimited Continuations*: https://doi.org/10.1016/j.ipl.2005.04.003
+- `[DEF-AGER-2003]` Ager, Biernacki, Danvy, and Midtgaard, *A Functional Correspondence between Evaluators and Abstract Machines*: https://doi.org/10.1145/888251.888254
+- `[RT-ONE-SHOT-1996]` Bruggeman, Waddell, and Dybvig, *Representing Control in the Presence of One-Shot Continuations*: https://doi.org/10.1145/231379.231395
