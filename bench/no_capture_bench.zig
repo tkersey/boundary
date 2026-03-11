@@ -1,8 +1,8 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const tag = struct {};
 const NoError = error{};
+const BenchPrompt = shift.Prompt(usize, NoError);
 
 const bench_state = struct {
     var current: usize = 0;
@@ -16,6 +16,7 @@ const bench_state = struct {
 pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
     defer runtime.deinit();
+    var prompt = BenchPrompt.init();
 
     const iterations: usize = 50_000;
     var timer = try std.time.Timer.start();
@@ -24,7 +25,7 @@ pub fn main() anyerror!void {
     var i: usize = 0;
     while (i < iterations) : (i += 1) {
         bench_state.current = i;
-        sum += try shift.reset(tag, usize, NoError, &runtime, bench_state.body);
+        sum += try shift.reset(&runtime, &prompt, bench_state.body);
     }
 
     const elapsed = timer.read();

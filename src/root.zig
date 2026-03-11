@@ -1,4 +1,5 @@
 const raw = @import("raw.zig");
+const std = @import("std");
 
 /// Runtime owner for fiber-backed one-shot `shift/reset`.
 pub const Runtime = raw.Runtime;
@@ -17,33 +18,51 @@ pub fn ResetError(comptime ErrorSet: type) type {
     return raw.ResetError(ErrorSet);
 }
 
-/// Run `body` under the nearest dynamic delimiter identified by `Tag`.
-pub fn reset(
-    comptime Tag: type,
-    comptime Answer: type,
-    comptime ErrorSet: type,
-    runtime: *Runtime,
-    body: *const fn () ResetError(ErrorSet)!Answer,
-) ResetError(ErrorSet)!Answer {
-    return raw.reset(Tag, Answer, ErrorSet, runtime, body);
+fn PromptTypeFromPtr(comptime PromptPtrType: type) type {
+    return switch (@typeInfo(PromptPtrType)) {
+        .pointer => |pointer| pointer.child,
+        else => @compileError("expected a pointer to shift.Prompt(...)"),
+    };
 }
 
-/// Capture the computation up to the nearest active `reset(Tag, ...)`.
+fn PromptAnswerType(comptime PromptPtrType: type) type {
+    return PromptTypeFromPtr(PromptPtrType).Answer;
+}
+
+fn PromptErrorSetType(comptime PromptPtrType: type) type {
+    return PromptTypeFromPtr(PromptPtrType).ErrorSet;
+}
+
+/// First-class delimiter value for one-shot `shift/reset`.
+pub fn Prompt(comptime Answer: type, comptime ErrorSet: type) type {
+    return raw.Prompt(Answer, ErrorSet);
+}
+
+/// Run `body` under a fresh dynamic delimiter identified by `prompt`.
+pub fn reset(
+    runtime: *Runtime,
+    prompt: anytype,
+    body: *const fn () ResetError(PromptErrorSetType(@TypeOf(prompt)))!PromptAnswerType(@TypeOf(prompt)),
+) ResetError(PromptErrorSetType(@TypeOf(prompt)))!PromptAnswerType(@TypeOf(prompt)) {
+    return raw.reset(PromptTypeFromPtr(@TypeOf(prompt)), runtime, prompt, body);
+}
+
+/// Capture the computation up to the nearest active `reset(..., prompt, ...)`.
 pub fn shift(
     comptime Resume: type,
-    comptime Tag: type,
-    comptime Answer: type,
-    comptime ErrorSet: type,
-    handler: *const fn (*raw.Continuation(Resume, Tag, Answer, ErrorSet)) ResetError(ErrorSet)!Answer,
-) ControlError(ErrorSet)!Resume {
-    return raw.shift(Resume, Tag, Answer, ErrorSet, handler);
+    prompt: anytype,
+    handler: *const fn (*raw.Continuation(Resume, PromptTypeFromPtr(@TypeOf(prompt)))) ResetError(PromptErrorSetType(@TypeOf(prompt)))!PromptAnswerType(@TypeOf(prompt)),
+) ControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
+    return raw.shift(Resume, PromptTypeFromPtr(@TypeOf(prompt)), prompt, handler);
 }
 
 /// One-shot continuation handle for `shift`.
-pub fn Continuation(comptime Resume: type, comptime Tag: type, comptime Answer: type, comptime ErrorSet: type) type {
-    return raw.Continuation(Resume, Tag, Answer, ErrorSet);
+pub fn Continuation(comptime Resume: type, comptime PromptType: type) type {
+    return raw.Continuation(Resume, PromptType);
 }
 
 test {
+    _ = Prompt;
     _ = Runtime;
+    _ = std;
 }

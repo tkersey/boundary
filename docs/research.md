@@ -17,7 +17,7 @@ The runtime is accepted only when it matches the earlier rungs.
 ## Current Focus
 
 - exact static `shift/reset`
-- explicit typed prompt tags
+- explicit typed prompt values
 - explicit continuation argument
 - one-shot restriction
 - honest answer-type pressure if required
@@ -28,3 +28,4 @@ The runtime is accepted only when it matches the earlier rungs.
 - every semantic claim needs a witness
 - every witness needs a stable transcript
 - every runtime change touching capture, resume, prompt matching, or answer-type behavior must preserve ladder agreement
+- every attempted plain-Zig one-shot encoding family must be logged in `docs/closure_ledger.md`

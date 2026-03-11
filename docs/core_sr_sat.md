@@ -9,7 +9,7 @@ with honest answer-type modification when the kernel requires it.
 `CoreSR-SAT` keeps:
 
 - direct-style `reset` and `shift`
-- explicit typed prompt tags
+- explicit typed prompt values
 - explicit continuation arguments
 - one-shot continuation use
 - typed user errors in the host-language embedding
@@ -32,7 +32,7 @@ It must never be mistaken for the accepted long-term kernel.
 ## Hard Witness Families
 
 1. static-vs-dynamic extent, with an explicit `control/prompt` contrast
-2. multi-prompt separation
+2. prompt-value separation, including distinct prompt instances of the same prompt type
 
 ## Practical Witness
 

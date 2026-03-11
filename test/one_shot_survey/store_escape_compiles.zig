@@ -3,12 +3,17 @@ comptime {
     const NoError = error{};
     const DemoPrompt = shift.Prompt(i32, NoError);
 
+    const Holder = struct {
+        saved: ?*shift.Continuation(i32, DemoPrompt) = null,
+    };
+
     const demo = struct {
-        fn handle(k: *shift.Continuation(i32, DemoPrompt)) shift.ResetError(NoError)!i32 {
-            return try k.resumeWith("bad");
+        fn store(k: *shift.Continuation(i32, DemoPrompt)) void {
+            var holder = Holder{ .saved = k };
+            _ = &holder;
         }
     };
 
     const continuation: *shift.Continuation(i32, DemoPrompt) = @ptrFromInt(@alignOf(shift.Continuation(i32, DemoPrompt)));
-    _ = demo.handle(continuation);
+    demo.store(continuation);
 }

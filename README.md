@@ -1,27 +1,37 @@
 # shift
 
-`shift` is a Zig 0.15.2 implementation of a temporary same-answer-type direct-style, one-shot, stackful typed `shift/reset` rung.
+## Purpose
 
-The live product claim for this rung is:
+`shift` exists to be a semantics-first Zig implementation of direct-style typed
+`shift/reset`.
 
-- `shift.reset(Tag, Answer, ErrorSet, &runtime, body)`
-- `shift.shift(Resume, Tag, Answer, ErrorSet, handler)`
-- `shift.Continuation(Resume, Tag, Answer, ErrorSet).resumeWith(value)`
+In the repo's current state, that means two things:
 
-The full destination remains a richer typed `shift/reset` kernel with honest ATM if the semantics require it.
+- the live implementation is a temporary same-answer-type direct-style,
+  one-shot, stackful typed `shift/reset` rung
+- the longer-term destination is a fuller typed `shift/reset` kernel with
+  honest answer-type modification if the semantics require it
 
-The repo currently treats the runtime as the last rung of a semantics ladder:
+The repo therefore treats runtime code as the last rung of a semantics ladder,
+not as the source of truth:
 
 1. law
 2. executable reference witness
-3. CPS account
-4. defunctionalized machine account
+3. executable reference machine
+4. CPS account
 5. optimized stackful runtime
+
+The current live product claim for this rung is:
+
+- `const P = shift.Prompt(Answer, ErrorSet); var prompt = P.init();`
+- `shift.reset(&runtime, &prompt, body)`
+- `shift.shift(Resume, &prompt, handler)`
+- `shift.Continuation(Resume, P).resumeWith(value)`
 
 ## Semantic Commitments
 
 - static `shift/reset`, not `control/prompt`
-- explicit typed prompt tags
+- explicit typed prompt values
 - explicit continuation arguments
 - one-shot continuation use
 - honest answer-type pressure if the kernel requires it
@@ -49,15 +59,11 @@ zig build bench-first-suspend
 
 ```bash
 zig build run-generator
-zig build run-early-exit
-zig build run-nested-workflow
 ```
 
 Expected outputs:
 
 - `run-generator`: yields `1`, `2`, `3`, then reports `done=3`
-- `run-early-exit`: prints `result=early`
-- `run-nested-workflow`: prints the locked workflow witness transcript ending in `result=completed`
 
 ## Minimal Example
 
@@ -65,16 +71,18 @@ Expected outputs:
 const shift = @import("shift");
 const std = @import("std");
 
-const tag = struct {};
 const DemoError = error{};
+const DemoPrompt = shift.Prompt(i32, DemoError);
 
 const demo = struct {
-    fn handle(k: *shift.Continuation(i32, tag, i32, DemoError)) shift.ResetError(DemoError)!i32 {
+    var prompt_ptr: ?*const DemoPrompt = null;
+
+    fn handle(k: *shift.Continuation(i32, DemoPrompt)) shift.ResetError(DemoError)!i32 {
         return try k.resumeWith(41);
     }
 
     fn body() shift.ResetError(DemoError)!i32 {
-        const value = try shift.shift(i32, tag, i32, DemoError, handle);
+        const value = try shift.shift(i32, prompt_ptr.?, handle);
         return value + 1;
     }
 };
@@ -82,11 +90,13 @@ const demo = struct {
 pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
     defer runtime.deinit();
+    var prompt = DemoPrompt.init();
+    demo.prompt_ptr = &prompt;
 
-    const answer = try shift.reset(tag, i32, DemoError, &runtime, demo.body);
+    const answer = try shift.reset(&runtime, &prompt, demo.body);
     _ = answer;
 }
 ```
 
-See [docs/semantics.md](docs/semantics.md), [docs/research_laws.md](docs/research_laws.md), [docs/research_machine.md](docs/research_machine.md), and [docs/research.md](docs/research.md) for the current ladder.
+See [docs/semantics.md](docs/semantics.md), [docs/research_laws.md](docs/research_laws.md), [docs/research_machine.md](docs/research_machine.md), [docs/research.md](docs/research.md), and [docs/closure_ledger.md](docs/closure_ledger.md) for the current ladder and branch-closure survey artifacts.
 See [docs/core_sr_sat.md](docs/core_sr_sat.md) for the exact temporary rung claim.

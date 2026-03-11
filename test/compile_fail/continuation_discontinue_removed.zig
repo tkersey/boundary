@@ -1,8 +1,8 @@
 const shift = @import("shift");
 
-const tag = struct {};
 const NoError = error{};
+const DemoPrompt = shift.Prompt(void, NoError);
 
 comptime {
-    _ = shift.Continuation(void, tag, void, NoError).discontinue;
+    _ = shift.Continuation(void, DemoPrompt).discontinue;
 }

@@ -1,13 +1,14 @@
 # CPS Sketch and Defunctionalized Machine
 
 This document records the machine shape the runtime is required to realize.
+The repo now also keeps an executable reference machine backend for the active hard witnesses so the optimized runtime can be checked against a first-order oracle, not only prose.
 
 ## Working CPS Intuition
 
 The kernel exposes:
 
 - an explicit continuation argument
-- an explicit prompt tag
+- an explicit prompt value
 - an enclosing answer type
 
 The CPS account therefore needs:

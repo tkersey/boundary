@@ -13,9 +13,9 @@ Consequence:
 
 ## 2. Prompt Identity Is Real
 
-Prompt tags are first-class and typed.
+Prompt values are first-class and typed.
 
-Two distinct prompt tags must delimit different continuation slices even when they are nested.
+Two distinct prompt values must delimit different continuation slices even when they share the same prompt type and are nested.
 
 Consequence:
 - the kernel must pass a multi-prompt separation witness

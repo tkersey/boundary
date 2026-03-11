@@ -2,9 +2,9 @@ const shift = @import("shift");
 const std = @import("std");
 
 test "continuation shell stays compact" {
-    const tag = struct {};
     const NoError = error{};
-    try std.testing.expect(@sizeOf(shift.Continuation(void, tag, void, NoError)) <= 2 * @sizeOf(usize));
+    const DemoPrompt = shift.Prompt(void, NoError);
+    try std.testing.expect(@sizeOf(shift.Continuation(void, DemoPrompt)) <= 2 * @sizeOf(usize));
 }
 
 test "guard surface is not public" {

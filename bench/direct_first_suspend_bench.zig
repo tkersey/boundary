@@ -1,18 +1,19 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const tag = struct {};
 const NoError = error{};
+const BenchPrompt = shift.Prompt(usize, NoError);
 
 const bench_state = struct {
+    var prompt_ptr: ?*const BenchPrompt = null;
     var current: usize = 0;
 
-    fn handleValue(k: *shift.Continuation(usize, tag, usize, NoError)) shift.ResetError(NoError)!usize {
+    fn handleValue(k: *shift.Continuation(usize, BenchPrompt)) shift.ResetError(NoError)!usize {
         return try k.resumeWith(current);
     }
 
     fn body() shift.ResetError(NoError)!usize {
-        const value = try shift.shift(usize, tag, usize, NoError, handleValue);
+        const value = try shift.shift(usize, prompt_ptr.?, handleValue);
         return value + 1;
     }
 };
@@ -21,6 +22,8 @@ const bench_state = struct {
 pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
     defer runtime.deinit();
+    var prompt = BenchPrompt.init();
+    bench_state.prompt_ptr = &prompt;
 
     const iterations: usize = 50_000;
     var timer = try std.time.Timer.start();
@@ -29,7 +32,7 @@ pub fn main() anyerror!void {
     var i: usize = 0;
     while (i < iterations) : (i += 1) {
         bench_state.current = i;
-        sum += try shift.reset(tag, usize, NoError, &runtime, bench_state.body);
+        sum += try shift.reset(&runtime, &prompt, bench_state.body);
     }
 
     const elapsed = timer.read();

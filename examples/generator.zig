@@ -1,20 +1,21 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const tag = struct {};
 const NoError = error{};
+const DemoPrompt = shift.Prompt(void, NoError);
 
 const demo = struct {
+    var prompt_ptr: ?*const DemoPrompt = null;
     var yielded = [_]i32{ 0, 0, 0 };
     var yield_count: usize = 0;
     var pending_value: i32 = 0;
 
     fn yieldValue(value: i32) shift.ResetError(NoError)!void {
         pending_value = value;
-        _ = try shift.shift(void, tag, void, NoError, handleYield);
+        _ = try shift.shift(void, prompt_ptr.?, handleYield);
     }
 
-    fn handleYield(k: *shift.Continuation(void, tag, void, NoError)) shift.ResetError(NoError)!void {
+    fn handleYield(k: *shift.Continuation(void, DemoPrompt)) shift.ResetError(NoError)!void {
         yielded[yield_count] = pending_value;
         yield_count += 1;
         return try k.resumeWith({});
@@ -32,8 +33,10 @@ const demo = struct {
 pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
     defer runtime.deinit();
+    var prompt = DemoPrompt.init();
+    demo.prompt_ptr = &prompt;
 
-    try shift.reset(tag, void, NoError, &runtime, demo.body);
+    try shift.reset(&runtime, &prompt, demo.body);
 
     var stdout_buffer: [256]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);

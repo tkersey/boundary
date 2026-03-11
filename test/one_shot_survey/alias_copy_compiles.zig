@@ -4,11 +4,14 @@ comptime {
     const DemoPrompt = shift.Prompt(i32, NoError);
 
     const demo = struct {
-        fn handle(k: *shift.Continuation(i32, DemoPrompt)) shift.ResetError(NoError)!i32 {
-            return try k.resumeWith("bad");
+        fn alias(k: *shift.Continuation(i32, DemoPrompt)) void {
+            const alias_a = k;
+            const alias_b = k;
+            _ = alias_a;
+            _ = alias_b;
         }
     };
 
     const continuation: *shift.Continuation(i32, DemoPrompt) = @ptrFromInt(@alignOf(shift.Continuation(i32, DemoPrompt)));
-    _ = demo.handle(continuation);
+    demo.alias(continuation);
 }
