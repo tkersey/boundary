@@ -97,7 +97,29 @@ test "generator witness stays locked" {
     try expectWitness("generator", semantic_manifest.find("generator").?.required_transcript);
 }
 
-test "practical witness scope stays generator-only" {
+test "early-exit practical witness stays locked" {
+    var buffer: [256]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    try witnesses.runEarlyExit(&writer);
+    try std.testing.expectEqualStrings("result=early\n", writer.buffered());
+}
+
+test "nested-workflow practical witness stays locked" {
+    var buffer: [512]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    try witnesses.runNestedWorkflow(&writer);
+    try std.testing.expectEqualStrings(
+        "workflow=queued\n" ++
+            "audit=entered\n" ++
+            "audit=after\n" ++
+            "approval=publish\n" ++
+            "workflow=done\n" ++
+            "result=completed\n",
+        writer.buffered(),
+    );
+}
+
+test "practical witness trio stays explicit" {
     try std.testing.expectEqual(@as(usize, 5), witnesses.witnesses.len);
     try std.testing.expect(semantic_manifest.find("early_exit") == null);
     try std.testing.expect(semantic_manifest.find("nested_workflow") == null);
