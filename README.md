@@ -1,15 +1,16 @@
 # shift
 
-`shift` is a Zig 0.15.2 library for fully linear delimited control over explicit first-order machine data.
+## Purpose
 
-The live product is an explicit machine DSL:
+`shift` exists to let Zig code express delimited control as explicit, first-order, fully linear machine data. Instead of capturing arbitrary Zig stacks or hiding control flow behind a stackful runtime, it makes suspension, resumption, and escape explicit through typed prompts, machine steps, `Pending`, and `EscapedOwner`.
 
-- `Prompt(Request, Resume)` defines typed routing points
-- `run(Machine, &runtime, initial_frame)` drives a machine from an initial frame
-- `Machine.step(frame, resume)` returns either `.complete` or `.@"suspend"`
-- `Pending` and `EscapedOwner` own first-order continuation data, not arbitrary Zig stacks
+In practice, the library's job is to:
 
-The previous native-body stackful runtime is archived under [`archive/experimental-control-runtime`](archive/experimental-control-runtime).
+- provide typed routing points with `Prompt(Request, Resume)`
+- drive user-defined machines through `run(Machine, &runtime, initial_frame)`
+- return owned continuation state as `Pending` or `EscapedOwner` instead of implicit stack capture
+
+It is not a live native-body `reset` / `shift` runtime.
 
 ## Build
 
