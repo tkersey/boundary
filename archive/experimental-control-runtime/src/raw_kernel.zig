@@ -10,6 +10,7 @@ pub const Error = error{
     MissingPrompt,
     OutOfMemory,
     OwnerAliased,
+    PromptAliased,
     RuntimeAliased,
     RuntimeBusy,
     RuntimeDestroyed,
@@ -29,34 +30,29 @@ pub fn ResetError(comptime ErrorSet: type) type {
     return ControlError(ErrorSet) || SetupError;
 }
 
-/// Resolve the prompt tag type for a specialization spec.
-pub fn TagOf(comptime Spec: type) type {
-    return @field(Spec, "tag");
-}
-
 /// Resolve the request payload type for a specialization spec.
-pub fn RequestOf(comptime Spec: type) type {
-    return @field(Spec, "Request");
+pub fn RequestOf(comptime PromptType: type) type {
+    return @field(PromptType, "Request");
 }
 
 /// Resolve the resume payload type for a specialization spec.
-pub fn ResumeOf(comptime Spec: type) type {
-    return @field(Spec, "Resume");
+pub fn ResumeOf(comptime PromptType: type) type {
+    return @field(PromptType, "Resume");
 }
 
 /// Resolve the answer type for a specialization spec.
-pub fn AnswerOf(comptime Spec: type) type {
-    return @field(Spec, "Answer");
+pub fn AnswerOf(comptime PromptType: type) type {
+    return @field(PromptType, "Answer");
 }
 
 /// Resolve the user-owned error set type for a specialization spec.
-pub fn ErrorSetOf(comptime Spec: type) type {
-    return @field(Spec, "ErrorSet");
+pub fn ErrorSetOf(comptime PromptType: type) type {
+    return @field(PromptType, "ErrorSet");
 }
 
 /// Report whether a specialization carries a payloadless resume edge.
-pub fn resumeIsVoid(comptime Spec: type) bool {
-    return ResumeOf(Spec) == void;
+pub fn resumeIsVoid(comptime PromptType: type) bool {
+    return ResumeOf(PromptType) == void;
 }
 
 /// Report whether a specialization exposes user-owned discontinue.
@@ -288,16 +284,21 @@ pub const NoShiftGuard = struct {
 
 const PromptToken = *const anyopaque;
 
-fn PromptTokenMarker(comptime Tag: type) type {
-    return struct {
-        const _tag = Tag;
-        var marker: u8 = 0;
-    };
-}
-
-/// Return the stable prompt identity marker for a tag type.
-pub fn promptToken(comptime Tag: type) PromptToken {
-    return @ptrCast(&PromptTokenMarker(Tag).marker);
+/// Return the stable prompt identity marker for a prompt handle instance.
+pub fn promptToken(prompt: anytype) Error!PromptToken {
+    const PromptType = @TypeOf(prompt.*);
+    if (!@hasField(PromptType, "marker")) {
+        @compileError(@typeName(PromptType) ++ " must expose a marker field");
+    }
+    if (!@hasField(PromptType, "owner_cookie")) {
+        @compileError(@typeName(PromptType) ++ " must expose an owner_cookie field");
+    }
+    if (prompt.owner_cookie == 0) {
+        prompt.owner_cookie = @intFromPtr(prompt);
+    } else if (prompt.owner_cookie != @intFromPtr(prompt)) {
+        return error.PromptAliased;
+    }
+    return @ptrCast(&prompt.marker);
 }
 
 const Context = switch (builtin.cpu.arch) {
@@ -370,27 +371,27 @@ const SuspensionBase = struct {
 };
 
 /// Construct the delimiter frame type for a particular prompt specialization.
-pub fn ResetFrame(comptime Tag: type, comptime Answer: type, comptime ErrorSet: type) type {
+pub fn ResetFrame(comptime PromptType: type) type {
     return struct {
         cached: CachedFrame,
         base: FiberBase,
-        body: *const fn () ResetError(ErrorSet)!Answer,
+        body: *const fn () ResetError(ErrorSetOf(PromptType))!AnswerOf(PromptType),
         cancellation_required: bool = false,
         result: union(enum) {
-            answer: Answer,
-            err: ResetError(ErrorSet),
+            answer: AnswerOf(PromptType),
+            err: ResetError(ErrorSetOf(PromptType)),
             none,
         } = .none,
 
         /// Allocate or reuse a reset frame for this specialization.
-        pub fn create(runtime: *Runtime, body: *const fn () ResetError(ErrorSet)!Answer) ResetError(ErrorSet)!*@This() {
-            const frame = runtime.popCachedFrame(@This(), frameCacheKey(Tag, Answer, ErrorSet)) orelse try runtime.allocator.create(@This());
+        pub fn create(runtime: *Runtime, prompt: anytype, body: *const fn () ResetError(ErrorSetOf(PromptType))!AnswerOf(PromptType)) ResetError(ErrorSetOf(PromptType))!*@This() {
+            const frame = runtime.popCachedFrame(@This(), frameCacheKey(PromptType)) orelse try runtime.allocator.create(@This());
             const parent_fiber = tls_current_fiber;
             const parent_context = if (parent_fiber) |fiber| &fiber.context else &runtime.root_context;
             const stack = try runtime.acquireStack();
             frame.* = .{
                 .cached = .{
-                    .key = frameCacheKey(Tag, Answer, ErrorSet),
+                    .key = frameCacheKey(PromptType),
                     .deinitFn = freeCached,
                 },
                 .base = .{
@@ -398,7 +399,7 @@ pub fn ResetFrame(comptime Tag: type, comptime Answer: type, comptime ErrorSet: 
                     .parent_fiber = parent_fiber,
                     .parent_context = parent_context,
                     .stack = stack,
-                    .prompt_token = promptToken(Tag),
+                    .prompt_token = try promptToken(prompt),
                     .startFn = start,
                 },
                 .body = body,
@@ -427,35 +428,33 @@ pub fn ResetFrame(comptime Tag: type, comptime Answer: type, comptime ErrorSet: 
             tls_runtime = base.runtime;
             tls_current_fiber = base;
             base.machine_state = .running;
-            const answer = self.body() catch |err| finishCurrentFiberWithError(Tag, Answer, ErrorSet, self, err);
-            finishCurrentFiberWithAnswer(Tag, Answer, ErrorSet, self, answer);
+            const answer = self.body() catch |err| finishCurrentFiberWithError(PromptType, self, err);
+            finishCurrentFiberWithAnswer(PromptType, self, answer);
         }
     };
 }
 
-fn FrameCacheMarker(comptime Tag: type, comptime Answer: type, comptime ErrorSet: type) type {
+fn FrameCacheMarker(comptime PromptType: type) type {
     return struct {
-        const _tag = Tag;
-        const _answer = Answer;
-        const _error_set = ErrorSet;
+        const _prompt_type = PromptType;
         var marker: u8 = 0;
     };
 }
 
-fn frameCacheKey(comptime Tag: type, comptime Answer: type, comptime ErrorSet: type) usize {
-    return @intFromPtr(&FrameCacheMarker(Tag, Answer, ErrorSet).marker);
+fn frameCacheKey(comptime PromptType: type) usize {
+    return @intFromPtr(&FrameCacheMarker(PromptType).marker);
 }
 
-fn SuspensionCacheMarker(comptime Spec: type) type {
+fn SuspensionCacheMarker(comptime PromptType: type) type {
     return struct {
-        const _spec = Spec;
+        const _prompt_type = PromptType;
         var marker: u8 = 0;
     };
 }
 
 /// Return the cache key used for suspension-record reuse for a spec.
-pub fn suspensionCacheKey(comptime Spec: type) usize {
-    return @intFromPtr(&SuspensionCacheMarker(Spec).marker);
+pub fn suspensionCacheKey(comptime PromptType: type) usize {
+    return @intFromPtr(&SuspensionCacheMarker(PromptType).marker);
 }
 
 fn initializeContext(context: *Context, stack_top: usize) void {
@@ -479,9 +478,9 @@ export fn shiftFiberEntry() callconv(.c) noreturn {
     fiber.startFn(fiber);
 }
 
-fn finishCurrentFiberWithAnswer(comptime Tag: type, comptime Answer: type, comptime ErrorSet: type, frame: *ResetFrame(Tag, Answer, ErrorSet), answer: Answer) noreturn {
+fn finishCurrentFiberWithAnswer(comptime PromptType: type, frame: *ResetFrame(PromptType), answer: AnswerOf(PromptType)) noreturn {
     if (frame.cancellation_required) {
-        finishCurrentFiberWithError(Tag, Answer, ErrorSet, frame, error.CancellationRecovered);
+        finishCurrentFiberWithError(PromptType, frame, error.CancellationRecovered);
     }
     frame.result = .{ .answer = answer };
     frame.base.machine_state = .done;
@@ -491,8 +490,8 @@ fn finishCurrentFiberWithAnswer(comptime Tag: type, comptime Answer: type, compt
     unreachable;
 }
 
-fn finishCurrentFiberWithError(comptime Tag: type, comptime Answer: type, comptime ErrorSet: type, frame: *ResetFrame(Tag, Answer, ErrorSet), err: ResetError(ErrorSet)) noreturn {
-    const final_err = if (frame.cancellation_required and err != error.Cancelled) @as(ResetError(ErrorSet), error.CancellationRecovered) else err;
+fn finishCurrentFiberWithError(comptime PromptType: type, frame: *ResetFrame(PromptType), err: ResetError(ErrorSetOf(PromptType))) noreturn {
+    const final_err = if (frame.cancellation_required and err != error.Cancelled) @as(ResetError(ErrorSetOf(PromptType)), error.CancellationRecovered) else err;
     frame.result = .{ .err = final_err };
     frame.base.machine_state = .failed;
     frame.base.machine_signal = .none;
@@ -502,13 +501,13 @@ fn finishCurrentFiberWithError(comptime Tag: type, comptime Answer: type, compti
 }
 
 /// Construct the suspension record that represents one unresolved pending edge.
-pub fn SuspensionRecord(comptime Spec: type) type {
+pub fn SuspensionRecord(comptime PromptType: type) type {
     return struct {
         base: SuspensionBase,
         cached: CachedSuspension,
         runtime: *Runtime,
-        target_frame: *ResetFrame(TagOf(Spec), AnswerOf(Spec), ErrorSetOf(Spec)),
-        request: RequestOf(Spec),
+        target_frame: *ResetFrame(PromptType),
+        request: RequestOf(PromptType),
         generation: usize = 1,
         owner_cookie: usize = 0,
         resolution: enum {
@@ -517,8 +516,8 @@ pub fn SuspensionRecord(comptime Spec: type) type {
             pending,
             resumed,
         } = .pending,
-        resume_value: ?ResumeOf(Spec) = null,
-        discontinue_error: ?ErrorSetOf(Spec) = null,
+        resume_value: ?ResumeOf(PromptType) = null,
+        discontinue_error: ?ErrorSetOf(PromptType) = null,
 
         /// Release a cached suspension record allocated for this specialization.
         pub fn deinitCached(node: *CachedSuspension, allocator: std.mem.Allocator) void {
@@ -541,22 +540,33 @@ comptime {
 }
 
 test "prompt token stays stable for the same tag type" {
-    const tag = struct {};
-    try std.testing.expectEqual(@intFromPtr(promptToken(tag)), @intFromPtr(promptToken(tag)));
+    var prompt = struct {
+        marker: u8 = 0,
+        owner_cookie: usize = 0,
+    }{};
+    try std.testing.expectEqual(@intFromPtr(try promptToken(&prompt)), @intFromPtr(try promptToken(&prompt)));
 }
 
 test "prompt token differs for distinct tag types" {
-    const tag_a = struct {};
-    const tag_b = struct {};
-    try std.testing.expect(@intFromPtr(promptToken(tag_a)) != @intFromPtr(promptToken(tag_b)));
+    var prompt_a = struct {
+        marker: u8 = 0,
+        owner_cookie: usize = 0,
+    }{};
+    var prompt_b = struct {
+        marker: u8 = 0,
+        owner_cookie: usize = 0,
+    }{};
+    try std.testing.expect(@intFromPtr(try promptToken(&prompt_a)) != @intFromPtr(try promptToken(&prompt_b)));
 }
 
 test "prompt token differs across local namespaces" {
-    const scope_a = struct {
-        const tag = struct {};
-    };
-    const scope_b = struct {
-        const tag = struct {};
-    };
-    try std.testing.expect(@intFromPtr(promptToken(scope_a.tag)) != @intFromPtr(promptToken(scope_b.tag)));
+    var prompt_a = struct {
+        marker: u8 = 0,
+        owner_cookie: usize = 0,
+    }{};
+    var prompt_b = struct {
+        marker: u8 = 0,
+        owner_cookie: usize = 0,
+    }{};
+    try std.testing.expect(@intFromPtr(try promptToken(&prompt_a)) != @intFromPtr(try promptToken(&prompt_b)));
 }

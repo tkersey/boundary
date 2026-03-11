@@ -11,6 +11,33 @@ pub const Runtime = kernel.Runtime;
 /// Region guard that forbids `shift` while unsafe work is active.
 pub const NoShiftGuard = kernel.NoShiftGuard;
 
+/// Typed prompt handle with per-instance identity.
+pub fn Prompt(
+    comptime RequestType: type,
+    comptime ResumeType: type,
+    comptime AnswerType: type,
+    comptime ErrorSetType: type,
+) type {
+    return struct {
+        marker: u8 = 0,
+        owner_cookie: usize = 0,
+
+        /// Request payload yielded from `shift`.
+        pub const Request = RequestType;
+        /// Resume payload accepted when the pending edge is resolved.
+        pub const Resume = ResumeType;
+        /// Final answer type produced by `reset`.
+        pub const Answer = AnswerType;
+        /// User-visible error surface for the prompt body.
+        pub const ErrorSet = ErrorSetType;
+
+        /// Initialize a fresh prompt handle instance.
+        pub fn init() @This() {
+            return .{};
+        }
+    };
+}
+
 /// Runtime-visible error union for user-provided errors.
 pub fn ControlError(comptime ErrorSet: type) type {
     return kernel.ControlError(ErrorSet);
@@ -36,21 +63,23 @@ pub fn Pending(comptime Spec: type) type {
     return surface.Pending(Spec);
 }
 
-/// Run `body` under a fresh delimiter tagged by `Spec.tag`.
+/// Run `body` under a fresh delimiter owned by `prompt`.
 pub fn reset(
-    comptime Spec: type,
     runtime: *Runtime,
-    body: *const fn () ResetError(Spec.ErrorSet)!Spec.Answer,
-) ResetError(Spec.ErrorSet)!Outcome(Spec) {
-    return surface.reset(Spec, runtime, body);
+    prompt: anytype,
+    body: *const fn () ResetError(@TypeOf(prompt.*).ErrorSet)!@TypeOf(prompt.*).Answer,
+) ResetError(@TypeOf(prompt.*).ErrorSet)!Outcome(@TypeOf(prompt.*)) {
+    const Spec = @TypeOf(prompt.*);
+    return surface.reset(Spec, runtime, prompt, body);
 }
 
-/// Capture the nearest active delimiter tagged by `Spec.tag`.
+/// Capture the nearest active delimiter owned by `prompt`.
 pub fn shift(
-    comptime Spec: type,
-    request: Spec.Request,
-) ControlError(Spec.ErrorSet)!Spec.Resume {
-    return surface.shift(Spec, request);
+    prompt: anytype,
+    request: @TypeOf(prompt.*).Request,
+) ControlError(@TypeOf(prompt.*).ErrorSet)!@TypeOf(prompt.*).Resume {
+    const Spec = @TypeOf(prompt.*);
+    return surface.shift(Spec, prompt, request);
 }
 
 test {
@@ -58,6 +87,7 @@ test {
     _ = SetupError;
     _ = Runtime;
     _ = NoShiftGuard;
+    _ = Prompt;
 }
 
 test "no-shift guard rejects capture" {

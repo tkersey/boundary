@@ -1,60 +1,11 @@
-const raw = @import("raw.zig");
+const linear = @import("linear.zig");
 
-/// Public workflow driver helpers layered on top of the pending-owner API.
-pub const driver = @import("driver.zig");
-/// Runtime owner for fiber-backed one-shot `shift/reset`.
-pub const Runtime = raw.Runtime;
-/// Guard that forbids suspension in unsafe regions.
-pub const NoShiftGuard = raw.NoShiftGuard;
-/// Public runtime errors surfaced by `shift`.
-pub const Error = raw.Error;
-/// Internal runtime/setup failures that can appear before user code runs.
-pub const SetupError = raw.SetupError;
-
-/// Runtime error union for a user-provided error set.
-pub fn ControlError(comptime ErrorSet: type) type {
-    return raw.ControlError(ErrorSet);
-}
-
-/// Reset-time error union for a user-provided error set.
-pub fn ResetError(comptime ErrorSet: type) type {
-    return raw.ResetError(ErrorSet);
-}
-
-/// Result of driving a delimiter until completion, pending ownership, or cancellation.
-pub fn Outcome(comptime Spec: type) type {
-    return raw.Outcome(Spec);
-}
-
-/// Primary one-shot pending owner returned from `Outcome.pending`.
-pub fn Pending(comptime Spec: type) type {
-    return raw.Pending(Spec);
-}
-
-/// Explicit escaped owner for delayed resolution.
-pub fn EscapedOwner(comptime Spec: type) type {
-    return raw.EscapedOwner(Spec);
-}
-
-/// Run `body` under the nearest dynamic delimiter identified by `Tag`.
-pub fn reset(
-    comptime Spec: type,
-    runtime: *Runtime,
-    body: *const fn () ResetError(Spec.ErrorSet)!Spec.Answer,
-) ResetError(Spec.ErrorSet)!Outcome(Spec) {
-    return raw.reset(Spec, runtime, body);
-}
-
-/// Suspend with `request` up to the nearest active `reset(Tag, ...)`.
-pub fn shift(
-    comptime Spec: type,
-    request: Spec.Request,
-) ControlError(Spec.ErrorSet)!Spec.Resume {
-    return raw.shift(Spec, request);
-}
-
-test {
-    _ = driver;
-    _ = Runtime;
-    _ = NoShiftGuard;
-}
+pub const Prompt = linear.Prompt;
+pub const Runtime = linear.Runtime;
+pub const Error = linear.Error;
+pub const SetupError = linear.SetupError;
+pub const Step = linear.Step;
+pub const Outcome = linear.Outcome;
+pub const Pending = linear.Pending;
+pub const EscapedOwner = linear.EscapedOwner;
+pub const run = linear.run;

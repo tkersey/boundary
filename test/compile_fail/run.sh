@@ -3,19 +3,6 @@ set -eu
 
 repo_root="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
 
-case "$(uname -m)" in
-  arm64|aarch64)
-    asm_file="$repo_root/src/runtime/aarch64_switch.S"
-    ;;
-  x86_64|amd64)
-    asm_file="$repo_root/src/runtime/x86_64_switch.S"
-    ;;
-  *)
-    echo "unsupported host arch for compile-fail harness: $(uname -m)" >&2
-    exit 1
-    ;;
-esac
-
 run_fixture() {
   fixture="$1"
   expected="$2"
@@ -27,7 +14,6 @@ run_fixture() {
     -fno-emit-bin \
     --dep shift \
     -Mroot="$fixture" \
-    "$asm_file" \
     -Mshift="$repo_root/src/root.zig" \
     --cache-dir "$repo_root/.zig-cache" \
     --global-cache-dir "${HOME}/.cache/zig" \
@@ -54,6 +40,7 @@ run_fixture "$repo_root/test/compile_fail/pending_discontinue_empty_error_set.zi
 run_fixture "$repo_root/test/compile_fail/pending_resume_with_void_forbidden.zig" "resumeWith"
 run_fixture "$repo_root/test/compile_fail/escaped_discontinue_empty_error_set.zig" "discontinue"
 run_fixture "$repo_root/test/compile_fail/escaped_resume_with_void_forbidden.zig" "resumeWith"
-run_fixture "$repo_root/test/compile_fail/driver_decision_resume_value_void_forbidden.zig" "resume_value"
 run_fixture "$repo_root/test/compile_fail/escaped_token_removed.zig" "EscapedToken"
+run_fixture "$repo_root/test/compile_fail/reset_removed.zig" "reset"
+run_fixture "$repo_root/test/compile_fail/shift_removed.zig" "shift"
 run_fixture "$repo_root/test/compile_fail/token_aliased_removed.zig" "TokenAliased"

@@ -5,43 +5,53 @@ const iterations: usize = 50_000;
 const samples_per_run: usize = 5;
 const warmup_iterations: usize = 20_000;
 
-const bench_spec = struct {
-    /// Prompt tag.
-    pub const tag = struct {};
-    /// Outbound request type.
-    pub const Request = usize;
-    /// Resume value type.
-    pub const Resume = usize;
-    /// Final answer type.
-    pub const Answer = usize;
-    /// User error surface.
-    pub const ErrorSet = error{};
+const Prompt = shift.Prompt(usize, usize);
+const state = struct {
+    var prompt = Prompt.init();
 };
 
-const bench_state = struct {
-    var current: usize = 0;
+const Machine = struct {
+    pub const Answer = usize;
+    pub const Error = error{};
+    pub const Frame = union(enum) {
+        start: void,
+        after_ping: void,
+    };
+    pub const Resume = union(enum) {
+        start: void,
+        ping: usize,
+    };
+    pub const Suspend = union(enum) {
+        ping: struct { prompt: *Prompt, request: usize, next: Frame },
+    };
 
-    fn body() shift.ResetError(bench_spec.ErrorSet)!bench_spec.Answer {
-        const value = try shift.shift(bench_spec, current);
-        return value + 1;
+    pub fn step(frame: Frame, resume_value: Resume) (shift.Error || Error)!shift.Step(Frame, Suspend, Answer) {
+        return switch (frame) {
+            .start => switch (resume_value) {
+                .start => .{ .@"suspend" = .{ .ping = .{ .prompt = &state.prompt, .request = current_value, .next = .{ .after_ping = {} } } } },
+                else => unreachable,
+            },
+            .after_ping => switch (resume_value) {
+                .ping => |value| .{ .complete = value + 1 },
+                else => unreachable,
+            },
+        };
     }
 };
+
+var current_value: usize = 0;
 
 fn runSample() !struct { elapsed: u64, checksum: usize } {
     var runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
     defer runtime.deinit();
 
-    // Prime the runtime-owned stack/frame/suspension caches before timing the steady-state path.
     var warmup_i: usize = 0;
     while (warmup_i < warmup_iterations) : (warmup_i += 1) {
-        bench_state.current = warmup_i;
-        var warmup_outcome = try shift.reset(bench_spec, &runtime, bench_state.body);
-        while (true) switch (warmup_outcome) {
+        current_value = warmup_i;
+        var outcome = try shift.run(Machine, &runtime, .{ .start = {} });
+        while (true) switch (outcome) {
             .complete => break,
-            .cancelled => unreachable,
-            .pending => |*pending| {
-                warmup_outcome = try pending.resumeWith(bench_state.current);
-            },
+            .pending => |*pending| outcome = try pending.@"resume"(.{ .ping = current_value }),
         };
     }
 
@@ -50,17 +60,14 @@ fn runSample() !struct { elapsed: u64, checksum: usize } {
 
     var i: usize = 0;
     while (i < iterations) : (i += 1) {
-        bench_state.current = i;
-        var outcome = try shift.reset(bench_spec, &runtime, bench_state.body);
+        current_value = i;
+        var outcome = try shift.run(Machine, &runtime, .{ .start = {} });
         while (true) switch (outcome) {
             .complete => |answer| {
                 sum += answer;
                 break;
             },
-            .cancelled => unreachable,
-            .pending => |*pending| {
-                outcome = try pending.resumeWith(bench_state.current);
-            },
+            .pending => |*pending| outcome = try pending.@"resume"(.{ .ping = current_value }),
         };
     }
 
@@ -84,7 +91,6 @@ fn sortSamples(samples: *[samples_per_run]u64) void {
     }
 }
 
-/// Run the direct-style first-suspend benchmark.
 pub fn main() anyerror!void {
     var samples = [_]u64{0} ** samples_per_run;
     var checksum: usize = 0;
@@ -107,15 +113,7 @@ pub fn main() anyerror!void {
     const stdout = &stdout_writer.interface;
     try stdout.print(
         "samples={d} warmup_iterations={d} iterations={d} min_ns={d} median_ns={d} max_ns={d} checksum={d} sample_ns=[",
-        .{
-            samples_per_run,
-            warmup_iterations,
-            iterations,
-            sorted[0],
-            sorted[sorted.len / 2],
-            sorted[sorted.len - 1],
-            checksum,
-        },
+        .{ samples_per_run, warmup_iterations, iterations, sorted[0], sorted[sorted.len / 2], sorted[sorted.len - 1], checksum },
     );
     for (samples, 0..) |sample, sample_index| {
         if (sample_index != 0) try stdout.print(",", .{});
