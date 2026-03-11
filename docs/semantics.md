@@ -2,9 +2,13 @@
 
 `shift` currently claims the `CoreSR-SAT` rung: a same-answer-type direct-style one-shot typed `shift/reset` subset.
 
+The branch target beyond this rung is `CoreSR-Full`, whose prompt surface is
+`Prompt(InAnswer, OutAnswer, ErrorSet)`. The currently exercised runtime path
+is the diagonal `Prompt(Answer, Answer, ErrorSet)` case.
+
 ## What is true today
 
-- `Prompt(Answer, ErrorSet).init()` creates a first-class delimiter value.
+- `Prompt(InAnswer, OutAnswer, ErrorSet).init()` creates a first-class delimiter value.
 - `reset(&runtime, &prompt, ...)` installs that specific prompt value as the active delimiter.
 - `shift(Resume, &prompt, handler)` captures to the nearest active reset for that prompt value.
 - The handler receives an explicit continuation argument.
@@ -15,6 +19,7 @@
 - Prompt identity is collision-free per prompt value.
 - Two prompt values of the same prompt type are still distinct delimiters.
 - User errors remain explicit through `ControlError(ErrorSet)` and `ResetError(ErrorSet)`.
+- The public prompt surface now carries both `InAnswer` and `OutAnswer`.
 
 ## What is intentionally not true yet
 
@@ -23,6 +28,7 @@
 - no public helper-led control surface
 - no claim of multi-shot continuations
 - no claim that the current rung is the final kernel
+- unsupported non-diagonal paths still fail closed while only witness-backed non-diagonal execution is implemented
 
 ## Operational Model
 

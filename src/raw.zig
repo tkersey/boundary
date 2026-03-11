@@ -6,6 +6,8 @@ pub const Error = error{
     AlreadyResolved,
     CrossThread,
     MissingPrompt,
+    NestedNonDiagonalCapture,
+    NonDiagonalComplete,
     RuntimeBusy,
     RuntimeDestroyed,
 };
@@ -144,10 +146,12 @@ fn allocatePromptToken() PromptToken {
 }
 
 /// First-class prompt value for one-shot `shift/reset`.
-pub fn Prompt(comptime AnswerType: type, comptime ErrorSetType: type) type {
+pub fn Prompt(comptime InAnswerType: type, comptime OutAnswerType: type, comptime ErrorSetType: type) type {
     return struct {
-        /// Answer type for computations delimited by this prompt value.
-        pub const Answer = AnswerType;
+        /// Answer type produced by the resumed subcontinuation.
+        pub const InAnswer = InAnswerType;
+        /// Enclosing answer type of the delimited computation.
+        pub const OutAnswer = OutAnswerType;
         /// User error set carried through this prompt value.
         pub const ErrorSet = ErrorSetType;
 
@@ -225,18 +229,18 @@ const CaptureBase = struct {
 };
 
 fn ResetFrame(comptime PromptType: type) type {
-    const Answer = PromptType.Answer;
+    const InAnswer = PromptType.InAnswer;
     const ErrorSet = PromptType.ErrorSet;
     return struct {
         base: FiberBase,
-        body: *const fn () ResetError(ErrorSet)!Answer,
+        body: *const fn () ResetError(ErrorSet)!InAnswer,
         result: union(enum) {
-            answer: Answer,
             err: ResetError(ErrorSet),
+            in_answer: InAnswer,
             none,
         } = .none,
 
-        fn init(runtime: *Runtime, prompt: *const PromptType, body: *const fn () ResetError(ErrorSet)!Answer) ResetError(ErrorSet)!@This() {
+        fn init(runtime: *Runtime, prompt: *const PromptType, body: *const fn () ResetError(ErrorSet)!InAnswer) ResetError(ErrorSet)!@This() {
             const parent_fiber = tls_current_fiber;
             const parent_context = if (parent_fiber) |fiber| &fiber.context else &runtime.root_context;
             const stack = try runtime.acquireStack();
@@ -293,8 +297,8 @@ export fn shiftFiberEntry() callconv(.c) noreturn {
     fiber.startFn(fiber);
 }
 
-fn finishCurrentFiberWithAnswer(comptime PromptType: type, frame: *ResetFrame(PromptType), answer: PromptType.Answer) noreturn {
-    frame.result = .{ .answer = answer };
+fn finishCurrentFiberWithAnswer(comptime PromptType: type, frame: *ResetFrame(PromptType), answer: PromptType.InAnswer) noreturn {
+    frame.result = .{ .in_answer = answer };
     frame.base.state = .done;
     frame.base.outcome = .none;
     tls_current_fiber = frame.base.parent_fiber;
@@ -315,11 +319,12 @@ fn defineResetFrameStart(comptime PromptType: type) void {
     _ = PromptType;
 }
 
-fn DriveFrame(comptime PromptType: type) type {
-    const Answer = PromptType.Answer;
+fn DriveFrameOutAnswer(comptime PromptType: type) type {
+    const InAnswer = PromptType.InAnswer;
+    const OutAnswer = PromptType.OutAnswer;
     const ErrorSet = PromptType.ErrorSet;
     return struct {
-        fn run(frame: *ResetFrame(PromptType)) ResetError(ErrorSet)!Answer {
+        fn run(frame: *ResetFrame(PromptType)) ResetError(ErrorSet)!OutAnswer {
             const runtime = frame.base.runtime;
             try runtime.ensureThread();
             const previous_runtime = tls_runtime;
@@ -335,7 +340,10 @@ fn DriveFrame(comptime PromptType: type) type {
                 shift_swap_context(frame.base.parent_context, &frame.base.context);
                 switch (frame.base.state) {
                     .done => switch (frame.result) {
-                        .answer => |answer| return answer,
+                        .in_answer => |answer| {
+                            if (comptime InAnswer == OutAnswer) return answer;
+                            return error.NonDiagonalComplete;
+                        },
                         else => unreachable,
                     },
                     .failed => switch (frame.result) {
@@ -352,7 +360,61 @@ fn DriveFrame(comptime PromptType: type) type {
                                 shift_swap_context(&active_parent.context, active_parent.parent_context);
                                 continue;
                             }
-                            var answer: ?Answer = null;
+                            var answer: ?OutAnswer = null;
+                            capture.invokeFn(capture, @ptrCast(&answer)) catch |err| return @errorCast(err);
+                            return answer.?;
+                        },
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                }
+            }
+        }
+    };
+}
+
+fn DriveFrameInAnswer(comptime PromptType: type) type {
+    const InAnswer = PromptType.InAnswer;
+    const OutAnswer = PromptType.OutAnswer;
+    const ErrorSet = PromptType.ErrorSet;
+    return struct {
+        fn run(frame: *ResetFrame(PromptType)) ResetError(ErrorSet)!InAnswer {
+            const runtime = frame.base.runtime;
+            try runtime.ensureThread();
+            const previous_runtime = tls_runtime;
+            const previous_fiber = tls_current_fiber;
+            defer {
+                tls_runtime = previous_runtime;
+                tls_current_fiber = previous_fiber;
+            }
+
+            while (true) {
+                tls_runtime = runtime;
+                tls_current_fiber = &frame.base;
+                shift_swap_context(frame.base.parent_context, &frame.base.context);
+                switch (frame.base.state) {
+                    .done => switch (frame.result) {
+                        .in_answer => |answer| return answer,
+                        else => unreachable,
+                    },
+                    .failed => switch (frame.result) {
+                        .err => |err| return err,
+                        else => unreachable,
+                    },
+                    .suspended => switch (frame.base.outcome) {
+                        .captured => |capture| {
+                            if (capture.target_fiber != &frame.base) {
+                                const active_parent = tls_current_fiber.?;
+                                active_parent.state = .suspended;
+                                active_parent.outcome = .{ .captured = capture };
+                                tls_current_fiber = active_parent.parent_fiber;
+                                shift_swap_context(&active_parent.context, active_parent.parent_context);
+                                continue;
+                            }
+                            if (comptime InAnswer != OutAnswer) {
+                                return error.NestedNonDiagonalCapture;
+                            }
+                            var answer: ?OutAnswer = null;
                             capture.invokeFn(capture, @ptrCast(&answer)) catch |err| return @errorCast(err);
                             return answer.?;
                         },
@@ -367,30 +429,30 @@ fn DriveFrame(comptime PromptType: type) type {
 
 /// One-shot continuation handle for a captured `shift`.
 pub fn Continuation(comptime Resume: type, comptime PromptType: type) type {
-    const Answer = PromptType.Answer;
+    const InAnswer = PromptType.InAnswer;
     const ErrorSet = PromptType.ErrorSet;
     const Capture = ShiftCapture(Resume, PromptType);
     return struct {
         capture: *Capture,
 
         /// Resume the captured continuation once with `value`.
-        pub fn resumeWith(self: *@This(), value: Resume) ResetError(ErrorSet)!Answer {
+        pub fn resumeWith(self: *@This(), value: Resume) ResetError(ErrorSet)!InAnswer {
             if (self.capture.consumed) return error.AlreadyResolved;
             self.capture.consumed = true;
             self.capture.disposition = .resumed;
             self.capture.resume_value = value;
-            return DriveFrame(PromptType).run(self.capture.target_frame);
+            return DriveFrameInAnswer(PromptType).run(self.capture.target_frame);
         }
     };
 }
 
 fn ShiftCapture(comptime Resume: type, comptime PromptType: type) type {
-    const Answer = PromptType.Answer;
+    const OutAnswer = PromptType.OutAnswer;
     const ErrorSet = PromptType.ErrorSet;
     return struct {
         base: CaptureBase,
         target_frame: *ResetFrame(PromptType),
-        handler: *const fn (*Continuation(Resume, PromptType)) ResetError(ErrorSet)!Answer,
+        handler: *const fn (*Continuation(Resume, PromptType)) ResetError(ErrorSet)!OutAnswer,
         consumed: bool = false,
         disposition: enum {
             pending,
@@ -402,7 +464,7 @@ fn ShiftCapture(comptime Resume: type, comptime PromptType: type) type {
             const self: *@This() = @fieldParentPtr("base", base);
             var continuation = Continuation(Resume, PromptType){ .capture = self };
             const answer = self.handler(&continuation) catch |err| return err;
-            const out: *?Answer = @ptrCast(@alignCast(answer_out));
+            const out: *?OutAnswer = @ptrCast(@alignCast(answer_out));
             out.* = answer;
         }
     };
@@ -413,8 +475,8 @@ pub fn reset(
     comptime PromptType: type,
     runtime: *Runtime,
     prompt: *const PromptType,
-    body: *const fn () ResetError(PromptType.ErrorSet)!PromptType.Answer,
-) ResetError(PromptType.ErrorSet)!PromptType.Answer {
+    body: *const fn () ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
+) ResetError(PromptType.ErrorSet)!PromptType.OutAnswer {
     try runtime.ensureThread();
     runtime.active_reset_count += 1;
     defer runtime.active_reset_count -= 1;
@@ -422,7 +484,7 @@ pub fn reset(
     defer frame.deinit();
     frame.setup();
     defineResetFrameStart(PromptType);
-    return DriveFrame(PromptType).run(&frame);
+    return DriveFrameOutAnswer(PromptType).run(&frame);
 }
 
 /// Capture the nearest active delimiter identified by `prompt`.
@@ -430,7 +492,7 @@ pub fn shift(
     comptime Resume: type,
     comptime PromptType: type,
     prompt: *const PromptType,
-    handler: *const fn (*Continuation(Resume, PromptType)) ResetError(PromptType.ErrorSet)!PromptType.Answer,
+    handler: *const fn (*Continuation(Resume, PromptType)) ResetError(PromptType.ErrorSet)!PromptType.OutAnswer,
 ) ControlError(PromptType.ErrorSet)!Resume {
     const runtime = tls_runtime orelse return error.MissingPrompt;
     try runtime.ensureThread();
@@ -466,7 +528,7 @@ test "no-capture reset runs on a fresh runtime" {
     defer runtime.deinit();
 
     const NoError = error{};
-    const DemoPrompt = Prompt(usize, NoError);
+    const DemoPrompt = Prompt(usize, usize, NoError);
     var prompt = DemoPrompt.init();
     const answer = try reset(DemoPrompt, &runtime, &prompt, struct {
         fn body() ResetError(NoError)!usize {
@@ -479,7 +541,7 @@ test "no-capture reset runs on a fresh runtime" {
 
 test "copied prompt preserves its instance identity" {
     const NoError = error{};
-    const DemoPrompt = Prompt(void, NoError);
+    const DemoPrompt = Prompt(void, void, NoError);
     const original = DemoPrompt.init();
     const copied = original;
     try std.testing.expectEqual(original.token, copied.token);
@@ -487,7 +549,7 @@ test "copied prompt preserves its instance identity" {
 
 test "distinct prompt values of the same prompt type have distinct identities" {
     const NoError = error{};
-    const DemoPrompt = Prompt(void, NoError);
+    const DemoPrompt = Prompt(void, void, NoError);
     const first = DemoPrompt.init();
     const second = DemoPrompt.init();
     try std.testing.expect(first.token != second.token);
@@ -498,7 +560,7 @@ test "shift resumes with a direct-style value" {
     defer runtime.deinit();
 
     const NoError = error{};
-    const DemoPrompt = Prompt(i32, NoError);
+    const DemoPrompt = Prompt(i32, i32, NoError);
     var prompt = DemoPrompt.init();
     const demo = struct {
         var prompt_ptr: ?*const DemoPrompt = null;
@@ -526,7 +588,7 @@ test "continuation is strictly one-shot" {
     defer runtime.deinit();
 
     const TestHelperError = error{ TestExpectedError, TestUnexpectedError };
-    const DemoPrompt = Prompt(void, TestHelperError);
+    const DemoPrompt = Prompt(void, void, TestHelperError);
     var prompt = DemoPrompt.init();
     const demo = struct {
         var prompt_ptr: ?*const DemoPrompt = null;
@@ -550,7 +612,7 @@ test "handler may return the enclosing answer without resuming" {
     defer runtime.deinit();
 
     const NoError = error{};
-    const DemoPrompt = Prompt(usize, NoError);
+    const DemoPrompt = Prompt(usize, usize, NoError);
     var prompt = DemoPrompt.init();
     const demo = struct {
         var prompt_ptr: ?*const DemoPrompt = null;
@@ -575,7 +637,7 @@ test "runtime checked deinit rejects active reset" {
     defer runtime.deinit();
 
     const TestHelperError = error{ TestExpectedError, TestUnexpectedError };
-    const DemoPrompt = Prompt(usize, TestHelperError);
+    const DemoPrompt = Prompt(usize, usize, TestHelperError);
     var prompt = DemoPrompt.init();
     const demo = struct {
         var runtime_ptr: *Runtime = undefined;
@@ -598,7 +660,7 @@ test "runtime checked deinit rejects double teardown and later reset use" {
     try std.testing.expectError(error.RuntimeDestroyed, runtime.deinitChecked());
 
     const NoError = error{};
-    const DemoPrompt = Prompt(usize, NoError);
+    const DemoPrompt = Prompt(usize, usize, NoError);
     var prompt = DemoPrompt.init();
     try std.testing.expectError(error.RuntimeDestroyed, reset(DemoPrompt, &runtime, &prompt, struct {
         fn body() ResetError(NoError)!usize {
@@ -612,8 +674,8 @@ test "outer prompt capture bubbles through nested resets" {
     defer runtime.deinit();
 
     const NoError = error{};
-    const OuterPrompt = Prompt(i32, NoError);
-    const InnerPrompt = Prompt(i32, NoError);
+    const OuterPrompt = Prompt(i32, i32, NoError);
+    const InnerPrompt = Prompt(i32, i32, NoError);
     var outer_prompt = OuterPrompt.init();
     var inner_prompt = InnerPrompt.init();
     const demo = struct {
@@ -643,4 +705,19 @@ test "outer prompt capture bubbles through nested resets" {
     const answer = try reset(OuterPrompt, &runtime, &outer_prompt, demo.outerBody);
     try std.testing.expectEqual(@as(i32, 42), answer);
     try std.testing.expectEqual(@as(i32, 41), demo.resumed_value);
+}
+
+test "unsupported non-diagonal prompt still fails closed on direct completion" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    const NoError = error{};
+    const DemoPrompt = Prompt(i32, []const u8, NoError);
+    var prompt = DemoPrompt.init();
+
+    try std.testing.expectError(error.NonDiagonalComplete, reset(DemoPrompt, &runtime, &prompt, struct {
+        fn body() ResetError(NoError)!i32 {
+            return 7;
+        }
+    }.body));
 }

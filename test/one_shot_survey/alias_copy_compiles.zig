@@ -1,7 +1,7 @@
 comptime {
     const shift = @import("shift");
     const NoError = error{};
-    const DemoPrompt = shift.Prompt(i32, NoError);
+    const DemoPrompt = shift.Prompt(i32, i32, NoError);
 
     const demo = struct {
         fn alias(k: *shift.Continuation(i32, DemoPrompt)) void {

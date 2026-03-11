@@ -5,6 +5,11 @@
 `shift` exists to be a semantics-first Zig implementation of direct-style typed
 `shift/reset`.
 
+Branch note:
+- `rewrite/core-sr-full` currently concludes the plain-Zig compile-time
+  one-shot route is `IMPOSSIBLE` under the branch constraints; see
+  [docs/impossible_plain_zig.md](docs/impossible_plain_zig.md)
+
 In the repo's current state, that means two things:
 
 - the live implementation is a temporary same-answer-type direct-style,
@@ -23,7 +28,7 @@ not as the source of truth:
 
 The current live product claim for this rung is:
 
-- `const P = shift.Prompt(Answer, ErrorSet); var prompt = P.init();`
+- `const P = shift.Prompt(InAnswer, OutAnswer, ErrorSet); var prompt = P.init();`
 - `shift.reset(&runtime, &prompt, body)`
 - `shift.shift(Resume, &prompt, handler)`
 - `shift.Continuation(Resume, P).resumeWith(value)`
@@ -72,7 +77,7 @@ const shift = @import("shift");
 const std = @import("std");
 
 const DemoError = error{};
-const DemoPrompt = shift.Prompt(i32, DemoError);
+const DemoPrompt = shift.Prompt(i32, i32, DemoError);
 
 const demo = struct {
     var prompt_ptr: ?*const DemoPrompt = null;
@@ -98,5 +103,5 @@ pub fn main() anyerror!void {
 }
 ```
 
-See [docs/semantics.md](docs/semantics.md), [docs/research_laws.md](docs/research_laws.md), [docs/research_machine.md](docs/research_machine.md), [docs/research.md](docs/research.md), and [docs/closure_ledger.md](docs/closure_ledger.md) for the current ladder and branch-closure survey artifacts.
+See [docs/semantics.md](docs/semantics.md), [docs/core_sr_full.md](docs/core_sr_full.md), [docs/atm_surface_table.md](docs/atm_surface_table.md), [docs/atm_witness_ledger.md](docs/atm_witness_ledger.md), [docs/research_laws.md](docs/research_laws.md), [docs/research_machine.md](docs/research_machine.md), [docs/research.md](docs/research.md), [docs/closure_ledger.md](docs/closure_ledger.md), and [docs/impossible_plain_zig.md](docs/impossible_plain_zig.md) for the current ladder and branch-closure artifacts.
 See [docs/core_sr_sat.md](docs/core_sr_sat.md) for the exact temporary rung claim.

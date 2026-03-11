@@ -2,7 +2,7 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
-const DemoPrompt = shift.Prompt(void, NoError);
+const DemoPrompt = shift.Prompt(void, void, NoError);
 
 const demo = struct {
     var prompt_ptr: ?*const DemoPrompt = null;

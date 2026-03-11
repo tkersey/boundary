@@ -3,7 +3,7 @@ const std = @import("std");
 
 test "continuation shell stays compact" {
     const NoError = error{};
-    const DemoPrompt = shift.Prompt(void, NoError);
+    const DemoPrompt = shift.Prompt(void, void, NoError);
     try std.testing.expect(@sizeOf(shift.Continuation(void, DemoPrompt)) <= 2 * @sizeOf(usize));
 }
 

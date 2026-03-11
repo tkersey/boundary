@@ -9,6 +9,7 @@ pub const Witness = struct {
 
 /// Stable witness registry used by transcript-locked tests.
 pub const witnesses = [_]Witness{
+    .{ .witness_id = "atm_resume_transform", .title = "ATM resume-then-transform" },
     .{ .witness_id = "static_redelim", .title = "Static re-delimitation against control/prompt" },
     .{ .witness_id = "multi_prompt", .title = "Prompt-value separation" },
     .{ .witness_id = "generator", .title = "Generator" },
@@ -21,16 +22,58 @@ pub fn listWitnesses(writer: anytype) anyerror!void {
 
 /// Run one witness by stable id.
 pub fn runWitness(writer: anytype, id: []const u8) anyerror!void {
+    if (std.mem.eql(u8, id, "atm_resume_transform")) return runAtmResumeTransform(writer);
     if (std.mem.eql(u8, id, "static_redelim")) return runStaticRedelim(writer);
     if (std.mem.eql(u8, id, "multi_prompt")) return runMultiPrompt(writer);
     if (std.mem.eql(u8, id, "generator")) return runGenerator(writer);
     return error.UnknownWitness;
 }
 
+/// Run the ATM resume-then-transform witness.
+pub fn runAtmResumeTransform(writer: anytype) anyerror!void {
+    const NoError = error{};
+    const DemoPrompt = shift.Prompt(i32, []const u8, NoError);
+
+    const demo = struct {
+        var prompt_ptr: ?*const DemoPrompt = null;
+        var transcript = [_][]const u8{ "", "", "", "" };
+        var transcript_len: usize = 0;
+
+        fn note(message: []const u8) void {
+            transcript[transcript_len] = message;
+            transcript_len += 1;
+        }
+
+        fn handle(k: *shift.Continuation(i32, DemoPrompt)) shift.ResetError(NoError)![]const u8 {
+            note("handler-enter");
+            const resumed = try k.resumeWith(41);
+            _ = resumed;
+            note("handler-after-resume");
+            return "answer=42";
+        }
+
+        fn body() shift.ResetError(NoError)!i32 {
+            const current = try shift.shift(i32, prompt_ptr.?, handle);
+            note("body-after-shift");
+            return current + 1;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
+    defer runtime.deinit();
+    var prompt = DemoPrompt.init();
+    demo.prompt_ptr = &prompt;
+    demo.transcript_len = 0;
+
+    const answer = try shift.reset(&runtime, &prompt, demo.body);
+    for (demo.transcript[0..demo.transcript_len]) |line| try writer.print("{s}\n", .{line});
+    try writer.print("final={s}\n", .{answer});
+}
+
 /// Run the generator witness.
 pub fn runGenerator(writer: anytype) anyerror!void {
     const NoError = error{};
-    const DemoPrompt = shift.Prompt(void, NoError);
+    const DemoPrompt = shift.Prompt(void, void, NoError);
 
     const demo = struct {
         var prompt_ptr: ?*const DemoPrompt = null;
@@ -71,7 +114,7 @@ pub fn runGenerator(writer: anytype) anyerror!void {
 /// Run the early-exit witness.
 pub fn runEarlyExit(writer: anytype) anyerror!void {
     const NoError = error{};
-    const DemoPrompt = shift.Prompt([]const u8, NoError);
+    const DemoPrompt = shift.Prompt([]const u8, []const u8, NoError);
 
     const demo = struct {
         var prompt_ptr: ?*const DemoPrompt = null;
@@ -97,7 +140,7 @@ pub fn runEarlyExit(writer: anytype) anyerror!void {
 /// Run the re-delimitation witness that separates static `shift/reset` from `control/prompt`.
 pub fn runStaticRedelim(writer: anytype) anyerror!void {
     const NoError = error{};
-    const DemoPrompt = shift.Prompt(i32, NoError);
+    const DemoPrompt = shift.Prompt(i32, i32, NoError);
 
     const demo = struct {
         var prompt_ptr: ?*const DemoPrompt = null;
@@ -145,7 +188,7 @@ pub fn runStaticRedelim(writer: anytype) anyerror!void {
 /// Run the prompt-value separation witness.
 pub fn runMultiPrompt(writer: anytype) anyerror!void {
     const NoError = error{};
-    const DemoPrompt = shift.Prompt(i32, NoError);
+    const DemoPrompt = shift.Prompt(i32, i32, NoError);
 
     const demo = struct {
         var runtime_ptr: ?*shift.Runtime = null;
@@ -196,8 +239,8 @@ pub fn runMultiPrompt(writer: anytype) anyerror!void {
 /// Run the nested-workflow witness.
 pub fn runNestedWorkflow(writer: anytype) anyerror!void {
     const NoError = error{};
-    const ApprovalPrompt = shift.Prompt([]const u8, NoError);
-    const AuditPrompt = shift.Prompt(void, NoError);
+    const ApprovalPrompt = shift.Prompt([]const u8, []const u8, NoError);
+    const AuditPrompt = shift.Prompt(void, void, NoError);
 
     const demo = struct {
         var runtime_ptr: ?*shift.Runtime = null;

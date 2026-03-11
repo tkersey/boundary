@@ -11,6 +11,19 @@ pub const WitnessEntry = struct {
 /// Active witness manifest for the current semantic rung.
 pub const entries = [_]WitnessEntry{
     .{
+        .witness_id = "atm_resume_transform",
+        .law_anchor = "core_sr_full.md#public-surface-shape",
+        .evaluator_case = "reference_eval.atm_resume_transform",
+        .runtime_case = "witnesses.atm_resume_transform",
+        .required_transcript = "handler-enter\n" ++
+            "body-after-shift\n" ++
+            "handler-after-resume\n" ++
+            "final=answer=42\n",
+        .forbidden_transcript = "handler-enter\n" ++
+            "handler-after-resume\n" ++
+            "final=answer=42\n",
+    },
+    .{
         .witness_id = "static_redelim",
         .law_anchor = "research_laws.md#1-static-delimitation",
         .evaluator_case = "reference_eval.static_redelim",

@@ -16,10 +16,21 @@ test "witness list stays stable" {
     var writer = std.Io.Writer.fixed(&buffer);
     try witnesses.listWitnesses(&writer);
     try std.testing.expectEqualStrings(
-        "static_redelim\tStatic re-delimitation against control/prompt\n" ++
+        "atm_resume_transform\tATM resume-then-transform\n" ++
+            "static_redelim\tStatic re-delimitation against control/prompt\n" ++
             "multi_prompt\tPrompt-value separation\n" ++
             "generator\tGenerator\n",
         writer.buffered(),
+    );
+}
+
+test "atm resume transform witness stays locked" {
+    try expectWitness(
+        "atm_resume_transform",
+        "handler-enter\n" ++
+            "body-after-shift\n" ++
+            "handler-after-resume\n" ++
+            "final=answer=42\n",
     );
 }
 
@@ -47,7 +58,7 @@ test "multi-prompt witness stays locked" {
 }
 
 test "hard witnesses agree across evaluator, reference machine, and runtime" {
-    const ids = [_][]const u8{ "static_redelim", "multi_prompt" };
+    const ids = [_][]const u8{ "atm_resume_transform", "static_redelim", "multi_prompt" };
     for (ids) |id| {
         const entry = semantic_manifest.find(id).?;
         var runtime_buffer: [1024]u8 = undefined;
@@ -76,7 +87,7 @@ test "generator witness stays locked" {
 }
 
 test "practical witness scope stays generator-only" {
-    try std.testing.expectEqual(@as(usize, 3), witnesses.witnesses.len);
+    try std.testing.expectEqual(@as(usize, 4), witnesses.witnesses.len);
     try std.testing.expect(semantic_manifest.find("early_exit") == null);
     try std.testing.expect(semantic_manifest.find("nested_workflow") == null);
 }

@@ -8,7 +8,7 @@ The current ladder is:
 
 1. law
 2. executable reference witness
-3. CPS account
+3. CoreSR-Full typed derivation
 4. machine account
 5. runtime realization
 
@@ -29,3 +29,5 @@ The runtime is accepted only when it matches the earlier rungs.
 - every witness needs a stable transcript
 - every runtime change touching capture, resume, prompt matching, or answer-type behavior must preserve ladder agreement
 - every attempted plain-Zig one-shot encoding family must be logged in `docs/closure_ledger.md`
+- every branch that advances answer-type pressure must update `docs/atm_surface_table.md`
+- every non-diagonal ATM witness that executes must be logged in `docs/atm_witness_ledger.md`

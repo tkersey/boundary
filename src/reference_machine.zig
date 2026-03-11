@@ -2,8 +2,39 @@ const std = @import("std");
 
 /// Hard witness ids supported by the executable reference machine.
 pub const WitnessId = enum {
+    atm_resume_transform,
     multi_prompt,
     static_redelim,
+};
+
+const AtmResumeTransformState = union(enum) {
+    body_after_shift,
+    complete,
+    handler_after_resume,
+    handler_enter,
+    start,
+
+    fn step(self: *@This(), writer: anytype) !void {
+        switch (self.*) {
+            .start => self.* = .handler_enter,
+            .handler_enter => {
+                try writer.writeAll("handler-enter\n");
+                self.* = .body_after_shift;
+            },
+            .body_after_shift => {
+                try writer.writeAll("body-after-shift\n");
+                self.* = .handler_after_resume;
+            },
+            .handler_after_resume => {
+                try writer.writeAll("handler-after-resume\n");
+                self.* = .complete;
+            },
+            .complete => {
+                try writer.writeAll("final=answer=42\n");
+                self.* = .start;
+            },
+        }
+    }
 };
 
 const StaticRedelimState = union(enum) {
@@ -95,9 +126,16 @@ fn runStateMachine(state: anytype, writer: anytype) !void {
 
 /// Run the reference machine for one hard semantic witness.
 pub fn runWitness(writer: anytype, id: []const u8) anyerror!void {
+    if (std.mem.eql(u8, id, "atm_resume_transform")) return runAtmResumeTransform(writer);
     if (std.mem.eql(u8, id, "static_redelim")) return runStaticRedelim(writer);
     if (std.mem.eql(u8, id, "multi_prompt")) return runMultiPrompt(writer);
     return error.UnknownWitness;
+}
+
+/// Execute the reference machine for the ATM resume-then-transform witness.
+pub fn runAtmResumeTransform(writer: anytype) anyerror!void {
+    var state: AtmResumeTransformState = .start;
+    try runStateMachine(&state, writer);
 }
 
 /// Execute the reference machine for the static re-delimitation witness.

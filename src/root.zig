@@ -25,8 +25,12 @@ fn PromptTypeFromPtr(comptime PromptPtrType: type) type {
     };
 }
 
-fn PromptAnswerType(comptime PromptPtrType: type) type {
-    return PromptTypeFromPtr(PromptPtrType).Answer;
+fn PromptInAnswerType(comptime PromptPtrType: type) type {
+    return PromptTypeFromPtr(PromptPtrType).InAnswer;
+}
+
+fn PromptOutAnswerType(comptime PromptPtrType: type) type {
+    return PromptTypeFromPtr(PromptPtrType).OutAnswer;
 }
 
 fn PromptErrorSetType(comptime PromptPtrType: type) type {
@@ -34,16 +38,16 @@ fn PromptErrorSetType(comptime PromptPtrType: type) type {
 }
 
 /// First-class delimiter value for one-shot `shift/reset`.
-pub fn Prompt(comptime Answer: type, comptime ErrorSet: type) type {
-    return raw.Prompt(Answer, ErrorSet);
+pub fn Prompt(comptime InAnswer: type, comptime OutAnswer: type, comptime ErrorSet: type) type {
+    return raw.Prompt(InAnswer, OutAnswer, ErrorSet);
 }
 
 /// Run `body` under a fresh dynamic delimiter identified by `prompt`.
 pub fn reset(
     runtime: *Runtime,
     prompt: anytype,
-    body: *const fn () ResetError(PromptErrorSetType(@TypeOf(prompt)))!PromptAnswerType(@TypeOf(prompt)),
-) ResetError(PromptErrorSetType(@TypeOf(prompt)))!PromptAnswerType(@TypeOf(prompt)) {
+    body: *const fn () ResetError(PromptErrorSetType(@TypeOf(prompt)))!PromptInAnswerType(@TypeOf(prompt)),
+) ResetError(PromptErrorSetType(@TypeOf(prompt)))!PromptOutAnswerType(@TypeOf(prompt)) {
     return raw.reset(PromptTypeFromPtr(@TypeOf(prompt)), runtime, prompt, body);
 }
 
@@ -51,7 +55,7 @@ pub fn reset(
 pub fn shift(
     comptime Resume: type,
     prompt: anytype,
-    handler: *const fn (*raw.Continuation(Resume, PromptTypeFromPtr(@TypeOf(prompt)))) ResetError(PromptErrorSetType(@TypeOf(prompt)))!PromptAnswerType(@TypeOf(prompt)),
+    handler: *const fn (*raw.Continuation(Resume, PromptTypeFromPtr(@TypeOf(prompt)))) ResetError(PromptErrorSetType(@TypeOf(prompt)))!PromptOutAnswerType(@TypeOf(prompt)),
 ) ControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
     return raw.shift(Resume, PromptTypeFromPtr(@TypeOf(prompt)), prompt, handler);
 }
