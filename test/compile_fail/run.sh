@@ -3,22 +3,36 @@ set -eu
 
 repo_root="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
 
+case "$(uname -m)" in
+  arm64|aarch64)
+    asm_file="$repo_root/src/runtime/aarch64_switch.S"
+    ;;
+  x86_64|amd64)
+    asm_file="$repo_root/src/runtime/x86_64_switch.S"
+    ;;
+  *)
+    echo "unsupported host arch for compile-fail harness: $(uname -m)" >&2
+    exit 1
+    ;;
+esac
+
 run_fixture() {
   fixture="$1"
   expected="$2"
   stderr_file="$(mktemp)"
   trap 'rm -f "$stderr_file"' EXIT INT TERM
 
-  if zig run \
-    --dep compiler \
-    -Mroot="$repo_root/tool/shiftc.zig" \
-    -Mcompiler="$repo_root/src/compiler.zig" \
-    -- \
-    --input "$fixture" \
-    --zig "$repo_root/.zig-cache/compile-fail.zig" \
-    --map "$repo_root/.zig-cache/compile-fail.map.json" \
-    --cert "$repo_root/.zig-cache/compile-fail.linear.json" \
-    >"$stderr_file" 2>&1
+  if zig build-obj \
+    -ODebug \
+    -fno-emit-bin \
+    --dep shift \
+    -Mroot="$fixture" \
+    "$asm_file" \
+    -Mshift="$repo_root/src/root.zig" \
+    --cache-dir "$repo_root/.zig-cache" \
+    --global-cache-dir "${HOME}/.cache/zig" \
+    --name compile-fail-fixture \
+    > /dev/null 2>"$stderr_file"
   then
     echo "expected compile failure: $fixture" >&2
     cat "$stderr_file" >&2
@@ -35,5 +49,6 @@ run_fixture() {
   trap - EXIT INT TERM
 }
 
-run_fixture "$repo_root/test/compile_fail/double_resume.shift" "linear use of resume"
-run_fixture "$repo_root/test/compile_fail/unhandled_effect.shift" "unhandled effect"
+run_fixture "$repo_root/test/compile_fail/continuation_discontinue_removed.zig" "discontinue"
+run_fixture "$repo_root/test/compile_fail/no_shift_guard_removed.zig" "NoShiftGuard"
+run_fixture "$repo_root/test/compile_fail/resume_value_mismatch.zig" "expected type"

@@ -1,12 +1,11 @@
-const shift = @import("shift");
 const std = @import("std");
+const witnesses = @import("witnesses");
 
+/// Run the nested-workflow witness example.
 pub fn main() anyerror!void {
-    const result = shift.generated.workflow.workflow("publish");
-
-    var stdout_buffer: [128]u8 = undefined;
+    var stdout_buffer: [512]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     const stdout = &stdout_writer.interface;
-    try stdout.print("result={s}\n", .{result});
+    try witnesses.runNestedWorkflow(stdout);
     try stdout.flush();
 }

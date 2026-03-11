@@ -1,0 +1,30 @@
+# Research Notes
+
+This repo is now semantics-first.
+
+The question is not “what control API feels convenient?” The question is “what exact operator family does the runtime implement, and how do we keep that answer stable as the code evolves?”
+
+The current ladder is:
+
+1. law
+2. executable reference witness
+3. CPS account
+4. machine account
+5. runtime realization
+
+The runtime is accepted only when it matches the earlier rungs.
+
+## Current Focus
+
+- exact static `shift/reset`
+- explicit typed prompt tags
+- explicit continuation argument
+- one-shot restriction
+- honest answer-type pressure if required
+
+## Current Repository Discipline
+
+- every kernel feature needs a law entry
+- every semantic claim needs a witness
+- every witness needs a stable transcript
+- every runtime change touching capture, resume, prompt matching, or answer-type behavior must preserve ladder agreement

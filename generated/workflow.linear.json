@@ -1,1 +1,0 @@
-{"module":"workflow","handlers":[{"effect":"audit","action":"resume","line":6},{"effect":"approval","action":"resume","line":8}]}

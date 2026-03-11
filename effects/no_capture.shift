@@ -1,5 +1,0 @@
-(module no_capture
-  (export noCapture ((value i32)) i32
-    (handlers)
-    (program
-      (return (add value 1)))))

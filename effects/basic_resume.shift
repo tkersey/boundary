@@ -1,9 +1,0 @@
-(module basic_resume
-  (effect input i32 i32)
-  (export basicResume () i32
-    (handlers
-      (input request resume
-        (resume request)))
-    (program
-      (let value (perform input 41))
-      (return (add value 1)))))

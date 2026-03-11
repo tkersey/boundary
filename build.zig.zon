@@ -14,12 +14,9 @@
         "build.zig",
         "build.zig.zon",
         "docs",
-        "effects",
         "examples",
-        "generated",
         "src",
         "test",
-        "tool",
     },
     .fingerprint = 0xa50b3b45523140a3,
 }
