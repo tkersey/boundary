@@ -101,15 +101,6 @@ pub fn build(b: *std.Build) void {
     const one_shot_survey_step = b.step("one-shot-survey", "Run the plain-Zig one-shot survey fixtures.");
     one_shot_survey_step.dependOn(&one_shot_survey_cmd.step);
 
-    const docs_sanity_cmd = b.addSystemCommand(&.{
-        "sh",
-        "-c",
-        "if rg -n '^\\{\"id\":\"lrn-' README.md docs; then echo 'raw learnings JSON found in docs' >&2; exit 1; fi",
-    });
-    const docs_sanity_step = b.step("docs-sanity", "Fail if markdown docs contain raw learnings JSON.");
-    docs_sanity_step.dependOn(&docs_sanity_cmd.step);
-    check_step.dependOn(&docs_sanity_cmd.step);
-
     const examples = [_]struct {
         name: []const u8,
         src: []const u8,

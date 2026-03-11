@@ -12,7 +12,7 @@ pub const WitnessEntry = struct {
 pub const entries = [_]WitnessEntry{
     .{
         .witness_id = "atm_resume_transform",
-        .law_anchor = "core_sr_full.md#public-surface-shape",
+        .law_anchor = "README.md#purpose",
         .evaluator_case = "reference_eval.atm_resume_transform",
         .runtime_case = "witnesses.atm_resume_transform",
         .required_transcript = "handler-enter\n" ++
@@ -25,7 +25,7 @@ pub const entries = [_]WitnessEntry{
     },
     .{
         .witness_id = "direct_return",
-        .law_anchor = "core_sr_full.md#public-surface-shape",
+        .law_anchor = "README.md#purpose",
         .evaluator_case = "reference_eval.direct_return",
         .runtime_case = "witnesses.direct_return",
         .required_transcript = "handler-direct-return\n" ++
@@ -34,7 +34,7 @@ pub const entries = [_]WitnessEntry{
     },
     .{
         .witness_id = "static_redelim",
-        .law_anchor = "research_laws.md#1-static-delimitation",
+        .law_anchor = "README.md#semantic-commitments",
         .evaluator_case = "reference_eval.static_redelim",
         .runtime_case = "witnesses.static_redelim",
         .required_transcript = "outer-handler-enter\n" ++
@@ -51,7 +51,7 @@ pub const entries = [_]WitnessEntry{
     },
     .{
         .witness_id = "multi_prompt",
-        .law_anchor = "research_laws.md#2-prompt-identity-is-real",
+        .law_anchor = "README.md#semantic-commitments",
         .evaluator_case = "reference_eval.multi_prompt",
         .runtime_case = "witnesses.multi_prompt",
         .required_transcript = "outer-before-inner\n" ++
@@ -68,7 +68,7 @@ pub const entries = [_]WitnessEntry{
     },
     .{
         .witness_id = "generator",
-        .law_anchor = "generator practical witness",
+        .law_anchor = "README.md#examples",
         .evaluator_case = null,
         .runtime_case = "witnesses.generator",
         .required_transcript = "yield=1\n" ++

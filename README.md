@@ -5,18 +5,11 @@
 `shift` exists to be a semantics-first Zig implementation of direct-style typed
 `shift/reset`.
 
-Branch note:
-- `rewrite/core-sr-full` now closes as `SUCCESS` on the reopened comptime
-  handler protocol seam.
-- The old plain-Zig `IMPOSSIBLE` result is historical evidence for the removed
-  public continuation seam; see
-  [docs/impossible_plain_zig.md](docs/impossible_plain_zig.md).
-
 In the repo's current state, that means two things:
 
-- the live branch surface is prompt-value-based, ATM-bearing, and protocol-driven
-- the reopened seam preserves direct-style ordinary Zig without restoring the
-  old public continuation handle
+- the public surface is prompt-value-based, ATM-bearing, and protocol-driven
+- the public API preserves direct-style ordinary Zig without exposing a public
+  continuation handle
 
 The repo therefore treats runtime code as the last rung of a semantics ladder,
 not as the source of truth:
@@ -25,9 +18,9 @@ not as the source of truth:
 2. executable reference witness
 3. executable reference machine
 4. CPS account
-5. optimized stackful runtime
+5. fiber-backed stackful runtime
 
-The current live product claim for this branch is:
+The current public product claim is:
 
 - `const P = shift.Prompt(.resume_then_transform, InAnswer, OutAnswer, ErrorSet); var prompt = P.init();`
 - `shift.reset(&runtime, &prompt, body)`
@@ -57,7 +50,6 @@ zig build test
 zig build lint -- --max-warnings 0
 zig build size-check
 zig build compile-fail
-zig build docs-sanity
 zig build bench
 zig build bench-first-suspend
 ```
@@ -111,5 +103,6 @@ pub fn main() anyerror!void {
 }
 ```
 
-See [docs/semantics.md](docs/semantics.md), [docs/core_sr_full.md](docs/core_sr_full.md), [docs/protocol_matrix.md](docs/protocol_matrix.md), [docs/atm_surface_table.md](docs/atm_surface_table.md), [docs/atm_witness_ledger.md](docs/atm_witness_ledger.md), [docs/research_laws.md](docs/research_laws.md), [docs/research_machine.md](docs/research_machine.md), [docs/research.md](docs/research.md), [docs/closure_ledger.md](docs/closure_ledger.md), and [docs/impossible_plain_zig.md](docs/impossible_plain_zig.md) for the current ladder and branch evidence.
-See [docs/core_sr_sat.md](docs/core_sr_sat.md) for the exact temporary rung claim.
+See `src/root.zig` for the public surface, `src/witnesses.zig` for executable
+witnesses, `test/witness_corpus_test.zig` and `test/semantic_manifest.zig` for
+the locked semantic evidence, and `examples/` for runnable usage.
