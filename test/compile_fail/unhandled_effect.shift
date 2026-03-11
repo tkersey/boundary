@@ -1,0 +1,7 @@
+(module unhandled_effect
+  (effect input i32 i32)
+  (export bad () i32
+    (handlers)
+    (program
+      (let value (perform input 1))
+      (return value))))

@@ -2,15 +2,16 @@
 
 ## Purpose
 
-`shift` exists to let Zig code express delimited control as explicit, first-order, fully linear machine data. Instead of capturing arbitrary Zig stacks or hiding control flow behind a stackful runtime, it makes suspension, resumption, and escape explicit through typed prompts, machine steps, `Pending`, and `EscapedOwner`.
+`shift` now ships a checked effect language, not a runtime-first prompt API.
+Authors write `*.shift` modules, `shiftc` typechecks one-shot linear resumption rules, and the repo checks in generated Zig, source maps, and linearity certificates.
 
-In practice, the library's job is to:
+In practice, the package now exists to:
 
-- provide typed routing points with `Prompt(Request, Resume)`
-- drive user-defined machines through `run(Machine, &runtime, initial_frame)`
-- return owned continuation state as `Pending` or `EscapedOwner` instead of implicit stack capture
+- express effectful programs in a dedicated DSL with real checker-owned linearity
+- compile those programs into plain Zig functions and types
+- keep the old first-order continuation runtime only under `shift.legacy`
 
-It is not a live native-body `reset` / `shift` runtime.
+The public happy path is `shift.generated.*`, not `shift.Prompt` / `shift.run`.
 
 ## Build
 
@@ -20,6 +21,8 @@ zig build test
 zig build lint -- --max-warnings 0
 zig build size-check
 zig build compile-fail
+zig build check-generated
+zig build regen-linear
 zig build docs-sanity
 ```
 
@@ -27,9 +30,12 @@ zig build docs-sanity
 
 ```bash
 zig build run-basic-resume
-zig build run-multi-prompt
-zig build run-delayed-escape
-zig build run-workflow-linear
+zig build run-workflow
+zig build bench
+zig build bench-basic-effect
+zig build bench-workflow
 ```
 
-See [docs/api.md](docs/api.md) for the live machine contract.
+The checked DSL inputs live under `effects/`. Generated Zig and proof artifacts live under `generated/`.
+
+See [docs/api.md](docs/api.md) for the live DSL and generated-surface contract.

@@ -9,16 +9,16 @@ run_fixture() {
   stderr_file="$(mktemp)"
   trap 'rm -f "$stderr_file"' EXIT INT TERM
 
-  if zig build-obj \
-    -ODebug \
-    -fno-emit-bin \
-    --dep shift \
-    -Mroot="$fixture" \
-    -Mshift="$repo_root/src/root.zig" \
-    --cache-dir "$repo_root/.zig-cache" \
-    --global-cache-dir "${HOME}/.cache/zig" \
-    --name compile-fail-fixture \
-    > /dev/null 2>"$stderr_file"
+  if zig run \
+    --dep compiler \
+    -Mroot="$repo_root/tool/shiftc.zig" \
+    -Mcompiler="$repo_root/src/compiler.zig" \
+    -- \
+    --input "$fixture" \
+    --zig "$repo_root/.zig-cache/compile-fail.zig" \
+    --map "$repo_root/.zig-cache/compile-fail.map.json" \
+    --cert "$repo_root/.zig-cache/compile-fail.linear.json" \
+    >"$stderr_file" 2>&1
   then
     echo "expected compile failure: $fixture" >&2
     cat "$stderr_file" >&2
@@ -35,12 +35,5 @@ run_fixture() {
   trap - EXIT INT TERM
 }
 
-run_fixture "$repo_root/test/compile_fail/pending_deinit_forbidden.zig" "deinit"
-run_fixture "$repo_root/test/compile_fail/pending_discontinue_empty_error_set.zig" "discontinue"
-run_fixture "$repo_root/test/compile_fail/pending_resume_with_void_forbidden.zig" "resumeWith"
-run_fixture "$repo_root/test/compile_fail/escaped_discontinue_empty_error_set.zig" "discontinue"
-run_fixture "$repo_root/test/compile_fail/escaped_resume_with_void_forbidden.zig" "resumeWith"
-run_fixture "$repo_root/test/compile_fail/escaped_token_removed.zig" "EscapedToken"
-run_fixture "$repo_root/test/compile_fail/reset_removed.zig" "reset"
-run_fixture "$repo_root/test/compile_fail/shift_removed.zig" "shift"
-run_fixture "$repo_root/test/compile_fail/token_aliased_removed.zig" "TokenAliased"
+run_fixture "$repo_root/test/compile_fail/double_resume.shift" "linear use of resume"
+run_fixture "$repo_root/test/compile_fail/unhandled_effect.shift" "unhandled effect"

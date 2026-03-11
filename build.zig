@@ -6,22 +6,46 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
 
+    const generated_mod = b.createModule(.{
+        .root_source_file = b.path("generated/index.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const shift_mod = b.addModule("shift", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
+    shift_mod.addImport("generated_index", generated_mod);
 
-    const check_step = b.step("check", "Compile the shift module and linear DSL examples.");
-    b.default_step.dependOn(check_step);
-
-    const lib_check = b.addObject(.{
-        .name = "shift",
+    const compiler_exe = b.addExecutable(.{
+        .name = "shiftc",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/root.zig"),
+            .root_source_file = b.path("tool/shiftc.zig"),
             .target = target,
             .optimize = optimize,
         }),
+    });
+    compiler_exe.root_module.addImport("compiler", b.createModule(.{
+        .root_source_file = b.path("src/compiler.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
+
+    const check_step = b.step("check", "Compile the shift module and generated-effect examples.");
+    b.default_step.dependOn(check_step);
+
+    const lib_check_root = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lib_check_root.addImport("generated_index", generated_mod);
+
+    const lib_check = b.addObject(.{
+        .name = "shift",
+        .root_module = lib_check_root,
     });
     check_step.dependOn(&lib_check.step);
 
@@ -34,8 +58,48 @@ pub fn build(b: *std.Build) void {
     docs_sanity_step.dependOn(&docs_sanity_cmd.step);
     check_step.dependOn(&docs_sanity_cmd.step);
 
+    const regen_linear_step = b.step("regen-linear", "Regenerate checked-in Zig from *.shift modules.");
+    const check_generated_step = b.step("check-generated", "Fail if checked-in generated Zig artifacts are stale.");
+
+    const generation_specs = [_]struct {
+        input: []const u8,
+        zig: []const u8,
+        map: []const u8,
+        cert: []const u8,
+    }{
+        .{
+            .input = "effects/basic_resume.shift",
+            .zig = "generated/basic_resume.zig",
+            .map = "generated/basic_resume.map.json",
+            .cert = "generated/basic_resume.linear.json",
+        },
+        .{
+            .input = "effects/no_capture.shift",
+            .zig = "generated/no_capture.zig",
+            .map = "generated/no_capture.map.json",
+            .cert = "generated/no_capture.linear.json",
+        },
+        .{
+            .input = "effects/workflow.shift",
+            .zig = "generated/workflow.zig",
+            .map = "generated/workflow.map.json",
+            .cert = "generated/workflow.linear.json",
+        },
+    };
+
+    inline for (generation_specs) |spec| {
+        const regen = b.addRunArtifact(compiler_exe);
+        regen.addArgs(&.{ "--input", spec.input, "--zig", spec.zig, "--map", spec.map, "--cert", spec.cert });
+        regen_linear_step.dependOn(&regen.step);
+
+        const verify = b.addRunArtifact(compiler_exe);
+        verify.addArgs(&.{ "--check", "--input", spec.input, "--zig", spec.zig, "--map", spec.map, "--cert", spec.cert });
+        check_generated_step.dependOn(&verify.step);
+        check_step.dependOn(&verify.step);
+    }
+
     const compile_fail_cmd = b.addSystemCommand(&.{ "sh", "test/compile_fail/run.sh" });
-    const compile_fail_step = b.step("compile-fail", "Verify compile-fail misuse fixtures.");
+    const compile_fail_step = b.step("compile-fail", "Verify *.shift misuse fixtures.");
     compile_fail_step.dependOn(&compile_fail_cmd.step);
 
     const example_specs = [_]struct {
@@ -48,25 +112,13 @@ pub fn build(b: *std.Build) void {
             .name = "basic_resume",
             .src = "examples/basic_resume.zig",
             .step_name = "run-basic-resume",
-            .step_desc = "Run the basic linear DSL example.",
+            .step_desc = "Run the basic generated-effect example.",
         },
         .{
-            .name = "multi_prompt",
-            .src = "examples/multi_prompt.zig",
-            .step_name = "run-multi-prompt",
-            .step_desc = "Run the same-typed multi-prompt linear DSL example.",
-        },
-        .{
-            .name = "delayed_escape",
-            .src = "examples/delayed_escape.zig",
-            .step_name = "run-delayed-escape",
-            .step_desc = "Run the delayed escape linear DSL example.",
-        },
-        .{
-            .name = "workflow_linear",
-            .src = "examples/workflow_linear.zig",
-            .step_name = "run-workflow-linear",
-            .step_desc = "Run the non-toy workflow linear DSL example.",
+            .name = "workflow",
+            .src = "examples/workflow.zig",
+            .step_name = "run-workflow",
+            .step_desc = "Run the workflow generated-effect example.",
         },
     };
 
@@ -102,9 +154,10 @@ pub fn build(b: *std.Build) void {
         .root_module = smoke_mod,
     });
     const smoke_run = b.addRunArtifact(smoke_exe);
-    const test_step = b.step("test", "Run the linear-DSL smoke checks and compile-fail harness.");
+    const test_step = b.step("test", "Run the generated-effect smoke checks and compile-fail harness.");
     test_step.dependOn(&smoke_run.step);
     test_step.dependOn(&compile_fail_cmd.step);
+    test_step.dependOn(check_generated_step);
 
     const size_mod = b.createModule(.{
         .root_source_file = b.path("test/size_check.zig"),
@@ -125,6 +178,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = bench_optimize,
     });
+    shift_bench_mod.addImport("generated_index", b.createModule(.{
+        .root_source_file = b.path("generated/index.zig"),
+        .target = target,
+        .optimize = bench_optimize,
+    }));
 
     const bench_specs = [_]struct {
         name: []const u8,
@@ -133,22 +191,22 @@ pub fn build(b: *std.Build) void {
         step_desc: []const u8,
     }{
         .{
-            .name = "shift-run-bench",
+            .name = "shift-no-capture-bench",
             .src = "bench/no_capture_bench.zig",
             .step_name = "bench",
-            .step_desc = "Run the no-suspend linear runtime benchmark.",
+            .step_desc = "Run the no-capture generated-effect benchmark.",
         },
         .{
-            .name = "shift-first-suspend-bench",
-            .src = "bench/direct_first_suspend_bench.zig",
-            .step_name = "bench-first-suspend",
-            .step_desc = "Run the first-suspend linear runtime benchmark.",
+            .name = "shift-basic-effect-bench",
+            .src = "bench/basic_effect_bench.zig",
+            .step_name = "bench-basic-effect",
+            .step_desc = "Run the handled-effect benchmark.",
         },
         .{
-            .name = "shift-delayed-escape-bench",
-            .src = "bench/delayed_escape_bench.zig",
-            .step_name = "bench-delayed-escape",
-            .step_desc = "Run the delayed-escape linear runtime benchmark.",
+            .name = "shift-workflow-bench",
+            .src = "bench/workflow_bench.zig",
+            .step_name = "bench-workflow",
+            .step_desc = "Run the workflow generated-effect benchmark.",
         },
     };
 

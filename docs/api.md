@@ -1,63 +1,67 @@
 # API
 
-`shift` now ships one explicit first-order machine model.
+`shift` now has three public layers:
 
-## Core Types
+1. `*.shift` source modules in `effects/`
+2. generated Zig modules under `generated/`
+3. the deprecated legacy runtime under `shift.legacy`
 
-- `shift.Prompt(Request, Resume).init()`
-- `shift.Step(Frame, Suspend, Answer)` with union arms:
-  - `.complete`
-  - `.@"suspend"`
-- `shift.Outcome(Machine)` with union arms:
-  - `.complete`
-  - `.pending`
-- `shift.Pending(Machine)`
-- `shift.EscapedOwner(Machine)`
-- `shift.run(Machine, &runtime, initial_frame)`
+## DSL Contract
 
-## Machine Contract
+Each `*.shift` module is a single `(module ...)` form with:
 
-Each machine defines:
+- zero or more `(effect name request-type response-type)` declarations
+- one `(export ...)` declaration
+- one `(handlers ...)` block inside the export
+- one `(program ...)` block inside the export
 
-1. `Answer`
-2. `Error`
-3. `Frame` as a tagged union
-4. `Resume` as a tagged union with `start: void`
-5. `Suspend` as a tagged union
-6. `step(frame, resume)` returning `shift.Step(Frame, Suspend, Answer)`
+The bootstrap DSL currently supports:
 
-Each `Suspend` union payload must be a struct with:
+- value types: `i32`, `bool`, `string`, `unit`
+- expressions: identifiers, literals, `(add lhs rhs)`, `(perform effect request)`
+- program statements: `(let name expr)`, `(return expr)`, terminal `(if cond (block ...) (block ...))`
+- handler statements: `(let name expr)`, `(resume expr)`, `(discard expr)`, terminal `(if cond (block ...) (block ...))`
 
-- `prompt`
-- `request`
-- `next`
+## Linearity Rules
 
-The matching `Resume` union must include the same tag names as `Suspend`.
+- Handler resumptions are one-shot and checker-owned.
+- A handler must `resume` or `discard` exactly once on every path.
+- Statements after a terminal `resume`, `discard`, or terminal `if` are rejected.
+- Exported programs may only `perform` effects that appear in the export's handler block.
+- Exported programs must return on every path.
 
-## Ordinary Path
+The proof artifacts are:
 
-1. Call `shift.run(Machine, &runtime, initial_frame)`.
-2. If the outcome is `.pending`, inspect `pending.@"suspend"()`.
-3. Route on the active suspend arm.
-4. Feed the matching resume value back with `pending.@"resume"(...)`.
+- `generated/<module>.zig`
+- `generated/<module>.map.json`
+- `generated/<module>.linear.json`
 
-## Advanced Path
+## Generated Zig Contract
 
-`Pending.escape()` promotes the owned continuation into `EscapedOwner`.
-That supports delayed resolution without changing the machine representation.
+Generated modules expose plain Zig functions only.
 
-`EscapedOwner.deinit()` frees owned continuation data directly.
+Examples in the current tree:
 
-## Runtime Notes
+- `shift.generated.basic_resume.basicResume() -> i32`
+- `shift.generated.no_capture.noCapture(value: i32) -> i32`
+- `shift.generated.workflow.workflow(job: []const u8) -> []const u8`
 
-- `Runtime` owns allocator and owner bookkeeping, not stackful continuations.
-- `Prompt` identity is per-instance handle identity.
-- copied prompt or owner aliases are rejected after first use.
-- mismatched resume tags fail with `error.ResumeMismatch`.
+Generated handler lowering is intentionally internal. Callers do not manipulate prompts, pending owners, or resumption tokens.
+
+## Build Surfaces
+
+- `zig build check-generated` fails if checked-in generated artifacts are stale.
+- `zig build regen-linear` refreshes generated Zig, source maps, and linearity certificates.
+- `zig build compile-fail` runs negative DSL fixtures.
+- `zig build test` runs the generated-surface smoke checks plus the compile-fail harness.
+
+## Legacy Surface
+
+The old first-order machine runtime still exists behind `shift.legacy`.
+It is no longer the documented front door.
 
 ## Non-Goals
 
-- no live native-body `reset` / `shift`
-- no driver/session surface
-- no built-in cancel/discontinue/guard semantics
-- no promise that archived experimental materials reflect the live product
+- no ordinary Zig-only route to public type-level linearity
+- no multi-shot continuations in the checked DSL
+- no promise that `shift.legacy` remains the long-term product surface
