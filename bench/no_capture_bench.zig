@@ -2,7 +2,7 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
-const BenchPrompt = shift.Prompt(usize, usize, NoError);
+const BenchPrompt = shift.Prompt(.resume_then_transform, usize, usize, NoError);
 
 const bench_state = struct {
     var current: usize = 0;

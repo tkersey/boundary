@@ -1,6 +1,9 @@
 const raw = @import("raw.zig");
 const std = @import("std");
 
+/// Comptime-selected handler protocol for a prompt value.
+pub const PromptMode = raw.PromptMode;
+
 /// Runtime owner for fiber-backed one-shot `shift/reset`.
 pub const Runtime = raw.Runtime;
 /// Public runtime errors surfaced by `shift`.
@@ -38,8 +41,13 @@ fn PromptErrorSetType(comptime PromptPtrType: type) type {
 }
 
 /// First-class delimiter value for one-shot `shift/reset`.
-pub fn Prompt(comptime InAnswer: type, comptime OutAnswer: type, comptime ErrorSet: type) type {
-    return raw.Prompt(InAnswer, OutAnswer, ErrorSet);
+pub fn Prompt(
+    comptime mode: PromptMode,
+    comptime InAnswer: type,
+    comptime OutAnswer: type,
+    comptime ErrorSet: type,
+) type {
+    return raw.Prompt(mode, InAnswer, OutAnswer, ErrorSet);
 }
 
 /// Run `body` under a fresh dynamic delimiter identified by `prompt`.
@@ -55,18 +63,14 @@ pub fn reset(
 pub fn shift(
     comptime Resume: type,
     prompt: anytype,
-    handler: *const fn (*raw.Continuation(Resume, PromptTypeFromPtr(@TypeOf(prompt)))) ResetError(PromptErrorSetType(@TypeOf(prompt)))!PromptOutAnswerType(@TypeOf(prompt)),
+    comptime Handler: type,
 ) ControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
-    return raw.shift(Resume, PromptTypeFromPtr(@TypeOf(prompt)), prompt, handler);
-}
-
-/// One-shot continuation handle for `shift`.
-pub fn Continuation(comptime Resume: type, comptime PromptType: type) type {
-    return raw.Continuation(Resume, PromptType);
+    return raw.shift(Resume, PromptTypeFromPtr(@TypeOf(prompt)), prompt, Handler);
 }
 
 test {
     _ = Prompt;
+    _ = PromptMode;
     _ = Runtime;
     _ = std;
 }

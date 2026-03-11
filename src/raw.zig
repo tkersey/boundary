@@ -25,6 +25,12 @@ pub fn ResetError(comptime ErrorSet: type) type {
     return ControlError(ErrorSet) || SetupError;
 }
 
+/// Comptime-selected handler protocol attached to a prompt value.
+pub const PromptMode = enum {
+    direct_return,
+    resume_then_transform,
+};
+
 /// Thread-affine runtime that owns stackful continuations.
 pub const Runtime = struct {
     allocator: std.mem.Allocator,
@@ -146,8 +152,15 @@ fn allocatePromptToken() PromptToken {
 }
 
 /// First-class prompt value for one-shot `shift/reset`.
-pub fn Prompt(comptime InAnswerType: type, comptime OutAnswerType: type, comptime ErrorSetType: type) type {
+pub fn Prompt(
+    comptime mode_type: PromptMode,
+    comptime InAnswerType: type,
+    comptime OutAnswerType: type,
+    comptime ErrorSetType: type,
+) type {
     return struct {
+        /// Comptime-selected handler protocol for this prompt.
+        pub const mode = mode_type;
         /// Answer type produced by the resumed subcontinuation.
         pub const InAnswer = InAnswerType;
         /// Enclosing answer type of the delimited computation.
@@ -427,11 +440,79 @@ fn DriveFrameInAnswer(comptime PromptType: type) type {
     };
 }
 
+fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
+    return switch (@typeInfo(T)) {
+        .@"struct", .@"union", .@"enum", .@"opaque" => @hasDecl(T, name),
+        else => false,
+    };
+}
+
+fn expectDeclTypeOneOf(comptime Owner: type, comptime name: []const u8, comptime ExpectedA: type, comptime ExpectedB: type) void {
+    if (!hasDeclSafe(Owner, name)) {
+        @compileError(@typeName(Owner) ++ " must declare " ++ name);
+    }
+    const ActualType = @TypeOf(@field(Owner, name));
+    if (ActualType != ExpectedA and ActualType != ExpectedB) {
+        @compileError(
+            @typeName(Owner) ++ "." ++ name ++ " must have type " ++ @typeName(ExpectedA) ++
+                " or " ++ @typeName(ExpectedB),
+        );
+    }
+}
+
+fn assertHandlerProtocol(comptime Resume: type, comptime PromptType: type, comptime Handler: type) void {
+    switch (PromptType.mode) {
+        .resume_then_transform => {
+            expectDeclTypeOneOf(
+                Handler,
+                "resumeValue",
+                fn () Resume,
+                fn () ResetError(PromptType.ErrorSet)!Resume,
+            );
+            expectDeclTypeOneOf(
+                Handler,
+                "afterResume",
+                fn (PromptType.InAnswer) PromptType.OutAnswer,
+                fn (PromptType.InAnswer) ResetError(PromptType.ErrorSet)!PromptType.OutAnswer,
+            );
+        },
+        .direct_return => {
+            expectDeclTypeOneOf(
+                Handler,
+                "directReturn",
+                fn () PromptType.OutAnswer,
+                fn () ResetError(PromptType.ErrorSet)!PromptType.OutAnswer,
+            );
+        },
+    }
+}
+
+fn callResumeValue(comptime Resume: type, comptime PromptType: type, comptime Handler: type) ResetError(PromptType.ErrorSet)!Resume {
+    const ResumeFn = @TypeOf(Handler.resumeValue);
+    if (ResumeFn == fn () Resume) return Handler.resumeValue();
+    return try Handler.resumeValue();
+}
+
+fn callAfterResume(
+    comptime PromptType: type,
+    comptime Handler: type,
+    value: PromptType.InAnswer,
+) ResetError(PromptType.ErrorSet)!PromptType.OutAnswer {
+    const AfterFn = @TypeOf(Handler.afterResume);
+    if (AfterFn == fn (PromptType.InAnswer) PromptType.OutAnswer) return Handler.afterResume(value);
+    return try Handler.afterResume(value);
+}
+
+fn callDirectReturn(comptime PromptType: type, comptime Handler: type) ResetError(PromptType.ErrorSet)!PromptType.OutAnswer {
+    const DirectFn = @TypeOf(Handler.directReturn);
+    if (DirectFn == fn () PromptType.OutAnswer) return Handler.directReturn();
+    return try Handler.directReturn();
+}
+
 /// One-shot continuation handle for a captured `shift`.
-pub fn Continuation(comptime Resume: type, comptime PromptType: type) type {
+fn Continuation(comptime Resume: type, comptime PromptType: type, comptime Capture: type) type {
     const InAnswer = PromptType.InAnswer;
     const ErrorSet = PromptType.ErrorSet;
-    const Capture = ShiftCapture(Resume, PromptType);
     return struct {
         capture: *Capture,
 
@@ -446,13 +527,11 @@ pub fn Continuation(comptime Resume: type, comptime PromptType: type) type {
     };
 }
 
-fn ShiftCapture(comptime Resume: type, comptime PromptType: type) type {
+fn ShiftCapture(comptime Resume: type, comptime PromptType: type, comptime Handler: type) type {
     const OutAnswer = PromptType.OutAnswer;
-    const ErrorSet = PromptType.ErrorSet;
     return struct {
         base: CaptureBase,
         target_frame: *ResetFrame(PromptType),
-        handler: *const fn (*Continuation(Resume, PromptType)) ResetError(ErrorSet)!OutAnswer,
         consumed: bool = false,
         disposition: enum {
             pending,
@@ -462,10 +541,15 @@ fn ShiftCapture(comptime Resume: type, comptime PromptType: type) type {
 
         fn invoke(base: *CaptureBase, answer_out: *anyopaque) anyerror!void {
             const self: *@This() = @fieldParentPtr("base", base);
-            var continuation = Continuation(Resume, PromptType){ .capture = self };
-            const answer = self.handler(&continuation) catch |err| return err;
             const out: *?OutAnswer = @ptrCast(@alignCast(answer_out));
-            out.* = answer;
+            out.* = switch (PromptType.mode) {
+                .resume_then_transform => blk: {
+                    var continuation = Continuation(Resume, PromptType, @This()){ .capture = self };
+                    const answer = try continuation.resumeWith(try callResumeValue(Resume, PromptType, Handler));
+                    break :blk try callAfterResume(PromptType, Handler, answer);
+                },
+                .direct_return => try callDirectReturn(PromptType, Handler),
+            };
         }
     };
 }
@@ -492,8 +576,9 @@ pub fn shift(
     comptime Resume: type,
     comptime PromptType: type,
     prompt: *const PromptType,
-    handler: *const fn (*Continuation(Resume, PromptType)) ResetError(PromptType.ErrorSet)!PromptType.OutAnswer,
+    comptime Handler: type,
 ) ControlError(PromptType.ErrorSet)!Resume {
+    comptime assertHandlerProtocol(Resume, PromptType, Handler);
     const runtime = tls_runtime orelse return error.MissingPrompt;
     try runtime.ensureThread();
 
@@ -505,13 +590,12 @@ pub fn shift(
     }
 
     const frame: *ResetFrame(PromptType) = @fieldParentPtr("base", target_fiber);
-    var capture = ShiftCapture(Resume, PromptType){
+    var capture = ShiftCapture(Resume, PromptType, Handler){
         .base = .{
-            .invokeFn = ShiftCapture(Resume, PromptType).invoke,
+            .invokeFn = ShiftCapture(Resume, PromptType, Handler).invoke,
             .target_fiber = target_fiber,
         },
         .target_frame = frame,
-        .handler = handler,
     };
     current_fiber.state = .suspended;
     current_fiber.outcome = .{ .captured = &capture.base };
@@ -528,7 +612,7 @@ test "no-capture reset runs on a fresh runtime" {
     defer runtime.deinit();
 
     const NoError = error{};
-    const DemoPrompt = Prompt(usize, usize, NoError);
+    const DemoPrompt = Prompt(.resume_then_transform, usize, usize, NoError);
     var prompt = DemoPrompt.init();
     const answer = try reset(DemoPrompt, &runtime, &prompt, struct {
         fn body() ResetError(NoError)!usize {
@@ -541,7 +625,7 @@ test "no-capture reset runs on a fresh runtime" {
 
 test "copied prompt preserves its instance identity" {
     const NoError = error{};
-    const DemoPrompt = Prompt(void, void, NoError);
+    const DemoPrompt = Prompt(.resume_then_transform, void, void, NoError);
     const original = DemoPrompt.init();
     const copied = original;
     try std.testing.expectEqual(original.token, copied.token);
@@ -549,27 +633,35 @@ test "copied prompt preserves its instance identity" {
 
 test "distinct prompt values of the same prompt type have distinct identities" {
     const NoError = error{};
-    const DemoPrompt = Prompt(void, void, NoError);
+    const DemoPrompt = Prompt(.resume_then_transform, void, void, NoError);
     const first = DemoPrompt.init();
     const second = DemoPrompt.init();
     try std.testing.expect(first.token != second.token);
 }
 
-test "shift resumes with a direct-style value" {
+test "resume-then-transform handler resumes with a direct-style value" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
     const NoError = error{};
-    const DemoPrompt = Prompt(i32, i32, NoError);
+    const DemoPrompt = Prompt(.resume_then_transform, i32, i32, NoError);
     var prompt = DemoPrompt.init();
     const demo = struct {
         var prompt_ptr: ?*const DemoPrompt = null;
         var resumed_value: i32 = 0;
 
-        fn handle(k: *Continuation(i32, DemoPrompt)) ResetError(NoError)!i32 {
-            resumed_value = 41;
-            return try k.resumeWith(resumed_value);
-        }
+        const handle = struct {
+            /// Supply the resumed value to the suspended body.
+            pub fn resumeValue() i32 {
+                resumed_value = 41;
+                return resumed_value;
+            }
+
+            /// Preserve the resumed answer in the enclosing answer type.
+            pub fn afterResume(value: i32) i32 {
+                return value;
+            }
+        };
 
         fn body() ResetError(NoError)!i32 {
             const current = try shift(i32, DemoPrompt, prompt_ptr.?, handle);
@@ -583,43 +675,22 @@ test "shift resumes with a direct-style value" {
     try std.testing.expectEqual(@as(i32, 41), demo.resumed_value);
 }
 
-test "continuation is strictly one-shot" {
-    var runtime = Runtime.init(std.testing.allocator, .{});
-    defer runtime.deinit();
-
-    const TestHelperError = error{ TestExpectedError, TestUnexpectedError };
-    const DemoPrompt = Prompt(void, void, TestHelperError);
-    var prompt = DemoPrompt.init();
-    const demo = struct {
-        var prompt_ptr: ?*const DemoPrompt = null;
-
-        fn handle(k: *Continuation(void, DemoPrompt)) ResetError(TestHelperError)!void {
-            try k.resumeWith({});
-            try std.testing.expectError(error.AlreadyResolved, k.resumeWith({}));
-        }
-
-        fn body() ResetError(TestHelperError)!void {
-            _ = try shift(void, DemoPrompt, prompt_ptr.?, handle);
-        }
-    };
-
-    demo.prompt_ptr = &prompt;
-    try reset(DemoPrompt, &runtime, &prompt, demo.body);
-}
-
-test "handler may return the enclosing answer without resuming" {
+test "direct-return handler may produce the enclosing answer without resuming" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
     const NoError = error{};
-    const DemoPrompt = Prompt(usize, usize, NoError);
+    const DemoPrompt = Prompt(.direct_return, usize, usize, NoError);
     var prompt = DemoPrompt.init();
     const demo = struct {
         var prompt_ptr: ?*const DemoPrompt = null;
 
-        fn handle(_: *Continuation(void, DemoPrompt)) ResetError(NoError)!usize {
-            return 99;
-        }
+        const handle = struct {
+            /// Return the enclosing answer directly from the handler.
+            pub fn directReturn() usize {
+                return 99;
+            }
+        };
 
         fn body() ResetError(NoError)!usize {
             _ = try shift(void, DemoPrompt, prompt_ptr.?, handle);
@@ -632,12 +703,43 @@ test "handler may return the enclosing answer without resuming" {
     try std.testing.expectEqual(@as(usize, 99), answer);
 }
 
+test "resume-then-transform handler may propagate typed user errors" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    const DemoError = error{Boom};
+    const DemoPrompt = Prompt(.resume_then_transform, i32, i32, DemoError);
+    var prompt = DemoPrompt.init();
+    const demo = struct {
+        var prompt_ptr: ?*const DemoPrompt = null;
+
+        const handle = struct {
+            /// Raise a user error before resuming to prove the protocol preserves typed errors.
+            pub fn resumeValue() ResetError(DemoError)!i32 {
+                return error.Boom;
+            }
+
+            /// Preserve the resumed answer when the error path is not taken.
+            pub fn afterResume(value: i32) ResetError(DemoError)!i32 {
+                return value;
+            }
+        };
+
+        fn body() ResetError(DemoError)!i32 {
+            return try shift(i32, DemoPrompt, prompt_ptr.?, handle);
+        }
+    };
+
+    demo.prompt_ptr = &prompt;
+    try std.testing.expectError(error.Boom, reset(DemoPrompt, &runtime, &prompt, demo.body));
+}
+
 test "runtime checked deinit rejects active reset" {
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
     const TestHelperError = error{ TestExpectedError, TestUnexpectedError };
-    const DemoPrompt = Prompt(usize, usize, TestHelperError);
+    const DemoPrompt = Prompt(.resume_then_transform, usize, usize, TestHelperError);
     var prompt = DemoPrompt.init();
     const demo = struct {
         var runtime_ptr: *Runtime = undefined;
@@ -660,7 +762,7 @@ test "runtime checked deinit rejects double teardown and later reset use" {
     try std.testing.expectError(error.RuntimeDestroyed, runtime.deinitChecked());
 
     const NoError = error{};
-    const DemoPrompt = Prompt(usize, usize, NoError);
+    const DemoPrompt = Prompt(.resume_then_transform, usize, usize, NoError);
     var prompt = DemoPrompt.init();
     try std.testing.expectError(error.RuntimeDestroyed, reset(DemoPrompt, &runtime, &prompt, struct {
         fn body() ResetError(NoError)!usize {
@@ -674,8 +776,8 @@ test "outer prompt capture bubbles through nested resets" {
     defer runtime.deinit();
 
     const NoError = error{};
-    const OuterPrompt = Prompt(i32, i32, NoError);
-    const InnerPrompt = Prompt(i32, i32, NoError);
+    const OuterPrompt = Prompt(.resume_then_transform, i32, i32, NoError);
+    const InnerPrompt = Prompt(.resume_then_transform, i32, i32, NoError);
     var outer_prompt = OuterPrompt.init();
     var inner_prompt = InnerPrompt.init();
     const demo = struct {
@@ -684,13 +786,21 @@ test "outer prompt capture bubbles through nested resets" {
         var runtime_ptr: *Runtime = undefined;
         var resumed_value: i32 = 0;
 
-        fn outerHandle(k: *Continuation(i32, OuterPrompt)) ResetError(NoError)!i32 {
-            resumed_value = 41;
-            return try k.resumeWith(resumed_value);
-        }
+        const outer_handle = struct {
+            /// Supply the resumed value to the outer prompt.
+            pub fn resumeValue() i32 {
+                resumed_value = 41;
+                return resumed_value;
+            }
+
+            /// Preserve the resumed answer through the outer handler.
+            pub fn afterResume(value: i32) i32 {
+                return value;
+            }
+        };
 
         fn innerBody() ResetError(NoError)!i32 {
-            const current = try shift(i32, OuterPrompt, outer_prompt_ptr.?, outerHandle);
+            const current = try shift(i32, OuterPrompt, outer_prompt_ptr.?, outer_handle);
             return current + 1;
         }
 
@@ -712,7 +822,7 @@ test "unsupported non-diagonal prompt still fails closed on direct completion" {
     defer runtime.deinit();
 
     const NoError = error{};
-    const DemoPrompt = Prompt(i32, []const u8, NoError);
+    const DemoPrompt = Prompt(.resume_then_transform, i32, []const u8, NoError);
     var prompt = DemoPrompt.init();
 
     try std.testing.expectError(error.NonDiagonalComplete, reset(DemoPrompt, &runtime, &prompt, struct {

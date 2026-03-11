@@ -1,21 +1,26 @@
 # Semantics
 
-`shift` currently claims the `CoreSR-SAT` rung: a same-answer-type direct-style one-shot typed `shift/reset` subset.
+`shift` currently exposes an ATM-bearing prompt surface with a reopened public
+seam:
 
-The branch target beyond this rung is `CoreSR-Full`, whose prompt surface is
-`Prompt(InAnswer, OutAnswer, ErrorSet)`. The currently exercised runtime path
-is the diagonal `Prompt(Answer, Answer, ErrorSet)` case.
+- `Prompt(Mode, InAnswer, OutAnswer, ErrorSet)`
+- no public `Continuation`
+- comptime-selected handler protocols
+
+The reopened branch now closes as `SUCCESS` for this seam under the current
+two-mode budget and practical witness bar.
 
 ## What is true today
 
-- `Prompt(InAnswer, OutAnswer, ErrorSet).init()` creates a first-class delimiter value.
+- `Prompt(Mode, InAnswer, OutAnswer, ErrorSet).init()` creates a first-class delimiter value.
 - `reset(&runtime, &prompt, ...)` installs that specific prompt value as the active delimiter.
-- `shift(Resume, &prompt, handler)` captures to the nearest active reset for that prompt value.
-- The handler receives an explicit continuation argument.
-- `Continuation.resumeWith(value)` reinstalls the delimiter and makes the suspended `shift(...)` expression evaluate to `value`.
-- Handlers may either:
-  - resume the continuation exactly once, or
-  - return the enclosing `Answer` directly without resuming
+- `shift(Resume, &prompt, Handler)` captures to the nearest active reset for that prompt value.
+- `PromptMode.resume_then_transform` requires:
+  - `pub fn resumeValue() Resume` or `ResetError(ErrorSet)!Resume`
+  - `pub fn afterResume(value: InAnswer) OutAnswer` or `ResetError(ErrorSet)!OutAnswer`
+- `PromptMode.direct_return` requires:
+  - `pub fn directReturn() OutAnswer` or `ResetError(ErrorSet)!OutAnswer`
+- The runtime still holds the raw continuation internally, but it is no longer part of the active public API.
 - Prompt identity is collision-free per prompt value.
 - Two prompt values of the same prompt type are still distinct delimiters.
 - User errors remain explicit through `ControlError(ErrorSet)` and `ResetError(ErrorSet)`.
@@ -27,7 +32,7 @@ is the diagonal `Prompt(Answer, Answer, ErrorSet)` case.
 - no public cancel/discontinue control branches
 - no public helper-led control surface
 - no claim of multi-shot continuations
-- no claim that the current rung is the final kernel
+- no claim that the reopened protocol surface is the final universal kernel
 - unsupported non-diagonal paths still fail closed while only witness-backed non-diagonal execution is implemented
 
 ## Operational Model
@@ -35,8 +40,10 @@ is the diagonal `Prompt(Answer, Answer, ErrorSet)` case.
 1. `Runtime.init` creates a thread-affine stackful runtime.
 2. `reset` allocates or reuses a stack and runs the body on that stack.
 3. `shift` captures the current continuation up to the nearest matching prompt value.
-4. The handler either resumes the continuation with `resumeWith` or returns an enclosing answer directly.
-5. The reset returns the final `Answer` or a typed user error.
+4. `PromptMode` selects the handler protocol at comptime.
+5. For `.resume_then_transform`, the runtime resumes internally with `resumeValue()` and then calls `afterResume(...)`.
+6. For `.direct_return`, the runtime returns `directReturn()` without exposing a continuation.
+7. The reset returns the final `Answer` or a typed user error.
 
 ## Hard Witness Order
 
@@ -50,7 +57,6 @@ The full typed `shift/reset` kernel with honest ATM remains the destination afte
 
 ## Errors
 
-- `error.AlreadyResolved`: the continuation was resumed already
 - `error.CrossThread`: runtime or continuation use crossed threads
 - `error.MissingPrompt`: `shift` ran without a matching active `reset`
 - `error.RuntimeBusy`: runtime teardown happened while a reset was active

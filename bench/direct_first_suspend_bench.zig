@@ -2,18 +2,26 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
-const BenchPrompt = shift.Prompt(usize, usize, NoError);
+const BenchPrompt = shift.Prompt(.resume_then_transform, usize, usize, NoError);
 
 const bench_state = struct {
     var prompt_ptr: ?*const BenchPrompt = null;
     var current: usize = 0;
 
-    fn handleValue(k: *shift.Continuation(usize, BenchPrompt)) shift.ResetError(NoError)!usize {
-        return try k.resumeWith(current);
-    }
+    const handle_value = struct {
+        /// Supply the resumed benchmark payload.
+        pub fn resumeValue() usize {
+            return current;
+        }
+
+        /// Preserve the resumed value for the benchmark body.
+        pub fn afterResume(value: usize) usize {
+            return value;
+        }
+    };
 
     fn body() shift.ResetError(NoError)!usize {
-        const value = try shift.shift(usize, prompt_ptr.?, handleValue);
+        const value = try shift.shift(usize, prompt_ptr.?, handle_value);
         return value + 1;
     }
 };

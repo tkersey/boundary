@@ -28,6 +28,7 @@ The runtime is accepted only when it matches the earlier rungs.
 - every semantic claim needs a witness
 - every witness needs a stable transcript
 - every runtime change touching capture, resume, prompt matching, or answer-type behavior must preserve ladder agreement
+- every prompt mode must appear in `docs/protocol_matrix.md`
 - every attempted plain-Zig one-shot encoding family must be logged in `docs/closure_ledger.md`
 - every branch that advances answer-type pressure must update `docs/atm_surface_table.md`
 - every non-diagonal ATM witness that executes must be logged in `docs/atm_witness_ledger.md`

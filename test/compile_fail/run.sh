@@ -49,6 +49,6 @@ run_fixture() {
   trap - EXIT INT TERM
 }
 
-run_fixture "$repo_root/test/compile_fail/continuation_discontinue_removed.zig" "discontinue"
+run_fixture "$repo_root/test/compile_fail/continuation_discontinue_removed.zig" "Continuation"
 run_fixture "$repo_root/test/compile_fail/no_shift_guard_removed.zig" "NoShiftGuard"
-run_fixture "$repo_root/test/compile_fail/resume_value_mismatch.zig" "expected type"
+run_fixture "$repo_root/test/compile_fail/resume_value_mismatch.zig" "must have type"

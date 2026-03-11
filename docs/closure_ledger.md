@@ -3,14 +3,20 @@
 This ledger records each plain-Zig one-shot encoding family attempted on the
 `rewrite/core-sr-full` branch and the current evidence for or against it.
 
-The branch may close as `IMPOSSIBLE` only after every planned family has an
-entry here with:
+Historical rows from the old public continuation seam remain below as evidence.
+The active branch now uses the protocol seam and resets the survey against that
+surface.
+
+## Historical General-Continuation Survey
+
+That historical branch could close as `IMPOSSIBLE` only after every planned
+family had an entry here with:
 
 - the invariant it was meant to enforce
 - the fixture or witness that broke it
 - whether the failure is ergonomic, expressive, or fundamental
 
-## Current Seed Survey
+### Historical Seed Survey
 
 | Family | Intended invariant | Current evidence | Verdict |
 | --- | --- | --- | --- |
@@ -24,7 +30,7 @@ entry here with:
 | comptime-generated capability wrapper | Generated wrapper families should improve on prior failures | `test/one_shot_survey/comptime_generated_capability_compiles.zig` compiles | non-improving: alias-copy |
 | current ATM-bearing prompt surface | Supported non-diagonal execution should be explicit and unsupported direct completion should fail closed | `src/raw.zig` executes `atm_resume_transform` and returns `error.NonDiagonalComplete` on unsupported direct non-diagonal completion | scoped runtime support |
 
-## Survey Stop Rule Outcome
+### Historical Stop Rule Outcome
 
 The last two new families:
 
@@ -34,10 +40,26 @@ The last two new families:
 only reproduced the existing `alias-copy` failure class. That satisfies the
 branch stop rule of two consecutive non-improving new families.
 
+## Active Protocol Survey
+
+| Family | Intended invariant | Current evidence | Verdict |
+| --- | --- | --- | --- |
+| protocol `resume_then_transform` surface | Supported handler protocol should typecheck cleanly | `test/one_shot_survey/protocol_resume_transform_compiles.zig` compiles | active |
+| erroring `resume_then_transform` surface | Typed user errors should remain expressible on the protocol seam | `test/one_shot_survey/protocol_erroring_resume_transform_compiles.zig` compiles | active |
+| protocol `direct_return` surface | Supported direct-return protocol should typecheck cleanly | `test/one_shot_survey/protocol_direct_return_compiles.zig` compiles | active |
+| erroring `direct_return` surface | Typed user errors should remain expressible for direct-return handlers | `test/one_shot_survey/protocol_erroring_direct_return_compiles.zig` compiles | active |
+| missing `afterResume` | Incomplete handler protocol should fail at compile time | `test/one_shot_survey/missing_after_resume_fails.zig` fails to compile | active |
+| wrong `afterResume` type | Mismatched protocol signature should fail at compile time | `test/one_shot_survey/wrong_after_resume_type_fails.zig` fails to compile | active |
+| mode mismatch | Wrong handler protocol for a prompt mode should fail at compile time | `test/one_shot_survey/direct_return_mode_mismatch_fails.zig` fails to compile | active |
+| alias-copy recheck on reopened seam | The old public continuation alias seam should remain unavailable | `test/one_shot_survey/legacy_continuation_alias_recheck_fails.zig` fails to compile | active |
+| store-escape recheck on reopened seam | The old public continuation storage seam should remain unavailable | `test/one_shot_survey/legacy_continuation_store_recheck_fails.zig` fails to compile | active |
+
 ## Branch Closure
 
-This branch now closes as `IMPOSSIBLE` for plain-Zig compile-time one-shot
-enforcement under the current CoreSR-Full constraints.
+The reopened branch now closes as `SUCCESS` on the protocol seam:
 
-See [impossible_plain_zig.md](impossible_plain_zig.md) for the branch-local
-closure package.
+- both active prompt modes are supported
+- the semantic witness set is green
+- generator, early-exit, and nested-workflow are green
+- the seam-correct alias-copy and store-escape rechecks now fail at compile time
+- no third prompt mode and no public continuation-bearing value were needed

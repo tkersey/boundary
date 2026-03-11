@@ -24,13 +24,24 @@ pub const entries = [_]WitnessEntry{
             "final=answer=42\n",
     },
     .{
+        .witness_id = "direct_return",
+        .law_anchor = "core_sr_full.md#public-surface-shape",
+        .evaluator_case = "reference_eval.direct_return",
+        .runtime_case = "witnesses.direct_return",
+        .required_transcript = "handler-direct-return\n" ++
+            "final=result=early\n",
+        .forbidden_transcript = "final=result=early\n",
+    },
+    .{
         .witness_id = "static_redelim",
         .law_anchor = "research_laws.md#1-static-delimitation",
         .evaluator_case = "reference_eval.static_redelim",
         .runtime_case = "witnesses.static_redelim",
         .required_transcript = "outer-handler-enter\n" ++
             "after-outer-shift\n" ++
-            "inner-handler\n" ++
+            "inner-handler-enter\n" ++
+            "after-inner-shift\n" ++
+            "inner-handler-exit\n" ++
             "outer-handler-exit\n" ++
             "final=12\n",
         .forbidden_transcript = "outer-handler-enter\n" ++

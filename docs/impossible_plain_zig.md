@@ -1,11 +1,12 @@
-# Branch-Local Impossibility Result
+# Historical Impossibility Result for the Old Continuation Seam
 
-This document records the `rewrite/core-sr-full` branch conclusion for ordinary
-Zig authoring without hidden verifiers or alternate languages.
+This document records the earlier `rewrite/core-sr-full` conclusion for the old
+public seam that exposed a general continuation-bearing value to ordinary Zig
+code.
 
 ## Claim
 
-Under the constraints of this branch:
+Under the constraints of that seam:
 
 - direct-style prompt-value `shift/reset`
 - explicit continuations
@@ -35,11 +36,11 @@ These failures are not specific to one prompt encoding. They persisted across:
 - opaque state capsules
 - comptime-generated capability wrappers
 
-## Branch Conclusion
+## Historical Branch Conclusion
 
-After the planned families and the stop-rule-triggering non-improving additions,
-the branch therefore closes as `IMPOSSIBLE` for the plain-Zig route under the
-current constraints.
+After the planned families and the stop-rule-triggering non-improving
+additions, that seam closed as `IMPOSSIBLE` for the plain-Zig route under its
+constraint stack.
 
 This is **not** a claim that delimited continuations are impossible in Zig in
 general. It is a branch-local conclusion about this stronger goal:
@@ -47,10 +48,9 @@ general. It is a branch-local conclusion about this stronger goal:
 > full direct-style one-shot CoreSR-Full with plain-Zig compile-time one-shot
 > enforcement and no hidden external checker
 
-## Repository Consequence
+## Repository Consequence Today
 
-- the branch keeps the truthful ATM-bearing surface and witness infrastructure
-- the branch does not merge this result to `main`
-- the Closure Ledger and ATM Witness Ledger are the operational evidence
-- the stop rule has fired because the last two added families reproduced only
-  already-seen alias-copy failures
+- the evidence remains useful as historical branch proof
+- it is no longer the active branch truth after the seam rewrite
+- the reopened branch must be re-surveyed against the protocol surface before it
+  may conclude `IMPOSSIBLE` again

@@ -3,6 +3,7 @@ const std = @import("std");
 /// Hard witness ids supported by the executable reference machine.
 pub const WitnessId = enum {
     atm_resume_transform,
+    direct_return,
     multi_prompt,
     static_redelim,
 };
@@ -38,9 +39,11 @@ const AtmResumeTransformState = union(enum) {
 };
 
 const StaticRedelimState = union(enum) {
+    after_inner_shift,
     after_outer_shift,
     complete,
-    inner_handler,
+    inner_handler_enter,
+    inner_handler_exit,
     outer_handler_enter,
     outer_handler_exit,
     start,
@@ -54,10 +57,18 @@ const StaticRedelimState = union(enum) {
             },
             .after_outer_shift => {
                 try writer.writeAll("after-outer-shift\n");
-                self.* = .inner_handler;
+                self.* = .inner_handler_enter;
             },
-            .inner_handler => {
-                try writer.writeAll("inner-handler\n");
+            .inner_handler_enter => {
+                try writer.writeAll("inner-handler-enter\n");
+                self.* = .after_inner_shift;
+            },
+            .after_inner_shift => {
+                try writer.writeAll("after-inner-shift\n");
+                self.* = .inner_handler_exit;
+            },
+            .inner_handler_exit => {
+                try writer.writeAll("inner-handler-exit\n");
                 self.* = .outer_handler_exit;
             },
             .outer_handler_exit => {
@@ -112,6 +123,26 @@ const MultiPromptState = union(enum) {
     }
 };
 
+const DirectReturnState = union(enum) {
+    complete,
+    handler_direct_return,
+    start,
+
+    fn step(self: *@This(), writer: anytype) !void {
+        switch (self.*) {
+            .start => self.* = .handler_direct_return,
+            .handler_direct_return => {
+                try writer.writeAll("handler-direct-return\n");
+                self.* = .complete;
+            },
+            .complete => {
+                try writer.writeAll("final=result=early\n");
+                self.* = .start;
+            },
+        }
+    }
+};
+
 fn runStateMachine(state: anytype, writer: anytype) !void {
     while (true) {
         switch (state.*) {
@@ -127,6 +158,7 @@ fn runStateMachine(state: anytype, writer: anytype) !void {
 /// Run the reference machine for one hard semantic witness.
 pub fn runWitness(writer: anytype, id: []const u8) anyerror!void {
     if (std.mem.eql(u8, id, "atm_resume_transform")) return runAtmResumeTransform(writer);
+    if (std.mem.eql(u8, id, "direct_return")) return runDirectReturn(writer);
     if (std.mem.eql(u8, id, "static_redelim")) return runStaticRedelim(writer);
     if (std.mem.eql(u8, id, "multi_prompt")) return runMultiPrompt(writer);
     return error.UnknownWitness;
@@ -135,6 +167,12 @@ pub fn runWitness(writer: anytype, id: []const u8) anyerror!void {
 /// Execute the reference machine for the ATM resume-then-transform witness.
 pub fn runAtmResumeTransform(writer: anytype) anyerror!void {
     var state: AtmResumeTransformState = .start;
+    try runStateMachine(&state, writer);
+}
+
+/// Execute the reference machine for the direct-return witness.
+pub fn runDirectReturn(writer: anytype) anyerror!void {
+    var state: DirectReturnState = .start;
     try runStateMachine(&state, writer);
 }
 

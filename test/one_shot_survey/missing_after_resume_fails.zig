@@ -4,14 +4,9 @@ comptime {
     const DemoPrompt = shift.Prompt(.resume_then_transform, i32, i32, NoError);
 
     const bad_handler = struct {
-        /// Deliberately wrong resume type for the compile-fail probe.
-        pub fn resumeValue() []const u8 {
-            return "bad";
-        }
-
-        /// Preserve the resumed value if the protocol type were correct.
-        pub fn afterResume(value: i32) i32 {
-            return value;
+        /// Supply only half of the required protocol to prove compile-time rejection.
+        pub fn resumeValue() i32 {
+            return 1;
         }
     };
 

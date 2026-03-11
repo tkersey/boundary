@@ -1,5 +1,4 @@
-const shift = @import("shift");
-
 comptime {
+    const shift = @import("shift");
     _ = shift.Continuation;
 }
