@@ -1,0 +1,129 @@
+{
+  "items": [
+    {
+      "id": "st-201",
+      "step": "Snapshot the current durable plan and replace it with the linear-DSL pivot graph",
+      "status": "completed",
+      "priority": "high",
+      "deps": [],
+      "notes": "Exported .step/st-plan.pre-linear-dsl.snapshot.json before import.",
+      "comments": []
+    },
+    {
+      "id": "st-202",
+      "step": "Define the new first-order public surface around Prompt, Step, Outcome, Pending, EscapedOwner, run, and suspend",
+      "status": "completed",
+      "priority": "high",
+      "deps": [
+        {
+          "id": "st-201",
+          "type": "blocks"
+        }
+      ],
+      "notes": "Prompt carries Request and Resume only; machine types carry Frame, Suspend, Resume, Answer, and Error.",
+      "comments": []
+    },
+    {
+      "id": "st-203",
+      "step": "Implement the first-order runtime executor over owned frame data with no native-stack continuation capture",
+      "status": "completed",
+      "priority": "high",
+      "deps": [
+        {
+          "id": "st-202",
+          "type": "blocks"
+        }
+      ],
+      "notes": "The owned continuation must be explicit data, not a hidden fiber or stack snapshot.",
+      "comments": []
+    },
+    {
+      "id": "st-204",
+      "step": "Implement delayed escape and prove deinit frees owned continuation data without re-entry",
+      "status": "completed",
+      "priority": "high",
+      "deps": [
+        {
+          "id": "st-203",
+          "type": "blocks"
+        }
+      ],
+      "notes": "This is the hard linearity witness for the new runtime.",
+      "comments": []
+    },
+    {
+      "id": "st-205",
+      "step": "Implement one-machine multi-prompt suspend and resume unions with ResumeMismatch validation",
+      "status": "completed",
+      "priority": "high",
+      "deps": [
+        {
+          "id": "st-204",
+          "type": "blocks"
+        }
+      ],
+      "notes": "Use one explicit Suspend union and one matching Resume union per machine.",
+      "comments": []
+    },
+    {
+      "id": "st-206",
+      "step": "Archive and remove the live native-body stackful reset and shift surface from the root package",
+      "status": "completed",
+      "priority": "high",
+      "deps": [
+        {
+          "id": "st-203",
+          "type": "blocks"
+        }
+      ],
+      "notes": "No compatibility shim; the old surface is archive-only.",
+      "comments": []
+    },
+    {
+      "id": "st-207",
+      "step": "Rewrite docs and examples around run and suspend and add one non-toy workflow example",
+      "status": "completed",
+      "priority": "high",
+      "deps": [
+        {
+          "id": "st-205",
+          "type": "blocks"
+        },
+        {
+          "id": "st-206",
+          "type": "blocks"
+        }
+      ],
+      "notes": "The workflow example must prove multi-prompt plus delayed escape in the explicit frame DSL.",
+      "comments": []
+    },
+    {
+      "id": "st-208",
+      "step": "Rebuild compile-fail, smoke, size, docs, and benchmark gates against the linear DSL",
+      "status": "completed",
+      "priority": "high",
+      "deps": [
+        {
+          "id": "st-207",
+          "type": "blocks"
+        }
+      ],
+      "notes": "Closure requires bench, bench-first-suspend, and bench-delayed-escape on the new linear runtime.",
+      "comments": []
+    },
+    {
+      "id": "st-209",
+      "step": "Delete the archived stackful runtime from the active repo surface once the linear DSL closure is green",
+      "status": "completed",
+      "priority": "medium",
+      "deps": [
+        {
+          "id": "st-208",
+          "type": "blocks"
+        }
+      ],
+      "notes": "The archive may survive as historical source, but no active docs, build paths, or root exports may depend on it.",
+      "comments": []
+    }
+  ]
+}
