@@ -1,28 +1,45 @@
 # shift
 
-`shift` is a Zig 0.15.2 implementation of a temporary same-answer-type direct-style, one-shot, stackful typed `shift/reset` rung.
+## Purpose
 
-The live product claim for this rung is:
+`shift` exists to be a semantics-first Zig implementation of direct-style typed
+`shift/reset`.
 
-- `shift.reset(Tag, Answer, ErrorSet, &runtime, body)`
-- `shift.shift(Resume, Tag, Answer, ErrorSet, handler)`
-- `shift.Continuation(Resume, Tag, Answer, ErrorSet).resumeWith(value)`
+Branch note:
+- `rewrite/core-sr-full` now closes as `SUCCESS` on the reopened comptime
+  handler protocol seam.
+- The old plain-Zig `IMPOSSIBLE` result is historical evidence for the removed
+  public continuation seam; see
+  [docs/impossible_plain_zig.md](docs/impossible_plain_zig.md).
 
-The full destination remains a richer typed `shift/reset` kernel with honest ATM if the semantics require it.
+In the repo's current state, that means two things:
 
-The repo currently treats the runtime as the last rung of a semantics ladder:
+- the live branch surface is prompt-value-based, ATM-bearing, and protocol-driven
+- the reopened seam preserves direct-style ordinary Zig without restoring the
+  old public continuation handle
+
+The repo therefore treats runtime code as the last rung of a semantics ladder,
+not as the source of truth:
 
 1. law
 2. executable reference witness
-3. CPS account
-4. defunctionalized machine account
+3. executable reference machine
+4. CPS account
 5. optimized stackful runtime
+
+The current live product claim for this branch is:
+
+- `const P = shift.Prompt(.resume_then_transform, InAnswer, OutAnswer, ErrorSet); var prompt = P.init();`
+- `shift.reset(&runtime, &prompt, body)`
+- `shift.shift(Resume, &prompt, Handler)`
+- the handler protocol is selected by `PromptMode` at comptime
+- protocol methods may return either plain values or `ResetError(ErrorSet)!...`
 
 ## Semantic Commitments
 
 - static `shift/reset`, not `control/prompt`
-- explicit typed prompt tags
-- explicit continuation arguments
+- explicit typed prompt values
+- comptime-selected handler protocols
 - one-shot continuation use
 - honest answer-type pressure if the kernel requires it
 - typed user errors in the host-language embedding
@@ -49,15 +66,11 @@ zig build bench-first-suspend
 
 ```bash
 zig build run-generator
-zig build run-early-exit
-zig build run-nested-workflow
 ```
 
 Expected outputs:
 
 - `run-generator`: yields `1`, `2`, `3`, then reports `done=3`
-- `run-early-exit`: prints `result=early`
-- `run-nested-workflow`: prints the locked workflow witness transcript ending in `result=completed`
 
 ## Minimal Example
 
@@ -65,16 +78,24 @@ Expected outputs:
 const shift = @import("shift");
 const std = @import("std");
 
-const tag = struct {};
 const DemoError = error{};
+const DemoPrompt = shift.Prompt(.resume_then_transform, i32, i32, DemoError);
 
 const demo = struct {
-    fn handle(k: *shift.Continuation(i32, tag, i32, DemoError)) shift.ResetError(DemoError)!i32 {
-        return try k.resumeWith(41);
-    }
+    var prompt_ptr: ?*const DemoPrompt = null;
+
+    const Handle = struct {
+        pub fn resumeValue() i32 {
+            return 41;
+        }
+
+        pub fn afterResume(value: i32) i32 {
+            return value;
+        }
+    };
 
     fn body() shift.ResetError(DemoError)!i32 {
-        const value = try shift.shift(i32, tag, i32, DemoError, handle);
+        const value = try shift.shift(i32, prompt_ptr.?, Handle);
         return value + 1;
     }
 };
@@ -82,11 +103,13 @@ const demo = struct {
 pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
     defer runtime.deinit();
+    var prompt = DemoPrompt.init();
+    demo.prompt_ptr = &prompt;
 
-    const answer = try shift.reset(tag, i32, DemoError, &runtime, demo.body);
+    const answer = try shift.reset(&runtime, &prompt, demo.body);
     _ = answer;
 }
 ```
 
-See [docs/semantics.md](docs/semantics.md), [docs/research_laws.md](docs/research_laws.md), [docs/research_machine.md](docs/research_machine.md), and [docs/research.md](docs/research.md) for the current ladder.
+See [docs/semantics.md](docs/semantics.md), [docs/core_sr_full.md](docs/core_sr_full.md), [docs/protocol_matrix.md](docs/protocol_matrix.md), [docs/atm_surface_table.md](docs/atm_surface_table.md), [docs/atm_witness_ledger.md](docs/atm_witness_ledger.md), [docs/research_laws.md](docs/research_laws.md), [docs/research_machine.md](docs/research_machine.md), [docs/research.md](docs/research.md), [docs/closure_ledger.md](docs/closure_ledger.md), and [docs/impossible_plain_zig.md](docs/impossible_plain_zig.md) for the current ladder and branch evidence.
 See [docs/core_sr_sat.md](docs/core_sr_sat.md) for the exact temporary rung claim.

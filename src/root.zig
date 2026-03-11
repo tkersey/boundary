@@ -1,4 +1,8 @@
 const raw = @import("raw.zig");
+const std = @import("std");
+
+/// Comptime-selected handler protocol for a prompt value.
+pub const PromptMode = raw.PromptMode;
 
 /// Runtime owner for fiber-backed one-shot `shift/reset`.
 pub const Runtime = raw.Runtime;
@@ -17,33 +21,56 @@ pub fn ResetError(comptime ErrorSet: type) type {
     return raw.ResetError(ErrorSet);
 }
 
-/// Run `body` under the nearest dynamic delimiter identified by `Tag`.
-pub fn reset(
-    comptime Tag: type,
-    comptime Answer: type,
-    comptime ErrorSet: type,
-    runtime: *Runtime,
-    body: *const fn () ResetError(ErrorSet)!Answer,
-) ResetError(ErrorSet)!Answer {
-    return raw.reset(Tag, Answer, ErrorSet, runtime, body);
+fn PromptTypeFromPtr(comptime PromptPtrType: type) type {
+    return switch (@typeInfo(PromptPtrType)) {
+        .pointer => |pointer| pointer.child,
+        else => @compileError("expected a pointer to shift.Prompt(...)"),
+    };
 }
 
-/// Capture the computation up to the nearest active `reset(Tag, ...)`.
+fn PromptInAnswerType(comptime PromptPtrType: type) type {
+    return PromptTypeFromPtr(PromptPtrType).InAnswer;
+}
+
+fn PromptOutAnswerType(comptime PromptPtrType: type) type {
+    return PromptTypeFromPtr(PromptPtrType).OutAnswer;
+}
+
+fn PromptErrorSetType(comptime PromptPtrType: type) type {
+    return PromptTypeFromPtr(PromptPtrType).ErrorSet;
+}
+
+/// First-class delimiter value for one-shot `shift/reset`.
+pub fn Prompt(
+    comptime mode: PromptMode,
+    comptime InAnswer: type,
+    comptime OutAnswer: type,
+    comptime ErrorSet: type,
+) type {
+    return raw.Prompt(mode, InAnswer, OutAnswer, ErrorSet);
+}
+
+/// Run `body` under a fresh dynamic delimiter identified by `prompt`.
+pub fn reset(
+    runtime: *Runtime,
+    prompt: anytype,
+    body: *const fn () ResetError(PromptErrorSetType(@TypeOf(prompt)))!PromptInAnswerType(@TypeOf(prompt)),
+) ResetError(PromptErrorSetType(@TypeOf(prompt)))!PromptOutAnswerType(@TypeOf(prompt)) {
+    return raw.reset(PromptTypeFromPtr(@TypeOf(prompt)), runtime, prompt, body);
+}
+
+/// Capture the computation up to the nearest active `reset(..., prompt, ...)`.
 pub fn shift(
     comptime Resume: type,
-    comptime Tag: type,
-    comptime Answer: type,
-    comptime ErrorSet: type,
-    handler: *const fn (*raw.Continuation(Resume, Tag, Answer, ErrorSet)) ResetError(ErrorSet)!Answer,
-) ControlError(ErrorSet)!Resume {
-    return raw.shift(Resume, Tag, Answer, ErrorSet, handler);
-}
-
-/// One-shot continuation handle for `shift`.
-pub fn Continuation(comptime Resume: type, comptime Tag: type, comptime Answer: type, comptime ErrorSet: type) type {
-    return raw.Continuation(Resume, Tag, Answer, ErrorSet);
+    prompt: anytype,
+    comptime Handler: type,
+) ControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
+    return raw.shift(Resume, PromptTypeFromPtr(@TypeOf(prompt)), prompt, Handler);
 }
 
 test {
+    _ = Prompt;
+    _ = PromptMode;
     _ = Runtime;
+    _ = std;
 }

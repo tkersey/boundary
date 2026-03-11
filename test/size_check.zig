@@ -1,14 +1,15 @@
 const shift = @import("shift");
 const std = @import("std");
 
-test "continuation shell stays compact" {
-    const tag = struct {};
+test "prompt shell stays compact" {
     const NoError = error{};
-    try std.testing.expect(@sizeOf(shift.Continuation(void, tag, void, NoError)) <= 2 * @sizeOf(usize));
+    const DemoPrompt = shift.Prompt(.resume_then_transform, void, void, NoError);
+    try std.testing.expect(@sizeOf(DemoPrompt) <= @sizeOf(usize));
 }
 
-test "guard surface is not public" {
+test "guard and continuation surfaces are not public" {
     try std.testing.expect(!@hasDecl(shift, "NoShiftGuard"));
+    try std.testing.expect(!@hasDecl(shift, "Continuation"));
 }
 
 test "runtime defaults stay explicit" {

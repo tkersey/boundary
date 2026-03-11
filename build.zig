@@ -32,6 +32,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const reference_machine_mod = b.createModule(.{
+        .root_source_file = b.path("src/reference_machine.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
 
     const check_step = b.step("check", "Compile the shift module and examples.");
     b.default_step.dependOn(check_step);
@@ -66,6 +71,7 @@ pub fn build(b: *std.Build) void {
     });
     witness_mod.addImport("shift", shift_mod);
     witness_mod.addImport("reference_eval", reference_eval_mod);
+    witness_mod.addImport("reference_machine", reference_machine_mod);
     witness_mod.addImport("witnesses", witnesses_mod);
     const witness_tests = b.addTest(.{
         .root_module = witness_mod,
@@ -91,6 +97,10 @@ pub fn build(b: *std.Build) void {
     compile_fail_step.dependOn(&compile_fail_cmd.step);
     test_step.dependOn(&compile_fail_cmd.step);
 
+    const one_shot_survey_cmd = b.addSystemCommand(&.{ "sh", "test/one_shot_survey/run.sh" });
+    const one_shot_survey_step = b.step("one-shot-survey", "Run the plain-Zig one-shot survey fixtures.");
+    one_shot_survey_step.dependOn(&one_shot_survey_cmd.step);
+
     const docs_sanity_cmd = b.addSystemCommand(&.{
         "sh",
         "-c",
@@ -110,7 +120,7 @@ pub fn build(b: *std.Build) void {
             .name = "early_exit",
             .src = "examples/early_exit.zig",
             .step_name = "run-early-exit",
-            .step_desc = "Run the early-exit example.",
+            .step_desc = "Run the deferred early-exit example.",
         },
         .{
             .name = "generator",
@@ -122,7 +132,7 @@ pub fn build(b: *std.Build) void {
             .name = "nested_workflow",
             .src = "examples/nested_workflow.zig",
             .step_name = "run-nested-workflow",
-            .step_desc = "Run the nested workflow example.",
+            .step_desc = "Run the deferred nested workflow example.",
         },
     };
 

@@ -1,23 +1,31 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const tag = struct {};
 const NoError = error{};
+const DemoPrompt = shift.Prompt(.resume_then_transform, void, void, NoError);
 
 const demo = struct {
+    var prompt_ptr: ?*const DemoPrompt = null;
     var yielded = [_]i32{ 0, 0, 0 };
     var yield_count: usize = 0;
     var pending_value: i32 = 0;
 
+    const handle_yield = struct {
+        /// Record the yielded value before resuming the generator body.
+        pub fn resumeValue() void {
+            yielded[yield_count] = pending_value;
+            yield_count += 1;
+        }
+
+        /// Complete the yield protocol after the body resumes.
+        pub fn afterResume(_: void) void {
+            // Intentionally empty: the resumed generator body owns completion.
+        }
+    };
+
     fn yieldValue(value: i32) shift.ResetError(NoError)!void {
         pending_value = value;
-        _ = try shift.shift(void, tag, void, NoError, handleYield);
-    }
-
-    fn handleYield(k: *shift.Continuation(void, tag, void, NoError)) shift.ResetError(NoError)!void {
-        yielded[yield_count] = pending_value;
-        yield_count += 1;
-        return try k.resumeWith({});
+        _ = try shift.shift(void, prompt_ptr.?, handle_yield);
     }
 
     fn body() shift.ResetError(NoError)!void {
@@ -32,8 +40,10 @@ const demo = struct {
 pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
     defer runtime.deinit();
+    var prompt = DemoPrompt.init();
+    demo.prompt_ptr = &prompt;
 
-    try shift.reset(tag, void, NoError, &runtime, demo.body);
+    try shift.reset(&runtime, &prompt, demo.body);
 
     var stdout_buffer: [256]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
