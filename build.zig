@@ -61,7 +61,7 @@ pub fn build(b: *std.Build) void {
     });
     addRuntimeAssembly(b, root_tests.root_module, target);
     const run_root_tests = b.addRunArtifact(root_tests);
-    const test_step = b.step("test", "Run shift unit tests.");
+    const test_step = b.step("test", "Run the default shift proof surface.");
     test_step.dependOn(&run_root_tests.step);
 
     const witness_mod = b.createModule(.{
@@ -91,6 +91,7 @@ pub fn build(b: *std.Build) void {
     const run_size_tests = b.addRunArtifact(size_tests);
     const size_step = b.step("size-check", "Run size and layout invariants.");
     size_step.dependOn(&run_size_tests.step);
+    test_step.dependOn(&run_size_tests.step);
 
     const compile_fail_cmd = b.addSystemCommand(&.{ "sh", "test/compile_fail/run.sh" });
     const compile_fail_step = b.step("compile-fail", "Verify compile-fail misuse fixtures.");
@@ -98,8 +99,9 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&compile_fail_cmd.step);
 
     const one_shot_survey_cmd = b.addSystemCommand(&.{ "sh", "test/one_shot_survey/run.sh" });
-    const one_shot_survey_step = b.step("one-shot-survey", "Run the plain-Zig one-shot survey fixtures.");
+    const one_shot_survey_step = b.step("one-shot-survey", "Run the current plain-Zig one-shot survey contract.");
     one_shot_survey_step.dependOn(&one_shot_survey_cmd.step);
+    test_step.dependOn(&one_shot_survey_cmd.step);
 
     const examples = [_]struct {
         name: []const u8,

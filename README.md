@@ -20,6 +20,10 @@ not as the source of truth:
 4. CPS account
 5. fiber-backed stackful runtime
 
+The current runtime backend is stackful and supported on `x86_64` and
+`aarch64` hosts only. Unsupported hosts fail at compile time; this repo does
+not ship a fallback backend.
+
 The current public product claim is:
 
 - `const P = shift.Prompt(.resume_then_transform, InAnswer, OutAnswer, ErrorSet); var prompt = P.init();`
@@ -44,12 +48,17 @@ The first two hard witness families are:
 
 ## Build
 
+`zig build test` is the default proof path. It includes the root tests,
+transcript-locked witnesses, public-surface size checks, compile-fail misuse
+fixtures, and the current one-shot survey contract.
+
 ```bash
 zig build
 zig build test
 zig build lint -- --max-warnings 0
 zig build size-check
 zig build compile-fail
+zig build one-shot-survey
 zig build bench
 zig build bench-first-suspend
 ```

@@ -2,6 +2,7 @@
 set -eu
 
 repo_root="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
+survey_dir="$repo_root/test/one_shot_survey"
 
 case "$(uname -m)" in
   arm64|aarch64)
@@ -28,6 +29,40 @@ compile_fixture() {
     --cache-dir "$repo_root/.zig-cache" \
     --global-cache-dir "${HOME}/.cache/zig" \
     --name one-shot-survey-fixture
+}
+
+fixture_rows() {
+  cat <<'EOF'
+protocol_resume_transform_compiles.zig|success|protocol_resume_transform|
+protocol_erroring_resume_transform_compiles.zig|success|protocol_erroring_resume_transform|
+protocol_direct_return_compiles.zig|success|protocol_direct_return|
+protocol_erroring_direct_return_compiles.zig|success|protocol_erroring_direct_return|
+missing_after_resume_fails.zig|failure|missing_after_resume|must declare afterResume
+wrong_after_resume_type_fails.zig|failure|wrong_after_resume_type|must have type
+direct_return_mode_mismatch_fails.zig|failure|direct_return_mode_mismatch|must declare directReturn
+legacy_continuation_alias_recheck_fails.zig|failure|legacy_alias_recheck|Continuation
+legacy_continuation_store_recheck_fails.zig|failure|legacy_store_recheck|Continuation
+EOF
+}
+
+check_fixture_classification() {
+  actual_file="$(mktemp)"
+  classified_file="$(mktemp)"
+
+  find "$survey_dir" -maxdepth 1 -type f -name '*.zig' -exec basename {} \; | sort >"$actual_file"
+  fixture_rows | while IFS='|' read -r fixture_name _ _ _; do
+    [ -n "$fixture_name" ] || continue
+    printf '%s\n' "$fixture_name"
+  done | sort >"$classified_file"
+
+  if ! diff -u "$classified_file" "$actual_file" >/dev/null; then
+    echo "one-shot survey fixture set is out of sync with run.sh classifications" >&2
+    diff -u "$classified_file" "$actual_file" >&2 || true
+    rm -f "$actual_file" "$classified_file"
+    exit 1
+  fi
+
+  rm -f "$actual_file" "$classified_file"
 }
 
 run_expected_success() {
@@ -70,12 +105,29 @@ run_expected_failure() {
   printf "%s\tcompile_fail\n" "$label"
 }
 
-run_expected_success "$repo_root/test/one_shot_survey/protocol_resume_transform_compiles.zig" "protocol_resume_transform"
-run_expected_success "$repo_root/test/one_shot_survey/protocol_erroring_resume_transform_compiles.zig" "protocol_erroring_resume_transform"
-run_expected_success "$repo_root/test/one_shot_survey/protocol_direct_return_compiles.zig" "protocol_direct_return"
-run_expected_success "$repo_root/test/one_shot_survey/protocol_erroring_direct_return_compiles.zig" "protocol_erroring_direct_return"
-run_expected_failure "$repo_root/test/one_shot_survey/missing_after_resume_fails.zig" "missing_after_resume" "must declare afterResume"
-run_expected_failure "$repo_root/test/one_shot_survey/wrong_after_resume_type_fails.zig" "wrong_after_resume_type" "must have type"
-run_expected_failure "$repo_root/test/one_shot_survey/direct_return_mode_mismatch_fails.zig" "direct_return_mode_mismatch" "must declare directReturn"
-run_expected_failure "$repo_root/test/one_shot_survey/legacy_continuation_alias_recheck_fails.zig" "legacy_alias_recheck" "Continuation"
-run_expected_failure "$repo_root/test/one_shot_survey/legacy_continuation_store_recheck_fails.zig" "legacy_store_recheck" "Continuation"
+check_fixture_classification
+
+while IFS='|' read -r fixture_name mode label expected; do
+  [ -n "$fixture_name" ] || continue
+
+  fixture_path="$survey_dir/$fixture_name"
+  if [ ! -f "$fixture_path" ]; then
+    echo "missing classified one-shot survey fixture: $fixture_name" >&2
+    exit 1
+  fi
+
+  case "$mode" in
+    success)
+      run_expected_success "$fixture_path" "$label"
+      ;;
+    failure)
+      run_expected_failure "$fixture_path" "$label" "$expected"
+      ;;
+    *)
+      echo "unknown survey classification mode '$mode' for $fixture_name" >&2
+      exit 1
+      ;;
+  esac
+done <<EOF
+$(fixture_rows)
+EOF
