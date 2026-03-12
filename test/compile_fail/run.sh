@@ -2,6 +2,12 @@
 set -eu
 
 repo_root="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
+cache_root="$(mktemp -d "${TMPDIR:-/tmp}/shift-compile-fail-cache.XXXXXX")"
+local_cache_dir="$cache_root/local"
+global_cache_dir="$cache_root/global"
+
+mkdir -p "$local_cache_dir" "$global_cache_dir"
+trap 'rm -rf "$cache_root"' EXIT INT TERM
 
 case "$(uname -m)" in
   arm64|aarch64)
@@ -20,7 +26,6 @@ run_fixture() {
   fixture="$1"
   expected="$2"
   stderr_file="$(mktemp)"
-  trap 'rm -f "$stderr_file"' EXIT INT TERM
 
   if zig build-obj \
     -ODebug \
@@ -29,24 +34,25 @@ run_fixture() {
     -Mroot="$fixture" \
     "$asm_file" \
     -Mshift="$repo_root/src/root.zig" \
-    --cache-dir "$repo_root/.zig-cache" \
-    --global-cache-dir "${HOME}/.cache/zig" \
+    --cache-dir "$local_cache_dir" \
+    --global-cache-dir "$global_cache_dir" \
     --name compile-fail-fixture \
     > /dev/null 2>"$stderr_file"
   then
     echo "expected compile failure: $fixture" >&2
     cat "$stderr_file" >&2
+    rm -f "$stderr_file"
     exit 1
   fi
 
   if ! grep -q "$expected" "$stderr_file"; then
     echo "missing expected error marker '$expected' for $fixture" >&2
     cat "$stderr_file" >&2
+    rm -f "$stderr_file"
     exit 1
   fi
 
   rm -f "$stderr_file"
-  trap - EXIT INT TERM
 }
 
 run_fixture "$repo_root/test/compile_fail/continuation_discontinue_removed.zig" "Continuation"

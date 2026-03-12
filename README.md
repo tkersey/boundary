@@ -30,6 +30,7 @@ The current public product claim is:
 - `shift.reset(&runtime, &prompt, body)`
 - `shift.shift(Resume, &prompt, Handler)`
 - the handler protocol is selected by `PromptMode` at comptime
+- `.resume_or_return` handlers may return `shift.ResumeOrReturn(Resume, OutAnswer)` and still provide `afterResume`
 - protocol methods may return either plain values or `ResetError(ErrorSet)!...`
 
 ## Semantic Commitments

@@ -3,6 +3,12 @@ set -eu
 
 repo_root="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
 survey_dir="$repo_root/test/one_shot_survey"
+cache_root="$(mktemp -d "${TMPDIR:-/tmp}/shift-one-shot-survey-cache.XXXXXX")"
+local_cache_dir="$cache_root/local"
+global_cache_dir="$cache_root/global"
+
+mkdir -p "$local_cache_dir" "$global_cache_dir"
+trap 'rm -rf "$cache_root"' EXIT INT TERM
 
 case "$(uname -m)" in
   arm64|aarch64)
@@ -26,8 +32,8 @@ compile_fixture() {
     -Mroot="$fixture" \
     "$asm_file" \
     -Mshift="$repo_root/src/root.zig" \
-    --cache-dir "$repo_root/.zig-cache" \
-    --global-cache-dir "${HOME}/.cache/zig" \
+    --cache-dir "$local_cache_dir" \
+    --global-cache-dir "$global_cache_dir" \
     --name one-shot-survey-fixture
 }
 
@@ -37,8 +43,13 @@ protocol_resume_transform_compiles.zig|success|protocol_resume_transform|
 protocol_erroring_resume_transform_compiles.zig|success|protocol_erroring_resume_transform|
 protocol_direct_return_compiles.zig|success|protocol_direct_return|
 protocol_erroring_direct_return_compiles.zig|success|protocol_erroring_direct_return|
+protocol_resume_or_return_compiles.zig|success|protocol_resume_or_return|
+protocol_erroring_resume_or_return_compiles.zig|success|protocol_erroring_resume_or_return|
 missing_after_resume_fails.zig|failure|missing_after_resume|must declare afterResume
+missing_resume_or_return_fails.zig|failure|missing_resume_or_return|must declare resumeOrReturn
 wrong_after_resume_type_fails.zig|failure|wrong_after_resume_type|must have type
+wrong_resume_or_return_type_fails.zig|failure|wrong_resume_or_return_type|must have type
+wrong_resume_or_return_after_resume_fails.zig|failure|wrong_resume_or_return_after_resume|must have type
 direct_return_mode_mismatch_fails.zig|failure|direct_return_mode_mismatch|must declare directReturn
 legacy_continuation_alias_recheck_fails.zig|failure|legacy_alias_recheck|Continuation
 legacy_continuation_store_recheck_fails.zig|failure|legacy_store_recheck|Continuation
@@ -69,16 +80,15 @@ run_expected_success() {
   fixture="$1"
   label="$2"
   stderr_file="$(mktemp)"
-  trap 'rm -f "$stderr_file"' EXIT INT TERM
 
   if ! compile_fixture "$fixture" > /dev/null 2>"$stderr_file"; then
     echo "expected compile success for $label" >&2
     cat "$stderr_file" >&2
+    rm -f "$stderr_file"
     exit 1
   fi
 
   rm -f "$stderr_file"
-  trap - EXIT INT TERM
   printf "%s\tcompile_success\n" "$label"
 }
 
@@ -87,21 +97,21 @@ run_expected_failure() {
   label="$2"
   expected="$3"
   stderr_file="$(mktemp)"
-  trap 'rm -f "$stderr_file"' EXIT INT TERM
 
   if compile_fixture "$fixture" > /dev/null 2>"$stderr_file"; then
     echo "expected compile failure for $label" >&2
+    rm -f "$stderr_file"
     exit 1
   fi
 
   if ! grep -q "$expected" "$stderr_file"; then
     echo "missing expected marker '$expected' for $label" >&2
     cat "$stderr_file" >&2
+    rm -f "$stderr_file"
     exit 1
   fi
 
   rm -f "$stderr_file"
-  trap - EXIT INT TERM
   printf "%s\tcompile_fail\n" "$label"
 }
 

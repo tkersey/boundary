@@ -21,6 +21,14 @@ pub fn ResetError(comptime ErrorSet: type) type {
     return raw.ResetError(ErrorSet);
 }
 
+/// Handler decision for zero-or-one-resume prompt modes.
+pub fn ResumeOrReturn(
+    comptime Resume: type,
+    comptime OutAnswer: type,
+) type {
+    return raw.ResumeOrReturn(Resume, OutAnswer);
+}
+
 fn PromptTypeFromPtr(comptime PromptPtrType: type) type {
     return switch (@typeInfo(PromptPtrType)) {
         .pointer => |pointer| pointer.child,
@@ -71,6 +79,7 @@ pub fn shift(
 test {
     _ = Prompt;
     _ = PromptMode;
+    _ = ResumeOrReturn;
     _ = Runtime;
     _ = std;
 }

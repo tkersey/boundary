@@ -5,6 +5,8 @@ pub const WitnessId = enum {
     atm_resume_transform,
     direct_return,
     multi_prompt,
+    resume_or_return_resume,
+    resume_or_return_return_now,
     static_redelim,
 };
 
@@ -143,6 +145,56 @@ const DirectReturnState = union(enum) {
     }
 };
 
+const ResumeOrReturnReturnNowState = union(enum) {
+    complete,
+    handler_return_now,
+    start,
+
+    fn step(self: *@This(), writer: anytype) !void {
+        switch (self.*) {
+            .start => self.* = .handler_return_now,
+            .handler_return_now => {
+                try writer.writeAll("handler-return-now\n");
+                self.* = .complete;
+            },
+            .complete => {
+                try writer.writeAll("final=result=early\n");
+                self.* = .start;
+            },
+        }
+    }
+};
+
+const ResumeOrReturnResumeState = union(enum) {
+    body_after_shift,
+    complete,
+    handler_after_resume,
+    handler_decide_resume,
+    start,
+
+    fn step(self: *@This(), writer: anytype) !void {
+        switch (self.*) {
+            .start => self.* = .handler_decide_resume,
+            .handler_decide_resume => {
+                try writer.writeAll("handler-decide-resume\n");
+                self.* = .body_after_shift;
+            },
+            .body_after_shift => {
+                try writer.writeAll("body-after-shift\n");
+                self.* = .handler_after_resume;
+            },
+            .handler_after_resume => {
+                try writer.writeAll("handler-after-resume\n");
+                self.* = .complete;
+            },
+            .complete => {
+                try writer.writeAll("final=answer=42\n");
+                self.* = .start;
+            },
+        }
+    }
+};
+
 fn runStateMachine(state: anytype, writer: anytype) !void {
     while (true) {
         switch (state.*) {
@@ -161,6 +213,8 @@ pub fn runWitness(writer: anytype, id: []const u8) anyerror!void {
     if (std.mem.eql(u8, id, "direct_return")) return runDirectReturn(writer);
     if (std.mem.eql(u8, id, "static_redelim")) return runStaticRedelim(writer);
     if (std.mem.eql(u8, id, "multi_prompt")) return runMultiPrompt(writer);
+    if (std.mem.eql(u8, id, "resume_or_return_return_now")) return runResumeOrReturnReturnNow(writer);
+    if (std.mem.eql(u8, id, "resume_or_return_resume")) return runResumeOrReturnResume(writer);
     return error.UnknownWitness;
 }
 
@@ -185,5 +239,17 @@ pub fn runStaticRedelim(writer: anytype) anyerror!void {
 /// Execute the reference machine for the prompt-value separation witness.
 pub fn runMultiPrompt(writer: anytype) anyerror!void {
     var state: MultiPromptState = .start;
+    try runStateMachine(&state, writer);
+}
+
+/// Execute the reference machine for the optional-resumption direct-return witness.
+pub fn runResumeOrReturnReturnNow(writer: anytype) anyerror!void {
+    var state: ResumeOrReturnReturnNowState = .start;
+    try runStateMachine(&state, writer);
+}
+
+/// Execute the reference machine for the optional-resumption single-resume witness.
+pub fn runResumeOrReturnResume(writer: anytype) anyerror!void {
+    var state: ResumeOrReturnResumeState = .start;
     try runStateMachine(&state, writer);
 }

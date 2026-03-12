@@ -28,8 +28,30 @@ pub fn ResetError(comptime ErrorSet: type) type {
 /// Comptime-selected handler protocol attached to a prompt value.
 pub const PromptMode = enum {
     direct_return,
+    resume_or_return,
     resume_then_transform,
 };
+
+/// Handler decision for zero-or-one-resume prompt modes.
+pub fn ResumeOrReturn(
+    comptime ResumeType: type,
+    comptime OutAnswerType: type,
+) type {
+    return union(enum) {
+        resume_with: ResumeType,
+        return_now: OutAnswerType,
+
+        /// Complete the enclosing prompt without resuming the captured continuation.
+        pub fn returnNow(value: OutAnswerType) @This() {
+            return .{ .return_now = value };
+        }
+
+        /// Resume once with `value`, then let the handler's `afterResume` complete the enclosing answer.
+        pub fn resumeWith(value: ResumeType) @This() {
+            return .{ .resume_with = value };
+        }
+    };
+}
 
 /// Thread-affine runtime that owns stackful continuations.
 pub const Runtime = struct {
@@ -233,11 +255,13 @@ const FiberBase = struct {
     prompt_token: PromptToken,
     state: FiberState = .ready,
     outcome: FiberOutcome = .none,
+    abandonFn: *const fn (*FiberBase) void,
     startFn: *const fn (*FiberBase) noreturn,
 };
 
 const CaptureBase = struct {
     invokeFn: *const fn (*CaptureBase, *anyopaque) anyerror!void,
+    source_fiber: *FiberBase,
     target_fiber: *FiberBase,
 };
 
@@ -264,6 +288,7 @@ fn ResetFrame(comptime PromptType: type) type {
                     .parent_context = parent_context,
                     .stack = stack,
                     .prompt_token = prompt.token,
+                    .abandonFn = abandon,
                     .startFn = start,
                 },
                 .body = body,
@@ -276,6 +301,16 @@ fn ResetFrame(comptime PromptType: type) type {
 
         fn deinit(self: *@This()) void {
             self.base.runtime.releaseStack(self.base.stack);
+        }
+
+        fn abandon(base: *FiberBase) void {
+            const self: *@This() = @fieldParentPtr("base", base);
+            std.debug.assert(self.base.state == .suspended);
+            std.debug.assert(self.base.runtime.active_reset_count != 0);
+            self.base.state = .failed;
+            self.base.outcome = .none;
+            self.deinit();
+            self.base.runtime.active_reset_count -= 1;
         }
 
         fn start(base: *FiberBase) noreturn {
@@ -460,8 +495,26 @@ fn expectDeclTypeOneOf(comptime Owner: type, comptime name: []const u8, comptime
     }
 }
 
+fn ResumeOrReturnType(comptime Resume: type, comptime PromptType: type) type {
+    return ResumeOrReturn(Resume, PromptType.OutAnswer);
+}
+
 fn assertHandlerProtocol(comptime Resume: type, comptime PromptType: type, comptime Handler: type) void {
     switch (PromptType.mode) {
+        .resume_or_return => {
+            expectDeclTypeOneOf(
+                Handler,
+                "resumeOrReturn",
+                fn () ResumeOrReturnType(Resume, PromptType),
+                fn () ResetError(PromptType.ErrorSet)!ResumeOrReturnType(Resume, PromptType),
+            );
+            expectDeclTypeOneOf(
+                Handler,
+                "afterResume",
+                fn (PromptType.InAnswer) PromptType.OutAnswer,
+                fn (PromptType.InAnswer) ResetError(PromptType.ErrorSet)!PromptType.OutAnswer,
+            );
+        },
         .resume_then_transform => {
             expectDeclTypeOneOf(
                 Handler,
@@ -509,6 +562,21 @@ fn callDirectReturn(comptime PromptType: type, comptime Handler: type) ResetErro
     return try Handler.directReturn();
 }
 
+fn callResumeOrReturn(comptime Resume: type, comptime PromptType: type, comptime Handler: type) ResetError(PromptType.ErrorSet)!ResumeOrReturnType(Resume, PromptType) {
+    const ResumeOrReturnFn = @TypeOf(Handler.resumeOrReturn);
+    if (ResumeOrReturnFn == fn () ResumeOrReturnType(Resume, PromptType)) return Handler.resumeOrReturn();
+    return try Handler.resumeOrReturn();
+}
+
+fn abandonIntermediateFibers(source_fiber: *FiberBase, target_fiber: *FiberBase) void {
+    var fiber = source_fiber;
+    while (fiber != target_fiber) {
+        const next = fiber.parent_fiber.?;
+        fiber.abandonFn(fiber);
+        fiber = next;
+    }
+}
+
 /// One-shot continuation handle for a captured `shift`.
 fn Continuation(comptime Resume: type, comptime PromptType: type, comptime Capture: type) type {
     const InAnswer = PromptType.InAnswer;
@@ -543,12 +611,30 @@ fn ShiftCapture(comptime Resume: type, comptime PromptType: type, comptime Handl
             const self: *@This() = @fieldParentPtr("base", base);
             const out: *?OutAnswer = @ptrCast(@alignCast(answer_out));
             out.* = switch (PromptType.mode) {
+                .resume_or_return => blk: {
+                    const decision = try callResumeOrReturn(Resume, PromptType, Handler);
+                    switch (decision) {
+                        .return_now => |answer| {
+                            abandonIntermediateFibers(self.base.source_fiber, self.base.target_fiber);
+                            break :blk answer;
+                        },
+                        .resume_with => |value| {
+                            var continuation = Continuation(Resume, PromptType, @This()){ .capture = self };
+                            const answer = try continuation.resumeWith(value);
+                            break :blk try callAfterResume(PromptType, Handler, answer);
+                        },
+                    }
+                },
                 .resume_then_transform => blk: {
                     var continuation = Continuation(Resume, PromptType, @This()){ .capture = self };
                     const answer = try continuation.resumeWith(try callResumeValue(Resume, PromptType, Handler));
                     break :blk try callAfterResume(PromptType, Handler, answer);
                 },
-                .direct_return => try callDirectReturn(PromptType, Handler),
+                .direct_return => blk: {
+                    const answer = try callDirectReturn(PromptType, Handler);
+                    abandonIntermediateFibers(self.base.source_fiber, self.base.target_fiber);
+                    break :blk answer;
+                },
             };
         }
     };
@@ -593,6 +679,7 @@ pub fn shift(
     var capture = ShiftCapture(Resume, PromptType, Handler){
         .base = .{
             .invokeFn = ShiftCapture(Resume, PromptType, Handler).invoke,
+            .source_fiber = current_fiber,
             .target_fiber = target_fiber,
         },
         .target_frame = frame,
@@ -673,6 +760,106 @@ test "resume-then-transform handler resumes with a direct-style value" {
     const answer = try reset(DemoPrompt, &runtime, &prompt, demo.body);
     try std.testing.expectEqual(@as(i32, 42), answer);
     try std.testing.expectEqual(@as(i32, 41), demo.resumed_value);
+}
+
+test "resume-or-return handler may return immediately without resuming" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    const NoError = error{};
+    const DemoPrompt = Prompt(.resume_or_return, usize, usize, NoError);
+    const Decision = ResumeOrReturn(usize, usize);
+    var prompt = DemoPrompt.init();
+    const demo = struct {
+        var prompt_ptr: ?*const DemoPrompt = null;
+
+        const handle = struct {
+            /// Choose the immediate return branch for the optional-resumption mode.
+            pub fn resumeOrReturn() Decision {
+                return Decision.returnNow(99);
+            }
+
+            fn afterResume(value: usize) usize {
+                return value;
+            }
+        };
+
+        fn body() ResetError(NoError)!usize {
+            _ = try shift(usize, DemoPrompt, prompt_ptr.?, handle);
+            return 7;
+        }
+    };
+
+    demo.prompt_ptr = &prompt;
+    const answer = try reset(DemoPrompt, &runtime, &prompt, demo.body);
+    try std.testing.expectEqual(@as(usize, 99), answer);
+}
+
+test "resume-or-return handler may resume once and transform the resumed answer" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    const NoError = error{};
+    const DemoPrompt = Prompt(.resume_or_return, i32, i32, NoError);
+    const Decision = ResumeOrReturn(i32, i32);
+    var prompt = DemoPrompt.init();
+    const demo = struct {
+        var prompt_ptr: ?*const DemoPrompt = null;
+        var resumed_value: i32 = 0;
+
+        const handle = struct {
+            /// Choose the resumptive branch for the optional-resumption mode.
+            pub fn resumeOrReturn() Decision {
+                resumed_value = 41;
+                return Decision.resumeWith(resumed_value);
+            }
+
+            fn afterResume(value: i32) i32 {
+                return value;
+            }
+        };
+
+        fn body() ResetError(NoError)!i32 {
+            const current = try shift(i32, DemoPrompt, prompt_ptr.?, handle);
+            return current + 1;
+        }
+    };
+
+    demo.prompt_ptr = &prompt;
+    const answer = try reset(DemoPrompt, &runtime, &prompt, demo.body);
+    try std.testing.expectEqual(@as(i32, 42), answer);
+    try std.testing.expectEqual(@as(i32, 41), demo.resumed_value);
+}
+
+test "resume-or-return handler may propagate typed user errors" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    const DemoError = error{Boom};
+    const DemoPrompt = Prompt(.resume_or_return, i32, i32, DemoError);
+    const Decision = ResumeOrReturn(i32, i32);
+    var prompt = DemoPrompt.init();
+    const demo = struct {
+        var prompt_ptr: ?*const DemoPrompt = null;
+
+        const handle = struct {
+            /// Choose the resumptive branch and preserve typed error propagation.
+            pub fn resumeOrReturn() ResetError(DemoError)!Decision {
+                return Decision.resumeWith(41);
+            }
+
+            fn afterResume(_: i32) ResetError(DemoError)!i32 {
+                return error.Boom;
+            }
+        };
+
+        fn body() ResetError(DemoError)!i32 {
+            return try shift(i32, DemoPrompt, prompt_ptr.?, handle);
+        }
+    };
+
+    demo.prompt_ptr = &prompt;
+    try std.testing.expectError(error.Boom, reset(DemoPrompt, &runtime, &prompt, demo.body));
 }
 
 test "direct-return handler may produce the enclosing answer without resuming" {
@@ -815,6 +1002,51 @@ test "outer prompt capture bubbles through nested resets" {
     const answer = try reset(OuterPrompt, &runtime, &outer_prompt, demo.outerBody);
     try std.testing.expectEqual(@as(i32, 42), answer);
     try std.testing.expectEqual(@as(i32, 41), demo.resumed_value);
+}
+
+test "resume-or-return return-now unwinds nested resets before returning" {
+    var runtime = Runtime.init(std.testing.allocator, .{});
+
+    const NoError = error{};
+    const OuterPrompt = Prompt(.resume_or_return, []const u8, []const u8, NoError);
+    const OuterDecision = ResumeOrReturn(void, []const u8);
+    const InnerPrompt = Prompt(.resume_then_transform, void, void, NoError);
+    var outer_prompt = OuterPrompt.init();
+    var inner_prompt = InnerPrompt.init();
+    const demo = struct {
+        var outer_prompt_ptr: ?*const OuterPrompt = null;
+        var inner_prompt_ptr: ?*const InnerPrompt = null;
+        var runtime_ptr: *Runtime = undefined;
+
+        const outer_handle = struct {
+            /// Choose the abortive branch after an inner reset captures the outer prompt.
+            pub fn resumeOrReturn() OuterDecision {
+                return OuterDecision.returnNow("result=early");
+            }
+
+            /// Preserve the outer body answer if the resumptive branch were ever taken.
+            pub fn afterResume(_: []const u8) []const u8 {
+                return "result=late";
+            }
+        };
+
+        fn innerBody() ResetError(NoError)!void {
+            _ = try shift(void, OuterPrompt, outer_prompt_ptr.?, outer_handle);
+        }
+
+        fn outerBody() ResetError(NoError)![]const u8 {
+            try reset(InnerPrompt, runtime_ptr, inner_prompt_ptr.?, innerBody);
+            return "result=late";
+        }
+    };
+
+    demo.runtime_ptr = &runtime;
+    demo.outer_prompt_ptr = &outer_prompt;
+    demo.inner_prompt_ptr = &inner_prompt;
+
+    const answer = try reset(OuterPrompt, &runtime, &outer_prompt, demo.outerBody);
+    try std.testing.expectEqualStrings("result=early", answer);
+    try runtime.deinitChecked();
 }
 
 test "unsupported non-diagonal prompt still fails closed on direct completion" {

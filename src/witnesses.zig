@@ -11,6 +11,8 @@ pub const Witness = struct {
 pub const witnesses = [_]Witness{
     .{ .witness_id = "atm_resume_transform", .title = "ATM resume-then-transform" },
     .{ .witness_id = "direct_return", .title = "Direct return without continuation exposure" },
+    .{ .witness_id = "resume_or_return_return_now", .title = "Optional resumption chooses direct return" },
+    .{ .witness_id = "resume_or_return_resume", .title = "Optional resumption chooses single resume" },
     .{ .witness_id = "static_redelim", .title = "Static re-delimitation against control/prompt" },
     .{ .witness_id = "multi_prompt", .title = "Prompt-value separation" },
     .{ .witness_id = "generator", .title = "Generator" },
@@ -25,6 +27,8 @@ pub fn listWitnesses(writer: anytype) anyerror!void {
 pub fn runWitness(writer: anytype, id: []const u8) anyerror!void {
     if (std.mem.eql(u8, id, "atm_resume_transform")) return runAtmResumeTransform(writer);
     if (std.mem.eql(u8, id, "direct_return")) return runDirectReturn(writer);
+    if (std.mem.eql(u8, id, "resume_or_return_return_now")) return runResumeOrReturnReturnNow(writer);
+    if (std.mem.eql(u8, id, "resume_or_return_resume")) return runResumeOrReturnResume(writer);
     if (std.mem.eql(u8, id, "static_redelim")) return runStaticRedelim(writer);
     if (std.mem.eql(u8, id, "multi_prompt")) return runMultiPrompt(writer);
     if (std.mem.eql(u8, id, "generator")) return runGenerator(writer);
@@ -182,6 +186,101 @@ pub fn runDirectReturn(writer: anytype) anyerror!void {
         fn body() shift.ResetError(NoError)![]const u8 {
             _ = try shift.shift(void, prompt_ptr.?, handle);
             return "result=late";
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
+    defer runtime.deinit();
+    var prompt = DemoPrompt.init();
+    demo.prompt_ptr = &prompt;
+    demo.transcript_len = 0;
+
+    const answer = try shift.reset(&runtime, &prompt, demo.body);
+    for (demo.transcript[0..demo.transcript_len]) |line| try writer.print("{s}\n", .{line});
+    try writer.print("final={s}\n", .{answer});
+}
+
+/// Run the optional-resumption direct-return witness.
+pub fn runResumeOrReturnReturnNow(writer: anytype) anyerror!void {
+    const NoError = error{};
+    const DemoPrompt = shift.Prompt(.resume_or_return, []const u8, []const u8, NoError);
+    const Decision = shift.ResumeOrReturn(void, []const u8);
+
+    const demo = struct {
+        var prompt_ptr: ?*const DemoPrompt = null;
+        var transcript = [_][]const u8{ "", "" };
+        var transcript_len: usize = 0;
+
+        fn note(message: []const u8) void {
+            transcript[transcript_len] = message;
+            transcript_len += 1;
+        }
+
+        const handle = struct {
+            /// Choose the immediate return branch for this witness.
+            pub fn resumeOrReturn() Decision {
+                note("handler-return-now");
+                return Decision.returnNow("result=early");
+            }
+
+            /// Preserve the direct-return witness answer if this branch were ever resumed.
+            pub fn afterResume(value: []const u8) []const u8 {
+                return value;
+            }
+        };
+
+        fn body() shift.ResetError(NoError)![]const u8 {
+            _ = try shift.shift(void, prompt_ptr.?, handle);
+            return "result=late";
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
+    defer runtime.deinit();
+    var prompt = DemoPrompt.init();
+    demo.prompt_ptr = &prompt;
+    demo.transcript_len = 0;
+
+    const answer = try shift.reset(&runtime, &prompt, demo.body);
+    for (demo.transcript[0..demo.transcript_len]) |line| try writer.print("{s}\n", .{line});
+    try writer.print("final={s}\n", .{answer});
+}
+
+/// Run the optional-resumption single-resume witness.
+pub fn runResumeOrReturnResume(writer: anytype) anyerror!void {
+    const NoError = error{};
+    const DemoPrompt = shift.Prompt(.resume_or_return, i32, []const u8, NoError);
+    const Decision = shift.ResumeOrReturn(i32, []const u8);
+
+    const demo = struct {
+        var prompt_ptr: ?*const DemoPrompt = null;
+        var transcript = [_][]const u8{ "", "", "", "" };
+        var transcript_len: usize = 0;
+
+        fn note(message: []const u8) void {
+            transcript[transcript_len] = message;
+            transcript_len += 1;
+        }
+
+        const handle = struct {
+            /// Choose the resumptive branch for this witness.
+            pub fn resumeOrReturn() Decision {
+                note("handler-decide-resume");
+                return Decision.resumeWith(41);
+            }
+
+            /// Convert the resumed answer into the enclosing witness answer.
+            pub fn afterResume(value: i32) []const u8 {
+                _ = value;
+                note("handler-after-resume");
+                return "answer=42";
+            }
+        };
+
+        fn body() shift.ResetError(NoError)!i32 {
+            const current = try shift.shift(i32, prompt_ptr.?, handle);
+            note("body-after-shift");
+            return current + 1;
         }
     };
 

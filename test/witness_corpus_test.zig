@@ -18,6 +18,8 @@ test "witness list stays stable" {
     try std.testing.expectEqualStrings(
         "atm_resume_transform\tATM resume-then-transform\n" ++
             "direct_return\tDirect return without continuation exposure\n" ++
+            "resume_or_return_return_now\tOptional resumption chooses direct return\n" ++
+            "resume_or_return_resume\tOptional resumption chooses single resume\n" ++
             "static_redelim\tStatic re-delimitation against control/prompt\n" ++
             "multi_prompt\tPrompt-value separation\n" ++
             "generator\tGenerator\n",
@@ -37,6 +39,24 @@ test "atm resume transform witness stays locked" {
     try expectWitness(
         "atm_resume_transform",
         "handler-enter\n" ++
+            "body-after-shift\n" ++
+            "handler-after-resume\n" ++
+            "final=answer=42\n",
+    );
+}
+
+test "resume-or-return direct branch witness stays locked" {
+    try expectWitness(
+        "resume_or_return_return_now",
+        "handler-return-now\n" ++
+            "final=result=early\n",
+    );
+}
+
+test "resume-or-return resume branch witness stays locked" {
+    try expectWitness(
+        "resume_or_return_resume",
+        "handler-decide-resume\n" ++
             "body-after-shift\n" ++
             "handler-after-resume\n" ++
             "final=answer=42\n",
@@ -69,7 +89,14 @@ test "multi-prompt witness stays locked" {
 }
 
 test "hard witnesses agree across evaluator, reference machine, and runtime" {
-    const ids = [_][]const u8{ "atm_resume_transform", "direct_return", "static_redelim", "multi_prompt" };
+    const ids = [_][]const u8{
+        "atm_resume_transform",
+        "direct_return",
+        "resume_or_return_return_now",
+        "resume_or_return_resume",
+        "static_redelim",
+        "multi_prompt",
+    };
     for (ids) |id| {
         const entry = semantic_manifest.find(id).?;
         var runtime_buffer: [1024]u8 = undefined;
@@ -120,7 +147,7 @@ test "nested-workflow practical witness stays locked" {
 }
 
 test "practical witness trio stays explicit" {
-    try std.testing.expectEqual(@as(usize, 5), witnesses.witnesses.len);
+    try std.testing.expectEqual(@as(usize, 7), witnesses.witnesses.len);
     try std.testing.expect(semantic_manifest.find("early_exit") == null);
     try std.testing.expect(semantic_manifest.find("nested_workflow") == null);
 }

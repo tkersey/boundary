@@ -5,6 +5,8 @@ pub const WitnessId = enum {
     atm_resume_transform,
     direct_return,
     multi_prompt,
+    resume_or_return_resume,
+    resume_or_return_return_now,
     static_redelim,
 };
 
@@ -87,6 +89,42 @@ const DirectReturnState = struct {
     }
 };
 
+const ResumeOrReturnReturnNowState = struct {
+    step_index: u8 = 0,
+    done: bool = false,
+
+    fn step(self: *@This(), writer: anytype) !void {
+        switch (self.step_index) {
+            0 => try writer.writeAll("handler-return-now\n"),
+            1 => {
+                try writer.writeAll("final=result=early\n");
+                self.done = true;
+            },
+            else => unreachable,
+        }
+        self.step_index += 1;
+    }
+};
+
+const ResumeOrReturnResumeState = struct {
+    step_index: u8 = 0,
+    done: bool = false,
+
+    fn step(self: *@This(), writer: anytype) !void {
+        switch (self.step_index) {
+            0 => try writer.writeAll("handler-decide-resume\n"),
+            1 => try writer.writeAll("body-after-shift\n"),
+            2 => try writer.writeAll("handler-after-resume\n"),
+            3 => {
+                try writer.writeAll("final=answer=42\n");
+                self.done = true;
+            },
+            else => unreachable,
+        }
+        self.step_index += 1;
+    }
+};
+
 fn runStateMachine(state: anytype, writer: anytype) !void {
     while (!state.done) try state.step(writer);
 }
@@ -97,6 +135,8 @@ pub fn runWitness(writer: anytype, id: []const u8) anyerror!void {
     if (std.mem.eql(u8, id, "direct_return")) return runDirectReturn(writer);
     if (std.mem.eql(u8, id, "static_redelim")) return runStaticRedelim(writer);
     if (std.mem.eql(u8, id, "multi_prompt")) return runMultiPrompt(writer);
+    if (std.mem.eql(u8, id, "resume_or_return_return_now")) return runResumeOrReturnReturnNow(writer);
+    if (std.mem.eql(u8, id, "resume_or_return_resume")) return runResumeOrReturnResume(writer);
     return error.UnknownWitness;
 }
 
@@ -121,5 +161,17 @@ pub fn runStaticRedelim(writer: anytype) anyerror!void {
 /// Execute the small-step evaluator for the multi-prompt separation witness.
 pub fn runMultiPrompt(writer: anytype) anyerror!void {
     var state = MultiPromptState{};
+    try runStateMachine(&state, writer);
+}
+
+/// Execute the small-step evaluator for the optional-resumption direct-return witness.
+pub fn runResumeOrReturnReturnNow(writer: anytype) anyerror!void {
+    var state = ResumeOrReturnReturnNowState{};
+    try runStateMachine(&state, writer);
+}
+
+/// Execute the small-step evaluator for the optional-resumption single-resume witness.
+pub fn runResumeOrReturnResume(writer: anytype) anyerror!void {
+    var state = ResumeOrReturnResumeState{};
     try runStateMachine(&state, writer);
 }

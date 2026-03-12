@@ -33,6 +33,28 @@ pub const entries = [_]WitnessEntry{
         .forbidden_transcript = "final=result=early\n",
     },
     .{
+        .witness_id = "resume_or_return_return_now",
+        .law_anchor = "README.md#purpose",
+        .evaluator_case = "reference_eval.resume_or_return_return_now",
+        .runtime_case = "witnesses.resume_or_return_return_now",
+        .required_transcript = "handler-return-now\n" ++
+            "final=result=early\n",
+        .forbidden_transcript = "final=result=early\n",
+    },
+    .{
+        .witness_id = "resume_or_return_resume",
+        .law_anchor = "README.md#purpose",
+        .evaluator_case = "reference_eval.resume_or_return_resume",
+        .runtime_case = "witnesses.resume_or_return_resume",
+        .required_transcript = "handler-decide-resume\n" ++
+            "body-after-shift\n" ++
+            "handler-after-resume\n" ++
+            "final=answer=42\n",
+        .forbidden_transcript = "handler-decide-resume\n" ++
+            "handler-after-resume\n" ++
+            "final=answer=42\n",
+    },
+    .{
         .witness_id = "static_redelim",
         .law_anchor = "README.md#semantic-commitments",
         .evaluator_case = "reference_eval.static_redelim",

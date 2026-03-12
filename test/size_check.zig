@@ -10,6 +10,7 @@ test "prompt shell stays compact" {
 test "guard and continuation surfaces are not public" {
     try std.testing.expect(!@hasDecl(shift, "NoShiftGuard"));
     try std.testing.expect(!@hasDecl(shift, "Continuation"));
+    try std.testing.expect(@hasDecl(shift, "ResumeOrReturn"));
 }
 
 test "runtime defaults stay explicit" {
