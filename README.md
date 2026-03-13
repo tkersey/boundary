@@ -51,7 +51,7 @@ The first two hard witness families are:
 
 `zig build test` is the default proof path. It includes the root tests,
 transcript-locked witnesses, public-surface size checks, compile-fail misuse
-fixtures, and the current one-shot survey contract.
+fixtures, the current one-shot survey contract, and exact-output example proof.
 
 ```bash
 zig build
@@ -60,19 +60,76 @@ zig build lint -- --max-warnings 0
 zig build size-check
 zig build compile-fail
 zig build one-shot-survey
+zig build example-proof
 zig build bench
 zig build bench-first-suspend
 ```
 
 ## Examples
 
+### `direct_return`
+
+```bash
+zig build run-early-exit
+```
+
+Expected output:
+
+```text
+handler-direct-return
+final=result=early
+```
+
+### `resume_or_return`
+
+```bash
+zig build run-resume-or-return
+```
+
+Expected output:
+
+```text
+branch=return_now
+handler-return-now
+final=result=early
+branch=resume_with
+handler-decide-resume
+body-after-shift
+handler-after-resume
+final=answer=42
+```
+
+### `resume_then_transform`
+
+```bash
+zig build run-nested-workflow
+```
+
+Expected output:
+
+```text
+workflow=queued
+audit=entered
+audit=after
+approval=publish
+workflow=done
+result=completed
+```
+
+### Extra `resume_then_transform` Example
+
 ```bash
 zig build run-generator
 ```
 
-Expected outputs:
+Expected output:
 
-- `run-generator`: yields `1`, `2`, `3`, then reports `done=3`
+```text
+yield=1
+yield=2
+yield=3
+done=3
+```
 
 ## Minimal Example
 

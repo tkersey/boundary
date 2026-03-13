@@ -1,0 +1,8 @@
+branch=return_now
+handler-return-now
+final=result=early
+branch=resume_with
+handler-decide-resume
+body-after-shift
+handler-after-resume
+final=answer=42

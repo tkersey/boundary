@@ -1,0 +1,6 @@
+workflow=queued
+audit=entered
+audit=after
+approval=publish
+workflow=done
+result=completed

@@ -103,6 +103,11 @@ pub fn build(b: *std.Build) void {
     one_shot_survey_step.dependOn(&one_shot_survey_cmd.step);
     test_step.dependOn(&one_shot_survey_cmd.step);
 
+    const example_proof_cmd = b.addSystemCommand(&.{ "sh", "test/example_proof/run.sh" });
+    const example_proof_step = b.step("example-proof", "Run exact-output proof for all examples.");
+    example_proof_step.dependOn(&example_proof_cmd.step);
+    test_step.dependOn(&example_proof_cmd.step);
+
     const examples = [_]struct {
         name: []const u8,
         src: []const u8,
@@ -113,7 +118,7 @@ pub fn build(b: *std.Build) void {
             .name = "early_exit",
             .src = "examples/early_exit.zig",
             .step_name = "run-early-exit",
-            .step_desc = "Run the deferred early-exit example.",
+            .step_desc = "Run the direct-return example.",
         },
         .{
             .name = "generator",
@@ -125,7 +130,13 @@ pub fn build(b: *std.Build) void {
             .name = "nested_workflow",
             .src = "examples/nested_workflow.zig",
             .step_name = "run-nested-workflow",
-            .step_desc = "Run the deferred nested workflow example.",
+            .step_desc = "Run the nested workflow example.",
+        },
+        .{
+            .name = "resume_or_return",
+            .src = "examples/resume_or_return.zig",
+            .step_name = "run-resume-or-return",
+            .step_desc = "Run the optional-resumption example.",
         },
     };
 
@@ -136,7 +147,6 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         });
         mod.addImport("shift", shift_mod);
-        mod.addImport("witnesses", witnesses_mod);
 
         const exe = b.addExecutable(.{
             .name = example.name,
