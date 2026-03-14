@@ -39,6 +39,7 @@ compile_fixture() {
 
 fixture_rows() {
   cat <<'EOF'
+protocol_resume_transform_executes.zig|run_success|protocol_resume_transform_runtime|
 protocol_resume_transform_compiles.zig|success|protocol_resume_transform|
 protocol_erroring_resume_transform_compiles.zig|success|protocol_erroring_resume_transform|
 protocol_direct_return_compiles.zig|success|protocol_direct_return|
@@ -92,6 +93,31 @@ run_expected_success() {
   printf "%s\tcompile_success\n" "$label"
 }
 
+run_expected_runtime_success() {
+  fixture="$1"
+  label="$2"
+  stderr_file="$(mktemp)"
+
+  if ! zig run \
+    -ODebug \
+    --dep shift \
+    -Mroot="$fixture" \
+    "$asm_file" \
+    -Mshift="$repo_root/src/root.zig" \
+    --cache-dir "$local_cache_dir" \
+    --global-cache-dir "$global_cache_dir" \
+    > /dev/null 2>"$stderr_file"
+  then
+    echo "expected runtime success for $label" >&2
+    cat "$stderr_file" >&2
+    rm -f "$stderr_file"
+    exit 1
+  fi
+
+  rm -f "$stderr_file"
+  printf "%s\trun_success\n" "$label"
+}
+
 run_expected_failure() {
   fixture="$1"
   label="$2"
@@ -129,6 +155,9 @@ while IFS='|' read -r fixture_name mode label expected; do
   case "$mode" in
     success)
       run_expected_success "$fixture_path" "$label"
+      ;;
+    run_success)
+      run_expected_runtime_success "$fixture_path" "$label"
       ;;
     failure)
       run_expected_failure "$fixture_path" "$label" "$expected"
