@@ -1,3 +1,4 @@
+const cleanup = @import("cleanup.zig");
 const family = @import("family.zig");
 const raw = @import("../raw.zig");
 const shift = @import("../root.zig");
@@ -34,6 +35,7 @@ fn Kernel(comptime ResumeType: type, comptime AnswerType: type, comptime ErrorSe
     return struct {
         const Prompt = PromptType;
         var active_prompt: ?*const PromptType = null;
+        var active_cleanup_marker: ?*cleanup.Frame = null;
 
         fn callResumeOrReturn() shift.ResetError(ErrorSetType)!DecisionType {
             const ResumeOrReturnFn = @TypeOf(PolicyType.resumeOrReturn);
@@ -51,7 +53,12 @@ fn Kernel(comptime ResumeType: type, comptime AnswerType: type, comptime ErrorSe
             const handler = struct {
                 /// Forward the policy decision into the raw optional-resumption protocol.
                 pub fn resumeOrReturn() shift.ResetError(ErrorSetType)!DecisionType {
-                    return try callResumeOrReturn();
+                    const decision = try callResumeOrReturn();
+                    switch (decision) {
+                        .return_now => |_| cleanup.unwindTo(active_cleanup_marker) catch |err| return @errorCast(err),
+                        .resume_with => {},
+                    }
+                    return decision;
                 }
 
                 /// Complete the enclosing answer after one resumptive branch.
@@ -107,6 +114,7 @@ pub fn handle(
     const runner = struct {
         threadlocal var active_prompt_token: usize = 0;
         threadlocal var active_runtime: ?*shift.Runtime = null;
+        threadlocal var cleanup_marker: ?*cleanup.Frame = null;
 
         /// Run the body with a fresh exact context and the active optional prompt.
         pub fn run(comptime Cap: type, ctx: anytype) shift.ResetError(ErrorSetType)!AnswerType {
@@ -135,10 +143,16 @@ pub fn handle(
 
     const previous_prompt_token = runner.active_prompt_token;
     const previous_runtime = runner.active_runtime;
+    const previous_cleanup_marker = runner.cleanup_marker;
+    const previous_opt_cleanup = optional_impl.active_cleanup_marker;
     runner.active_prompt_token = instance.prompt.token;
     runner.active_runtime = runtime;
+    runner.cleanup_marker = cleanup.checkpoint();
     defer runner.active_prompt_token = previous_prompt_token;
     defer runner.active_runtime = previous_runtime;
+    defer runner.cleanup_marker = previous_cleanup_marker;
+    optional_impl.active_cleanup_marker = runner.cleanup_marker;
+    defer optional_impl.active_cleanup_marker = previous_opt_cleanup;
 
     return try family.withCapability(family.ContextSpec(ResumeType, AnswerType, ErrorSetType), capability_decls, AnswerType, runner);
 }

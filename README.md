@@ -92,10 +92,14 @@ The additive effect-family contract is now:
   - `shift.effect.state.get(Cap, ctx)` / `shift.effect.state.set(Cap, ctx, value)`
   - `shift.effect.reader.ask(Cap, ctx)`
   - `shift.effect.optional.request(Cap, ctx)`
+  - `shift.effect.exception.throw(Cap, ctx, payload)`
+  - `shift.effect.resource.acquire(Cap, ctx)`
 - forged or cross-instance contexts fail at compile time; see:
+  - `effect_exception_forged_context_throw_fails.zig`
   - `effect_state_forged_context_get_fails.zig`
   - `effect_reader_forged_context_ask_fails.zig`
   - `effect_optional_forged_context_request_fails.zig`
+  - `effect_resource_forged_context_acquire_fails.zig`
 
 ## Examples
 
@@ -176,6 +180,24 @@ env=21
 value=42
 ```
 
+### `exception_effect`
+
+```bash
+zig build run-exception-basic
+```
+
+Expected output:
+
+```text
+branch=pass
+body-pass
+final=result=ok
+branch=throw
+body-before-throw
+catch=result=boom
+final=result=boom
+```
+
 ### `optional_effect`
 
 ```bash
@@ -193,6 +215,24 @@ policy-resume
 body-after-request
 policy-after-resume
 final=answer=42
+```
+
+### `resource_effect`
+
+```bash
+zig build run-resource-basic
+```
+
+Expected output:
+
+```text
+acquire=a
+use=a
+acquire=b
+use=b
+release=b
+release=a
+final=done
 ```
 
 ### `state_effect`
@@ -214,7 +254,15 @@ The strict effect families now use helper-based bodies of the form
 `body(comptime Cap, ctx)` together with family operations such as
 `shift.effect.reader.ask(Cap, ctx)` and
 `shift.effect.state.get(Cap, ctx)` / `shift.effect.state.set(Cap, ctx, value)`
-plus `shift.effect.optional.request(Cap, ctx)`.
+plus `shift.effect.optional.request(Cap, ctx)`,
+`shift.effect.exception.throw(Cap, ctx, payload)`, and
+`shift.effect.resource.acquire(Cap, ctx)`.
+
+The current prompt-mode coverage at the effect layer is:
+
+- `.resume_then_transform`: `state`, `reader`, `resource`
+- `.resume_or_return`: `optional`
+- `.direct_return`: `exception`
 
 ## Benchmark Contract
 

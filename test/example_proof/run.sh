@@ -27,10 +27,12 @@ esac
 example_rows() {
   cat <<'EOF'
 early_exit.zig|primary|run-early-exit|early_exit.txt
+exception_basic.zig|primary|run-exception-basic|exception_basic.txt
 generator.zig|extra|run-generator|generator.txt
 nested_workflow.zig|primary|run-nested-workflow|nested_workflow.txt
 optional_basic.zig|primary|run-optional-basic|optional_basic.txt
 reader_basic.zig|primary|run-reader-basic|reader_basic.txt
+resource_basic.zig|primary|run-resource-basic|resource_basic.txt
 resume_or_return.zig|primary|run-resume-or-return|resume_or_return.txt
 state_basic.zig|primary|run-state-basic|state_basic.txt
 EOF

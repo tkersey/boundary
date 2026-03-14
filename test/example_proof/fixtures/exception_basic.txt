@@ -1,0 +1,7 @@
+branch=pass
+body-pass
+final=result=ok
+branch=throw
+body-before-throw
+catch=result=boom
+final=result=boom

@@ -154,6 +154,12 @@ pub fn build(b: *std.Build) void {
             .step_desc = "Run the direct-return example.",
         },
         .{
+            .name = "exception_basic",
+            .src = "examples/exception_basic.zig",
+            .step_name = "run-exception-basic",
+            .step_desc = "Run the direct-return exception effect example.",
+        },
+        .{
             .name = "generator",
             .src = "examples/generator.zig",
             .step_name = "run-generator",
@@ -182,6 +188,12 @@ pub fn build(b: *std.Build) void {
             .src = "examples/reader_basic.zig",
             .step_name = "run-reader-basic",
             .step_desc = "Run the additive reader-effect example.",
+        },
+        .{
+            .name = "resource_basic",
+            .src = "examples/resource_basic.zig",
+            .step_name = "run-resource-basic",
+            .step_desc = "Run the bracketed resource effect example.",
         },
         .{
             .name = "state_basic",
