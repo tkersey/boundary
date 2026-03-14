@@ -1,8 +1,8 @@
 {
   "artifact_schema_version": 2,
   "label": "state_effect_v1",
-  "captured_at": "2026-03-14T06:59:16Z",
-  "git_rev": "dd534adfb8e03202ae4442a9fce81b76c6fdcc11",
+  "captured_at": "2026-03-14T07:00:41Z",
+  "git_rev": "5a22e947e345f53d3154076da3616f72f9ba8728",
   "repo_state": "clean",
   "host": {
     "uname": "Darwin timartiumai.local 25.4.0 Darwin Kernel Version 25.4.0: Thu Mar  5 22:43:42 PST 2026; root:xnu-12377.101.14~19/RELEASE_ARM64_T6020 arm64",
@@ -20,32 +20,32 @@
   "benchmarks": {
     "raw_state": {
       "checksum": 2500050000,
-      "sample_ns": [9076833,9218125,9157292,8995958,9355750],
-      "min_ns": 8995958,
-      "median_ns": 9157292,
-      "max_ns": 9355750
+      "sample_ns": [8961292,8763417,9322917,9526250,9090500],
+      "min_ns": 8763417,
+      "median_ns": 9090500,
+      "max_ns": 9526250
     },
     "effect_state": {
       "checksum": 2500050000,
-      "sample_ns": [8870625,8876625,9028125,8945750,8754709],
-      "min_ns": 8754709,
-      "median_ns": 8876625,
-      "max_ns": 9028125
+      "sample_ns": [8951833,8987125,9198333,9270125,8531166],
+      "min_ns": 8531166,
+      "median_ns": 8987125,
+      "max_ns": 9270125
     },
     "raw_reset_only": {
       "checksum": 1249975000,
-      "sample_ns": [2816500,2791792,2817541,2801125,2901542],
-      "min_ns": 2791792,
-      "median_ns": 2816500,
-      "max_ns": 2901542
+      "sample_ns": [2822917,3028166,2780708,2864416,2751458],
+      "min_ns": 2751458,
+      "median_ns": 2822917,
+      "max_ns": 3028166
     },
     "effect_passthrough": {
       "checksum": 1250025000,
-      "sample_ns": [3252750,3006750,3131875,3229000,3076542],
-      "min_ns": 3006750,
-      "median_ns": 3131875,
-      "max_ns": 3252750
+      "sample_ns": [3233334,3236875,3110083,3220208,3259209],
+      "min_ns": 3110083,
+      "median_ns": 3233334,
+      "max_ns": 3259209
     }
   },
-  "observed_ratio": 0.9693504367885178
+  "observed_ratio": 0.9886282382707222
 }
