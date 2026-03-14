@@ -255,6 +255,12 @@ pub fn build(b: *std.Build) void {
             .step_name = "bench-state-effect",
             .step_desc = "Compare the additive state effect against the raw prompt baseline.",
         },
+        .{
+            .name = "shift-effect-family-matrix-bench",
+            .src = "bench/effect_family_matrix_bench.zig",
+            .step_name = "bench-effect-matrix",
+            .step_desc = "Compare every shipped effect family against its chosen comparator lane.",
+        },
     };
 
     inline for (bench_specs) |bench_spec| {
@@ -282,6 +288,14 @@ pub fn build(b: *std.Build) void {
     const bench_artifact_check_cmd = b.addSystemCommand(&.{ "sh", "bench/state_effect_artifact.sh", "check" });
     const bench_artifact_check_step = b.step("bench-state-effect-check", "Check the state-effect benchmark artifact against the current clean tree.");
     bench_artifact_check_step.dependOn(&bench_artifact_check_cmd.step);
+
+    const bench_matrix_write_cmd = b.addSystemCommand(&.{ "sh", "bench/effect_family_matrix_artifact.sh", "write" });
+    const bench_matrix_write_step = b.step("bench-effect-matrix-write", "Refresh the checked effect-family matrix benchmark artifact.");
+    bench_matrix_write_step.dependOn(&bench_matrix_write_cmd.step);
+
+    const bench_matrix_check_cmd = b.addSystemCommand(&.{ "sh", "bench/effect_family_matrix_artifact.sh", "check" });
+    const bench_matrix_check_step = b.step("bench-effect-matrix-check", "Check the effect-family matrix benchmark artifact against the current clean tree.");
+    bench_matrix_check_step.dependOn(&bench_matrix_check_cmd.step);
 
     const lint_step = b.step("lint", "Lint source code.");
     lint_step.dependOn(step: {

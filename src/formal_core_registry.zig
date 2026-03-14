@@ -8,6 +8,7 @@ pub const SectionId = enum {
     exception_effect,
     multi_prompt_separation,
     optional_resumption,
+    performance_coverage,
     practical_witnesses,
     resource_bracketing,
     static_redelim,
@@ -42,6 +43,10 @@ const exception_effect_paragraphs = [_][]const u8{
 
 const optional_resumption_paragraphs = [_][]const u8{
     "`shift.Prompt(.resume_or_return, InAnswer, OutAnswer, ErrorSet)` selects the zero-or-one-resume protocol with `resumeOrReturn` and `afterResume`. The live witnesses are `resume_or_return_return_now` and `resume_or_return_resume`, and the additive effect-family proof surface is `shift.effect.optional.request(Cap, ctx)` plus `examples/optional_basic.zig`.",
+};
+
+const perf_coverage_paragraphs = [_][]const u8{
+    "The checked performance surface now splits into two layers:\n\n- `bench-state-effect` / `bench-state-effect-check` for the deeper historical `state` lane\n- `bench-effect-matrix` / `bench-effect-matrix-check` for family coverage across `state`, `reader`, `optional_return_now`, `optional_resume_with`, `exception_throw`, and `resource_normal`",
 };
 
 const static_redelim_paragraphs = [_][]const u8{
@@ -95,6 +100,11 @@ pub const sections = [_]Section{
         .paragraphs = &optional_resumption_paragraphs,
         .witness_ids = &.{ "resume_or_return_return_now", "resume_or_return_resume" },
         .example_ids = &.{"optional_basic"},
+    },
+    .{
+        .section_id = .performance_coverage,
+        .title = "Performance Coverage",
+        .paragraphs = &perf_coverage_paragraphs,
     },
     .{
         .section_id = .static_redelim,
@@ -154,6 +164,7 @@ pub fn anchorId(comptime id: SectionId) []const u8 {
         .exception_effect => "exception-effect",
         .multi_prompt_separation => "multi-prompt-separation",
         .optional_resumption => "optional-resumption",
+        .performance_coverage => "performance-coverage",
         .practical_witnesses => "practical-witnesses",
         .resource_bracketing => "resource-bracketing",
         .static_redelim => "static-redelim",
@@ -170,6 +181,7 @@ pub fn anchorPath(comptime id: SectionId) []const u8 {
         .exception_effect => "FORMAL_CORE.md#exception-effect",
         .multi_prompt_separation => "FORMAL_CORE.md#multi-prompt-separation",
         .optional_resumption => "FORMAL_CORE.md#optional-resumption",
+        .performance_coverage => "FORMAL_CORE.md#performance-coverage",
         .practical_witnesses => "FORMAL_CORE.md#practical-witnesses",
         .resource_bracketing => "FORMAL_CORE.md#resource-bracketing",
         .static_redelim => "FORMAL_CORE.md#static-redelim",

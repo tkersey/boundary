@@ -35,6 +35,14 @@ The shipped effect layer now covers each prompt mode explicitly:
 
 `shift.Prompt(.resume_or_return, InAnswer, OutAnswer, ErrorSet)` selects the zero-or-one-resume protocol with `resumeOrReturn` and `afterResume`. The live witnesses are `resume_or_return_return_now` and `resume_or_return_resume`, and the additive effect-family proof surface is `shift.effect.optional.request(Cap, ctx)` plus `examples/optional_basic.zig`.
 
+<a id="performance-coverage"></a>
+## Performance Coverage
+
+The checked performance surface now splits into two layers:
+
+- `bench-state-effect` / `bench-state-effect-check` for the deeper historical `state` lane
+- `bench-effect-matrix` / `bench-effect-matrix-check` for family coverage across `state`, `reader`, `optional_return_now`, `optional_resume_with`, `exception_throw`, and `resource_normal`
+
 <a id="static-redelim"></a>
 ## Static Redelim
 

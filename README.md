@@ -67,6 +67,9 @@ zig build formal-core-write
 zig build formal-core
 zig build bench
 zig build bench-first-suspend
+zig build bench-effect-matrix
+zig build bench-effect-matrix-write
+zig build bench-effect-matrix-check
 zig build bench-state-effect
 zig build bench-state-effect-write
 zig build bench-state-effect-check
@@ -82,6 +85,7 @@ one of these proof surfaces:
 - `zig build compile-fail` for hidden continuation/context surfaces and forged
   capability misuse
 - `zig build example-proof` for exact-output public example transcripts
+- `zig build bench-effect-matrix-check` for full shipped-family benchmark coverage
 - `zig build bench-state-effect-check` for the checked benchmark artifact on a
   clean tree
 
@@ -266,6 +270,27 @@ The current prompt-mode coverage at the effect layer is:
 
 ## Benchmark Contract
 
+Family coverage lives at:
+
+```bash
+zig build bench-effect-matrix
+zig build bench-effect-matrix-write
+zig build bench-effect-matrix-check
+```
+
+The checked matrix artifact is:
+
+- `bench/baselines/effect_family_matrix_v1.json`
+
+It covers:
+
+- `state`
+- `reader`
+- `optional_return_now`
+- `optional_resume_with`
+- `exception_throw`
+- `resource_normal`
+
 The checked state-effect artifact lives at
 `bench/baselines/state_effect_v1.json`. Refresh it with:
 
@@ -281,7 +306,7 @@ zig build bench-state-effect-check
 
 The write/check workflow is fail-closed by default on dirty trees and records
 the exact `git_rev`, `repo_state`, benchmark command, warmed sample arrays, and
-the observed `effect/raw` median ratio.
+the observed per-lane median ratios.
 
 ## Formal Core
 

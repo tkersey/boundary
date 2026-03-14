@@ -1,0 +1,105 @@
+{
+  "artifact_schema_version": 1,
+  "label": "effect_family_matrix_v1",
+  "captured_at": "2026-03-14T16:13:07Z",
+  "git_rev": "a3b7725dca2e39486f5aead0d564a48f7f7baa28",
+  "repo_state": "dirty",
+  "host": {
+    "uname": "Darwin timartiumai.local 25.4.0 Darwin Kernel Version 25.4.0: Thu Mar  5 22:43:42 PST 2026; root:xnu-12377.101.14~19/RELEASE_ARM64_T6020 arm64",
+    "cpu": "Apple M2 Pro",
+    "zig_version": "0.15.2"
+  },
+  "measurement_contract": {
+    "command": "zig build bench-effect-matrix",
+    "timed_iterations": 50000,
+    "warmup_iterations": 20000,
+    "samples_per_run": 5,
+    "summary_stat": "median_ns from one warmed invocation"
+  },
+  "lanes": {
+    "state": {
+      "target_ratio_max": 1.05,
+      "raw_checksum": 2500050000,
+      "effect_checksum": 2500050000,
+      "raw_sample_ns": [9242375,8964250,8973375,9094958,9162125],
+      "effect_sample_ns": [8618208,8973750,8959084,8788750,8791250],
+      "raw_min_ns": 8964250,
+      "raw_median_ns": 9094958,
+      "raw_max_ns": 9242375,
+      "effect_min_ns": 8618208,
+      "effect_median_ns": 8791250,
+      "effect_max_ns": 8973750,
+      "observed_ratio": 0.9666069925776458
+    },
+    "reader": {
+      "target_ratio_max": 1.10,
+      "raw_checksum": 1250025000,
+      "effect_checksum": 1250025000,
+      "raw_sample_ns": [5038000,4635750,4965833,4795875,4596958],
+      "effect_sample_ns": [5558167,5043375,5027167,5112208,5137125],
+      "raw_min_ns": 4596958,
+      "raw_median_ns": 4795875,
+      "raw_max_ns": 5038000,
+      "effect_min_ns": 5027167,
+      "effect_median_ns": 5112208,
+      "effect_max_ns": 5558167,
+      "observed_ratio": 1.0659593921859931
+    },
+    "optional_return_now": {
+      "target_ratio_max": 1.50,
+      "raw_checksum": 1250025000,
+      "effect_checksum": 1250025000,
+      "raw_sample_ns": [3064416,2897167,2761750,2748750,2953625],
+      "effect_sample_ns": [3954583,3618209,3853834,3849375,4117375],
+      "raw_min_ns": 2748750,
+      "raw_median_ns": 2897167,
+      "raw_max_ns": 3064416,
+      "effect_min_ns": 3618209,
+      "effect_median_ns": 3853834,
+      "effect_max_ns": 4117375,
+      "observed_ratio": 1.3302077512273196
+    },
+    "optional_resume_with": {
+      "target_ratio_max": 1.20,
+      "raw_checksum": 1250025000,
+      "effect_checksum": 1250025000,
+      "raw_sample_ns": [4991416,4633833,4917209,4931292,5169917],
+      "effect_sample_ns": [5850000,5604583,5338834,5464875,5694916],
+      "raw_min_ns": 4633833,
+      "raw_median_ns": 4931292,
+      "raw_max_ns": 5169917,
+      "effect_min_ns": 5338834,
+      "effect_median_ns": 5604583,
+      "effect_max_ns": 5850000,
+      "observed_ratio": 1.1365344011265202
+    },
+    "exception_throw": {
+      "target_ratio_max": 1.20,
+      "raw_checksum": 1250025000,
+      "effect_checksum": 1250025000,
+      "raw_sample_ns": [3076625,2983167,2771041,2972250,2800125],
+      "effect_sample_ns": [3387125,3272458,3352167,3273417,3236459],
+      "raw_min_ns": 2771041,
+      "raw_median_ns": 2972250,
+      "raw_max_ns": 3076625,
+      "effect_min_ns": 3236459,
+      "effect_median_ns": 3273417,
+      "effect_max_ns": 3387125,
+      "observed_ratio": 1.1013262679788038
+    },
+    "resource_normal": {
+      "target_ratio_max": 12.00,
+      "raw_checksum": 20000100000,
+      "effect_checksum": 20000100000,
+      "raw_sample_ns": [1011125,1013875,1053083,1057375,1048166],
+      "effect_sample_ns": [11048833,11112167,10756208,11006167,11169042],
+      "raw_min_ns": 1011125,
+      "raw_median_ns": 1048166,
+      "raw_max_ns": 1057375,
+      "effect_min_ns": 10756208,
+      "effect_median_ns": 11048833,
+      "effect_max_ns": 11169042,
+      "observed_ratio": 10.5411099005310227
+    }
+  }
+}
