@@ -1,4 +1,5 @@
 const kernel = @import("kernel.zig");
+const raw = @import("../raw.zig");
 const shift = @import("../root.zig");
 const std = @import("std");
 
@@ -19,7 +20,7 @@ fn InstanceErrorSetType(comptime InstancePtrType: type) type {
 
 /// Prompt-backed effect instance for a state family.
 pub fn Instance(comptime StateType: type, comptime ErrorSetType: type) type {
-    const PromptShell = shift.Prompt(.resume_then_transform, void, void, ErrorSetType);
+    const PromptShell = raw.Prompt(.resume_then_transform, void, void, ErrorSetType);
     return struct {
         /// State value threaded through this effect family.
         pub const State = StateType;
@@ -74,14 +75,14 @@ pub fn Context(comptime State: type, comptime Answer: type, comptime ErrorSet: t
         /// Read the current state value from this handled state family.
         pub inline fn get(self: *@This()) shift.ResetError(ErrorSet)!State {
             _ = self;
-            return try shift.shift(State, &family_impl.active_frame.?.prompt, get_handler);
+            return try raw.shift(State, family_impl.Prompt, &family_impl.active_frame.?.prompt, get_handler);
         }
 
         /// Replace the current state value for this handled state family.
         pub inline fn set(self: *@This(), value: State) shift.ResetError(ErrorSet)!void {
             _ = self;
             family_impl.active_frame.?.state = value;
-            return try shift.shift(void, &family_impl.active_frame.?.prompt, set_handler);
+            return try raw.shift(void, family_impl.Prompt, &family_impl.active_frame.?.prompt, set_handler);
         }
     };
 }
@@ -125,14 +126,14 @@ pub fn handle(
         family_impl.active_frame = previous_family_frame;
     }
 
-    const value = try shift.reset(runtime, &frame.prompt, invoker.invoke);
+    const value = try raw.reset(family_impl.Prompt, runtime, &frame.prompt, invoker.invoke);
     return ResultType{ .state = frame.state, .value = value };
 }
 
 test "state instance shell stays prompt-sized" {
     const NoError = error{};
     const StateInstance = Instance(i32, NoError);
-    const PromptShell = shift.Prompt(.resume_then_transform, void, void, NoError);
+    const PromptShell = raw.Prompt(.resume_then_transform, void, void, NoError);
     try std.testing.expectEqual(@sizeOf(PromptShell), @sizeOf(StateInstance));
 }
 
