@@ -6,6 +6,7 @@ const std = @import("std");
 fn WriterState(comptime ItemType: type) type {
     return struct {
         allocator: std.mem.Allocator,
+        first_item: ?ItemType = null,
         items: std.ArrayList(ItemType) = .empty,
 
         fn init(allocator: std.mem.Allocator) @This() {
@@ -14,6 +15,34 @@ fn WriterState(comptime ItemType: type) type {
 
         fn deinit(self: *@This()) void {
             self.items.deinit(self.allocator);
+        }
+
+        fn append(self: *@This(), item: ItemType) !void {
+            if (self.first_item == null and self.items.items.len == 0) {
+                self.first_item = item;
+                return;
+            }
+            if (self.items.items.len == 0) {
+                try self.items.ensureTotalCapacity(self.allocator, 2);
+                self.items.appendAssumeCapacity(self.first_item.?);
+                self.first_item = null;
+            }
+            try self.items.append(self.allocator, item);
+        }
+
+        fn intoOwnedSlice(self: *@This()) ![]ItemType {
+            if (self.items.items.len != 0) {
+                return try self.items.toOwnedSlice(self.allocator);
+            }
+
+            if (self.first_item) |item| {
+                const slice = try self.allocator.alloc(ItemType, 1);
+                slice[0] = item;
+                self.first_item = null;
+                return slice;
+            }
+
+            return try self.allocator.alloc(ItemType, 0);
         }
     };
 }
@@ -44,7 +73,7 @@ pub inline fn tell(
 
         /// Append one item into the active writer state.
         pub fn apply(state: *WriterStateType, value: @TypeOf(item)) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!void {
-            try state.items.append(state.allocator, value);
+            try state.append(value);
         }
     });
 }
@@ -61,7 +90,7 @@ pub fn handle(
     const StateType = WriterState(ItemType);
     var result = try family.handle(AnswerType, runtime, instance, StateType.init(allocator), Body);
     errdefer result.state.deinit();
-    const items = try result.state.items.toOwnedSlice(result.state.allocator);
+    const items = try result.state.intoOwnedSlice();
     return .{
         .items = items,
         .value = result.value,

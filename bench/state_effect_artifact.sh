@@ -18,7 +18,8 @@ case "$mode" in
 esac
 
 current_repo_state() {
-  if git -C "$repo_root" diff --quiet --ignore-submodules HEAD -- && git -C "$repo_root" diff --quiet --ignore-submodules --cached --; then
+  if git -C "$repo_root" diff --quiet --ignore-submodules HEAD -- . ':(exclude)bench/baselines/state_effect_v1.json' ':(exclude)bench/baselines/effect_family_matrix_v2.json' &&
+    git -C "$repo_root" diff --quiet --ignore-submodules --cached -- . ':(exclude)bench/baselines/state_effect_v1.json' ':(exclude)bench/baselines/effect_family_matrix_v2.json'; then
     printf "clean"
   else
     printf "dirty"
@@ -52,7 +53,7 @@ artifact_matches_current_tree() {
     return 0
   fi
 
-  git -C "$repo_root" diff --quiet "$artifact_git_rev" "$current_git_rev" -- . ':(exclude)bench/baselines/state_effect_v1.json'
+  git -C "$repo_root" diff --quiet "$artifact_git_rev" "$current_git_rev" -- . ':(exclude)bench/baselines/state_effect_v1.json' ':(exclude)bench/baselines/effect_family_matrix_v2.json'
 }
 
 extract_array() {

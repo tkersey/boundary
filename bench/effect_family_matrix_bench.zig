@@ -505,29 +505,28 @@ const raw_writer = struct {
     fn body(allocator: std.mem.Allocator, comptime items_per_body: usize) !usize {
         var items: std.ArrayList(usize) = .empty;
         defer items.deinit(allocator);
-        var checksum: usize = 0;
         var current: usize = 0;
         while (current < items_per_body) : (current += 1) {
             try items.append(allocator, current + 1);
-            checksum += current + 1;
         }
         const owned = try items.toOwnedSlice(allocator);
         defer allocator.free(owned);
-        return checksum + owned.len;
+        std.mem.doNotOptimizeAway(owned.ptr);
+        var checksum: usize = owned.len;
+        for (owned) |item| checksum += item;
+        return checksum;
     }
 };
 
 const effect_writer = struct {
     /// Execute the append-only writer benchmark body.
     pub fn body(comptime Cap: type, ctx: anytype, comptime items_per_body: usize) shift.ResetError(NoError)!usize {
-        var checksum: usize = 0;
         var current: usize = 0;
         while (current < items_per_body) : (current += 1) {
             const item = current + 1;
             try shift.effect.writer.tell(Cap, ctx, item);
-            checksum += item;
         }
-        return checksum;
+        return 0;
     }
 };
 
@@ -802,7 +801,10 @@ fn runWriterEffectSample(runtime: *shift.Runtime, instance: *const WriterInstanc
         };
         const result = preserveValue(try shift.effect.writer.handle(usize, usize, runtime, instance, allocator, body));
         defer allocator.free(result.items);
-        checksum += result.value + result.items.len;
+        std.mem.doNotOptimizeAway(result.items.ptr);
+        var item_checksum: usize = result.items.len + result.value;
+        for (result.items) |item| item_checksum += item;
+        checksum += item_checksum;
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
