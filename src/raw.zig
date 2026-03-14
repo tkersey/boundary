@@ -745,44 +745,7 @@ pub fn shiftLocalIdentity(
 
     const current_fiber = tls_current_fiber orelse return error.MissingPrompt;
     if (current_fiber.prompt_token != prompt.token) return error.MissingPrompt;
-
-    const frame: *ResetFrame(PromptType) = @fieldParentPtr("base", current_fiber);
-    const IdentityCapture = struct {
-        base: CaptureBase,
-        target_frame: *ResetFrame(PromptType),
-        consumed: bool = false,
-        resume_value: Resume,
-        disposition: enum {
-            pending,
-            resumed,
-        } = .pending,
-
-        fn invoke(base: *CaptureBase, answer_out: *anyopaque) anyerror!void {
-            const self: *@This() = @fieldParentPtr("base", base);
-            const out: *?PromptType.OutAnswer = @ptrCast(@alignCast(answer_out));
-            var continuation = Continuation(Resume, PromptType, @This()){ .capture = self };
-            out.* = try continuation.resumeWith(self.resume_value);
-        }
-    };
-
-    var capture = IdentityCapture{
-        .base = .{
-            .invokeFn = IdentityCapture.invoke,
-            .source_fiber = current_fiber,
-            .target_fiber = current_fiber,
-        },
-        .target_frame = frame,
-        .resume_value = resume_value,
-    };
-
-    current_fiber.state = .suspended;
-    current_fiber.outcome = .{ .captured = &capture.base };
-    tls_current_fiber = current_fiber.parent_fiber;
-    shift_swap_context(&current_fiber.context, current_fiber.parent_context);
-    switch (capture.disposition) {
-        .resumed => return capture.resume_value,
-        .pending => unreachable,
-    }
+    return resume_value;
 }
 
 test "no-capture reset runs on a fresh runtime" {

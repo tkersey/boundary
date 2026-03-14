@@ -388,25 +388,6 @@ fn ResourceKernel(comptime ResourceType: type, comptime AnswerType: type, compti
             if (ReleaseFn == fn (ResourceType) void) return ManagerType.release(resource);
             return try ManagerType.release(resource);
         }
-
-        fn acquire() shift.ResetError(ErrorSetType)!ResourceType {
-            const handler = struct {
-                /// Acquire one resource before resuming the body.
-                pub fn resumeValue() shift.ResetError(ErrorSetType)!ResourceType {
-                    const frame = active_frame.?;
-                    const resource = try acquireOne();
-                    try frame.resources.append(frame.allocator, resource);
-                    return resource;
-                }
-
-                /// Preserve the resumed answer after the acquire point.
-                pub fn afterResume(answer: AnswerType) AnswerType {
-                    return answer;
-                }
-            };
-
-            return try raw.shift(ResourceType, PromptType, &active_frame.?.prompt, handler);
-        }
     };
 }
 
@@ -426,7 +407,10 @@ pub inline fn acquireResource(
     comptime assertManagerType(ContextType.StateType, ContextType.ErrorSetType, ManagerType);
     const resource_impl = ResourceKernel(ContextType.StateType, ContextType.AnswerType, ContextType.ErrorSetType, ManagerType);
     _ = ctx._cap;
-    return try resource_impl.acquire();
+    const frame = resource_impl.active_frame.?;
+    const resource = try resource_impl.acquireOne();
+    try frame.resources.append(frame.allocator, resource);
+    return try raw.shiftLocalIdentity(ContextType.StateType, resource_impl.Prompt, &frame.prompt, resource);
 }
 
 /// Run a resource family through the generalized substrate.
