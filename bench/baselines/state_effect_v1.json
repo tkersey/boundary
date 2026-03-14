@@ -1,7 +1,7 @@
 {
   "label": "state_effect_v1",
-  "captured_at": "2026-03-14T04:24:34Z",
-  "git_rev": "working-tree-strict-affinity",
+  "captured_at": "2026-03-14T04:36:31Z",
+  "git_rev": "working-tree-family-kit",
   "host": {
     "uname": "Darwin timartiumai.local 25.4.0 Darwin Kernel Version 25.4.0: Thu Mar  5 22:43:42 PST 2026; root:xnu-12377.101.14~19/RELEASE_ARM64_T6020 arm64",
     "cpu": "Apple M2 Pro",
@@ -19,55 +19,55 @@
     "raw_state": {
       "checksum": 2500050000,
       "sample_ns": [
-        8972042,
-        8967084,
-        9230584,
-        8910375,
-        8936750
+        8772375,
+        8991875,
+        8763875,
+        8959916,
+        8900625
       ],
-      "min_ns": 8910375,
-      "median_ns": 8967084,
-      "max_ns": 9230584
+      "min_ns": 8763875,
+      "median_ns": 8900625,
+      "max_ns": 8991875
     },
     "effect_state": {
       "checksum": 2500050000,
       "sample_ns": [
-        8726833,
-        8340583,
-        8382542,
-        8513625,
-        8301833
+        8922250,
+        8885209,
+        8822834,
+        8895958,
+        8860958
       ],
-      "min_ns": 8301833,
-      "median_ns": 8382542,
-      "max_ns": 8726833
+      "min_ns": 8822834,
+      "median_ns": 8885209,
+      "max_ns": 8922250
     },
     "raw_reset_only": {
       "checksum": 1249975000,
       "sample_ns": [
-        2830000,
-        2806375,
-        2782541,
-        2516416,
-        2471834
+        2872125,
+        2770750,
+        2797666,
+        2760459,
+        2715125
       ],
-      "min_ns": 2471834,
-      "median_ns": 2782541,
-      "max_ns": 2830000
+      "min_ns": 2715125,
+      "median_ns": 2770750,
+      "max_ns": 2872125
     },
     "effect_passthrough": {
       "checksum": 6250075000,
       "sample_ns": [
-        3132667,
-        3164833,
-        2772667,
-        2772083,
-        2768458
+        3152459,
+        3105500,
+        3126208,
+        3165791,
+        3121083
       ],
-      "min_ns": 2768458,
-      "median_ns": 2772667,
-      "max_ns": 3164833
+      "min_ns": 3105500,
+      "median_ns": 3126208,
+      "max_ns": 3165791
     }
   },
-  "observed_ratio": 0.9348157252831726
+  "observed_ratio": 0.9982680930576695
 }

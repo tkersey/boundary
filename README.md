@@ -132,6 +132,19 @@ yield=3
 done=3
 ```
 
+### `reader_effect`
+
+```bash
+zig build run-reader-basic
+```
+
+Expected output:
+
+```text
+env=21
+value=42
+```
+
 ### `state_effect`
 
 ```bash
@@ -146,6 +159,11 @@ after=6
 final_state=6
 value=11
 ```
+
+The strict effect families now use helper-based bodies of the form
+`body(comptime Cap, ctx)` together with family operations such as
+`shift.effect.reader.ask(Cap, ctx)` and
+`shift.effect.state.get(Cap, ctx)` / `shift.effect.state.set(Cap, ctx, value)`.
 
 ## Minimal Example
 

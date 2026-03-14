@@ -139,6 +139,12 @@ pub fn build(b: *std.Build) void {
             .step_desc = "Run the optional-resumption example.",
         },
         .{
+            .name = "reader_basic",
+            .src = "examples/reader_basic.zig",
+            .step_name = "run-reader-basic",
+            .step_desc = "Run the additive reader-effect example.",
+        },
+        .{
             .name = "state_basic",
             .src = "examples/state_basic.zig",
             .step_name = "run-state-basic",
