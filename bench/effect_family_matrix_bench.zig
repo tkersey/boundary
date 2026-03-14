@@ -11,6 +11,12 @@ const Sample = struct {
     elapsed_ns: u64,
 };
 
+fn preserveValue(value: anytype) @TypeOf(value) {
+    const preserved = value;
+    std.mem.doNotOptimizeAway(preserved);
+    return preserved;
+}
+
 const state_micro_target_ratio_max = 1.05;
 const reader_micro_target_ratio_max = 1.15;
 const reader_batch_target_ratio_max = 1.10;
@@ -553,7 +559,7 @@ fn runStateRawSample(runtime: *shift.Runtime, prompt: *RawStatePrompt, iteration
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_state.current_state = index;
-        const value = try shift.reset(runtime, prompt, raw_state.body);
+        const value = preserveValue(try shift.reset(runtime, prompt, raw_state.body));
         checksum += value + raw_state.current_state;
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
@@ -564,7 +570,7 @@ fn runStateEffectSample(runtime: *shift.Runtime, instance: *const StateInstance,
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
-        const result = try shift.effect.state.handle(usize, runtime, instance, index, effect_state);
+        const result = preserveValue(try shift.effect.state.handle(usize, runtime, instance, index, effect_state));
         checksum += result.value + result.state;
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
@@ -576,7 +582,7 @@ fn runReaderRawSample(runtime: *shift.Runtime, prompt: *ReaderPrompt, iterations
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_reader.current_env = index;
-        checksum += try shift.reset(runtime, prompt, raw_reader.body);
+        checksum += preserveValue(try shift.reset(runtime, prompt, raw_reader.body));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -586,7 +592,7 @@ fn runReaderEffectSample(runtime: *shift.Runtime, instance: *const ReaderInstanc
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
-        checksum += try shift.effect.reader.handle(usize, runtime, instance, index, effect_reader_micro);
+        checksum += preserveValue(try shift.effect.reader.handle(usize, runtime, instance, index, effect_reader_micro));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -597,7 +603,7 @@ fn runReaderBatchRawSample(runtime: *shift.Runtime, prompt: *ReaderPrompt, itera
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_reader_batch.current_env = index;
-        checksum += try shift.reset(runtime, prompt, raw_reader_batch.body);
+        checksum += preserveValue(try shift.reset(runtime, prompt, raw_reader_batch.body));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -607,7 +613,7 @@ fn runReaderBatchEffectSample(runtime: *shift.Runtime, instance: *const ReaderIn
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
-        checksum += try shift.effect.reader.handle(usize, runtime, instance, index, effect_reader_batch);
+        checksum += preserveValue(try shift.effect.reader.handle(usize, runtime, instance, index, effect_reader_batch));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -618,7 +624,7 @@ fn runOptionalReturnRawSample(runtime: *shift.Runtime, prompt: *OptionalReturnPr
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_return.current_value = index;
-        checksum += try shift.reset(runtime, prompt, raw_optional_return.body);
+        checksum += preserveValue(try shift.reset(runtime, prompt, raw_optional_return.body));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -629,7 +635,7 @@ fn runOptionalReturnEffectSample(runtime: *shift.Runtime, instance: *const Optio
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_return.current_value = index;
-        checksum += try shift.effect.optional.handle(usize, runtime, instance, effect_optional_return_micro.policy, effect_optional_return_micro);
+        checksum += preserveValue(try shift.effect.optional.handle(usize, runtime, instance, effect_optional_return_micro.policy, effect_optional_return_micro));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -640,7 +646,7 @@ fn runOptionalReturnPreludeRawSample(runtime: *shift.Runtime, prompt: *OptionalR
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_return_prelude.current_value = index;
-        checksum += try shift.reset(runtime, prompt, raw_optional_return_prelude.body);
+        checksum += preserveValue(try shift.reset(runtime, prompt, raw_optional_return_prelude.body));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -651,7 +657,7 @@ fn runOptionalReturnPreludeEffectSample(runtime: *shift.Runtime, instance: *cons
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_return_prelude.current_value = index;
-        checksum += try shift.effect.optional.handle(usize, runtime, instance, effect_optional_return_prelude.policy, effect_optional_return_prelude);
+        checksum += preserveValue(try shift.effect.optional.handle(usize, runtime, instance, effect_optional_return_prelude.policy, effect_optional_return_prelude));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -662,7 +668,7 @@ fn runOptionalResumeRawSample(runtime: *shift.Runtime, prompt: *OptionalResumePr
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_resume.current_value = index;
-        checksum += try shift.reset(runtime, prompt, raw_optional_resume.body);
+        checksum += preserveValue(try shift.reset(runtime, prompt, raw_optional_resume.body));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -673,7 +679,7 @@ fn runOptionalResumeEffectSample(runtime: *shift.Runtime, instance: *const Optio
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_resume.current_value = index;
-        checksum += try shift.effect.optional.handle(usize, runtime, instance, effect_optional_resume_micro.policy, effect_optional_resume_micro);
+        checksum += preserveValue(try shift.effect.optional.handle(usize, runtime, instance, effect_optional_resume_micro.policy, effect_optional_resume_micro));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -684,7 +690,7 @@ fn runOptionalResumeBatchRawSample(runtime: *shift.Runtime, prompt: *OptionalRes
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_resume_batch.current_value = index;
-        checksum += try shift.reset(runtime, prompt, raw_optional_resume_batch.body);
+        checksum += preserveValue(try shift.reset(runtime, prompt, raw_optional_resume_batch.body));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -695,7 +701,7 @@ fn runOptionalResumeBatchEffectSample(runtime: *shift.Runtime, instance: *const 
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_resume_batch.current_value = index;
-        checksum += try shift.effect.optional.handle(usize, runtime, instance, effect_optional_resume_batch.policy, effect_optional_resume_batch);
+        checksum += preserveValue(try shift.effect.optional.handle(usize, runtime, instance, effect_optional_resume_batch.policy, effect_optional_resume_batch));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -706,7 +712,7 @@ fn runExceptionRawSample(runtime: *shift.Runtime, prompt: *ExceptionPrompt, iter
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_exception.pending_payload = index;
-        checksum += try shift.reset(runtime, prompt, raw_exception.body);
+        checksum += preserveValue(try shift.reset(runtime, prompt, raw_exception.body));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -717,7 +723,7 @@ fn runExceptionEffectSample(runtime: *shift.Runtime, instance: *const ExceptionI
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_exception.pending_payload = index;
-        checksum += try shift.effect.exception.handle(usize, runtime, instance, effect_exception_micro.catcher, effect_exception_micro);
+        checksum += preserveValue(try shift.effect.exception.handle(usize, runtime, instance, effect_exception_micro.catcher, effect_exception_micro));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -728,7 +734,7 @@ fn runExceptionPreludeRawSample(runtime: *shift.Runtime, prompt: *ExceptionPromp
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_exception_prelude.pending_payload = index;
-        checksum += try shift.reset(runtime, prompt, raw_exception_prelude.body);
+        checksum += preserveValue(try shift.reset(runtime, prompt, raw_exception_prelude.body));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -739,7 +745,7 @@ fn runExceptionPreludeEffectSample(runtime: *shift.Runtime, instance: *const Exc
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_exception_prelude.pending_payload = index;
-        checksum += try shift.effect.exception.handle(usize, runtime, instance, effect_exception_prelude.catcher, effect_exception_prelude);
+        checksum += preserveValue(try shift.effect.exception.handle(usize, runtime, instance, effect_exception_prelude.catcher, effect_exception_prelude));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -750,7 +756,7 @@ fn runResourceRawSample(allocator: std.mem.Allocator, comptime items_per_body: u
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_resource.current_base = index * items_per_body;
-        checksum += try raw_resource.body(allocator, items_per_body);
+        checksum += preserveValue(try raw_resource.body(allocator, items_per_body));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -768,7 +774,7 @@ fn runResourceEffectSample(runtime: *shift.Runtime, instance: *const ResourceIns
                 return try effect_resource.body(Cap, ctx, items_per_body);
             }
         };
-        checksum += try shift.effect.resource.handle(usize, runtime, instance, effect_resource.manager, body);
+        checksum += preserveValue(try shift.effect.resource.handle(usize, runtime, instance, effect_resource.manager, body));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -778,7 +784,7 @@ fn runWriterRawSample(allocator: std.mem.Allocator, comptime items_per_body: usi
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
-        checksum += try raw_writer.body(allocator, items_per_body);
+        checksum += preserveValue(try raw_writer.body(allocator, items_per_body));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -794,7 +800,7 @@ fn runWriterEffectSample(runtime: *shift.Runtime, instance: *const WriterInstanc
                 return try effect_writer.body(Cap, ctx, items_per_body);
             }
         };
-        const result = try shift.effect.writer.handle(usize, usize, runtime, instance, allocator, body);
+        const result = preserveValue(try shift.effect.writer.handle(usize, usize, runtime, instance, allocator, body));
         defer allocator.free(result.items);
         checksum += result.value + result.items.len;
     }

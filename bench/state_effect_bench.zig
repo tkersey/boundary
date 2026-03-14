@@ -13,6 +13,12 @@ const Sample = struct {
     elapsed_ns: u64,
 };
 
+fn preserveValue(value: anytype) @TypeOf(value) {
+    const preserved = value;
+    std.mem.doNotOptimizeAway(preserved);
+    return preserved;
+}
+
 const raw_reset_only = struct {
     var current: usize = 0;
 
@@ -102,7 +108,7 @@ fn runRawSample(runtime: *shift.Runtime, prompt: *RawPrompt, iterations: usize) 
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_state.current_state = index;
-        const value = try shift.reset(runtime, prompt, raw_state.body);
+        const value = preserveValue(try shift.reset(runtime, prompt, raw_state.body));
         checksum += value + raw_state.current_state;
     }
 
@@ -119,7 +125,7 @@ fn runRawResetOnlySample(runtime: *shift.Runtime, prompt: *RawPrompt, iterations
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_reset_only.current = index;
-        checksum += try shift.reset(runtime, prompt, raw_reset_only.body);
+        checksum += preserveValue(try shift.reset(runtime, prompt, raw_reset_only.body));
     }
 
     return .{
@@ -134,7 +140,7 @@ fn runEffectSample(runtime: *shift.Runtime, instance: *const StateInstance, iter
 
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
-        const result = try shift.effect.state.handle(usize, runtime, instance, index, effect_state);
+        const result = preserveValue(try shift.effect.state.handle(usize, runtime, instance, index, effect_state));
         checksum += result.value + result.state;
     }
 
@@ -150,7 +156,7 @@ fn runEffectPassthroughSample(runtime: *shift.Runtime, instance: *const StateIns
 
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
-        const result = try shift.effect.state.handle(usize, runtime, instance, index, effect_passthrough);
+        const result = preserveValue(try shift.effect.state.handle(usize, runtime, instance, index, effect_passthrough));
         checksum += result.value + result.state;
     }
 

@@ -14,12 +14,7 @@ pub inline fn readTransformState(
     const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
     const family_impl = kernel.Family(ContextType.StateType, ContextType.AnswerType, ContextType.ErrorSetType);
     _ = ctx._cap;
-    return try raw.shiftLocalIdentity(
-        ContextType.StateType,
-        family_impl.Prompt,
-        &family_impl.active_frame.?.prompt,
-        family_impl.active_frame.?.state,
-    );
+    return family_impl.active_frame.?.state;
 }
 
 /// Replace the current prompt-local state cell for a transform family.
@@ -33,7 +28,7 @@ pub inline fn writeTransformState(
     const family_impl = kernel.Family(ContextType.StateType, ContextType.AnswerType, ContextType.ErrorSetType);
     _ = ctx._cap;
     family_impl.active_frame.?.state = value;
-    return try raw.shiftLocalIdentity(void, family_impl.Prompt, &family_impl.active_frame.?.prompt, {});
+    return;
 }
 
 /// Apply one in-place mutation to a transform-family state cell and resume with its result.
@@ -47,8 +42,7 @@ pub inline fn mutateTransformState(
     const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
     const family_impl = kernel.Family(ContextType.StateType, ContextType.AnswerType, ContextType.ErrorSetType);
     _ = ctx._cap;
-    const result = try Mutation.apply(&family_impl.active_frame.?.state, payload);
-    return try raw.shiftLocalIdentity(Mutation.Result, family_impl.Prompt, &family_impl.active_frame.?.prompt, result);
+    return try Mutation.apply(&family_impl.active_frame.?.state, payload);
 }
 
 /// Assert the handler policy shape required by an optional family.
@@ -410,7 +404,7 @@ pub inline fn acquireResource(
     const frame = resource_impl.active_frame.?;
     const resource = try resource_impl.acquireOne();
     try frame.resources.append(frame.allocator, resource);
-    return try raw.shiftLocalIdentity(ContextType.StateType, resource_impl.Prompt, &frame.prompt, resource);
+    return resource;
 }
 
 /// Run a resource family through the generalized substrate.
@@ -464,7 +458,7 @@ pub fn handleResource(
 
     var body_error: ?shift.ResetError(ErrorSetType) = null;
     var answer: ?AnswerType = null;
-    answer = raw.reset(resource_impl.Prompt, runtime, &frame.prompt, invoker.invoke) catch |err| blk: {
+    answer = invoker.invoke() catch |err| blk: {
         body_error = err;
         break :blk null;
     };

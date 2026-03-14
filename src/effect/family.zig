@@ -155,7 +155,7 @@ pub fn withCapability(
 /// Run a family body under a fresh capability witness and return the final family state plus answer.
 pub fn handle(
     comptime AnswerType: type,
-    runtime: *shift.Runtime,
+    _: *shift.Runtime,
     instance: anytype,
     initial_state: InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
@@ -197,6 +197,6 @@ pub fn handle(
         invoker.active_context = previous_context;
     }
 
-    const value = try raw.reset(family_impl.Prompt, runtime, &frame.prompt, invoker.invoke);
+    const value = try invoker.invoke();
     return ResultType{ .state = frame.state, .value = value };
 }
