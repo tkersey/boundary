@@ -1,7 +1,9 @@
 {
+  "artifact_schema_version": 2,
   "label": "state_effect_v1",
-  "captured_at": "2026-03-14T04:36:31Z",
-  "git_rev": "working-tree-family-kit",
+  "captured_at": "2026-03-14T06:59:16Z",
+  "git_rev": "dd534adfb8e03202ae4442a9fce81b76c6fdcc11",
+  "repo_state": "clean",
   "host": {
     "uname": "Darwin timartiumai.local 25.4.0 Darwin Kernel Version 25.4.0: Thu Mar  5 22:43:42 PST 2026; root:xnu-12377.101.14~19/RELEASE_ARM64_T6020 arm64",
     "cpu": "Apple M2 Pro",
@@ -18,56 +20,32 @@
   "benchmarks": {
     "raw_state": {
       "checksum": 2500050000,
-      "sample_ns": [
-        8772375,
-        8991875,
-        8763875,
-        8959916,
-        8900625
-      ],
-      "min_ns": 8763875,
-      "median_ns": 8900625,
-      "max_ns": 8991875
+      "sample_ns": [9076833,9218125,9157292,8995958,9355750],
+      "min_ns": 8995958,
+      "median_ns": 9157292,
+      "max_ns": 9355750
     },
     "effect_state": {
       "checksum": 2500050000,
-      "sample_ns": [
-        8922250,
-        8885209,
-        8822834,
-        8895958,
-        8860958
-      ],
-      "min_ns": 8822834,
-      "median_ns": 8885209,
-      "max_ns": 8922250
+      "sample_ns": [8870625,8876625,9028125,8945750,8754709],
+      "min_ns": 8754709,
+      "median_ns": 8876625,
+      "max_ns": 9028125
     },
     "raw_reset_only": {
       "checksum": 1249975000,
-      "sample_ns": [
-        2872125,
-        2770750,
-        2797666,
-        2760459,
-        2715125
-      ],
-      "min_ns": 2715125,
-      "median_ns": 2770750,
-      "max_ns": 2872125
+      "sample_ns": [2816500,2791792,2817541,2801125,2901542],
+      "min_ns": 2791792,
+      "median_ns": 2816500,
+      "max_ns": 2901542
     },
     "effect_passthrough": {
-      "checksum": 6250075000,
-      "sample_ns": [
-        3152459,
-        3105500,
-        3126208,
-        3165791,
-        3121083
-      ],
-      "min_ns": 3105500,
-      "median_ns": 3126208,
-      "max_ns": 3165791
+      "checksum": 1250025000,
+      "sample_ns": [3252750,3006750,3131875,3229000,3076542],
+      "min_ns": 3006750,
+      "median_ns": 3131875,
+      "max_ns": 3252750
     }
   },
-  "observed_ratio": 0.9982680930576695
+  "observed_ratio": 0.9693504367885178
 }
