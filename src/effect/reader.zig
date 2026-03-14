@@ -1,6 +1,5 @@
+const algebraic = @import("algebraic.zig");
 const family = @import("family.zig");
-const kernel = @import("kernel.zig");
-const raw = @import("../raw.zig");
 const shift = @import("../root.zig");
 const std = @import("std");
 
@@ -12,16 +11,7 @@ pub inline fn ask(
     comptime Cap: type,
     ctx: anytype,
 ) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
-    comptime family.assertContextType(Cap, @TypeOf(ctx));
-    const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
-    const family_impl = kernel.Family(ContextType.StateType, ContextType.AnswerType, ContextType.ErrorSetType);
-    _ = ctx._cap;
-    return try raw.shiftLocalIdentity(
-        ContextType.StateType,
-        family_impl.Prompt,
-        &family_impl.active_frame.?.prompt,
-        family_impl.active_frame.?.state,
-    );
+    return try algebraic.readTransformState(Cap, ctx);
 }
 
 /// Run a reader effect body and return the body answer.
@@ -39,8 +29,7 @@ pub fn handle(
 test "reader instance shell stays prompt-sized" {
     const NoError = error{};
     const ReaderInstance = Instance(i32, NoError);
-    const PromptShell = raw.Prompt(.resume_then_transform, void, void, NoError);
-    try std.testing.expectEqual(@sizeOf(PromptShell), @sizeOf(ReaderInstance));
+    try std.testing.expectEqual(@sizeOf(usize), @sizeOf(ReaderInstance));
 }
 
 test "reader handle threads environment into the body" {

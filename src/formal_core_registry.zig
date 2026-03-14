@@ -3,6 +3,7 @@ const std = @import("std");
 /// Stable section ids for the generated formal core.
 pub const SectionId = enum {
     atm_resume_transform,
+    construction_coverage,
     direct_return,
     effect_mode_coverage,
     exception_effect,
@@ -33,8 +34,12 @@ const direct_return_paragraphs = [_][]const u8{
     "`shift.Prompt(.direct_return, InAnswer, OutAnswer, ErrorSet)` selects the direct-completion protocol with `directReturn`. The live witness is `direct_return`, and the implementation path is the `direct_return` arm in `src/raw.zig`.",
 };
 
+const construction_paragraphs = [_][]const u8{
+    "The public effect families are now expected to route through one shared internal construction substrate instead of embedding bespoke prompt-mode runner logic. `zig build effect-construction-boundary` is the explicit proof gate for that claim, and `shift.effect.writer` is the first proof family added entirely through the generalized path.",
+};
+
 const mode_coverage_paragraphs = [_][]const u8{
-    "The shipped effect layer now covers each prompt mode explicitly:\n\n- `.resume_then_transform`: `shift.effect.state`, `shift.effect.reader`, `shift.effect.resource`\n- `.resume_or_return`: `shift.effect.optional`\n- `.direct_return`: `shift.effect.exception`",
+    "The shipped effect layer now covers each prompt mode explicitly:\n\n- `.resume_then_transform`: `shift.effect.state`, `shift.effect.reader`, `shift.effect.resource`, `shift.effect.writer`\n- `.resume_or_return`: `shift.effect.optional`\n- `.direct_return`: `shift.effect.exception`",
 };
 
 const exception_effect_paragraphs = [_][]const u8{
@@ -46,7 +51,7 @@ const optional_resumption_paragraphs = [_][]const u8{
 };
 
 const perf_coverage_paragraphs = [_][]const u8{
-    "The checked performance surface now splits into two layers:\n\n- `bench-state-effect` / `bench-state-effect-check` for the deeper historical `state` lane\n- `bench-effect-matrix` / `bench-effect-matrix-check` for family coverage across `state`, `reader`, `optional_return_now`, `optional_resume_with`, `exception_throw`, and `resource_normal`",
+    "The checked performance surface now splits into two layers:\n\n- `bench-state-effect` / `bench-state-effect-check` for the deeper historical `state` lane\n- `bench-effect-matrix` / `bench-effect-matrix-check` for family coverage across `state`, `reader`, `optional_return_now`, `optional_resume_with`, `exception_throw`, `resource_normal`, and `writer`",
 };
 
 const static_redelim_paragraphs = [_][]const u8{
@@ -58,7 +63,7 @@ const multi_prompt_paragraphs = [_][]const u8{
 };
 
 const practical_witnesses_paragraphs = [_][]const u8{
-    "The repo keeps one extra practical witness, `generator`, plus primary exact-output examples for `early_exit`, `resume_or_return`, `nested_workflow`, `exception_basic`, `optional_basic`, `reader_basic`, `resource_basic`, and `state_basic`.",
+    "The repo keeps one extra practical witness, `generator`, plus primary exact-output examples for `early_exit`, `resume_or_return`, `nested_workflow`, `exception_basic`, `optional_basic`, `reader_basic`, `resource_basic`, `state_basic`, and `writer_basic`.",
 };
 
 const resource_bracketing_paragraphs = [_][]const u8{
@@ -66,7 +71,7 @@ const resource_bracketing_paragraphs = [_][]const u8{
 };
 
 const effect_capability_paragraphs = [_][]const u8{
-    "The shipped additive families are `shift.effect.state`, `shift.effect.reader`, `shift.effect.optional`, `shift.effect.exception`, and `shift.effect.resource`. They all rely on an exact private context type plus a fresh capability witness minted inside the family handler. Public operations are helper-based:\n\n- `shift.effect.state.get(Cap, ctx)` / `shift.effect.state.set(Cap, ctx, value)`\n- `shift.effect.reader.ask(Cap, ctx)`\n- `shift.effect.optional.request(Cap, ctx)`\n- `shift.effect.exception.throw(Cap, ctx, payload)`\n- `shift.effect.resource.acquire(Cap, ctx)`",
+    "The shipped additive families are `shift.effect.state`, `shift.effect.reader`, `shift.effect.optional`, `shift.effect.exception`, `shift.effect.resource`, and `shift.effect.writer`. They all rely on an exact private context type plus a fresh capability witness minted inside the family handler. Public operations are helper-based:\n\n- `shift.effect.state.get(Cap, ctx)` / `shift.effect.state.set(Cap, ctx, value)`\n- `shift.effect.reader.ask(Cap, ctx)`\n- `shift.effect.optional.request(Cap, ctx)`\n- `shift.effect.exception.throw(Cap, ctx, payload)`\n- `shift.effect.resource.acquire(Cap, ctx)`\n- `shift.effect.writer.tell(Cap, ctx, item)`",
     "Forgery and cross-instance misuse are witnessed by compile-fail fixtures under `test/compile_fail/`.",
 };
 
@@ -77,6 +82,12 @@ pub const sections = [_]Section{
         .title = "ATM Resume Transform",
         .paragraphs = &atm_paragraphs,
         .witness_ids = &.{"atm_resume_transform"},
+    },
+    .{
+        .section_id = .construction_coverage,
+        .title = "Construction Coverage",
+        .paragraphs = &construction_paragraphs,
+        .example_ids = &.{"writer_basic"},
     },
     .{
         .section_id = .direct_return,
@@ -123,7 +134,7 @@ pub const sections = [_]Section{
         .title = "Practical Witnesses",
         .paragraphs = &practical_witnesses_paragraphs,
         .witness_ids = &.{"generator"},
-        .example_ids = &.{ "early_exit", "resume_or_return", "nested_workflow", "exception_basic", "optional_basic", "reader_basic", "resource_basic", "state_basic" },
+        .example_ids = &.{ "early_exit", "resume_or_return", "nested_workflow", "exception_basic", "optional_basic", "reader_basic", "resource_basic", "state_basic", "writer_basic" },
     },
     .{
         .section_id = .resource_bracketing,
@@ -145,6 +156,8 @@ pub const sections = [_]Section{
             "effect_resource_manager_missing_acquire.zig",
             "effect_resource_manager_missing_release.zig",
             "effect_resource_manager_wrong_release_type.zig",
+            "effect_writer_forged_context_tell_fails.zig",
+            "effect_writer_cross_instance_context_fails.zig",
             "effect_state_forged_context_get_fails.zig",
             "effect_reader_forged_context_ask_fails.zig",
             "effect_optional_forged_context_request_fails.zig",
@@ -159,6 +172,7 @@ pub const sections = [_]Section{
 pub fn anchorId(comptime id: SectionId) []const u8 {
     return switch (id) {
         .atm_resume_transform => "atm-resume-transform",
+        .construction_coverage => "construction-coverage",
         .direct_return => "direct-return",
         .effect_mode_coverage => "effect-mode-coverage",
         .exception_effect => "exception-effect",
@@ -176,6 +190,7 @@ pub fn anchorId(comptime id: SectionId) []const u8 {
 pub fn anchorPath(comptime id: SectionId) []const u8 {
     return switch (id) {
         .atm_resume_transform => "FORMAL_CORE.md#atm-resume-transform",
+        .construction_coverage => "FORMAL_CORE.md#construction-coverage",
         .direct_return => "FORMAL_CORE.md#direct-return",
         .effect_mode_coverage => "FORMAL_CORE.md#effect-mode-coverage",
         .exception_effect => "FORMAL_CORE.md#exception-effect",

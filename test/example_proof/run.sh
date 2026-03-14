@@ -35,6 +35,7 @@ reader_basic.zig|primary|run-reader-basic|reader_basic.txt
 resource_basic.zig|primary|run-resource-basic|resource_basic.txt
 resume_or_return.zig|primary|run-resume-or-return|resume_or_return.txt
 state_basic.zig|primary|run-state-basic|state_basic.txt
+writer_basic.zig|primary|run-writer-basic|writer_basic.txt
 EOF
 }
 

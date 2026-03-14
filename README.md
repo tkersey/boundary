@@ -62,6 +62,7 @@ zig build size-check
 zig build compile-fail
 zig build one-shot-survey
 zig build example-proof
+zig build effect-construction-boundary
 zig build readme-contract
 zig build formal-core-write
 zig build formal-core
@@ -82,6 +83,7 @@ one of these proof surfaces:
 
 - `zig build test` for the combined runtime, witness, compile-fail, README, and
   formal-core gates
+- `zig build effect-construction-boundary` for the generalized construction boundary
 - `zig build compile-fail` for hidden continuation/context surfaces and forged
   capability misuse
 - `zig build example-proof` for exact-output public example transcripts
@@ -98,12 +100,14 @@ The additive effect-family contract is now:
   - `shift.effect.optional.request(Cap, ctx)`
   - `shift.effect.exception.throw(Cap, ctx, payload)`
   - `shift.effect.resource.acquire(Cap, ctx)`
+  - `shift.effect.writer.tell(Cap, ctx, item)`
 - forged or cross-instance contexts fail at compile time; see:
   - `effect_exception_forged_context_throw_fails.zig`
   - `effect_state_forged_context_get_fails.zig`
   - `effect_reader_forged_context_ask_fails.zig`
   - `effect_optional_forged_context_request_fails.zig`
   - `effect_resource_forged_context_acquire_fails.zig`
+  - `effect_writer_forged_context_tell_fails.zig`
 
 ## Examples
 
@@ -239,6 +243,20 @@ release=a
 final=done
 ```
 
+### `writer_effect`
+
+```bash
+zig build run-writer-basic
+```
+
+Expected output:
+
+```text
+item=a
+item=b
+value=done
+```
+
 ### `state_effect`
 
 ```bash
@@ -260,11 +278,18 @@ The strict effect families now use helper-based bodies of the form
 `shift.effect.state.get(Cap, ctx)` / `shift.effect.state.set(Cap, ctx, value)`
 plus `shift.effect.optional.request(Cap, ctx)`,
 `shift.effect.exception.throw(Cap, ctx, payload)`, and
-`shift.effect.resource.acquire(Cap, ctx)`.
+`shift.effect.resource.acquire(Cap, ctx)`, plus
+`shift.effect.writer.tell(Cap, ctx, item)`.
+
+The generalized construction boundary is checked by:
+
+```bash
+zig build effect-construction-boundary
+```
 
 The current prompt-mode coverage at the effect layer is:
 
-- `.resume_then_transform`: `state`, `reader`, `resource`
+- `.resume_then_transform`: `state`, `reader`, `resource`, `writer`
 - `.resume_or_return`: `optional`
 - `.direct_return`: `exception`
 

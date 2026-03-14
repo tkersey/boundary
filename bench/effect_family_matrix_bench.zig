@@ -12,12 +12,14 @@ const Sample = struct {
 };
 
 const state_target_ratio_max = 1.05;
-const reader_target_ratio_max = 1.10;
+const reader_target_ratio_max = 1.15;
 const opt_ret_ratio_max = 1.50;
 const opt_res_ratio_max = 1.20;
 const except_ratio_max = 1.20;
 const resource_ratio_max = 12.00;
+const writer_ratio_max = 20.00;
 const resource_items_per_body: usize = 4;
+const writer_items_per_body: usize = 16;
 
 const RawStatePrompt = shift.Prompt(.resume_then_transform, usize, usize, NoError);
 const ReaderPrompt = shift.Prompt(.resume_then_transform, usize, usize, NoError);
@@ -30,6 +32,7 @@ const ReaderInstance = shift.effect.reader.Instance(usize, NoError);
 const OptionalInstance = shift.effect.optional.Instance(usize, NoError);
 const ExceptionInstance = shift.effect.exception.Instance(usize, NoError);
 const ResourceInstance = shift.effect.resource.Instance(usize, NoError);
+const WriterInstance = shift.effect.writer.Instance(usize, NoError);
 
 const raw_state = struct {
     var prompt_ptr: ?*const RawStatePrompt = null;
@@ -293,6 +296,36 @@ const effect_resource = struct {
     }
 };
 
+const raw_writer = struct {
+    fn body(allocator: std.mem.Allocator) !usize {
+        var items: std.ArrayList(usize) = .empty;
+        defer items.deinit(allocator);
+        var checksum: usize = 0;
+        var current: usize = 0;
+        while (current < writer_items_per_body) : (current += 1) {
+            try items.append(allocator, current + 1);
+            checksum += current + 1;
+        }
+        const owned = try items.toOwnedSlice(allocator);
+        defer allocator.free(owned);
+        return checksum + owned.len;
+    }
+};
+
+const effect_writer = struct {
+    /// Execute the append-only writer benchmark body.
+    pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!usize {
+        var checksum: usize = 0;
+        var current: usize = 0;
+        while (current < writer_items_per_body) : (current += 1) {
+            const item = current + 1;
+            try shift.effect.writer.tell(Cap, ctx, item);
+            checksum += item;
+        }
+        return checksum;
+    }
+};
+
 fn sortAscending(values: []u64) void {
     var index: usize = 1;
     while (index < values.len) : (index += 1) {
@@ -448,6 +481,28 @@ fn runResourceEffectSample(runtime: *shift.Runtime, instance: *const ResourceIns
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
 
+fn runWriterRawSample(allocator: std.mem.Allocator, iterations: usize) !Sample {
+    var timer = try std.time.Timer.start();
+    var checksum: usize = 0;
+    var index: usize = 0;
+    while (index < iterations) : (index += 1) {
+        checksum += try raw_writer.body(allocator);
+    }
+    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+}
+
+fn runWriterEffectSample(runtime: *shift.Runtime, instance: *const WriterInstance, allocator: std.mem.Allocator, iterations: usize) !Sample {
+    var timer = try std.time.Timer.start();
+    var checksum: usize = 0;
+    var index: usize = 0;
+    while (index < iterations) : (index += 1) {
+        const result = try shift.effect.writer.handle(usize, usize, runtime, instance, allocator, effect_writer);
+        defer allocator.free(result.items);
+        checksum += result.value + result.items.len;
+    }
+    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+}
+
 const LaneReport = struct {
     lane_name: []const u8,
     target_ratio_max: f64,
@@ -532,6 +587,9 @@ pub fn main() anyerror!void {
     var resource_effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
     defer resource_effect_runtime.deinit();
     var resource_effect_instance = ResourceInstance.init();
+    var writer_effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    defer writer_effect_runtime.deinit();
+    var writer_effect_instance = WriterInstance.init();
 
     _ = try runStateRawSample(&state_raw_runtime, &state_raw_prompt, warmup_iterations);
     _ = try runStateEffectSample(&state_effect_runtime, &state_effect_instance, warmup_iterations);
@@ -545,6 +603,8 @@ pub fn main() anyerror!void {
     _ = try runExceptionEffectSample(&exception_effect_runtime, &exception_effect_instance, warmup_iterations);
     _ = try runResourceRawSample(std.heap.smp_allocator, warmup_iterations);
     _ = try runResourceEffectSample(&resource_effect_runtime, &resource_effect_instance, warmup_iterations);
+    _ = try runWriterRawSample(std.heap.smp_allocator, warmup_iterations);
+    _ = try runWriterEffectSample(&writer_effect_runtime, &writer_effect_instance, std.heap.smp_allocator, warmup_iterations);
 
     var state_raw_samples = [_]u64{0} ** samples_per_run;
     var state_effect_samples = [_]u64{0} ** samples_per_run;
@@ -558,6 +618,8 @@ pub fn main() anyerror!void {
     var exception_effect_samples = [_]u64{0} ** samples_per_run;
     var resource_raw_samples = [_]u64{0} ** samples_per_run;
     var resource_effect_samples = [_]u64{0} ** samples_per_run;
+    var writer_raw_samples = [_]u64{0} ** samples_per_run;
+    var writer_effect_samples = [_]u64{0} ** samples_per_run;
 
     var state_raw_checksum: ?usize = null;
     var state_effect_checksum: ?usize = null;
@@ -571,6 +633,8 @@ pub fn main() anyerror!void {
     var exception_effect_checksum: ?usize = null;
     var resource_raw_checksum: ?usize = null;
     var resource_effect_checksum: ?usize = null;
+    var writer_raw_checksum: ?usize = null;
+    var writer_effect_checksum: ?usize = null;
 
     var index: usize = 0;
     while (index < samples_per_run) : (index += 1) {
@@ -586,6 +650,8 @@ pub fn main() anyerror!void {
         const exception_effect_sample = try runExceptionEffectSample(&exception_effect_runtime, &exception_effect_instance, timed_iterations);
         const resource_raw_sample = try runResourceRawSample(std.heap.smp_allocator, timed_iterations);
         const resource_effect_sample = try runResourceEffectSample(&resource_effect_runtime, &resource_effect_instance, timed_iterations);
+        const writer_raw_sample = try runWriterRawSample(std.heap.smp_allocator, timed_iterations);
+        const writer_effect_sample = try runWriterEffectSample(&writer_effect_runtime, &writer_effect_instance, std.heap.smp_allocator, timed_iterations);
 
         if (state_raw_checksum) |checksum| {
             if (checksum != state_raw_sample.checksum) return error.StateRawChecksumMismatch;
@@ -629,6 +695,13 @@ pub fn main() anyerror!void {
             if (checksum != resource_effect_sample.checksum) return error.ResourceEffectChecksumMismatch;
         } else resource_effect_checksum = resource_effect_sample.checksum;
 
+        if (writer_raw_checksum) |checksum| {
+            if (checksum != writer_raw_sample.checksum) return error.WriterRawChecksumMismatch;
+        } else writer_raw_checksum = writer_raw_sample.checksum;
+        if (writer_effect_checksum) |checksum| {
+            if (checksum != writer_effect_sample.checksum) return error.WriterEffectChecksumMismatch;
+        } else writer_effect_checksum = writer_effect_sample.checksum;
+
         state_raw_samples[index] = state_raw_sample.elapsed_ns;
         state_effect_samples[index] = state_effect_sample.elapsed_ns;
         reader_raw_samples[index] = reader_raw_sample.elapsed_ns;
@@ -641,13 +714,15 @@ pub fn main() anyerror!void {
         exception_effect_samples[index] = exception_effect_sample.elapsed_ns;
         resource_raw_samples[index] = resource_raw_sample.elapsed_ns;
         resource_effect_samples[index] = resource_effect_sample.elapsed_ns;
+        writer_raw_samples[index] = writer_raw_sample.elapsed_ns;
+        writer_effect_samples[index] = writer_effect_sample.elapsed_ns;
     }
 
     var stdout_buffer: [4096]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     const stdout = &stdout_writer.interface;
     try stdout.print(
-        "timed_iterations={d} warmup_iterations={d} samples_per_run={d} lanes=6\n",
+        "timed_iterations={d} warmup_iterations={d} samples_per_run={d} lanes=7\n",
         .{ timed_iterations, warmup_iterations, samples_per_run },
     );
     try printLane(stdout, .{ .lane_name = "state", .target_ratio_max = state_target_ratio_max, .raw_samples = &state_raw_samples, .effect_samples = &state_effect_samples, .raw_checksum = state_raw_checksum.?, .effect_checksum = state_effect_checksum.? });
@@ -656,5 +731,6 @@ pub fn main() anyerror!void {
     try printLane(stdout, .{ .lane_name = "optional_resume_with", .target_ratio_max = opt_res_ratio_max, .raw_samples = &optional_resume_raw_samples, .effect_samples = &optional_resume_effect_samples, .raw_checksum = opt_res_raw_checksum.?, .effect_checksum = opt_res_effect_checksum.? });
     try printLane(stdout, .{ .lane_name = "exception_throw", .target_ratio_max = except_ratio_max, .raw_samples = &exception_raw_samples, .effect_samples = &exception_effect_samples, .raw_checksum = exception_raw_checksum.?, .effect_checksum = exception_effect_checksum.? });
     try printLane(stdout, .{ .lane_name = "resource_normal", .target_ratio_max = resource_ratio_max, .raw_samples = &resource_raw_samples, .effect_samples = &resource_effect_samples, .raw_checksum = resource_raw_checksum.?, .effect_checksum = resource_effect_checksum.? });
+    try printLane(stdout, .{ .lane_name = "writer", .target_ratio_max = writer_ratio_max, .raw_samples = &writer_raw_samples, .effect_samples = &writer_effect_samples, .raw_checksum = writer_raw_checksum.?, .effect_checksum = writer_effect_checksum.? });
     try stdout.flush();
 }

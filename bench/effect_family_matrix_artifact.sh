@@ -115,7 +115,7 @@ run_bench() {
   (cd "$repo_root" && zig build bench-effect-matrix)
 }
 
-lane_names="state reader optional_return_now optional_resume_with exception_throw resource_normal"
+lane_names="state reader optional_return_now optional_resume_with exception_throw resource_normal writer"
 
 parse_lane_line() {
   line="$1"
@@ -146,7 +146,7 @@ parse_bench_output() {
   warmup_iterations="$(extract_scalar "$summary_line" "warmup_iterations")"
   samples_per_run="$(extract_scalar "$summary_line" "samples_per_run")"
 
-  [ "$lane_count" = "6" ] || {
+  [ "$lane_count" = "7" ] || {
     echo "unexpected lane count: $lane_count" >&2
     exit 1
   }
@@ -196,6 +196,8 @@ write_artifact() {
     "samples_per_run": $samples_per_run,
     "summary_stat": "median_ns from one warmed invocation"
   },
+  "covered_families": ["state","reader","optional","exception","resource","writer"],
+  "uncovered_paths": ["resource_abortive_cleanup"],
   "lanes": {
     "state": {
       "target_ratio_max": $state_target_ratio_max,
@@ -280,6 +282,20 @@ write_artifact() {
       "effect_median_ns": $resource_normal_effect_median_ns,
       "effect_max_ns": $resource_normal_effect_max_ns,
       "observed_ratio": $resource_normal_observed_ratio
+    },
+    "writer": {
+      "target_ratio_max": $writer_target_ratio_max,
+      "raw_checksum": $writer_raw_checksum,
+      "effect_checksum": $writer_effect_checksum,
+      "raw_sample_ns": $writer_raw_sample_ns,
+      "effect_sample_ns": $writer_effect_sample_ns,
+      "raw_min_ns": $writer_raw_min_ns,
+      "raw_median_ns": $writer_raw_median_ns,
+      "raw_max_ns": $writer_raw_max_ns,
+      "effect_min_ns": $writer_effect_min_ns,
+      "effect_median_ns": $writer_effect_median_ns,
+      "effect_max_ns": $writer_effect_max_ns,
+      "observed_ratio": $writer_observed_ratio
     }
   }
 }
@@ -296,6 +312,15 @@ check_artifact() {
   artifact_git_rev="$(json_scalar "$artifact_path" "git_rev")"
   artifact_repo_state="$(json_scalar "$artifact_path" "repo_state")"
   artifact_command="$(json_scalar "$artifact_path" "command")"
+
+  grep -q '"covered_families": \["state","reader","optional","exception","resource","writer"\]' "$artifact_path" || {
+    echo "covered_families drift" >&2
+    exit 1
+  }
+  grep -q '"uncovered_paths": \["resource_abortive_cleanup"\]' "$artifact_path" || {
+    echo "uncovered_paths drift" >&2
+    exit 1
+  }
 
   [ "$artifact_schema_version" = "1" ] || {
     echo "unexpected artifact schema version: $artifact_schema_version" >&2

@@ -1,6 +1,5 @@
-const cleanup = @import("cleanup.zig");
+const algebraic = @import("algebraic.zig");
 const family = @import("family.zig");
-const raw = @import("../raw.zig");
 const shift = @import("../root.zig");
 const std = @import("std");
 
@@ -9,114 +8,12 @@ pub fn Instance(comptime ResourceType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.resume_then_transform, ResourceType, ErrorSetType);
 }
 
-fn assertManagerType(comptime ResourceType: type, comptime ErrorSetType: type, comptime ManagerType: type) void {
-    if (!family.hasDeclSafe(ManagerType, "acquire")) {
-        @compileError("resource manager must declare acquire");
-    }
-    if (!family.hasDeclSafe(ManagerType, "release")) {
-        @compileError("resource manager must declare release");
-    }
-
-    const AcquireFn = @TypeOf(ManagerType.acquire);
-    if (AcquireFn != fn () ResourceType and AcquireFn != fn () shift.ResetError(ErrorSetType)!ResourceType) {
-        @compileError("resource manager acquire must have type fn () Resource or fn () ResetError(ErrorSet)!Resource");
-    }
-
-    const ReleaseFn = @TypeOf(ManagerType.release);
-    if (ReleaseFn != fn (ResourceType) void and ReleaseFn != fn (ResourceType) shift.ResetError(ErrorSetType)!void) {
-        @compileError("resource manager release must have type fn (Resource) void or fn (Resource) ResetError(ErrorSet)!void");
-    }
-}
-
-fn Kernel(comptime ResourceType: type, comptime AnswerType: type, comptime ErrorSetType: type, comptime ManagerType: type) type {
-    const PromptType = raw.Prompt(.resume_then_transform, AnswerType, AnswerType, ErrorSetType);
-    return struct {
-        const Prompt = PromptType;
-        const ResourceList = std.ArrayList(ResourceType);
-        const Frame = struct {
-            prompt: PromptType,
-            allocator: std.mem.Allocator,
-            resources: ResourceList = .empty,
-            cleaned: bool = false,
-            cleanup_frame: cleanup.Frame = .{
-                .cleanupFn = cleanupResources,
-            },
-
-            fn deinit(self: *Frame) void {
-                if (self.cleaned) return;
-                self.cleaned = true;
-                self.resources.deinit(self.allocator);
-            }
-
-            fn cleanupResources(base: *cleanup.Frame) anyerror!void {
-                const self: *Frame = @fieldParentPtr("cleanup_frame", base);
-                var first_error: ?shift.ResetError(ErrorSetType) = null;
-
-                while (self.resources.items.len != 0) {
-                    const resource = self.resources.items[self.resources.items.len - 1];
-                    self.resources.items.len -= 1;
-                    releaseOne(resource) catch |err| {
-                        if (first_error == null) first_error = err;
-                    };
-                }
-
-                self.deinit();
-                if (first_error) |err| return err;
-            }
-        };
-
-        var active_frame: ?*Frame = null;
-
-        fn acquireOne() shift.ResetError(ErrorSetType)!ResourceType {
-            const AcquireFn = @TypeOf(ManagerType.acquire);
-            if (AcquireFn == fn () ResourceType) return ManagerType.acquire();
-            return try ManagerType.acquire();
-        }
-
-        fn releaseOne(resource: ResourceType) shift.ResetError(ErrorSetType)!void {
-            const ReleaseFn = @TypeOf(ManagerType.release);
-            if (ReleaseFn == fn (ResourceType) void) return ManagerType.release(resource);
-            return try ManagerType.release(resource);
-        }
-
-        fn acquire() shift.ResetError(ErrorSetType)!ResourceType {
-            const handler = struct {
-                /// Acquire one resource before resuming the body.
-                pub fn resumeValue() shift.ResetError(ErrorSetType)!ResourceType {
-                    const frame = active_frame.?;
-                    const resource = try acquireOne();
-                    try frame.resources.append(frame.allocator, resource);
-                    return resource;
-                }
-
-                /// Preserve the resumed answer after the acquire point.
-                pub fn afterResume(answer: AnswerType) AnswerType {
-                    return answer;
-                }
-            };
-
-            return try raw.shift(ResourceType, PromptType, &active_frame.?.prompt, handler);
-        }
-    };
-}
-
 /// Acquire one resource under the supplied capability and handled context.
 pub inline fn acquire(
     comptime Cap: type,
     ctx: anytype,
 ) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
-    comptime family.assertContextType(Cap, @TypeOf(ctx));
-    const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
-    comptime {
-        if (!family.hasDeclSafe(ContextType.capability, "ManagerType")) {
-            @compileError("resource capability does not carry a manager type");
-        }
-    }
-    const ManagerType = ContextType.capability.ManagerType();
-    comptime assertManagerType(ContextType.StateType, ContextType.ErrorSetType, ManagerType);
-    const resource_impl = Kernel(ContextType.StateType, ContextType.AnswerType, ContextType.ErrorSetType, ManagerType);
-    _ = ctx._cap;
-    return try resource_impl.acquire();
+    return try algebraic.acquireResource(Cap, ctx);
 }
 
 /// Run a resource effect body and guarantee LIFO cleanup of acquired resources.
@@ -127,72 +24,13 @@ pub fn handle(
     comptime Manager: type,
     comptime Body: type,
 ) shift.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    const ResourceType = family.InstanceStateType(@TypeOf(instance));
-    const ErrorSetType = family.InstanceErrorSetType(@TypeOf(instance));
-    comptime assertManagerType(ResourceType, ErrorSetType, Manager);
-    const resource_impl = Kernel(ResourceType, AnswerType, ErrorSetType, Manager);
-    const Cap = struct {
-        _seal: struct {},
-        const body_tag = Body;
-
-        /// Manager type used by this resource capability.
-        pub fn ManagerType() type {
-            return Manager;
-        }
-    };
-    const ContextType = family.Context(Cap, ResourceType, AnswerType, ErrorSetType);
-
-    var frame = resource_impl.Frame{
-        .prompt = .{ .token = instance.prompt.token },
-        .allocator = runtime.allocator,
-    };
-    defer frame.deinit();
-    var cap_token = Cap{ ._seal = .{} };
-    var context = ContextType{ ._cap = &cap_token };
-
-    const invoker = struct {
-        threadlocal var active_context: ?*ContextType = null;
-
-        fn invoke() shift.ResetError(ErrorSetType)!AnswerType {
-            return try Body.body(Cap, active_context.?);
-        }
-    };
-
-    const previous_frame = resource_impl.active_frame;
-    const previous_context = invoker.active_context;
-    resource_impl.active_frame = &frame;
-    invoker.active_context = &context;
-    cleanup.push(&frame.cleanup_frame);
-    defer {
-        resource_impl.active_frame = previous_frame;
-        invoker.active_context = previous_context;
-    }
-
-    var body_error: ?shift.ResetError(ErrorSetType) = null;
-    var answer: ?AnswerType = null;
-    answer = raw.reset(resource_impl.Prompt, runtime, &frame.prompt, invoker.invoke) catch |err| blk: {
-        body_error = err;
-        break :blk null;
-    };
-
-    const cleanup_marker = frame.cleanup_frame.previous;
-    var cleanup_error: ?shift.ResetError(ErrorSetType) = null;
-    cleanup.unwindTo(cleanup_marker) catch |err| {
-        cleanup_error = @errorCast(err);
-    };
-
-    if (body_error) |err| {
-        return err;
-    }
-    if (cleanup_error) |err| return err;
-    return answer.?;
+    return try algebraic.handleResource(AnswerType, runtime, instance, Manager, Body);
 }
 
 test "resource instance shell stays prompt-sized" {
     const NoError = error{};
     const ResourceInstance = Instance(i32, NoError);
-    const PromptShell = raw.Prompt(.resume_then_transform, void, void, NoError);
-    try std.testing.expectEqual(@sizeOf(PromptShell), @sizeOf(ResourceInstance));
+    try std.testing.expectEqual(@sizeOf(usize), @sizeOf(ResourceInstance));
 }
 
 test "resource handle releases in LIFO order after normal completion" {

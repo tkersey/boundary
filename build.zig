@@ -112,6 +112,11 @@ pub fn build(b: *std.Build) void {
     readme_contract_step.dependOn(&readme_contract_cmd.step);
     test_step.dependOn(&readme_contract_cmd.step);
 
+    const construction_boundary_cmd = b.addSystemCommand(&.{ "sh", "test/effect_construction_boundary/run.sh" });
+    const construction_boundary_step = b.step("effect-construction-boundary", "Check that effect families route through the generalized substrate.");
+    construction_boundary_step.dependOn(&construction_boundary_cmd.step);
+    test_step.dependOn(&construction_boundary_cmd.step);
+
     const size_check_mod = b.createModule(.{
         .root_source_file = b.path("test/size_check.zig"),
         .target = target,
@@ -194,6 +199,12 @@ pub fn build(b: *std.Build) void {
             .src = "examples/resource_basic.zig",
             .step_name = "run-resource-basic",
             .step_desc = "Run the bracketed resource effect example.",
+        },
+        .{
+            .name = "writer_basic",
+            .src = "examples/writer_basic.zig",
+            .step_name = "run-writer-basic",
+            .step_desc = "Run the append-only writer effect example.",
         },
         .{
             .name = "state_basic",

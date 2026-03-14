@@ -1,6 +1,5 @@
+const algebraic = @import("algebraic.zig");
 const family = @import("family.zig");
-const kernel = @import("kernel.zig");
-const raw = @import("../raw.zig");
 const shift = @import("../root.zig");
 const std = @import("std");
 
@@ -15,16 +14,7 @@ pub inline fn get(
     comptime Cap: type,
     ctx: anytype,
 ) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
-    comptime family.assertContextType(Cap, @TypeOf(ctx));
-    const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
-    const family_impl = kernel.Family(ContextType.StateType, ContextType.AnswerType, ContextType.ErrorSetType);
-    _ = ctx._cap;
-    return try raw.shiftLocalIdentity(
-        ContextType.StateType,
-        family_impl.Prompt,
-        &family_impl.active_frame.?.prompt,
-        family_impl.active_frame.?.state,
-    );
+    return try algebraic.readTransformState(Cap, ctx);
 }
 
 /// Replace the current state value for the supplied capability and handled context.
@@ -33,12 +23,7 @@ pub inline fn set(
     ctx: anytype,
     value: family.ContextStateType(@TypeOf(ctx)),
 ) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!void {
-    comptime family.assertContextType(Cap, @TypeOf(ctx));
-    const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
-    const family_impl = kernel.Family(ContextType.StateType, ContextType.AnswerType, ContextType.ErrorSetType);
-    _ = ctx._cap;
-    family_impl.active_frame.?.state = value;
-    return try raw.shiftLocalIdentity(void, family_impl.Prompt, &family_impl.active_frame.?.prompt, {});
+    return try algebraic.writeTransformState(Cap, ctx, value);
 }
 
 /// Run a state effect body and return the final state plus the body answer.
@@ -58,8 +43,7 @@ pub fn handle(
 test "state instance shell stays prompt-sized" {
     const NoError = error{};
     const StateInstance = Instance(i32, NoError);
-    const PromptShell = raw.Prompt(.resume_then_transform, void, void, NoError);
-    try std.testing.expectEqual(@sizeOf(PromptShell), @sizeOf(StateInstance));
+    try std.testing.expectEqual(@sizeOf(usize), @sizeOf(StateInstance));
 }
 
 test "state private context stays pointer-sized" {

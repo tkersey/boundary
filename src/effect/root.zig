@@ -9,6 +9,8 @@ pub const reader = @import("reader.zig");
 pub const resource = @import("resource.zig");
 /// Additive state-effect family built on top of the core shift/reset runtime.
 pub const state = @import("state.zig");
+/// Append-only writer effect family built on top of the core shift/reset runtime.
+pub const writer = @import("writer.zig");
 
 test {
     _ = exception;
@@ -17,4 +19,5 @@ test {
     _ = reader;
     _ = resource;
     _ = state;
+    _ = writer;
 }
