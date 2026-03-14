@@ -305,16 +305,30 @@ zig build bench-effect-matrix-check
 
 The checked matrix artifact is:
 
-- `bench/baselines/effect_family_matrix_v1.json`
+- `bench/baselines/effect_family_matrix_v2.json`
 
-It covers:
+It now splits lanes into three classes:
 
-- `state`
-- `reader`
-- `optional_return_now`
-- `optional_resume_with`
-- `exception_throw`
-- `resource_normal`
+- `micro`: fixed wrapper tax
+- `amortized`: heavier representative work
+- `investigation`: intentionally loose diagnostic lanes for still-suspicious ratios
+
+The covered lanes are:
+
+- `state_micro`
+- `reader_micro`
+- `reader_batch8`
+- `optional_return_now_micro`
+- `optional_return_now_prelude8`
+- `optional_resume_with_micro`
+- `optional_resume_with_batch8`
+- `exception_throw_micro`
+- `exception_throw_prelude8`
+- `resource_normal_4`
+- `resource_normal_32`
+- `writer_micro`
+- `writer_batch16`
+- `writer_batch64`
 
 The checked state-effect artifact lives at
 `bench/baselines/state_effect_v1.json`. Refresh it with:
@@ -330,8 +344,7 @@ zig build bench-state-effect-check
 ```
 
 The write/check workflow is fail-closed by default on dirty trees and records
-the exact `git_rev`, `repo_state`, benchmark command, warmed sample arrays, and
-the observed per-lane median ratios.
+the exact `git_rev`, `repo_state`, benchmark command, warmed sample arrays, lane classes, and the observed per-lane median ratios.
 
 ## Formal Core
 

@@ -46,7 +46,9 @@ The shipped effect layer now covers each prompt mode explicitly:
 The checked performance surface now splits into two layers:
 
 - `bench-state-effect` / `bench-state-effect-check` for the deeper historical `state` lane
-- `bench-effect-matrix` / `bench-effect-matrix-check` for family coverage across `state`, `reader`, `optional_return_now`, `optional_resume_with`, `exception_throw`, `resource_normal`, and `writer`
+- `bench-effect-matrix` / `bench-effect-matrix-check` for the `effect_family_matrix_v2` artifact covering `state_micro`, `reader_micro`, `reader_batch8`, `optional_return_now_micro`, `optional_return_now_prelude8`, `optional_resume_with_micro`, `optional_resume_with_batch8`, `exception_throw_micro`, `exception_throw_prelude8`, `resource_normal_4`, `resource_normal_32`, `writer_micro`, `writer_batch16`, and `writer_batch64`
+
+The matrix classifies lanes as `micro`, `amortized`, or `investigation` so fixed-tax measurements, heavier representative bodies, and intentionally diagnostic loose-threshold lanes are not conflated.
 
 <a id="static-redelim"></a>
 ## Static Redelim

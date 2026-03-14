@@ -2,7 +2,7 @@
 set -eu
 
 repo_root="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-artifact_path="$repo_root/bench/baselines/effect_family_matrix_v1.json"
+artifact_path="$repo_root/bench/baselines/effect_family_matrix_v2.json"
 mode="${1:-}"
 
 usage() {
@@ -63,7 +63,7 @@ artifact_matches_current_tree() {
     return 0
   fi
 
-  git -C "$repo_root" diff --quiet "$artifact_git_rev" "$current_git_rev" -- . ':(exclude)bench/baselines/effect_family_matrix_v1.json'
+  git -C "$repo_root" diff --quiet "$artifact_git_rev" "$current_git_rev" -- . ':(exclude)bench/baselines/effect_family_matrix_v2.json'
 }
 
 json_scalar() {
@@ -115,7 +115,7 @@ run_bench() {
   (cd "$repo_root" && zig build bench-effect-matrix)
 }
 
-lane_names="state reader optional_return_now optional_resume_with exception_throw resource_normal writer"
+lane_names="state_micro reader_micro reader_batch8 optional_return_now_micro optional_return_now_prelude8 optional_resume_with_micro optional_resume_with_batch8 exception_throw_micro exception_throw_prelude8 resource_normal_4 resource_normal_32 writer_micro writer_batch16 writer_batch64"
 
 parse_lane_line() {
   line="$1"
@@ -124,6 +124,7 @@ parse_lane_line() {
   effect_median_ns="$(extract_scalar "$line" "effect_median_ns")"
   observed_ratio="$(awk -v raw="$raw_median_ns" -v effect="$effect_median_ns" 'BEGIN { printf "%.16f", effect / raw }')"
 
+  eval "${lane}_lane_class='$(extract_scalar "$line" "lane_class")'"
   eval "${lane}_target_ratio_max='$(extract_scalar "$line" "target_ratio_max")'"
   eval "${lane}_raw_checksum='$(extract_scalar "$line" "raw_checksum")'"
   eval "${lane}_effect_checksum='$(extract_scalar "$line" "effect_checksum")'"
@@ -142,12 +143,17 @@ parse_bench_output() {
   bench_output="$1"
   summary_line="$(printf '%s\n' "$bench_output" | sed -n '1p')"
   lane_count="$(extract_scalar "$summary_line" "lanes")"
+  schema_version="$(extract_scalar "$summary_line" "schema_version")"
   timed_iterations="$(extract_scalar "$summary_line" "timed_iterations")"
   warmup_iterations="$(extract_scalar "$summary_line" "warmup_iterations")"
   samples_per_run="$(extract_scalar "$summary_line" "samples_per_run")"
 
-  [ "$lane_count" = "7" ] || {
+  [ "$lane_count" = "14" ] || {
     echo "unexpected lane count: $lane_count" >&2
+    exit 1
+  }
+  [ "$schema_version" = "2" ] || {
+    echo "unexpected schema version: $schema_version" >&2
     exit 1
   }
 
@@ -177,129 +183,71 @@ write_artifact() {
   uname_value="$(uname -a)"
   cpu_value="$(cpu_name)"
 
-  cat >"$artifact_path" <<EOF
-{
-  "artifact_schema_version": 1,
-  "label": "effect_family_matrix_v1",
-  "captured_at": "$captured_at",
-  "git_rev": "$git_rev",
-  "repo_state": "$repo_state",
-  "host": {
-    "uname": "$uname_value",
-    "cpu": "$cpu_value",
-    "zig_version": "$zig_version"
-  },
-  "measurement_contract": {
-    "command": "zig build bench-effect-matrix",
-    "timed_iterations": $timed_iterations,
-    "warmup_iterations": $warmup_iterations,
-    "samples_per_run": $samples_per_run,
-    "summary_stat": "median_ns from one warmed invocation"
-  },
-  "covered_families": ["state","reader","optional","exception","resource","writer"],
-  "uncovered_paths": ["resource_abortive_cleanup"],
-  "lanes": {
-    "state": {
-      "target_ratio_max": $state_target_ratio_max,
-      "raw_checksum": $state_raw_checksum,
-      "effect_checksum": $state_effect_checksum,
-      "raw_sample_ns": $state_raw_sample_ns,
-      "effect_sample_ns": $state_effect_sample_ns,
-      "raw_min_ns": $state_raw_min_ns,
-      "raw_median_ns": $state_raw_median_ns,
-      "raw_max_ns": $state_raw_max_ns,
-      "effect_min_ns": $state_effect_min_ns,
-      "effect_median_ns": $state_effect_median_ns,
-      "effect_max_ns": $state_effect_max_ns,
-      "observed_ratio": $state_observed_ratio
-    },
-    "reader": {
-      "target_ratio_max": $reader_target_ratio_max,
-      "raw_checksum": $reader_raw_checksum,
-      "effect_checksum": $reader_effect_checksum,
-      "raw_sample_ns": $reader_raw_sample_ns,
-      "effect_sample_ns": $reader_effect_sample_ns,
-      "raw_min_ns": $reader_raw_min_ns,
-      "raw_median_ns": $reader_raw_median_ns,
-      "raw_max_ns": $reader_raw_max_ns,
-      "effect_min_ns": $reader_effect_min_ns,
-      "effect_median_ns": $reader_effect_median_ns,
-      "effect_max_ns": $reader_effect_max_ns,
-      "observed_ratio": $reader_observed_ratio
-    },
-    "optional_return_now": {
-      "target_ratio_max": $optional_return_now_target_ratio_max,
-      "raw_checksum": $optional_return_now_raw_checksum,
-      "effect_checksum": $optional_return_now_effect_checksum,
-      "raw_sample_ns": $optional_return_now_raw_sample_ns,
-      "effect_sample_ns": $optional_return_now_effect_sample_ns,
-      "raw_min_ns": $optional_return_now_raw_min_ns,
-      "raw_median_ns": $optional_return_now_raw_median_ns,
-      "raw_max_ns": $optional_return_now_raw_max_ns,
-      "effect_min_ns": $optional_return_now_effect_min_ns,
-      "effect_median_ns": $optional_return_now_effect_median_ns,
-      "effect_max_ns": $optional_return_now_effect_max_ns,
-      "observed_ratio": $optional_return_now_observed_ratio
-    },
-    "optional_resume_with": {
-      "target_ratio_max": $optional_resume_with_target_ratio_max,
-      "raw_checksum": $optional_resume_with_raw_checksum,
-      "effect_checksum": $optional_resume_with_effect_checksum,
-      "raw_sample_ns": $optional_resume_with_raw_sample_ns,
-      "effect_sample_ns": $optional_resume_with_effect_sample_ns,
-      "raw_min_ns": $optional_resume_with_raw_min_ns,
-      "raw_median_ns": $optional_resume_with_raw_median_ns,
-      "raw_max_ns": $optional_resume_with_raw_max_ns,
-      "effect_min_ns": $optional_resume_with_effect_min_ns,
-      "effect_median_ns": $optional_resume_with_effect_median_ns,
-      "effect_max_ns": $optional_resume_with_effect_max_ns,
-      "observed_ratio": $optional_resume_with_observed_ratio
-    },
-    "exception_throw": {
-      "target_ratio_max": $exception_throw_target_ratio_max,
-      "raw_checksum": $exception_throw_raw_checksum,
-      "effect_checksum": $exception_throw_effect_checksum,
-      "raw_sample_ns": $exception_throw_raw_sample_ns,
-      "effect_sample_ns": $exception_throw_effect_sample_ns,
-      "raw_min_ns": $exception_throw_raw_min_ns,
-      "raw_median_ns": $exception_throw_raw_median_ns,
-      "raw_max_ns": $exception_throw_raw_max_ns,
-      "effect_min_ns": $exception_throw_effect_min_ns,
-      "effect_median_ns": $exception_throw_effect_median_ns,
-      "effect_max_ns": $exception_throw_effect_max_ns,
-      "observed_ratio": $exception_throw_observed_ratio
-    },
-    "resource_normal": {
-      "target_ratio_max": $resource_normal_target_ratio_max,
-      "raw_checksum": $resource_normal_raw_checksum,
-      "effect_checksum": $resource_normal_effect_checksum,
-      "raw_sample_ns": $resource_normal_raw_sample_ns,
-      "effect_sample_ns": $resource_normal_effect_sample_ns,
-      "raw_min_ns": $resource_normal_raw_min_ns,
-      "raw_median_ns": $resource_normal_raw_median_ns,
-      "raw_max_ns": $resource_normal_raw_max_ns,
-      "effect_min_ns": $resource_normal_effect_min_ns,
-      "effect_median_ns": $resource_normal_effect_median_ns,
-      "effect_max_ns": $resource_normal_effect_max_ns,
-      "observed_ratio": $resource_normal_observed_ratio
-    },
-    "writer": {
-      "target_ratio_max": $writer_target_ratio_max,
-      "raw_checksum": $writer_raw_checksum,
-      "effect_checksum": $writer_effect_checksum,
-      "raw_sample_ns": $writer_raw_sample_ns,
-      "effect_sample_ns": $writer_effect_sample_ns,
-      "raw_min_ns": $writer_raw_min_ns,
-      "raw_median_ns": $writer_raw_median_ns,
-      "raw_max_ns": $writer_raw_max_ns,
-      "effect_min_ns": $writer_effect_min_ns,
-      "effect_median_ns": $writer_effect_median_ns,
-      "effect_max_ns": $writer_effect_max_ns,
-      "observed_ratio": $writer_observed_ratio
-    }
-  }
-}
-EOF
+  {
+    printf '{\n'
+    printf '  "artifact_schema_version": 2,\n'
+    printf '  "label": "effect_family_matrix_v2",\n'
+    printf '  "captured_at": "%s",\n' "$captured_at"
+    printf '  "git_rev": "%s",\n' "$git_rev"
+    printf '  "repo_state": "%s",\n' "$repo_state"
+    printf '  "host": {\n'
+    printf '    "uname": "%s",\n' "$uname_value"
+    printf '    "cpu": "%s",\n' "$cpu_value"
+    printf '    "zig_version": "%s"\n' "$zig_version"
+    printf '  },\n'
+    printf '  "measurement_contract": {\n'
+    printf '    "command": "zig build bench-effect-matrix",\n'
+    printf '    "timed_iterations": %s,\n' "$timed_iterations"
+    printf '    "warmup_iterations": %s,\n' "$warmup_iterations"
+    printf '    "samples_per_run": %s,\n' "$samples_per_run"
+    printf '    "summary_stat": "median_ns from one warmed invocation"\n'
+    printf '  },\n'
+    printf '  "covered_families": ["state","reader","optional","exception","resource","writer"],\n'
+    printf '  "lane_classes": ["micro","amortized","investigation"],\n'
+    printf '  "uncovered_paths": ["resource_abortive_cleanup"],\n'
+    printf '  "lanes": {\n'
+
+    first=1
+    for lane in $lane_names; do
+      eval "lane_class=\${${lane}_lane_class}"
+      eval "target_ratio_max=\${${lane}_target_ratio_max}"
+      eval "raw_checksum=\${${lane}_raw_checksum}"
+      eval "effect_checksum=\${${lane}_effect_checksum}"
+      eval "raw_sample_ns=\${${lane}_raw_sample_ns}"
+      eval "effect_sample_ns=\${${lane}_effect_sample_ns}"
+      eval "raw_min_ns=\${${lane}_raw_min_ns}"
+      eval "raw_median_ns=\${${lane}_raw_median_ns}"
+      eval "raw_max_ns=\${${lane}_raw_max_ns}"
+      eval "effect_min_ns=\${${lane}_effect_min_ns}"
+      eval "effect_median_ns=\${${lane}_effect_median_ns}"
+      eval "effect_max_ns=\${${lane}_effect_max_ns}"
+      eval "observed_ratio=\${${lane}_observed_ratio}"
+
+      if [ "$first" -eq 0 ]; then
+        printf ',\n'
+      fi
+      first=0
+
+      printf '    "%s": {\n' "$lane"
+      printf '      "lane_class": "%s",\n' "$lane_class"
+      printf '      "target_ratio_max": %s,\n' "$target_ratio_max"
+      printf '      "raw_checksum": %s,\n' "$raw_checksum"
+      printf '      "effect_checksum": %s,\n' "$effect_checksum"
+      printf '      "raw_sample_ns": %s,\n' "$raw_sample_ns"
+      printf '      "effect_sample_ns": %s,\n' "$effect_sample_ns"
+      printf '      "raw_min_ns": %s,\n' "$raw_min_ns"
+      printf '      "raw_median_ns": %s,\n' "$raw_median_ns"
+      printf '      "raw_max_ns": %s,\n' "$raw_max_ns"
+      printf '      "effect_min_ns": %s,\n' "$effect_min_ns"
+      printf '      "effect_median_ns": %s,\n' "$effect_median_ns"
+      printf '      "effect_max_ns": %s,\n' "$effect_max_ns"
+      printf '      "observed_ratio": %s\n' "$observed_ratio"
+      printf '    }'
+    done
+
+    printf '\n  }\n'
+    printf '}\n'
+  } >"$artifact_path"
 }
 
 check_artifact() {
@@ -317,12 +265,16 @@ check_artifact() {
     echo "covered_families drift" >&2
     exit 1
   }
+  grep -q '"lane_classes": \["micro","amortized","investigation"\]' "$artifact_path" || {
+    echo "lane_classes drift" >&2
+    exit 1
+  }
   grep -q '"uncovered_paths": \["resource_abortive_cleanup"\]' "$artifact_path" || {
     echo "uncovered_paths drift" >&2
     exit 1
   }
 
-  [ "$artifact_schema_version" = "1" ] || {
+  [ "$artifact_schema_version" = "2" ] || {
     echo "unexpected artifact schema version: $artifact_schema_version" >&2
     exit 1
   }
@@ -333,7 +285,7 @@ check_artifact() {
 
   current_git_rev="$(git -C "$repo_root" rev-parse HEAD)"
   artifact_matches_current_tree "$artifact_git_rev" "$current_git_rev" || {
-    echo "artifact git_rev drift: expected $current_git_rev or a tree differing only by bench/baselines/effect_family_matrix_v1.json, found $artifact_git_rev" >&2
+    echo "artifact git_rev drift: expected $current_git_rev or a tree differing only by bench/baselines/effect_family_matrix_v2.json, found $artifact_git_rev" >&2
     exit 1
   }
   [ "$artifact_repo_state" = "$repo_state" ] || {
