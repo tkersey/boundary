@@ -44,6 +44,17 @@ extract_scalar() {
   printf '%s' "$value"
 }
 
+artifact_matches_current_tree() {
+  artifact_git_rev="$1"
+  current_git_rev="$2"
+
+  if [ "$artifact_git_rev" = "$current_git_rev" ]; then
+    return 0
+  fi
+
+  git -C "$repo_root" diff --quiet "$artifact_git_rev" "$current_git_rev" -- . ':(exclude)bench/baselines/state_effect_v1.json'
+}
+
 extract_array() {
   line="$1"
   key="$2"
@@ -237,8 +248,8 @@ check_artifact() {
   }
 
   current_git_rev="$(git -C "$repo_root" rev-parse HEAD)"
-  [ "$artifact_git_rev" = "$current_git_rev" ] || {
-    echo "artifact git_rev drift: expected $current_git_rev, found $artifact_git_rev" >&2
+  artifact_matches_current_tree "$artifact_git_rev" "$current_git_rev" || {
+    echo "artifact git_rev drift: expected $current_git_rev or a tree differing only by bench/baselines/state_effect_v1.json, found $artifact_git_rev" >&2
     exit 1
   }
   [ "$artifact_repo_state" = "$repo_state" ] || {
