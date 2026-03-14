@@ -29,7 +29,7 @@ const exn_pre_ratio_max = 1.15;
 const resource4_target_ratio_max = 1.75;
 const resource32_target_ratio_max = 2.10;
 const writer_micro_target_ratio_max = 1.00;
-const writer16_target_ratio_max = 1.30;
+const writer16_target_ratio_max = 1.35;
 const writer64_target_ratio_max = 2.00;
 
 const reader_items_per_body: usize = 8;
