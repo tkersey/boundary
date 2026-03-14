@@ -25,7 +25,8 @@ const demo = struct {
     }
 };
 
-pub fn main() !void {
+/// Execute the runtime smoke-check fixture for the resume-then-transform protocol.
+pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
     defer runtime.deinit();
     var prompt = DemoPrompt.init();

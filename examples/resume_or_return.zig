@@ -18,11 +18,13 @@ fn runReturnNow(writer: anytype) anyerror!void {
         }
 
         const handle = struct {
+            /// Choose the immediate-return branch for this transcript.
             pub fn resumeOrReturn() Decision {
                 note("handler-return-now");
                 return Decision.returnNow("result=early");
             }
 
+            /// Preserve the resumed answer if this branch ever resumes.
             pub fn afterResume(value: []const u8) []const u8 {
                 return value;
             }
@@ -60,11 +62,13 @@ fn runResumeWith(writer: anytype) anyerror!void {
         }
 
         const handle = struct {
+            /// Choose the resumptive branch for this transcript.
             pub fn resumeOrReturn() Decision {
                 note("handler-decide-resume");
                 return Decision.resumeWith(41);
             }
 
+            /// Convert the resumed answer into the enclosing output.
             pub fn afterResume(value: i32) []const u8 {
                 _ = value;
                 note("handler-after-resume");
@@ -90,6 +94,7 @@ fn runResumeWith(writer: anytype) anyerror!void {
     try writer.print("final={s}\n", .{answer});
 }
 
+/// Write both optional-resumption branches in one example transcript.
 pub fn run(writer: anytype) anyerror!void {
     try writer.writeAll("branch=return_now\n");
     try runReturnNow(writer);

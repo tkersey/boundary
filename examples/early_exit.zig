@@ -4,6 +4,7 @@ const std = @import("std");
 const NoError = error{};
 const DemoPrompt = shift.Prompt(.direct_return, []const u8, []const u8, NoError);
 
+/// Write the direct-return transcript for this example.
 pub fn run(writer: anytype) anyerror!void {
     const demo = struct {
         var prompt_ptr: ?*const DemoPrompt = null;
@@ -16,6 +17,7 @@ pub fn run(writer: anytype) anyerror!void {
         }
 
         const handle = struct {
+            /// Emit the early-exit answer directly from the handler.
             pub fn directReturn() []const u8 {
                 note("handler-direct-return");
                 return "result=early";

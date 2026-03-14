@@ -1,0 +1,199 @@
+const shift = @import("shift");
+const std = @import("std");
+
+const NoError = error{};
+const RawPrompt = shift.Prompt(.resume_then_transform, usize, usize, NoError);
+const StateInstance = shift.effect.state.Instance(usize, NoError);
+const StateContext = shift.effect.state.Context(usize, usize, NoError);
+const timed_iterations: usize = 50_000;
+const warmup_iterations: usize = 20_000;
+const samples_per_run: usize = 5;
+
+const Sample = struct {
+    checksum: usize,
+    elapsed_ns: u64,
+};
+
+const raw_state = struct {
+    var prompt_ptr: ?*const RawPrompt = null;
+    var current_state: usize = 0;
+    var pending_state: usize = 0;
+
+    const get_handle = struct {
+        /// Return the current raw benchmark state into the resumed body.
+        pub fn resumeValue() usize {
+            return current_state;
+        }
+
+        /// Preserve the resumed raw benchmark answer unchanged.
+        pub fn afterResume(value: usize) usize {
+            return value;
+        }
+    };
+
+    const set_handle = struct {
+        /// Update the raw benchmark state before resuming the body.
+        pub fn resumeValue() void {
+            current_state = pending_state;
+        }
+
+        /// Preserve the resumed raw benchmark answer unchanged.
+        pub fn afterResume(value: usize) usize {
+            return value;
+        }
+    };
+
+    fn get() shift.ResetError(NoError)!usize {
+        return try shift.shift(usize, prompt_ptr.?, get_handle);
+    }
+
+    fn set(value: usize) shift.ResetError(NoError)!void {
+        pending_state = value;
+        _ = try shift.shift(void, prompt_ptr.?, set_handle);
+    }
+
+    fn body() shift.ResetError(NoError)!usize {
+        const before = try get();
+        try set(before + 1);
+        return try get();
+    }
+};
+
+const effect_state = struct {
+    fn body(ctx: *StateContext) shift.ResetError(NoError)!usize {
+        const before = try ctx.get();
+        try ctx.set(before + 1);
+        return try ctx.get();
+    }
+};
+
+fn sortAscending(values: []u64) void {
+    var index: usize = 1;
+    while (index < values.len) : (index += 1) {
+        const current = values[index];
+        var insert_idx = index;
+        while (insert_idx > 0 and values[insert_idx - 1] > current) : (insert_idx -= 1) {
+            values[insert_idx] = values[insert_idx - 1];
+        }
+        values[insert_idx] = current;
+    }
+}
+
+fn runRawSample(runtime: *shift.Runtime, prompt: *RawPrompt, iterations: usize) !Sample {
+    var timer = try std.time.Timer.start();
+    var checksum: usize = 0;
+
+    var index: usize = 0;
+    while (index < iterations) : (index += 1) {
+        raw_state.current_state = index;
+        const value = try shift.reset(runtime, prompt, raw_state.body);
+        checksum += value + raw_state.current_state;
+    }
+
+    return .{
+        .checksum = checksum,
+        .elapsed_ns = timer.read(),
+    };
+}
+
+fn runEffectSample(runtime: *shift.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
+    var timer = try std.time.Timer.start();
+    var checksum: usize = 0;
+
+    var index: usize = 0;
+    while (index < iterations) : (index += 1) {
+        const result = try shift.effect.state.handle(usize, runtime, instance, index, effect_state.body);
+        checksum += result.value + result.state;
+    }
+
+    return .{
+        .checksum = checksum,
+        .elapsed_ns = timer.read(),
+    };
+}
+
+fn summarizeSamples(values: *const [samples_per_run]u64) struct { min: u64, median: u64, max: u64 } {
+    var sorted = values.*;
+    sortAscending(&sorted);
+    return .{
+        .min = sorted[0],
+        .median = sorted[sorted.len / 2],
+        .max = sorted[sorted.len - 1],
+    };
+}
+
+/// Compare raw prompt-based state handling against the additive effect wrapper.
+pub fn main() anyerror!void {
+    var raw_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    defer raw_runtime.deinit();
+    var raw_prompt = RawPrompt.init();
+    raw_state.prompt_ptr = &raw_prompt;
+
+    var effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    defer effect_runtime.deinit();
+    var effect_instance = StateInstance.init();
+
+    _ = try runRawSample(&raw_runtime, &raw_prompt, warmup_iterations);
+    _ = try runEffectSample(&effect_runtime, &effect_instance, warmup_iterations);
+
+    var raw_samples = [_]u64{0} ** samples_per_run;
+    var effect_samples = [_]u64{0} ** samples_per_run;
+    var raw_checksum: ?usize = null;
+    var effect_checksum: ?usize = null;
+
+    var index: usize = 0;
+    while (index < samples_per_run) : (index += 1) {
+        const raw_sample = try runRawSample(&raw_runtime, &raw_prompt, timed_iterations);
+        const effect_sample = try runEffectSample(&effect_runtime, &effect_instance, timed_iterations);
+
+        if (raw_checksum) |checksum| {
+            if (checksum != raw_sample.checksum) return error.RawChecksumMismatch;
+        } else {
+            raw_checksum = raw_sample.checksum;
+        }
+
+        if (effect_checksum) |checksum| {
+            if (checksum != effect_sample.checksum) return error.EffectChecksumMismatch;
+        } else {
+            effect_checksum = effect_sample.checksum;
+        }
+
+        if (raw_sample.checksum != effect_sample.checksum) return error.BenchmarkParityMismatch;
+
+        raw_samples[index] = raw_sample.elapsed_ns;
+        effect_samples[index] = effect_sample.elapsed_ns;
+    }
+
+    const raw_stats = summarizeSamples(&raw_samples);
+    const effect_stats = summarizeSamples(&effect_samples);
+
+    var stdout_buffer: [512]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    try stdout.print(
+        "timed_iterations={d} warmup_iterations={d} samples_per_run={d} checksum={d} raw_sample_ns=[{d},{d},{d},{d},{d}] raw_min_ns={d} raw_median_ns={d} raw_max_ns={d} effect_sample_ns=[{d},{d},{d},{d},{d}] effect_min_ns={d} effect_median_ns={d} effect_max_ns={d}\n",
+        .{
+            timed_iterations,
+            warmup_iterations,
+            samples_per_run,
+            raw_checksum.?,
+            raw_samples[0],
+            raw_samples[1],
+            raw_samples[2],
+            raw_samples[3],
+            raw_samples[4],
+            raw_stats.min,
+            raw_stats.median,
+            raw_stats.max,
+            effect_samples[0],
+            effect_samples[1],
+            effect_samples[2],
+            effect_samples[3],
+            effect_samples[4],
+            effect_stats.min,
+            effect_stats.median,
+            effect_stats.max,
+        },
+    );
+    try stdout.flush();
+}

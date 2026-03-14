@@ -345,7 +345,7 @@ export fn shiftFiberEntry() callconv(.c) noreturn {
     fiber.startFn(fiber);
 }
 
-fn finishCurrentFiberWithAnswer(comptime PromptType: type, frame: *ResetFrame(PromptType), answer: PromptType.InAnswer) noreturn {
+fn finishCurrentFiberWithAnswer(comptime PromptType: type, frame: anytype, answer: PromptType.InAnswer) noreturn {
     frame.result = .{ .in_answer = answer };
     frame.base.state = .done;
     frame.base.outcome = .none;
@@ -354,7 +354,7 @@ fn finishCurrentFiberWithAnswer(comptime PromptType: type, frame: *ResetFrame(Pr
     unreachable;
 }
 
-fn finishCurrentFiberWithError(comptime PromptType: type, frame: *ResetFrame(PromptType), err: ResetError(PromptType.ErrorSet)) noreturn {
+fn finishCurrentFiberWithError(comptime PromptType: type, frame: anytype, err: ResetError(PromptType.ErrorSet)) noreturn {
     frame.result = .{ .err = err };
     frame.base.state = .failed;
     frame.base.outcome = .none;
@@ -372,7 +372,7 @@ fn DriveFrameOutAnswer(comptime PromptType: type) type {
     const OutAnswer = PromptType.OutAnswer;
     const ErrorSet = PromptType.ErrorSet;
     return struct {
-        fn run(frame: *ResetFrame(PromptType)) ResetError(ErrorSet)!OutAnswer {
+        fn run(frame: anytype) ResetError(ErrorSet)!OutAnswer {
             const runtime = frame.base.runtime;
             try runtime.ensureThread();
             const previous_runtime = tls_runtime;
@@ -656,6 +656,7 @@ pub fn reset(
     defineResetFrameStart(PromptType);
     return DriveFrameOutAnswer(PromptType).run(&frame);
 }
+
 
 /// Capture the nearest active delimiter identified by `prompt`.
 pub fn shift(

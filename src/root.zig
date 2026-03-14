@@ -1,3 +1,5 @@
+/// Additive algebraic-effect families built on top of the core shift/reset runtime.
+pub const effect = @import("effect/root.zig");
 const raw = @import("raw.zig");
 const std = @import("std");
 
@@ -81,5 +83,6 @@ test {
     _ = PromptMode;
     _ = ResumeOrReturn;
     _ = Runtime;
+    _ = effect;
     _ = std;
 }

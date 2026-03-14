@@ -5,6 +5,7 @@ const NoError = error{};
 const ApprovalPrompt = shift.Prompt(.resume_then_transform, []const u8, []const u8, NoError);
 const AuditPrompt = shift.Prompt(.resume_then_transform, void, void, NoError);
 
+/// Write the nested workflow transcript for this example.
 pub fn run(writer: anytype) anyerror!void {
     const demo = struct {
         var runtime_ptr: ?*shift.Runtime = null;
@@ -19,21 +20,25 @@ pub fn run(writer: anytype) anyerror!void {
         }
 
         const approval_handle = struct {
+            /// Supply the approval decision into the resumed workflow.
             pub fn resumeValue() bool {
                 note("approval=publish");
                 return true;
             }
 
+            /// Preserve the resumed workflow answer.
             pub fn afterResume(value: []const u8) []const u8 {
                 return value;
             }
         };
 
         const audit_handle = struct {
+            /// Mark audit entry before resuming the workflow body.
             pub fn resumeValue() void {
                 note("audit=entered");
             }
 
+            /// Complete the audit branch after the workflow resumes.
             pub fn afterResume(_: void) void {
                 // Intentionally empty: the resumed audit body owns completion.
             }

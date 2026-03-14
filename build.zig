@@ -138,6 +138,12 @@ pub fn build(b: *std.Build) void {
             .step_name = "run-resume-or-return",
             .step_desc = "Run the optional-resumption example.",
         },
+        .{
+            .name = "state_basic",
+            .src = "examples/state_basic.zig",
+            .step_name = "run-state-basic",
+            .step_desc = "Run the additive state-effect example.",
+        },
     };
 
     inline for (examples) |example| {
@@ -185,6 +191,12 @@ pub fn build(b: *std.Build) void {
             .src = "bench/direct_first_suspend_bench.zig",
             .step_name = "bench-first-suspend",
             .step_desc = "Run the direct-style first-suspend benchmark.",
+        },
+        .{
+            .name = "shift-state-effect-bench",
+            .src = "bench/state_effect_bench.zig",
+            .step_name = "bench-state-effect",
+            .step_desc = "Compare the additive state effect against the raw prompt baseline.",
         },
     };
 

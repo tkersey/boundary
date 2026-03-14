@@ -30,6 +30,7 @@ early_exit.zig|primary|run-early-exit|early_exit.txt
 generator.zig|extra|run-generator|generator.txt
 nested_workflow.zig|primary|run-nested-workflow|nested_workflow.txt
 resume_or_return.zig|primary|run-resume-or-return|resume_or_return.txt
+state_basic.zig|primary|run-state-basic|state_basic.txt
 EOF
 }
 

@@ -63,6 +63,7 @@ zig build one-shot-survey
 zig build example-proof
 zig build bench
 zig build bench-first-suspend
+zig build bench-state-effect
 ```
 
 ## Examples
@@ -129,6 +130,21 @@ yield=1
 yield=2
 yield=3
 done=3
+```
+
+### `state_effect`
+
+```bash
+zig build run-state-basic
+```
+
+Expected output:
+
+```text
+before=5
+after=6
+final_state=6
+value=11
 ```
 
 ## Minimal Example

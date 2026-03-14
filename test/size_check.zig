@@ -11,6 +11,8 @@ test "guard and continuation surfaces are not public" {
     try std.testing.expect(!@hasDecl(shift, "NoShiftGuard"));
     try std.testing.expect(!@hasDecl(shift, "Continuation"));
     try std.testing.expect(@hasDecl(shift, "ResumeOrReturn"));
+    try std.testing.expect(@hasDecl(shift, "effect"));
+    try std.testing.expect(!@hasDecl(shift.effect.state, "Continuation"));
 }
 
 test "runtime defaults stay explicit" {

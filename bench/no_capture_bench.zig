@@ -40,11 +40,11 @@ fn sortAscending(values: []u64) void {
     var i: usize = 1;
     while (i < values.len) : (i += 1) {
         const current = values[i];
-        var j = i;
-        while (j > 0 and values[j - 1] > current) : (j -= 1) {
-            values[j] = values[j - 1];
+        var insert_idx = i;
+        while (insert_idx > 0 and values[insert_idx - 1] > current) : (insert_idx -= 1) {
+            values[insert_idx] = values[insert_idx - 1];
         }
-        values[j] = current;
+        values[insert_idx] = current;
     }
 }
 
@@ -56,7 +56,7 @@ pub fn main() anyerror!void {
 
     _ = try runSample(&runtime, &prompt, warmup_iterations);
 
-    var sample_ns: [samples_per_run]u64 = undefined;
+    var sample_ns = [_]u64{0} ** samples_per_run;
     var expected_checksum: ?usize = null;
     var i: usize = 0;
     while (i < samples_per_run) : (i += 1) {
