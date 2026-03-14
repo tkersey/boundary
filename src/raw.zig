@@ -109,6 +109,12 @@ pub const Runtime = struct {
         if (self.state == .destroyed) return error.RuntimeDestroyed;
     }
 
+    fn ensureEnteredRuntime(self: *Runtime) Error!void {
+        if (self.state == .destroyed) return error.RuntimeDestroyed;
+        if (tls_runtime == self) return;
+        if (self.thread_id != std.Thread.getCurrentId()) return error.CrossThread;
+    }
+
     fn acquireStack(self: *Runtime) !Stack {
         if (self.cached_stacks.pop()) |stack| return stack;
         return Stack.init(self.options);
@@ -374,7 +380,7 @@ fn DriveFrameOutAnswer(comptime PromptType: type) type {
     return struct {
         fn run(frame: anytype) ResetError(ErrorSet)!OutAnswer {
             const runtime = frame.base.runtime;
-            try runtime.ensureThread();
+            try runtime.ensureEnteredRuntime();
             const previous_runtime = tls_runtime;
             const previous_fiber = tls_current_fiber;
             defer {
@@ -428,7 +434,7 @@ fn DriveFrameInAnswer(comptime PromptType: type) type {
     return struct {
         fn run(frame: *ResetFrame(PromptType)) ResetError(ErrorSet)!InAnswer {
             const runtime = frame.base.runtime;
-            try runtime.ensureThread();
+            try runtime.ensureEnteredRuntime();
             const previous_runtime = tls_runtime;
             const previous_fiber = tls_current_fiber;
             defer {
@@ -667,10 +673,13 @@ pub fn shift(
 ) ControlError(PromptType.ErrorSet)!Resume {
     comptime assertHandlerProtocol(Resume, PromptType, Handler);
     const runtime = tls_runtime orelse return error.MissingPrompt;
-    try runtime.ensureThread();
+    try runtime.ensureEnteredRuntime();
 
     const current_fiber = tls_current_fiber orelse return error.MissingPrompt;
     const wanted_prompt = prompt.token;
+    if (current_fiber.prompt_token == wanted_prompt) {
+        return shiftLocal(Resume, PromptType, Handler, current_fiber);
+    }
     var target_fiber = current_fiber;
     while (target_fiber.prompt_token != wanted_prompt) {
         target_fiber = target_fiber.parent_fiber orelse return error.MissingPrompt;
@@ -691,6 +700,87 @@ pub fn shift(
     shift_swap_context(&current_fiber.context, current_fiber.parent_context);
     switch (capture.disposition) {
         .resumed => return capture.resume_value.?,
+        .pending => unreachable,
+    }
+}
+
+fn shiftLocal(
+    comptime Resume: type,
+    comptime PromptType: type,
+    comptime Handler: type,
+    current_fiber: *FiberBase,
+) ControlError(PromptType.ErrorSet)!Resume {
+    const frame: *ResetFrame(PromptType) = @fieldParentPtr("base", current_fiber);
+    var capture = ShiftCapture(Resume, PromptType, Handler){
+        .base = .{
+            .invokeFn = ShiftCapture(Resume, PromptType, Handler).invoke,
+            .source_fiber = current_fiber,
+            .target_fiber = current_fiber,
+        },
+        .target_frame = frame,
+    };
+    current_fiber.state = .suspended;
+    current_fiber.outcome = .{ .captured = &capture.base };
+    tls_current_fiber = current_fiber.parent_fiber;
+    shift_swap_context(&current_fiber.context, current_fiber.parent_context);
+    switch (capture.disposition) {
+        .resumed => return capture.resume_value.?,
+        .pending => unreachable,
+    }
+}
+
+/// Capture the current prompt-local delimiter and resume it once with `resume_value`, preserving the resumed answer.
+pub fn shiftLocalIdentity(
+    comptime Resume: type,
+    comptime PromptType: type,
+    prompt: *const PromptType,
+    resume_value: Resume,
+) ControlError(PromptType.ErrorSet)!Resume {
+    if (comptime PromptType.mode != .resume_then_transform) {
+        @compileError("shiftLocalIdentity requires PromptMode.resume_then_transform");
+    }
+
+    const runtime = tls_runtime orelse return error.MissingPrompt;
+    try runtime.ensureEnteredRuntime();
+
+    const current_fiber = tls_current_fiber orelse return error.MissingPrompt;
+    if (current_fiber.prompt_token != prompt.token) return error.MissingPrompt;
+
+    const frame: *ResetFrame(PromptType) = @fieldParentPtr("base", current_fiber);
+    const IdentityCapture = struct {
+        base: CaptureBase,
+        target_frame: *ResetFrame(PromptType),
+        consumed: bool = false,
+        resume_value: Resume,
+        disposition: enum {
+            pending,
+            resumed,
+        } = .pending,
+
+        fn invoke(base: *CaptureBase, answer_out: *anyopaque) anyerror!void {
+            const self: *@This() = @fieldParentPtr("base", base);
+            const out: *?PromptType.OutAnswer = @ptrCast(@alignCast(answer_out));
+            var continuation = Continuation(Resume, PromptType, @This()){ .capture = self };
+            out.* = try continuation.resumeWith(self.resume_value);
+        }
+    };
+
+    var capture = IdentityCapture{
+        .base = .{
+            .invokeFn = IdentityCapture.invoke,
+            .source_fiber = current_fiber,
+            .target_fiber = current_fiber,
+        },
+        .target_frame = frame,
+        .resume_value = resume_value,
+    };
+
+    current_fiber.state = .suspended;
+    current_fiber.outcome = .{ .captured = &capture.base };
+    tls_current_fiber = current_fiber.parent_fiber;
+    shift_swap_context(&current_fiber.context, current_fiber.parent_context);
+    switch (capture.disposition) {
+        .resumed => return capture.resume_value,
         .pending => unreachable,
     }
 }

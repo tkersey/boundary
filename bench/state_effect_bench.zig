@@ -14,6 +14,14 @@ const Sample = struct {
     elapsed_ns: u64,
 };
 
+const raw_reset_only = struct {
+    var current: usize = 0;
+
+    fn body() shift.ResetError(NoError)!usize {
+        return current;
+    }
+};
+
 const raw_state = struct {
     var prompt_ptr: ?*const RawPrompt = null;
     var current_state: usize = 0;
@@ -67,6 +75,12 @@ const effect_state = struct {
     }
 };
 
+const effect_passthrough = struct {
+    fn body(_: *StateContext) shift.ResetError(NoError)!usize {
+        return 1;
+    }
+};
+
 fn sortAscending(values: []u64) void {
     var index: usize = 1;
     while (index < values.len) : (index += 1) {
@@ -96,6 +110,22 @@ fn runRawSample(runtime: *shift.Runtime, prompt: *RawPrompt, iterations: usize) 
     };
 }
 
+fn runRawResetOnlySample(runtime: *shift.Runtime, prompt: *RawPrompt, iterations: usize) !Sample {
+    var timer = try std.time.Timer.start();
+    var checksum: usize = 0;
+
+    var index: usize = 0;
+    while (index < iterations) : (index += 1) {
+        raw_reset_only.current = index;
+        checksum += try shift.reset(runtime, prompt, raw_reset_only.body);
+    }
+
+    return .{
+        .checksum = checksum,
+        .elapsed_ns = timer.read(),
+    };
+}
+
 fn runEffectSample(runtime: *shift.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
     var timer = try std.time.Timer.start();
     var checksum: usize = 0;
@@ -103,6 +133,22 @@ fn runEffectSample(runtime: *shift.Runtime, instance: *const StateInstance, iter
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         const result = try shift.effect.state.handle(usize, runtime, instance, index, effect_state.body);
+        checksum += result.value + result.state;
+    }
+
+    return .{
+        .checksum = checksum,
+        .elapsed_ns = timer.read(),
+    };
+}
+
+fn runEffectPassthroughSample(runtime: *shift.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
+    var timer = try std.time.Timer.start();
+    var checksum: usize = 0;
+
+    var index: usize = 0;
+    while (index < iterations) : (index += 1) {
+        const result = try shift.effect.state.handle(usize, runtime, instance, index, effect_passthrough.body);
         checksum += result.value + result.state;
     }
 
@@ -134,17 +180,25 @@ pub fn main() anyerror!void {
     var effect_instance = StateInstance.init();
 
     _ = try runRawSample(&raw_runtime, &raw_prompt, warmup_iterations);
+    _ = try runRawResetOnlySample(&raw_runtime, &raw_prompt, warmup_iterations);
     _ = try runEffectSample(&effect_runtime, &effect_instance, warmup_iterations);
+    _ = try runEffectPassthroughSample(&effect_runtime, &effect_instance, warmup_iterations);
 
     var raw_samples = [_]u64{0} ** samples_per_run;
+    var raw_reset_only_samples = [_]u64{0} ** samples_per_run;
     var effect_samples = [_]u64{0} ** samples_per_run;
+    var effect_passthrough_samples = [_]u64{0} ** samples_per_run;
     var raw_checksum: ?usize = null;
+    var raw_reset_only_checksum: ?usize = null;
     var effect_checksum: ?usize = null;
+    var effect_passthrough_checksum: ?usize = null;
 
     var index: usize = 0;
     while (index < samples_per_run) : (index += 1) {
         const raw_sample = try runRawSample(&raw_runtime, &raw_prompt, timed_iterations);
+        const raw_reset_only_sample = try runRawResetOnlySample(&raw_runtime, &raw_prompt, timed_iterations);
         const effect_sample = try runEffectSample(&effect_runtime, &effect_instance, timed_iterations);
+        const effect_passthrough_sample = try runEffectPassthroughSample(&effect_runtime, &effect_instance, timed_iterations);
 
         if (raw_checksum) |checksum| {
             if (checksum != raw_sample.checksum) return error.RawChecksumMismatch;
@@ -158,25 +212,46 @@ pub fn main() anyerror!void {
             effect_checksum = effect_sample.checksum;
         }
 
+        if (raw_reset_only_checksum) |checksum| {
+            if (checksum != raw_reset_only_sample.checksum) return error.RawResetOnlyChecksumMismatch;
+        } else {
+            raw_reset_only_checksum = raw_reset_only_sample.checksum;
+        }
+
+        if (effect_passthrough_checksum) |checksum| {
+            if (checksum != effect_passthrough_sample.checksum) return error.EffectPassthroughChecksumMismatch;
+        } else {
+            effect_passthrough_checksum = effect_passthrough_sample.checksum;
+        }
+
         if (raw_sample.checksum != effect_sample.checksum) return error.BenchmarkParityMismatch;
 
         raw_samples[index] = raw_sample.elapsed_ns;
+        raw_reset_only_samples[index] = raw_reset_only_sample.elapsed_ns;
         effect_samples[index] = effect_sample.elapsed_ns;
+        effect_passthrough_samples[index] = effect_passthrough_sample.elapsed_ns;
     }
 
     const raw_stats = summarizeSamples(&raw_samples);
+    const raw_reset_only_stats = summarizeSamples(&raw_reset_only_samples);
     const effect_stats = summarizeSamples(&effect_samples);
+    const effect_passthrough_stats = summarizeSamples(&effect_passthrough_samples);
 
     var stdout_buffer: [512]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     const stdout = &stdout_writer.interface;
     try stdout.print(
-        "timed_iterations={d} warmup_iterations={d} samples_per_run={d} checksum={d} raw_sample_ns=[{d},{d},{d},{d},{d}] raw_min_ns={d} raw_median_ns={d} raw_max_ns={d} effect_sample_ns=[{d},{d},{d},{d},{d}] effect_min_ns={d} effect_median_ns={d} effect_max_ns={d}\n",
+        "timed_iterations={d} warmup_iterations={d} samples_per_run={d} checksum={d}\n",
         .{
             timed_iterations,
             warmup_iterations,
             samples_per_run,
             raw_checksum.?,
+        },
+    );
+    try stdout.print(
+        "raw_sample_ns=[{d},{d},{d},{d},{d}] raw_min_ns={d} raw_median_ns={d} raw_max_ns={d}\n",
+        .{
             raw_samples[0],
             raw_samples[1],
             raw_samples[2],
@@ -185,6 +260,24 @@ pub fn main() anyerror!void {
             raw_stats.min,
             raw_stats.median,
             raw_stats.max,
+        },
+    );
+    try stdout.print(
+        "raw_reset_only_sample_ns=[{d},{d},{d},{d},{d}] raw_reset_only_min_ns={d} raw_reset_only_median_ns={d} raw_reset_only_max_ns={d}\n",
+        .{
+            raw_reset_only_samples[0],
+            raw_reset_only_samples[1],
+            raw_reset_only_samples[2],
+            raw_reset_only_samples[3],
+            raw_reset_only_samples[4],
+            raw_reset_only_stats.min,
+            raw_reset_only_stats.median,
+            raw_reset_only_stats.max,
+        },
+    );
+    try stdout.print(
+        "effect_sample_ns=[{d},{d},{d},{d},{d}] effect_min_ns={d} effect_median_ns={d} effect_max_ns={d}\n",
+        .{
             effect_samples[0],
             effect_samples[1],
             effect_samples[2],
@@ -193,6 +286,19 @@ pub fn main() anyerror!void {
             effect_stats.min,
             effect_stats.median,
             effect_stats.max,
+        },
+    );
+    try stdout.print(
+        "effect_passthrough_sample_ns=[{d},{d},{d},{d},{d}] effect_passthrough_min_ns={d} effect_passthrough_median_ns={d} effect_passthrough_max_ns={d}\n",
+        .{
+            effect_passthrough_samples[0],
+            effect_passthrough_samples[1],
+            effect_passthrough_samples[2],
+            effect_passthrough_samples[3],
+            effect_passthrough_samples[4],
+            effect_passthrough_stats.min,
+            effect_passthrough_stats.median,
+            effect_passthrough_stats.max,
         },
     );
     try stdout.flush();

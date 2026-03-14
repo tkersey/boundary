@@ -75,14 +75,14 @@ pub fn Context(comptime State: type, comptime Answer: type, comptime ErrorSet: t
         /// Read the current state value from this handled state family.
         pub inline fn get(self: *@This()) shift.ResetError(ErrorSet)!State {
             _ = self;
-            return try raw.shift(State, family_impl.Prompt, &family_impl.active_frame.?.prompt, get_handler);
+            return try raw.shiftLocalIdentity(State, family_impl.Prompt, &family_impl.active_frame.?.prompt, family_impl.active_frame.?.state);
         }
 
         /// Replace the current state value for this handled state family.
         pub inline fn set(self: *@This(), value: State) shift.ResetError(ErrorSet)!void {
             _ = self;
             family_impl.active_frame.?.state = value;
-            return try raw.shift(void, family_impl.Prompt, &family_impl.active_frame.?.prompt, set_handler);
+            return try raw.shiftLocalIdentity(void, family_impl.Prompt, &family_impl.active_frame.?.prompt, {});
         }
     };
 }
