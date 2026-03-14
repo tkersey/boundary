@@ -22,3 +22,34 @@ test "runtime defaults stay explicit" {
     try std.testing.expectEqual(@as(usize, 256 * 1024), runtime.options.stack_bytes);
     try std.testing.expectEqual(@as(usize, 1), runtime.options.guard_pages);
 }
+
+test "algebraic descriptor and context shells stay compact" {
+    const NoError = error{};
+    const no_state = struct {};
+    const search = shift.algebraic.TransformOp("search", void, usize);
+    const stop = shift.algebraic.AbortOp("stop", []const u8);
+    const program = shift.algebraic.Program(usize, NoError, .{ search, stop });
+    const Configured = @TypeOf(program.handlers(.{
+        shift.algebraic.handleTransform(search, no_state{}, struct {
+            /// Supply the compact transform witness value.
+            pub fn resumeValue(_: no_state, _: void) usize {
+                return 1;
+            }
+
+            /// Preserve the resumed answer unchanged.
+            pub fn afterResume(_: no_state, answer: usize) usize {
+                return answer;
+            }
+        }),
+        shift.algebraic.handleAbort(stop, no_state{}, struct {
+            /// Return a fixed abortive witness value.
+            pub fn directReturn(_: no_state, _: []const u8) usize {
+                return 0;
+            }
+        }),
+    }));
+
+    try std.testing.expectEqual(@as(usize, 0), @sizeOf(search));
+    try std.testing.expectEqual(@as(usize, 0), @sizeOf(stop));
+    try std.testing.expectEqual(@sizeOf(usize), @sizeOf(Configured.Context));
+}

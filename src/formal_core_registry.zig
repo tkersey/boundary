@@ -11,6 +11,7 @@ pub const SectionId = enum {
     optional_resumption,
     performance_coverage,
     practical_witnesses,
+    public_algebraic_builders,
     resource_bracketing,
     static_redelim,
     strict_effect_capabilities,
@@ -51,9 +52,14 @@ const optional_resumption_paragraphs = [_][]const u8{
 };
 
 const perf_coverage_paragraphs = [_][]const u8{
-    "The checked performance surface now splits into two layers:\n\n- `bench-state-effect` / `bench-state-effect-check` for the deeper historical `state` lane\n- `bench-effect-matrix` / `bench-effect-matrix-check` for the `effect_family_matrix_v2` artifact covering `state_micro`, `reader_micro`, `reader_batch8`, `optional_return_now_micro`, `optional_return_now_prelude8`, `optional_resume_with_micro`, `optional_resume_with_batch8`, `exception_throw_micro`, `exception_throw_prelude8`, `resource_normal_4`, `resource_normal_32`, `writer_micro`, `writer_batch16`, and `writer_batch64`",
+    "The checked performance surface now splits into two layers:\n\n- `bench-state-effect` / `bench-state-effect-check` for the deeper historical `state` lane\n- `bench-effect-matrix` / `bench-effect-matrix-check` for the `effect_family_matrix_v2` artifact covering `state_micro`, `reader_micro`, `reader_batch8`, `optional_return_now_micro`, `optional_return_now_prelude8`, `optional_resume_with_micro`, `optional_resume_with_batch8`, `exception_throw_micro`, `exception_throw_prelude8`, `algebraic_transform_micro`, `algebraic_choice_return_now_micro`, `algebraic_abort_micro`, `resource_normal_4`, `resource_normal_32`, `writer_micro`, `writer_batch16`, and `writer_batch64`",
     "The matrix classifies lanes as `micro`, `amortized`, or `investigation` so fixed-tax measurements, heavier representative bodies, and intentionally diagnostic loose-threshold lanes are not conflated.",
     "The current execution classes are `direct_frame` for `state`/`reader`, `abortive_control` for `optional`/`exception`, and `storage_backed` for `resource`/`writer`. The private decomposition benches (`bench-writer-decompose`, `bench-resource-decompose`, `bench-abortive-decompose`) are investigative tools for those classes and do not change the checked public artifact contract.",
+};
+
+const public_alg_builder_paragraphs = [_][]const u8{
+    "`shift.algebraic` is the additive public builder surface for closed-world algebraic operations over the existing one-shot prompt runtime. It exposes `TransformOp`, `ChoiceOp`, `AbortOp`, `Program`, and the `handleTransform` / `handleChoice` / `handleAbort` builders without exporting a public continuation handle.",
+    "The builder surface is currently proven by `zig build size-check`, `zig build compile-fail`, and exact-output examples instead of a separate benchmark artifact. The shipped witness examples are `examples/algebraic_artifact_search.zig` and `examples/algebraic_abortive_validation.zig`, and the compile-fail misuse fixtures cover missing handlers, wrong builder mode, wrong `afterResume` shape, and undeclared ops.",
 };
 
 const static_redelim_paragraphs = [_][]const u8{
@@ -120,6 +126,18 @@ pub const sections = [_]Section{
         .paragraphs = &perf_coverage_paragraphs,
     },
     .{
+        .section_id = .public_algebraic_builders,
+        .title = "Public Algebraic Builders",
+        .paragraphs = &public_alg_builder_paragraphs,
+        .example_ids = &.{ "algebraic_artifact_search", "algebraic_abortive_validation" },
+        .fixture_files = &.{
+            "algebraic_missing_handler.zig",
+            "algebraic_wrong_builder_mode.zig",
+            "algebraic_wrong_after_resume_type.zig",
+            "algebraic_undeclared_op.zig",
+        },
+    },
+    .{
         .section_id = .static_redelim,
         .title = "Static Redelim",
         .paragraphs = &static_redelim_paragraphs,
@@ -181,6 +199,7 @@ pub fn anchorId(comptime id: SectionId) []const u8 {
         .multi_prompt_separation => "multi-prompt-separation",
         .optional_resumption => "optional-resumption",
         .performance_coverage => "performance-coverage",
+        .public_algebraic_builders => "public-algebraic-builders",
         .practical_witnesses => "practical-witnesses",
         .resource_bracketing => "resource-bracketing",
         .static_redelim => "static-redelim",
@@ -199,6 +218,7 @@ pub fn anchorPath(comptime id: SectionId) []const u8 {
         .multi_prompt_separation => "FORMAL_CORE.md#multi-prompt-separation",
         .optional_resumption => "FORMAL_CORE.md#optional-resumption",
         .performance_coverage => "FORMAL_CORE.md#performance-coverage",
+        .public_algebraic_builders => "FORMAL_CORE.md#public-algebraic-builders",
         .practical_witnesses => "FORMAL_CORE.md#practical-witnesses",
         .resource_bracketing => "FORMAL_CORE.md#resource-bracketing",
         .static_redelim => "FORMAL_CORE.md#static-redelim",

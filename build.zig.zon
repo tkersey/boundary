@@ -16,6 +16,7 @@
         "examples",
         "src",
         "test",
+        "tools",
     },
     .fingerprint = 0xa50b3b45523140a3,
 }

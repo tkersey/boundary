@@ -1,3 +1,5 @@
+/// Generalized algebraic-effect builders over the core shift/reset runtime.
+pub const algebraic = @import("algebraic.zig");
 /// Additive algebraic-effect families built on top of the core shift/reset runtime.
 pub const effect = @import("effect/root.zig");
 const raw = @import("raw.zig");
@@ -84,5 +86,6 @@ test {
     _ = ResumeOrReturn;
     _ = Runtime;
     _ = effect;
+    _ = algebraic;
     _ = std;
 }

@@ -26,6 +26,8 @@ esac
 
 example_rows() {
   cat <<'EOF'
+algebraic_abortive_validation.zig|primary|run-algebraic-abortive-validation|algebraic_abortive_validation.txt
+algebraic_artifact_search.zig|primary|run-algebraic-artifact-search|algebraic_artifact_search.txt
 early_exit.zig|primary|run-early-exit|early_exit.txt
 exception_basic.zig|primary|run-exception-basic|exception_basic.txt
 generator.zig|extra|run-generator|generator.txt

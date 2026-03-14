@@ -29,6 +29,7 @@ The current public product claim is:
 - `const P = shift.Prompt(.resume_then_transform, InAnswer, OutAnswer, ErrorSet); var prompt = P.init();`
 - `shift.reset(&runtime, &prompt, body)`
 - `shift.shift(Resume, &prompt, Handler)`
+- `shift.algebraic` adds closed-world builder types `TransformOp`, `ChoiceOp`, `AbortOp`, `Program`, and `handleTransform` / `handleChoice` / `handleAbort` over the same runtime
 - the handler protocol is selected by `PromptMode` at comptime
 - `.resume_or_return` handlers may return `shift.ResumeOrReturn(Resume, OutAnswer)` and still provide `afterResume`
 - protocol methods may return either plain values or `ResetError(ErrorSet)!...`
@@ -109,7 +110,48 @@ The additive effect-family contract is now:
   - `effect_resource_forged_context_acquire_fails.zig`
   - `effect_writer_forged_context_tell_fails.zig`
 
+The additive public algebraic-builder contract is now:
+
+- `shift.algebraic.TransformOp`, `shift.algebraic.ChoiceOp`, and `shift.algebraic.AbortOp` define closed-world operation descriptors
+- `shift.algebraic.Program(Answer, ErrorSet, .{ ...ops })` generates a typed runner surface
+- `Program.handlers(.{ ... })` installs handlers in declaration order
+- `Configured.Context.perform(Op, payload)` only accepts declared ops
+- handlers are built with static `Impl` types via `handleTransform` / `handleChoice` / `handleAbort`
+- the builder surface is currently proven by `zig build size-check`, `zig build compile-fail`, and `zig build example-proof`
+- the public surface still does not export a continuation handle
+
 ## Examples
+
+### `algebraic_abortive_validation`
+
+```bash
+zig build run-algebraic-abortive-validation
+```
+
+Expected output:
+
+```text
+validate=name
+abort=missing-name
+final=error=missing-name
+```
+
+### `algebraic_artifact_search`
+
+```bash
+zig build run-algebraic-artifact-search
+```
+
+Expected output:
+
+```text
+query=artifact-search
+messages=1
+tool_calls=0
+memory_blocks=1
+opencode_source=jsonl
+total=3
+```
 
 ### `direct_return`
 
@@ -324,6 +366,9 @@ The covered lanes are:
 - `optional_resume_with_batch8`
 - `exception_throw_micro`
 - `exception_throw_prelude8`
+- `algebraic_transform_micro`
+- `algebraic_choice_return_now_micro`
+- `algebraic_abort_micro`
 - `resource_normal_4`
 - `resource_normal_32`
 - `writer_micro`
@@ -378,8 +423,8 @@ zig build formal-core
 ```
 
 The generated artifact preserves the live law anchors for semantic witnesses,
-strict effect-capability claims, and the optional-resumption family without
-turning into a second README.
+strict effect-capability claims, the additive public algebraic builders, and
+the optional-resumption family without turning into a second README.
 
 ## Minimal Example
 

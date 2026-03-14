@@ -116,7 +116,7 @@ run_bench() {
   (cd "$repo_root" && zig build bench-effect-matrix)
 }
 
-lane_names="state_micro reader_micro reader_batch8 optional_return_now_micro optional_return_now_prelude8 optional_resume_with_micro optional_resume_with_batch8 exception_throw_micro exception_throw_prelude8 resource_normal_4 resource_normal_32 writer_micro writer_batch16 writer_batch64"
+lane_names="state_micro reader_micro reader_batch8 optional_return_now_micro optional_return_now_prelude8 optional_resume_with_micro optional_resume_with_batch8 exception_throw_micro exception_throw_prelude8 algebraic_transform_micro algebraic_choice_return_now_micro algebraic_abort_micro resource_normal_4 resource_normal_32 writer_micro writer_batch16 writer_batch64"
 
 parse_lane_line() {
   line="$1"
@@ -149,7 +149,7 @@ parse_bench_output() {
   warmup_iterations="$(extract_scalar "$summary_line" "warmup_iterations")"
   samples_per_run="$(extract_scalar "$summary_line" "samples_per_run")"
 
-  [ "$lane_count" = "14" ] || {
+  [ "$lane_count" = "17" ] || {
     echo "unexpected lane count: $lane_count" >&2
     exit 1
   }

@@ -153,6 +153,18 @@ pub fn build(b: *std.Build) void {
         step_desc: []const u8,
     }{
         .{
+            .name = "algebraic_abortive_validation",
+            .src = "examples/algebraic_abortive_validation.zig",
+            .step_name = "run-algebraic-abortive-validation",
+            .step_desc = "Run the algebraic abortive-validation example.",
+        },
+        .{
+            .name = "algebraic_artifact_search",
+            .src = "examples/algebraic_artifact_search.zig",
+            .step_name = "run-algebraic-artifact-search",
+            .step_desc = "Run the algebraic artifact-search example.",
+        },
+        .{
             .name = "early_exit",
             .src = "examples/early_exit.zig",
             .step_name = "run-early-exit",

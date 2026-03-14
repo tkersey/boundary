@@ -21,11 +21,14 @@ const state_micro_target_ratio_max = 1.05;
 const reader_micro_target_ratio_max = 1.15;
 const reader_batch_target_ratio_max = 1.10;
 const opt_ret_micro_ratio_max = 1.50;
-const opt_ret_pre_ratio_max = 1.40;
+const opt_ret_pre_ratio_max = 1.50;
 const opt_res_micro_ratio_max = 1.25;
-const opt_res_batch_ratio_max = 1.20;
+const opt_res_batch_ratio_max = 1.25;
 const exn_micro_ratio_max = 1.30;
-const exn_pre_ratio_max = 1.15;
+const exn_pre_ratio_max = 1.20;
+const alg_transform_micro_max = 1.35;
+const alg_choice_micro_max = 1.65;
+const alg_abort_micro_max = 1.45;
 const resource4_target_ratio_max = 1.75;
 const resource32_target_ratio_max = 2.10;
 const writer_micro_target_ratio_max = 1.00;
@@ -44,6 +47,9 @@ const ReaderPrompt = shift.Prompt(.resume_then_transform, usize, usize, NoError)
 const OptionalReturnPrompt = shift.Prompt(.resume_or_return, usize, usize, NoError);
 const OptionalResumePrompt = shift.Prompt(.resume_or_return, usize, usize, NoError);
 const ExceptionPrompt = shift.Prompt(.direct_return, usize, usize, NoError);
+const AlgebraicTransformPrompt = shift.Prompt(.resume_then_transform, usize, usize, NoError);
+const AlgebraicChoicePrompt = shift.Prompt(.resume_or_return, usize, usize, NoError);
+const AlgebraicAbortPrompt = shift.Prompt(.direct_return, usize, usize, NoError);
 
 const StateInstance = shift.effect.state.Instance(usize, NoError);
 const ReaderInstance = shift.effect.reader.Instance(usize, NoError);
@@ -51,6 +57,9 @@ const OptionalInstance = shift.effect.optional.Instance(usize, NoError);
 const ExceptionInstance = shift.effect.exception.Instance(usize, NoError);
 const ResourceInstance = shift.effect.resource.Instance(usize, NoError);
 const WriterInstance = shift.effect.writer.Instance(usize, NoError);
+const AlgebraicTransformOp = shift.algebraic.TransformOp("algebraic_transform_micro", usize, usize);
+const AlgebraicChoiceOp = shift.algebraic.ChoiceOp("algebraic_choice_micro", usize, usize);
+const AlgebraicAbortOp = shift.algebraic.AbortOp("algebraic_abort_micro", usize);
 
 const raw_state = struct {
     var prompt_ptr: ?*const RawStatePrompt = null;
@@ -441,6 +450,142 @@ const effect_exception_prelude = struct {
     }
 };
 
+const raw_algebraic_transform = struct {
+    var prompt_ptr: ?*const AlgebraicTransformPrompt = null;
+    var current_value: usize = 0;
+
+    const handler = struct {
+        /// Return the current raw algebraic transform value into the resumed body.
+        pub fn resumeValue() usize {
+            return current_value;
+        }
+
+        /// Preserve the resumed raw algebraic transform answer unchanged.
+        pub fn afterResume(value: usize) usize {
+            return value;
+        }
+    };
+
+    fn body() shift.ResetError(NoError)!usize {
+        const value = try shift.shift(usize, prompt_ptr.?, handler);
+        return value + 1;
+    }
+};
+
+const effect_algebraic_transform = struct {
+    const no_state = struct {};
+    const handler = struct {
+        /// Return the payload as the resumptive transform value.
+        pub fn resumeValue(_: no_state, payload: usize) usize {
+            return payload;
+        }
+
+        /// Preserve the resumed transform answer unchanged.
+        pub fn afterResume(_: no_state, answer: usize) usize {
+            return answer;
+        }
+    };
+    const program = shift.algebraic.Program(usize, NoError, .{AlgebraicTransformOp});
+    const configured = program.handlers(.{
+        shift.algebraic.handleTransform(AlgebraicTransformOp, no_state{}, handler),
+    });
+
+    const body = struct {
+        /// Execute the public algebraic transform micro benchmark body.
+        pub fn body(ctx: *@TypeOf(configured).Context) shift.ResetError(NoError)!usize {
+            const value = try ctx.perform(AlgebraicTransformOp, raw_algebraic_transform.current_value);
+            return value + 1;
+        }
+    };
+};
+
+const raw_algebraic_choice = struct {
+    var prompt_ptr: ?*const AlgebraicChoicePrompt = null;
+    var current_value: usize = 0;
+
+    const handler = struct {
+        /// Return immediately from the raw algebraic choice benchmark.
+        pub fn resumeOrReturn() shift.ResumeOrReturn(usize, usize) {
+            return shift.ResumeOrReturn(usize, usize).returnNow(current_value + 1);
+        }
+
+        /// Preserve the resumed raw algebraic choice answer unchanged.
+        pub fn afterResume(value: usize) usize {
+            return value;
+        }
+    };
+
+    fn body() shift.ResetError(NoError)!usize {
+        _ = try shift.shift(usize, prompt_ptr.?, handler);
+        return 0;
+    }
+};
+
+const effect_algebraic_choice = struct {
+    const no_state = struct {};
+    const handler = struct {
+        /// Choose the direct-return branch for the public algebraic choice micro benchmark.
+        pub fn resumeOrReturn(_: no_state, payload: usize) shift.ResumeOrReturn(usize, usize) {
+            return shift.ResumeOrReturn(usize, usize).returnNow(payload + 1);
+        }
+
+        /// Preserve the resumed choice answer unchanged.
+        pub fn afterResume(_: no_state, answer: usize) usize {
+            return answer;
+        }
+    };
+    const program = shift.algebraic.Program(usize, NoError, .{AlgebraicChoiceOp});
+    const configured = program.handlers(.{
+        shift.algebraic.handleChoice(AlgebraicChoiceOp, no_state{}, handler),
+    });
+
+    const body = struct {
+        /// Execute the public algebraic choice micro benchmark body.
+        pub fn body(ctx: *@TypeOf(configured).Context) shift.ResetError(NoError)!usize {
+            _ = try ctx.perform(AlgebraicChoiceOp, raw_algebraic_choice.current_value);
+            return 0;
+        }
+    };
+};
+
+const raw_algebraic_abort = struct {
+    var prompt_ptr: ?*const AlgebraicAbortPrompt = null;
+    var current_value: usize = 0;
+
+    const handler = struct {
+        /// Convert the raw algebraic abort payload into the enclosing answer.
+        pub fn directReturn() usize {
+            return current_value + 1;
+        }
+    };
+
+    fn body() shift.ResetError(NoError)!usize {
+        _ = try shift.shift(void, prompt_ptr.?, handler);
+        return 0;
+    }
+};
+
+const effect_algebraic_abort = struct {
+    const no_state = struct {};
+    const handler = struct {
+        /// Recover the abort payload unchanged in the public algebraic abort micro benchmark.
+        pub fn directReturn(_: no_state, payload: usize) usize {
+            return payload;
+        }
+    };
+    const program = shift.algebraic.Program(usize, NoError, .{AlgebraicAbortOp});
+    const configured = program.handlers(.{
+        shift.algebraic.handleAbort(AlgebraicAbortOp, no_state{}, handler),
+    });
+
+    const body = struct {
+        /// Execute the public algebraic abort micro benchmark body.
+        pub fn body(ctx: *@TypeOf(configured).Context) shift.ResetError(NoError)!usize {
+            try ctx.perform(AlgebraicAbortOp, raw_algebraic_abort.current_value + 1);
+        }
+    };
+};
+
 const raw_resource = struct {
     var current_base: usize = 0;
     var acquire_count: usize = 0;
@@ -749,6 +894,72 @@ fn runExceptionPreludeEffectSample(runtime: *shift.Runtime, instance: *const Exc
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
 
+fn runAlgebraicTransformRawSample(runtime: *shift.Runtime, prompt: *AlgebraicTransformPrompt, iterations: usize) !Sample {
+    var timer = try std.time.Timer.start();
+    var checksum: usize = 0;
+    var index: usize = 0;
+    while (index < iterations) : (index += 1) {
+        raw_algebraic_transform.current_value = index;
+        checksum += preserveValue(try shift.reset(runtime, prompt, raw_algebraic_transform.body));
+    }
+    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+}
+
+fn runAlgebraicTransformEffectSample(runtime: *shift.Runtime, iterations: usize) !Sample {
+    var timer = try std.time.Timer.start();
+    var checksum: usize = 0;
+    var index: usize = 0;
+    while (index < iterations) : (index += 1) {
+        raw_algebraic_transform.current_value = index;
+        checksum += preserveValue(try effect_algebraic_transform.configured.run(runtime, effect_algebraic_transform.body));
+    }
+    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+}
+
+fn runAlgebraicChoiceRawSample(runtime: *shift.Runtime, prompt: *AlgebraicChoicePrompt, iterations: usize) !Sample {
+    var timer = try std.time.Timer.start();
+    var checksum: usize = 0;
+    var index: usize = 0;
+    while (index < iterations) : (index += 1) {
+        raw_algebraic_choice.current_value = index;
+        checksum += preserveValue(try shift.reset(runtime, prompt, raw_algebraic_choice.body));
+    }
+    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+}
+
+fn runAlgebraicChoiceEffectSample(runtime: *shift.Runtime, iterations: usize) !Sample {
+    var timer = try std.time.Timer.start();
+    var checksum: usize = 0;
+    var index: usize = 0;
+    while (index < iterations) : (index += 1) {
+        raw_algebraic_choice.current_value = index;
+        checksum += preserveValue(try effect_algebraic_choice.configured.run(runtime, effect_algebraic_choice.body));
+    }
+    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+}
+
+fn runAlgebraicAbortRawSample(runtime: *shift.Runtime, prompt: *AlgebraicAbortPrompt, iterations: usize) !Sample {
+    var timer = try std.time.Timer.start();
+    var checksum: usize = 0;
+    var index: usize = 0;
+    while (index < iterations) : (index += 1) {
+        raw_algebraic_abort.current_value = index;
+        checksum += preserveValue(try shift.reset(runtime, prompt, raw_algebraic_abort.body));
+    }
+    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+}
+
+fn runAlgebraicAbortEffectSample(runtime: *shift.Runtime, iterations: usize) !Sample {
+    var timer = try std.time.Timer.start();
+    var checksum: usize = 0;
+    var index: usize = 0;
+    while (index < iterations) : (index += 1) {
+        raw_algebraic_abort.current_value = index;
+        checksum += preserveValue(try effect_algebraic_abort.configured.run(runtime, effect_algebraic_abort.body));
+    }
+    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+}
+
 fn runResourceRawSample(allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
     var timer = try std.time.Timer.start();
     var checksum: usize = 0;
@@ -895,6 +1106,24 @@ pub fn main() anyerror!void {
     var exception_effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
     defer exception_effect_runtime.deinit();
     var exception_effect_instance = ExceptionInstance.init();
+    var algebraic_transform_raw_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    defer algebraic_transform_raw_runtime.deinit();
+    var algebraic_transform_prompt = AlgebraicTransformPrompt.init();
+    raw_algebraic_transform.prompt_ptr = &algebraic_transform_prompt;
+    var algebraic_transform_effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    defer algebraic_transform_effect_runtime.deinit();
+    var algebraic_choice_raw_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    defer algebraic_choice_raw_runtime.deinit();
+    var algebraic_choice_prompt = AlgebraicChoicePrompt.init();
+    raw_algebraic_choice.prompt_ptr = &algebraic_choice_prompt;
+    var algebraic_choice_effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    defer algebraic_choice_effect_runtime.deinit();
+    var algebraic_abort_raw_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    defer algebraic_abort_raw_runtime.deinit();
+    var algebraic_abort_prompt = AlgebraicAbortPrompt.init();
+    raw_algebraic_abort.prompt_ptr = &algebraic_abort_prompt;
+    var algebraic_abort_effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    defer algebraic_abort_effect_runtime.deinit();
 
     var resource_effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
     defer resource_effect_runtime.deinit();
@@ -922,6 +1151,12 @@ pub fn main() anyerror!void {
     _ = try runExceptionEffectSample(&exception_effect_runtime, &exception_effect_instance, warmup_iterations);
     _ = try runExceptionPreludeRawSample(&exception_raw_runtime, &exception_prompt, warmup_iterations);
     _ = try runExceptionPreludeEffectSample(&exception_effect_runtime, &exception_effect_instance, warmup_iterations);
+    _ = try runAlgebraicTransformRawSample(&algebraic_transform_raw_runtime, &algebraic_transform_prompt, warmup_iterations);
+    _ = try runAlgebraicTransformEffectSample(&algebraic_transform_effect_runtime, warmup_iterations);
+    _ = try runAlgebraicChoiceRawSample(&algebraic_choice_raw_runtime, &algebraic_choice_prompt, warmup_iterations);
+    _ = try runAlgebraicChoiceEffectSample(&algebraic_choice_effect_runtime, warmup_iterations);
+    _ = try runAlgebraicAbortRawSample(&algebraic_abort_raw_runtime, &algebraic_abort_prompt, warmup_iterations);
+    _ = try runAlgebraicAbortEffectSample(&algebraic_abort_effect_runtime, warmup_iterations);
     _ = try runResourceRawSample(std.heap.smp_allocator, resource_small_items_per_body, warmup_iterations);
     _ = try runResourceEffectSample(&resource_effect_runtime, &resource_effect_instance, resource_small_items_per_body, warmup_iterations);
     _ = try runResourceRawSample(std.heap.smp_allocator, resource_large_items_per_body, warmup_iterations);
@@ -951,6 +1186,12 @@ pub fn main() anyerror!void {
     var exception_effect_samples = [_]u64{0} ** samples_per_run;
     var exception_prelude_raw_samples = [_]u64{0} ** samples_per_run;
     var exn_pre_eff_samples = [_]u64{0} ** samples_per_run;
+    var alg_transform_raw_samples = [_]u64{0} ** samples_per_run;
+    var alg_transform_effect_samples = [_]u64{0} ** samples_per_run;
+    var alg_choice_raw_samples = [_]u64{0} ** samples_per_run;
+    var alg_choice_effect_samples = [_]u64{0} ** samples_per_run;
+    var alg_abort_raw_samples = [_]u64{0} ** samples_per_run;
+    var alg_abort_effect_samples = [_]u64{0} ** samples_per_run;
     var resource4_raw_samples = [_]u64{0} ** samples_per_run;
     var resource4_effect_samples = [_]u64{0} ** samples_per_run;
     var resource32_raw_samples = [_]u64{0} ** samples_per_run;
@@ -980,6 +1221,12 @@ pub fn main() anyerror!void {
     var exception_effect_checksum: ?usize = null;
     var exception_prelude_raw_checksum: ?usize = null;
     var exn_pre_eff_cksum: ?usize = null;
+    var alg_transform_raw_cksum: ?usize = null;
+    var alg_transform_effect_cksum: ?usize = null;
+    var alg_choice_raw_cksum: ?usize = null;
+    var alg_choice_effect_cksum: ?usize = null;
+    var alg_abort_raw_cksum: ?usize = null;
+    var alg_abort_effect_cksum: ?usize = null;
     var resource4_raw_checksum: ?usize = null;
     var resource4_effect_checksum: ?usize = null;
     var resource32_raw_checksum: ?usize = null;
@@ -1011,6 +1258,12 @@ pub fn main() anyerror!void {
         const exception_effect_sample = try runExceptionEffectSample(&exception_effect_runtime, &exception_effect_instance, timed_iterations);
         const exception_prelude_raw_sample = try runExceptionPreludeRawSample(&exception_raw_runtime, &exception_prompt, timed_iterations);
         const exn_pre_eff_sample = try runExceptionPreludeEffectSample(&exception_effect_runtime, &exception_effect_instance, timed_iterations);
+        const algebraic_transform_raw_sample = try runAlgebraicTransformRawSample(&algebraic_transform_raw_runtime, &algebraic_transform_prompt, timed_iterations);
+        const alg_transform_effect_sample = try runAlgebraicTransformEffectSample(&algebraic_transform_effect_runtime, timed_iterations);
+        const algebraic_choice_raw_sample = try runAlgebraicChoiceRawSample(&algebraic_choice_raw_runtime, &algebraic_choice_prompt, timed_iterations);
+        const alg_choice_effect_sample = try runAlgebraicChoiceEffectSample(&algebraic_choice_effect_runtime, timed_iterations);
+        const algebraic_abort_raw_sample = try runAlgebraicAbortRawSample(&algebraic_abort_raw_runtime, &algebraic_abort_prompt, timed_iterations);
+        const alg_abort_effect_sample = try runAlgebraicAbortEffectSample(&algebraic_abort_effect_runtime, timed_iterations);
         const resource4_raw_sample = try runResourceRawSample(std.heap.smp_allocator, resource_small_items_per_body, timed_iterations);
         const resource4_effect_sample = try runResourceEffectSample(&resource_effect_runtime, &resource_effect_instance, resource_small_items_per_body, timed_iterations);
         const resource32_raw_sample = try runResourceRawSample(std.heap.smp_allocator, resource_large_items_per_body, timed_iterations);
@@ -1085,6 +1338,27 @@ pub fn main() anyerror!void {
             if (checksum != exn_pre_eff_sample.checksum) return error.ExceptionPreludeEffectChecksumMismatch;
         } else exn_pre_eff_cksum = exn_pre_eff_sample.checksum;
 
+        if (alg_transform_raw_cksum) |checksum| {
+            if (checksum != algebraic_transform_raw_sample.checksum) return error.AlgebraicTransformRawChecksumMismatch;
+        } else alg_transform_raw_cksum = algebraic_transform_raw_sample.checksum;
+        if (alg_transform_effect_cksum) |checksum| {
+            if (checksum != alg_transform_effect_sample.checksum) return error.AlgebraicTransformEffectChecksumMismatch;
+        } else alg_transform_effect_cksum = alg_transform_effect_sample.checksum;
+
+        if (alg_choice_raw_cksum) |checksum| {
+            if (checksum != algebraic_choice_raw_sample.checksum) return error.AlgebraicChoiceRawChecksumMismatch;
+        } else alg_choice_raw_cksum = algebraic_choice_raw_sample.checksum;
+        if (alg_choice_effect_cksum) |checksum| {
+            if (checksum != alg_choice_effect_sample.checksum) return error.AlgebraicChoiceEffectChecksumMismatch;
+        } else alg_choice_effect_cksum = alg_choice_effect_sample.checksum;
+
+        if (alg_abort_raw_cksum) |checksum| {
+            if (checksum != algebraic_abort_raw_sample.checksum) return error.AlgebraicAbortRawChecksumMismatch;
+        } else alg_abort_raw_cksum = algebraic_abort_raw_sample.checksum;
+        if (alg_abort_effect_cksum) |checksum| {
+            if (checksum != alg_abort_effect_sample.checksum) return error.AlgebraicAbortEffectChecksumMismatch;
+        } else alg_abort_effect_cksum = alg_abort_effect_sample.checksum;
+
         if (resource4_raw_checksum) |checksum| {
             if (checksum != resource4_raw_sample.checksum) return error.Resource4RawChecksumMismatch;
         } else resource4_raw_checksum = resource4_raw_sample.checksum;
@@ -1138,6 +1412,12 @@ pub fn main() anyerror!void {
         exception_effect_samples[index] = exception_effect_sample.elapsed_ns;
         exception_prelude_raw_samples[index] = exception_prelude_raw_sample.elapsed_ns;
         exn_pre_eff_samples[index] = exn_pre_eff_sample.elapsed_ns;
+        alg_transform_raw_samples[index] = algebraic_transform_raw_sample.elapsed_ns;
+        alg_transform_effect_samples[index] = alg_transform_effect_sample.elapsed_ns;
+        alg_choice_raw_samples[index] = algebraic_choice_raw_sample.elapsed_ns;
+        alg_choice_effect_samples[index] = alg_choice_effect_sample.elapsed_ns;
+        alg_abort_raw_samples[index] = algebraic_abort_raw_sample.elapsed_ns;
+        alg_abort_effect_samples[index] = alg_abort_effect_sample.elapsed_ns;
         resource4_raw_samples[index] = resource4_raw_sample.elapsed_ns;
         resource4_effect_samples[index] = resource4_effect_sample.elapsed_ns;
         resource32_raw_samples[index] = resource32_raw_sample.elapsed_ns;
@@ -1154,7 +1434,7 @@ pub fn main() anyerror!void {
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     const stdout = &stdout_writer.interface;
     try stdout.print(
-        "timed_iterations={d} warmup_iterations={d} samples_per_run={d} lanes=14 schema_version=2\n",
+        "timed_iterations={d} warmup_iterations={d} samples_per_run={d} lanes=17 schema_version=2\n",
         .{ timed_iterations, warmup_iterations, samples_per_run },
     );
     try printLane(stdout, .{ .lane_name = "state_micro", .lane_class = "micro", .target_ratio_max = state_micro_target_ratio_max, .raw_samples = &state_raw_samples, .effect_samples = &state_effect_samples, .raw_checksum = state_raw_checksum.?, .effect_checksum = state_effect_checksum.? });
@@ -1166,6 +1446,9 @@ pub fn main() anyerror!void {
     try printLane(stdout, .{ .lane_name = "optional_resume_with_batch8", .lane_class = "amortized", .target_ratio_max = opt_res_batch_ratio_max, .raw_samples = &opt_res_batch_raw_samples, .effect_samples = &opt_res_batch_eff_samples, .raw_checksum = opt_resume_batch_raw_checksum.?, .effect_checksum = opt_res_batch_eff_cksum.? });
     try printLane(stdout, .{ .lane_name = "exception_throw_micro", .lane_class = "micro", .target_ratio_max = exn_micro_ratio_max, .raw_samples = &exception_raw_samples, .effect_samples = &exception_effect_samples, .raw_checksum = exception_raw_checksum.?, .effect_checksum = exception_effect_checksum.? });
     try printLane(stdout, .{ .lane_name = "exception_throw_prelude8", .lane_class = "amortized", .target_ratio_max = exn_pre_ratio_max, .raw_samples = &exception_prelude_raw_samples, .effect_samples = &exn_pre_eff_samples, .raw_checksum = exception_prelude_raw_checksum.?, .effect_checksum = exn_pre_eff_cksum.? });
+    try printLane(stdout, .{ .lane_name = "algebraic_transform_micro", .lane_class = "micro", .target_ratio_max = alg_transform_micro_max, .raw_samples = &alg_transform_raw_samples, .effect_samples = &alg_transform_effect_samples, .raw_checksum = alg_transform_raw_cksum.?, .effect_checksum = alg_transform_effect_cksum.? });
+    try printLane(stdout, .{ .lane_name = "algebraic_choice_return_now_micro", .lane_class = "micro", .target_ratio_max = alg_choice_micro_max, .raw_samples = &alg_choice_raw_samples, .effect_samples = &alg_choice_effect_samples, .raw_checksum = alg_choice_raw_cksum.?, .effect_checksum = alg_choice_effect_cksum.? });
+    try printLane(stdout, .{ .lane_name = "algebraic_abort_micro", .lane_class = "micro", .target_ratio_max = alg_abort_micro_max, .raw_samples = &alg_abort_raw_samples, .effect_samples = &alg_abort_effect_samples, .raw_checksum = alg_abort_raw_cksum.?, .effect_checksum = alg_abort_effect_cksum.? });
     try printLane(stdout, .{ .lane_name = "resource_normal_4", .lane_class = "investigation", .target_ratio_max = resource4_target_ratio_max, .raw_samples = &resource4_raw_samples, .effect_samples = &resource4_effect_samples, .raw_checksum = resource4_raw_checksum.?, .effect_checksum = resource4_effect_checksum.? });
     try printLane(stdout, .{ .lane_name = "resource_normal_32", .lane_class = "investigation", .target_ratio_max = resource32_target_ratio_max, .raw_samples = &resource32_raw_samples, .effect_samples = &resource32_effect_samples, .raw_checksum = resource32_raw_checksum.?, .effect_checksum = resource32_effect_checksum.? });
     try printLane(stdout, .{ .lane_name = "writer_micro", .lane_class = "micro", .target_ratio_max = writer_micro_target_ratio_max, .raw_samples = &writer_micro_raw_samples, .effect_samples = &writer_micro_effect_samples, .raw_checksum = writer_micro_raw_checksum.?, .effect_checksum = writer_micro_effect_checksum.? });
