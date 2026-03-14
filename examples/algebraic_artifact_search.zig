@@ -127,19 +127,24 @@ const body = struct {
     }
 };
 
-/// Run the exact-output artifact-search example.
-pub fn main() anyerror!void {
+/// Write the exact-output artifact-search transcript for this example.
+pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
     defer runtime.deinit();
 
     state = .{};
     const total = try configured.run(&runtime, body);
-    var stdout_writer = std.fs.File.stdout().writer(&.{});
-    const stdout = &stdout_writer.interface;
 
     var i: usize = 0;
     while (i < state.len) : (i += 1) {
-        try stdout.print("{s}\n", .{state.lines[i]});
+        try writer.print("{s}\n", .{state.lines[i]});
     }
-    try stdout.print("total={d}\n", .{total});
+    try writer.print("total={d}\n", .{total});
+}
+
+/// Run the exact-output artifact-search example.
+pub fn main() anyerror!void {
+    var stdout_writer = std.fs.File.stdout().writer(&.{});
+    const stdout = &stdout_writer.interface;
+    try run(stdout);
 }

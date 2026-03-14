@@ -9,6 +9,22 @@ fn addRuntimeAssembly(b: *std.Build, module: *std.Build.Module, target: std.Buil
     }
 }
 
+fn createShiftConsumerModule(
+    b: *std.Build,
+    path: []const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    shift_mod: *std.Build.Module,
+) *std.Build.Module {
+    const mod = b.createModule(.{
+        .root_source_file = b.path(path),
+        .target = target,
+        .optimize = optimize,
+    });
+    mod.addImport("shift", shift_mod);
+    return mod;
+}
+
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -84,6 +100,60 @@ pub fn build(b: *std.Build) void {
     });
     const run_witness_tests = b.addRunArtifact(witness_tests);
     test_step.dependOn(&run_witness_tests.step);
+
+    const backend_parity_mod = b.createModule(.{
+        .root_source_file = b.path("test/backend_parity_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const backend_parity_manifest_mod = b.createModule(.{
+        .root_source_file = b.path("test/backend_parity_manifest.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const parity_kernel_mod = b.createModule(.{
+        .root_source_file = b.path("src/parity_kernel.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const backend_state_expect_mod = b.createModule(.{
+        .root_source_file = b.path("test/backend_parity_state_expectations.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    backend_parity_manifest_mod.addImport("formal_core_registry", formal_core_registry_mod);
+    backend_state_expect_mod.addImport("parity_kernel", parity_kernel_mod);
+    backend_parity_mod.addImport("shift", shift_mod);
+    backend_parity_mod.addImport("backend_parity_manifest", backend_parity_manifest_mod);
+    backend_parity_mod.addImport("backend_parity_state_expectations", backend_state_expect_mod);
+    backend_parity_mod.addImport("parity_kernel", parity_kernel_mod);
+    const parity_machine_mod = b.createModule(.{
+        .root_source_file = b.path("src/parity_machine.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    parity_machine_mod.addImport("parity_kernel", parity_kernel_mod);
+    backend_parity_mod.addImport("parity_machine", parity_machine_mod);
+    backend_parity_mod.addImport("witnesses_src", witnesses_mod);
+    backend_parity_mod.addImport("example_algebraic_abortive_validation", createShiftConsumerModule(b, "examples/algebraic_abortive_validation.zig", target, optimize, shift_mod));
+    backend_parity_mod.addImport("example_algebraic_artifact_search", createShiftConsumerModule(b, "examples/algebraic_artifact_search.zig", target, optimize, shift_mod));
+    backend_parity_mod.addImport("example_early_exit", createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, shift_mod));
+    backend_parity_mod.addImport("example_exception_basic", createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, shift_mod));
+    backend_parity_mod.addImport("example_generator", createShiftConsumerModule(b, "examples/generator.zig", target, optimize, shift_mod));
+    backend_parity_mod.addImport("example_nested_workflow", createShiftConsumerModule(b, "examples/nested_workflow.zig", target, optimize, shift_mod));
+    backend_parity_mod.addImport("example_optional_basic", createShiftConsumerModule(b, "examples/optional_basic.zig", target, optimize, shift_mod));
+    backend_parity_mod.addImport("example_reader_basic", createShiftConsumerModule(b, "examples/reader_basic.zig", target, optimize, shift_mod));
+    backend_parity_mod.addImport("example_resource_basic", createShiftConsumerModule(b, "examples/resource_basic.zig", target, optimize, shift_mod));
+    backend_parity_mod.addImport("example_resume_or_return", createShiftConsumerModule(b, "examples/resume_or_return.zig", target, optimize, shift_mod));
+    backend_parity_mod.addImport("example_state_basic", createShiftConsumerModule(b, "examples/state_basic.zig", target, optimize, shift_mod));
+    backend_parity_mod.addImport("example_writer_basic", createShiftConsumerModule(b, "examples/writer_basic.zig", target, optimize, shift_mod));
+    backend_parity_mod.addImport("survey_resume_transform_executes", createShiftConsumerModule(b, "test/one_shot_survey/protocol_resume_transform_executes.zig", target, optimize, shift_mod));
+    const backend_parity_tests = b.addTest(.{
+        .root_module = backend_parity_mod,
+    });
+    const run_backend_parity_tests = b.addRunArtifact(backend_parity_tests);
+    const backend_parity_step = b.step("backend-parity", "Run proof-only parity checks against the stackful runtime surface.");
+    backend_parity_step.dependOn(&run_backend_parity_tests.step);
 
     const formal_core_render_mod = b.createModule(.{
         .root_source_file = b.path("tools/render_formal_core.zig"),

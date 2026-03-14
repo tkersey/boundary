@@ -38,19 +38,24 @@ const body = struct {
     }
 };
 
-/// Run the exact-output abortive-validation example.
-pub fn main() anyerror!void {
+/// Write the exact-output abortive-validation transcript for this example.
+pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
     defer runtime.deinit();
 
     state = .{};
     const result = try configured.run(&runtime, body);
-    var stdout_writer = std.fs.File.stdout().writer(&.{});
-    const stdout = &stdout_writer.interface;
 
     var i: usize = 0;
     while (i < state.len) : (i += 1) {
-        try stdout.print("{s}\n", .{state.lines[i]});
+        try writer.print("{s}\n", .{state.lines[i]});
     }
-    try stdout.print("final={s}\n", .{result});
+    try writer.print("final={s}\n", .{result});
+}
+
+/// Run the exact-output abortive-validation example.
+pub fn main() anyerror!void {
+    var stdout_writer = std.fs.File.stdout().writer(&.{});
+    const stdout = &stdout_writer.interface;
+    try run(stdout);
 }

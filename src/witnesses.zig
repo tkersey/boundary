@@ -1,4 +1,4 @@
-const shift = @import("root.zig");
+const shift = @import("shift");
 const std = @import("std");
 
 /// Stable witness metadata for the tests-only corpus.

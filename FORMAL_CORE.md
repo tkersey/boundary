@@ -74,6 +74,8 @@ Distinct prompt values do not alias each other, even when they share the same ha
 
 The repo keeps one extra practical witness, `generator`, plus primary exact-output examples for `early_exit`, `resume_or_return`, `nested_workflow`, `exception_basic`, `optional_basic`, `reader_basic`, `resource_basic`, `state_basic`, and `writer_basic`.
 
+The proof-only parity backend is checked by `zig build backend-parity`. `src/parity_kernel.zig` now owns the hard witness core plus the `nested_workflow` publish path, while `src/parity_machine.zig` still routes untouched cases through the legacy transcript-first proof path. It remains parity infrastructure, not a public fallback runtime.
+
 <a id="resource-bracketing"></a>
 ## Bracketed Resource Cleanup
 

@@ -63,6 +63,7 @@ zig build size-check
 zig build compile-fail
 zig build one-shot-survey
 zig build example-proof
+zig build backend-parity
 zig build effect-construction-boundary
 zig build readme-contract
 zig build formal-core-write
@@ -88,6 +89,9 @@ one of these proof surfaces:
 - `zig build compile-fail` for hidden continuation/context surfaces and forged
   capability misuse
 - `zig build example-proof` for exact-output public example transcripts
+- `zig build backend-parity` for the proof-only parity backend, with the typed
+  kernel owning the witness core and `nested_workflow` publish path while the
+  remaining cases stay on the legacy parity machine
 - `zig build bench-effect-matrix-check` for full shipped-family benchmark coverage
 - `zig build bench-state-effect-check` for the checked benchmark artifact on a
   clean tree
@@ -426,6 +430,17 @@ zig build formal-core
 The generated artifact preserves the live law anchors for semantic witnesses,
 strict effect-capability claims, the additive public algebraic builders, and
 the optional-resumption family without turning into a second README.
+
+The proof-only parity backend is exercised by:
+
+```bash
+zig build backend-parity
+```
+
+The typed kernel in `src/parity_kernel.zig` now owns the hard witness core plus
+the `nested_workflow` publish path, while `src/parity_machine.zig` continues to
+route every untouched case through the legacy transcript-first proof path. This
+remains proof infrastructure rather than a public fallback runtime.
 
 ## Minimal Example
 
