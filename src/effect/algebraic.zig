@@ -92,7 +92,11 @@ fn OptionalKernel(comptime ResumeType: type, comptime AnswerType: type, comptime
                 pub fn resumeOrReturn() shift.ResetError(ErrorSetType)!DecisionType {
                     const decision = try callResumeOrReturn();
                     switch (decision) {
-                        .return_now => |_| cleanup.unwindTo(active_cleanup_marker) catch |err| return @errorCast(err),
+                        .return_now => |_| {
+                            if (cleanup.checkpoint() != active_cleanup_marker) {
+                                cleanup.unwindTo(active_cleanup_marker) catch |err| return @errorCast(err);
+                            }
+                        },
                         .resume_with => {},
                     }
                     return decision;

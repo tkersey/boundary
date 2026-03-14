@@ -50,6 +50,8 @@ The checked performance surface now splits into two layers:
 
 The matrix classifies lanes as `micro`, `amortized`, or `investigation` so fixed-tax measurements, heavier representative bodies, and intentionally diagnostic loose-threshold lanes are not conflated.
 
+The current execution classes are `direct_frame` for `state`/`reader`, `abortive_control` for `optional`/`exception`, and `storage_backed` for `resource`/`writer`. The private decomposition benches (`bench-writer-decompose`, `bench-resource-decompose`, `bench-abortive-decompose`) are investigative tools for those classes and do not change the checked public artifact contract.
+
 <a id="static-redelim"></a>
 ## Static Redelim
 

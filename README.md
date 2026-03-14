@@ -330,6 +330,22 @@ The covered lanes are:
 - `writer_batch16`
 - `writer_batch64`
 
+The current performance model is:
+
+- `direct_frame`: `state_micro`, `reader_micro`, `reader_batch8`
+- `abortive_control`: `optional_*`, `exception_*`
+- `storage_backed`: `resource_*`, `writer_*`
+
+The decomposition benches are intentionally separate from the checked artifacts:
+
+```bash
+zig build bench-writer-decompose
+zig build bench-resource-decompose
+zig build bench-abortive-decompose
+```
+
+Use them to localize storage/finalization/cleanup or abortive fixed-tax costs before changing code; they are investigative and do not define the checked public benchmark contract.
+
 The checked state-effect artifact lives at
 `bench/baselines/state_effect_v1.json`. Refresh it with:
 

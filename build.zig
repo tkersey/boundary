@@ -272,6 +272,24 @@ pub fn build(b: *std.Build) void {
             .step_name = "bench-effect-matrix",
             .step_desc = "Compare every shipped effect family against its chosen comparator lane.",
         },
+        .{
+            .name = "shift-writer-effect-decompose-bench",
+            .src = "bench/writer_effect_decompose_bench.zig",
+            .step_name = "bench-writer-decompose",
+            .step_desc = "Decompose writer-effect storage and finalization costs.",
+        },
+        .{
+            .name = "shift-resource-effect-decompose-bench",
+            .src = "bench/resource_effect_decompose_bench.zig",
+            .step_name = "bench-resource-decompose",
+            .step_desc = "Decompose resource-effect acquire and cleanup costs.",
+        },
+        .{
+            .name = "shift-abortive-effect-decompose-bench",
+            .src = "bench/abortive_effect_decompose_bench.zig",
+            .step_name = "bench-abortive-decompose",
+            .step_desc = "Decompose heavier abortive optional and exception costs.",
+        },
     };
 
     inline for (bench_specs) |bench_spec| {
