@@ -4,7 +4,6 @@ const std = @import("std");
 const NoError = error{};
 const RawPrompt = shift.Prompt(.resume_then_transform, usize, usize, NoError);
 const StateInstance = shift.effect.state.Instance(usize, NoError);
-const StateContext = shift.effect.state.Context(usize, usize, NoError);
 const timed_iterations: usize = 50_000;
 const warmup_iterations: usize = 20_000;
 const samples_per_run: usize = 5;
@@ -68,15 +67,18 @@ const raw_state = struct {
 };
 
 const effect_state = struct {
-    fn body(ctx: *StateContext) shift.ResetError(NoError)!usize {
-        const before = try ctx.get();
-        try ctx.set(before + 1);
-        return try ctx.get();
+    /// Execute the state-effect benchmark body.
+    pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!usize {
+        const before = try shift.effect.state.get(Cap, ctx);
+        try shift.effect.state.set(Cap, ctx, before + 1);
+        return try shift.effect.state.get(Cap, ctx);
     }
 };
 
 const effect_passthrough = struct {
-    fn body(_: *StateContext) shift.ResetError(NoError)!usize {
+    /// Execute the passthrough state-effect benchmark body.
+    pub fn body(comptime Cap: type, _: anytype) shift.ResetError(NoError)!usize {
+        _ = Cap;
         return 1;
     }
 };
@@ -132,7 +134,7 @@ fn runEffectSample(runtime: *shift.Runtime, instance: *const StateInstance, iter
 
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
-        const result = try shift.effect.state.handle(usize, runtime, instance, index, effect_state.body);
+        const result = try shift.effect.state.handle(usize, runtime, instance, index, effect_state);
         checksum += result.value + result.state;
     }
 
@@ -148,7 +150,7 @@ fn runEffectPassthroughSample(runtime: *shift.Runtime, instance: *const StateIns
 
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
-        const result = try shift.effect.state.handle(usize, runtime, instance, index, effect_passthrough.body);
+        const result = try shift.effect.state.handle(usize, runtime, instance, index, effect_passthrough);
         checksum += result.value + result.state;
     }
 

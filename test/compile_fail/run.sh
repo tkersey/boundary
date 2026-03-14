@@ -57,7 +57,9 @@ run_fixture() {
 
 run_fixture "$repo_root/test/compile_fail/continuation_discontinue_removed.zig" "Continuation"
 run_fixture "$repo_root/test/compile_fail/effect_state_continuation_removed.zig" "Continuation"
-run_fixture "$repo_root/test/compile_fail/effect_state_get_without_context.zig" "member named 'get'"
-run_fixture "$repo_root/test/compile_fail/effect_state_set_without_context.zig" "member named 'set'"
+run_fixture "$repo_root/test/compile_fail/effect_state_cross_instance_context_fails.zig" "context capability does not match supplied capability"
+run_fixture "$repo_root/test/compile_fail/effect_state_forged_context_get_fails.zig" "expected exact shift.effect.state context type"
+run_fixture "$repo_root/test/compile_fail/effect_state_get_without_context.zig" "expected a pointer to a shift.effect.state context"
+run_fixture "$repo_root/test/compile_fail/effect_state_set_without_context.zig" "expected a pointer to a shift.effect.state context"
 run_fixture "$repo_root/test/compile_fail/no_shift_guard_removed.zig" "NoShiftGuard"
 run_fixture "$repo_root/test/compile_fail/resume_value_mismatch.zig" "must have type"

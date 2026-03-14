@@ -3,21 +3,21 @@ const std = @import("std");
 
 const NoError = error{};
 const StateInstance = shift.effect.state.Instance(i32, NoError);
-const StateContext = shift.effect.state.Context(i32, i32, NoError);
 
 const demo = struct {
     var before_value: i32 = 0;
     var after_value: i32 = 0;
 
-    fn increment(ctx: anytype) shift.ResetError(NoError)!i32 {
-        before_value = try ctx.get();
-        try ctx.set(before_value + 1);
-        after_value = try ctx.get();
+    fn increment(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!i32 {
+        before_value = try shift.effect.state.get(Cap, ctx);
+        try shift.effect.state.set(Cap, ctx, before_value + 1);
+        after_value = try shift.effect.state.get(Cap, ctx);
         return before_value + after_value;
     }
 
-    fn body(ctx: *StateContext) shift.ResetError(NoError)!i32 {
-        return try increment(ctx);
+    /// Execute the staged state-effect body for this example.
+    pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!i32 {
+        return try increment(Cap, ctx);
     }
 };
 
@@ -29,7 +29,7 @@ pub fn run(writer: anytype) anyerror!void {
 
     demo.before_value = 0;
     demo.after_value = 0;
-    const result = try shift.effect.state.handle(i32, &runtime, &instance, 5, demo.body);
+    const result = try shift.effect.state.handle(i32, &runtime, &instance, 5, demo);
 
     try writer.print("before={d}\n", .{demo.before_value});
     try writer.print("after={d}\n", .{demo.after_value});
