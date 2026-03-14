@@ -20,10 +20,12 @@ pub fn InstanceErrorSetType(comptime InstancePtrType: type) type {
     return InstanceTypeFromPtr(InstancePtrType).ErrorSet;
 }
 
-/// Build a prompt-backed family instance shell.
-pub fn Instance(comptime StateType: type, comptime ErrorSetType: type) type {
-    const PromptShell = raw.Prompt(.resume_then_transform, void, void, ErrorSetType);
+/// Build a prompt-backed family instance shell for the selected prompt mode.
+pub fn InstanceWithMode(comptime mode: raw.PromptMode, comptime StateType: type, comptime ErrorSetType: type) type {
+    const PromptShell = raw.Prompt(mode, void, void, ErrorSetType);
     return struct {
+        /// Prompt mode used internally by this family instance.
+        pub const prompt_mode = mode;
         /// State value threaded through this effect family.
         pub const State = StateType;
         /// Error set propagated by this effect family.
@@ -36,6 +38,11 @@ pub fn Instance(comptime StateType: type, comptime ErrorSetType: type) type {
             return .{ .prompt = PromptShell.init() };
         }
     };
+}
+
+/// Build a prompt-backed family instance shell for a value-threading family.
+pub fn Instance(comptime StateType: type, comptime ErrorSetType: type) type {
+    return InstanceWithMode(.resume_then_transform, StateType, ErrorSetType);
 }
 
 /// Final family state plus body answer returned from a handled effect program.
@@ -108,6 +115,43 @@ pub fn ContextErrorSetType(comptime ContextPtrType: type) type {
     return ContextTypeFromPtr(ContextPtrType).ErrorSetType;
 }
 
+/// Package the three family types used to build an exact private context.
+pub fn ContextSpec(comptime StateType: type, comptime AnswerType: type, comptime ErrorSetType: type) type {
+    return struct {
+        /// State type carried by the family context.
+        pub const state_type = StateType;
+        /// Enclosing answer type produced by the family context.
+        pub const answer_type = AnswerType;
+        /// Error set propagated by the family context.
+        pub const error_set_type = ErrorSetType;
+    };
+}
+
+/// Mint a fresh capability witness and exact private context, then hand both to `Runner.run`.
+pub fn withCapability(
+    comptime context_spec: type,
+    comptime capability_decls: type,
+    comptime ResultType: type,
+    comptime Runner: type,
+) shift.ResetError(context_spec.error_set_type)!ResultType {
+    const seal = struct {};
+    const Cap = struct {
+        _seal: seal,
+        const capability_tag = capability_decls;
+
+        /// Optional policy metadata attached to this capability witness.
+        pub fn PolicyType() type {
+            if (hasDeclSafe(capability_decls, "PolicyType")) return capability_decls.PolicyType();
+            return void;
+        }
+    };
+    const ContextType = Context(Cap, context_spec.state_type, context_spec.answer_type, context_spec.error_set_type);
+
+    var cap_token = Cap{ ._seal = .{} };
+    var context = ContextType{ ._cap = &cap_token };
+    return try Runner.run(Cap, &context);
+}
+
 /// Run a family body under a fresh capability witness and return the final family state plus answer.
 pub fn handle(
     comptime AnswerType: type,
@@ -123,19 +167,16 @@ pub fn handle(
     const ErrorSetType = InstanceErrorSetType(@TypeOf(instance));
     const family_impl = kernel.Family(StateType, AnswerType, ErrorSetType);
     const ResultType = HandleResult(StateType, AnswerType);
-
-    const seal = struct {};
-    const Cap = struct {
-        _seal: seal,
-        /// Body type that minted this capability witness.
-        pub const BodyType = Body;
-    };
-    const ContextType = Context(Cap, StateType, AnswerType, ErrorSetType);
-
     var frame = family_impl.Frame{
         .prompt = .{ .token = instance.prompt.token },
         .state = initial_state,
     };
+    const Cap = struct {
+        _seal: struct {},
+        const body_tag = Body;
+    };
+    const ContextType = Context(Cap, StateType, AnswerType, ErrorSetType);
+
     var cap_token = Cap{ ._seal = .{} };
     var context = ContextType{ ._cap = &cap_token };
 

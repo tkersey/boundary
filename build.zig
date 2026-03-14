@@ -27,6 +27,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     witnesses_mod.addImport("shift", shift_mod);
+    const formal_core_registry_mod = b.createModule(.{
+        .root_source_file = b.path("src/formal_core_registry.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const reference_eval_mod = b.createModule(.{
         .root_source_file = b.path("src/reference_eval.zig"),
         .target = target,
@@ -73,11 +78,39 @@ pub fn build(b: *std.Build) void {
     witness_mod.addImport("reference_eval", reference_eval_mod);
     witness_mod.addImport("reference_machine", reference_machine_mod);
     witness_mod.addImport("witnesses", witnesses_mod);
+    witness_mod.addImport("formal_core_registry", formal_core_registry_mod);
     const witness_tests = b.addTest(.{
         .root_module = witness_mod,
     });
     const run_witness_tests = b.addRunArtifact(witness_tests);
     test_step.dependOn(&run_witness_tests.step);
+
+    const formal_core_render_mod = b.createModule(.{
+        .root_source_file = b.path("tools/render_formal_core.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    formal_core_render_mod.addImport("formal_core_registry", formal_core_registry_mod);
+    formal_core_render_mod.addImport("witnesses", witnesses_mod);
+    const formal_core_render_exe = b.addExecutable(.{
+        .name = "shift-formal-core-render",
+        .root_module = formal_core_render_mod,
+    });
+    const formal_core_cmd = b.addRunArtifact(formal_core_render_exe);
+    formal_core_cmd.addArg("check");
+    const formal_core_step = b.step("formal-core", "Check the implementation-derived formal core anchors.");
+    formal_core_step.dependOn(&formal_core_cmd.step);
+    test_step.dependOn(&formal_core_cmd.step);
+
+    const formal_core_write_cmd = b.addRunArtifact(formal_core_render_exe);
+    formal_core_write_cmd.addArg("write");
+    const formal_core_write_step = b.step("formal-core-write", "Refresh the generated formal core artifact.");
+    formal_core_write_step.dependOn(&formal_core_write_cmd.step);
+
+    const readme_contract_cmd = b.addSystemCommand(&.{ "sh", "test/readme_contract/run.sh" });
+    const readme_contract_step = b.step("readme-contract", "Check README contract anchors and commands.");
+    readme_contract_step.dependOn(&readme_contract_cmd.step);
+    test_step.dependOn(&readme_contract_cmd.step);
 
     const size_check_mod = b.createModule(.{
         .root_source_file = b.path("test/size_check.zig"),
@@ -131,6 +164,12 @@ pub fn build(b: *std.Build) void {
             .src = "examples/nested_workflow.zig",
             .step_name = "run-nested-workflow",
             .step_desc = "Run the nested workflow example.",
+        },
+        .{
+            .name = "optional_basic",
+            .src = "examples/optional_basic.zig",
+            .step_name = "run-optional-basic",
+            .step_desc = "Run the optional-resumption effect example.",
         },
         .{
             .name = "resume_or_return",
@@ -223,6 +262,14 @@ pub fn build(b: *std.Build) void {
         const bench_step = b.step(bench_spec.step_name, bench_spec.step_desc);
         bench_step.dependOn(&bench_run.step);
     }
+
+    const bench_artifact_write_cmd = b.addSystemCommand(&.{ "sh", "bench/state_effect_artifact.sh", "write" });
+    const bench_artifact_write_step = b.step("bench-state-effect-write", "Refresh the checked state-effect benchmark artifact.");
+    bench_artifact_write_step.dependOn(&bench_artifact_write_cmd.step);
+
+    const bench_artifact_check_cmd = b.addSystemCommand(&.{ "sh", "bench/state_effect_artifact.sh", "check" });
+    const bench_artifact_check_step = b.step("bench-state-effect-check", "Check the state-effect benchmark artifact against the current clean tree.");
+    bench_artifact_check_step.dependOn(&bench_artifact_check_cmd.step);
 
     const lint_step = b.step("lint", "Lint source code.");
     lint_step.dependOn(step: {

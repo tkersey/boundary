@@ -243,12 +243,15 @@ pub fn main() anyerror!void {
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     const stdout = &stdout_writer.interface;
     try stdout.print(
-        "timed_iterations={d} warmup_iterations={d} samples_per_run={d} checksum={d}\n",
+        "timed_iterations={d} warmup_iterations={d} samples_per_run={d} raw_checksum={d} raw_reset_only_checksum={d} effect_checksum={d} effect_passthrough_checksum={d}\n",
         .{
             timed_iterations,
             warmup_iterations,
             samples_per_run,
             raw_checksum.?,
+            raw_reset_only_checksum.?,
+            effect_checksum.?,
+            effect_passthrough_checksum.?,
         },
     );
     try stdout.print(

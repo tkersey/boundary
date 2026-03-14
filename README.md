@@ -47,11 +47,12 @@ The first two hard witness families are:
 - re-delimitation and static-vs-dynamic extent
 - multi-prompt separation
 
-## Build
+## Proof Surface
 
 `zig build test` is the default proof path. It includes the root tests,
 transcript-locked witnesses, public-surface size checks, compile-fail misuse
-fixtures, the current one-shot survey contract, and exact-output example proof.
+fixtures, the current one-shot survey contract, exact-output example proof, the
+README contract check, and the generated formal-core stale check.
 
 ```bash
 zig build
@@ -61,10 +62,40 @@ zig build size-check
 zig build compile-fail
 zig build one-shot-survey
 zig build example-proof
+zig build readme-contract
+zig build formal-core-write
+zig build formal-core
 zig build bench
 zig build bench-first-suspend
 zig build bench-state-effect
+zig build bench-state-effect-write
+zig build bench-state-effect-check
 ```
+
+## Executable Contract
+
+The repo's public claims are only considered shipped when they are backed by
+one of these proof surfaces:
+
+- `zig build test` for the combined runtime, witness, compile-fail, README, and
+  formal-core gates
+- `zig build compile-fail` for hidden continuation/context surfaces and forged
+  capability misuse
+- `zig build example-proof` for exact-output public example transcripts
+- `zig build bench-state-effect-check` for the checked benchmark artifact on a
+  clean tree
+
+The additive effect-family contract is now:
+
+- bodies are helper-shaped: `body(comptime Cap, ctx)`
+- operations are capability-checked helpers:
+  - `shift.effect.state.get(Cap, ctx)` / `shift.effect.state.set(Cap, ctx, value)`
+  - `shift.effect.reader.ask(Cap, ctx)`
+  - `shift.effect.optional.request(Cap, ctx)`
+- forged or cross-instance contexts fail at compile time; see:
+  - `effect_state_forged_context_get_fails.zig`
+  - `effect_reader_forged_context_ask_fails.zig`
+  - `effect_optional_forged_context_request_fails.zig`
 
 ## Examples
 
@@ -145,6 +176,25 @@ env=21
 value=42
 ```
 
+### `optional_effect`
+
+```bash
+zig build run-optional-basic
+```
+
+Expected output:
+
+```text
+branch=return_now
+policy-return-now
+final=result=early
+branch=resume_with
+policy-resume
+body-after-request
+policy-after-resume
+final=answer=42
+```
+
 ### `state_effect`
 
 ```bash
@@ -163,7 +213,46 @@ value=11
 The strict effect families now use helper-based bodies of the form
 `body(comptime Cap, ctx)` together with family operations such as
 `shift.effect.reader.ask(Cap, ctx)` and
-`shift.effect.state.get(Cap, ctx)` / `shift.effect.state.set(Cap, ctx, value)`.
+`shift.effect.state.get(Cap, ctx)` / `shift.effect.state.set(Cap, ctx, value)`
+plus `shift.effect.optional.request(Cap, ctx)`.
+
+## Benchmark Contract
+
+The checked state-effect artifact lives at
+`bench/baselines/state_effect_v1.json`. Refresh it with:
+
+```bash
+zig build bench-state-effect-write
+```
+
+Validate it against the current clean tree with:
+
+```bash
+zig build bench-state-effect-check
+```
+
+The write/check workflow is fail-closed by default on dirty trees and records
+the exact `git_rev`, `repo_state`, benchmark command, warmed sample arrays, and
+the observed `effect/raw` median ratio.
+
+## Formal Core
+
+`FORMAL_CORE.md` is the small implementation-derived law surface, but it is now
+generator-owned rather than hand-maintained. Refresh it with:
+
+```bash
+zig build formal-core-write
+```
+
+Check it for drift with:
+
+```bash
+zig build formal-core
+```
+
+The generated artifact preserves the live law anchors for semantic witnesses,
+strict effect-capability claims, and the optional-resumption family without
+turning into a second README.
 
 ## Minimal Example
 
@@ -206,4 +295,5 @@ pub fn main() anyerror!void {
 
 See `src/root.zig` for the public surface, `src/witnesses.zig` for executable
 witnesses, `test/witness_corpus_test.zig` and `test/semantic_manifest.zig` for
-the locked semantic evidence, and `examples/` for runnable usage.
+the locked semantic evidence, `FORMAL_CORE.md` for the implementation-derived
+law anchors, and `examples/` for runnable usage.

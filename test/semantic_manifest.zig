@@ -12,7 +12,7 @@ pub const WitnessEntry = struct {
 pub const entries = [_]WitnessEntry{
     .{
         .witness_id = "atm_resume_transform",
-        .law_anchor = "README.md#purpose",
+        .law_anchor = formal_core.anchorPath(.atm_resume_transform),
         .evaluator_case = "reference_eval.atm_resume_transform",
         .runtime_case = "witnesses.atm_resume_transform",
         .required_transcript = "handler-enter\n" ++
@@ -25,7 +25,7 @@ pub const entries = [_]WitnessEntry{
     },
     .{
         .witness_id = "direct_return",
-        .law_anchor = "README.md#purpose",
+        .law_anchor = formal_core.anchorPath(.direct_return),
         .evaluator_case = "reference_eval.direct_return",
         .runtime_case = "witnesses.direct_return",
         .required_transcript = "handler-direct-return\n" ++
@@ -34,7 +34,7 @@ pub const entries = [_]WitnessEntry{
     },
     .{
         .witness_id = "resume_or_return_return_now",
-        .law_anchor = "README.md#purpose",
+        .law_anchor = formal_core.anchorPath(.optional_resumption),
         .evaluator_case = "reference_eval.resume_or_return_return_now",
         .runtime_case = "witnesses.resume_or_return_return_now",
         .required_transcript = "handler-return-now\n" ++
@@ -43,7 +43,7 @@ pub const entries = [_]WitnessEntry{
     },
     .{
         .witness_id = "resume_or_return_resume",
-        .law_anchor = "README.md#purpose",
+        .law_anchor = formal_core.anchorPath(.optional_resumption),
         .evaluator_case = "reference_eval.resume_or_return_resume",
         .runtime_case = "witnesses.resume_or_return_resume",
         .required_transcript = "handler-decide-resume\n" ++
@@ -56,7 +56,7 @@ pub const entries = [_]WitnessEntry{
     },
     .{
         .witness_id = "static_redelim",
-        .law_anchor = "README.md#semantic-commitments",
+        .law_anchor = formal_core.anchorPath(.static_redelim),
         .evaluator_case = "reference_eval.static_redelim",
         .runtime_case = "witnesses.static_redelim",
         .required_transcript = "outer-handler-enter\n" ++
@@ -73,7 +73,7 @@ pub const entries = [_]WitnessEntry{
     },
     .{
         .witness_id = "multi_prompt",
-        .law_anchor = "README.md#semantic-commitments",
+        .law_anchor = formal_core.anchorPath(.multi_prompt_separation),
         .evaluator_case = "reference_eval.multi_prompt",
         .runtime_case = "witnesses.multi_prompt",
         .required_transcript = "outer-before-inner\n" ++
@@ -90,7 +90,7 @@ pub const entries = [_]WitnessEntry{
     },
     .{
         .witness_id = "generator",
-        .law_anchor = "README.md#examples",
+        .law_anchor = formal_core.anchorPath(.practical_witnesses),
         .evaluator_case = null,
         .runtime_case = "witnesses.generator",
         .required_transcript = "yield=1\n" ++
@@ -109,4 +109,5 @@ pub fn find(witness_id: []const u8) ?WitnessEntry {
     return null;
 }
 
+const formal_core = @import("formal_core_registry");
 const std = @import("std");
