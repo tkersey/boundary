@@ -285,6 +285,12 @@ pub fn build(b: *std.Build) void {
             .step_desc = "Compare every shipped effect family against its chosen comparator lane.",
         },
         .{
+            .name = "shift-algebraic-builder-decompose-bench",
+            .src = "bench/algebraic_builder_decompose_bench.zig",
+            .step_name = "bench-algebraic-decompose",
+            .step_desc = "Decompose public algebraic builder shell and full-path costs.",
+        },
+        .{
             .name = "shift-writer-effect-decompose-bench",
             .src = "bench/writer_effect_decompose_bench.zig",
             .step_name = "bench-writer-decompose",

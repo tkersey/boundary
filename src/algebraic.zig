@@ -220,7 +220,7 @@ fn Binding(
     return struct {
         const Prompt = PromptType;
         threadlocal var active_binding: ?*@This() = null;
-        threadlocal var active_payload: ?Op.Payload = null;
+        threadlocal var active_payload_ptr: ?*const Op.Payload = null;
 
         spec: SpecType,
         prompt: PromptType,
@@ -263,7 +263,7 @@ fn Binding(
                     const handler = struct {
                         /// Supply the resumptive transform value from the active binding.
                         pub fn resumeValue() raw.ResetError(ErrorSet)!Op.Resume {
-                            return try BindingType.callResumeValue(BindingType.active_binding.?.spec, BindingType.active_payload.?);
+                            return try BindingType.callResumeValue(BindingType.active_binding.?.spec, BindingType.active_payload_ptr.?.*);
                         }
 
                         /// Complete the enclosing answer after one transform resume.
@@ -272,10 +272,10 @@ fn Binding(
                         }
                     };
 
-                    const previous_payload = BindingType.active_payload;
-                    BindingType.active_payload = payload;
+                    const previous_payload = BindingType.active_payload_ptr;
+                    BindingType.active_payload_ptr = &payload;
                     defer {
-                        BindingType.active_payload = previous_payload;
+                        BindingType.active_payload_ptr = previous_payload;
                     }
                     break :blk try raw.shift(Op.Resume, PromptType, &self.prompt, handler);
                 },
@@ -283,7 +283,7 @@ fn Binding(
                     const handler = struct {
                         /// Choose the next action for the active choice binding.
                         pub fn resumeOrReturn() raw.ResetError(ErrorSet)!raw.ResumeOrReturn(Op.Resume, Answer) {
-                            return try BindingType.callResumeOrReturn(BindingType.active_binding.?.spec, BindingType.active_payload.?);
+                            return try BindingType.callResumeOrReturn(BindingType.active_binding.?.spec, BindingType.active_payload_ptr.?.*);
                         }
 
                         /// Complete the enclosing answer after one choice resume.
@@ -292,10 +292,10 @@ fn Binding(
                         }
                     };
 
-                    const previous_payload = BindingType.active_payload;
-                    BindingType.active_payload = payload;
+                    const previous_payload = BindingType.active_payload_ptr;
+                    BindingType.active_payload_ptr = &payload;
                     defer {
-                        BindingType.active_payload = previous_payload;
+                        BindingType.active_payload_ptr = previous_payload;
                     }
                     break :blk try raw.shift(Op.Resume, PromptType, &self.prompt, handler);
                 },
@@ -303,14 +303,14 @@ fn Binding(
                     const handler = struct {
                         /// Convert the active abort payload into the enclosing answer.
                         pub fn directReturn() raw.ResetError(ErrorSet)!Answer {
-                            return try BindingType.callDirectReturn(BindingType.active_binding.?.spec, BindingType.active_payload.?);
+                            return try BindingType.callDirectReturn(BindingType.active_binding.?.spec, BindingType.active_payload_ptr.?.*);
                         }
                     };
 
-                    const previous_payload = BindingType.active_payload;
-                    BindingType.active_payload = payload;
+                    const previous_payload = BindingType.active_payload_ptr;
+                    BindingType.active_payload_ptr = &payload;
                     defer {
-                        BindingType.active_payload = previous_payload;
+                        BindingType.active_payload_ptr = previous_payload;
                     }
                     _ = try raw.shift(void, PromptType, &self.prompt, handler);
                     unreachable;
@@ -320,18 +320,51 @@ fn Binding(
     };
 }
 
-fn BindingTupleType(
+fn BindingAtType(
     comptime SpecsTupleType: type,
-    comptime ops: anytype,
     comptime Answer: type,
     comptime ErrorSet: type,
+    comptime index: usize,
 ) type {
-    const len = tupleLen(SpecsTupleType);
-    var binding_types: [len]type = [_]type{void} ** len;
-    inline for (ops, 0..) |_, index| {
-        binding_types[index] = ?Binding(TupleFieldType(SpecsTupleType, index), Answer, ErrorSet);
+    return Binding(TupleFieldType(SpecsTupleType, index), Answer, ErrorSet);
+}
+
+fn BindingChainType(
+    comptime SpecsTupleType: type,
+    comptime Answer: type,
+    comptime ErrorSet: type,
+    comptime index: usize,
+) type {
+    if (index == tupleLen(SpecsTupleType)) {
+        return struct {
+            fn init(_: SpecsTupleType) @This() {
+                return .{};
+            }
+
+            fn bindingPtr(_: *@This(), comptime target: usize) *BindingAtType(SpecsTupleType, Answer, ErrorSet, target) {
+                @compileError("invalid algebraic binding index");
+            }
+        };
     }
-    return std.meta.Tuple(&binding_types);
+
+    const CurrentBinding = BindingAtType(SpecsTupleType, Answer, ErrorSet, index);
+    const NextChain = BindingChainType(SpecsTupleType, Answer, ErrorSet, index + 1);
+    return struct {
+        current: CurrentBinding,
+        next: NextChain,
+
+        fn init(specs: SpecsTupleType) @This() {
+            return .{
+                .current = CurrentBinding.init(specs[index]),
+                .next = NextChain.init(specs),
+            };
+        }
+
+        fn bindingPtr(self: *@This(), comptime target: usize) *BindingAtType(SpecsTupleType, Answer, ErrorSet, target) {
+            if (target == index) return &self.current;
+            return self.next.bindingPtr(target);
+        }
+    };
 }
 
 /// Build a closed-world algebraic program over the existing one-shot prompt runtime.
@@ -360,7 +393,7 @@ pub fn Program(
                     assertSpecType(TupleFieldType(SpecsTupleType, index), Op, ErrorSet, Answer);
                 }
             }
-            const BindingsType = BindingTupleType(SpecsTupleType, program_ops, Answer, ErrorSet);
+            const BindingsType = BindingChainType(SpecsTupleType, Answer, ErrorSet, 0);
             return struct {
                 specs: SpecsTupleType,
 
@@ -375,7 +408,7 @@ pub fn Program(
                         payload: Op.Payload,
                     ) raw.ResetError(ErrorSet)!Op.Resume {
                         const index = comptime findOpIndex(Op);
-                        return try self.bindings[index].?.perform(payload);
+                        return try self.bindings.bindingPtr(index).perform(payload);
                     }
                 };
 
@@ -387,11 +420,7 @@ pub fn Program(
                 ) raw.ResetError(ErrorSet)!Answer {
                     comptime assertBodyType(Body, Context, ErrorSet, Answer);
 
-                    var bindings: BindingsType = std.mem.zeroes(BindingsType);
-                    inline for (program_ops, 0..) |_, index| {
-                        const BindingType = @typeInfo(@TypeOf(bindings[index])).optional.child;
-                        bindings[index] = BindingType.init(self.specs[index]);
-                    }
+                    var bindings = BindingsType.init(self.specs);
 
                     var ctx = Context{ .bindings = &bindings };
 
@@ -405,7 +434,7 @@ pub fn Program(
                                 return try Body.body(active_ctx.?);
                             }
 
-                            const binding = &active_bindings.?[index].?;
+                            const binding = active_bindings.?.bindingPtr(index);
                             const BindingType = @TypeOf(binding.*);
                             const runner = @This();
                             const next_index = index + 1;
@@ -490,6 +519,50 @@ test "generated context stays pointer-sized" {
         }),
     }));
     try std.testing.expectEqual(@sizeOf(usize), @sizeOf(Configured.Context));
+}
+
+test "configured binding chain stores direct bindings" {
+    const ping = TransformOp("ping", void, i32);
+    const no_state = struct {};
+    const program = Program(i32, error{}, .{ping});
+    const Configured = @TypeOf(program.handlers(.{
+        handleTransform(ping, no_state{}, struct {
+            /// Supply the transform witness value.
+            pub fn resumeValue(_: no_state, _: void) i32 {
+                return 0;
+            }
+
+            /// Preserve the resumed answer unchanged.
+            pub fn afterResume(_: no_state, answer: i32) i32 {
+                return answer;
+            }
+        }),
+    }));
+    const context_info = @typeInfo(Configured.Context).@"struct";
+    const BindingsPtrType = context_info.fields[0].type;
+    const BindingsType = @typeInfo(BindingsPtrType).pointer.child;
+    const FirstFieldType = @typeInfo(BindingsType).@"struct".fields[0].type;
+
+    try std.testing.expect(@typeInfo(FirstFieldType) != .optional);
+}
+
+test "binding payload storage stays pointer-based" {
+    const ping = TransformOp("ping", usize, usize);
+    const no_state = struct {};
+    const spec = handleTransform(ping, no_state{}, struct {
+        /// Supply the transform witness value.
+        pub fn resumeValue(_: no_state, payload: usize) usize {
+            return payload;
+        }
+
+        /// Preserve the resumed answer unchanged.
+        pub fn afterResume(_: no_state, answer: usize) usize {
+            return answer;
+        }
+    });
+    const BindingType = Binding(@TypeOf(spec), usize, error{});
+
+    try std.testing.expectEqual(?*const ping.Payload, @TypeOf(BindingType.active_payload_ptr));
 }
 
 test "transform program resumes and observes final answer" {

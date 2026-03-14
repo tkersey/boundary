@@ -387,6 +387,7 @@ The decomposition benches are intentionally separate from the checked artifacts:
 zig build bench-writer-decompose
 zig build bench-resource-decompose
 zig build bench-abortive-decompose
+zig build bench-algebraic-decompose
 ```
 
 Use them to localize storage/finalization/cleanup or abortive fixed-tax costs before changing code; they are investigative and do not define the checked public benchmark contract.
