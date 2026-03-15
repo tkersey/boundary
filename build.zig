@@ -347,14 +347,17 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     runtime_stack_baseline_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
+    runtime_stack_baseline_mod.addImport("example_generator", createShiftConsumerModule(b, "examples/generator.zig", target, optimize, shift_mod));
     runtime_stack_baseline_mod.addImport("witnesses_src", witnesses_mod);
     runtime_stack_baseline_mod.addImport("example_early_exit", createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, shift_mod));
     runtime_stack_baseline_mod.addImport("example_exception_basic", createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, shift_mod));
     runtime_stack_baseline_mod.addImport("example_nested_workflow", createShiftConsumerModule(b, "examples/nested_workflow.zig", target, optimize, shift_mod));
     runtime_stack_baseline_mod.addImport("example_optional_basic", createShiftConsumerModule(b, "examples/optional_basic.zig", target, optimize, shift_mod));
     runtime_stack_baseline_mod.addImport("example_reader_basic", createShiftConsumerModule(b, "examples/reader_basic.zig", target, optimize, shift_mod));
+    runtime_stack_baseline_mod.addImport("example_resource_basic", createShiftConsumerModule(b, "examples/resource_basic.zig", target, optimize, shift_mod));
     runtime_stack_baseline_mod.addImport("example_resume_or_return", createShiftConsumerModule(b, "examples/resume_or_return.zig", target, optimize, shift_mod));
     runtime_stack_baseline_mod.addImport("example_state_basic", createShiftConsumerModule(b, "examples/state_basic.zig", target, optimize, shift_mod));
+    runtime_stack_baseline_mod.addImport("example_writer_basic", createShiftConsumerModule(b, "examples/writer_basic.zig", target, optimize, shift_mod));
     const bridge_mod = b.createModule(.{
         .root_source_file = b.path("test/direct_style_bridge_test.zig"),
         .target = target,
@@ -369,12 +372,15 @@ pub fn build(b: *std.Build) void {
     bridge_mod.addImport("direct_style_bridge_resume_or_return_return_now", createBridgeWitnessModule(b, "test/direct_style_bridge/resume_or_return_return_now.zig", target, optimize, witnesses_mod));
     bridge_mod.addImport("direct_style_bridge_static_redelim", createBridgeWitnessModule(b, "test/direct_style_bridge/static_redelim.zig", target, optimize, witnesses_mod));
     bridge_mod.addImport("direct_style_bridge_early_exit", createBridgeExampleModule(b, "test/direct_style_bridge/early_exit.zig", target, optimize, .{ .name = "example_early_exit", .mod = createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, shift_mod) }));
+    bridge_mod.addImport("direct_style_bridge_generator", createBridgeExampleModule(b, "test/direct_style_bridge/generator.zig", target, optimize, .{ .name = "example_generator", .mod = createShiftConsumerModule(b, "examples/generator.zig", target, optimize, shift_mod) }));
     bridge_mod.addImport("direct_style_bridge_nested_workflow", createBridgeExampleModule(b, "test/direct_style_bridge/nested_workflow.zig", target, optimize, .{ .name = "example_nested_workflow", .mod = createShiftConsumerModule(b, "examples/nested_workflow.zig", target, optimize, shift_mod) }));
+    bridge_mod.addImport("direct_style_bridge_resource_basic", createBridgeExampleModule(b, "test/direct_style_bridge/resource_basic.zig", target, optimize, .{ .name = "example_resource_basic", .mod = createShiftConsumerModule(b, "examples/resource_basic.zig", target, optimize, shift_mod) }));
     bridge_mod.addImport("direct_style_bridge_resume_or_return", createBridgeExampleModule(b, "test/direct_style_bridge/resume_or_return.zig", target, optimize, .{ .name = "example_resume_or_return", .mod = createShiftConsumerModule(b, "examples/resume_or_return.zig", target, optimize, shift_mod) }));
     bridge_mod.addImport("direct_style_bridge_state_basic", createBridgeExampleModule(b, "test/direct_style_bridge/state_basic.zig", target, optimize, .{ .name = "example_state_basic", .mod = createShiftConsumerModule(b, "examples/state_basic.zig", target, optimize, shift_mod) }));
     bridge_mod.addImport("direct_style_bridge_reader_basic", createBridgeExampleModule(b, "test/direct_style_bridge/reader_basic.zig", target, optimize, .{ .name = "example_reader_basic", .mod = createShiftConsumerModule(b, "examples/reader_basic.zig", target, optimize, shift_mod) }));
     bridge_mod.addImport("direct_style_bridge_optional_basic", createBridgeExampleModule(b, "test/direct_style_bridge/optional_basic.zig", target, optimize, .{ .name = "example_optional_basic", .mod = createShiftConsumerModule(b, "examples/optional_basic.zig", target, optimize, shift_mod) }));
     bridge_mod.addImport("direct_style_bridge_exception_basic", createBridgeExampleModule(b, "test/direct_style_bridge/exception_basic.zig", target, optimize, .{ .name = "example_exception_basic", .mod = createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, shift_mod) }));
+    bridge_mod.addImport("direct_style_bridge_writer_basic", createBridgeExampleModule(b, "test/direct_style_bridge/writer_basic.zig", target, optimize, .{ .name = "example_writer_basic", .mod = createShiftConsumerModule(b, "examples/writer_basic.zig", target, optimize, shift_mod) }));
     bridge_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
     const bridge_boundary_mod = b.createModule(.{
         .root_source_file = b.path("test/direct_style_bridge_boundary_test.zig"),

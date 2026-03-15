@@ -99,6 +99,14 @@ pub const cases = [_]Case{
         .status = .supported,
     },
     .{
+        .case_id = "generator",
+        .label = "bridge.generator",
+        .source_kind = .example,
+        .source_module = "examples/generator.zig",
+        .scenario_id = .generator,
+        .status = .supported,
+    },
+    .{
         .case_id = "state_basic",
         .label = "bridge.state_basic",
         .source_kind = .example,
@@ -128,6 +136,22 @@ pub const cases = [_]Case{
         .source_kind = .example,
         .source_module = "examples/exception_basic.zig",
         .scenario_id = .exception_basic,
+        .status = .supported,
+    },
+    .{
+        .case_id = "resource_basic",
+        .label = "bridge.resource_basic",
+        .source_kind = .example,
+        .source_module = "examples/resource_basic.zig",
+        .scenario_id = .resource_basic,
+        .status = .supported,
+    },
+    .{
+        .case_id = "writer_basic",
+        .label = "bridge.writer_basic",
+        .source_kind = .example,
+        .source_module = "examples/writer_basic.zig",
+        .scenario_id = .writer_basic,
         .status = .supported,
     },
 };

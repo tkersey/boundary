@@ -3,17 +3,20 @@ const bridge_manifest = @import("direct_style_bridge_manifest");
 const direct_return = @import("direct_style_bridge_direct_return");
 const early_exit = @import("direct_style_bridge_early_exit");
 const exception_basic = @import("direct_style_bridge_exception_basic");
+const generator = @import("direct_style_bridge_generator");
 const multi_prompt = @import("direct_style_bridge_multi_prompt");
 const nested_workflow = @import("direct_style_bridge_nested_workflow");
 const optional_basic = @import("direct_style_bridge_optional_basic");
 const private_lowered_runtime = @import("private_lowered_runtime");
 const reader_basic = @import("direct_style_bridge_reader_basic");
+const resource_basic = @import("direct_style_bridge_resource_basic");
 const resume_or_return = @import("direct_style_bridge_resume_or_return");
 const resume_or_return_resume = @import("direct_style_bridge_resume_or_return_resume");
 const resume_or_return_return_now = @import("direct_style_bridge_resume_or_return_return_now");
 const state_basic = @import("direct_style_bridge_state_basic");
 const static_redelim = @import("direct_style_bridge_static_redelim");
 const std = @import("std");
+const writer_basic = @import("direct_style_bridge_writer_basic");
 
 fn expectBridgeParity(comptime Fixture: type) !void {
     const case = bridge_manifest.find(Fixture.bridge_case_id).?;
@@ -39,12 +42,15 @@ test "direct-style bridge lowers the supported unchanged-body corpus" {
     try expectBridgeParity(resume_or_return_return_now);
     try expectBridgeParity(static_redelim);
     try expectBridgeParity(early_exit);
+    try expectBridgeParity(generator);
     try expectBridgeParity(resume_or_return);
     try expectBridgeParity(nested_workflow);
     try expectBridgeParity(state_basic);
     try expectBridgeParity(reader_basic);
     try expectBridgeParity(optional_basic);
     try expectBridgeParity(exception_basic);
+    try expectBridgeParity(resource_basic);
+    try expectBridgeParity(writer_basic);
 }
 
 test "private lowered runtime seam reports supported cases" {
