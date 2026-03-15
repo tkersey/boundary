@@ -58,7 +58,7 @@ test "optional handle can return now without resuming the body tail" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = OptionalInstance.init();
     demo.after_request = false;
@@ -90,7 +90,7 @@ test "optional handle can resume and transform the resumed answer" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = OptionalInstance.init();
     const result = try handle([]const u8, &runtime, &instance, policy, demo);
@@ -129,7 +129,7 @@ test "nested same-shaped optional handles get distinct capability types" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var outer_instance = OptionalInstance.init();
     var inner_instance = OptionalInstance.init();

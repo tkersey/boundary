@@ -178,12 +178,12 @@ fn summarizeSamples(values: *const [samples_per_run]u64) struct { min: u64, medi
 
 /// Compare raw prompt-based state handling against the additive effect wrapper.
 pub fn main() anyerror!void {
-    var raw_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var raw_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer raw_runtime.deinit();
     var raw_prompt = RawPrompt.init();
     raw_state.prompt_ptr = &raw_prompt;
 
-    var effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var effect_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer effect_runtime.deinit();
     var effect_instance = StateInstance.init();
 

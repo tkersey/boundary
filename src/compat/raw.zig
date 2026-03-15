@@ -1,4 +1,4 @@
-const raw = @import("../raw.zig");
+const raw = @import("raw_core");
 
 /// Legacy raw prompt-mode enum preserved for explicit compat consumers.
 pub const PromptMode = raw.PromptMode;

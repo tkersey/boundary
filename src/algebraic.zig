@@ -1,3 +1,4 @@
+const frontend = @import("frontend.zig");
 const raw = @import("raw.zig");
 const std = @import("std");
 
@@ -277,7 +278,7 @@ fn Binding(
                     defer {
                         BindingType.active_payload_ptr = previous_payload;
                     }
-                    break :blk try raw.shift(Op.Resume, PromptType, &self.prompt, handler);
+                    break :blk try frontend.transform(Op.Resume, &self.prompt, handler);
                 },
                 .choice => blk: {
                     const handler = struct {
@@ -297,7 +298,7 @@ fn Binding(
                     defer {
                         BindingType.active_payload_ptr = previous_payload;
                     }
-                    break :blk try raw.shift(Op.Resume, PromptType, &self.prompt, handler);
+                    break :blk try frontend.choice(Op.Resume, &self.prompt, handler);
                 },
                 .abort => {
                     const handler = struct {
@@ -312,8 +313,7 @@ fn Binding(
                     defer {
                         BindingType.active_payload_ptr = previous_payload;
                     }
-                    _ = try raw.shift(void, PromptType, &self.prompt, handler);
-                    unreachable;
+                    return try frontend.abort(&self.prompt, handler);
                 },
             };
         }
@@ -415,10 +415,11 @@ pub fn Program(
                 /// Run the configured program under the supplied runtime.
                 pub fn run(
                     self: @This(),
-                    runtime: *raw.Runtime,
+                    runtime: anytype,
                     comptime Body: type,
                 ) raw.ResetError(ErrorSet)!Answer {
                     comptime assertBodyType(Body, Context, ErrorSet, Answer);
+                    const raw_runtime = frontend.unwrapRuntimePtr(runtime);
 
                     var bindings = BindingsType.init(self.specs);
 
@@ -447,7 +448,7 @@ pub fn Program(
                             const previous_binding = BindingType.active_binding;
                             BindingType.active_binding = binding;
                             defer BindingType.active_binding = previous_binding;
-                            return try raw.reset(@TypeOf(binding.prompt), active_runtime.?, &binding.prompt, body_invoker.invoke);
+                            return try frontend.run(active_runtime.?, &binding.prompt, body_invoker.invoke);
                         }
                     };
 
@@ -456,7 +457,7 @@ pub fn Program(
                     const previous_runtime = runner.active_runtime;
                     runner.active_bindings = &bindings;
                     runner.active_ctx = &ctx;
-                    runner.active_runtime = runtime;
+                    runner.active_runtime = raw_runtime;
                     defer {
                         runner.active_bindings = previous_bindings;
                         runner.active_ctx = previous_ctx;

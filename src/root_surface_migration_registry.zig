@@ -69,9 +69,9 @@ pub const entries = [_]Entry{
     .{
         .symbol = "SetupError",
         .current_path = "shift.SetupError",
-        .target_path = "shift.compat.raw.SetupError",
+        .target_path = "src/compat/raw.zig",
         .status = .compat_raw_only,
-        .note = "Raw setup failures belong to the explicit compat/raw lane after the lowered-first root cut.",
+        .note = "Raw setup failures leave the canonical root and remain available only through the internal compat/raw lane.",
     },
     .{
         .symbol = "reset",
@@ -83,8 +83,8 @@ pub const entries = [_]Entry{
     .{
         .symbol = "shift",
         .current_path = "shift.shift",
-        .target_path = "shift.compat.raw.shift",
+        .target_path = "src/compat/raw.zig",
         .status = .canonical_tombstone,
-        .note = "The old raw runtime shift call is planned to leave the canonical root and become a compat/raw entrypoint with migration diagnostics.",
+        .note = "The old raw runtime shift call is planned to leave the canonical root and become an internal compat/raw entrypoint with migration diagnostics.",
     },
 };

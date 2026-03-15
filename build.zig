@@ -346,9 +346,31 @@ pub fn build(b: *std.Build) void {
         .root_module = size_check_mod,
     });
     const run_size_tests = b.addRunArtifact(size_tests);
+    const compat_size_check_mod = b.createModule(.{
+        .root_source_file = b.path("test/compat_size_check.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const compat_raw_mod = b.createModule(.{
+        .root_source_file = b.path("src/compat/raw.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    compat_raw_mod.addImport("raw_core", b.createModule(.{
+        .root_source_file = b.path("src/raw_core_module.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
+    compat_size_check_mod.addImport("compat_raw", compat_raw_mod);
+    const compat_size_tests = b.addTest(.{
+        .root_module = compat_size_check_mod,
+    });
+    const run_compat_size_tests = b.addRunArtifact(compat_size_tests);
     const size_step = b.step("size-check", "Run size and layout invariants.");
     size_step.dependOn(&run_size_tests.step);
+    size_step.dependOn(&run_compat_size_tests.step);
     test_step.dependOn(&run_size_tests.step);
+    test_step.dependOn(&run_compat_size_tests.step);
 
     const structured_program_mod = b.createModule(.{
         .root_source_file = b.path("test/structured_program_suite.zig"),
@@ -613,6 +635,9 @@ pub fn build(b: *std.Build) void {
     canon_raw_dep_write_cmd.addArg("write");
     const canon_raw_dep_write_step = b.step("canonical-raw-dependency-matrix-write", "Refresh the canonical raw dependency matrix.");
     canon_raw_dep_write_step.dependOn(&canon_raw_dep_write_cmd.step);
+    const canon_raw_source_check_cmd = b.addSystemCommand(&.{ "sh", "test/canonical_raw_source_check/run.sh" });
+    const canon_raw_source_check_step = b.step("canonical-raw-source-check", "Fail closed when canonical modules still call raw.reset/raw.shift.");
+    canon_raw_source_check_step.dependOn(&canon_raw_source_check_cmd.step);
 
     const shipped_backend_cmd = b.addSystemCommand(&.{ "sh", "test/shipped_backend_contract/run.sh" });
     const shipped_backend_step = b.step("shipped-backend-check", "Check that the shipped path no longer depends on the stackful backend.");

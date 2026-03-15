@@ -42,7 +42,7 @@ test "reader handle threads environment into the body" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ReaderInstance.init();
     const result = try handle(i32, &runtime, &instance, 21, demo);
@@ -70,7 +70,7 @@ test "nested same-shaped reader handles get distinct capability types" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var outer_instance = ReaderInstance.init();
     var inner_instance = ReaderInstance.init();

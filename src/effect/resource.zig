@@ -71,7 +71,7 @@ test "resource handle releases in LIFO order after normal completion" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ResourceInstance.init();
     manager.next_index = 0;
@@ -148,7 +148,7 @@ test "resource handle releases before outer exception catch returns" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var exception_instance = ExceptionInstance.init();
     var resource_instance = ResourceInstance.init();
@@ -235,7 +235,7 @@ test "resource handle releases before outer optional return-now completes" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var optional_instance = OptionalInstance.init();
     var resource_instance = ResourceInstance.init();
@@ -279,7 +279,7 @@ test "resource release error wins after a successful body" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ResourceInstance.init();
     try std.testing.expectError(error.ReleaseFailed, handle([]const u8, &runtime, &instance, manager, demo));
@@ -309,7 +309,7 @@ test "resource body error wins over release error" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ResourceInstance.init();
     try std.testing.expectError(error.BodyFailed, handle([]const u8, &runtime, &instance, manager, demo));
@@ -347,7 +347,7 @@ test "nested same-shaped resource handles get distinct capability types" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var outer_instance = ResourceInstance.init();
     var inner_instance = ResourceInstance.init();

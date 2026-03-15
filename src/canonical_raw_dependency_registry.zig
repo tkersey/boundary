@@ -19,16 +19,16 @@ pub const entries = [_]Entry{
     .{
         .surface_id = "root.execution",
         .surface = "canonical_root",
-        .status = .raw_execution_dependency,
+        .status = .resolved,
         .source = "src/root.zig",
-        .note = "Canonical root reset and shift still call raw execution directly.",
+        .note = "Canonical root execution now routes through the authored-body frontend seam instead of calling raw execution directly.",
     },
     .{
         .surface_id = "effect.internal_execution",
         .surface = "canonical_effect",
-        .status = .raw_execution_dependency,
+        .status = .resolved,
         .source = "src/effect/algebraic.zig",
-        .note = "Effect execution helpers still call raw reset and shift directly.",
+        .note = "Effect execution helpers now route through the authored-body frontend seam instead of calling raw execution directly.",
     },
     .{
         .surface_id = "effect.kernel_execution",
@@ -40,9 +40,16 @@ pub const entries = [_]Entry{
     .{
         .surface_id = "algebraic.internal_execution",
         .surface = "canonical_algebraic",
-        .status = .raw_execution_dependency,
+        .status = .resolved,
         .source = "src/algebraic.zig",
-        .note = "Public algebraic builders still execute via raw reset and shift.",
+        .note = "Public algebraic builders now route through the authored-body frontend seam instead of calling raw execution directly.",
+    },
+    .{
+        .surface_id = "frontend.execution",
+        .surface = "canonical_frontend",
+        .status = .resolved,
+        .source = "src/frontend.zig",
+        .note = "The authored-body frontend seam now interprets prompt operations directly without delegating to raw reset or shift.",
     },
     .{
         .surface_id = "survey.runtime_success",

@@ -23,27 +23,6 @@ test "guard and continuation surfaces are not public" {
     try std.testing.expect(!@hasDecl(shift.effect.state, "Continuation"));
 }
 
-test "runtime defaults stay explicit" {
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
-    defer runtime.deinit();
-
-    try std.testing.expectEqual(@as(usize, 256 * 1024), runtime.options.stack_bytes);
-    try std.testing.expectEqual(@as(usize, 1), runtime.options.guard_pages);
-}
-
-test "runtime option compatibility fields stay source-visible" {
-    var runtime = shift.Runtime.init(std.testing.allocator, .{
-        .stack_bytes = 4096,
-        .guard_pages = 7,
-        .max_cached_stacks = 2,
-    });
-    defer runtime.deinit();
-
-    try std.testing.expectEqual(@as(usize, 4096), runtime.options.stack_bytes);
-    try std.testing.expectEqual(@as(usize, 7), runtime.options.guard_pages);
-    try std.testing.expectEqual(@as(usize, 2), runtime.options.max_cached_stacks);
-}
-
 test "public runtime error surface still exposes the current raw contract" {
     try std.testing.expect(hasErrorName(shift.Error, "MissingPrompt"));
     try std.testing.expect(hasErrorName(shift.Error, "CrossThread"));

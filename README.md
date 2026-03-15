@@ -582,8 +582,8 @@ shipped-vs-compat routing map, which lives at
 canonical execution paths that still depend on raw runtime calls, which lives
 at `docs/canonical_raw_dependency_matrix.json`.
 
-`shift.compat.raw` is now the explicit namespace for the current stackful raw
-runtime while the lowered-first root cut is in progress.
+`src/compat/raw.zig` now holds the internal legacy raw runtime while the
+lowered-first root cut is in progress.
 
 `tools/render_surface_truth_scorecard.zig` renders the machine-readable
 scorecard used by the final hidden-backend recommendation gate. The generated
@@ -618,7 +618,7 @@ const demo = struct {
 };
 
 pub fn main() anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
+    var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     var prompt = DemoPrompt.init();
     demo.prompt_ptr = &prompt;

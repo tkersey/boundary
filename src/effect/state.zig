@@ -65,7 +65,7 @@ test "state handle threads value and final state" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = StateInstance.init();
     const result = try handle(i32, &runtime, &instance, 5, demo);
@@ -95,7 +95,7 @@ test "nested same-shaped state handles get distinct capability types" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var outer_instance = StateInstance.init();
     var inner_instance = StateInstance.init();

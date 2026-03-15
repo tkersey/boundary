@@ -1,5 +1,6 @@
 const cleanup = @import("cleanup.zig");
 const family = @import("family.zig");
+const frontend = @import("../frontend.zig");
 const kernel = @import("kernel.zig");
 const raw = @import("../raw.zig");
 const shift = @import("../root.zig");
@@ -108,7 +109,7 @@ fn OptionalKernel(comptime ResumeType: type, comptime AnswerType: type, comptime
                 }
             };
 
-            return try raw.shift(ResumeType, PromptType, active_prompt.?, handler);
+            return try frontend.choice(ResumeType, active_prompt.?, handler);
         }
     };
 }
@@ -178,7 +179,7 @@ pub fn handleOptional(
                 invoker.active_context = previous_context;
             }
 
-            return try raw.reset(optional_impl.Prompt, active_runtime.?, &prompt, invoker.invoke);
+            return try frontend.run(active_runtime.?, &prompt, invoker.invoke);
         }
     };
 
@@ -238,8 +239,7 @@ fn ExceptionKernel(comptime PayloadType: type, comptime AnswerType: type, compti
                 }
             };
 
-            _ = try raw.shift(void, PromptType, &frame.prompt, handler);
-            unreachable;
+            return try frontend.abort(&frame.prompt, handler);
         }
     };
 }
@@ -313,7 +313,7 @@ pub fn handleException(
         exception_impl.active_cleanup_marker = previous_cleanup_marker;
     }
 
-    return try raw.reset(exception_impl.Prompt, runtime, &frame.prompt, invoker.invoke);
+    return try frontend.run(runtime, &frame.prompt, invoker.invoke);
 }
 
 /// Assert the manager shape required by a bracketed resource family.

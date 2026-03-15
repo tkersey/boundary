@@ -1063,73 +1063,73 @@ fn printLane(writer: anytype, report: LaneReport) !void {
 
 /// Benchmark every shipped effect family against its chosen comparator lanes.
 pub fn main() anyerror!void {
-    var state_raw_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var state_raw_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer state_raw_runtime.deinit();
     var state_raw_prompt = RawStatePrompt.init();
     raw_state.prompt_ptr = &state_raw_prompt;
-    var state_effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var state_effect_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer state_effect_runtime.deinit();
     var state_effect_instance = StateInstance.init();
 
-    var reader_raw_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var reader_raw_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer reader_raw_runtime.deinit();
     var reader_raw_prompt = ReaderPrompt.init();
     raw_reader.prompt_ptr = &reader_raw_prompt;
     raw_reader_batch.prompt_ptr = &reader_raw_prompt;
-    var reader_effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var reader_effect_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer reader_effect_runtime.deinit();
     var reader_effect_instance = ReaderInstance.init();
 
-    var optional_return_raw_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var optional_return_raw_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer optional_return_raw_runtime.deinit();
     var optional_return_prompt = OptionalReturnPrompt.init();
     raw_optional_return.prompt_ptr = &optional_return_prompt;
     raw_optional_return_prelude.prompt_ptr = &optional_return_prompt;
-    var optional_return_effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var optional_return_effect_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer optional_return_effect_runtime.deinit();
     var optional_return_effect_instance = OptionalInstance.init();
 
-    var optional_resume_raw_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var optional_resume_raw_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer optional_resume_raw_runtime.deinit();
     var optional_resume_prompt = OptionalResumePrompt.init();
     raw_optional_resume.prompt_ptr = &optional_resume_prompt;
     raw_optional_resume_batch.prompt_ptr = &optional_resume_prompt;
-    var optional_resume_effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var optional_resume_effect_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer optional_resume_effect_runtime.deinit();
     var optional_resume_effect_instance = OptionalInstance.init();
 
-    var exception_raw_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var exception_raw_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer exception_raw_runtime.deinit();
     var exception_prompt = ExceptionPrompt.init();
     raw_exception.prompt_ptr = &exception_prompt;
     raw_exception_prelude.prompt_ptr = &exception_prompt;
-    var exception_effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var exception_effect_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer exception_effect_runtime.deinit();
     var exception_effect_instance = ExceptionInstance.init();
-    var algebraic_transform_raw_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var algebraic_transform_raw_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer algebraic_transform_raw_runtime.deinit();
     var algebraic_transform_prompt = AlgebraicTransformPrompt.init();
     raw_algebraic_transform.prompt_ptr = &algebraic_transform_prompt;
-    var algebraic_transform_effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var algebraic_transform_effect_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer algebraic_transform_effect_runtime.deinit();
-    var algebraic_choice_raw_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var algebraic_choice_raw_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer algebraic_choice_raw_runtime.deinit();
     var algebraic_choice_prompt = AlgebraicChoicePrompt.init();
     raw_algebraic_choice.prompt_ptr = &algebraic_choice_prompt;
-    var algebraic_choice_effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var algebraic_choice_effect_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer algebraic_choice_effect_runtime.deinit();
-    var algebraic_abort_raw_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var algebraic_abort_raw_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer algebraic_abort_raw_runtime.deinit();
     var algebraic_abort_prompt = AlgebraicAbortPrompt.init();
     raw_algebraic_abort.prompt_ptr = &algebraic_abort_prompt;
-    var algebraic_abort_effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var algebraic_abort_effect_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer algebraic_abort_effect_runtime.deinit();
 
-    var resource_effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var resource_effect_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer resource_effect_runtime.deinit();
     var resource_effect_instance = ResourceInstance.init();
 
-    var writer_effect_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var writer_effect_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer writer_effect_runtime.deinit();
     var writer_effect_instance = WriterInstance.init();
 

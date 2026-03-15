@@ -279,7 +279,7 @@ fn runLane(runtime: *shift.Runtime, instance: *const ResourceInstance, allocator
 
 /// Decompose resource-effect acquire and cleanup costs for representative stack depths.
 pub fn main() anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer runtime.deinit();
     var instance = ResourceInstance.init();
 

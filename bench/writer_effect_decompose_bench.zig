@@ -232,7 +232,7 @@ fn runLane(runtime: *shift.Runtime, instance: *const WriterInstance, allocator: 
 
 /// Decompose writer-effect append and finalization costs for representative item counts.
 pub fn main() anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer runtime.deinit();
     var instance = WriterInstance.init();
 

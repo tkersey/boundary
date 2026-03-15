@@ -54,7 +54,7 @@ test "exception handle can throw directly to the catch policy" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ExceptionInstance.init();
     demo.after_throw = false;
@@ -90,7 +90,7 @@ test "nested same-shaped exception handles get distinct capability types" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var outer_instance = ExceptionInstance.init();
     var inner_instance = ExceptionInstance.init();

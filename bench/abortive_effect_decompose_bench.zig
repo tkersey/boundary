@@ -272,19 +272,19 @@ fn printLine(writer: anytype, name: []const u8, raw_samples: *const [samples_per
 
 /// Decompose heavier optional and exception abortive paths for acceptance decisions.
 pub fn main() anyerror!void {
-    var optional_return_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var optional_return_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer optional_return_runtime.deinit();
     var optional_return_prompt = OptionalReturnPrompt.init();
     raw_optional_return.prompt_ptr = &optional_return_prompt;
     var optional_return_instance = OptionalInstance.init();
 
-    var optional_resume_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var optional_resume_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer optional_resume_runtime.deinit();
     var optional_resume_prompt = OptionalResumePrompt.init();
     raw_optional_resume.prompt_ptr = &optional_resume_prompt;
     var optional_resume_instance = OptionalInstance.init();
 
-    var exception_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var exception_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer exception_runtime.deinit();
     var exception_prompt = ExceptionPrompt.init();
     raw_exception.prompt_ptr = &exception_prompt;

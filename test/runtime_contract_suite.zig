@@ -27,7 +27,7 @@ test "missing prompt still fails closed through the public API" {
 }
 
 test "cross-thread runtime misuse still fails closed" {
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Result = struct {
@@ -50,7 +50,7 @@ test "cross-thread runtime misuse still fails closed" {
 }
 
 test "runtime deinit rejects active reset" {
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const NoError = error{};
@@ -75,7 +75,7 @@ test "runtime deinit rejects active reset" {
 }
 
 test "destroyed runtime rejects later reset use" {
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     try runtime.deinitChecked();
     try std.testing.expectError(error.RuntimeDestroyed, runtime.deinitChecked());
 
@@ -93,7 +93,7 @@ test "destroyed runtime rejects later reset use" {
 }
 
 test "unsupported non-diagonal completion still fails closed" {
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const NoError = error{};

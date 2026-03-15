@@ -29,7 +29,7 @@ const body = struct {
 
 /// Trigger the compile-fail wrong-builder-mode witness.
 pub fn main() anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator, .{});
+    var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     _ = try configured.run(&runtime, body);
 }

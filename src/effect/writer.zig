@@ -115,7 +115,7 @@ test "writer handle accumulates items in order" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = WriterInstance.init();
     const result = try handle([]const u8, []const u8, &runtime, &instance, std.testing.allocator, demo);
@@ -149,7 +149,7 @@ test "nested same-shaped writer handles get distinct capability types" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var outer_instance = WriterInstance.init();
     var inner_instance = WriterInstance.init();

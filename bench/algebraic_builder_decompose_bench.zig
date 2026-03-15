@@ -155,15 +155,15 @@ fn medianDelta(later: *const [samples_per_run]u64, earlier: *const [samples_per_
 
 /// Decompose public algebraic builder overhead into raw, configured-shell, and full-path lanes.
 pub fn main() anyerror!void {
-    var raw_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var raw_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer raw_runtime.deinit();
     var raw_prompt = RawTransformPrompt.init();
     raw_transform.prompt_ptr = &raw_prompt;
 
-    var shell_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var shell_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer shell_runtime.deinit();
 
-    var full_runtime = shift.Runtime.init(std.heap.smp_allocator, .{});
+    var full_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer full_runtime.deinit();
 
     _ = try runRawTransformSample(&raw_runtime, &raw_prompt, warmup_iterations);
