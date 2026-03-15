@@ -1,9 +1,12 @@
+const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract.zig");
 const raw = @import("raw.zig");
 const std = @import("std");
 
 const max_records = 32;
 const max_resume_bytes = 64;
+
+const EncodedValue = lowered_machine.ProgramValue;
 
 const FrameBase = struct {
     prompt_token: prompt_contract.PromptToken,
@@ -29,6 +32,12 @@ fn PromptErrorSetType(comptime PromptPtrType: type) type {
 
 fn assertPromptMode(comptime PromptPtrType: type, comptime expected: prompt_contract.PromptMode, comptime operation: []const u8) void {
     if (PromptTypeFromPtr(PromptPtrType).mode != expected) {
+        @compileError("frontend." ++ operation ++ " requires a prompt with matching mode");
+    }
+}
+
+fn assertPromptTypeMode(comptime PromptType: type, comptime expected: prompt_contract.PromptMode, comptime operation: []const u8) void {
+    if (PromptType.mode != expected) {
         @compileError("frontend." ++ operation ++ " requires a prompt with matching mode");
     }
 }
@@ -126,19 +135,185 @@ fn callResumeOrReturn(comptime Resume: type, comptime PromptType: type, comptime
     return Handler.resumeOrReturn() catch |err| return @errorCast(err);
 }
 
+fn assertContinuationType(
+    comptime Input: type,
+    comptime PromptType: type,
+    comptime Continuation: type,
+) void {
+    expectDeclTypeOneOf(
+        Continuation,
+        "apply",
+        fn (Input) PromptType.InAnswer,
+        fn (Input) raw.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
+    );
+}
+
+fn callContinuation(
+    comptime Input: type,
+    comptime PromptType: type,
+    comptime Continuation: type,
+    value: Input,
+) raw.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
+    const ApplyFn = @TypeOf(Continuation.apply);
+    if (ApplyFn == fn (Input) PromptType.InAnswer) return Continuation.apply(value);
+    return Continuation.apply(value) catch |err| return @errorCast(err);
+}
+
+fn encodeValue(comptime T: type, value: T) raw.Error!EncodedValue {
+    if (T == void) {
+        return .none;
+    }
+    if (T == bool) return .{ .bool = value };
+    if (T == i32) return .{ .i32 = value };
+    if (T == []const u8) return .{ .string = value };
+    if (T == usize) return .{ .usize = value };
+    @compileError("frontend explicit programs currently support only void, bool, i32, usize, and []const u8 values");
+}
+
+fn decodeValue(comptime T: type, value: EncodedValue) T {
+    if (T == void) return;
+    if (T == bool) return switch (value) {
+        .bool => |typed| typed,
+        else => unreachable,
+    };
+    if (T == i32) return switch (value) {
+        .i32 => |typed| typed,
+        else => unreachable,
+    };
+    if (T == usize) return switch (value) {
+        .usize => |typed| typed,
+        else => unreachable,
+    };
+    if (T == []const u8) return switch (value) {
+        .string => |typed| typed,
+        else => unreachable,
+    };
+    @compileError("frontend explicit programs currently support only void, bool, i32, usize, and []const u8 values");
+}
+
+fn DecisionValue(comptime PromptType: type) type {
+    return union(enum) {
+        resume_with: EncodedValue,
+        return_now: PromptType.OutAnswer,
+    };
+}
+
 /// Typed authored body for one canonical prompt.
 pub fn Program(comptime PromptType: type) type {
-    return struct {
-        body: *const fn () raw.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
+    return union(enum) {
+        abort: struct {
+            directReturnFn: *const fn () raw.ControlError(PromptType.ErrorSet)!PromptType.OutAnswer,
+        },
+        choice: struct {
+            decisionFn: *const fn () raw.ControlError(PromptType.ErrorSet)!DecisionValue(PromptType),
+            continueFn: *const fn (EncodedValue) raw.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
+            afterResumeFn: AfterResumeFn(PromptType),
+        },
+        legacy_body: *const fn () raw.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
+        pure: PromptType.InAnswer,
+        transform: struct {
+            resumeValueFn: *const fn () raw.ControlError(PromptType.ErrorSet)!EncodedValue,
+            continueFn: *const fn (EncodedValue) raw.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
+            afterResumeFn: AfterResumeFn(PromptType),
+        },
     };
 }
 
 /// Wrap one authored body function in a first-class program shell.
-pub fn fromBody(
+fn fromBody(
     comptime PromptType: type,
     body: anytype,
 ) Program(PromptType) {
-    return .{ .body = normalizeBodyFn(PromptType, body) };
+    return .{ .legacy_body = normalizeBodyFn(PromptType, body) };
+}
+
+/// Build one explicit canonical program from a body spec type.
+pub fn build(
+    comptime PromptType: type,
+    comptime Spec: type,
+) Program(PromptType) {
+    return fromBody(PromptType, @field(Spec, "body"));
+}
+
+/// Build a pure explicit program for prompts whose body answer is already final.
+pub fn pureProgram(comptime PromptType: type, value: PromptType.InAnswer) Program(PromptType) {
+    return .{ .pure = value };
+}
+
+/// Build one explicit transform program with a single resumptive operation.
+pub fn transformProgram(
+    comptime PromptType: type,
+    comptime Resume: type,
+    comptime Handler: type,
+    comptime Continuation: type,
+) Program(PromptType) {
+    comptime assertPromptTypeMode(PromptType, .resume_then_transform, "transformProgram");
+    comptime assertHandlerProtocol(Resume, PromptType, Handler);
+    comptime assertContinuationType(Resume, PromptType, Continuation);
+    return .{
+        .transform = .{
+            .resumeValueFn = struct {
+                fn invoke() raw.ControlError(PromptType.ErrorSet)!EncodedValue {
+                    return try encodeValue(Resume, try callResumeValue(Resume, PromptType, Handler));
+                }
+            }.invoke,
+            .continueFn = struct {
+                fn invoke(value: EncodedValue) raw.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
+                    return try callContinuation(Resume, PromptType, Continuation, decodeValue(Resume, value));
+                }
+            }.invoke,
+            .afterResumeFn = afterResumeThunk(PromptType, Handler),
+        },
+    };
+}
+
+/// Build one explicit choice program with a single zero-or-one-resume operation.
+pub fn choiceProgram(
+    comptime PromptType: type,
+    comptime Resume: type,
+    comptime Handler: type,
+    comptime Continuation: type,
+) Program(PromptType) {
+    comptime assertPromptTypeMode(PromptType, .resume_or_return, "choiceProgram");
+    comptime assertHandlerProtocol(Resume, PromptType, Handler);
+    comptime assertContinuationType(Resume, PromptType, Continuation);
+    return .{
+        .choice = .{
+            .decisionFn = struct {
+                fn invoke() raw.ControlError(PromptType.ErrorSet)!DecisionValue(PromptType) {
+                    const decision = try callResumeOrReturn(Resume, PromptType, Handler);
+                    return switch (decision) {
+                        .resume_with => |value| .{ .resume_with = try encodeValue(Resume, value) },
+                        .return_now => |answer| .{ .return_now = answer },
+                    };
+                }
+            }.invoke,
+            .continueFn = struct {
+                fn invoke(value: EncodedValue) raw.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
+                    return try callContinuation(Resume, PromptType, Continuation, decodeValue(Resume, value));
+                }
+            }.invoke,
+            .afterResumeFn = afterResumeThunk(PromptType, Handler),
+        },
+    };
+}
+
+/// Build one explicit abortive program with a single direct-return operation.
+pub fn abortProgram(
+    comptime PromptType: type,
+    comptime Handler: type,
+) Program(PromptType) {
+    comptime assertPromptTypeMode(PromptType, .direct_return, "abortProgram");
+    comptime assertHandlerProtocol(void, PromptType, Handler);
+    return .{
+        .abort = .{
+            .directReturnFn = struct {
+                fn invoke() raw.ControlError(PromptType.ErrorSet)!PromptType.OutAnswer {
+                    return try callDirectReturn(PromptType, Handler);
+                }
+            }.invoke,
+        },
+    };
 }
 
 fn normalizeBodyFn(
@@ -156,7 +331,7 @@ fn normalizeBodyFn(
 }
 
 /// Accept either a first-class program or an authored body function for the supplied prompt type.
-pub fn coerceProgram(comptime PromptType: type, body_or_program: anytype) Program(PromptType) {
+fn coerceProgram(comptime PromptType: type, body_or_program: anytype) Program(PromptType) {
     const InputType = @TypeOf(body_or_program);
     if (InputType == Program(PromptType)) return body_or_program;
     return fromBody(PromptType, body_or_program);
@@ -305,6 +480,11 @@ pub fn run(
     raw_runtime.active_reset_count += 1;
     defer raw_runtime.active_reset_count -= 1;
 
+    switch (program) {
+        .abort, .choice, .pure, .transform => return lowered_machine.runExplicitProgram(PromptType, program) catch |err| return @errorCast(err),
+        .legacy_body => {},
+    }
+
     var frame = Frame(PromptType).init(raw_runtime, prompt);
     defer frame.deinit();
     pushActiveFrame(&frame.base);
@@ -315,7 +495,7 @@ pub fn run(
         frame.terminal = null;
         frame.applied_after_len = 0;
 
-        const value = program.body() catch |err| switch (err) {
+        const value = program.legacy_body() catch |err| switch (err) {
             error.FrontendSuspend => {
                 if (frame.terminal) |answer| return answer;
                 continue;

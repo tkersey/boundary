@@ -27,8 +27,8 @@ legacy compatibility work and is not part of the shipped backend path.
 The current public product claim is:
 
 - `const P = shift.Prompt(.resume_then_transform, InAnswer, OutAnswer, ErrorSet); var prompt = P.init();`
-- `shift.reset(&runtime, &prompt, body)`
-- `shift.shift(Resume, &prompt, Handler)`
+- `const program = shift.frontend.build(P, Spec); shift.reset(&runtime, &prompt, program)`
+- `shift.frontend.perform(Resume, &prompt, Handler)` is the low-level canonical prompt operation surface
 - `shift.algebraic` adds closed-world builder types `TransformOp`, `ChoiceOp`, `AbortOp`, `Program`, and `handleTransform` / `handleChoice` / `handleAbort` over the same runtime
 - the handler protocol is selected by `PromptMode` at comptime
 - `.resume_or_return` handlers may return `shift.ResumeOrReturn(Resume, OutAnswer)` and still provide `afterResume`
@@ -84,6 +84,8 @@ zig build shipped-surface-frontier-matrix-write
 zig build shipped-surface-frontier-matrix-check
 zig build canonical-raw-dependency-matrix-write
 zig build canonical-raw-dependency-matrix-check
+zig build frontend-feature-matrix-write
+zig build frontend-feature-matrix-check
 zig build shipped-backend-check
 zig build surface-truth-scorecard-write
 zig build surface-truth-scorecard-check
@@ -146,6 +148,9 @@ one of these proof surfaces:
   routing truth surface
 - `zig build canonical-raw-dependency-matrix-check` for the checked list of
   canonical execution paths that still depend on raw runtime calls
+- `zig build frontend-feature-matrix-check` for the checked matrix that records
+  which authored-body frontend capabilities are already explicit and which are
+  still replay-limited or missing
 - `zig build shipped-backend-check` as the final Phase-A removal gate; it is
   expected to fail until the shipped path no longer depends on stackful runtime
   assembly or stackful-only obligation rows
@@ -572,6 +577,10 @@ not just by documentation.
 runtime error surface policy, which lives at
 `docs/runtime_error_surface_matrix.json`.
 
+`tools/render_frontend_feature_matrix.zig` renders the checked canonical
+frontend capability matrix, which lives at
+`docs/frontend_feature_matrix.json`.
+
 `tools/render_root_surface_migration_matrix.zig` renders the checked canonical
 root migration map, which lives at `docs/root_surface_migration_matrix.json`.
 
@@ -613,7 +622,7 @@ const demo = struct {
     };
 
     fn body() shift.ResetError(DemoError)!i32 {
-        const value = try shift.shift(i32, prompt_ptr.?, Handle);
+        const value = try shift.frontend.perform(i32, prompt_ptr.?, Handle);
         return value + 1;
     }
 };
@@ -624,7 +633,7 @@ pub fn main() anyerror!void {
     var prompt = DemoPrompt.init();
     demo.prompt_ptr = &prompt;
 
-    const answer = try shift.reset(&runtime, &prompt, demo.body);
+    const answer = try shift.reset(&runtime, &prompt, shift.frontend.build(DemoPrompt, demo));
     _ = answer;
 }
 ```

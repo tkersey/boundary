@@ -17,6 +17,10 @@ compile_fixture() {
     -fno-emit-bin \
     --dep shift \
     -Mroot="$fixture" \
+    --dep parity_scenarios \
+    -Mlowered_machine="$repo_root/src/lowered_machine.zig" \
+    -Mparity_scenarios="$repo_root/src/parity_scenarios.zig" \
+    --dep lowered_machine \
     -Mshift="$repo_root/src/root.zig" \
     --cache-dir "$local_cache_dir" \
     --global-cache-dir "$global_cache_dir" \

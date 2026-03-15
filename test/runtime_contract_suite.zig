@@ -23,7 +23,7 @@ test "missing prompt still fails closed through the public API" {
         }
     };
 
-    try std.testing.expectError(error.MissingPrompt, shift.shift(i32, &prompt, handle));
+    try std.testing.expectError(error.MissingPrompt, shift.frontend.perform(i32, &prompt, handle));
 }
 
 test "cross-thread runtime misuse still fails closed" {
@@ -57,10 +57,22 @@ test "runtime deinit rejects active reset" {
     const DemoPrompt = shift.Prompt(.resume_then_transform, usize, usize, NoError);
     var prompt = DemoPrompt.init();
 
-    const demo = struct {
+    const handler = struct {
+        /// Supply a placeholder resume value so the runtime stays active while the continuation runs.
+        pub fn resumeValue() usize {
+            return 0;
+        }
+
+        /// Preserve the resumed answer unchanged.
+        pub fn afterResume(value: usize) usize {
+            return value;
+        }
+    };
+    const continuation = struct {
         var runtime_ptr: *shift.Runtime = undefined;
 
-        fn body() shift.ResetError(NoError)!usize {
+        /// Probe the runtime-busy contract from the resumed continuation.
+        pub fn apply(_: usize) shift.ResetError(NoError)!usize {
             runtime_ptr.deinitChecked() catch |err| {
                 if (err != error.RuntimeBusy) return error.Unexpected;
                 return 7;
@@ -69,8 +81,8 @@ test "runtime deinit rejects active reset" {
         }
     };
 
-    demo.runtime_ptr = &runtime;
-    const answer = try shift.reset(&runtime, &prompt, demo.body);
+    continuation.runtime_ptr = &runtime;
+    const answer = try shift.reset(&runtime, &prompt, shift.frontend.transformProgram(DemoPrompt, usize, handler, continuation));
     try std.testing.expectEqual(@as(usize, 7), answer);
 }
 
@@ -83,13 +95,7 @@ test "destroyed runtime rejects later reset use" {
     const DemoPrompt = shift.Prompt(.resume_then_transform, usize, usize, NoError);
     var prompt = DemoPrompt.init();
 
-    const body = struct {
-        fn run() shift.ResetError(NoError)!usize {
-            return 7;
-        }
-    }.run;
-
-    try std.testing.expectError(error.RuntimeDestroyed, shift.reset(&runtime, &prompt, body));
+    try std.testing.expectError(error.RuntimeDestroyed, shift.reset(&runtime, &prompt, shift.frontend.pureProgram(DemoPrompt, 7)));
 }
 
 test "unsupported non-diagonal completion still fails closed" {
@@ -100,13 +106,7 @@ test "unsupported non-diagonal completion still fails closed" {
     const DemoPrompt = shift.Prompt(.resume_then_transform, i32, []const u8, NoError);
     var prompt = DemoPrompt.init();
 
-    const body = struct {
-        fn run() shift.ResetError(NoError)!i32 {
-            return 7;
-        }
-    }.run;
-
-    try std.testing.expectError(error.NonDiagonalComplete, shift.reset(&runtime, &prompt, body));
+    try std.testing.expectError(error.NonDiagonalComplete, shift.reset(&runtime, &prompt, shift.frontend.pureProgram(DemoPrompt, 7)));
 }
 
 test "runtime-positive one-shot survey fixture still executes" {

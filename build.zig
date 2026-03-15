@@ -92,6 +92,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     lowered_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    shift_mod.addImport("lowered_machine", lowered_machine_mod);
     const program_frontend_mod = b.createModule(.{
         .root_source_file = b.path("src/program_frontend.zig"),
         .target = target,
@@ -154,6 +155,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    lib_check.root_module.addImport("lowered_machine", lowered_machine_mod);
     check_step.dependOn(&lib_check.step);
 
     const root_tests = b.addTest(.{
@@ -163,6 +165,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    root_tests.root_module.addImport("lowered_machine", lowered_machine_mod);
     const run_root_tests = b.addRunArtifact(root_tests);
     const test_step = b.step("test", "Run the default shift proof surface.");
     test_step.dependOn(&run_root_tests.step);
@@ -627,6 +630,30 @@ pub fn build(b: *std.Build) void {
     const canon_raw_source_check_cmd = b.addSystemCommand(&.{ "sh", "test/canonical_raw_source_check/run.sh" });
     const canon_raw_source_check_step = b.step("canonical-raw-source-check", "Fail closed when canonical modules still call raw.reset/raw.shift.");
     canon_raw_source_check_step.dependOn(&canon_raw_source_check_cmd.step);
+
+    const frontend_feature_registry_mod = b.createModule(.{
+        .root_source_file = b.path("src/frontend_feature_registry.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const frontend_feature_mod = b.createModule(.{
+        .root_source_file = b.path("tools/render_frontend_feature_matrix.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    frontend_feature_mod.addImport("frontend_feature_registry", frontend_feature_registry_mod);
+    const frontend_feature_exe = b.addExecutable(.{
+        .name = "shift-frontend-feature-matrix",
+        .root_module = frontend_feature_mod,
+    });
+    const frontend_feature_check_cmd = b.addRunArtifact(frontend_feature_exe);
+    frontend_feature_check_cmd.addArg("check");
+    const frontend_feature_check_step = b.step("frontend-feature-matrix-check", "Check the canonical frontend feature matrix.");
+    frontend_feature_check_step.dependOn(&frontend_feature_check_cmd.step);
+    const frontend_feature_write_cmd = b.addRunArtifact(frontend_feature_exe);
+    frontend_feature_write_cmd.addArg("write");
+    const frontend_feature_write_step = b.step("frontend-feature-matrix-write", "Refresh the canonical frontend feature matrix.");
+    frontend_feature_write_step.dependOn(&frontend_feature_write_cmd.step);
 
     const shipped_backend_cmd = b.addSystemCommand(&.{ "sh", "test/shipped_backend_contract/run.sh" });
     const shipped_backend_step = b.step("shipped-backend-check", "Check that the shipped path no longer depends on the stackful backend.");

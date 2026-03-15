@@ -79,18 +79,18 @@ pub fn Prompt(
 pub fn reset(
     runtime: *Runtime,
     prompt: anytype,
-    body_or_program: anytype,
+    program: frontend.Program(PromptTypeFromPtr(@TypeOf(prompt))),
 ) ResetError(PromptErrorSetType(@TypeOf(prompt)))!PromptOutAnswerType(@TypeOf(prompt)) {
-    return frontend.run(runtime, prompt, body_or_program);
+    return frontend.run(runtime, prompt, program);
 }
 
 /// Capture the computation up to the nearest active `reset(..., prompt, ...)`.
 pub fn shift(
-    comptime Resume: type,
-    prompt: anytype,
-    comptime Handler: type,
-) ControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
-    return frontend.perform(Resume, prompt, Handler);
+    comptime _Resume: type,
+    _prompt: anytype,
+    comptime _: type,
+) ControlError(PromptErrorSetType(@TypeOf(_prompt)))!_Resume {
+    @compileError("canonical shift.shift is no longer executable; use shift.frontend.build(...) plus shift.frontend.perform/transform/choice/abort, or src/compat/raw.zig for legacy raw execution");
 }
 
 test {

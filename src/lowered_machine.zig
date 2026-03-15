@@ -8,6 +8,14 @@ pub const PromptId = scenarios.PromptId;
 pub const PendingKind = scenarios.PendingKind;
 /// Typed proof values re-exported from the canonical scenario registry.
 pub const Value = scenarios.Value;
+/// Narrow typed program values used by the explicit canonical program path.
+pub const ProgramValue = union(enum) {
+    bool: bool,
+    i32: i32,
+    none,
+    string: []const u8,
+    usize: usize,
+};
 /// Transcript events re-exported from the canonical scenario registry.
 pub const Event = scenarios.Event;
 /// Checkpoint tags re-exported from the canonical scenario registry.
@@ -100,6 +108,36 @@ pub fn writeTranscript(writer: anytype, state: *const MachineState) anyerror!voi
         .note => |line| try writer.print("{s}\n", .{line}),
         .final_i32 => |value| try writer.print("final={d}\n", .{value}),
         .final_string => |value| try writer.print("final={s}\n", .{value}),
+    };
+}
+
+/// Execute one explicit typed-value authored program to completion.
+pub fn runExplicitProgram(
+    comptime PromptType: type,
+    program: anytype,
+) anyerror!PromptType.OutAnswer {
+    return switch (program) {
+        .pure => |value| blk: {
+            if (comptime PromptType.InAnswer == PromptType.OutAnswer) break :blk value;
+            break :blk error.NonDiagonalComplete;
+        },
+        .transform => |node| blk: {
+            const resume_value = try node.resumeValueFn();
+            const in_answer = try node.continueFn(resume_value);
+            break :blk try node.afterResumeFn(in_answer);
+        },
+        .choice => |node| blk: {
+            const decision = try node.decisionFn();
+            break :blk switch (decision) {
+                .resume_with => |resume_value| blk2: {
+                    const in_answer = try node.continueFn(resume_value);
+                    break :blk2 try node.afterResumeFn(in_answer);
+                },
+                .return_now => |answer| answer,
+            };
+        },
+        .abort => |node| try node.directReturnFn(),
+        else => unreachable,
     };
 }
 

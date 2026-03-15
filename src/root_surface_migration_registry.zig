@@ -78,13 +78,13 @@ pub const entries = [_]Entry{
         .current_path = "shift.reset",
         .target_path = "shift.reset",
         .status = .canonical_type_changed,
-        .note = "Canonical root reset is planned to run lowered authored programs rather than plain raw zero-arg bodies.",
+        .note = "Canonical root reset now requires explicit frontend Program values rather than plain authored body functions.",
     },
     .{
         .symbol = "shift",
         .current_path = "shift.shift",
         .target_path = "src/compat/raw.zig",
         .status = .canonical_tombstone,
-        .note = "The old raw runtime shift call is planned to leave the canonical root and become an internal compat/raw entrypoint with migration diagnostics.",
+        .note = "The old raw runtime shift call has left the canonical root and now fails with migration diagnostics toward frontend authoring.",
     },
 };

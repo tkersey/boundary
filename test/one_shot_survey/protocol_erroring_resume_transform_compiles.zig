@@ -4,8 +4,6 @@ const DemoError = error{Boom};
 const DemoPrompt = shift.Prompt(.resume_then_transform, i32, i32, DemoError);
 
 const demo = struct {
-    var prompt_ptr: ?*const DemoPrompt = null;
-
     const handle = struct {
         /// Exercise the error-carrying resume protocol shape.
         pub fn resumeValue() shift.ResetError(DemoError)!i32 {
@@ -18,12 +16,12 @@ const demo = struct {
         }
     };
 
-    fn body() shift.ResetError(DemoError)!i32 {
-        const value = try shift.shift(i32, prompt_ptr.?, handle);
+    /// Continue the transform protocol when the error path is not taken.
+    pub fn apply(value: i32) shift.ResetError(DemoError)!i32 {
         return value;
     }
 };
 
 comptime {
-    _ = demo.body;
+    _ = shift.frontend.transformProgram(DemoPrompt, i32, demo.handle, demo);
 }

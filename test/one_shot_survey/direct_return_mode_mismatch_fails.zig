@@ -15,5 +15,5 @@ comptime {
         }
     };
 
-    _ = shift.shift(i32, @as(*const DemoPrompt, @ptrFromInt(@alignOf(DemoPrompt))), wrong_mode_handler);
+    _ = shift.frontend.perform(i32, @as(*const DemoPrompt, @ptrFromInt(@alignOf(DemoPrompt))), wrong_mode_handler);
 }
