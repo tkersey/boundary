@@ -1,6 +1,7 @@
 const frontend = @import("../frontend.zig");
 const kernel = @import("kernel.zig");
 const raw = @import("../raw.zig");
+const runtime_core = @import("../runtime_core.zig");
 const shift = @import("../root.zig");
 
 /// Resolve an effect instance type from a pointer passed into a family handler.
@@ -146,7 +147,7 @@ pub inline fn computeProgram(
     const shim = ProgramShim(ContextType);
     _ = ctx._cap;
     return frontend.computeProgram(PromptType, struct {
-        fn invoke() raw.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
+        fn invoke() runtime_core.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
             const RunFn = @TypeOf(Thunk.run);
             const ReturnType = @typeInfo(RunFn).@"fn".return_type.?;
             if (@typeInfo(ReturnType) != .error_union) return Thunk.run(Cap, shim.active_context.?);

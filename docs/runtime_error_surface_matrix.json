@@ -5,7 +5,7 @@
     {"name":"RuntimeBusy","status":"retained","rationale":"Active-runtime teardown misuse remains a public runtime concern."},
     {"name":"RuntimeDestroyed","status":"retained","rationale":"Destroyed-runtime misuse remains a public runtime concern."},
     {"name":"NonDiagonalComplete","status":"retained","rationale":"Non-diagonal completion is still part of the public shift/reset semantic contract."},
-    {"name":"AlreadyResolved","status":"retained","rationale":"The canonical runtime now owns its own error set, but this compatibility variant remains exported for now."},
-    {"name":"NestedNonDiagonalCapture","status":"retained","rationale":"The canonical runtime now owns its own error set, but this compatibility variant remains exported for now."}
+    {"name":"AlreadyResolved","status":"retired","rationale":"This one-shot raw continuation misuse no longer belongs to the canonical lowered runtime surface."},
+    {"name":"NestedNonDiagonalCapture","status":"retired","rationale":"This stackful capture detail no longer belongs to the canonical lowered runtime surface."}
   ]
 }

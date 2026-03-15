@@ -40,12 +40,12 @@ pub const variants = [_]ErrorVariant{
     },
     .{
         .name = "AlreadyResolved",
-        .status = .retained,
-        .rationale = "The canonical runtime now owns its own error set, but this compatibility variant remains exported for now.",
+        .status = .retired,
+        .rationale = "This one-shot raw continuation misuse no longer belongs to the canonical lowered runtime surface.",
     },
     .{
         .name = "NestedNonDiagonalCapture",
-        .status = .retained,
-        .rationale = "The canonical runtime now owns its own error set, but this compatibility variant remains exported for now.",
+        .status = .retired,
+        .rationale = "This stackful capture detail no longer belongs to the canonical lowered runtime surface.",
     },
 };

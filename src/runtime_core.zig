@@ -2,11 +2,9 @@ const std = @import("std");
 
 /// Runtime errors surfaced by the canonical non-stackful runtime core.
 pub const Error = error{
-    AlreadyResolved,
     CrossThread,
     FrontendSuspend,
     MissingPrompt,
-    NestedNonDiagonalCapture,
     NonDiagonalComplete,
     ProgramContractViolation,
     RuntimeBusy,

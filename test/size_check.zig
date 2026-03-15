@@ -29,8 +29,8 @@ test "public runtime error surface still exposes the current raw contract" {
     try std.testing.expect(hasErrorName(shift.Error, "RuntimeBusy"));
     try std.testing.expect(hasErrorName(shift.Error, "RuntimeDestroyed"));
     try std.testing.expect(hasErrorName(shift.Error, "NonDiagonalComplete"));
-    try std.testing.expect(hasErrorName(shift.Error, "AlreadyResolved"));
-    try std.testing.expect(hasErrorName(shift.Error, "NestedNonDiagonalCapture"));
+    try std.testing.expect(!hasErrorName(shift.Error, "AlreadyResolved"));
+    try std.testing.expect(!hasErrorName(shift.Error, "NestedNonDiagonalCapture"));
 }
 
 test "algebraic descriptor and context shells stay compact" {

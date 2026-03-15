@@ -1,5 +1,6 @@
 const frontend = @import("frontend.zig");
-const raw = @import("raw.zig");
+const prompt_contract = @import("prompt_contract.zig");
+const runtime_core = @import("runtime_core.zig");
 const std = @import("std");
 
 const BuilderKind = enum {
@@ -16,7 +17,7 @@ pub fn TransformOp(
 ) type {
     return struct {
         const op_name = name;
-        const mode = raw.PromptMode.resume_then_transform;
+        const mode = prompt_contract.PromptMode.resume_then_transform;
         const Payload = PayloadType;
         const Resume = ResumeType;
     };
@@ -30,7 +31,7 @@ pub fn ChoiceOp(
 ) type {
     return struct {
         const op_name = name;
-        const mode = raw.PromptMode.resume_or_return;
+        const mode = prompt_contract.PromptMode.resume_or_return;
         const Payload = PayloadType;
         const Resume = ResumeType;
     };
@@ -43,7 +44,7 @@ pub fn AbortOp(
 ) type {
     return struct {
         const op_name = name;
-        const mode = raw.PromptMode.direct_return;
+        const mode = prompt_contract.PromptMode.direct_return;
         const Payload = PayloadType;
         const Resume = noreturn;
     };
@@ -100,7 +101,7 @@ fn AbortSpec(comptime Op: type, comptime StateType: type, comptime Impl: type) t
     };
 }
 
-fn assertOpMode(comptime Op: type, comptime expected: raw.PromptMode, comptime label: []const u8) void {
+fn assertOpMode(comptime Op: type, comptime expected: prompt_contract.PromptMode, comptime label: []const u8) void {
     if (!@hasDecl(Op, "mode")) @compileError("algebraic op is missing mode");
     if (!@hasDecl(Op, "Payload")) @compileError("algebraic op is missing Payload");
     if (!@hasDecl(Op, "Resume")) @compileError("algebraic op is missing Resume");
@@ -127,12 +128,12 @@ fn assertTransformImplType(
     if (!@hasDecl(Impl, "afterResume")) @compileError("transform handler must declare afterResume");
 
     const ResumeFn = @TypeOf(Impl.resumeValue);
-    if (ResumeFn != fn (StateType, Op.Payload) Op.Resume and ResumeFn != fn (StateType, Op.Payload) raw.ResetError(ErrorSet)!Op.Resume) {
+    if (ResumeFn != fn (StateType, Op.Payload) Op.Resume and ResumeFn != fn (StateType, Op.Payload) runtime_core.ResetError(ErrorSet)!Op.Resume) {
         @compileError("transform handler resumeValue must have type fn (State, Payload) Resume or fn (State, Payload) ResetError(ErrorSet)!Resume");
     }
 
     const AfterFn = @TypeOf(Impl.afterResume);
-    if (AfterFn != fn (StateType, Answer) Answer and AfterFn != fn (StateType, Answer) raw.ResetError(ErrorSet)!Answer) {
+    if (AfterFn != fn (StateType, Answer) Answer and AfterFn != fn (StateType, Answer) runtime_core.ResetError(ErrorSet)!Answer) {
         @compileError("transform handler afterResume must have type fn (State, Answer) Answer or fn (State, Answer) ResetError(ErrorSet)!Answer");
     }
 }
@@ -147,14 +148,14 @@ fn assertChoiceImplType(
     if (!@hasDecl(Impl, "resumeOrReturn")) @compileError("choice handler must declare resumeOrReturn");
     if (!@hasDecl(Impl, "afterResume")) @compileError("choice handler must declare afterResume");
 
-    const DecisionType = raw.ResumeOrReturn(Op.Resume, Answer);
+    const DecisionType = prompt_contract.ResumeOrReturn(Op.Resume, Answer);
     const DecideFn = @TypeOf(Impl.resumeOrReturn);
-    if (DecideFn != fn (StateType, Op.Payload) DecisionType and DecideFn != fn (StateType, Op.Payload) raw.ResetError(ErrorSet)!DecisionType) {
+    if (DecideFn != fn (StateType, Op.Payload) DecisionType and DecideFn != fn (StateType, Op.Payload) runtime_core.ResetError(ErrorSet)!DecisionType) {
         @compileError("choice handler resumeOrReturn must have type fn (State, Payload) ResumeOrReturn or fn (State, Payload) ResetError(ErrorSet)!ResumeOrReturn");
     }
 
     const AfterFn = @TypeOf(Impl.afterResume);
-    if (AfterFn != fn (StateType, Answer) Answer and AfterFn != fn (StateType, Answer) raw.ResetError(ErrorSet)!Answer) {
+    if (AfterFn != fn (StateType, Answer) Answer and AfterFn != fn (StateType, Answer) runtime_core.ResetError(ErrorSet)!Answer) {
         @compileError("choice handler afterResume must have type fn (State, Answer) Answer or fn (State, Answer) ResetError(ErrorSet)!Answer");
     }
 }
@@ -168,7 +169,7 @@ fn assertAbortImplType(
 ) void {
     if (!@hasDecl(Impl, "directReturn")) @compileError("abort handler must declare directReturn");
     const DirectFn = @TypeOf(Impl.directReturn);
-    if (DirectFn != fn (StateType, Op.Payload) Answer and DirectFn != fn (StateType, Op.Payload) raw.ResetError(ErrorSet)!Answer) {
+    if (DirectFn != fn (StateType, Op.Payload) Answer and DirectFn != fn (StateType, Op.Payload) runtime_core.ResetError(ErrorSet)!Answer) {
         @compileError("abort handler directReturn must have type fn (State, Payload) Answer or fn (State, Payload) ResetError(ErrorSet)!Answer");
     }
 }
@@ -205,7 +206,7 @@ fn tupleLen(comptime TupleType: type) usize {
 }
 
 fn PromptTypeForOp(comptime Op: type, comptime Answer: type, comptime ErrorSet: type) type {
-    return raw.Prompt(Op.mode, Answer, Answer, ErrorSet);
+    return prompt_contract.Prompt(Op.mode, Answer, Answer, ErrorSet);
 }
 
 fn Binding(
@@ -255,42 +256,42 @@ fn Binding(
             pending_payload = null;
         }
 
-        fn callResumeValue(spec: SpecType, payload: Op.Payload) raw.ResetError(ErrorSet)!Op.Resume {
+        fn callResumeValue(spec: SpecType, payload: Op.Payload) runtime_core.ResetError(ErrorSet)!Op.Resume {
             const ResumeFn = @TypeOf(Impl.resumeValue);
             if (ResumeFn == fn (StateType, Op.Payload) Op.Resume) return Impl.resumeValue(spec.state, payload);
             return try Impl.resumeValue(spec.state, payload);
         }
 
-        fn callAfterResume(spec: SpecType, answer: Answer) raw.ResetError(ErrorSet)!Answer {
+        fn callAfterResume(spec: SpecType, answer: Answer) runtime_core.ResetError(ErrorSet)!Answer {
             const AfterFn = @TypeOf(Impl.afterResume);
             if (AfterFn == fn (StateType, Answer) Answer) return Impl.afterResume(spec.state, answer);
             return try Impl.afterResume(spec.state, answer);
         }
 
-        fn callResumeOrReturn(spec: SpecType, payload: Op.Payload) raw.ResetError(ErrorSet)!raw.ResumeOrReturn(Op.Resume, Answer) {
+        fn callResumeOrReturn(spec: SpecType, payload: Op.Payload) runtime_core.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
             const DecideFn = @TypeOf(Impl.resumeOrReturn);
-            if (DecideFn == fn (StateType, Op.Payload) raw.ResumeOrReturn(Op.Resume, Answer)) return Impl.resumeOrReturn(spec.state, payload);
+            if (DecideFn == fn (StateType, Op.Payload) prompt_contract.ResumeOrReturn(Op.Resume, Answer)) return Impl.resumeOrReturn(spec.state, payload);
             return try Impl.resumeOrReturn(spec.state, payload);
         }
 
-        fn callDirectReturn(spec: SpecType, payload: Op.Payload) raw.ResetError(ErrorSet)!Answer {
+        fn callDirectReturn(spec: SpecType, payload: Op.Payload) runtime_core.ResetError(ErrorSet)!Answer {
             const DirectFn = @TypeOf(Impl.directReturn);
             if (DirectFn == fn (StateType, Op.Payload) Answer) return Impl.directReturn(spec.state, payload);
             return try Impl.directReturn(spec.state, payload);
         }
 
-        fn perform(self: *@This(), payload: Op.Payload) raw.ResetError(ErrorSet)!Op.Resume {
+        fn perform(self: *@This(), payload: Op.Payload) runtime_core.ResetError(ErrorSet)!Op.Resume {
             const BindingType = @This();
             return switch (SpecType.builder_kind) {
                 .transform => blk: {
                     const handler = struct {
                         /// Supply the resumptive transform value from the active binding.
-                        pub fn resumeValue() raw.ResetError(ErrorSet)!Op.Resume {
+                        pub fn resumeValue() runtime_core.ResetError(ErrorSet)!Op.Resume {
                             return try BindingType.callResumeValue(BindingType.active_binding.?.spec, BindingType.currentPayload());
                         }
 
                         /// Complete the enclosing answer after one transform resume.
-                        pub fn afterResume(answer: Answer) raw.ResetError(ErrorSet)!Answer {
+                        pub fn afterResume(answer: Answer) runtime_core.ResetError(ErrorSet)!Answer {
                             return try BindingType.callAfterResume(BindingType.active_binding.?.spec, answer);
                         }
                     };
@@ -308,12 +309,12 @@ fn Binding(
                 .choice => blk: {
                     const handler = struct {
                         /// Choose the next action for the active choice binding.
-                        pub fn resumeOrReturn() raw.ResetError(ErrorSet)!raw.ResumeOrReturn(Op.Resume, Answer) {
+                        pub fn resumeOrReturn() runtime_core.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
                             return try BindingType.callResumeOrReturn(BindingType.active_binding.?.spec, BindingType.currentPayload());
                         }
 
                         /// Complete the enclosing answer after one choice resume.
-                        pub fn afterResume(answer: Answer) raw.ResetError(ErrorSet)!Answer {
+                        pub fn afterResume(answer: Answer) runtime_core.ResetError(ErrorSet)!Answer {
                             return try BindingType.callAfterResume(BindingType.active_binding.?.spec, answer);
                         }
                     };
@@ -331,7 +332,7 @@ fn Binding(
                 .abort => {
                     const handler = struct {
                         /// Convert the active abort payload into the enclosing answer.
-                        pub fn directReturn() raw.ResetError(ErrorSet)!Answer {
+                        pub fn directReturn() runtime_core.ResetError(ErrorSet)!Answer {
                             return try BindingType.callDirectReturn(BindingType.active_binding.?.spec, BindingType.currentPayload());
                         }
                     };
@@ -355,12 +356,12 @@ fn Binding(
                 .transform => blk: {
                     const handler = struct {
                         /// Supply the resumptive value for one explicit transform op.
-                        pub fn resumeValue() raw.ResetError(ErrorSet)!Op.Resume {
+                        pub fn resumeValue() runtime_core.ResetError(ErrorSet)!Op.Resume {
                             return try BindingType.callResumeValue(BindingType.active_binding.?.spec, BindingType.currentPayload());
                         }
 
                         /// Complete the enclosing answer after one explicit transform resume.
-                        pub fn afterResume(answer: Answer) raw.ResetError(ErrorSet)!Answer {
+                        pub fn afterResume(answer: Answer) runtime_core.ResetError(ErrorSet)!Answer {
                             return try BindingType.callAfterResume(BindingType.active_binding.?.spec, answer);
                         }
                     };
@@ -372,12 +373,12 @@ fn Binding(
                 .choice => blk: {
                     const handler = struct {
                         /// Decide whether one explicit choice op resumes or returns now.
-                        pub fn resumeOrReturn() raw.ResetError(ErrorSet)!raw.ResumeOrReturn(Op.Resume, Answer) {
+                        pub fn resumeOrReturn() runtime_core.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
                             return try BindingType.callResumeOrReturn(BindingType.active_binding.?.spec, BindingType.currentPayload());
                         }
 
                         /// Complete the enclosing answer after one explicit choice resume.
-                        pub fn afterResume(answer: Answer) raw.ResetError(ErrorSet)!Answer {
+                        pub fn afterResume(answer: Answer) runtime_core.ResetError(ErrorSet)!Answer {
                             return try BindingType.callAfterResume(BindingType.active_binding.?.spec, answer);
                         }
                     };
@@ -389,7 +390,7 @@ fn Binding(
                 .abort => blk: {
                     const handler = struct {
                         /// Convert one explicit abort payload into the enclosing answer.
-                        pub fn directReturn() raw.ResetError(ErrorSet)!Answer {
+                        pub fn directReturn() runtime_core.ResetError(ErrorSet)!Answer {
                             return try BindingType.callDirectReturn(BindingType.active_binding.?.spec, BindingType.currentPayload());
                         }
                     };
@@ -489,7 +490,7 @@ pub fn Program(
                         self: *Context,
                         comptime Op: type,
                         payload: Op.Payload,
-                    ) raw.ResetError(ErrorSet)!Op.Resume {
+                    ) runtime_core.ResetError(ErrorSet)!Op.Resume {
                         const index = comptime findOpIndex(Op);
                         return try self.bindings.bindingPtr(index).perform(payload);
                     }
@@ -517,7 +518,7 @@ pub fn Program(
                     self: @This(),
                     runtime: anytype,
                     comptime Body: type,
-                ) raw.ResetError(ErrorSet)!Answer {
+                ) runtime_core.ResetError(ErrorSet)!Answer {
                     comptime assertBodyType(Body, Context, ErrorSet, Answer);
                     var bindings = BindingsType.init(self.specs);
                     var ctx = Context{ .bindings = &bindings };
@@ -663,7 +664,7 @@ test "transform program resumes and observes final answer" {
         }
     };
 
-    var runtime = raw.Runtime.init(std.testing.allocator, .{});
+    var runtime = @import("root.zig").Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     const result = try configured.run(&runtime, body);
     try std.testing.expectEqual(@as(i32, 42), result);
@@ -676,8 +677,8 @@ test "choice program may return now" {
     const no_state = struct {};
     const choice_handler = struct {
         /// Return immediately from the choice witness.
-        pub fn resumeOrReturn(_: no_state, _: i32) raw.ResumeOrReturn(i32, []const u8) {
-            return raw.ResumeOrReturn(i32, []const u8).returnNow("early");
+        pub fn resumeOrReturn(_: no_state, _: i32) prompt_contract.ResumeOrReturn(i32, []const u8) {
+            return prompt_contract.ResumeOrReturn(i32, []const u8).returnNow("early");
         }
 
         /// Preserve the resumed answer unchanged.
@@ -706,7 +707,7 @@ test "choice program may return now" {
         }
     };
 
-    var runtime = raw.Runtime.init(std.testing.allocator, .{});
+    var runtime = @import("root.zig").Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     const result = try configured.run(&runtime, body);
     try std.testing.expectEqualStrings("early", result);
@@ -748,7 +749,7 @@ test "abort program never resumes body tail" {
         }
     };
 
-    var runtime = raw.Runtime.init(std.testing.allocator, .{});
+    var runtime = @import("root.zig").Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     body.after_abort = false;
     const result = try configured.run(&runtime, body);
@@ -842,7 +843,7 @@ test "warmed algebraic perform path adds no allocator traffic" {
     };
 
     var counting = CountingAllocator.init(std.testing.allocator);
-    var runtime = raw.Runtime.init(counting.allocator(), .{});
+    var runtime = @import("root.zig").Runtime.init(counting.allocator());
     defer runtime.deinit();
 
     const warm = try configured.run(&runtime, body);

@@ -64,7 +64,7 @@ pub const entries = [_]Entry{
         .current_path = "shift.Error",
         .target_path = "shift.Error",
         .status = .canonical_type_changed,
-        .note = "Canonical root Error is planned to drop raw-only AlreadyResolved and NestedNonDiagonalCapture.",
+        .note = "Canonical root Error has dropped raw-only AlreadyResolved and NestedNonDiagonalCapture.",
     },
     .{
         .symbol = "SetupError",
