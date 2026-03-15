@@ -77,10 +77,11 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, "  },\n");
     try list.appendSlice(allocator, "  \"private_lowered_runtime_seam\": {\n");
     try list.appendSlice(allocator, if (has_blocked_cases) "    \"decision\": \"not_worth_finishing\",\n" else "    \"decision\": \"worth_finishing\",\n");
+    try list.appendSlice(allocator, if (has_blocked_cases) "    \"status\": \"not_started\",\n" else "    \"status\": \"implemented_for_supported_bridge_cases\",\n");
     try list.appendSlice(allocator, if (has_blocked_cases)
         "    \"rationale\": \"unchanged-body bridge coverage is still incomplete\"\n"
     else
-        "    \"rationale\": \"nested_workflow now bridges through the canonical public example without API changes\"\n");
+        "    \"rationale\": \"supported bridge cases now execute through src/private_lowered_runtime.zig without public API changes\"\n");
     try list.appendSlice(allocator, "  }\n");
     try list.appendSlice(allocator, "}\n");
 }

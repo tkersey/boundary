@@ -24,6 +24,7 @@
   },
   "private_lowered_runtime_seam": {
     "decision": "worth_finishing",
-    "rationale": "nested_workflow now bridges through the canonical public example without API changes"
+    "status": "implemented_for_supported_bridge_cases",
+    "rationale": "supported bridge cases now execute through src/private_lowered_runtime.zig without public API changes"
   }
 }

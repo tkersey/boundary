@@ -332,12 +332,21 @@ pub fn build(b: *std.Build) void {
     program_bridge_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
     program_bridge_mod.addImport("parity_scenarios", parity_scenarios_mod);
     program_bridge_mod.addImport("program_frontend", program_frontend_mod);
+    const private_lowered_runtime_mod = b.createModule(.{
+        .root_source_file = b.path("src/private_lowered_runtime.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    private_lowered_runtime_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
+    private_lowered_runtime_mod.addImport("parity_kernel", parity_kernel_mod);
+    private_lowered_runtime_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    private_lowered_runtime_mod.addImport("program_bridge", program_bridge_mod);
     const bridge_mod = b.createModule(.{
         .root_source_file = b.path("test/direct_style_bridge_test.zig"),
         .target = target,
         .optimize = optimize,
     });
-    bridge_mod.addImport("parity_kernel", parity_kernel_mod);
+    bridge_mod.addImport("private_lowered_runtime", private_lowered_runtime_mod);
     bridge_mod.addImport("program_bridge", program_bridge_mod);
     bridge_mod.addImport("direct_style_bridge_atm", createBridgeWitnessModule(b, "test/direct_style_bridge/atm_resume_transform.zig", target, optimize, witnesses_mod));
     bridge_mod.addImport("direct_style_bridge_direct_return", createBridgeWitnessModule(b, "test/direct_style_bridge/direct_return.zig", target, optimize, witnesses_mod));

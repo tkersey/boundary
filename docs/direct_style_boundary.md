@@ -10,6 +10,8 @@ that surface. Today, that support comes in two internal forms:
   canonical lowered IR in `src/parity_scenarios.zig`
 - `src/program_bridge.zig` maps a named unchanged-body direct-style subset onto
   the same lowered scenarios for parity proof
+- `src/private_lowered_runtime.zig` executes the currently supported bridge
+  subset through an internal lowered-runtime seam
 
 The current limit is structural:
 

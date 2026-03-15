@@ -6,8 +6,7 @@ const exception_basic = @import("direct_style_bridge_exception_basic");
 const multi_prompt = @import("direct_style_bridge_multi_prompt");
 const nested_workflow = @import("direct_style_bridge_nested_workflow");
 const optional_basic = @import("direct_style_bridge_optional_basic");
-const parity_kernel = @import("parity_kernel");
-const program_bridge = @import("program_bridge");
+const private_lowered_runtime = @import("private_lowered_runtime");
 const reader_basic = @import("direct_style_bridge_reader_basic");
 const resume_or_return = @import("direct_style_bridge_resume_or_return");
 const resume_or_return_resume = @import("direct_style_bridge_resume_or_return_resume");
@@ -16,26 +15,20 @@ const state_basic = @import("direct_style_bridge_state_basic");
 const static_redelim = @import("direct_style_bridge_static_redelim");
 const std = @import("std");
 
-fn parityTranscript(buffer: anytype, lowered: anytype) ![]const u8 {
-    var writer = std.Io.Writer.fixed(buffer);
-    const state = parity_kernel.runScenario(lowered.scenario.scenario_id);
-    try parity_kernel.writeTranscript(&writer, &state);
-    return writer.buffered();
-}
-
 fn expectBridgeParity(comptime Fixture: type) !void {
     const case = bridge_manifest.find(Fixture.bridge_case_id).?;
     try std.testing.expect(case.status == .supported);
-    const lowered = try program_bridge.lowerFixture(Fixture);
     var stackful_buffer: [1024]u8 = undefined;
     var stackful_writer = std.Io.Writer.fixed(&stackful_buffer);
     try Fixture.run(&stackful_writer);
 
-    var parity_buffer: [1024]u8 = undefined;
-    const parity = try parityTranscript(&parity_buffer, lowered);
+    var lowered_buffer: [1024]u8 = undefined;
+    var lowered_writer = std.Io.Writer.fixed(&lowered_buffer);
+    const execution = try private_lowered_runtime.runBridgeFixture(Fixture, &lowered_writer);
 
-    try std.testing.expectEqualStrings(case.label, lowered.label);
-    try std.testing.expectEqualStrings(stackful_writer.buffered(), parity);
+    try std.testing.expectEqualStrings(case.label, execution.label);
+    try std.testing.expectEqualStrings(case.case_id, execution.scenario.case_id);
+    try std.testing.expectEqualStrings(stackful_writer.buffered(), lowered_writer.buffered());
 }
 
 test "direct-style bridge lowers the supported unchanged-body corpus" {
@@ -52,4 +45,12 @@ test "direct-style bridge lowers the supported unchanged-body corpus" {
     try expectBridgeParity(reader_basic);
     try expectBridgeParity(optional_basic);
     try expectBridgeParity(exception_basic);
+}
+
+test "private lowered runtime seam reports supported cases" {
+    try std.testing.expect(private_lowered_runtime.supportsCaseId("nested_workflow"));
+    try std.testing.expect(!private_lowered_runtime.supportsCaseId("missing_case"));
+    var buffer: [1]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    try std.testing.expectError(error.UnsupportedBridgeCase, private_lowered_runtime.runCaseId(&writer, "missing_case"));
 }

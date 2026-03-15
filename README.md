@@ -488,7 +488,9 @@ direct-style boundary is documented in `docs/direct_style_boundary.md` and
 checked by `zig build direct-style-boundary`.
 
 `src/program_bridge.zig` is the current hidden-backend bridge for the supported
-unchanged direct-style subset. `zig build direct-style-bridge-parity` proves
+unchanged direct-style subset, and `src/private_lowered_runtime.zig` is the
+internal lowered-runtime seam that executes that supported subset without
+changing the public API. `zig build direct-style-bridge-parity` proves
 that subset against the canonical lowered scenarios, and
 `tools/render_surface_truth_scorecard.zig` renders the machine-readable
 scorecard used by the final hidden-backend recommendation gate. The generated
