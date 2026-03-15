@@ -328,6 +328,11 @@ pub fn build(b: *std.Build) void {
     construction_boundary_step.dependOn(&construction_boundary_cmd.step);
     test_step.dependOn(&construction_boundary_cmd.step);
 
+    const shared_engine_boundary_cmd = b.addSystemCommand(&.{ "sh", "test/shared_algebraic_engine_boundary/run.sh" });
+    const shared_engine_boundary_step = b.step("shared-algebraic-engine-boundary", "Check that public algebraic and effect execution share the same internal algebraic engine.");
+    shared_engine_boundary_step.dependOn(&shared_engine_boundary_cmd.step);
+    test_step.dependOn(&shared_engine_boundary_cmd.step);
+
     const size_check_mod = b.createModule(.{
         .root_source_file = b.path("test/size_check.zig"),
         .target = target,
@@ -781,6 +786,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = bench_optimize,
     });
+    shift_bench_mod.addImport("lowered_machine", lowered_machine_mod);
     const bench_specs = [_]struct {
         name: []const u8,
         src: []const u8,

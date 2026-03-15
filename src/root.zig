@@ -62,15 +62,6 @@ pub fn reset(
     return frontend.run(runtime, prompt, program);
 }
 
-/// Capture the computation up to the nearest active `reset(..., prompt, ...)`.
-pub fn shift(
-    comptime _Resume: type,
-    _prompt: anytype,
-    comptime _: type,
-) ControlError(PromptErrorSetType(@TypeOf(_prompt)))!_Resume {
-    @compileError("canonical shift.shift is no longer executable; use shift.frontend.build(...) plus shift.frontend.perform/transform/choice/abort.");
-}
-
 test {
     _ = Prompt;
     _ = PromptMode;

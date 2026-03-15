@@ -14,7 +14,7 @@ pub inline fn get(
     comptime Cap: type,
     ctx: anytype,
 ) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
-    return try algebraic.readTransformState(Cap, ctx);
+    return try algebraic.stateGet(Cap, ctx);
 }
 
 /// Replace the current state value for the supplied capability and handled context.
@@ -23,7 +23,7 @@ pub inline fn set(
     ctx: anytype,
     value: family.ContextStateType(@TypeOf(ctx)),
 ) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!void {
-    return try algebraic.writeTransformState(Cap, ctx, value);
+    return try algebraic.stateSet(Cap, ctx, value);
 }
 
 /// Build one explicit state body program with no prompt operation.
@@ -46,7 +46,7 @@ pub fn handle(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
-    return try family.handle(AnswerType, runtime, instance, initial_state, Body);
+    return try algebraic.handleState(AnswerType, runtime, instance, initial_state, Body);
 }
 
 test "state instance shell stays prompt-sized" {

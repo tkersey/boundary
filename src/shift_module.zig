@@ -22,8 +22,6 @@ pub const ResumeOrReturn = root.ResumeOrReturn;
 pub const Prompt = root.Prompt;
 /// Canonical reset entrypoint.
 pub const reset = root.reset;
-/// Canonical shift migration boundary.
-pub const shift = root.shift;
 
 test {
     _ = root;

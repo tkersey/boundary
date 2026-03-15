@@ -9,15 +9,18 @@ fn WriterState(comptime ItemType: type) type {
         first_item: ?ItemType = null,
         items: std.ArrayList(ItemType) = .empty,
 
-        fn init(allocator: std.mem.Allocator) @This() {
+        /// Build one empty writer state backed by the supplied allocator.
+        pub fn init(allocator: std.mem.Allocator) @This() {
             return .{ .allocator = allocator };
         }
 
-        fn deinit(self: *@This()) void {
+        /// Release any storage retained by the writer state.
+        pub fn deinit(self: *@This()) void {
             self.items.deinit(self.allocator);
         }
 
-        fn append(self: *@This(), item: ItemType) !void {
+        /// Append one item into the writer log state.
+        pub fn append(self: *@This(), item: ItemType) std.mem.Allocator.Error!void {
             if (self.first_item == null and self.items.items.len == 0) {
                 self.first_item = item;
                 return;
@@ -30,7 +33,8 @@ fn WriterState(comptime ItemType: type) type {
             try self.items.append(self.allocator, item);
         }
 
-        fn intoOwnedSlice(self: *@This()) ![]ItemType {
+        /// Materialize the accumulated writer log as an owned slice.
+        pub fn intoOwnedSlice(self: *@This()) ![]ItemType {
             if (self.items.items.len != 0) {
                 return try self.items.toOwnedSlice(self.allocator);
             }
@@ -66,16 +70,7 @@ pub inline fn tell(
     ctx: anytype,
     item: anytype,
 ) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!void {
-    const WriterStateType = family.ContextStateType(@TypeOf(ctx));
-    _ = try algebraic.mutateTransformState(Cap, ctx, item, struct {
-        /// Resume the caller with no value after a writer append.
-        pub const Result = void;
-
-        /// Append one item into the active writer state.
-        pub fn apply(state: *WriterStateType, value: @TypeOf(item)) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!void {
-            try state.append(value);
-        }
-    });
+    return try algebraic.writerTell(Cap, ctx, item);
 }
 
 /// Build one explicit writer body program with no prompt operation.
@@ -96,12 +91,18 @@ pub fn handle(
     allocator: std.mem.Allocator,
     comptime Body: type,
 ) shift.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!HandleResult(ItemType, AnswerType) {
-    const StateType = WriterState(ItemType);
-    var result = try family.handle(AnswerType, runtime, instance, StateType.init(allocator), Body);
-    errdefer result.state.deinit();
-    const items = try result.state.intoOwnedSlice();
+    const item_type = ItemType;
+    const answer_type = AnswerType;
+    const result = try algebraic.handleWriter(struct {
+        /// Item type threaded through the shared writer engine adapter.
+        pub const Item = item_type;
+        /// Final answer type threaded through the shared writer engine adapter.
+        pub const Answer = answer_type;
+        /// Exact writer state type used by the shared writer engine adapter.
+        pub const WriterStateType = WriterState(item_type);
+    }, runtime, instance, allocator, Body);
     return .{
-        .items = items,
+        .items = result.items,
         .value = result.value,
     };
 }

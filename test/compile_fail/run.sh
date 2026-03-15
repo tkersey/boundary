@@ -84,6 +84,5 @@ run_fixture "$repo_root/test/compile_fail/effect_writer_cross_instance_context_f
 run_fixture "$repo_root/test/compile_fail/effect_writer_forged_context_tell_fails.zig" "expected exact shift.effect context type"
 run_fixture "$repo_root/test/compile_fail/effect_writer_tell_without_context.zig" "expected a pointer to a shift.effect context"
 run_fixture "$repo_root/test/compile_fail/root_reset_requires_program.zig" "expected type 'frontend.Program"
-run_fixture "$repo_root/test/compile_fail/root_shift_migration_boundary.zig" "canonical shift.shift is no longer executable"
 run_fixture "$repo_root/test/compile_fail/no_shift_guard_removed.zig" "NoShiftGuard"
 run_fixture "$repo_root/test/compile_fail/resume_value_mismatch.zig" "must have type"

@@ -103,6 +103,7 @@ zig build bench-runtime-backends-check
 zig build bench-state-effect
 zig build bench-state-effect-write
 zig build bench-state-effect-check
+zig build shared-algebraic-engine-boundary
 ```
 
 ## Executable Contract
@@ -113,6 +114,7 @@ one of these proof surfaces:
 - `zig build test` for the combined runtime, witness, compile-fail, README, and
   formal-core gates
 - `zig build effect-construction-boundary` for the generalized construction boundary
+- `zig build shared-algebraic-engine-boundary` for the checked claim that public `shift.algebraic` and `shift.effect.*` now share one internal algebraic engine
 - `zig build compile-fail` for hidden continuation/context surfaces and forged
   capability misuse
 - `zig build example-proof` for exact-output public example transcripts
@@ -555,6 +557,11 @@ The generated artifact lives at `docs/runtime_route_matrix.json`.
 
 `src/lowered_machine.zig` is now the shared executable machine core, while
 `src/parity_kernel.zig` acts as a proof façade over that core.
+
+`src/internal/algebraic_engine.zig` now owns the shared internal
+operation/binding/prompt machinery used by both `src/algebraic.zig` and
+`src/effect/algebraic.zig`. `zig build shared-algebraic-engine-boundary` is the
+architectural truth gate for that claim.
 
 `zig build runtime-route-matrix-check` is the architectural truth gate for that
 claim, and

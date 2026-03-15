@@ -11,7 +11,7 @@ pub inline fn ask(
     comptime Cap: type,
     ctx: anytype,
 ) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
-    return try algebraic.readTransformState(Cap, ctx);
+    return try algebraic.readerAsk(Cap, ctx);
 }
 
 /// Build one explicit reader body program with no prompt operation.
@@ -31,8 +31,7 @@ pub fn handle(
     environment: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
 ) shift.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    const result = try family.handle(AnswerType, runtime, instance, environment, Body);
-    return result.value;
+    return try algebraic.handleReader(AnswerType, runtime, instance, environment, Body);
 }
 
 test "reader instance shell stays prompt-sized" {

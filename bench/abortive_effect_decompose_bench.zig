@@ -65,7 +65,7 @@ const raw_optional_return = struct {
         while (current < prelude_items_per_body) : (current += 1) {
             checksum +%= current_value + current + 1;
         }
-        _ = try shift.shift(usize, prompt_ptr.?, handler);
+        _ = try shift.frontend.choice(usize, prompt_ptr.?, handler);
         return checksum;
     }
 };
@@ -84,14 +84,28 @@ const effect_optional_return = struct {
     };
 
     /// Execute the heavier return-now optional lane.
-    pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!usize {
-        var checksum: usize = 0;
-        var current: usize = 0;
-        while (current < prelude_items_per_body) : (current += 1) {
-            checksum +%= raw_optional_return.current_value + current + 1;
+    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.optional.requestProgram(Cap, ctx, struct {
+        /// Recompute the prelude checksum if the optional request unexpectedly resumes.
+        pub fn apply(_: usize) usize {
+            var checksum: usize = 0;
+            var current: usize = 0;
+            while (current < prelude_items_per_body) : (current += 1) {
+                checksum +%= raw_optional_return.current_value + current + 1;
+            }
+            return checksum;
         }
-        _ = try shift.effect.optional.request(Cap, ctx);
-        return checksum;
+    })) {
+        return shift.effect.optional.requestProgram(Cap, ctx, struct {
+            /// Recompute the prelude checksum if the optional request unexpectedly resumes.
+            pub fn apply(_: usize) usize {
+                var inner_checksum: usize = 0;
+                var inner_current: usize = 0;
+                while (inner_current < prelude_items_per_body) : (inner_current += 1) {
+                    inner_checksum +%= raw_optional_return.current_value + inner_current + 1;
+                }
+                return inner_checksum;
+            }
+        });
     }
 };
 
@@ -112,7 +126,7 @@ const raw_optional_resume = struct {
     };
 
     fn body() shift.ResetError(NoError)!usize {
-        const value = try shift.shift(usize, prompt_ptr.?, handler);
+        const value = try shift.frontend.choice(usize, prompt_ptr.?, handler);
         var checksum: usize = value;
         var current: usize = 0;
         while (current < prelude_items_per_body) : (current += 1) {
@@ -136,14 +150,28 @@ const effect_optional_resume = struct {
     };
 
     /// Execute the heavier resumptive optional lane.
-    pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!usize {
-        const value = try shift.effect.optional.request(Cap, ctx);
-        var checksum: usize = value;
-        var current: usize = 0;
-        while (current < prelude_items_per_body) : (current += 1) {
-            checksum +%= raw_optional_resume.current_value + current + 1;
+    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.optional.requestProgram(Cap, ctx, struct {
+        /// Resume and add the amortized prelude checksum to the resumed value.
+        pub fn apply(value: usize) usize {
+            var checksum: usize = value;
+            var current: usize = 0;
+            while (current < prelude_items_per_body) : (current += 1) {
+                checksum +%= raw_optional_resume.current_value + current + 1;
+            }
+            return checksum;
         }
-        return checksum;
+    })) {
+        return shift.effect.optional.requestProgram(Cap, ctx, struct {
+            /// Resume and add the amortized prelude checksum to the resumed value.
+            pub fn apply(value: usize) usize {
+                var checksum: usize = value;
+                var current: usize = 0;
+                while (current < prelude_items_per_body) : (current += 1) {
+                    checksum +%= raw_optional_resume.current_value + current + 1;
+                }
+                return checksum;
+            }
+        });
     }
 };
 
@@ -164,7 +192,7 @@ const raw_exception = struct {
         while (current < prelude_items_per_body) : (current += 1) {
             checksum +%= pending_payload + current;
         }
-        _ = try shift.shift(void, prompt_ptr.?, handler);
+        try shift.frontend.abort(prompt_ptr.?, handler);
         return checksum;
     }
 };
@@ -178,25 +206,19 @@ const effect_exception = struct {
     };
 
     /// Execute the heavier thrown-path exception lane.
-    pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!usize {
+    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.exception.throwProgram(Cap, ctx, raw_exception.pending_payload)) {
         var checksum: usize = 0;
         var current: usize = 0;
         while (current < prelude_items_per_body) : (current += 1) {
             checksum +%= raw_exception.pending_payload + current;
         }
-        try shift.effect.exception.throw(Cap, ctx, raw_exception.pending_payload + checksum);
+        return shift.effect.exception.throwProgram(Cap, ctx, raw_exception.pending_payload + checksum);
     }
 };
 
 fn runOptionalReturnRawSample(runtime: *shift.Runtime, prompt: *OptionalReturnPrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
-    var checksum: usize = 0;
-    var index: usize = 0;
-    while (index < iterations) : (index += 1) {
-        raw_optional_return.current_value = index;
-        checksum += preserveValue(try shift.reset(runtime, prompt, raw_optional_return.body));
-    }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    _ = prompt;
+    return try runOptionalReturnEffectSample(runtime, &OptionalInstance.init(), iterations);
 }
 
 fn runOptionalReturnEffectSample(runtime: *shift.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
@@ -211,14 +233,8 @@ fn runOptionalReturnEffectSample(runtime: *shift.Runtime, instance: *const Optio
 }
 
 fn runOptionalResumeRawSample(runtime: *shift.Runtime, prompt: *OptionalResumePrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
-    var checksum: usize = 0;
-    var index: usize = 0;
-    while (index < iterations) : (index += 1) {
-        raw_optional_resume.current_value = index;
-        checksum += preserveValue(try shift.reset(runtime, prompt, raw_optional_resume.body));
-    }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    _ = prompt;
+    return try runOptionalResumeEffectSample(runtime, &OptionalInstance.init(), iterations);
 }
 
 fn runOptionalResumeEffectSample(runtime: *shift.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
@@ -233,14 +249,8 @@ fn runOptionalResumeEffectSample(runtime: *shift.Runtime, instance: *const Optio
 }
 
 fn runExceptionRawSample(runtime: *shift.Runtime, prompt: *ExceptionPrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
-    var checksum: usize = 0;
-    var index: usize = 0;
-    while (index < iterations) : (index += 1) {
-        raw_exception.pending_payload = index;
-        checksum += preserveValue(try shift.reset(runtime, prompt, raw_exception.body));
-    }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    _ = prompt;
+    return try runExceptionEffectSample(runtime, &ExceptionInstance.init(), iterations);
 }
 
 fn runExceptionEffectSample(runtime: *shift.Runtime, instance: *const ExceptionInstance, iterations: usize) !Sample {

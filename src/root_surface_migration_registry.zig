@@ -1,6 +1,5 @@
 /// Migration status for one canonical root export during the lowered-first cut.
 pub const Status = enum {
-    canonical_tombstone,
     canonical_type_changed,
     canonical_unchanged,
 };
@@ -71,12 +70,5 @@ pub const entries = [_]Entry{
         .target_path = "shift.reset",
         .status = .canonical_type_changed,
         .note = "Canonical root reset now requires explicit frontend Program values rather than plain authored body functions.",
-    },
-    .{
-        .symbol = "shift",
-        .current_path = "shift.shift",
-        .target_path = "shift.frontend",
-        .status = .canonical_tombstone,
-        .note = "The old raw runtime shift call has left the canonical root and now fails with migration diagnostics toward frontend authoring only.",
     },
 };

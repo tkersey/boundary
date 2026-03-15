@@ -38,13 +38,6 @@ pub const features = [_]Feature{
         .note = "The canonical root now requires an explicit frontend Program at reset time.",
     },
     .{
-        .feature_id = "program.shift_migration_boundary",
-        .surface = "canonical_root",
-        .status = .covered,
-        .source = "src/root.zig",
-        .note = "Canonical shift.shift is now a compile-time migration boundary with guidance to frontend authoring.",
-    },
-    .{
         .feature_id = "execution.non_replay_prefix_safety",
         .surface = "canonical_frontend",
         .status = .covered,
@@ -70,13 +63,13 @@ pub const features = [_]Feature{
         .surface = "canonical_effect",
         .status = .covered,
         .source = "src/effect/algebraic.zig",
-        .note = "Canonical effect families now author explicit program bodies over the shared frontend runtime.",
+        .note = "Canonical effect families now route their hidden operation programs through the shared internal algebraic engine while preserving exact Cap/ctx sealing.",
     },
     .{
         .feature_id = "algebraic.lowered_authoring",
         .surface = "canonical_algebraic",
         .status = .covered,
         .source = "src/algebraic.zig",
-        .note = "Canonical algebraic builders now author explicit program bodies over the shared frontend runtime.",
+        .note = "Canonical algebraic builders now wrap the shared internal algebraic engine while preserving the public custom-ops surface.",
     },
 };

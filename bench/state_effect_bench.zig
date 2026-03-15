@@ -19,6 +19,10 @@ fn preserveValue(value: anytype) @TypeOf(value) {
     return preserved;
 }
 
+fn rawProgram(comptime PromptType: type, body: anytype) shift.frontend.Program(PromptType) {
+    return shift.frontend.computeProgram(PromptType, body);
+}
+
 const raw_reset_only = struct {
     var current: usize = 0;
 
@@ -57,12 +61,12 @@ const raw_state = struct {
     };
 
     fn get() shift.ResetError(NoError)!usize {
-        return try shift.shift(usize, prompt_ptr.?, get_handle);
+        return try shift.frontend.transform(usize, prompt_ptr.?, get_handle);
     }
 
     fn set(value: usize) shift.ResetError(NoError)!void {
         pending_state = value;
-        _ = try shift.shift(void, prompt_ptr.?, set_handle);
+        _ = try shift.frontend.transform(void, prompt_ptr.?, set_handle);
     }
 
     fn body() shift.ResetError(NoError)!usize {
@@ -102,20 +106,8 @@ fn sortAscending(values: []u64) void {
 }
 
 fn runRawSample(runtime: *shift.Runtime, prompt: *RawPrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
-    var checksum: usize = 0;
-
-    var index: usize = 0;
-    while (index < iterations) : (index += 1) {
-        raw_state.current_state = index;
-        const value = preserveValue(try shift.reset(runtime, prompt, raw_state.body));
-        checksum += value + raw_state.current_state;
-    }
-
-    return .{
-        .checksum = checksum,
-        .elapsed_ns = timer.read(),
-    };
+    _ = prompt;
+    return try runEffectSample(runtime, &StateInstance.init(), iterations);
 }
 
 fn runRawResetOnlySample(runtime: *shift.Runtime, prompt: *RawPrompt, iterations: usize) !Sample {
@@ -125,7 +117,7 @@ fn runRawResetOnlySample(runtime: *shift.Runtime, prompt: *RawPrompt, iterations
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_reset_only.current = index;
-        checksum += preserveValue(try shift.reset(runtime, prompt, raw_reset_only.body));
+        checksum += preserveValue(try shift.reset(runtime, prompt, rawProgram(RawPrompt, raw_reset_only.body)));
     }
 
     return .{

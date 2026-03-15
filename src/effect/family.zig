@@ -1,5 +1,4 @@
 const frontend = @import("../frontend.zig");
-const kernel = @import("kernel.zig");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("../prompt_contract.zig");
 const shift = @import("../root.zig");
@@ -131,7 +130,22 @@ pub fn ContextSpec(comptime StateType: type, comptime AnswerType: type, comptime
 
 fn ProgramShim(comptime ContextType: type) type {
     return struct {
-        threadlocal var active_context: ?*ContextType = null;
+        /// Active exact effect context while one authored body is running.
+        pub threadlocal var active_context: ?*ContextType = null;
+    };
+}
+
+/// Resolve the threadlocal exact-context shim used by `computeProgram` bodies.
+pub fn ProgramShimFor(comptime ContextType: type) type {
+    return ProgramShim(ContextType);
+}
+
+/// Build a threadlocal shim that exposes the active internal engine bindings for one exact context type.
+pub fn EngineShim(comptime ContextType: type, comptime EngineContextType: type) type {
+    _ = ContextType;
+    return struct {
+        /// Active shared-engine context while one exact effect context is running.
+        pub threadlocal var active_engine: ?*EngineContextType = null;
     };
 }
 
@@ -168,9 +182,74 @@ pub fn withCapability(
         _seal: seal,
         const capability_tag = capability_decls;
 
+        /// Opaque metadata bundle for effect-family-specific internal wiring.
+        pub fn CapabilityTag() type {
+            return capability_tag;
+        }
+
+        /// Optional engine context metadata attached to this capability witness.
+        pub fn EngineContextType() type {
+            if (hasDeclSafe(capability_decls, "EngineContextType")) return capability_decls.EngineContextType();
+            return void;
+        }
+
+        /// Optional hidden transform-op metadata attached to this capability witness.
+        pub fn GetOp() type {
+            if (hasDeclSafe(capability_decls, "GetOp")) return capability_decls.GetOp();
+            return void;
+        }
+
+        /// Optional hidden transform-op metadata attached to this capability witness.
+        pub fn SetOp() type {
+            if (hasDeclSafe(capability_decls, "SetOp")) return capability_decls.SetOp();
+            return void;
+        }
+
+        /// Optional hidden transform-op metadata attached to this capability witness.
+        pub fn AskOp() type {
+            if (hasDeclSafe(capability_decls, "AskOp")) return capability_decls.AskOp();
+            return void;
+        }
+
+        /// Optional hidden transform-op metadata attached to this capability witness.
+        pub fn TellOp() type {
+            if (hasDeclSafe(capability_decls, "TellOp")) return capability_decls.TellOp();
+            return void;
+        }
+
+        /// Optional hidden choice-op metadata attached to this capability witness.
+        pub fn RequestOp() type {
+            if (hasDeclSafe(capability_decls, "RequestOp")) return capability_decls.RequestOp();
+            return void;
+        }
+
+        /// Optional hidden abort-op metadata attached to this capability witness.
+        pub fn ThrowOp() type {
+            if (hasDeclSafe(capability_decls, "ThrowOp")) return capability_decls.ThrowOp();
+            return void;
+        }
+
+        /// Optional hidden transform-op metadata attached to this capability witness.
+        pub fn AcquireOp() type {
+            if (hasDeclSafe(capability_decls, "AcquireOp")) return capability_decls.AcquireOp();
+            return void;
+        }
+
         /// Optional policy metadata attached to this capability witness.
         pub fn PolicyType() type {
             if (hasDeclSafe(capability_decls, "PolicyType")) return capability_decls.PolicyType();
+            return void;
+        }
+
+        /// Optional catch metadata attached to this capability witness.
+        pub fn CatchType() type {
+            if (hasDeclSafe(capability_decls, "CatchType")) return capability_decls.CatchType();
+            return void;
+        }
+
+        /// Optional manager metadata attached to this capability witness.
+        pub fn ManagerType() type {
+            if (hasDeclSafe(capability_decls, "ManagerType")) return capability_decls.ManagerType();
             return void;
         }
     };
@@ -179,47 +258,4 @@ pub fn withCapability(
     var cap_token = Cap{ ._seal = .{} };
     var context = ContextType{ ._cap = &cap_token };
     return try Runner.run(Cap, &context);
-}
-
-/// Run a family body under a fresh capability witness and return the final family state plus answer.
-pub fn handle(
-    comptime AnswerType: type,
-    runtime: *shift.Runtime,
-    instance: anytype,
-    initial_state: InstanceStateType(@TypeOf(instance)),
-    comptime Body: type,
-) shift.ResetError(InstanceErrorSetType(@TypeOf(instance)))!HandleResult(
-    InstanceStateType(@TypeOf(instance)),
-    AnswerType,
-) {
-    const StateType = InstanceStateType(@TypeOf(instance));
-    const ErrorSetType = InstanceErrorSetType(@TypeOf(instance));
-    const family_impl = kernel.Family(StateType, AnswerType, ErrorSetType);
-    const ResultType = HandleResult(StateType, AnswerType);
-    var frame = family_impl.Frame{
-        .state = initial_state,
-    };
-    const Cap = struct {
-        _seal: struct {},
-        const body_tag = Body;
-    };
-    const ContextType = Context(Cap, StateType, AnswerType, ErrorSetType);
-    const PromptType = prompt_contract.Prompt(.resume_then_transform, AnswerType, AnswerType, ErrorSetType);
-    const shim = ProgramShim(ContextType);
-
-    var cap_token = Cap{ ._seal = .{} };
-    var context = ContextType{ ._cap = &cap_token };
-    var prompt = PromptType{ .token = instance.prompt.token };
-
-    const previous_family_frame = family_impl.active_frame;
-    const previous_context = shim.active_context;
-    family_impl.active_frame = &frame;
-    shim.active_context = &context;
-    defer {
-        family_impl.active_frame = previous_family_frame;
-        shim.active_context = previous_context;
-    }
-
-    const value = try frontend.run(runtime, &prompt, Body.program(Cap, &context));
-    return ResultType{ .state = frame.state, .value = value };
 }

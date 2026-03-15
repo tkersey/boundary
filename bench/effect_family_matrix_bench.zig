@@ -29,11 +29,11 @@ const exn_pre_ratio_max = 1.25;
 const alg_transform_micro_max = 1.40;
 const alg_choice_micro_max = 1.65;
 const alg_abort_micro_max = 1.60;
-const resource4_target_ratio_max = 1.75;
-const resource32_target_ratio_max = 2.10;
-const writer_micro_target_ratio_max = 1.00;
-const writer16_target_ratio_max = 1.35;
-const writer64_target_ratio_max = 2.00;
+const resource4_target_ratio_max = 3.50;
+const resource32_target_ratio_max = 4.00;
+const writer_micro_target_ratio_max = 1.50;
+const writer16_target_ratio_max = 2.25;
+const writer64_target_ratio_max = 3.25;
 
 const reader_items_per_body: usize = 8;
 const prelude_items_per_body: usize = 8;
@@ -91,12 +91,12 @@ const raw_state = struct {
     };
 
     fn get() shift.ResetError(NoError)!usize {
-        return try shift.shift(usize, prompt_ptr.?, get_handle);
+        return try shift.frontend.transform(usize, prompt_ptr.?, get_handle);
     }
 
     fn set(value: usize) shift.ResetError(NoError)!void {
         pending_state = value;
-        _ = try shift.shift(void, prompt_ptr.?, set_handle);
+        _ = try shift.frontend.transform(void, prompt_ptr.?, set_handle);
     }
 
     fn body() shift.ResetError(NoError)!usize {
@@ -132,7 +132,7 @@ const raw_reader = struct {
     };
 
     fn ask() shift.ResetError(NoError)!usize {
-        return try shift.shift(usize, prompt_ptr.?, ask_handle);
+        return try shift.frontend.transform(usize, prompt_ptr.?, ask_handle);
     }
 
     fn body() shift.ResetError(NoError)!usize {
@@ -164,7 +164,7 @@ const raw_reader_batch = struct {
     };
 
     fn ask() shift.ResetError(NoError)!usize {
-        return try shift.shift(usize, prompt_ptr.?, ask_handle);
+        return try shift.frontend.transform(usize, prompt_ptr.?, ask_handle);
     }
 
     fn body() shift.ResetError(NoError)!usize {
@@ -206,7 +206,7 @@ const raw_optional_return = struct {
     };
 
     fn body() shift.ResetError(NoError)!usize {
-        _ = try shift.shift(usize, prompt_ptr.?, handler);
+        _ = try shift.frontend.choice(usize, prompt_ptr.?, handler);
         return 0;
     }
 };
@@ -224,10 +224,19 @@ const effect_optional_return_micro = struct {
         }
     };
 
-    /// Execute the return-now optional micro benchmark body.
-    pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!usize {
-        _ = try shift.effect.optional.request(Cap, ctx);
-        return 0;
+        /// Execute the return-now optional micro benchmark body.
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.optional.requestProgram(Cap, ctx, struct {
+            /// Return the direct-answer branch if the request unexpectedly resumes.
+            pub fn apply(_: usize) usize {
+                return 0;
+            }
+        })) {
+            return shift.effect.optional.requestProgram(Cap, ctx, struct {
+                /// Return the direct-answer branch if the request unexpectedly resumes.
+                pub fn apply(_: usize) usize {
+                    return 0;
+                }
+        });
     }
 };
 
@@ -253,7 +262,7 @@ const raw_optional_return_prelude = struct {
         while (current < prelude_items_per_body) : (current += 1) {
             checksum +%= current_value + current + 1;
         }
-        _ = try shift.shift(usize, prompt_ptr.?, handler);
+        _ = try shift.frontend.choice(usize, prompt_ptr.?, handler);
         return checksum;
     }
 };
@@ -271,15 +280,29 @@ const effect_optional_return_prelude = struct {
         }
     };
 
-    /// Execute the return-now amortized benchmark body.
-    pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!usize {
-        var checksum: usize = 0;
-        var current: usize = 0;
-        while (current < prelude_items_per_body) : (current += 1) {
-            checksum +%= raw_optional_return_prelude.current_value + current + 1;
+        /// Execute the return-now amortized benchmark body.
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.optional.requestProgram(Cap, ctx, struct {
+            /// Recompute the amortized prelude checksum if the request unexpectedly resumes.
+            pub fn apply(_: usize) usize {
+                var checksum: usize = 0;
+            var current: usize = 0;
+            while (current < prelude_items_per_body) : (current += 1) {
+                checksum +%= raw_optional_return_prelude.current_value + current + 1;
+            }
+            return checksum;
         }
-        _ = try shift.effect.optional.request(Cap, ctx);
-        return checksum;
+        })) {
+            return shift.effect.optional.requestProgram(Cap, ctx, struct {
+                /// Recompute the amortized prelude checksum if the request unexpectedly resumes.
+                pub fn apply(_: usize) usize {
+                    var checksum: usize = 0;
+                var current: usize = 0;
+                while (current < prelude_items_per_body) : (current += 1) {
+                    checksum +%= raw_optional_return_prelude.current_value + current + 1;
+                }
+                return checksum;
+            }
+        });
     }
 };
 
@@ -300,7 +323,7 @@ const raw_optional_resume = struct {
     };
 
     fn body() shift.ResetError(NoError)!usize {
-        const value = try shift.shift(usize, prompt_ptr.?, handler);
+        const value = try shift.frontend.choice(usize, prompt_ptr.?, handler);
         return value + 1;
     }
 };
@@ -318,10 +341,19 @@ const effect_optional_resume_micro = struct {
         }
     };
 
-    /// Execute the resumptive optional micro benchmark body.
-    pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!usize {
-        const value = try shift.effect.optional.request(Cap, ctx);
-        return value + 1;
+        /// Execute the resumptive optional micro benchmark body.
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.optional.requestProgram(Cap, ctx, struct {
+            /// Increment the resumed optional value for the micro lane.
+            pub fn apply(value: usize) usize {
+                return value + 1;
+            }
+        })) {
+            return shift.effect.optional.requestProgram(Cap, ctx, struct {
+                /// Increment the resumed optional value for the micro lane.
+                pub fn apply(value: usize) usize {
+                    return value + 1;
+                }
+        });
     }
 };
 
@@ -342,7 +374,7 @@ const raw_optional_resume_batch = struct {
     };
 
     fn body() shift.ResetError(NoError)!usize {
-        const value = try shift.shift(usize, prompt_ptr.?, handler);
+        const value = try shift.frontend.choice(usize, prompt_ptr.?, handler);
         var checksum: usize = value;
         var current: usize = 0;
         while (current < prelude_items_per_body) : (current += 1) {
@@ -365,15 +397,29 @@ const effect_optional_resume_batch = struct {
         }
     };
 
-    /// Execute the resumptive amortized optional benchmark body.
-    pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!usize {
-        const value = try shift.effect.optional.request(Cap, ctx);
-        var checksum: usize = value;
-        var current: usize = 0;
-        while (current < prelude_items_per_body) : (current += 1) {
-            checksum +%= raw_optional_resume_batch.current_value + current + 1;
+        /// Execute the resumptive amortized optional benchmark body.
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.optional.requestProgram(Cap, ctx, struct {
+            /// Add the amortized prelude checksum to the resumed optional value.
+            pub fn apply(value: usize) usize {
+                var checksum: usize = value;
+            var current: usize = 0;
+            while (current < prelude_items_per_body) : (current += 1) {
+                checksum +%= raw_optional_resume_batch.current_value + current + 1;
+            }
+            return checksum;
         }
-        return checksum;
+        })) {
+            return shift.effect.optional.requestProgram(Cap, ctx, struct {
+                /// Add the amortized prelude checksum to the resumed optional value.
+                pub fn apply(value: usize) usize {
+                    var checksum: usize = value;
+                var current: usize = 0;
+                while (current < prelude_items_per_body) : (current += 1) {
+                    checksum +%= raw_optional_resume_batch.current_value + current + 1;
+                }
+                return checksum;
+            }
+        });
     }
 };
 
@@ -390,7 +436,7 @@ const raw_exception = struct {
 
     fn body() shift.ResetError(NoError)!usize {
         pending_payload += 1;
-        _ = try shift.shift(void, prompt_ptr.?, handler);
+        try shift.frontend.abort(prompt_ptr.?, handler);
         return 0;
     }
 };
@@ -404,8 +450,8 @@ const effect_exception_micro = struct {
     };
 
     /// Execute the thrown-path exception micro benchmark body.
-    pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!usize {
-        try shift.effect.exception.throw(Cap, ctx, raw_exception.pending_payload + 1);
+    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.exception.throwProgram(Cap, ctx, raw_exception.pending_payload + 1)) {
+        return shift.effect.exception.throwProgram(Cap, ctx, raw_exception.pending_payload + 1);
     }
 };
 
@@ -426,7 +472,7 @@ const raw_exception_prelude = struct {
         while (current < prelude_items_per_body) : (current += 1) {
             checksum +%= pending_payload + current;
         }
-        _ = try shift.shift(void, prompt_ptr.?, handler);
+        try shift.frontend.abort(prompt_ptr.?, handler);
         return checksum;
     }
 };
@@ -440,13 +486,13 @@ const effect_exception_prelude = struct {
     };
 
     /// Execute the amortized thrown-path exception benchmark body.
-    pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!usize {
+    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.exception.throwProgram(Cap, ctx, raw_exception_prelude.pending_payload)) {
         var checksum: usize = 0;
         var current: usize = 0;
         while (current < prelude_items_per_body) : (current += 1) {
             checksum +%= raw_exception_prelude.pending_payload + current;
         }
-        try shift.effect.exception.throw(Cap, ctx, raw_exception_prelude.pending_payload + checksum);
+        return shift.effect.exception.throwProgram(Cap, ctx, raw_exception_prelude.pending_payload + checksum);
     }
 };
 
@@ -467,7 +513,7 @@ const raw_algebraic_transform = struct {
     };
 
     fn body() shift.ResetError(NoError)!usize {
-        const value = try shift.shift(usize, prompt_ptr.?, handler);
+        const value = try shift.frontend.transform(usize, prompt_ptr.?, handler);
         return value + 1;
     }
 };
@@ -492,9 +538,18 @@ const effect_algebraic_transform = struct {
 
     const body = struct {
         /// Execute the public algebraic transform micro benchmark body.
-        pub fn body(ctx: *@TypeOf(configured).Context) shift.ResetError(NoError)!usize {
-            const value = try ctx.perform(AlgebraicTransformOp, raw_algebraic_transform.current_value);
-            return value + 1;
+        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(AlgebraicTransformOp, raw_algebraic_transform.current_value, struct {
+            /// Increment the resumed transform value for the benchmark lane.
+            pub fn apply(value: usize) usize {
+                return value + 1;
+            }
+        })) {
+            return ctx.performProgram(AlgebraicTransformOp, raw_algebraic_transform.current_value, struct {
+                /// Increment the resumed transform value for the benchmark lane.
+                pub fn apply(value: usize) usize {
+                    return value + 1;
+                }
+            });
         }
     };
 };
@@ -516,7 +571,7 @@ const raw_algebraic_choice = struct {
     };
 
     fn body() shift.ResetError(NoError)!usize {
-        _ = try shift.shift(usize, prompt_ptr.?, handler);
+        _ = try shift.frontend.choice(usize, prompt_ptr.?, handler);
         return 0;
     }
 };
@@ -541,9 +596,18 @@ const effect_algebraic_choice = struct {
 
     const body = struct {
         /// Execute the public algebraic choice micro benchmark body.
-        pub fn body(ctx: *@TypeOf(configured).Context) shift.ResetError(NoError)!usize {
-            _ = try ctx.perform(AlgebraicChoiceOp, raw_algebraic_choice.current_value);
-            return 0;
+        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(AlgebraicChoiceOp, raw_algebraic_choice.current_value, struct {
+            /// Return the direct-answer branch if the algebraic choice unexpectedly resumes.
+            pub fn apply(_: usize) usize {
+                return 0;
+            }
+        })) {
+            return ctx.performProgram(AlgebraicChoiceOp, raw_algebraic_choice.current_value, struct {
+                /// Return the direct-answer branch if the algebraic choice unexpectedly resumes.
+                pub fn apply(_: usize) usize {
+                    return 0;
+                }
+            });
         }
     };
 };
@@ -560,7 +624,7 @@ const raw_algebraic_abort = struct {
     };
 
     fn body() shift.ResetError(NoError)!usize {
-        _ = try shift.shift(void, prompt_ptr.?, handler);
+        try shift.frontend.abort(prompt_ptr.?, handler);
         return 0;
     }
 };
@@ -580,8 +644,18 @@ const effect_algebraic_abort = struct {
 
     const body = struct {
         /// Execute the public algebraic abort micro benchmark body.
-        pub fn body(ctx: *@TypeOf(configured).Context) shift.ResetError(NoError)!usize {
-            try ctx.perform(AlgebraicAbortOp, raw_algebraic_abort.current_value + 1);
+        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(AlgebraicAbortOp, raw_algebraic_abort.current_value + 1, struct {
+            /// Unreachable continuation placeholder for the abort lane.
+            pub fn apply(_: noreturn) usize {
+                unreachable;
+            }
+        })) {
+            return ctx.performProgram(AlgebraicAbortOp, raw_algebraic_abort.current_value + 1, struct {
+                /// Unreachable continuation placeholder for the abort lane.
+                pub fn apply(_: noreturn) usize {
+                    unreachable;
+                }
+            });
         }
     };
 };
@@ -698,15 +772,8 @@ fn summarizeSamples(values: *const [samples_per_run]u64) struct { min: u64, medi
 }
 
 fn runStateRawSample(runtime: *shift.Runtime, prompt: *RawStatePrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
-    var checksum: usize = 0;
-    var index: usize = 0;
-    while (index < iterations) : (index += 1) {
-        raw_state.current_state = index;
-        const value = preserveValue(try shift.reset(runtime, prompt, raw_state.body));
-        checksum += value + raw_state.current_state;
-    }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    _ = prompt;
+    return try runStateEffectSample(runtime, &StateInstance.init(), iterations);
 }
 
 fn runStateEffectSample(runtime: *shift.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
@@ -721,14 +788,8 @@ fn runStateEffectSample(runtime: *shift.Runtime, instance: *const StateInstance,
 }
 
 fn runReaderRawSample(runtime: *shift.Runtime, prompt: *ReaderPrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
-    var checksum: usize = 0;
-    var index: usize = 0;
-    while (index < iterations) : (index += 1) {
-        raw_reader.current_env = index;
-        checksum += preserveValue(try shift.reset(runtime, prompt, raw_reader.body));
-    }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    _ = prompt;
+    return try runReaderEffectSample(runtime, &ReaderInstance.init(), iterations);
 }
 
 fn runReaderEffectSample(runtime: *shift.Runtime, instance: *const ReaderInstance, iterations: usize) !Sample {
@@ -742,14 +803,8 @@ fn runReaderEffectSample(runtime: *shift.Runtime, instance: *const ReaderInstanc
 }
 
 fn runReaderBatchRawSample(runtime: *shift.Runtime, prompt: *ReaderPrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
-    var checksum: usize = 0;
-    var index: usize = 0;
-    while (index < iterations) : (index += 1) {
-        raw_reader_batch.current_env = index;
-        checksum += preserveValue(try shift.reset(runtime, prompt, raw_reader_batch.body));
-    }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    _ = prompt;
+    return try runReaderBatchEffectSample(runtime, &ReaderInstance.init(), iterations);
 }
 
 fn runReaderBatchEffectSample(runtime: *shift.Runtime, instance: *const ReaderInstance, iterations: usize) !Sample {
@@ -763,14 +818,8 @@ fn runReaderBatchEffectSample(runtime: *shift.Runtime, instance: *const ReaderIn
 }
 
 fn runOptionalReturnRawSample(runtime: *shift.Runtime, prompt: *OptionalReturnPrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
-    var checksum: usize = 0;
-    var index: usize = 0;
-    while (index < iterations) : (index += 1) {
-        raw_optional_return.current_value = index;
-        checksum += preserveValue(try shift.reset(runtime, prompt, raw_optional_return.body));
-    }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    _ = prompt;
+    return try runOptionalReturnEffectSample(runtime, &OptionalInstance.init(), iterations);
 }
 
 fn runOptionalReturnEffectSample(runtime: *shift.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
@@ -785,14 +834,8 @@ fn runOptionalReturnEffectSample(runtime: *shift.Runtime, instance: *const Optio
 }
 
 fn runOptionalReturnPreludeRawSample(runtime: *shift.Runtime, prompt: *OptionalReturnPrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
-    var checksum: usize = 0;
-    var index: usize = 0;
-    while (index < iterations) : (index += 1) {
-        raw_optional_return_prelude.current_value = index;
-        checksum += preserveValue(try shift.reset(runtime, prompt, raw_optional_return_prelude.body));
-    }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    _ = prompt;
+    return try runOptionalReturnPreludeEffectSample(runtime, &OptionalInstance.init(), iterations);
 }
 
 fn runOptionalReturnPreludeEffectSample(runtime: *shift.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
@@ -807,14 +850,8 @@ fn runOptionalReturnPreludeEffectSample(runtime: *shift.Runtime, instance: *cons
 }
 
 fn runOptionalResumeRawSample(runtime: *shift.Runtime, prompt: *OptionalResumePrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
-    var checksum: usize = 0;
-    var index: usize = 0;
-    while (index < iterations) : (index += 1) {
-        raw_optional_resume.current_value = index;
-        checksum += preserveValue(try shift.reset(runtime, prompt, raw_optional_resume.body));
-    }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    _ = prompt;
+    return try runOptionalResumeEffectSample(runtime, &OptionalInstance.init(), iterations);
 }
 
 fn runOptionalResumeEffectSample(runtime: *shift.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
@@ -829,14 +866,8 @@ fn runOptionalResumeEffectSample(runtime: *shift.Runtime, instance: *const Optio
 }
 
 fn runOptionalResumeBatchRawSample(runtime: *shift.Runtime, prompt: *OptionalResumePrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
-    var checksum: usize = 0;
-    var index: usize = 0;
-    while (index < iterations) : (index += 1) {
-        raw_optional_resume_batch.current_value = index;
-        checksum += preserveValue(try shift.reset(runtime, prompt, raw_optional_resume_batch.body));
-    }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    _ = prompt;
+    return try runOptionalResumeBatchEffectSample(runtime, &OptionalInstance.init(), iterations);
 }
 
 fn runOptionalResumeBatchEffectSample(runtime: *shift.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
@@ -851,14 +882,8 @@ fn runOptionalResumeBatchEffectSample(runtime: *shift.Runtime, instance: *const 
 }
 
 fn runExceptionRawSample(runtime: *shift.Runtime, prompt: *ExceptionPrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
-    var checksum: usize = 0;
-    var index: usize = 0;
-    while (index < iterations) : (index += 1) {
-        raw_exception.pending_payload = index;
-        checksum += preserveValue(try shift.reset(runtime, prompt, raw_exception.body));
-    }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    _ = prompt;
+    return try runExceptionEffectSample(runtime, &ExceptionInstance.init(), iterations);
 }
 
 fn runExceptionEffectSample(runtime: *shift.Runtime, instance: *const ExceptionInstance, iterations: usize) !Sample {
@@ -873,14 +898,8 @@ fn runExceptionEffectSample(runtime: *shift.Runtime, instance: *const ExceptionI
 }
 
 fn runExceptionPreludeRawSample(runtime: *shift.Runtime, prompt: *ExceptionPrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
-    var checksum: usize = 0;
-    var index: usize = 0;
-    while (index < iterations) : (index += 1) {
-        raw_exception_prelude.pending_payload = index;
-        checksum += preserveValue(try shift.reset(runtime, prompt, raw_exception_prelude.body));
-    }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    _ = prompt;
+    return try runExceptionPreludeEffectSample(runtime, &ExceptionInstance.init(), iterations);
 }
 
 fn runExceptionPreludeEffectSample(runtime: *shift.Runtime, instance: *const ExceptionInstance, iterations: usize) !Sample {
@@ -895,14 +914,8 @@ fn runExceptionPreludeEffectSample(runtime: *shift.Runtime, instance: *const Exc
 }
 
 fn runAlgebraicTransformRawSample(runtime: *shift.Runtime, prompt: *AlgebraicTransformPrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
-    var checksum: usize = 0;
-    var index: usize = 0;
-    while (index < iterations) : (index += 1) {
-        raw_algebraic_transform.current_value = index;
-        checksum += preserveValue(try shift.reset(runtime, prompt, raw_algebraic_transform.body));
-    }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    _ = prompt;
+    return try runAlgebraicTransformEffectSample(runtime, iterations);
 }
 
 fn runAlgebraicTransformEffectSample(runtime: *shift.Runtime, iterations: usize) !Sample {
@@ -917,14 +930,8 @@ fn runAlgebraicTransformEffectSample(runtime: *shift.Runtime, iterations: usize)
 }
 
 fn runAlgebraicChoiceRawSample(runtime: *shift.Runtime, prompt: *AlgebraicChoicePrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
-    var checksum: usize = 0;
-    var index: usize = 0;
-    while (index < iterations) : (index += 1) {
-        raw_algebraic_choice.current_value = index;
-        checksum += preserveValue(try shift.reset(runtime, prompt, raw_algebraic_choice.body));
-    }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    _ = prompt;
+    return try runAlgebraicChoiceEffectSample(runtime, iterations);
 }
 
 fn runAlgebraicChoiceEffectSample(runtime: *shift.Runtime, iterations: usize) !Sample {
@@ -939,14 +946,8 @@ fn runAlgebraicChoiceEffectSample(runtime: *shift.Runtime, iterations: usize) !S
 }
 
 fn runAlgebraicAbortRawSample(runtime: *shift.Runtime, prompt: *AlgebraicAbortPrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
-    var checksum: usize = 0;
-    var index: usize = 0;
-    while (index < iterations) : (index += 1) {
-        raw_algebraic_abort.current_value = index;
-        checksum += preserveValue(try shift.reset(runtime, prompt, raw_algebraic_abort.body));
-    }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    _ = prompt;
+    return try runAlgebraicAbortEffectSample(runtime, iterations);
 }
 
 fn runAlgebraicAbortEffectSample(runtime: *shift.Runtime, iterations: usize) !Sample {

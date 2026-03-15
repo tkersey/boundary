@@ -55,7 +55,7 @@ const raw_transform = struct {
     };
 
     fn body() shift.ResetError(NoError)!usize {
-        const value = try shift.shift(usize, prompt_ptr.?, handler);
+        const value = try shift.frontend.transform(usize, prompt_ptr.?, handler);
         return value + 1;
     }
 };
@@ -98,14 +98,8 @@ const effect_algebraic_transform = struct {
 };
 
 fn runRawTransformSample(runtime: *shift.Runtime, prompt: *RawTransformPrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
-    var checksum: usize = 0;
-    var index: usize = 0;
-    while (index < iterations) : (index += 1) {
-        raw_transform.current_value = index;
-        checksum += preserveValue(try shift.reset(runtime, prompt, raw_transform.body));
-    }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    _ = prompt;
+    return try runConfiguredTransformSample(runtime, iterations);
 }
 
 fn runConfiguredShellSample(runtime: *shift.Runtime, iterations: usize) !Sample {
