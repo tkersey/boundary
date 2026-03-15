@@ -73,6 +73,8 @@ zig build direct-style-bridge-parity
 zig build direct-style-boundary
 zig build runtime-route-matrix-write
 zig build runtime-route-matrix-check
+zig build runtime-obligation-matrix-write
+zig build runtime-obligation-matrix-check
 zig build surface-truth-scorecard-write
 zig build surface-truth-scorecard-check
 zig build effect-construction-boundary
@@ -121,6 +123,9 @@ one of these proof surfaces:
 - `zig build runtime-route-matrix-check` for the checked execution-route matrix
   that records whether supported cases are still replayed or now run through
   the shared lowered machine
+- `zig build runtime-obligation-matrix-check` for the checked obligation matrix
+  that records which public-runtime obligations still depend on the stackful
+  backend
 - `zig build surface-truth-scorecard-check` for the machine-readable
   maintainers' scorecard that summarizes whether the lowered path can honestly
   stay hidden beneath the canonical public surface
@@ -529,6 +534,11 @@ The generated artifact lives at `docs/runtime_route_matrix.json`.
 
 `zig build runtime-route-matrix-check` is the architectural truth gate for that
 claim, and
+`zig build runtime-obligation-matrix-check` is the remaining-contract truth
+gate for the parts of the public runtime surface that still need stackful
+migration. `tools/render_runtime_obligation_matrix.zig` renders that artifact,
+which lives at `docs/runtime_obligation_matrix.json`.
+
 `tools/render_surface_truth_scorecard.zig` renders the machine-readable
 scorecard used by the final hidden-backend recommendation gate. The generated
 artifact lives at `docs/surface_truth_scorecard.json`.

@@ -461,6 +461,30 @@ pub fn build(b: *std.Build) void {
     const route_matrix_write_step = b.step("runtime-route-matrix-write", "Refresh the runtime route matrix for the supported lowered runtime corpus.");
     route_matrix_write_step.dependOn(&route_matrix_write_cmd.step);
 
+    const obligation_matrix_registry_mod = b.createModule(.{
+        .root_source_file = b.path("src/runtime_obligation_registry.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const obligation_matrix_mod = b.createModule(.{
+        .root_source_file = b.path("tools/render_runtime_obligation_matrix.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    obligation_matrix_mod.addImport("runtime_obligation_registry", obligation_matrix_registry_mod);
+    const obligation_matrix_exe = b.addExecutable(.{
+        .name = "shift-runtime-obligation-matrix",
+        .root_module = obligation_matrix_mod,
+    });
+    const obligation_matrix_check_cmd = b.addRunArtifact(obligation_matrix_exe);
+    obligation_matrix_check_cmd.addArg("check");
+    const obligation_matrix_check_step = b.step("runtime-obligation-matrix-check", "Check the runtime obligation matrix for remaining stack-runtime dependencies.");
+    obligation_matrix_check_step.dependOn(&obligation_matrix_check_cmd.step);
+    const obligation_matrix_write_cmd = b.addRunArtifact(obligation_matrix_exe);
+    obligation_matrix_write_cmd.addArg("write");
+    const obligation_matrix_write_step = b.step("runtime-obligation-matrix-write", "Refresh the runtime obligation matrix for remaining stack-runtime dependencies.");
+    obligation_matrix_write_step.dependOn(&obligation_matrix_write_cmd.step);
+
     test_step.dependOn(&authoring_lower_check_cmd.step);
     test_step.dependOn(&run_structured_program_tests.step);
     test_step.dependOn(&run_boundary_tests.step);
@@ -468,6 +492,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_bridge_boundary_tests.step);
     test_step.dependOn(&scorecard_check_cmd.step);
     test_step.dependOn(&route_matrix_check_cmd.step);
+    test_step.dependOn(&obligation_matrix_check_cmd.step);
 
     const compile_fail_cmd = b.addSystemCommand(&.{ "sh", "test/compile_fail/run.sh" });
     const compile_fail_step = b.step("compile-fail", "Verify compile-fail misuse fixtures.");
