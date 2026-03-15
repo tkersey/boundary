@@ -66,6 +66,13 @@ zig build example-proof
 zig build backend-parity
 zig build proof-fixtures-write
 zig build proof-fixtures-check
+zig build authoring-lowering-write
+zig build authoring-lowering-check
+zig build structured-program-suite
+zig build direct-style-bridge-parity
+zig build direct-style-boundary
+zig build surface-truth-scorecard-write
+zig build surface-truth-scorecard-check
 zig build effect-construction-boundary
 zig build readme-contract
 zig build formal-core-write
@@ -73,6 +80,7 @@ zig build formal-core
 zig build bench
 zig build bench-first-suspend
 zig build bench-effect-matrix
+zig build bench-effect-matrix-stability
 zig build bench-effect-matrix-write
 zig build bench-effect-matrix-check
 zig build bench-state-effect
@@ -91,11 +99,22 @@ one of these proof surfaces:
 - `zig build compile-fail` for hidden continuation/context surfaces and forged
   capability misuse
 - `zig build example-proof` for exact-output public example transcripts
-- `zig build backend-parity` for the proof-only parity backend, with the typed
-  kernel owning the witness core and `nested_workflow` publish path while the
-  remaining cases stay on the legacy parity machine
+- `zig build backend-parity` for the hidden lowered proof engine over the
+  canonical scenario IR, kept strictly beneath the canonical public
+  `shift/reset` surface
 - `zig build proof-fixtures-check` for generator-owned exact-output fixture
   artifacts derived from the canonical lowered scenario registry
+- `zig build authoring-lowering-check` for checked lowered snapshots from the
+  internal structured-program front end into the canonical lowered IR
+- `zig build structured-program-suite` for internal scaffolding coverage of the
+  lowered proof engine
+- `zig build direct-style-bridge-parity` for unchanged-body parity checks over
+  the supported direct-style bridge corpus
+- `zig build direct-style-boundary` for explicit boundary checks around
+  unsupported unchanged direct-style shapes
+- `zig build surface-truth-scorecard-check` for the machine-readable
+  maintainers' scorecard that summarizes whether the lowered path can honestly
+  stay hidden beneath the canonical public surface
 - `zig build bench-effect-matrix-check` for full shipped-family benchmark coverage
 - `zig build bench-state-effect-check` for the checked benchmark artifact on a
   clean tree
@@ -349,6 +368,7 @@ Family coverage lives at:
 
 ```bash
 zig build bench-effect-matrix
+zig build bench-effect-matrix-stability
 zig build bench-effect-matrix-write
 zig build bench-effect-matrix-check
 ```
@@ -416,6 +436,15 @@ zig build bench-state-effect-check
 The write/check workflow is fail-closed by default on dirty trees and records
 the exact `git_rev`, `repo_state`, benchmark command, warmed sample arrays, lane classes, and the observed per-lane median ratios.
 
+The clean-tree stability harness lives at:
+
+```bash
+zig build bench-effect-matrix-stability
+```
+
+It repeats the checked effect matrix on unchanged clean-tree code and reports
+whether each lane is `stable_pass`, `stable_fail`, or `flaky`.
+
 ## Formal Core
 
 `FORMAL_CORE.md` is the small implementation-derived law surface, but it is now
@@ -435,7 +464,7 @@ The generated artifact preserves the live law anchors for semantic witnesses,
 strict effect-capability claims, the additive public algebraic builders, and
 the optional-resumption family without turning into a second README.
 
-The proof-only parity backend is exercised by:
+The hidden lowered proof engine is exercised by:
 
 ```bash
 zig build backend-parity
@@ -450,6 +479,20 @@ The canonical lowered proof source now lives in `src/parity_scenarios.zig`.
 `tools/render_proof_fixtures.zig` renders the checked exact-output fixture
 artifacts from that registry, and `zig build proof-fixtures-check` verifies they
 remain current before exact-output example proof runs.
+
+The internal structured-program scaffolding layer is `src/program_frontend.zig`.
+`tools/render_authoring_lowerings.zig` renders checked lowering snapshots, and
+`zig build structured-program-suite` proves the chosen witness/example/effect
+corpus lowers into canonical scenarios and executes correctly. The current raw
+direct-style boundary is documented in `docs/direct_style_boundary.md` and
+checked by `zig build direct-style-boundary`.
+
+`src/program_bridge.zig` is the current hidden-backend bridge for the supported
+unchanged direct-style subset. `zig build direct-style-bridge-parity` proves
+that subset against the canonical lowered scenarios, and
+`tools/render_surface_truth_scorecard.zig` renders the machine-readable
+scorecard used by the final hidden-backend recommendation gate. The generated
+artifact lives at `docs/surface_truth_scorecard.json`.
 
 ## Minimal Example
 

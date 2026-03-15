@@ -1,0 +1,31 @@
+# Direct-Style Boundary
+
+`shift` still treats the public prompt-value `shift/reset` surface as the only
+product truth.
+
+The lowered path is only acceptable as hidden support infrastructure beneath
+that surface. Today, that support comes in two internal forms:
+
+- `src/program_frontend.zig` lowers internal structured programs into the
+  canonical lowered IR in `src/parity_scenarios.zig`
+- `src/program_bridge.zig` maps a small unchanged-body direct-style subset onto
+  the same lowered scenarios for parity proof
+
+The current limit is structural:
+
+- the bridge currently supports only a named subset of unchanged direct-style
+  cases
+- arbitrary public-style `fn body() ...` code still relies on host-language
+  control flow and the stackful runtime
+- there is no body-to-IR transformation, capture pass, or compiler/plugin layer
+  that can recover general direct-style control structure from ordinary Zig code
+
+So the current answer is:
+
+- structured internal programs are supported as scaffolding
+- a limited unchanged-body bridge subset is supported for parity proof
+- arbitrary unchanged direct-style bodies are not
+
+This document is backed by `test/program_frontend_boundary_test.zig`,
+`test/direct_style_bridge_boundary_test.zig`, and the structured-program
+lowering snapshots under `test/authoring_lowerings/`.

@@ -74,7 +74,7 @@ Distinct prompt values do not alias each other, even when they share the same ha
 
 The repo keeps one extra practical witness, `generator`, plus primary exact-output examples for `early_exit`, `resume_or_return`, `nested_workflow`, `exception_basic`, `optional_basic`, `reader_basic`, `resource_basic`, `state_basic`, and `writer_basic`.
 
-The proof-only parity backend is checked by `zig build backend-parity`. `src/parity_scenarios.zig` is now the canonical lowered proof registry, `src/parity_kernel.zig` interprets it, and `src/parity_machine.zig` is only a facade over that kernel. The exact-output fixture artifacts are rendered from the same registry by `zig build proof-fixtures-write` and checked by `zig build proof-fixtures-check`. This remains parity infrastructure, not a public fallback runtime.
+The lowered proof engine is checked by `zig build backend-parity`. `src/parity_scenarios.zig` is the canonical lowered proof registry, `src/parity_kernel.zig` interprets it, and `src/parity_machine.zig` is only a facade over that kernel. The exact-output fixture artifacts are rendered from the same registry by `zig build proof-fixtures-write` and checked by `zig build proof-fixtures-check`. This remains hidden internal infrastructure beneath the canonical public `shift/reset` surface, not a public fallback runtime.
 
 <a id="resource-bracketing"></a>
 ## Bracketed Resource Cleanup

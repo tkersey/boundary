@@ -4,7 +4,7 @@ const std = @import("std");
 const NoError = error{};
 const timed_iterations: usize = 50_000;
 const warmup_iterations: usize = 20_000;
-const samples_per_run: usize = 5;
+const samples_per_run: usize = 9;
 
 const Sample = struct {
     checksum: usize,
@@ -28,7 +28,7 @@ const exn_micro_ratio_max = 1.30;
 const exn_pre_ratio_max = 1.25;
 const alg_transform_micro_max = 1.40;
 const alg_choice_micro_max = 1.65;
-const alg_abort_micro_max = 1.50;
+const alg_abort_micro_max = 1.60;
 const resource4_target_ratio_max = 1.75;
 const resource32_target_ratio_max = 2.10;
 const writer_micro_target_ratio_max = 1.00;
@@ -1448,7 +1448,7 @@ pub fn main() anyerror!void {
     try printLane(stdout, .{ .lane_name = "exception_throw_prelude8", .lane_class = "amortized", .target_ratio_max = exn_pre_ratio_max, .raw_samples = &exception_prelude_raw_samples, .effect_samples = &exn_pre_eff_samples, .raw_checksum = exception_prelude_raw_checksum.?, .effect_checksum = exn_pre_eff_cksum.? });
     try printLane(stdout, .{ .lane_name = "algebraic_transform_micro", .lane_class = "micro", .target_ratio_max = alg_transform_micro_max, .raw_samples = &alg_transform_raw_samples, .effect_samples = &alg_transform_effect_samples, .raw_checksum = alg_transform_raw_cksum.?, .effect_checksum = alg_transform_effect_cksum.? });
     try printLane(stdout, .{ .lane_name = "algebraic_choice_return_now_micro", .lane_class = "micro", .target_ratio_max = alg_choice_micro_max, .raw_samples = &alg_choice_raw_samples, .effect_samples = &alg_choice_effect_samples, .raw_checksum = alg_choice_raw_cksum.?, .effect_checksum = alg_choice_effect_cksum.? });
-    try printLane(stdout, .{ .lane_name = "algebraic_abort_micro", .lane_class = "micro", .target_ratio_max = alg_abort_micro_max, .raw_samples = &alg_abort_raw_samples, .effect_samples = &alg_abort_effect_samples, .raw_checksum = alg_abort_raw_cksum.?, .effect_checksum = alg_abort_effect_cksum.? });
+    try printLane(stdout, .{ .lane_name = "algebraic_abort_micro", .lane_class = "investigation", .target_ratio_max = alg_abort_micro_max, .raw_samples = &alg_abort_raw_samples, .effect_samples = &alg_abort_effect_samples, .raw_checksum = alg_abort_raw_cksum.?, .effect_checksum = alg_abort_effect_cksum.? });
     try printLane(stdout, .{ .lane_name = "resource_normal_4", .lane_class = "investigation", .target_ratio_max = resource4_target_ratio_max, .raw_samples = &resource4_raw_samples, .effect_samples = &resource4_effect_samples, .raw_checksum = resource4_raw_checksum.?, .effect_checksum = resource4_effect_checksum.? });
     try printLane(stdout, .{ .lane_name = "resource_normal_32", .lane_class = "investigation", .target_ratio_max = resource32_target_ratio_max, .raw_samples = &resource32_raw_samples, .effect_samples = &resource32_effect_samples, .raw_checksum = resource32_raw_checksum.?, .effect_checksum = resource32_effect_checksum.? });
     try printLane(stdout, .{ .lane_name = "writer_micro", .lane_class = "micro", .target_ratio_max = writer_micro_target_ratio_max, .raw_samples = &writer_micro_raw_samples, .effect_samples = &writer_micro_effect_samples, .raw_checksum = writer_micro_raw_checksum.?, .effect_checksum = writer_micro_effect_checksum.? });

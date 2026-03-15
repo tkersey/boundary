@@ -25,6 +25,41 @@ fn createShiftConsumerModule(
     return mod;
 }
 
+fn createBridgeWitnessModule(
+    b: *std.Build,
+    path: []const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    witnesses_mod: *std.Build.Module,
+) *std.Build.Module {
+    const mod = b.createModule(.{
+        .root_source_file = b.path(path),
+        .target = target,
+        .optimize = optimize,
+    });
+    mod.addImport("witnesses_src", witnesses_mod);
+    return mod;
+}
+
+fn createBridgeExampleModule(
+    b: *std.Build,
+    path: []const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    import: struct {
+        name: []const u8,
+        mod: *std.Build.Module,
+    },
+) *std.Build.Module {
+    const mod = b.createModule(.{
+        .root_source_file = b.path(path),
+        .target = target,
+        .optimize = optimize,
+    });
+    mod.addImport(import.name, import.mod);
+    return mod;
+}
+
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -54,6 +89,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     parity_scenarios_mod.addImport("formal_core_registry", formal_core_registry_mod);
+    const program_frontend_mod = b.createModule(.{
+        .root_source_file = b.path("src/program_frontend.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    program_frontend_mod.addImport("parity_scenarios", parity_scenarios_mod);
     const reference_eval_mod = b.createModule(.{
         .root_source_file = b.path("src/reference_eval.zig"),
         .target = target,
@@ -182,6 +223,25 @@ pub fn build(b: *std.Build) void {
     proof_fixture_write_step.dependOn(&proof_fixture_write_cmd.step);
     test_step.dependOn(&proof_fixture_check_cmd.step);
 
+    const authoring_lower_mod = b.createModule(.{
+        .root_source_file = b.path("tools/render_authoring_lowerings.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    authoring_lower_mod.addImport("program_frontend", program_frontend_mod);
+    const authoring_lower_exe = b.addExecutable(.{
+        .name = "shift-authoring-lowering-render",
+        .root_module = authoring_lower_mod,
+    });
+    const authoring_lower_check_cmd = b.addRunArtifact(authoring_lower_exe);
+    authoring_lower_check_cmd.addArg("check");
+    const authoring_lower_check_step = b.step("authoring-lowering-check", "Check lowered structured-program snapshots.");
+    authoring_lower_check_step.dependOn(&authoring_lower_check_cmd.step);
+    const authoring_lower_write_cmd = b.addRunArtifact(authoring_lower_exe);
+    authoring_lower_write_cmd.addArg("write");
+    const authoring_lower_write_step = b.step("authoring-lowering-write", "Refresh lowered structured-program snapshots.");
+    authoring_lower_write_step.dependOn(&authoring_lower_write_cmd.step);
+
     const formal_core_render_mod = b.createModule(.{
         .root_source_file = b.path("tools/render_formal_core.zig"),
         .target = target,
@@ -227,6 +287,118 @@ pub fn build(b: *std.Build) void {
     const size_step = b.step("size-check", "Run size and layout invariants.");
     size_step.dependOn(&run_size_tests.step);
     test_step.dependOn(&run_size_tests.step);
+
+    const structured_program_mod = b.createModule(.{
+        .root_source_file = b.path("test/structured_program_suite.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    structured_program_mod.addImport("shift", shift_mod);
+    structured_program_mod.addImport("program_frontend", program_frontend_mod);
+    structured_program_mod.addImport("parity_kernel", parity_kernel_mod);
+    structured_program_mod.addImport("witnesses_src", witnesses_mod);
+    structured_program_mod.addImport("example_early_exit", createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, shift_mod));
+    structured_program_mod.addImport("example_exception_basic", createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, shift_mod));
+    structured_program_mod.addImport("example_nested_workflow", createShiftConsumerModule(b, "examples/nested_workflow.zig", target, optimize, shift_mod));
+    structured_program_mod.addImport("example_optional_basic", createShiftConsumerModule(b, "examples/optional_basic.zig", target, optimize, shift_mod));
+    structured_program_mod.addImport("example_reader_basic", createShiftConsumerModule(b, "examples/reader_basic.zig", target, optimize, shift_mod));
+    structured_program_mod.addImport("example_resume_or_return", createShiftConsumerModule(b, "examples/resume_or_return.zig", target, optimize, shift_mod));
+    structured_program_mod.addImport("example_state_basic", createShiftConsumerModule(b, "examples/state_basic.zig", target, optimize, shift_mod));
+    const structured_program_tests = b.addTest(.{
+        .root_module = structured_program_mod,
+    });
+    const run_structured_program_tests = b.addRunArtifact(structured_program_tests);
+    const structured_program_step = b.step("structured-program-suite", "Run internal structured-program lowering and execution checks.");
+    structured_program_step.dependOn(&authoring_lower_check_cmd.step);
+    structured_program_step.dependOn(&run_structured_program_tests.step);
+
+    const boundary_mod = b.createModule(.{
+        .root_source_file = b.path("test/program_frontend_boundary_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    boundary_mod.addImport("program_frontend", program_frontend_mod);
+    const program_bridge_mod = b.createModule(.{
+        .root_source_file = b.path("src/program_bridge.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    program_bridge_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    program_bridge_mod.addImport("program_frontend", program_frontend_mod);
+    const bridge_mod = b.createModule(.{
+        .root_source_file = b.path("test/direct_style_bridge_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    bridge_mod.addImport("parity_kernel", parity_kernel_mod);
+    bridge_mod.addImport("program_bridge", program_bridge_mod);
+    bridge_mod.addImport("direct_style_bridge_atm", createBridgeWitnessModule(b, "test/direct_style_bridge/atm_resume_transform.zig", target, optimize, witnesses_mod));
+    bridge_mod.addImport("direct_style_bridge_direct_return", createBridgeWitnessModule(b, "test/direct_style_bridge/direct_return.zig", target, optimize, witnesses_mod));
+    bridge_mod.addImport("direct_style_bridge_multi_prompt", createBridgeWitnessModule(b, "test/direct_style_bridge/multi_prompt.zig", target, optimize, witnesses_mod));
+    bridge_mod.addImport("direct_style_bridge_resume_or_return_resume", createBridgeWitnessModule(b, "test/direct_style_bridge/resume_or_return_resume.zig", target, optimize, witnesses_mod));
+    bridge_mod.addImport("direct_style_bridge_resume_or_return_return_now", createBridgeWitnessModule(b, "test/direct_style_bridge/resume_or_return_return_now.zig", target, optimize, witnesses_mod));
+    bridge_mod.addImport("direct_style_bridge_static_redelim", createBridgeWitnessModule(b, "test/direct_style_bridge/static_redelim.zig", target, optimize, witnesses_mod));
+    bridge_mod.addImport("direct_style_bridge_early_exit", createBridgeExampleModule(b, "test/direct_style_bridge/early_exit.zig", target, optimize, .{ .name = "example_early_exit", .mod = createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, shift_mod) }));
+    bridge_mod.addImport("direct_style_bridge_resume_or_return", createBridgeExampleModule(b, "test/direct_style_bridge/resume_or_return.zig", target, optimize, .{ .name = "example_resume_or_return", .mod = createShiftConsumerModule(b, "examples/resume_or_return.zig", target, optimize, shift_mod) }));
+    bridge_mod.addImport("direct_style_bridge_state_basic", createBridgeExampleModule(b, "test/direct_style_bridge/state_basic.zig", target, optimize, .{ .name = "example_state_basic", .mod = createShiftConsumerModule(b, "examples/state_basic.zig", target, optimize, shift_mod) }));
+    bridge_mod.addImport("direct_style_bridge_reader_basic", createBridgeExampleModule(b, "test/direct_style_bridge/reader_basic.zig", target, optimize, .{ .name = "example_reader_basic", .mod = createShiftConsumerModule(b, "examples/reader_basic.zig", target, optimize, shift_mod) }));
+    bridge_mod.addImport("direct_style_bridge_optional_basic", createBridgeExampleModule(b, "test/direct_style_bridge/optional_basic.zig", target, optimize, .{ .name = "example_optional_basic", .mod = createShiftConsumerModule(b, "examples/optional_basic.zig", target, optimize, shift_mod) }));
+    bridge_mod.addImport("direct_style_bridge_exception_basic", createBridgeExampleModule(b, "test/direct_style_bridge/exception_basic.zig", target, optimize, .{ .name = "example_exception_basic", .mod = createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, shift_mod) }));
+    const bridge_boundary_mod = b.createModule(.{
+        .root_source_file = b.path("test/direct_style_bridge_boundary_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    bridge_boundary_mod.addImport("program_bridge", program_bridge_mod);
+    bridge_boundary_mod.addImport("direct_style_bridge_unsupported_nested", b.createModule(.{
+        .root_source_file = b.path("test/direct_style_bridge/unsupported_nested_workflow.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
+    const boundary_tests = b.addTest(.{
+        .root_module = boundary_mod,
+    });
+    const bridge_tests = b.addTest(.{
+        .root_module = bridge_mod,
+    });
+    const bridge_boundary_tests = b.addTest(.{
+        .root_module = bridge_boundary_mod,
+    });
+    const run_boundary_tests = b.addRunArtifact(boundary_tests);
+    const run_bridge_tests = b.addRunArtifact(bridge_tests);
+    const run_bridge_boundary_tests = b.addRunArtifact(bridge_boundary_tests);
+    const boundary_step = b.step("direct-style-boundary", "Run explicit boundary checks for unsupported raw direct-style lowering.");
+    boundary_step.dependOn(&run_boundary_tests.step);
+    boundary_step.dependOn(&run_bridge_boundary_tests.step);
+    const bridge_parity_step = b.step("direct-style-bridge-parity", "Run unchanged-body parity checks for the supported direct-style bridge corpus.");
+    bridge_parity_step.dependOn(&run_bridge_tests.step);
+
+    const scorecard_mod = b.createModule(.{
+        .root_source_file = b.path("tools/render_surface_truth_scorecard.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    scorecard_mod.addImport("program_frontend", program_frontend_mod);
+    scorecard_mod.addImport("program_bridge", program_bridge_mod);
+    const scorecard_exe = b.addExecutable(.{
+        .name = "shift-surface-truth-scorecard",
+        .root_module = scorecard_mod,
+    });
+    const scorecard_check_cmd = b.addRunArtifact(scorecard_exe);
+    scorecard_check_cmd.addArg("check");
+    const scorecard_check_step = b.step("surface-truth-scorecard-check", "Check the machine-readable surface-truth scorecard.");
+    scorecard_check_step.dependOn(&scorecard_check_cmd.step);
+    const scorecard_write_cmd = b.addRunArtifact(scorecard_exe);
+    scorecard_write_cmd.addArg("write");
+    const scorecard_write_step = b.step("surface-truth-scorecard-write", "Refresh the machine-readable surface-truth scorecard.");
+    scorecard_write_step.dependOn(&scorecard_write_cmd.step);
+
+    test_step.dependOn(&authoring_lower_check_cmd.step);
+    test_step.dependOn(&run_structured_program_tests.step);
+    test_step.dependOn(&run_boundary_tests.step);
+    test_step.dependOn(&run_bridge_tests.step);
+    test_step.dependOn(&run_bridge_boundary_tests.step);
+    test_step.dependOn(&scorecard_check_cmd.step);
 
     const compile_fail_cmd = b.addSystemCommand(&.{ "sh", "test/compile_fail/run.sh" });
     const compile_fail_step = b.step("compile-fail", "Verify compile-fail misuse fixtures.");
@@ -441,6 +613,10 @@ pub fn build(b: *std.Build) void {
     const bench_matrix_check_cmd = b.addSystemCommand(&.{ "sh", "bench/effect_family_matrix_artifact.sh", "check" });
     const bench_matrix_check_step = b.step("bench-effect-matrix-check", "Check the effect-family matrix benchmark artifact against the current clean tree.");
     bench_matrix_check_step.dependOn(&bench_matrix_check_cmd.step);
+
+    const bench_matrix_stability_cmd = b.addSystemCommand(&.{ "sh", "bench/effect_matrix_stability.sh" });
+    const bench_matrix_stability_step = b.step("bench-effect-matrix-stability", "Run repeated clean-tree effect-matrix stability characterization.");
+    bench_matrix_stability_step.dependOn(&bench_matrix_stability_cmd.step);
 
     const lint_step = b.step("lint", "Lint source code.");
     lint_step.dependOn(step: {
