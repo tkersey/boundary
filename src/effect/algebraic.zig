@@ -2,7 +2,7 @@ const cleanup = @import("cleanup.zig");
 const family = @import("family.zig");
 const frontend = @import("../frontend.zig");
 const kernel = @import("kernel.zig");
-const raw = @import("../raw.zig");
+const prompt_contract = @import("../prompt_contract.zig");
 const shift = @import("../root.zig");
 const std = @import("std");
 
@@ -68,7 +68,7 @@ pub fn assertOptionalPolicyType(comptime ResumeType: type, comptime AnswerType: 
 }
 
 fn OptionalKernel(comptime ResumeType: type, comptime AnswerType: type, comptime ErrorSetType: type, comptime PolicyType: type) type {
-    const PromptType = raw.Prompt(.resume_or_return, ResumeType, AnswerType, ErrorSetType);
+    const PromptType = prompt_contract.Prompt(.resume_or_return, ResumeType, AnswerType, ErrorSetType);
     const DecisionType = shift.ResumeOrReturn(ResumeType, AnswerType);
     return struct {
         const Prompt = PromptType;
@@ -268,7 +268,7 @@ pub fn assertCatchType(comptime PayloadType: type, comptime AnswerType: type, co
 }
 
 fn ExceptionKernel(comptime PayloadType: type, comptime AnswerType: type, comptime ErrorSetType: type, comptime CatchType: type) type {
-    const PromptType = raw.Prompt(.direct_return, AnswerType, AnswerType, ErrorSetType);
+    const PromptType = prompt_contract.Prompt(.direct_return, AnswerType, AnswerType, ErrorSetType);
     return struct {
         const Prompt = PromptType;
         const Frame = struct {
@@ -441,7 +441,7 @@ pub fn assertManagerType(comptime ResourceType: type, comptime ErrorSetType: typ
 }
 
 fn ResourceKernel(comptime ResourceType: type, comptime AnswerType: type, comptime ErrorSetType: type, comptime ManagerType: type) type {
-    const PromptType = raw.Prompt(.resume_then_transform, AnswerType, AnswerType, ErrorSetType);
+    const PromptType = prompt_contract.Prompt(.resume_then_transform, AnswerType, AnswerType, ErrorSetType);
     return struct {
         const Prompt = PromptType;
         const ResourceList = std.ArrayList(ResourceType);

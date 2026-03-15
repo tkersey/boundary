@@ -4,7 +4,6 @@ pub const Frontier = enum {
     legacy_compat_only,
     lowered_bridge,
     lowered_structured,
-    stack_root_raw,
 };
 
 /// One shipped-surface frontier record.
@@ -21,23 +20,23 @@ pub const surfaces = [_]Surface{
     .{
         .surface_id = "root.prompt_runtime",
         .surface = "canonical_root",
-        .frontier = .stack_root_raw,
+        .frontier = .lowered_structured,
         .source = "src/root.zig",
-        .note = "The canonical root still aliases the raw stackful runtime directly.",
+        .note = "The canonical root now executes on the lowered runtime path directly.",
     },
     .{
         .surface_id = "effect.public_families",
         .surface = "canonical_effect",
-        .frontier = .stack_root_raw,
+        .frontier = .lowered_structured,
         .source = "src/effect/root.zig",
-        .note = "Public effect families still execute on top of the raw root runtime surface.",
+        .note = "Public effect families now execute on top of the lowered runtime surface.",
     },
     .{
         .surface_id = "algebraic.public_builders",
         .surface = "canonical_algebraic",
-        .frontier = .stack_root_raw,
+        .frontier = .lowered_structured,
         .source = "src/algebraic.zig",
-        .note = "Public algebraic builders still execute on top of the raw root runtime surface.",
+        .note = "Public algebraic builders now execute on top of the lowered runtime surface.",
     },
     .{
         .surface_id = "bridge.supported_corpus",

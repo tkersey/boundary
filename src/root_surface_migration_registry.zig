@@ -3,7 +3,6 @@ pub const Status = enum {
     canonical_tombstone,
     canonical_type_changed,
     canonical_unchanged,
-    compat_raw_only,
 };
 
 /// One root-surface migration record.
@@ -67,13 +66,6 @@ pub const entries = [_]Entry{
         .note = "Canonical root Error has dropped raw-only AlreadyResolved and NestedNonDiagonalCapture.",
     },
     .{
-        .symbol = "SetupError",
-        .current_path = "shift.SetupError",
-        .target_path = "src/compat/raw.zig",
-        .status = .compat_raw_only,
-        .note = "Raw setup failures leave the canonical root and remain available only through the internal compat/raw lane.",
-    },
-    .{
         .symbol = "reset",
         .current_path = "shift.reset",
         .target_path = "shift.reset",
@@ -83,8 +75,8 @@ pub const entries = [_]Entry{
     .{
         .symbol = "shift",
         .current_path = "shift.shift",
-        .target_path = "src/compat/raw.zig",
+        .target_path = "shift.frontend",
         .status = .canonical_tombstone,
-        .note = "The old raw runtime shift call has left the canonical root and now fails with migration diagnostics toward frontend authoring.",
+        .note = "The old raw runtime shift call has left the canonical root and now fails with migration diagnostics toward frontend authoring only.",
     },
 };

@@ -74,10 +74,10 @@ test "runtime deinit rejects active reset" {
         /// Probe the runtime-busy contract from the resumed continuation.
         pub fn apply(_: usize) shift.ResetError(NoError)!usize {
             runtime_ptr.deinitChecked() catch |err| {
-                if (err != error.RuntimeBusy) return error.Unexpected;
+                if (err != error.RuntimeBusy) unreachable;
                 return 7;
             };
-            return error.Unexpected;
+            unreachable;
         }
     };
 

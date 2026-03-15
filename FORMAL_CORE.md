@@ -9,7 +9,7 @@ cannot drift independently from the witness and contract registries.
 <a id="atm-resume-transform"></a>
 ## ATM Resume Transform
 
-`shift.Prompt(.resume_then_transform, InAnswer, OutAnswer, ErrorSet)` selects a single-resume handler protocol with `resumeValue` and `afterResume`. The live semantic witness is `atm_resume_transform`, and the implementation path is the `resume_then_transform` arm in `src/raw.zig`.
+`shift.Prompt(.resume_then_transform, InAnswer, OutAnswer, ErrorSet)` selects a single-resume handler protocol with `resumeValue` and `afterResume`. The live semantic witness is `atm_resume_transform`, and the implementation path is the canonical lowered frontend/runtime path in `src/frontend.zig` and `src/lowered_machine.zig`.
 
 <a id="construction-coverage"></a>
 ## Construction Coverage
@@ -19,7 +19,7 @@ The public effect families are now expected to route through one shared internal
 <a id="direct-return"></a>
 ## Direct Return
 
-`shift.Prompt(.direct_return, InAnswer, OutAnswer, ErrorSet)` selects the direct-completion protocol with `directReturn`. The live witness is `direct_return`, and the implementation path is the `direct_return` arm in `src/raw.zig`.
+`shift.Prompt(.direct_return, InAnswer, OutAnswer, ErrorSet)` selects the direct-completion protocol with `directReturn`. The live witness is `direct_return`, and the implementation path is the canonical lowered frontend/runtime path in `src/frontend.zig` and `src/lowered_machine.zig`.
 
 <a id="effect-mode-coverage"></a>
 ## Effect Mode Coverage

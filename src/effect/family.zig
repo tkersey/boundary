@@ -1,7 +1,7 @@
 const frontend = @import("../frontend.zig");
 const kernel = @import("kernel.zig");
-const raw = @import("../raw.zig");
-const runtime_core = @import("../runtime_core.zig");
+const lowered_machine = @import("lowered_machine");
+const prompt_contract = @import("../prompt_contract.zig");
 const shift = @import("../root.zig");
 
 /// Resolve an effect instance type from a pointer passed into a family handler.
@@ -23,8 +23,8 @@ pub fn InstanceErrorSetType(comptime InstancePtrType: type) type {
 }
 
 /// Build a prompt-backed family instance shell for the selected prompt mode.
-pub fn InstanceWithMode(comptime mode: raw.PromptMode, comptime StateType: type, comptime ErrorSetType: type) type {
-    const PromptShell = raw.Prompt(mode, void, void, ErrorSetType);
+pub fn InstanceWithMode(comptime mode: prompt_contract.PromptMode, comptime StateType: type, comptime ErrorSetType: type) type {
+    const PromptShell = prompt_contract.Prompt(mode, void, void, ErrorSetType);
     return struct {
         /// Prompt mode used internally by this family instance.
         pub const prompt_mode = mode;
@@ -140,14 +140,14 @@ pub inline fn computeProgram(
     comptime Cap: type,
     ctx: anytype,
     comptime Thunk: type,
-) frontend.Program(raw.Prompt(.resume_then_transform, ContextAnswerType(@TypeOf(ctx)), ContextAnswerType(@TypeOf(ctx)), ContextErrorSetType(@TypeOf(ctx)))) {
+) frontend.Program(prompt_contract.Prompt(.resume_then_transform, ContextAnswerType(@TypeOf(ctx)), ContextAnswerType(@TypeOf(ctx)), ContextErrorSetType(@TypeOf(ctx)))) {
     comptime assertContextType(Cap, @TypeOf(ctx));
     const ContextType = ContextTypeFromPtr(@TypeOf(ctx));
-    const PromptType = raw.Prompt(.resume_then_transform, ContextType.AnswerType, ContextType.AnswerType, ContextType.ErrorSetType);
+    const PromptType = prompt_contract.Prompt(.resume_then_transform, ContextType.AnswerType, ContextType.AnswerType, ContextType.ErrorSetType);
     const shim = ProgramShim(ContextType);
     _ = ctx._cap;
     return frontend.computeProgram(PromptType, struct {
-        fn invoke() runtime_core.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
+        fn invoke() lowered_machine.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
             const RunFn = @TypeOf(Thunk.run);
             const ReturnType = @typeInfo(RunFn).@"fn".return_type.?;
             if (@typeInfo(ReturnType) != .error_union) return Thunk.run(Cap, shim.active_context.?);
@@ -204,7 +204,7 @@ pub fn handle(
         const body_tag = Body;
     };
     const ContextType = Context(Cap, StateType, AnswerType, ErrorSetType);
-    const PromptType = raw.Prompt(.resume_then_transform, AnswerType, AnswerType, ErrorSetType);
+    const PromptType = prompt_contract.Prompt(.resume_then_transform, AnswerType, AnswerType, ErrorSetType);
     const shim = ProgramShim(ContextType);
 
     var cap_token = Cap{ ._seal = .{} };

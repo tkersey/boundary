@@ -4,26 +4,25 @@ pub const algebraic = @import("algebraic.zig");
 pub const effect = @import("effect/root.zig");
 /// Canonical authored-body layer over the lowered runtime substrate.
 pub const frontend = @import("frontend.zig");
+const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract.zig");
-const runtime_core = @import("runtime_core.zig");
-const std = @import("std");
 
 /// Comptime-selected handler protocol for a prompt value.
 pub const PromptMode = prompt_contract.PromptMode;
 
 /// Canonical lowered-first runtime handle.
-pub const Runtime = runtime_core.Runtime;
+pub const Runtime = lowered_machine.Runtime;
 /// Public runtime errors surfaced by `shift`.
-pub const Error = runtime_core.Error;
+pub const Error = lowered_machine.Error;
 
 /// Runtime error union for a user-provided error set.
 pub fn ControlError(comptime ErrorSet: type) type {
-    return runtime_core.ControlError(ErrorSet);
+    return lowered_machine.ControlError(ErrorSet);
 }
 
 /// Reset-time error union for a user-provided error set.
 pub fn ResetError(comptime ErrorSet: type) type {
-    return runtime_core.ResetError(ErrorSet);
+    return lowered_machine.ResetError(ErrorSet);
 }
 
 /// Handler decision for zero-or-one-resume prompt modes.
@@ -69,7 +68,7 @@ pub fn shift(
     _prompt: anytype,
     comptime _: type,
 ) ControlError(PromptErrorSetType(@TypeOf(_prompt)))!_Resume {
-    @compileError("canonical shift.shift is no longer executable; use shift.frontend.build(...) plus shift.frontend.perform/transform/choice/abort, or src/compat/raw.zig for legacy raw execution");
+    @compileError("canonical shift.shift is no longer executable; use shift.frontend.build(...) plus shift.frontend.perform/transform/choice/abort.");
 }
 
 test {
@@ -80,5 +79,4 @@ test {
     _ = effect;
     _ = algebraic;
     _ = frontend;
-    _ = std;
 }

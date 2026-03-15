@@ -1,6 +1,5 @@
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract.zig");
-const runtime_core = @import("runtime_core.zig");
 const std = @import("std");
 
 const EncodedValue = lowered_machine.ProgramValue;
@@ -70,13 +69,13 @@ fn assertHandlerProtocol(comptime Resume: type, comptime PromptType: type, compt
                 Handler,
                 "resumeOrReturn",
                 fn () ResumeOrReturnType(Resume, PromptType),
-                fn () runtime_core.ResetError(PromptType.ErrorSet)!ResumeOrReturnType(Resume, PromptType),
+                fn () lowered_machine.ResetError(PromptType.ErrorSet)!ResumeOrReturnType(Resume, PromptType),
             );
             expectDeclTypeOneOf(
                 Handler,
                 "afterResume",
                 fn (PromptType.InAnswer) PromptType.OutAnswer,
-                fn (PromptType.InAnswer) runtime_core.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer,
+                fn (PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer,
             );
         },
         .resume_then_transform => {
@@ -84,13 +83,13 @@ fn assertHandlerProtocol(comptime Resume: type, comptime PromptType: type, compt
                 Handler,
                 "resumeValue",
                 fn () Resume,
-                fn () runtime_core.ResetError(PromptType.ErrorSet)!Resume,
+                fn () lowered_machine.ResetError(PromptType.ErrorSet)!Resume,
             );
             expectDeclTypeOneOf(
                 Handler,
                 "afterResume",
                 fn (PromptType.InAnswer) PromptType.OutAnswer,
-                fn (PromptType.InAnswer) runtime_core.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer,
+                fn (PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer,
             );
         },
         .direct_return => {
@@ -98,13 +97,13 @@ fn assertHandlerProtocol(comptime Resume: type, comptime PromptType: type, compt
                 Handler,
                 "directReturn",
                 fn () PromptType.OutAnswer,
-                fn () runtime_core.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer,
+                fn () lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer,
             );
         },
     }
 }
 
-fn callResumeValue(comptime Resume: type, comptime PromptType: type, comptime Handler: type) runtime_core.ControlError(PromptType.ErrorSet)!Resume {
+fn callResumeValue(comptime Resume: type, comptime PromptType: type, comptime Handler: type) lowered_machine.ControlError(PromptType.ErrorSet)!Resume {
     const ResumeFn = @TypeOf(Handler.resumeValue);
     if (ResumeFn == fn () Resume) return Handler.resumeValue();
     return Handler.resumeValue() catch |err| return @errorCast(err);
@@ -114,19 +113,19 @@ fn callAfterResume(
     comptime PromptType: type,
     comptime Handler: type,
     value: PromptType.InAnswer,
-) runtime_core.ControlError(PromptType.ErrorSet)!PromptType.OutAnswer {
+) lowered_machine.ControlError(PromptType.ErrorSet)!PromptType.OutAnswer {
     const AfterFn = @TypeOf(Handler.afterResume);
     if (AfterFn == fn (PromptType.InAnswer) PromptType.OutAnswer) return Handler.afterResume(value);
     return Handler.afterResume(value) catch |err| return @errorCast(err);
 }
 
-fn callDirectReturn(comptime PromptType: type, comptime Handler: type) runtime_core.ControlError(PromptType.ErrorSet)!PromptType.OutAnswer {
+fn callDirectReturn(comptime PromptType: type, comptime Handler: type) lowered_machine.ControlError(PromptType.ErrorSet)!PromptType.OutAnswer {
     const DirectFn = @TypeOf(Handler.directReturn);
     if (DirectFn == fn () PromptType.OutAnswer) return Handler.directReturn();
     return Handler.directReturn() catch |err| return @errorCast(err);
 }
 
-fn callResumeOrReturn(comptime Resume: type, comptime PromptType: type, comptime Handler: type) runtime_core.ControlError(PromptType.ErrorSet)!ResumeOrReturnType(Resume, PromptType) {
+fn callResumeOrReturn(comptime Resume: type, comptime PromptType: type, comptime Handler: type) lowered_machine.ControlError(PromptType.ErrorSet)!ResumeOrReturnType(Resume, PromptType) {
     const ResumeOrReturnFn = @TypeOf(Handler.resumeOrReturn);
     if (ResumeOrReturnFn == fn () ResumeOrReturnType(Resume, PromptType)) return Handler.resumeOrReturn();
     return Handler.resumeOrReturn() catch |err| return @errorCast(err);
@@ -141,7 +140,7 @@ fn assertContinuationType(
         Continuation,
         "apply",
         fn (Input) PromptType.InAnswer,
-        fn (Input) runtime_core.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
+        fn (Input) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
     );
 }
 
@@ -150,13 +149,13 @@ fn callContinuation(
     comptime PromptType: type,
     comptime Continuation: type,
     value: Input,
-) runtime_core.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
+) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
     const ApplyFn = @TypeOf(Continuation.apply);
     if (ApplyFn == fn (Input) PromptType.InAnswer) return Continuation.apply(value);
     return Continuation.apply(value) catch |err| return @errorCast(err);
 }
 
-fn encodeValue(comptime T: type, value: T) runtime_core.Error!EncodedValue {
+fn encodeValue(comptime T: type, value: T) lowered_machine.Error!EncodedValue {
     if (T == void) {
         return .none;
     }
@@ -199,18 +198,18 @@ fn DecisionValue(comptime PromptType: type) type {
 pub fn Program(comptime PromptType: type) type {
     return union(enum) {
         abort: struct {
-            directReturnFn: *const fn () runtime_core.ControlError(PromptType.ErrorSet)!PromptType.OutAnswer,
+            directReturnFn: *const fn () lowered_machine.ControlError(PromptType.ErrorSet)!PromptType.OutAnswer,
         },
         choice: struct {
-            decisionFn: *const fn () runtime_core.ControlError(PromptType.ErrorSet)!DecisionValue(PromptType),
-            continueFn: *const fn (EncodedValue) runtime_core.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
+            decisionFn: *const fn () lowered_machine.ControlError(PromptType.ErrorSet)!DecisionValue(PromptType),
+            continueFn: *const fn (EncodedValue) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
             afterResumeFn: AfterResumeFn(PromptType),
         },
-        compute: *const fn () runtime_core.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
+        compute: *const fn () lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
         pure: PromptType.InAnswer,
         transform: struct {
-            resumeValueFn: *const fn () runtime_core.ControlError(PromptType.ErrorSet)!EncodedValue,
-            continueFn: *const fn (EncodedValue) runtime_core.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
+            resumeValueFn: *const fn () lowered_machine.ControlError(PromptType.ErrorSet)!EncodedValue,
+            continueFn: *const fn (EncodedValue) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
             afterResumeFn: AfterResumeFn(PromptType),
         },
     };
@@ -277,12 +276,12 @@ pub fn transformProgram(
     return .{
         .transform = .{
             .resumeValueFn = struct {
-                fn invoke() runtime_core.ControlError(PromptType.ErrorSet)!EncodedValue {
+                fn invoke() lowered_machine.ControlError(PromptType.ErrorSet)!EncodedValue {
                     return try encodeValue(Resume, try callResumeValue(Resume, PromptType, Handler));
                 }
             }.invoke,
             .continueFn = struct {
-                fn invoke(value: EncodedValue) runtime_core.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
+                fn invoke(value: EncodedValue) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
                     return try callContinuation(Resume, PromptType, Continuation, decodeValue(Resume, value));
                 }
             }.invoke,
@@ -304,7 +303,7 @@ pub fn choiceProgram(
     return .{
         .choice = .{
             .decisionFn = struct {
-                fn invoke() runtime_core.ControlError(PromptType.ErrorSet)!DecisionValue(PromptType) {
+                fn invoke() lowered_machine.ControlError(PromptType.ErrorSet)!DecisionValue(PromptType) {
                     const decision = try callResumeOrReturn(Resume, PromptType, Handler);
                     return switch (decision) {
                         .resume_with => |value| .{ .resume_with = try encodeValue(Resume, value) },
@@ -313,7 +312,7 @@ pub fn choiceProgram(
                 }
             }.invoke,
             .continueFn = struct {
-                fn invoke(value: EncodedValue) runtime_core.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
+                fn invoke(value: EncodedValue) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
                     return try callContinuation(Resume, PromptType, Continuation, decodeValue(Resume, value));
                 }
             }.invoke,
@@ -332,7 +331,7 @@ pub fn abortProgram(
     return .{
         .abort = .{
             .directReturnFn = struct {
-                fn invoke() runtime_core.ControlError(PromptType.ErrorSet)!PromptType.OutAnswer {
+                fn invoke() lowered_machine.ControlError(PromptType.ErrorSet)!PromptType.OutAnswer {
                     return try callDirectReturn(PromptType, Handler);
                 }
             }.invoke,
@@ -343,10 +342,10 @@ pub fn abortProgram(
 fn normalizeBodyFn(
     comptime PromptType: type,
     body: anytype,
-) *const fn () runtime_core.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
+) *const fn () lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
     const InputType = @TypeOf(body);
-    const BodyPtrType = *const fn () runtime_core.ResetError(PromptType.ErrorSet)!PromptType.InAnswer;
-    const BodyFnType = fn () runtime_core.ResetError(PromptType.ErrorSet)!PromptType.InAnswer;
+    const BodyPtrType = *const fn () lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer;
+    const BodyFnType = fn () lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer;
     const PureBodyPtrType = *const fn () PromptType.InAnswer;
     const PureBodyFnType = fn () PromptType.InAnswer;
 
@@ -354,7 +353,7 @@ fn normalizeBodyFn(
     if (InputType == BodyFnType) return body;
     if (InputType == PureBodyPtrType or InputType == PureBodyFnType) {
         return struct {
-            fn invoke() runtime_core.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
+            fn invoke() lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
                 return body();
             }
         }.invoke;
@@ -376,13 +375,13 @@ fn runtimeAllocator(runtime: anytype) std.mem.Allocator {
     return runtime.allocator;
 }
 
-fn ensureRuntime(runtime: anytype) runtime_core.Error!void {
+fn ensureRuntime(runtime: anytype) lowered_machine.Error!void {
     if (runtime.thread_id != std.Thread.getCurrentId()) return error.CrossThread;
     if (runtime.state == .destroyed) return error.RuntimeDestroyed;
 }
 
 fn AfterResumeFn(comptime PromptType: type) type {
-    return *const fn (PromptType.InAnswer) runtime_core.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer;
+    return *const fn (PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer;
 }
 
 fn ResumeRecord(comptime PromptType: type) type {
@@ -445,7 +444,7 @@ fn encodeResume(
     allocator: std.mem.Allocator,
     comptime Resume: type,
     value: Resume,
-) runtime_core.Error![]u8 {
+) lowered_machine.Error![]u8 {
     const size = @sizeOf(Resume);
     const storage = allocator.alloc(u8, size) catch return error.ProgramContractViolation;
     if (size != 0) @memcpy(storage, std.mem.asBytes(&value));
@@ -460,7 +459,7 @@ fn decodeResume(comptime Resume: type, storage: []const u8) Resume {
 
 fn afterResumeThunk(comptime PromptType: type, comptime Handler: type) AfterResumeFn(PromptType) {
     return struct {
-        fn invoke(value: PromptType.InAnswer) runtime_core.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer {
+        fn invoke(value: PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer {
             return try callAfterResume(PromptType, Handler, value);
         }
     }.invoke;
@@ -470,7 +469,7 @@ fn finalizeAnswer(
     comptime PromptType: type,
     frame: *Frame(PromptType),
     value: PromptType.InAnswer,
-) runtime_core.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer {
+) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer {
     if (frame.applied_after.items.len == 0) {
         if (comptime PromptType.InAnswer == PromptType.OutAnswer) return value;
         return error.NonDiagonalComplete;
@@ -495,7 +494,7 @@ pub fn run(
     runtime: anytype,
     prompt: anytype,
     program: Program(PromptTypeFromPtr(@TypeOf(prompt))),
-) runtime_core.ResetError(PromptErrorSetType(@TypeOf(prompt)))!PromptOutAnswerType(@TypeOf(prompt)) {
+) lowered_machine.ResetError(PromptErrorSetType(@TypeOf(prompt)))!PromptOutAnswerType(@TypeOf(prompt)) {
     const PromptType = PromptTypeFromPtr(@TypeOf(prompt));
 
     try ensureRuntime(runtime);
@@ -532,7 +531,7 @@ pub fn perform(
     comptime Resume: type,
     prompt: anytype,
     comptime Handler: type,
-) runtime_core.ControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
+) lowered_machine.ControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
     const PromptType = PromptTypeFromPtr(@TypeOf(prompt));
     comptime assertHandlerProtocol(Resume, PromptType, Handler);
 
@@ -597,7 +596,7 @@ pub fn transform(
     comptime Resume: type,
     prompt: anytype,
     comptime Handler: type,
-) runtime_core.ControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
+) lowered_machine.ControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
     comptime assertPromptMode(@TypeOf(prompt), .resume_then_transform, "transform");
     return perform(Resume, prompt, Handler);
 }
@@ -607,7 +606,7 @@ pub fn choice(
     comptime Resume: type,
     prompt: anytype,
     comptime Handler: type,
-) runtime_core.ControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
+) lowered_machine.ControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
     comptime assertPromptMode(@TypeOf(prompt), .resume_or_return, "choice");
     return perform(Resume, prompt, Handler);
 }
@@ -616,7 +615,7 @@ pub fn choice(
 pub fn abort(
     prompt: anytype,
     comptime Handler: type,
-) runtime_core.ControlError(PromptErrorSetType(@TypeOf(prompt)))!noreturn {
+) lowered_machine.ControlError(PromptErrorSetType(@TypeOf(prompt)))!noreturn {
     comptime assertPromptMode(@TypeOf(prompt), .direct_return, "abort");
     _ = try perform(void, prompt, Handler);
     unreachable;

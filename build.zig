@@ -254,7 +254,7 @@ pub fn build(b: *std.Build) void {
         .root_module = backend_parity_mod,
     });
     const run_backend_parity_tests = b.addRunArtifact(backend_parity_tests);
-    const backend_parity_step = b.step("backend-parity", "Run proof-only parity checks against the stackful runtime surface.");
+    const backend_parity_step = b.step("backend-parity", "Run proof-only parity checks against the lowered runtime parity surface.");
     backend_parity_step.dependOn(&run_backend_parity_tests.step);
 
     const proof_fixture_mod = b.createModule(.{
@@ -338,31 +338,9 @@ pub fn build(b: *std.Build) void {
         .root_module = size_check_mod,
     });
     const run_size_tests = b.addRunArtifact(size_tests);
-    const compat_size_check_mod = b.createModule(.{
-        .root_source_file = b.path("test/compat_size_check.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const compat_raw_mod = b.createModule(.{
-        .root_source_file = b.path("src/compat/raw.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    compat_raw_mod.addImport("raw_core", b.createModule(.{
-        .root_source_file = b.path("src/raw_core_module.zig"),
-        .target = target,
-        .optimize = optimize,
-    }));
-    compat_size_check_mod.addImport("compat_raw", compat_raw_mod);
-    const compat_size_tests = b.addTest(.{
-        .root_module = compat_size_check_mod,
-    });
-    const run_compat_size_tests = b.addRunArtifact(compat_size_tests);
     const size_step = b.step("size-check", "Run size and layout invariants.");
     size_step.dependOn(&run_size_tests.step);
-    size_step.dependOn(&run_compat_size_tests.step);
     test_step.dependOn(&run_size_tests.step);
-    test_step.dependOn(&run_compat_size_tests.step);
 
     const structured_program_mod = b.createModule(.{
         .root_source_file = b.path("test/structured_program_suite.zig"),
@@ -604,32 +582,9 @@ pub fn build(b: *std.Build) void {
     const shipped_frontier_write_step = b.step("shipped-surface-frontier-matrix-write", "Refresh the shipped-surface frontier matrix.");
     shipped_frontier_write_step.dependOn(&shipped_frontier_write_cmd.step);
 
-    const canon_raw_dep_registry_mod = b.createModule(.{
-        .root_source_file = b.path("src/canonical_raw_dependency_registry.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const canon_raw_dep_mod = b.createModule(.{
-        .root_source_file = b.path("tools/render_canonical_raw_dependency_matrix.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    canon_raw_dep_mod.addImport("canonical_raw_dependency_registry", canon_raw_dep_registry_mod);
-    const canon_raw_dep_exe = b.addExecutable(.{
-        .name = "shift-canonical-raw-dependency-matrix",
-        .root_module = canon_raw_dep_mod,
-    });
-    const canon_raw_dep_check_cmd = b.addRunArtifact(canon_raw_dep_exe);
-    canon_raw_dep_check_cmd.addArg("check");
-    const canon_raw_dep_check_step = b.step("canonical-raw-dependency-matrix-check", "Check the canonical raw dependency matrix.");
-    canon_raw_dep_check_step.dependOn(&canon_raw_dep_check_cmd.step);
-    const canon_raw_dep_write_cmd = b.addRunArtifact(canon_raw_dep_exe);
-    canon_raw_dep_write_cmd.addArg("write");
-    const canon_raw_dep_write_step = b.step("canonical-raw-dependency-matrix-write", "Refresh the canonical raw dependency matrix.");
-    canon_raw_dep_write_step.dependOn(&canon_raw_dep_write_cmd.step);
-    const canon_raw_source_check_cmd = b.addSystemCommand(&.{ "sh", "test/canonical_raw_source_check/run.sh" });
-    const canon_raw_source_check_step = b.step("canonical-raw-source-check", "Fail closed when canonical modules still call raw.reset/raw.shift.");
-    canon_raw_source_check_step.dependOn(&canon_raw_source_check_cmd.step);
+    const no_raw_repo_refs_cmd = b.addSystemCommand(&.{ "sh", "test/no_raw_repo_refs/run.sh" });
+    const no_raw_repo_refs_step = b.step("no-raw-repo-refs-check", "Fail closed when repo-facing raw runtime references remain.");
+    no_raw_repo_refs_step.dependOn(&no_raw_repo_refs_cmd.step);
 
     const frontend_feature_registry_mod = b.createModule(.{
         .root_source_file = b.path("src/frontend_feature_registry.zig"),
@@ -670,7 +625,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&error_surface_check_cmd.step);
     test_step.dependOn(&root_migration_check_cmd.step);
     test_step.dependOn(&shipped_frontier_check_cmd.step);
-    test_step.dependOn(&canon_raw_dep_check_cmd.step);
 
     const compile_fail_cmd = b.addSystemCommand(&.{ "sh", "test/compile_fail/run.sh" });
     const compile_fail_step = b.step("compile-fail", "Verify compile-fail misuse fixtures.");

@@ -1,4 +1,69 @@
 const scenarios = @import("parity_scenarios");
+const std = @import("std");
+
+/// Runtime errors surfaced by the lowered-machine-backed canonical runtime.
+pub const Error = error{
+    CrossThread,
+    FrontendSuspend,
+    MissingPrompt,
+    NonDiagonalComplete,
+    ProgramContractViolation,
+    RuntimeBusy,
+    RuntimeDestroyed,
+};
+
+/// Runtime-visible error union for user-provided errors.
+pub fn ControlError(comptime ErrorSet: type) type {
+    return Error || ErrorSet;
+}
+
+/// Allocation failure that can still arise on the lowered runtime path.
+pub const SetupError = error{OutOfMemory};
+
+/// Reset-time error union for user-provided errors on the lowered runtime path.
+pub fn ResetError(comptime ErrorSet: type) type {
+    return ControlError(ErrorSet) || SetupError;
+}
+
+/// Canonical thread-affine runtime backed by the lowered execution backend.
+pub const Runtime = struct {
+    allocator: std.mem.Allocator,
+    thread_id: std.Thread.Id,
+    state: enum {
+        alive,
+        destroyed,
+    } = .alive,
+    active_reset_count: usize = 0,
+
+    /// Initialize a runtime on the current thread.
+    pub fn init(allocator: std.mem.Allocator) Runtime {
+        return .{
+            .allocator = allocator,
+            .thread_id = std.Thread.getCurrentId(),
+        };
+    }
+
+    /// Release runtime resources.
+    pub fn deinit(self: *Runtime) void {
+        self.deinitChecked() catch |err| switch (err) {
+            error.CrossThread, error.RuntimeBusy => unreachable,
+            else => unreachable,
+        };
+    }
+
+    /// Release runtime resources, returning an error on misuse.
+    pub fn deinitChecked(self: *Runtime) Error!void {
+        try self.ensureThread();
+        if (self.active_reset_count != 0) return error.RuntimeBusy;
+        self.state = .destroyed;
+    }
+
+    /// Confirm the runtime is live and accessed from the owning thread.
+    pub fn ensureThread(self: *Runtime) Error!void {
+        if (self.thread_id != std.Thread.getCurrentId()) return error.CrossThread;
+        if (self.state == .destroyed) return error.RuntimeDestroyed;
+    }
+};
 
 /// Stable scenario ids re-exported from the canonical scenario registry.
 pub const ScenarioId = scenarios.ScenarioId;

@@ -28,11 +28,11 @@ pub const Section = struct {
 };
 
 const atm_paragraphs = [_][]const u8{
-    "`shift.Prompt(.resume_then_transform, InAnswer, OutAnswer, ErrorSet)` selects a single-resume handler protocol with `resumeValue` and `afterResume`. The live semantic witness is `atm_resume_transform`, and the implementation path is the `resume_then_transform` arm in `src/raw.zig`.",
+    "`shift.Prompt(.resume_then_transform, InAnswer, OutAnswer, ErrorSet)` selects a single-resume handler protocol with `resumeValue` and `afterResume`. The live semantic witness is `atm_resume_transform`, and the implementation path is the canonical lowered frontend/runtime path in `src/frontend.zig` and `src/lowered_machine.zig`.",
 };
 
 const direct_return_paragraphs = [_][]const u8{
-    "`shift.Prompt(.direct_return, InAnswer, OutAnswer, ErrorSet)` selects the direct-completion protocol with `directReturn`. The live witness is `direct_return`, and the implementation path is the `direct_return` arm in `src/raw.zig`.",
+    "`shift.Prompt(.direct_return, InAnswer, OutAnswer, ErrorSet)` selects the direct-completion protocol with `directReturn`. The live witness is `direct_return`, and the implementation path is the canonical lowered frontend/runtime path in `src/frontend.zig` and `src/lowered_machine.zig`.",
 };
 
 const construction_paragraphs = [_][]const u8{

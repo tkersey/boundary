@@ -21,8 +21,6 @@ not as the source of truth:
 5. authored-body lowered runtime
 
 The shipped runtime backend is the canonical authored-body lowered runtime.
-The old fiber-backed stackful runtime remains only in `src/compat/raw.zig` for
-legacy compatibility work and is not part of the shipped backend path.
 
 The current public product claim is:
 
@@ -82,10 +80,9 @@ zig build root-surface-migration-matrix-write
 zig build root-surface-migration-matrix-check
 zig build shipped-surface-frontier-matrix-write
 zig build shipped-surface-frontier-matrix-check
-zig build canonical-raw-dependency-matrix-write
-zig build canonical-raw-dependency-matrix-check
 zig build frontend-feature-matrix-write
 zig build frontend-feature-matrix-check
+zig build no-raw-repo-refs-check
 zig build shipped-backend-check
 zig build surface-truth-scorecard-write
 zig build surface-truth-scorecard-check
@@ -144,16 +141,15 @@ one of these proof surfaces:
   public runtime error surface
 - `zig build root-surface-migration-matrix-check` for the checked canonical-root
   migration map during the lowered-first runtime cut
-- `zig build shipped-surface-frontier-matrix-check` for the checked shipped-vs-compat
+- `zig build shipped-surface-frontier-matrix-check` for the checked shipped-vs-lowered
   routing truth surface
-- `zig build canonical-raw-dependency-matrix-check` for the checked list of
-  canonical execution paths that still depend on raw runtime calls
 - `zig build frontend-feature-matrix-check` for the checked matrix that records
-  which authored-body frontend capabilities are already explicit and which are
-  still replay-limited or missing
-- `zig build shipped-backend-check` as the final Phase-A removal gate; it is
-  expected to fail until the shipped path no longer depends on stackful runtime
-  assembly or stackful-only obligation rows
+  which authored-body frontend capabilities are covered across the canonical
+  surface
+- `zig build no-raw-repo-refs-check` for the fail-closed proof that the repo no
+  longer references the deleted raw runtime tree
+- `zig build shipped-backend-check` for the checked guarantee that the shipped
+  path no longer depends on deleted stackful runtime components
 - `zig build surface-truth-scorecard-check` for the machine-readable
   maintainers' scorecard that summarizes whether the lowered path can honestly
   stay hidden beneath the canonical public surface
@@ -587,13 +583,6 @@ root migration map, which lives at `docs/root_surface_migration_matrix.json`.
 `tools/render_shipped_surface_frontier_matrix.zig` renders the checked
 shipped-vs-compat routing map, which lives at
 `docs/shipped_surface_frontier_matrix.json`.
-
-`tools/render_canonical_raw_dependency_matrix.zig` renders the checked list of
-canonical execution paths that still depend on raw runtime calls, which lives
-at `docs/canonical_raw_dependency_matrix.json`.
-
-`src/compat/raw.zig` now holds the internal legacy raw runtime while the
-lowered-first root cut is in progress.
 
 `tools/render_surface_truth_scorecard.zig` renders the machine-readable
 scorecard used by the final hidden-backend recommendation gate. The generated
