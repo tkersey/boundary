@@ -2,49 +2,28 @@
 pub const algebraic = @import("algebraic.zig");
 /// Additive algebraic-effect families built on top of the core shift/reset runtime.
 pub const effect = @import("effect/root.zig");
-/// Canonical authored-body layer over the raw runtime substrate.
+/// Canonical authored-body layer over the lowered runtime substrate.
 pub const frontend = @import("frontend.zig");
 const prompt_contract = @import("prompt_contract.zig");
-const raw = @import("raw.zig");
+const runtime_core = @import("runtime_core.zig");
 const std = @import("std");
 
 /// Comptime-selected handler protocol for a prompt value.
 pub const PromptMode = prompt_contract.PromptMode;
 
 /// Canonical lowered-first runtime handle.
-pub const Runtime = struct {
-    allocator: std.mem.Allocator,
-    inner: raw.Runtime,
-
-    /// Initialize a canonical runtime on the current thread.
-    pub fn init(allocator: std.mem.Allocator) Runtime {
-        return .{
-            .allocator = allocator,
-            .inner = raw.Runtime.init(allocator, .{}),
-        };
-    }
-
-    /// Release resources owned by the canonical runtime.
-    pub fn deinit(self: *Runtime) void {
-        self.inner.deinit();
-    }
-
-    /// Release resources owned by the canonical runtime, returning an error on misuse.
-    pub fn deinitChecked(self: *Runtime) raw.Error!void {
-        return self.inner.deinitChecked();
-    }
-};
+pub const Runtime = runtime_core.Runtime;
 /// Public runtime errors surfaced by `shift`.
-pub const Error = raw.Error;
+pub const Error = runtime_core.Error;
 
 /// Runtime error union for a user-provided error set.
 pub fn ControlError(comptime ErrorSet: type) type {
-    return raw.ControlError(ErrorSet);
+    return runtime_core.ControlError(ErrorSet);
 }
 
 /// Reset-time error union for a user-provided error set.
 pub fn ResetError(comptime ErrorSet: type) type {
-    return raw.ResetError(ErrorSet);
+    return runtime_core.ResetError(ErrorSet);
 }
 
 /// Handler decision for zero-or-one-resume prompt modes.

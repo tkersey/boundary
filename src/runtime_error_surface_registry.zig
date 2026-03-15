@@ -41,11 +41,11 @@ pub const variants = [_]ErrorVariant{
     .{
         .name = "AlreadyResolved",
         .status = .retained,
-        .rationale = "The current public root still aliases the raw stack-runtime error set, so this variant remains exported for now.",
+        .rationale = "The canonical runtime now owns its own error set, but this compatibility variant remains exported for now.",
     },
     .{
         .name = "NestedNonDiagonalCapture",
         .status = .retained,
-        .rationale = "The current public root still aliases the raw stack-runtime error set, so this stackful capture detail remains exported for now.",
+        .rationale = "The canonical runtime now owns its own error set, but this compatibility variant remains exported for now.",
     },
 };

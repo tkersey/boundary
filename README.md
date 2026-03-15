@@ -18,9 +18,9 @@ not as the source of truth:
 2. executable reference witness
 3. executable reference machine
 4. CPS account
-5. authored-body replay runtime
+5. authored-body lowered runtime
 
-The shipped runtime backend is the canonical authored-body replay interpreter.
+The shipped runtime backend is the canonical authored-body lowered runtime.
 The old fiber-backed stackful runtime remains only in `src/compat/raw.zig` for
 legacy compatibility work and is not part of the shipped backend path.
 
@@ -642,4 +642,3 @@ See `src/root.zig` for the public surface, `src/witnesses.zig` for executable
 witnesses, `test/witness_corpus_test.zig` and `test/semantic_manifest.zig` for
 the locked semantic evidence, `FORMAL_CORE.md` for the implementation-derived
 law anchors, and `examples/` for runnable usage.
-{"id":"lrn-20260315T192402Z-0f4b88e1","captured_at":"2026-03-15T19:24:02Z","status":"do_more","learning":"When removing shift's remaining legacy_body and Body.body residue, move family/resource compute programs onto typed explicit prompts with shim-managed active contexts because otherwise explicit compute thunks cannot access handled capabilities and nested outer-prompt suspends break cleanup ordering.","evidence":["zig build test, zig build compile-fail, zig build lint -- --max-warnings 0, and zig build readme-contract all passed after family.handle/resource.handle switched to Body.program and frontend no longer exposed legacy_body/coercion"],"application":"For future explicit-program migrations, give helper-generated compute programs their own prompt type plus a handle-scoped active-context shim instead of capturing ctx in zero-arg thunks or keeping body-based wrapper execution alive.","context":{"repo":"tkersey/shift","branch":"main","paths":["README.md","src/effect/algebraic.zig","src/effect/family.zig","src/effect/reader.zig","src/effect/resource.zig","src/effect/state.zig","src/effect/writer.zig","src/frontend.zig","test/compile_fail/effect_reader_cross_instance_context_fails.zig","test/compile_fail/effect_resource_cross_instance_context_fails.zig","test/compile_fail/effect_resource_manager_missing_acquire.zig","test/compile_fail/effect_resource_manager_missing_release.zig","test/compile_fail/effect_resource_manager_wrong_release_type.zig","test/compile_fail/effect_state_cross_instance_context_fails.zig","test/compile_fail/effect_writer_cross_instance_context_fails.zig"]},"source":"skill:learnings","fingerprint":"0f4b88e1be9b8467","tags":["zig","migration","frontend","effects","cleanup"]}
