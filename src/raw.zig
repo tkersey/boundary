@@ -55,6 +55,9 @@ pub fn ResumeOrReturn(
 
 /// Thread-affine runtime that owns stackful continuations.
 pub const Runtime = struct {
+    const default_guard_pages: usize = 1;
+    const default_stack_bytes: usize = 256 * 1024;
+
     allocator: std.mem.Allocator,
     options: Options,
     thread_id: std.Thread.Id,
@@ -66,10 +69,10 @@ pub const Runtime = struct {
     active_reset_count: usize = 0,
     cached_stacks: std.ArrayList(Stack) = .empty,
 
-    /// Fixed runtime defaults for the experimental stackful backend.
+    /// Public compatibility fields retained while the lowered runtime swap is in flight.
     pub const Options = struct {
-        stack_bytes: usize = 256 * 1024,
-        guard_pages: usize = 1,
+        stack_bytes: usize = default_stack_bytes,
+        guard_pages: usize = default_guard_pages,
         max_cached_stacks: usize = 16,
     };
 
@@ -138,8 +141,10 @@ const Stack = struct {
     usable: []u8,
 
     fn init(options: Runtime.Options) !Stack {
-        const guard_bytes = options.guard_pages * page_size;
-        const total = options.stack_bytes + guard_bytes;
+        _ = options.stack_bytes;
+        _ = options.guard_pages;
+        const guard_bytes = Runtime.default_guard_pages * page_size;
+        const total = Runtime.default_stack_bytes + guard_bytes;
         const mapping = try std.posix.mmap(
             null,
             total,

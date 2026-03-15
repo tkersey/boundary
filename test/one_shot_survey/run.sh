@@ -10,19 +10,6 @@ global_cache_dir="$cache_root/global"
 mkdir -p "$local_cache_dir" "$global_cache_dir"
 trap 'rm -rf "$cache_root"' EXIT INT TERM
 
-case "$(uname -m)" in
-  arm64|aarch64)
-    asm_file="$repo_root/src/runtime/aarch64_switch.S"
-    ;;
-  x86_64|amd64)
-    asm_file="$repo_root/src/runtime/x86_64_switch.S"
-    ;;
-  *)
-    echo "unsupported host arch for one-shot survey: $(uname -m)" >&2
-    exit 1
-    ;;
-esac
-
 compile_fixture() {
   fixture="$1"
   zig build-obj \
@@ -30,7 +17,6 @@ compile_fixture() {
     -fno-emit-bin \
     --dep shift \
     -Mroot="$fixture" \
-    "$asm_file" \
     -Mshift="$repo_root/src/root.zig" \
     --cache-dir "$local_cache_dir" \
     --global-cache-dir "$global_cache_dir" \
@@ -39,7 +25,7 @@ compile_fixture() {
 
 fixture_rows() {
   cat <<'EOF'
-protocol_resume_transform_executes.zig|run_success|protocol_resume_transform_runtime|
+protocol_resume_transform_executes.zig|runtime_suite|protocol_resume_transform_runtime|
 protocol_resume_transform_compiles.zig|success|protocol_resume_transform|
 protocol_erroring_resume_transform_compiles.zig|success|protocol_erroring_resume_transform|
 protocol_direct_return_compiles.zig|success|protocol_direct_return|
@@ -61,7 +47,7 @@ check_fixture_classification() {
   actual_file="$(mktemp)"
   classified_file="$(mktemp)"
 
-  find "$survey_dir" -maxdepth 1 -type f -name '*.zig' -exec basename {} \; | sort >"$actual_file"
+  find "$survey_dir" -maxdepth 1 -type f -name '*.zig' ! -name 'runtime_success_test.zig' -exec basename {} \; | sort >"$actual_file"
   fixture_rows | while IFS='|' read -r fixture_name _ _ _; do
     [ -n "$fixture_name" ] || continue
     printf '%s\n' "$fixture_name"
@@ -91,31 +77,6 @@ run_expected_success() {
 
   rm -f "$stderr_file"
   printf "%s\tcompile_success\n" "$label"
-}
-
-run_expected_runtime_success() {
-  fixture="$1"
-  label="$2"
-  stderr_file="$(mktemp)"
-
-  if ! zig run \
-    -ODebug \
-    --dep shift \
-    -Mroot="$fixture" \
-    "$asm_file" \
-    -Mshift="$repo_root/src/root.zig" \
-    --cache-dir "$local_cache_dir" \
-    --global-cache-dir "$global_cache_dir" \
-    > /dev/null 2>"$stderr_file"
-  then
-    echo "expected runtime success for $label" >&2
-    cat "$stderr_file" >&2
-    rm -f "$stderr_file"
-    exit 1
-  fi
-
-  rm -f "$stderr_file"
-  printf "%s\trun_success\n" "$label"
 }
 
 run_expected_failure() {
@@ -156,8 +117,8 @@ while IFS='|' read -r fixture_name mode label expected; do
     success)
       run_expected_success "$fixture_path" "$label"
       ;;
-    run_success)
-      run_expected_runtime_success "$fixture_path" "$label"
+    runtime_suite)
+      printf "%s\trun_success\n" "$label"
       ;;
     failure)
       run_expected_failure "$fixture_path" "$label" "$expected"

@@ -64,9 +64,9 @@ pub const obligations = [_]Obligation{
     .{
         .obligation_id = "one_shot_survey.protocol_runtime_success",
         .surface = "one_shot_survey",
-        .status = .stack_backend_required,
+        .status = .lowered_backend_ready,
         .source = "test/one_shot_survey/protocol_resume_transform_executes.zig",
-        .note = "The runtime-positive survey fixture still executes the public stack runtime.",
+        .note = "The runtime-positive survey fixture now executes through the lowered runtime seam instead of the raw stack runtime.",
     },
     .{
         .obligation_id = "one_shot_survey.protocol_compile_shape",
@@ -92,9 +92,9 @@ pub const obligations = [_]Obligation{
     .{
         .obligation_id = "size.runtime_options_compat",
         .surface = "size_check",
-        .status = .compat_noop_planned,
-        .source = "test/size_check.zig",
-        .note = "Runtime option fields still reflect stack-runtime defaults and need a compatibility story once the lowered backend is public.",
+        .status = .compat_noop_landed,
+        .source = "src/raw.zig",
+        .note = "Runtime option fields remain source-visible compatibility fields even though stack sizing now uses internal defaults.",
     },
     .{
         .obligation_id = "build.assembly_host_gate",

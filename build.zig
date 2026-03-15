@@ -71,7 +71,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    addRuntimeAssembly(b, shift_mod, target);
     const witnesses_mod = b.createModule(.{
         .root_source_file = b.path("src/witnesses.zig"),
         .target = target,
@@ -101,6 +100,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     program_frontend_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    addRuntimeAssembly(b, shift_mod, target);
     const bridge_manifest_mod = b.createModule(.{
         .root_source_file = b.path("src/direct_style_bridge_manifest.zig"),
         .target = target,
@@ -182,7 +182,12 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     }));
-    runtime_contract_mod.addImport("survey_resume_transform_executes", createShiftConsumerModule(b, "test/one_shot_survey/protocol_resume_transform_executes.zig", target, optimize, shift_mod));
+    const survey_runtime_mod = b.createModule(.{
+        .root_source_file = b.path("test/one_shot_survey/protocol_resume_transform_executes.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    runtime_contract_mod.addImport("survey_resume_transform_executes", survey_runtime_mod);
     const runtime_contract_tests = b.addTest(.{
         .root_module = runtime_contract_mod,
     });
@@ -368,6 +373,7 @@ pub fn build(b: *std.Build) void {
     private_lowered_runtime_mod.addImport("lowered_machine", lowered_machine_mod);
     private_lowered_runtime_mod.addImport("parity_scenarios", parity_scenarios_mod);
     private_lowered_runtime_mod.addImport("program_bridge", program_bridge_mod);
+    survey_runtime_mod.addImport("private_lowered_runtime", private_lowered_runtime_mod);
     const runtime_route_registry_mod = b.createModule(.{
         .root_source_file = b.path("src/runtime_route_registry.zig"),
         .target = target,
@@ -505,6 +511,102 @@ pub fn build(b: *std.Build) void {
     const obligation_matrix_write_step = b.step("runtime-obligation-matrix-write", "Refresh the runtime obligation matrix for remaining stack-runtime dependencies.");
     obligation_matrix_write_step.dependOn(&obligation_matrix_write_cmd.step);
 
+    const error_surface_registry_mod = b.createModule(.{
+        .root_source_file = b.path("src/runtime_error_surface_registry.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const error_surface_mod = b.createModule(.{
+        .root_source_file = b.path("tools/render_runtime_error_surface_matrix.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    error_surface_mod.addImport("runtime_error_surface_registry", error_surface_registry_mod);
+    const error_surface_exe = b.addExecutable(.{
+        .name = "shift-runtime-error-surface-matrix",
+        .root_module = error_surface_mod,
+    });
+    const error_surface_check_cmd = b.addRunArtifact(error_surface_exe);
+    error_surface_check_cmd.addArg("check");
+    const error_surface_check_step = b.step("runtime-error-surface-matrix-check", "Check the public runtime error surface matrix.");
+    error_surface_check_step.dependOn(&error_surface_check_cmd.step);
+    const error_surface_write_cmd = b.addRunArtifact(error_surface_exe);
+    error_surface_write_cmd.addArg("write");
+    const error_surface_write_step = b.step("runtime-error-surface-matrix-write", "Refresh the public runtime error surface matrix.");
+    error_surface_write_step.dependOn(&error_surface_write_cmd.step);
+
+    const root_migration_registry_mod = b.createModule(.{
+        .root_source_file = b.path("src/root_surface_migration_registry.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const root_migration_mod = b.createModule(.{
+        .root_source_file = b.path("tools/render_root_surface_migration_matrix.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    root_migration_mod.addImport("root_surface_migration_registry", root_migration_registry_mod);
+    const root_migration_exe = b.addExecutable(.{
+        .name = "shift-root-surface-migration-matrix",
+        .root_module = root_migration_mod,
+    });
+    const root_migration_check_cmd = b.addRunArtifact(root_migration_exe);
+    root_migration_check_cmd.addArg("check");
+    const root_migration_check_step = b.step("root-surface-migration-matrix-check", "Check the canonical root-surface migration matrix.");
+    root_migration_check_step.dependOn(&root_migration_check_cmd.step);
+    const root_migration_write_cmd = b.addRunArtifact(root_migration_exe);
+    root_migration_write_cmd.addArg("write");
+    const root_migration_write_step = b.step("root-surface-migration-matrix-write", "Refresh the canonical root-surface migration matrix.");
+    root_migration_write_step.dependOn(&root_migration_write_cmd.step);
+
+    const shipped_frontier_registry_mod = b.createModule(.{
+        .root_source_file = b.path("src/shipped_surface_frontier_registry.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const shipped_frontier_mod = b.createModule(.{
+        .root_source_file = b.path("tools/render_shipped_surface_frontier_matrix.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    shipped_frontier_mod.addImport("shipped_surface_frontier_registry", shipped_frontier_registry_mod);
+    const shipped_frontier_exe = b.addExecutable(.{
+        .name = "shift-shipped-surface-frontier-matrix",
+        .root_module = shipped_frontier_mod,
+    });
+    const shipped_frontier_check_cmd = b.addRunArtifact(shipped_frontier_exe);
+    shipped_frontier_check_cmd.addArg("check");
+    const shipped_frontier_check_step = b.step("shipped-surface-frontier-matrix-check", "Check the shipped-surface frontier matrix.");
+    shipped_frontier_check_step.dependOn(&shipped_frontier_check_cmd.step);
+    const shipped_frontier_write_cmd = b.addRunArtifact(shipped_frontier_exe);
+    shipped_frontier_write_cmd.addArg("write");
+    const shipped_frontier_write_step = b.step("shipped-surface-frontier-matrix-write", "Refresh the shipped-surface frontier matrix.");
+    shipped_frontier_write_step.dependOn(&shipped_frontier_write_cmd.step);
+
+    const canon_raw_dep_registry_mod = b.createModule(.{
+        .root_source_file = b.path("src/canonical_raw_dependency_registry.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const canon_raw_dep_mod = b.createModule(.{
+        .root_source_file = b.path("tools/render_canonical_raw_dependency_matrix.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    canon_raw_dep_mod.addImport("canonical_raw_dependency_registry", canon_raw_dep_registry_mod);
+    const canon_raw_dep_exe = b.addExecutable(.{
+        .name = "shift-canonical-raw-dependency-matrix",
+        .root_module = canon_raw_dep_mod,
+    });
+    const canon_raw_dep_check_cmd = b.addRunArtifact(canon_raw_dep_exe);
+    canon_raw_dep_check_cmd.addArg("check");
+    const canon_raw_dep_check_step = b.step("canonical-raw-dependency-matrix-check", "Check the canonical raw dependency matrix.");
+    canon_raw_dep_check_step.dependOn(&canon_raw_dep_check_cmd.step);
+    const canon_raw_dep_write_cmd = b.addRunArtifact(canon_raw_dep_exe);
+    canon_raw_dep_write_cmd.addArg("write");
+    const canon_raw_dep_write_step = b.step("canonical-raw-dependency-matrix-write", "Refresh the canonical raw dependency matrix.");
+    canon_raw_dep_write_step.dependOn(&canon_raw_dep_write_cmd.step);
+
     const shipped_backend_cmd = b.addSystemCommand(&.{ "sh", "test/shipped_backend_contract/run.sh" });
     const shipped_backend_step = b.step("shipped-backend-check", "Check that the shipped path no longer depends on the stackful backend.");
     shipped_backend_step.dependOn(&shipped_backend_cmd.step);
@@ -517,6 +619,10 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&scorecard_check_cmd.step);
     test_step.dependOn(&route_matrix_check_cmd.step);
     test_step.dependOn(&obligation_matrix_check_cmd.step);
+    test_step.dependOn(&error_surface_check_cmd.step);
+    test_step.dependOn(&root_migration_check_cmd.step);
+    test_step.dependOn(&shipped_frontier_check_cmd.step);
+    test_step.dependOn(&canon_raw_dep_check_cmd.step);
 
     const compile_fail_cmd = b.addSystemCommand(&.{ "sh", "test/compile_fail/run.sh" });
     const compile_fail_step = b.step("compile-fail", "Verify compile-fail misuse fixtures.");
@@ -524,9 +630,21 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&compile_fail_cmd.step);
 
     const one_shot_survey_cmd = b.addSystemCommand(&.{ "sh", "test/one_shot_survey/run.sh" });
+    const one_shot_runtime_mod = b.createModule(.{
+        .root_source_file = b.path("test/one_shot_survey/runtime_success_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    one_shot_runtime_mod.addImport("survey_resume_transform_executes", survey_runtime_mod);
+    const one_shot_runtime_tests = b.addTest(.{
+        .root_module = one_shot_runtime_mod,
+    });
+    const run_one_shot_runtime_tests = b.addRunArtifact(one_shot_runtime_tests);
     const one_shot_survey_step = b.step("one-shot-survey", "Run the current plain-Zig one-shot survey contract.");
     one_shot_survey_step.dependOn(&one_shot_survey_cmd.step);
+    one_shot_survey_step.dependOn(&run_one_shot_runtime_tests.step);
     test_step.dependOn(&one_shot_survey_cmd.step);
+    test_step.dependOn(&run_one_shot_runtime_tests.step);
 
     const example_proof_cmd = b.addSystemCommand(&.{ "sh", "test/example_proof/run.sh" });
     const example_proof_step = b.step("example-proof", "Run exact-output proof for all examples.");

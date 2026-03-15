@@ -1,0 +1,12 @@
+{
+  "surfaces": [
+    {"surface_id":"root.prompt_runtime","surface":"canonical_root","frontier":"stack_root_raw","source":"src/root.zig","note":"The canonical root still aliases the raw stackful runtime directly."},
+    {"surface_id":"effect.public_families","surface":"canonical_effect","frontier":"stack_root_raw","source":"src/effect/root.zig","note":"Public effect families still execute on top of the raw root runtime surface."},
+    {"surface_id":"algebraic.public_builders","surface":"canonical_algebraic","frontier":"stack_root_raw","source":"src/algebraic.zig","note":"Public algebraic builders still execute on top of the raw root runtime surface."},
+    {"surface_id":"bridge.supported_corpus","surface":"direct_style_bridge","frontier":"lowered_bridge","source":"src/private_lowered_runtime.zig","note":"The supported bridge corpus already executes through the lowered machine seam."},
+    {"surface_id":"compile_fail.public_misuse","surface":"compile_fail","frontier":"compile_boundary","source":"test/compile_fail/run.sh","note":"Compile-fail misuse fixtures prove public boundary and type-shape behavior."},
+    {"surface_id":"one_shot_survey.runtime_success","surface":"one_shot_survey","frontier":"lowered_structured","source":"test/one_shot_survey/protocol_resume_transform_executes.zig","note":"The runtime-success survey case now executes through the lowered runtime seam."},
+    {"surface_id":"structured.internal_frontend","surface":"structured_programs","frontier":"lowered_structured","source":"src/program_frontend.zig","note":"Structured internal programs already lower into the canonical scenario IR."},
+    {"surface_id":"runtime.stack_baseline","surface":"reference_runtime","frontier":"legacy_compat_only","source":"src/runtime_stack_baseline.zig","note":"The stack runtime baseline is reference-only and should never be part of the shipped path."}
+  ]
+}

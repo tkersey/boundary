@@ -76,6 +76,14 @@ zig build runtime-route-matrix-check
 zig build runtime-obligation-matrix-write
 zig build runtime-obligation-matrix-check
 zig build runtime-contract-suite
+zig build runtime-error-surface-matrix-write
+zig build runtime-error-surface-matrix-check
+zig build root-surface-migration-matrix-write
+zig build root-surface-migration-matrix-check
+zig build shipped-surface-frontier-matrix-write
+zig build shipped-surface-frontier-matrix-check
+zig build canonical-raw-dependency-matrix-write
+zig build canonical-raw-dependency-matrix-check
 zig build shipped-backend-check
 zig build surface-truth-scorecard-write
 zig build surface-truth-scorecard-check
@@ -130,6 +138,14 @@ one of these proof surfaces:
   backend
 - `zig build runtime-contract-suite` for executable public-runtime contract
   cases that still guard the final stackful-backed behaviors
+- `zig build runtime-error-surface-matrix-check` for the checked retained-vs-retired
+  public runtime error surface
+- `zig build root-surface-migration-matrix-check` for the checked canonical-root
+  migration map during the lowered-first runtime cut
+- `zig build shipped-surface-frontier-matrix-check` for the checked shipped-vs-compat
+  routing truth surface
+- `zig build canonical-raw-dependency-matrix-check` for the checked list of
+  canonical execution paths that still depend on raw runtime calls
 - `zig build shipped-backend-check` as the final Phase-A removal gate; it is
   expected to fail until the shipped path no longer depends on stackful runtime
   assembly or stackful-only obligation rows
@@ -550,6 +566,24 @@ which lives at `docs/runtime_obligation_matrix.json`.
 artifact: it runs the remaining public-runtime contract cases through the
 current public API so the last stackful-backed behaviors are tracked by tests,
 not just by documentation.
+
+`tools/render_runtime_error_surface_matrix.zig` renders the checked public
+runtime error surface policy, which lives at
+`docs/runtime_error_surface_matrix.json`.
+
+`tools/render_root_surface_migration_matrix.zig` renders the checked canonical
+root migration map, which lives at `docs/root_surface_migration_matrix.json`.
+
+`tools/render_shipped_surface_frontier_matrix.zig` renders the checked
+shipped-vs-compat routing map, which lives at
+`docs/shipped_surface_frontier_matrix.json`.
+
+`tools/render_canonical_raw_dependency_matrix.zig` renders the checked list of
+canonical execution paths that still depend on raw runtime calls, which lives
+at `docs/canonical_raw_dependency_matrix.json`.
+
+`shift.compat.raw` is now the explicit namespace for the current stackful raw
+runtime while the lowered-first root cut is in progress.
 
 `tools/render_surface_truth_scorecard.zig` renders the machine-readable
 scorecard used by the final hidden-backend recommendation gate. The generated

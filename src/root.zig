@@ -2,6 +2,11 @@
 pub const algebraic = @import("algebraic.zig");
 /// Additive algebraic-effect families built on top of the core shift/reset runtime.
 pub const effect = @import("effect/root.zig");
+/// Explicit compatibility namespace for the current stackful raw runtime.
+pub const compat = struct {
+    /// Legacy raw prompt/runtime surface retained outside the planned lowered-first root cut.
+    pub const raw = @import("compat/raw.zig");
+};
 const raw = @import("raw.zig");
 const std = @import("std");
 
@@ -85,6 +90,7 @@ test {
     _ = PromptMode;
     _ = ResumeOrReturn;
     _ = Runtime;
+    _ = compat;
     _ = effect;
     _ = algebraic;
     _ = std;

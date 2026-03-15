@@ -1,6 +1,13 @@
 const shift = @import("shift");
 const std = @import("std");
 
+fn hasErrorName(comptime ErrorSet: type, comptime wanted: []const u8) bool {
+    inline for (@typeInfo(ErrorSet).error_set.?) |field| {
+        if (comptime std.mem.eql(u8, field.name, wanted)) return true;
+    }
+    return false;
+}
+
 test "prompt shell stays compact" {
     const NoError = error{};
     const DemoPrompt = shift.Prompt(.resume_then_transform, void, void, NoError);
@@ -22,6 +29,29 @@ test "runtime defaults stay explicit" {
 
     try std.testing.expectEqual(@as(usize, 256 * 1024), runtime.options.stack_bytes);
     try std.testing.expectEqual(@as(usize, 1), runtime.options.guard_pages);
+}
+
+test "runtime option compatibility fields stay source-visible" {
+    var runtime = shift.Runtime.init(std.testing.allocator, .{
+        .stack_bytes = 4096,
+        .guard_pages = 7,
+        .max_cached_stacks = 2,
+    });
+    defer runtime.deinit();
+
+    try std.testing.expectEqual(@as(usize, 4096), runtime.options.stack_bytes);
+    try std.testing.expectEqual(@as(usize, 7), runtime.options.guard_pages);
+    try std.testing.expectEqual(@as(usize, 2), runtime.options.max_cached_stacks);
+}
+
+test "public runtime error surface still exposes the current raw contract" {
+    try std.testing.expect(hasErrorName(shift.Error, "MissingPrompt"));
+    try std.testing.expect(hasErrorName(shift.Error, "CrossThread"));
+    try std.testing.expect(hasErrorName(shift.Error, "RuntimeBusy"));
+    try std.testing.expect(hasErrorName(shift.Error, "RuntimeDestroyed"));
+    try std.testing.expect(hasErrorName(shift.Error, "NonDiagonalComplete"));
+    try std.testing.expect(hasErrorName(shift.Error, "AlreadyResolved"));
+    try std.testing.expect(hasErrorName(shift.Error, "NestedNonDiagonalCapture"));
 }
 
 test "algebraic descriptor and context shells stay compact" {
