@@ -2,6 +2,7 @@
 pub const Status = enum {
     lowered_canonical,
     raw_execution_dependency,
+    resolved,
 };
 
 /// One canonical surface dependency record.
@@ -53,16 +54,16 @@ pub const entries = [_]Entry{
     .{
         .surface_id = "examples.runtime_execution",
         .surface = "public_examples",
-        .status = .raw_execution_dependency,
+        .status = .resolved,
         .source = "examples/*.zig",
-        .note = "Public examples still exercise the old root execution contract directly.",
+        .note = "Public examples now delegate to the lowered runtime seam instead of the old root execution contract.",
     },
     .{
         .surface_id = "witnesses.runtime_execution",
         .surface = "witnesses",
-        .status = .raw_execution_dependency,
+        .status = .resolved,
         .source = "src/witnesses.zig",
-        .note = "Witness runners still exercise the old root execution contract directly.",
+        .note = "Witness runners now delegate to the lowered runtime seam instead of the old root execution contract.",
     },
     .{
         .surface_id = "shipped_benches.runtime_execution",

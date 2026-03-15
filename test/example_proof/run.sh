@@ -11,19 +11,6 @@ global_cache_dir="$cache_root/global"
 mkdir -p "$local_cache_dir" "$global_cache_dir"
 trap 'rm -rf "$cache_root"' EXIT INT TERM
 
-case "$(uname -m)" in
-  arm64|aarch64)
-    asm_file="$repo_root/src/runtime/aarch64_switch.S"
-    ;;
-  x86_64|amd64)
-    asm_file="$repo_root/src/runtime/x86_64_switch.S"
-    ;;
-  *)
-    echo "unsupported host arch for example proof: $(uname -m)" >&2
-    exit 1
-    ;;
-esac
-
 example_rows() {
   cat <<'EOF'
 algebraic_abortive_validation.zig|primary|run-algebraic-abortive-validation|algebraic_abortive_validation.txt
@@ -90,10 +77,25 @@ run_example() {
 
   if ! zig run \
     -ODebug \
-    --dep shift \
     -Mroot="$example_path" \
-    "$asm_file" \
-    -Mshift="$repo_root/src/root.zig" \
+    --dep private_lowered_runtime \
+    -Mprivate_lowered_runtime="$repo_root/src/private_lowered_runtime.zig" \
+    --dep direct_style_bridge_manifest \
+    --dep lowered_machine \
+    --dep parity_scenarios \
+    --dep program_bridge \
+    -Mdirect_style_bridge_manifest="$repo_root/src/direct_style_bridge_manifest.zig" \
+    -Mlowered_machine="$repo_root/src/lowered_machine.zig" \
+    --dep parity_scenarios \
+    -Mparity_scenarios="$repo_root/src/parity_scenarios.zig" \
+    --dep formal_core_registry \
+    -Mformal_core_registry="$repo_root/src/formal_core_registry.zig" \
+    -Mprogram_bridge="$repo_root/src/program_bridge.zig" \
+    --dep direct_style_bridge_manifest \
+    --dep parity_scenarios \
+    --dep program_frontend \
+    -Mprogram_frontend="$repo_root/src/program_frontend.zig" \
+    --dep parity_scenarios \
     --cache-dir "$local_cache_dir" \
     --global-cache-dir "$global_cache_dir" \
     >"$stdout_file"
