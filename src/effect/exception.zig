@@ -17,6 +17,24 @@ pub inline fn throw(
     return try algebraic.throwException(Cap, ctx, payload);
 }
 
+/// Build one explicit exception throw program for the supplied payload.
+pub inline fn throwProgram(
+    comptime Cap: type,
+    ctx: anytype,
+    payload: family.ContextStateType(@TypeOf(ctx)),
+) @TypeOf(algebraic.throwExceptionProgram(Cap, ctx, payload)) {
+    return algebraic.throwExceptionProgram(Cap, ctx, payload);
+}
+
+/// Build one explicit exception body program with no throw operation.
+pub inline fn computeProgram(
+    comptime Cap: type,
+    ctx: anytype,
+    thunk: anytype,
+) @TypeOf(algebraic.exceptionComputeProgram(Cap, ctx, thunk)) {
+    return algebraic.exceptionComputeProgram(Cap, ctx, thunk);
+}
+
 /// Run an exception effect body and return the final caught or normal answer.
 pub fn handle(
     comptime AnswerType: type,
@@ -47,10 +65,8 @@ test "exception handle can throw directly to the catch policy" {
         var after_throw: bool = false;
 
         /// Throw once and prove the body tail never resumes.
-        pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)![]const u8 {
-            try throw(Cap, ctx, "result=early");
-            after_throw = true;
-            return "result=late";
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(throwProgram(Cap, ctx, "result=early")) {
+            return throwProgram(Cap, ctx, "result=early");
         }
     };
 
@@ -80,11 +96,21 @@ test "nested same-shaped exception handles get distinct capability types" {
         pub fn outer(comptime OuterCap: type, _: anytype) shift.ResetError(NoError)!i32 {
             return try handle(i32, runtime_ptr.?, inner_ptr.?, catcher, struct {
                 /// Reject capability-type collapse inside the nested exception handle.
-                pub fn body(comptime InnerCap: type, _: anytype) shift.ResetError(NoError)!i32 {
+                pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(computeProgram(InnerCap, inner_ctx, struct {
+                    /// Return a neutral value from the nested exception body.
+                    pub fn run() i32 {
+                        return 0;
+                    }
+                }.run)) {
                     comptime if (OuterCap == InnerCap) {
                         @compileError("nested exception handles must receive distinct capability types");
                     };
-                    return 0;
+                    return computeProgram(InnerCap, inner_ctx, struct {
+                        /// Return a neutral value from the nested exception body.
+                        pub fn run() i32 {
+                            return 0;
+                        }
+                    }.run);
                 }
             });
         }
@@ -98,8 +124,18 @@ test "nested same-shaped exception handles get distinct capability types" {
     demo.inner_ptr = &inner_instance;
     const result = try handle(i32, &runtime, &outer_instance, catcher, struct {
         /// Enter the outer exception handle and hand its capability inward.
-        pub fn body(comptime OuterCap: type, ctx: anytype) shift.ResetError(NoError)!i32 {
-            return try demo.outer(OuterCap, ctx);
+        pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(computeProgram(OuterCap, ctx, struct {
+            /// Re-enter the nested exception witness through the outer capability.
+            pub fn run() shift.ResetError(NoError)!i32 {
+                return try demo.outer(OuterCap, {});
+            }
+        }.run)) {
+            return computeProgram(OuterCap, ctx, struct {
+                /// Re-enter the nested exception witness through the outer capability.
+                pub fn run() shift.ResetError(NoError)!i32 {
+                    return try demo.outer(OuterCap, {});
+                }
+            }.run);
         }
     });
     try std.testing.expectEqual(@as(i32, 0), result);

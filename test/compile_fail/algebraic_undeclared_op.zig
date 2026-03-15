@@ -23,9 +23,19 @@ const configured = demo.handlers(.{
 });
 
 const body = struct {
-    /// Provide the compile-fail undeclared-op witness body.
-    pub fn body(ctx: *@TypeOf(configured).Context) shift.ResetError(NoError)!i32 {
-        return try ctx.perform(pong, {});
+    /// Provide the compile-fail undeclared-op witness program.
+    pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(pong, {}, struct {
+        /// Preserve the compile-fail pong witness value.
+        pub fn apply(value: i32) i32 {
+            return value;
+        }
+    })) {
+        return ctx.performProgram(pong, {}, struct {
+            /// Preserve the compile-fail pong witness value.
+            pub fn apply(value: i32) i32 {
+                return value;
+            }
+        });
     }
 };
 

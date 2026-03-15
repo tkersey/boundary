@@ -23,7 +23,7 @@ run_fixture() {
     -Mlowered_machine="$repo_root/src/lowered_machine.zig" \
     -Mparity_scenarios="$repo_root/src/parity_scenarios.zig" \
     --dep lowered_machine \
-    -Mshift="$repo_root/src/root.zig" \
+    -Mshift="$repo_root/src/shift_module.zig" \
     --cache-dir "$local_cache_dir" \
     --global-cache-dir "$global_cache_dir" \
     --name compile-fail-fixture \

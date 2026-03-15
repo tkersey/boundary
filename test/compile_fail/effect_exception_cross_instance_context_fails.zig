@@ -18,9 +18,9 @@ const demo = struct {
     pub fn outer(comptime OuterCap: type, _: anytype) shift.ResetError(NoError)!i32 {
         return try shift.effect.exception.handle(i32, runtime_ptr.?, inner_ptr.?, catcher, struct {
             /// Attempt to throw with the wrong capability type.
-            pub fn body(comptime InnerCap: type, inner_ctx: anytype) shift.ResetError(NoError)!i32 {
+            pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(shift.effect.exception.throwProgram(OuterCap, inner_ctx, 1)) {
                 _ = InnerCap;
-                try shift.effect.exception.throw(OuterCap, inner_ctx, 1);
+                return shift.effect.exception.throwProgram(OuterCap, inner_ctx, 1);
             }
         });
     }
@@ -36,8 +36,18 @@ pub fn main() anyerror!void {
     demo.inner_ptr = &inner_instance;
     _ = try shift.effect.exception.handle(i32, &runtime, &outer_instance, catcher, struct {
         /// Invoke the outer body with the fresh outer capability.
-        pub fn body(comptime OuterCap: type, ctx: anytype) shift.ResetError(NoError)!i32 {
-            return try demo.outer(OuterCap, ctx);
+        pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(shift.effect.exception.computeProgram(OuterCap, ctx, struct {
+            /// Re-enter the compile-fail exception witness through the outer capability.
+            pub fn run() shift.ResetError(NoError)!i32 {
+                return try demo.outer(OuterCap, {});
+            }
+        }.run)) {
+            return shift.effect.exception.computeProgram(OuterCap, ctx, struct {
+                /// Re-enter the compile-fail exception witness through the outer capability.
+                pub fn run() shift.ResetError(NoError)!i32 {
+                    return try demo.outer(OuterCap, {});
+                }
+            }.run);
         }
     });
 }

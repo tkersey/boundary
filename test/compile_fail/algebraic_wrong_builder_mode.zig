@@ -21,9 +21,9 @@ const configured = shift.algebraic.Program(i32, NoError, .{ping}).handlers(.{
 });
 
 const body = struct {
-    /// Provide the compile-fail wrong-builder-mode witness body.
-    pub fn body(_: *@TypeOf(configured).Context) shift.ResetError(NoError)!i32 {
-        return 0;
+    /// Provide the compile-fail wrong-builder-mode witness program.
+    pub fn program(_: *@TypeOf(configured).Context) @TypeOf(shift.frontend.pureProgram(shift.Prompt(.resume_then_transform, i32, i32, NoError), 0)) {
+        return shift.frontend.pureProgram(shift.Prompt(.resume_then_transform, i32, i32, NoError), 0);
     }
 };
 

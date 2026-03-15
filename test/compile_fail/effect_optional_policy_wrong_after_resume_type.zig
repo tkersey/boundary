@@ -22,8 +22,18 @@ pub fn main() anyerror!void {
     var instance = OptionalInstance.init();
     _ = try shift.effect.optional.handle(i32, &runtime, &instance, bad_policy, struct {
         /// Force the handler to instantiate the malformed optional policy.
-        pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!i32 {
-            return try shift.effect.optional.request(Cap, ctx);
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.optional.requestProgram(Cap, ctx, struct {
+            /// Preserve the compile-fail optional witness value.
+            pub fn apply(value: i32) i32 {
+                return value;
+            }
+        })) {
+            return shift.effect.optional.requestProgram(Cap, ctx, struct {
+                /// Preserve the compile-fail optional witness value.
+                pub fn apply(value: i32) i32 {
+                    return value;
+                }
+            });
         }
     });
 }

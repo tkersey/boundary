@@ -133,6 +133,76 @@ pub inline fn optionalRequest(
     return try optional_impl.request();
 }
 
+/// Build one explicit optional request program for the supplied capability and continuation.
+pub inline fn optionalRequestProgram(
+    comptime Cap: type,
+    ctx: anytype,
+    comptime Continuation: type,
+) frontend.Program(OptionalKernel(
+    family.ContextTypeFromPtr(@TypeOf(ctx)).StateType,
+    family.ContextTypeFromPtr(@TypeOf(ctx)).AnswerType,
+    family.ContextTypeFromPtr(@TypeOf(ctx)).ErrorSetType,
+    family.ContextTypeFromPtr(@TypeOf(ctx)).capability.PolicyType(),
+).Prompt) {
+    comptime family.assertContextType(Cap, @TypeOf(ctx));
+    const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
+    comptime {
+        if (!family.hasDeclSafe(ContextType.capability, "PolicyType")) {
+            @compileError("optional capability does not carry a policy type");
+        }
+    }
+    const PolicyType = ContextType.capability.PolicyType();
+    comptime assertOptionalPolicyType(ContextType.StateType, ContextType.AnswerType, ContextType.ErrorSetType, PolicyType);
+    const optional_impl = OptionalKernel(ContextType.StateType, ContextType.AnswerType, ContextType.ErrorSetType, PolicyType);
+    _ = ctx._cap;
+    const handler = struct {
+        /// Compute the optional decision for one explicit optional request.
+        pub fn resumeOrReturn() shift.ResetError(ContextType.ErrorSetType)!shift.ResumeOrReturn(ContextType.StateType, ContextType.AnswerType) {
+            const decision = try optional_impl.callResumeOrReturn();
+            switch (decision) {
+                .return_now => |_| {
+                    if (cleanup.checkpoint() != optional_impl.active_cleanup_marker) {
+                        cleanup.unwindTo(optional_impl.active_cleanup_marker) catch |err| return @errorCast(err);
+                    }
+                },
+                .resume_with => {},
+            }
+            return decision;
+        }
+
+        /// Complete the enclosing answer after one explicit optional resume.
+        pub fn afterResume(value: ContextType.StateType) shift.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
+            return try optional_impl.callAfterResume(value);
+        }
+    };
+    return frontend.choiceProgram(optional_impl.Prompt, ContextType.StateType, handler, Continuation);
+}
+
+/// Build one explicit optional body program with no prompt operation.
+pub inline fn optionalComputeProgram(
+    comptime Cap: type,
+    ctx: anytype,
+    thunk: anytype,
+) frontend.Program(OptionalKernel(
+    family.ContextTypeFromPtr(@TypeOf(ctx)).StateType,
+    family.ContextTypeFromPtr(@TypeOf(ctx)).AnswerType,
+    family.ContextTypeFromPtr(@TypeOf(ctx)).ErrorSetType,
+    family.ContextTypeFromPtr(@TypeOf(ctx)).capability.PolicyType(),
+).Prompt) {
+    comptime family.assertContextType(Cap, @TypeOf(ctx));
+    const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
+    comptime {
+        if (!family.hasDeclSafe(ContextType.capability, "PolicyType")) {
+            @compileError("optional capability does not carry a policy type");
+        }
+    }
+    const PolicyType = ContextType.capability.PolicyType();
+    comptime assertOptionalPolicyType(ContextType.StateType, ContextType.AnswerType, ContextType.ErrorSetType, PolicyType);
+    const optional_impl = OptionalKernel(ContextType.StateType, ContextType.AnswerType, ContextType.ErrorSetType, PolicyType);
+    _ = ctx._cap;
+    return frontend.computeProgram(optional_impl.Prompt, thunk);
+}
+
 /// Run an optional family through the generalized substrate.
 pub fn handleOptional(
     comptime AnswerType: type,
@@ -160,26 +230,13 @@ pub fn handleOptional(
 
         /// Run the body with a fresh exact context and the active optional prompt.
         pub fn run(comptime Cap: type, ctx: anytype) shift.ResetError(ErrorSetType)!AnswerType {
-            const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
             var prompt = optional_impl.Prompt{ .token = active_prompt_token };
-            const invoker = struct {
-                threadlocal var active_context: ?*ContextType = null;
-
-                fn invoke() shift.ResetError(ErrorSetType)!ResumeType {
-                    return try Body.body(Cap, active_context.?);
-                }
-            };
-
             const previous_prompt = optional_impl.active_prompt;
-            const previous_context = invoker.active_context;
             optional_impl.active_prompt = &prompt;
-            invoker.active_context = ctx;
             defer {
                 optional_impl.active_prompt = previous_prompt;
-                invoker.active_context = previous_context;
             }
-
-            return try frontend.run(active_runtime.?, &prompt, invoker.invoke);
+            return try frontend.run(active_runtime.?, &prompt, Body.program(Cap, ctx));
         }
     };
 
@@ -264,6 +321,64 @@ pub inline fn throwException(
     return try exception_impl.throw(payload);
 }
 
+/// Build one explicit exception throw program for the supplied capability and payload.
+pub inline fn throwExceptionProgram(
+    comptime Cap: type,
+    ctx: anytype,
+    payload: family.ContextStateType(@TypeOf(ctx)),
+) frontend.Program(ExceptionKernel(
+    family.ContextTypeFromPtr(@TypeOf(ctx)).StateType,
+    family.ContextTypeFromPtr(@TypeOf(ctx)).AnswerType,
+    family.ContextTypeFromPtr(@TypeOf(ctx)).ErrorSetType,
+    family.ContextTypeFromPtr(@TypeOf(ctx)).capability.CatchType(),
+).Prompt) {
+    comptime family.assertContextType(Cap, @TypeOf(ctx));
+    const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
+    comptime {
+        if (!family.hasDeclSafe(ContextType.capability, "CatchType")) {
+            @compileError("exception capability does not carry a catch type");
+        }
+    }
+    const CatchType = ContextType.capability.CatchType();
+    comptime assertCatchType(ContextType.StateType, ContextType.AnswerType, ContextType.ErrorSetType, CatchType);
+    const exception_impl = ExceptionKernel(ContextType.StateType, ContextType.AnswerType, ContextType.ErrorSetType, CatchType);
+    _ = ctx._cap;
+    const payload_copy = payload;
+    const handler = struct {
+        /// Convert the explicit exception payload into the enclosing answer.
+        pub fn directReturn() shift.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
+            cleanup.unwindTo(exception_impl.active_cleanup_marker) catch |err| return @errorCast(err);
+            return try exception_impl.callDirectReturn(payload_copy);
+        }
+    };
+    return frontend.abortProgram(exception_impl.Prompt, handler);
+}
+
+/// Build one explicit exception body program with no throw operation.
+pub inline fn exceptionComputeProgram(
+    comptime Cap: type,
+    ctx: anytype,
+    thunk: anytype,
+) frontend.Program(ExceptionKernel(
+    family.ContextTypeFromPtr(@TypeOf(ctx)).StateType,
+    family.ContextTypeFromPtr(@TypeOf(ctx)).AnswerType,
+    family.ContextTypeFromPtr(@TypeOf(ctx)).ErrorSetType,
+    family.ContextTypeFromPtr(@TypeOf(ctx)).capability.CatchType(),
+).Prompt) {
+    comptime family.assertContextType(Cap, @TypeOf(ctx));
+    const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
+    comptime {
+        if (!family.hasDeclSafe(ContextType.capability, "CatchType")) {
+            @compileError("exception capability does not carry a catch type");
+        }
+    }
+    const CatchType = ContextType.capability.CatchType();
+    comptime assertCatchType(ContextType.StateType, ContextType.AnswerType, ContextType.ErrorSetType, CatchType);
+    const exception_impl = ExceptionKernel(ContextType.StateType, ContextType.AnswerType, ContextType.ErrorSetType, CatchType);
+    _ = ctx._cap;
+    return frontend.computeProgram(exception_impl.Prompt, thunk);
+}
+
 /// Run an exception family through the generalized substrate.
 pub fn handleException(
     comptime AnswerType: type,
@@ -293,27 +408,16 @@ pub fn handleException(
     var cap_token = Cap{ ._seal = .{} };
     var context = ContextType{ ._cap = &cap_token };
 
-    const invoker = struct {
-        threadlocal var active_context: ?*ContextType = null;
-
-        fn invoke() shift.ResetError(ErrorSetType)!AnswerType {
-            return try Body.body(Cap, active_context.?);
-        }
-    };
-
     const previous_frame = exception_impl.active_frame;
-    const previous_context = invoker.active_context;
     const previous_cleanup_marker = exception_impl.active_cleanup_marker;
     exception_impl.active_frame = &frame;
-    invoker.active_context = &context;
     exception_impl.active_cleanup_marker = cleanup.checkpoint();
     defer {
         exception_impl.active_frame = previous_frame;
-        invoker.active_context = previous_context;
         exception_impl.active_cleanup_marker = previous_cleanup_marker;
     }
 
-    return try frontend.run(runtime, &frame.prompt, invoker.invoke);
+    return try frontend.run(runtime, &frame.prompt, Body.program(Cap, &context));
 }
 
 /// Assert the manager shape required by a bracketed resource family.

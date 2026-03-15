@@ -12,8 +12,8 @@ pub fn main() anyerror!void {
     var instance = ExceptionInstance.init();
     _ = try shift.effect.exception.handle(i32, &runtime, &instance, bad_catch, struct {
         /// Force the handler to instantiate the malformed catch policy.
-        pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!i32 {
-            try shift.effect.exception.throw(Cap, ctx, 1);
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.exception.throwProgram(Cap, ctx, 1)) {
+            return shift.effect.exception.throwProgram(Cap, ctx, 1);
         }
     });
 }

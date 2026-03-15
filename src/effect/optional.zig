@@ -16,6 +16,24 @@ pub inline fn request(
     return try algebraic.optionalRequest(Cap, ctx);
 }
 
+/// Build one explicit optional request program for the supplied continuation.
+pub inline fn requestProgram(
+    comptime Cap: type,
+    ctx: anytype,
+    comptime Continuation: type,
+) @TypeOf(algebraic.optionalRequestProgram(Cap, ctx, Continuation)) {
+    return algebraic.optionalRequestProgram(Cap, ctx, Continuation);
+}
+
+/// Build one explicit optional body program with no request operation.
+pub inline fn computeProgram(
+    comptime Cap: type,
+    ctx: anytype,
+    thunk: anytype,
+) @TypeOf(algebraic.optionalComputeProgram(Cap, ctx, thunk)) {
+    return algebraic.optionalComputeProgram(Cap, ctx, thunk);
+}
+
 /// Run an optional-resumption effect body and return the final handler answer.
 pub fn handle(
     comptime AnswerType: type,
@@ -51,10 +69,20 @@ test "optional handle can return now without resuming the body tail" {
         var after_request: bool = false;
 
         /// Attempt one optional request and prove the body tail never runs.
-        pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!i32 {
-            _ = try request(Cap, ctx);
-            after_request = true;
-            return 0;
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(requestProgram(Cap, ctx, struct {
+            /// Mark that the request continuation resumed unexpectedly.
+            pub fn apply(_: i32) i32 {
+                after_request = true;
+                return 0;
+            }
+        })) {
+            return requestProgram(Cap, ctx, struct {
+                /// Mark that the request continuation resumed unexpectedly.
+                pub fn apply(_: i32) i32 {
+                    after_request = true;
+                    return 0;
+                }
+            });
         }
     };
 
@@ -84,9 +112,18 @@ test "optional handle can resume and transform the resumed answer" {
     };
     const demo = struct {
         /// Request once and increment the resumed answer.
-        pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!i32 {
-            const current = try request(Cap, ctx);
-            return current + 1;
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(requestProgram(Cap, ctx, struct {
+            /// Increment the resumed optional answer.
+            pub fn apply(current: i32) i32 {
+                return current + 1;
+            }
+        })) {
+            return requestProgram(Cap, ctx, struct {
+                /// Increment the resumed optional answer.
+                pub fn apply(current: i32) i32 {
+                    return current + 1;
+                }
+            });
         }
     };
 
@@ -119,11 +156,21 @@ test "nested same-shaped optional handles get distinct capability types" {
         pub fn outer(comptime OuterCap: type, _: anytype) shift.ResetError(NoError)!i32 {
             return try handle(i32, runtime_ptr.?, inner_ptr.?, policy, struct {
                 /// Reject capability-type collapse inside the nested handle.
-                pub fn body(comptime InnerCap: type, _: anytype) shift.ResetError(NoError)!i32 {
+                pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(computeProgram(InnerCap, inner_ctx, struct {
+                    /// Return a neutral value from the nested optional body.
+                    pub fn run() i32 {
+                        return 0;
+                    }
+                }.run)) {
                     comptime if (OuterCap == InnerCap) {
                         @compileError("nested optional handles must receive distinct capability types");
                     };
-                    return 0;
+                    return computeProgram(InnerCap, inner_ctx, struct {
+                        /// Return a neutral value from the nested optional body.
+                        pub fn run() i32 {
+                            return 0;
+                        }
+                    }.run);
                 }
             });
         }
@@ -137,8 +184,18 @@ test "nested same-shaped optional handles get distinct capability types" {
     demo.inner_ptr = &inner_instance;
     const result = try handle(i32, &runtime, &outer_instance, policy, struct {
         /// Enter the outer optional handle and hand its capability inward.
-        pub fn body(comptime OuterCap: type, ctx: anytype) shift.ResetError(NoError)!i32 {
-            return try demo.outer(OuterCap, ctx);
+        pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(computeProgram(OuterCap, ctx, struct {
+            /// Re-enter the nested optional witness through the outer capability.
+            pub fn run() shift.ResetError(NoError)!i32 {
+                return try demo.outer(OuterCap, {});
+            }
+        }.run)) {
+            return computeProgram(OuterCap, ctx, struct {
+                /// Re-enter the nested optional witness through the outer capability.
+                pub fn run() shift.ResetError(NoError)!i32 {
+                    return try demo.outer(OuterCap, {});
+                }
+            }.run);
         }
     });
     try std.testing.expectEqual(@as(i32, 0), result);

@@ -209,6 +209,7 @@ pub fn Program(comptime PromptType: type) type {
             continueFn: *const fn (EncodedValue) raw.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
             afterResumeFn: AfterResumeFn(PromptType),
         },
+        compute: *const fn () raw.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
         legacy_body: *const fn () raw.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
         pure: PromptType.InAnswer,
         transform: struct {
@@ -216,6 +217,26 @@ pub fn Program(comptime PromptType: type) type {
             continueFn: *const fn (EncodedValue) raw.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
             afterResumeFn: AfterResumeFn(PromptType),
         },
+    };
+}
+
+/// One explicit program paired with the concrete prompt value it must run under.
+pub fn BoundProgram(comptime PromptType: type) type {
+    return struct {
+        prompt: *const PromptType,
+        program: Program(PromptType),
+        activateFn: ?*const fn () void = null,
+        deactivateFn: ?*const fn () void = null,
+
+        /// Activate any runtime-local binding state before execution begins.
+        pub fn activate(self: @This()) void {
+            if (self.activateFn) |f| f();
+        }
+
+        /// Restore runtime-local binding state after execution completes.
+        pub fn deactivate(self: @This()) void {
+            if (self.deactivateFn) |f| f();
+        }
     };
 }
 
@@ -238,6 +259,14 @@ pub fn build(
 /// Build a pure explicit program for prompts whose body answer is already final.
 pub fn pureProgram(comptime PromptType: type, value: PromptType.InAnswer) Program(PromptType) {
     return .{ .pure = value };
+}
+
+/// Build an explicit non-replay leaf program that executes one computation exactly once.
+pub fn computeProgram(
+    comptime PromptType: type,
+    thunk: anytype,
+) Program(PromptType) {
+    return .{ .compute = normalizeBodyFn(PromptType, thunk) };
 }
 
 /// Build one explicit transform program with a single resumptive operation.
@@ -323,11 +352,20 @@ fn normalizeBodyFn(
     const InputType = @TypeOf(body);
     const BodyPtrType = *const fn () raw.ResetError(PromptType.ErrorSet)!PromptType.InAnswer;
     const BodyFnType = fn () raw.ResetError(PromptType.ErrorSet)!PromptType.InAnswer;
+    const PureBodyPtrType = *const fn () PromptType.InAnswer;
+    const PureBodyFnType = fn () PromptType.InAnswer;
 
     if (InputType == BodyPtrType) return body;
     if (InputType == BodyFnType) return body;
+    if (InputType == PureBodyPtrType or InputType == PureBodyFnType) {
+        return struct {
+            fn invoke() raw.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
+                return body();
+            }
+        }.invoke;
+    }
 
-    @compileError("expected authored body with type fn () ResetError(ErrorSet)!InAnswer");
+    @compileError("expected authored body with type fn () InAnswer or fn () ResetError(ErrorSet)!InAnswer");
 }
 
 /// Accept either a first-class program or an authored body function for the supplied prompt type.
@@ -481,7 +519,26 @@ pub fn run(
     defer raw_runtime.active_reset_count -= 1;
 
     switch (program) {
-        .abort, .choice, .pure, .transform => return lowered_machine.runExplicitProgram(PromptType, program) catch |err| return @errorCast(err),
+        .abort => |node| return lowered_machine.runExplicitAbort(PromptType, node) catch |err| return @errorCast(err),
+        .choice => |node| return lowered_machine.runExplicitChoice(PromptType, node) catch |err| return @errorCast(err),
+        .compute => |node| {
+            var frame = Frame(PromptType).init(raw_runtime, prompt);
+            defer frame.deinit();
+            pushActiveFrame(&frame.base);
+            defer popActiveFrame(&frame.base);
+
+            const value = node() catch |err| switch (err) {
+                error.FrontendSuspend => {
+                    if (frame.terminal) |answer| return answer;
+                    return error.ProgramContractViolation;
+                },
+                else => return @errorCast(err),
+            };
+
+            return try finalizeAnswer(PromptType, &frame, value);
+        },
+        .pure => |value| return lowered_machine.runExplicitPure(PromptType, value) catch |err| return @errorCast(err),
+        .transform => |node| return lowered_machine.runExplicitTransform(PromptType, node) catch |err| return @errorCast(err),
         .legacy_body => {},
     }
 

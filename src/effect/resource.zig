@@ -125,6 +125,7 @@ test "resource handle releases before outer exception catch returns" {
     const scenario = struct {
         var runtime_ptr: ?*shift.Runtime = null;
         var resource_ptr: ?*const ResourceInstance = null;
+        threadlocal var outer_exception_ctx: ?*const anyopaque = null;
 
         /// Open a resource handle and throw through the outer exception capability.
         pub fn outer(comptime ExceptionCap: type, exception_ctx: anytype) shift.ResetError(NoError)![]const u8 {
@@ -157,8 +158,25 @@ test "resource handle releases before outer exception catch returns" {
     manager.transcript_len = 0;
     const result = try @import("exception.zig").handle([]const u8, &runtime, &exception_instance, catcher, struct {
         /// Enter the outer exception handle and hand its capability to the inner resource scope.
-        pub fn body(comptime ExceptionCap: type, exception_ctx: anytype) shift.ResetError(NoError)![]const u8 {
-            return try scenario.outer(ExceptionCap, exception_ctx);
+        pub fn program(comptime ExceptionCap: type, exception_ctx: anytype) @TypeOf(@import("exception.zig").computeProgram(ExceptionCap, exception_ctx, struct {
+            /// Re-enter the resource witness through the outer exception capability.
+            pub fn run() shift.ResetError(NoError)![]const u8 {
+                const ExceptionCtxType = @TypeOf(exception_ctx);
+                const ctx: ExceptionCtxType = @constCast(@ptrCast(@alignCast(scenario.outer_exception_ctx.?)));
+                scenario.outer_exception_ctx = null;
+                return try scenario.outer(ExceptionCap, ctx);
+            }
+        }.run)) {
+            scenario.outer_exception_ctx = @ptrCast(exception_ctx);
+            return @import("exception.zig").computeProgram(ExceptionCap, exception_ctx, struct {
+                /// Re-enter the resource witness through the outer exception capability.
+                pub fn run() shift.ResetError(NoError)![]const u8 {
+                    const ExceptionCtxType = @TypeOf(exception_ctx);
+                    const ctx: ExceptionCtxType = @constCast(@ptrCast(@alignCast(scenario.outer_exception_ctx.?)));
+                    scenario.outer_exception_ctx = null;
+                    return try scenario.outer(ExceptionCap, ctx);
+                }
+            }.run);
         }
     });
     try std.testing.expectEqualStrings("handled=boom", result);
@@ -211,6 +229,7 @@ test "resource handle releases before outer optional return-now completes" {
     const scenario = struct {
         var runtime_ptr: ?*shift.Runtime = null;
         var resource_ptr: ?*const ResourceInstance = null;
+        threadlocal var outer_optional_ctx: ?*const anyopaque = null;
 
         /// Open a resource handle and trigger the outer optional return-now branch.
         pub fn outer(comptime OptionalCap: type, optional_ctx: anytype) shift.ResetError(NoError)![]const u8 {
@@ -244,8 +263,25 @@ test "resource handle releases before outer optional return-now completes" {
     manager.transcript_len = 0;
     const result = try @import("optional.zig").handle([]const u8, &runtime, &optional_instance, policy, struct {
         /// Enter the outer optional handle and hand its capability to the inner resource scope.
-        pub fn body(comptime OptionalCap: type, optional_ctx: anytype) shift.ResetError(NoError)![]const u8 {
-            return try scenario.outer(OptionalCap, optional_ctx);
+        pub fn program(comptime OptionalCap: type, optional_ctx: anytype) @TypeOf(@import("optional.zig").computeProgram(OptionalCap, optional_ctx, struct {
+            /// Re-enter the resource witness through the outer optional capability.
+            pub fn run() shift.ResetError(NoError)![]const u8 {
+                const OptionalCtxType = @TypeOf(optional_ctx);
+                const ctx: OptionalCtxType = @constCast(@ptrCast(@alignCast(scenario.outer_optional_ctx.?)));
+                scenario.outer_optional_ctx = null;
+                return try scenario.outer(OptionalCap, ctx);
+            }
+        }.run)) {
+            scenario.outer_optional_ctx = @ptrCast(optional_ctx);
+            return @import("optional.zig").computeProgram(OptionalCap, optional_ctx, struct {
+                /// Re-enter the resource witness through the outer optional capability.
+                pub fn run() shift.ResetError(NoError)![]const u8 {
+                    const OptionalCtxType = @TypeOf(optional_ctx);
+                    const ctx: OptionalCtxType = @constCast(@ptrCast(@alignCast(scenario.outer_optional_ctx.?)));
+                    scenario.outer_optional_ctx = null;
+                    return try scenario.outer(OptionalCap, ctx);
+                }
+            }.run);
         }
     });
     try std.testing.expectEqualStrings("result=early", result);
@@ -361,3 +397,4 @@ test "nested same-shaped resource handles get distinct capability types" {
     });
     try std.testing.expectEqual(@as(i32, 0), result);
 }
+{"id":"lrn-20260315T190820Z-f31806a4","captured_at":"2026-03-15T19:08:20Z","status":"do_more","learning":"When migrating shift effect/algebraic callers onto explicit programs, keep frontend.run's explicit compute path active-frame aware because nested outer-prompt abort/choice operations otherwise fail with MissingPrompt-style control loss instead of completing through the active prompt.","evidence":["zig build test passed only after frontend.run compute pushed an active frame and resource cleanup tests stopped failing across outer exception/optional handles"],"application":"When adding or refactoring explicit computeProgram callers, ensure frontend.run establishes the prompt frame before executing the thunk and only treats FrontendSuspend as terminal when the frame already carries a terminal answer.","context":{"repo":"tkersey/shift","branch":"main","paths":[".learnings.jsonl","src/algebraic.zig","src/effect/algebraic.zig","src/effect/exception.zig","src/effect/optional.zig","src/effect/resource.zig","src/frontend.zig","src/lowered_machine.zig","test/compile_fail/algebraic_missing_handler.zig","test/compile_fail/algebraic_undeclared_op.zig","test/compile_fail/algebraic_wrong_after_resume_type.zig","test/compile_fail/algebraic_wrong_builder_mode.zig","test/compile_fail/effect_exception_catch_missing_direct_return.zig","test/compile_fail/effect_exception_catch_wrong_direct_return_type.zig","test/compile_fail/effect_exception_cross_instance_context_fails.zig","test/compile_fail/effect_optional_cross_instance_context_fails.zig","test/compile_fail/effect_optional_policy_missing_resume_or_return.zig","test/compile_fail/effect_optional_policy_wrong_after_resume_type.zig","test/compile_fail/run.sh","test/one_shot_survey/run.sh"]},"source":"skill:learnings","fingerprint":"f31806a4f80c4f15","tags":["zig","migration","frontend","effects"]}

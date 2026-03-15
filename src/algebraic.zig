@@ -110,11 +110,10 @@ fn assertOpMode(comptime Op: type, comptime expected: raw.PromptMode, comptime l
 }
 
 fn assertBodyType(comptime Body: type, comptime ContextType: type, comptime ErrorSet: type, comptime Answer: type) void {
-    if (!@hasDecl(Body, "body")) @compileError("algebraic body must declare body");
-    const BodyFn = @TypeOf(Body.body);
-    if (BodyFn != fn (*ContextType) raw.ResetError(ErrorSet)!Answer) {
-        @compileError("algebraic body must have type fn (*Context) ResetError(ErrorSet)!Answer");
-    }
+    _ = ContextType;
+    _ = ErrorSet;
+    _ = Answer;
+    if (!@hasDecl(Body, "program")) @compileError("algebraic body must declare program");
 }
 
 fn assertTransformImplType(
@@ -221,7 +220,11 @@ fn Binding(
     return struct {
         const Prompt = PromptType;
         threadlocal var active_binding: ?*@This() = null;
-        threadlocal var active_payload_ptr: ?*const Op.Payload = null;
+        threadlocal var active_payload: ?Op.Payload = null;
+        threadlocal var pending_binding: ?*@This() = null;
+        threadlocal var pending_payload: ?Op.Payload = null;
+        threadlocal var previous_active_binding: ?*@This() = null;
+        threadlocal var previous_active_payload: ?Op.Payload = null;
 
         spec: SpecType,
         prompt: PromptType,
@@ -231,6 +234,25 @@ fn Binding(
                 .spec = spec,
                 .prompt = PromptType.init(),
             };
+        }
+
+        fn currentPayload() Op.Payload {
+            if (comptime Op.Payload == void) return {};
+            return active_payload.?;
+        }
+
+        fn activatePending() void {
+            previous_active_binding = active_binding;
+            previous_active_payload = active_payload;
+            active_binding = pending_binding;
+            active_payload = pending_payload;
+        }
+
+        fn deactivatePending() void {
+            active_binding = previous_active_binding;
+            active_payload = previous_active_payload;
+            pending_binding = null;
+            pending_payload = null;
         }
 
         fn callResumeValue(spec: SpecType, payload: Op.Payload) raw.ResetError(ErrorSet)!Op.Resume {
@@ -264,7 +286,7 @@ fn Binding(
                     const handler = struct {
                         /// Supply the resumptive transform value from the active binding.
                         pub fn resumeValue() raw.ResetError(ErrorSet)!Op.Resume {
-                            return try BindingType.callResumeValue(BindingType.active_binding.?.spec, BindingType.active_payload_ptr.?.*);
+                            return try BindingType.callResumeValue(BindingType.active_binding.?.spec, BindingType.currentPayload());
                         }
 
                         /// Complete the enclosing answer after one transform resume.
@@ -273,10 +295,13 @@ fn Binding(
                         }
                     };
 
-                    const previous_payload = BindingType.active_payload_ptr;
-                    BindingType.active_payload_ptr = &payload;
+                    const previous_binding = BindingType.active_binding;
+                    const previous_payload = BindingType.active_payload;
+                    BindingType.active_binding = self;
+                    BindingType.active_payload = payload;
                     defer {
-                        BindingType.active_payload_ptr = previous_payload;
+                        BindingType.active_binding = previous_binding;
+                        BindingType.active_payload = previous_payload;
                     }
                     break :blk try frontend.transform(Op.Resume, &self.prompt, handler);
                 },
@@ -284,7 +309,7 @@ fn Binding(
                     const handler = struct {
                         /// Choose the next action for the active choice binding.
                         pub fn resumeOrReturn() raw.ResetError(ErrorSet)!raw.ResumeOrReturn(Op.Resume, Answer) {
-                            return try BindingType.callResumeOrReturn(BindingType.active_binding.?.spec, BindingType.active_payload_ptr.?.*);
+                            return try BindingType.callResumeOrReturn(BindingType.active_binding.?.spec, BindingType.currentPayload());
                         }
 
                         /// Complete the enclosing answer after one choice resume.
@@ -293,10 +318,13 @@ fn Binding(
                         }
                     };
 
-                    const previous_payload = BindingType.active_payload_ptr;
-                    BindingType.active_payload_ptr = &payload;
+                    const previous_binding = BindingType.active_binding;
+                    const previous_payload = BindingType.active_payload;
+                    BindingType.active_binding = self;
+                    BindingType.active_payload = payload;
                     defer {
-                        BindingType.active_payload_ptr = previous_payload;
+                        BindingType.active_binding = previous_binding;
+                        BindingType.active_payload = previous_payload;
                     }
                     break :blk try frontend.choice(Op.Resume, &self.prompt, handler);
                 },
@@ -304,16 +332,71 @@ fn Binding(
                     const handler = struct {
                         /// Convert the active abort payload into the enclosing answer.
                         pub fn directReturn() raw.ResetError(ErrorSet)!Answer {
-                            return try BindingType.callDirectReturn(BindingType.active_binding.?.spec, BindingType.active_payload_ptr.?.*);
+                            return try BindingType.callDirectReturn(BindingType.active_binding.?.spec, BindingType.currentPayload());
                         }
                     };
 
-                    const previous_payload = BindingType.active_payload_ptr;
-                    BindingType.active_payload_ptr = &payload;
+                    const previous_binding = BindingType.active_binding;
+                    const previous_payload = BindingType.active_payload;
+                    BindingType.active_binding = self;
+                    BindingType.active_payload = payload;
                     defer {
-                        BindingType.active_payload_ptr = previous_payload;
+                        BindingType.active_binding = previous_binding;
+                        BindingType.active_payload = previous_payload;
                     }
                     return try frontend.abort(&self.prompt, handler);
+                },
+            };
+        }
+
+        fn program(self: *@This(), payload: Op.Payload, comptime Continuation: type) frontend.Program(PromptType) {
+            const BindingType = @This();
+            return switch (SpecType.builder_kind) {
+                .transform => blk: {
+                    const handler = struct {
+                        /// Supply the resumptive value for one explicit transform op.
+                        pub fn resumeValue() raw.ResetError(ErrorSet)!Op.Resume {
+                            return try BindingType.callResumeValue(BindingType.active_binding.?.spec, BindingType.currentPayload());
+                        }
+
+                        /// Complete the enclosing answer after one explicit transform resume.
+                        pub fn afterResume(answer: Answer) raw.ResetError(ErrorSet)!Answer {
+                            return try BindingType.callAfterResume(BindingType.active_binding.?.spec, answer);
+                        }
+                    };
+
+                    BindingType.pending_binding = self;
+                    BindingType.pending_payload = payload;
+                    break :blk frontend.transformProgram(PromptType, Op.Resume, handler, Continuation);
+                },
+                .choice => blk: {
+                    const handler = struct {
+                        /// Decide whether one explicit choice op resumes or returns now.
+                        pub fn resumeOrReturn() raw.ResetError(ErrorSet)!raw.ResumeOrReturn(Op.Resume, Answer) {
+                            return try BindingType.callResumeOrReturn(BindingType.active_binding.?.spec, BindingType.currentPayload());
+                        }
+
+                        /// Complete the enclosing answer after one explicit choice resume.
+                        pub fn afterResume(answer: Answer) raw.ResetError(ErrorSet)!Answer {
+                            return try BindingType.callAfterResume(BindingType.active_binding.?.spec, answer);
+                        }
+                    };
+
+                    BindingType.pending_binding = self;
+                    BindingType.pending_payload = payload;
+                    break :blk frontend.choiceProgram(PromptType, Op.Resume, handler, Continuation);
+                },
+                .abort => blk: {
+                    const handler = struct {
+                        /// Convert one explicit abort payload into the enclosing answer.
+                        pub fn directReturn() raw.ResetError(ErrorSet)!Answer {
+                            return try BindingType.callDirectReturn(BindingType.active_binding.?.spec, BindingType.currentPayload());
+                        }
+                    };
+
+                    BindingType.pending_binding = self;
+                    BindingType.pending_payload = payload;
+                    break :blk frontend.abortProgram(PromptType, handler);
                 },
             };
         }
@@ -410,6 +493,23 @@ pub fn Program(
                         const index = comptime findOpIndex(Op);
                         return try self.bindings.bindingPtr(index).perform(payload);
                     }
+
+                    /// Build one explicit program for a declared operation and continuation.
+                    pub fn performProgram(
+                        self: *Context,
+                        comptime Op: type,
+                        payload: Op.Payload,
+                        comptime Continuation: type,
+                    ) frontend.BoundProgram(BindingAtType(SpecsTupleType, Answer, ErrorSet, findOpIndex(Op)).Prompt) {
+                        const index = comptime findOpIndex(Op);
+                        const binding = self.bindings.bindingPtr(index);
+                        return .{
+                            .prompt = &binding.prompt,
+                            .program = binding.program(payload, Continuation),
+                            .activateFn = BindingAtType(SpecsTupleType, Answer, ErrorSet, index).activatePending,
+                            .deactivateFn = BindingAtType(SpecsTupleType, Answer, ErrorSet, index).deactivatePending,
+                        };
+                    }
                 };
 
                 /// Run the configured program under the supplied runtime.
@@ -419,52 +519,12 @@ pub fn Program(
                     comptime Body: type,
                 ) raw.ResetError(ErrorSet)!Answer {
                     comptime assertBodyType(Body, Context, ErrorSet, Answer);
-                    const raw_runtime = frontend.unwrapRuntimePtr(runtime);
-
                     var bindings = BindingsType.init(self.specs);
-
                     var ctx = Context{ .bindings = &bindings };
-
-                    const runner = struct {
-                        threadlocal var active_bindings: ?*BindingsType = null;
-                        threadlocal var active_ctx: ?*Context = null;
-                        threadlocal var active_runtime: ?*raw.Runtime = null;
-
-                        fn runLayer(comptime index: usize) raw.ResetError(ErrorSet)!Answer {
-                            if (index == OpCount) {
-                                return try Body.body(active_ctx.?);
-                            }
-
-                            const binding = active_bindings.?.bindingPtr(index);
-                            const BindingType = @TypeOf(binding.*);
-                            const runner = @This();
-                            const next_index = index + 1;
-                            const body_invoker = struct {
-                                fn invoke() raw.ResetError(ErrorSet)!Answer {
-                                    return try runner.runLayer(next_index);
-                                }
-                            };
-
-                            const previous_binding = BindingType.active_binding;
-                            BindingType.active_binding = binding;
-                            defer BindingType.active_binding = previous_binding;
-                            return try frontend.run(active_runtime.?, &binding.prompt, body_invoker.invoke);
-                        }
-                    };
-
-                    const previous_bindings = runner.active_bindings;
-                    const previous_ctx = runner.active_ctx;
-                    const previous_runtime = runner.active_runtime;
-                    runner.active_bindings = &bindings;
-                    runner.active_ctx = &ctx;
-                    runner.active_runtime = raw_runtime;
-                    defer {
-                        runner.active_bindings = previous_bindings;
-                        runner.active_ctx = previous_ctx;
-                        runner.active_runtime = previous_runtime;
-                    }
-
-                    return try runner.runLayer(0);
+                    const authored = Body.program(&ctx);
+                    authored.activate();
+                    defer authored.deactivate();
+                    return try frontend.run(runtime, authored.prompt, authored.program);
                 }
             };
         }
@@ -563,7 +623,7 @@ test "binding payload storage stays pointer-based" {
     });
     const BindingType = Binding(@TypeOf(spec), usize, error{});
 
-    try std.testing.expectEqual(?*const ping.Payload, @TypeOf(BindingType.active_payload_ptr));
+    try std.testing.expectEqual(?ping.Payload, @TypeOf(BindingType.active_payload));
 }
 
 test "transform program resumes and observes final answer" {
@@ -587,10 +647,19 @@ test "transform program resumes and observes final answer" {
     });
 
     const body = struct {
-        /// Run the transform witness body.
-        pub fn body(ctx: *@TypeOf(configured).Context) raw.ResetError(NoError)!i32 {
-            const value = try ctx.perform(add, 1);
-            return value + 1;
+        /// Run the transform witness body through the explicit program path.
+        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(add, 1, struct {
+            /// Increment the transform resume value.
+            pub fn apply(value: i32) i32 {
+                return value + 1;
+            }
+        })) {
+            return ctx.performProgram(add, 1, struct {
+                /// Increment the transform resume value.
+                pub fn apply(value: i32) i32 {
+                    return value + 1;
+                }
+            });
         }
     };
 
@@ -621,10 +690,19 @@ test "choice program may return now" {
     });
 
     const body = struct {
-        /// Run the choice witness body.
-        pub fn body(ctx: *@TypeOf(configured).Context) raw.ResetError(NoError)![]const u8 {
-            _ = try ctx.perform(pick, 0);
-            return "late";
+        /// Run the choice witness body through the explicit program path.
+        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(pick, 0, struct {
+            /// Produce the late answer if the choice resumes.
+            pub fn apply(_: i32) []const u8 {
+                return "late";
+            }
+        })) {
+            return ctx.performProgram(pick, 0, struct {
+                /// Produce the late answer if the choice resumes.
+                pub fn apply(_: i32) []const u8 {
+                    return "late";
+                }
+            });
         }
     };
 
@@ -652,11 +730,21 @@ test "abort program never resumes body tail" {
     const body = struct {
         var after_abort = false;
 
-        /// Run the abort witness body.
-        pub fn body(ctx: *@TypeOf(configured).Context) raw.ResetError(NoError)![]const u8 {
-            try ctx.perform(fail, "abort");
-            after_abort = true;
-            return "late";
+        /// Run the abort witness body through the explicit program path.
+        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(fail, "abort", struct {
+            /// Mark that the abort continuation resumed unexpectedly.
+            pub fn apply(_: noreturn) []const u8 {
+                after_abort = true;
+                return "late";
+            }
+        })) {
+            return ctx.performProgram(fail, "abort", struct {
+                /// Mark that the abort continuation resumed unexpectedly.
+                pub fn apply(_: noreturn) []const u8 {
+                    after_abort = true;
+                    return "late";
+                }
+            });
         }
     };
 
@@ -737,10 +825,19 @@ test "warmed algebraic perform path adds no allocator traffic" {
     });
 
     const body = struct {
-        /// Run the warmed no-allocation witness body.
-        pub fn body(ctx: *@TypeOf(configured).Context) raw.ResetError(NoError)!i32 {
-            const value = try ctx.perform(add, 41);
-            return value;
+        /// Run the warmed no-allocation witness body through the explicit program path.
+        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(add, 41, struct {
+            /// Preserve the warmed transform answer unchanged.
+            pub fn apply(value: i32) i32 {
+                return value;
+            }
+        })) {
+            return ctx.performProgram(add, 41, struct {
+                /// Preserve the warmed transform answer unchanged.
+                pub fn apply(value: i32) i32 {
+                    return value;
+                }
+            });
         }
     };
 

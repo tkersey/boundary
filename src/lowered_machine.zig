@@ -111,34 +111,46 @@ pub fn writeTranscript(writer: anytype, state: *const MachineState) anyerror!voi
     };
 }
 
-/// Execute one explicit typed-value authored program to completion.
-pub fn runExplicitProgram(
+/// Execute one explicit typed-value pure program to completion.
+pub fn runExplicitPure(
     comptime PromptType: type,
-    program: anytype,
+    value: PromptType.InAnswer,
 ) anyerror!PromptType.OutAnswer {
-    return switch (program) {
-        .pure => |value| blk: {
-            if (comptime PromptType.InAnswer == PromptType.OutAnswer) break :blk value;
-            break :blk error.NonDiagonalComplete;
-        },
-        .transform => |node| blk: {
-            const resume_value = try node.resumeValueFn();
+    if (comptime PromptType.InAnswer == PromptType.OutAnswer) return value;
+    return error.NonDiagonalComplete;
+}
+
+/// Execute one explicit typed-value transform program to completion.
+pub fn runExplicitTransform(
+    comptime PromptType: type,
+    node: anytype,
+) anyerror!PromptType.OutAnswer {
+    const resume_value = try node.resumeValueFn();
+    const in_answer = try node.continueFn(resume_value);
+    return try node.afterResumeFn(in_answer);
+}
+
+/// Execute one explicit typed-value choice program to completion.
+pub fn runExplicitChoice(
+    comptime PromptType: type,
+    node: anytype,
+) anyerror!PromptType.OutAnswer {
+    const decision = try node.decisionFn();
+    return switch (decision) {
+        .resume_with => |resume_value| blk: {
             const in_answer = try node.continueFn(resume_value);
             break :blk try node.afterResumeFn(in_answer);
         },
-        .choice => |node| blk: {
-            const decision = try node.decisionFn();
-            break :blk switch (decision) {
-                .resume_with => |resume_value| blk2: {
-                    const in_answer = try node.continueFn(resume_value);
-                    break :blk2 try node.afterResumeFn(in_answer);
-                },
-                .return_now => |answer| answer,
-            };
-        },
-        .abort => |node| try node.directReturnFn(),
-        else => unreachable,
+        .return_now => |answer| answer,
     };
+}
+
+/// Execute one explicit typed-value abortive program to completion.
+pub fn runExplicitAbort(
+    comptime PromptType: type,
+    node: anytype,
+) anyerror!PromptType.OutAnswer {
+    return try node.directReturnFn();
 }
 
 fn applyStep(state: *MachineState, step: Step) void {

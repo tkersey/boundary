@@ -22,10 +22,19 @@ const configured = demo.handlers(.{
 });
 
 const body = struct {
-    /// Provide the compile-fail wrong-afterResume-type witness body.
-    pub fn body(ctx: *@TypeOf(configured).Context) shift.ResetError(NoError)!i32 {
-        const value = try ctx.perform(ping, {});
-        return value + 1;
+    /// Provide the compile-fail wrong-afterResume-type witness program.
+    pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(ping, {}, struct {
+        /// Increment the compile-fail ping witness value.
+        pub fn apply(value: i32) i32 {
+            return value + 1;
+        }
+    })) {
+        return ctx.performProgram(ping, {}, struct {
+            /// Increment the compile-fail ping witness value.
+            pub fn apply(value: i32) i32 {
+                return value + 1;
+            }
+        });
     }
 };
 
