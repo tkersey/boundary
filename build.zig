@@ -851,6 +851,7 @@ pub fn build(b: *std.Build) void {
             .optimize = bench_optimize,
         });
         bench_mod.addImport("shift", shift_bench_mod);
+        bench_mod.addImport("lowered_machine", lowered_machine_mod);
         const bench_exe = b.addExecutable(.{
             .name = bench_spec.name,
             .root_module = bench_mod,

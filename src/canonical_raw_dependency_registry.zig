@@ -68,8 +68,8 @@ pub const entries = [_]Entry{
     .{
         .surface_id = "shipped_benches.runtime_execution",
         .surface = "bench",
-        .status = .raw_execution_dependency,
+        .status = .resolved,
         .source = "bench/no_capture_bench.zig",
-        .note = "Shipped root benches still benchmark the old raw root execution contract.",
+        .note = "Shipped root benches now benchmark lowered execution instead of the old raw root execution contract.",
     },
 };

@@ -7,6 +7,6 @@
     {"surface_id":"survey.runtime_success","surface":"one_shot_survey","status":"lowered_canonical","source":"test/one_shot_survey/protocol_resume_transform_executes.zig","note":"The runtime-success survey fixture executes through the lowered runtime seam instead of raw root execution."},
     {"surface_id":"examples.runtime_execution","surface":"public_examples","status":"resolved","source":"examples/*.zig","note":"Public examples now delegate to the lowered runtime seam instead of the old root execution contract."},
     {"surface_id":"witnesses.runtime_execution","surface":"witnesses","status":"resolved","source":"src/witnesses.zig","note":"Witness runners now delegate to the lowered runtime seam instead of the old root execution contract."},
-    {"surface_id":"shipped_benches.runtime_execution","surface":"bench","status":"raw_execution_dependency","source":"bench/no_capture_bench.zig","note":"Shipped root benches still benchmark the old raw root execution contract."}
+    {"surface_id":"shipped_benches.runtime_execution","surface":"bench","status":"resolved","source":"bench/no_capture_bench.zig","note":"Shipped root benches now benchmark lowered execution instead of the old raw root execution contract."}
   ]
 }
