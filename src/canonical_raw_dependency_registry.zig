@@ -33,9 +33,9 @@ pub const entries = [_]Entry{
     .{
         .surface_id = "effect.kernel_execution",
         .surface = "canonical_effect",
-        .status = .raw_execution_dependency,
+        .status = .resolved,
         .source = "src/effect/kernel.zig",
-        .note = "Kernel-backed effect execution still captures through raw shift.",
+        .note = "Kernel-backed effect execution no longer captures through raw shift.",
     },
     .{
         .surface_id = "algebraic.internal_execution",

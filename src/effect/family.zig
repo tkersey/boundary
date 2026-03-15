@@ -168,7 +168,6 @@ pub fn handle(
     const family_impl = kernel.Family(StateType, AnswerType, ErrorSetType);
     const ResultType = HandleResult(StateType, AnswerType);
     var frame = family_impl.Frame{
-        .prompt = .{ .token = instance.prompt.token },
         .state = initial_state,
     };
     const Cap = struct {
