@@ -1,3 +1,5 @@
+const algebraic_abortive_validation = @import("example_algebraic_abortive_validation");
+const algebraic_artifact_search = @import("example_algebraic_artifact_search");
 const bridge_manifest = @import("direct_style_bridge_manifest");
 const early_exit = @import("example_early_exit");
 const exception_basic = @import("example_exception_basic");
@@ -28,6 +30,8 @@ pub fn runCaseId(writer: anytype, case_id: []const u8) anyerror!void {
         return;
     }
 
+    if (std.mem.eql(u8, case_id, "algebraic_abortive_validation")) return algebraic_abortive_validation.run(writer);
+    if (std.mem.eql(u8, case_id, "algebraic_artifact_search")) return algebraic_artifact_search.run(writer);
     if (std.mem.eql(u8, case_id, "early_exit")) return early_exit.run(writer);
     if (std.mem.eql(u8, case_id, "generator")) return generator.run(writer);
     if (std.mem.eql(u8, case_id, "resume_or_return")) return resume_or_return.run(writer);

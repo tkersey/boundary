@@ -154,6 +154,22 @@ pub const cases = [_]Case{
         .scenario_id = .writer_basic,
         .status = .supported,
     },
+    .{
+        .case_id = "algebraic_abortive_validation",
+        .label = "bridge.algebraic_abortive_validation",
+        .source_kind = .example,
+        .source_module = "examples/algebraic_abortive_validation.zig",
+        .scenario_id = .algebraic_abortive_validation,
+        .status = .supported,
+    },
+    .{
+        .case_id = "algebraic_artifact_search",
+        .label = "bridge.algebraic_artifact_search",
+        .source_kind = .example,
+        .source_module = "examples/algebraic_artifact_search.zig",
+        .scenario_id = .algebraic_artifact_search,
+        .status = .supported,
+    },
 };
 
 /// Look up one bridge case by stable case id.

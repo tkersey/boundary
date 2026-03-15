@@ -1,3 +1,5 @@
+const algebraic_abortive_validation = @import("direct_style_bridge_algebraic_abortive_validation");
+const algebraic_artifact_search = @import("direct_style_bridge_algebraic_artifact_search");
 const atm = @import("direct_style_bridge_atm");
 const bridge_manifest = @import("direct_style_bridge_manifest");
 const direct_return = @import("direct_style_bridge_direct_return");
@@ -35,6 +37,8 @@ fn expectBridgeParity(comptime Fixture: type) !void {
 }
 
 test "direct-style bridge lowers the supported unchanged-body corpus" {
+    try expectBridgeParity(algebraic_abortive_validation);
+    try expectBridgeParity(algebraic_artifact_search);
     try expectBridgeParity(atm);
     try expectBridgeParity(direct_return);
     try expectBridgeParity(multi_prompt);

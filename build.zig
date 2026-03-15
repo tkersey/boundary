@@ -347,6 +347,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     runtime_stack_baseline_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
+    runtime_stack_baseline_mod.addImport("example_algebraic_abortive_validation", createShiftConsumerModule(b, "examples/algebraic_abortive_validation.zig", target, optimize, shift_mod));
+    runtime_stack_baseline_mod.addImport("example_algebraic_artifact_search", createShiftConsumerModule(b, "examples/algebraic_artifact_search.zig", target, optimize, shift_mod));
     runtime_stack_baseline_mod.addImport("example_generator", createShiftConsumerModule(b, "examples/generator.zig", target, optimize, shift_mod));
     runtime_stack_baseline_mod.addImport("witnesses_src", witnesses_mod);
     runtime_stack_baseline_mod.addImport("example_early_exit", createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, shift_mod));
@@ -365,6 +367,8 @@ pub fn build(b: *std.Build) void {
     });
     bridge_mod.addImport("private_lowered_runtime", private_lowered_runtime_mod);
     bridge_mod.addImport("program_bridge", program_bridge_mod);
+    bridge_mod.addImport("direct_style_bridge_algebraic_abortive_validation", createBridgeExampleModule(b, "test/direct_style_bridge/algebraic_abortive_validation.zig", target, optimize, .{ .name = "example_algebraic_abortive_validation", .mod = createShiftConsumerModule(b, "examples/algebraic_abortive_validation.zig", target, optimize, shift_mod) }));
+    bridge_mod.addImport("direct_style_bridge_algebraic_artifact_search", createBridgeExampleModule(b, "test/direct_style_bridge/algebraic_artifact_search.zig", target, optimize, .{ .name = "example_algebraic_artifact_search", .mod = createShiftConsumerModule(b, "examples/algebraic_artifact_search.zig", target, optimize, shift_mod) }));
     bridge_mod.addImport("direct_style_bridge_atm", createBridgeWitnessModule(b, "test/direct_style_bridge/atm_resume_transform.zig", target, optimize, witnesses_mod));
     bridge_mod.addImport("direct_style_bridge_direct_return", createBridgeWitnessModule(b, "test/direct_style_bridge/direct_return.zig", target, optimize, witnesses_mod));
     bridge_mod.addImport("direct_style_bridge_multi_prompt", createBridgeWitnessModule(b, "test/direct_style_bridge/multi_prompt.zig", target, optimize, witnesses_mod));

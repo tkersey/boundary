@@ -18,7 +18,7 @@
     "status": "implemented"
   },
   "direct_style_bridge": {
-    "supported_cases": ["atm_resume_transform","direct_return","multi_prompt","resume_or_return_resume","resume_or_return_return_now","static_redelim","early_exit","resume_or_return","nested_workflow","generator","state_basic","reader_basic","optional_basic","exception_basic","resource_basic","writer_basic"],
+    "supported_cases": ["atm_resume_transform","direct_return","multi_prompt","resume_or_return_resume","resume_or_return_return_now","static_redelim","early_exit","resume_or_return","nested_workflow","generator","state_basic","reader_basic","optional_basic","exception_basic","resource_basic","writer_basic","algebraic_abortive_validation","algebraic_artifact_search"],
     "blocked_cases": [],
     "status": "supported_core_examples"
   },

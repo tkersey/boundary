@@ -23,6 +23,7 @@ fn checksum(bytes: []const u8) u64 {
 }
 
 fn laneClass(case_id: []const u8, source_kind: bridge_manifest.SourceKind) []const u8 {
+    if (std.mem.startsWith(u8, case_id, "algebraic_")) return "algebraic";
     if (std.mem.eql(u8, case_id, "nested_workflow")) return "workflow";
     if (std.mem.eql(u8, case_id, "generator")) return "workflow";
     if (source_kind == .witness) return "witness";
@@ -31,6 +32,7 @@ fn laneClass(case_id: []const u8, source_kind: bridge_manifest.SourceKind) []con
 }
 
 fn targetRatioMax(case_id: []const u8, source_kind: bridge_manifest.SourceKind) f64 {
+    if (std.mem.startsWith(u8, case_id, "algebraic_")) return 1.50;
     if (std.mem.eql(u8, case_id, "nested_workflow")) return 1.50;
     if (std.mem.eql(u8, case_id, "generator")) return 1.50;
     if (std.mem.eql(u8, case_id, "state_basic")) return 1.95;
