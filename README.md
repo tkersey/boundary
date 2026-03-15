@@ -83,6 +83,10 @@ zig build bench-effect-matrix
 zig build bench-effect-matrix-stability
 zig build bench-effect-matrix-write
 zig build bench-effect-matrix-check
+zig build bench-runtime-backends
+zig build bench-runtime-backends-stability
+zig build bench-runtime-backends-write
+zig build bench-runtime-backends-check
 zig build bench-state-effect
 zig build bench-state-effect-write
 zig build bench-state-effect-check
@@ -115,6 +119,8 @@ one of these proof surfaces:
 - `zig build surface-truth-scorecard-check` for the machine-readable
   maintainers' scorecard that summarizes whether the lowered path can honestly
   stay hidden beneath the canonical public surface
+- `zig build bench-runtime-backends-check` for checked lowered-vs-stack runtime
+  backend comparison over the currently supported bridge corpus
 - `zig build bench-effect-matrix-check` for full shipped-family benchmark coverage
 - `zig build bench-state-effect-check` for the checked benchmark artifact on a
   clean tree
@@ -444,6 +450,22 @@ zig build bench-effect-matrix-stability
 
 It repeats the checked effect matrix on unchanged clean-tree code and reports
 whether each lane is `stable_pass`, `stable_fail`, or `flaky`.
+
+The lowered-vs-stack backend comparison harness lives at:
+
+```bash
+zig build bench-runtime-backends
+zig build bench-runtime-backends-stability
+zig build bench-runtime-backends-write
+zig build bench-runtime-backends-check
+```
+
+It compares the current stack runtime baseline against the private lowered
+runtime seam over the supported bridge corpus and records explicit per-case
+ratio budgets in `bench/baselines/runtime_backend_matrix_v1.json`. The stack
+side of that comparison is routed through `src/runtime_stack_baseline.zig`,
+which preserves the current stack-runtime behavior as an internal benchmark
+baseline while the lowered-only runtime branch is under construction.
 
 ## Formal Core
 

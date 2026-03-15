@@ -341,6 +341,20 @@ pub fn build(b: *std.Build) void {
     private_lowered_runtime_mod.addImport("parity_kernel", parity_kernel_mod);
     private_lowered_runtime_mod.addImport("parity_scenarios", parity_scenarios_mod);
     private_lowered_runtime_mod.addImport("program_bridge", program_bridge_mod);
+    const runtime_stack_baseline_mod = b.createModule(.{
+        .root_source_file = b.path("src/runtime_stack_baseline.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    runtime_stack_baseline_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
+    runtime_stack_baseline_mod.addImport("witnesses_src", witnesses_mod);
+    runtime_stack_baseline_mod.addImport("example_early_exit", createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, shift_mod));
+    runtime_stack_baseline_mod.addImport("example_exception_basic", createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, shift_mod));
+    runtime_stack_baseline_mod.addImport("example_nested_workflow", createShiftConsumerModule(b, "examples/nested_workflow.zig", target, optimize, shift_mod));
+    runtime_stack_baseline_mod.addImport("example_optional_basic", createShiftConsumerModule(b, "examples/optional_basic.zig", target, optimize, shift_mod));
+    runtime_stack_baseline_mod.addImport("example_reader_basic", createShiftConsumerModule(b, "examples/reader_basic.zig", target, optimize, shift_mod));
+    runtime_stack_baseline_mod.addImport("example_resume_or_return", createShiftConsumerModule(b, "examples/resume_or_return.zig", target, optimize, shift_mod));
+    runtime_stack_baseline_mod.addImport("example_state_basic", createShiftConsumerModule(b, "examples/state_basic.zig", target, optimize, shift_mod));
     const bridge_mod = b.createModule(.{
         .root_source_file = b.path("test/direct_style_bridge_test.zig"),
         .target = target,
@@ -611,6 +625,24 @@ pub fn build(b: *std.Build) void {
         bench_step.dependOn(&bench_run.step);
     }
 
+    const runtime_backend_bench_mod = b.createModule(.{
+        .root_source_file = b.path("bench/runtime_backend_matrix_bench.zig"),
+        .target = target,
+        .optimize = bench_optimize,
+    });
+    runtime_backend_bench_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
+    runtime_backend_bench_mod.addImport("private_lowered_runtime", private_lowered_runtime_mod);
+    runtime_backend_bench_mod.addImport("runtime_stack_baseline", runtime_stack_baseline_mod);
+    const runtime_backend_bench_exe = b.addExecutable(.{
+        .name = "shift-runtime-backend-matrix-bench",
+        .root_module = runtime_backend_bench_mod,
+    });
+    b.installArtifact(runtime_backend_bench_exe);
+    const runtime_backend_bench_run = b.addRunArtifact(runtime_backend_bench_exe);
+    runtime_backend_bench_run.step.dependOn(b.getInstallStep());
+    const runtime_backend_bench_step = b.step("bench-runtime-backends", "Compare the current stack runtime against the lowered runtime over the supported bridge corpus.");
+    runtime_backend_bench_step.dependOn(&runtime_backend_bench_run.step);
+
     const bench_artifact_write_cmd = b.addSystemCommand(&.{ "sh", "bench/state_effect_artifact.sh", "write" });
     const bench_artifact_write_step = b.step("bench-state-effect-write", "Refresh the checked state-effect benchmark artifact.");
     bench_artifact_write_step.dependOn(&bench_artifact_write_cmd.step);
@@ -630,6 +662,18 @@ pub fn build(b: *std.Build) void {
     const bench_matrix_stability_cmd = b.addSystemCommand(&.{ "sh", "bench/effect_matrix_stability.sh" });
     const bench_matrix_stability_step = b.step("bench-effect-matrix-stability", "Run repeated clean-tree effect-matrix stability characterization.");
     bench_matrix_stability_step.dependOn(&bench_matrix_stability_cmd.step);
+
+    const runtime_backend_write_cmd = b.addSystemCommand(&.{ "sh", "bench/runtime_backend_matrix_artifact.sh", "write" });
+    const runtime_backend_write_step = b.step("bench-runtime-backends-write", "Refresh the checked runtime backend comparison artifact.");
+    runtime_backend_write_step.dependOn(&runtime_backend_write_cmd.step);
+
+    const runtime_backend_check_cmd = b.addSystemCommand(&.{ "sh", "bench/runtime_backend_matrix_artifact.sh", "check" });
+    const runtime_backend_check_step = b.step("bench-runtime-backends-check", "Check the runtime backend comparison artifact against the current clean tree.");
+    runtime_backend_check_step.dependOn(&runtime_backend_check_cmd.step);
+
+    const runtime_backend_stability_cmd = b.addSystemCommand(&.{ "sh", "bench/runtime_backend_stability.sh" });
+    const runtime_backend_stability_step = b.step("bench-runtime-backends-stability", "Run repeated clean-tree lowered-vs-stack backend stability characterization.");
+    runtime_backend_stability_step.dependOn(&runtime_backend_stability_cmd.step);
 
     const lint_step = b.step("lint", "Lint source code.");
     lint_step.dependOn(step: {
