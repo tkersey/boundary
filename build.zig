@@ -48,16 +48,31 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const parity_scenarios_mod = b.createModule(.{
+        .root_source_file = b.path("src/parity_scenarios.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    parity_scenarios_mod.addImport("formal_core_registry", formal_core_registry_mod);
     const reference_eval_mod = b.createModule(.{
         .root_source_file = b.path("src/reference_eval.zig"),
         .target = target,
         .optimize = optimize,
     });
+    reference_eval_mod.addImport("parity_scenarios", parity_scenarios_mod);
     const reference_machine_mod = b.createModule(.{
         .root_source_file = b.path("src/reference_machine.zig"),
         .target = target,
         .optimize = optimize,
     });
+    reference_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    const parity_kernel_mod = b.createModule(.{
+        .root_source_file = b.path("src/parity_kernel.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    parity_kernel_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    reference_machine_mod.addImport("parity_kernel", parity_kernel_mod);
 
     const check_step = b.step("check", "Compile the shift module and examples.");
     b.default_step.dependOn(check_step);
@@ -95,6 +110,7 @@ pub fn build(b: *std.Build) void {
     witness_mod.addImport("reference_machine", reference_machine_mod);
     witness_mod.addImport("witnesses", witnesses_mod);
     witness_mod.addImport("formal_core_registry", formal_core_registry_mod);
+    witness_mod.addImport("parity_scenarios", parity_scenarios_mod);
     const witness_tests = b.addTest(.{
         .root_module = witness_mod,
     });
@@ -111,28 +127,19 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const parity_kernel_mod = b.createModule(.{
-        .root_source_file = b.path("src/parity_kernel.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const backend_state_expect_mod = b.createModule(.{
-        .root_source_file = b.path("test/backend_parity_state_expectations.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
     backend_parity_manifest_mod.addImport("formal_core_registry", formal_core_registry_mod);
-    backend_state_expect_mod.addImport("parity_kernel", parity_kernel_mod);
+    backend_parity_manifest_mod.addImport("parity_scenarios", parity_scenarios_mod);
     backend_parity_mod.addImport("shift", shift_mod);
     backend_parity_mod.addImport("backend_parity_manifest", backend_parity_manifest_mod);
-    backend_parity_mod.addImport("backend_parity_state_expectations", backend_state_expect_mod);
     backend_parity_mod.addImport("parity_kernel", parity_kernel_mod);
+    backend_parity_mod.addImport("parity_scenarios", parity_scenarios_mod);
     const parity_machine_mod = b.createModule(.{
         .root_source_file = b.path("src/parity_machine.zig"),
         .target = target,
         .optimize = optimize,
     });
     parity_machine_mod.addImport("parity_kernel", parity_kernel_mod);
+    parity_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
     backend_parity_mod.addImport("parity_machine", parity_machine_mod);
     backend_parity_mod.addImport("witnesses_src", witnesses_mod);
     backend_parity_mod.addImport("example_algebraic_abortive_validation", createShiftConsumerModule(b, "examples/algebraic_abortive_validation.zig", target, optimize, shift_mod));
@@ -154,6 +161,26 @@ pub fn build(b: *std.Build) void {
     const run_backend_parity_tests = b.addRunArtifact(backend_parity_tests);
     const backend_parity_step = b.step("backend-parity", "Run proof-only parity checks against the stackful runtime surface.");
     backend_parity_step.dependOn(&run_backend_parity_tests.step);
+
+    const proof_fixture_mod = b.createModule(.{
+        .root_source_file = b.path("tools/render_proof_fixtures.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    proof_fixture_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    const proof_fixture_exe = b.addExecutable(.{
+        .name = "shift-proof-fixture-render",
+        .root_module = proof_fixture_mod,
+    });
+    const proof_fixture_check_cmd = b.addRunArtifact(proof_fixture_exe);
+    proof_fixture_check_cmd.addArg("check");
+    const proof_fixture_check_step = b.step("proof-fixtures-check", "Check generated proof fixtures against the canonical scenario registry.");
+    proof_fixture_check_step.dependOn(&proof_fixture_check_cmd.step);
+    const proof_fixture_write_cmd = b.addRunArtifact(proof_fixture_exe);
+    proof_fixture_write_cmd.addArg("write");
+    const proof_fixture_write_step = b.step("proof-fixtures-write", "Refresh generated proof fixtures from the canonical scenario registry.");
+    proof_fixture_write_step.dependOn(&proof_fixture_write_cmd.step);
+    test_step.dependOn(&proof_fixture_check_cmd.step);
 
     const formal_core_render_mod = b.createModule(.{
         .root_source_file = b.path("tools/render_formal_core.zig"),
@@ -213,6 +240,7 @@ pub fn build(b: *std.Build) void {
 
     const example_proof_cmd = b.addSystemCommand(&.{ "sh", "test/example_proof/run.sh" });
     const example_proof_step = b.step("example-proof", "Run exact-output proof for all examples.");
+    example_proof_step.dependOn(&proof_fixture_check_cmd.step);
     example_proof_step.dependOn(&example_proof_cmd.step);
     test_step.dependOn(&example_proof_cmd.step);
 

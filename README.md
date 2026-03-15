@@ -64,6 +64,8 @@ zig build compile-fail
 zig build one-shot-survey
 zig build example-proof
 zig build backend-parity
+zig build proof-fixtures-write
+zig build proof-fixtures-check
 zig build effect-construction-boundary
 zig build readme-contract
 zig build formal-core-write
@@ -92,6 +94,8 @@ one of these proof surfaces:
 - `zig build backend-parity` for the proof-only parity backend, with the typed
   kernel owning the witness core and `nested_workflow` publish path while the
   remaining cases stay on the legacy parity machine
+- `zig build proof-fixtures-check` for generator-owned exact-output fixture
+  artifacts derived from the canonical lowered scenario registry
 - `zig build bench-effect-matrix-check` for full shipped-family benchmark coverage
 - `zig build bench-state-effect-check` for the checked benchmark artifact on a
   clean tree
@@ -441,6 +445,11 @@ The typed kernel in `src/parity_kernel.zig` now owns the hard witness core plus
 the `nested_workflow` publish path, while `src/parity_machine.zig` continues to
 route every untouched case through the legacy transcript-first proof path. This
 remains proof infrastructure rather than a public fallback runtime.
+
+The canonical lowered proof source now lives in `src/parity_scenarios.zig`.
+`tools/render_proof_fixtures.zig` renders the checked exact-output fixture
+artifacts from that registry, and `zig build proof-fixtures-check` verifies they
+remain current before exact-output example proof runs.
 
 ## Minimal Example
 

@@ -1,14 +1,13 @@
 const algebraic_abortive_validation = @import("example_algebraic_abortive_validation");
 const algebraic_artifact_search = @import("example_algebraic_artifact_search");
+const backend_manifest = @import("backend_parity_manifest");
 const early_exit = @import("example_early_exit");
 const exception_basic = @import("example_exception_basic");
 const generator = @import("example_generator");
-const manifest = @import("backend_parity_manifest");
 const nested_workflow = @import("example_nested_workflow");
 const optional_basic = @import("example_optional_basic");
 const parity_kernel = @import("parity_kernel");
 const parity_machine = @import("parity_machine");
-const parity_state_expectations = @import("backend_parity_state_expectations");
 const reader_basic = @import("example_reader_basic");
 const resource_basic = @import("example_resource_basic");
 const resume_or_return = @import("example_resume_or_return");
@@ -68,8 +67,7 @@ fn parityTranscript(buffer: anytype, case_id: []const u8) ![]const u8 {
     return writer.buffered();
 }
 
-fn expectStateTrace(case_id: []const u8, expectation_id: []const u8) !void {
-    const expected = parity_state_expectations.expectedForId(expectation_id) orelse return error.UnknownParityCase;
+fn expectStateTrace(case_id: []const u8, expected: []const backend_manifest.TraceCheckpoint) !void {
     const state = try parity_kernel.runCaseId(case_id);
     const actual = parity_kernel.checkpoints(&state);
     try std.testing.expectEqual(expected.len, actual.len);
@@ -79,7 +77,7 @@ fn expectStateTrace(case_id: []const u8, expectation_id: []const u8) !void {
 }
 
 test "backend parity transcripts stay locked across stackful runtime and parity machine" {
-    for (manifest.transcript_cases) |case| {
+    for (backend_manifest.transcript_cases) |case| {
         var stackful_buffer: [4096]u8 = undefined;
         const stackful = try stackfulTranscript(&stackful_buffer, case.case_id);
 
@@ -88,14 +86,14 @@ test "backend parity transcripts stay locked across stackful runtime and parity 
 
         try std.testing.expectEqualStrings(case.expected, stackful);
         try std.testing.expectEqualStrings(case.expected, parity);
-        if (case.engine == .typed_kernel) {
-            try expectStateTrace(case.case_id, case.state_trace_expected_id.?);
+        if (case.state_trace_expected.len != 0) {
+            try expectStateTrace(case.case_id, case.state_trace_expected);
         }
     }
 }
 
 test "runtime-positive survey parity cases succeed" {
-    for (manifest.runtime_cases) |case| {
+    for (backend_manifest.runtime_cases) |case| {
         if (std.mem.eql(u8, case.case_id, "protocol_resume_transform_runtime")) {
             try resume_transform_smoke.main();
             try parity_machine.runRuntimeCase(case.case_id);

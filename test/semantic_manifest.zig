@@ -1,3 +1,6 @@
+const parity_scenarios = @import("parity_scenarios");
+const std = @import("std");
+
 /// Semantic manifest entry for one active witness in the current rung.
 pub const WitnessEntry = struct {
     witness_id: []const u8,
@@ -8,97 +11,28 @@ pub const WitnessEntry = struct {
     forbidden_transcript: ?[]const u8,
 };
 
-/// Active witness manifest for the current semantic rung.
+fn witnessEntry(witness_id: []const u8) WitnessEntry {
+    const scenario = parity_scenarios.findWitness(witness_id).?;
+    const witness = scenario.witness.?;
+    return .{
+        .witness_id = witness.witness_id,
+        .law_anchor = witness.law_anchor,
+        .evaluator_case = witness.evaluator_case,
+        .runtime_case = witness.runtime_case,
+        .required_transcript = scenario.expected_transcript,
+        .forbidden_transcript = witness.forbidden_transcript,
+    };
+}
+
+/// Active witness manifest derived from the canonical scenario registry.
 pub const entries = [_]WitnessEntry{
-    .{
-        .witness_id = "atm_resume_transform",
-        .law_anchor = formal_core.anchorPath(.atm_resume_transform),
-        .evaluator_case = "reference_eval.atm_resume_transform",
-        .runtime_case = "witnesses.atm_resume_transform",
-        .required_transcript = "handler-enter\n" ++
-            "body-after-shift\n" ++
-            "handler-after-resume\n" ++
-            "final=answer=42\n",
-        .forbidden_transcript = "handler-enter\n" ++
-            "handler-after-resume\n" ++
-            "final=answer=42\n",
-    },
-    .{
-        .witness_id = "direct_return",
-        .law_anchor = formal_core.anchorPath(.direct_return),
-        .evaluator_case = "reference_eval.direct_return",
-        .runtime_case = "witnesses.direct_return",
-        .required_transcript = "handler-direct-return\n" ++
-            "final=result=early\n",
-        .forbidden_transcript = "final=result=early\n",
-    },
-    .{
-        .witness_id = "resume_or_return_return_now",
-        .law_anchor = formal_core.anchorPath(.optional_resumption),
-        .evaluator_case = "reference_eval.resume_or_return_return_now",
-        .runtime_case = "witnesses.resume_or_return_return_now",
-        .required_transcript = "handler-return-now\n" ++
-            "final=result=early\n",
-        .forbidden_transcript = "final=result=early\n",
-    },
-    .{
-        .witness_id = "resume_or_return_resume",
-        .law_anchor = formal_core.anchorPath(.optional_resumption),
-        .evaluator_case = "reference_eval.resume_or_return_resume",
-        .runtime_case = "witnesses.resume_or_return_resume",
-        .required_transcript = "handler-decide-resume\n" ++
-            "body-after-shift\n" ++
-            "handler-after-resume\n" ++
-            "final=answer=42\n",
-        .forbidden_transcript = "handler-decide-resume\n" ++
-            "handler-after-resume\n" ++
-            "final=answer=42\n",
-    },
-    .{
-        .witness_id = "static_redelim",
-        .law_anchor = formal_core.anchorPath(.static_redelim),
-        .evaluator_case = "reference_eval.static_redelim",
-        .runtime_case = "witnesses.static_redelim",
-        .required_transcript = "outer-handler-enter\n" ++
-            "after-outer-shift\n" ++
-            "inner-handler-enter\n" ++
-            "after-inner-shift\n" ++
-            "inner-handler-exit\n" ++
-            "outer-handler-exit\n" ++
-            "final=12\n",
-        .forbidden_transcript = "outer-handler-enter\n" ++
-            "after-outer-shift\n" ++
-            "outer-handler-exit\n" ++
-            "final=12\n",
-    },
-    .{
-        .witness_id = "multi_prompt",
-        .law_anchor = formal_core.anchorPath(.multi_prompt_separation),
-        .evaluator_case = "reference_eval.multi_prompt",
-        .runtime_case = "witnesses.multi_prompt",
-        .required_transcript = "outer-before-inner\n" ++
-            "inner-before\n" ++
-            "outer-handler\n" ++
-            "inner-after\n" ++
-            "outer-after-inner\n" ++
-            "final=42\n",
-        .forbidden_transcript = "outer-before-inner\n" ++
-            "inner-before\n" ++
-            "inner-after\n" ++
-            "outer-after-inner\n" ++
-            "final=42\n",
-    },
-    .{
-        .witness_id = "generator",
-        .law_anchor = formal_core.anchorPath(.practical_witnesses),
-        .evaluator_case = null,
-        .runtime_case = "witnesses.generator",
-        .required_transcript = "yield=1\n" ++
-            "yield=2\n" ++
-            "yield=3\n" ++
-            "done=3\n",
-        .forbidden_transcript = null,
-    },
+    witnessEntry("atm_resume_transform"),
+    witnessEntry("direct_return"),
+    witnessEntry("resume_or_return_return_now"),
+    witnessEntry("resume_or_return_resume"),
+    witnessEntry("static_redelim"),
+    witnessEntry("multi_prompt"),
+    witnessEntry("generator"),
 };
 
 /// Find a manifest entry by witness id.
@@ -108,6 +42,3 @@ pub fn find(witness_id: []const u8) ?WitnessEntry {
     }
     return null;
 }
-
-const formal_core = @import("formal_core_registry");
-const std = @import("std");
