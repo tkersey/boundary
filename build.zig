@@ -1,14 +1,6 @@
 const std = @import("std");
 const zlinter = @import("zlinter");
 
-fn addRuntimeAssembly(b: *std.Build, module: *std.Build.Module, target: std.Build.ResolvedTarget) void {
-    switch (target.result.cpu.arch) {
-        .x86_64 => module.addAssemblyFile(b.path("src/runtime/x86_64_switch.S")),
-        .aarch64 => module.addAssemblyFile(b.path("src/runtime/aarch64_switch.S")),
-        else => {},
-    }
-}
-
 const ShiftConsumerDeps = struct {
     lowered_runtime_mod: ?*std.Build.Module,
     shift_mod: *std.Build.Module,
@@ -106,7 +98,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     program_frontend_mod.addImport("parity_scenarios", parity_scenarios_mod);
-    addRuntimeAssembly(b, shift_mod, target);
     const bridge_manifest_mod = b.createModule(.{
         .root_source_file = b.path("src/direct_style_bridge_manifest.zig"),
         .target = target,
@@ -163,7 +154,6 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    addRuntimeAssembly(b, lib_check.root_module, target);
     check_step.dependOn(&lib_check.step);
 
     const root_tests = b.addTest(.{
@@ -173,7 +163,6 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    addRuntimeAssembly(b, root_tests.root_module, target);
     const run_root_tests = b.addRunArtifact(root_tests);
     const test_step = b.step("test", "Run the default shift proof surface.");
     test_step.dependOn(&run_root_tests.step);
@@ -811,8 +800,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = bench_optimize,
     });
-    addRuntimeAssembly(b, shift_bench_mod, target);
-
     const bench_specs = [_]struct {
         name: []const u8,
         src: []const u8,

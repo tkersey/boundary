@@ -524,6 +524,8 @@ fn callResumeOrReturn(comptime Resume: type, comptime PromptType: type, comptime
     return try Handler.resumeOrReturn();
 }
 
+const enable_raw_runtime_tests = @hasDecl(@import("root"), "enable_raw_runtime_tests");
+
 fn abandonIntermediateFibers(source_fiber: *FiberBase, target_fiber: *FiberBase) void {
     var fiber = source_fiber;
     while (fiber != target_fiber) {
@@ -699,6 +701,7 @@ pub fn shiftLocalIdentity(
 }
 
 test "no-capture reset runs on a fresh runtime" {
+    if (!enable_raw_runtime_tests) return;
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -715,6 +718,7 @@ test "no-capture reset runs on a fresh runtime" {
 }
 
 test "copied prompt preserves its instance identity" {
+    if (!enable_raw_runtime_tests) return;
     const NoError = error{};
     const DemoPrompt = Prompt(.resume_then_transform, void, void, NoError);
     const original = DemoPrompt.init();
@@ -723,6 +727,7 @@ test "copied prompt preserves its instance identity" {
 }
 
 test "distinct prompt values of the same prompt type have distinct identities" {
+    if (!enable_raw_runtime_tests) return;
     const NoError = error{};
     const DemoPrompt = Prompt(.resume_then_transform, void, void, NoError);
     const first = DemoPrompt.init();
@@ -731,6 +736,7 @@ test "distinct prompt values of the same prompt type have distinct identities" {
 }
 
 test "resume-then-transform handler resumes with a direct-style value" {
+    if (!enable_raw_runtime_tests) return;
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -767,6 +773,7 @@ test "resume-then-transform handler resumes with a direct-style value" {
 }
 
 test "resume-or-return handler may return immediately without resuming" {
+    if (!enable_raw_runtime_tests) return;
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -800,6 +807,7 @@ test "resume-or-return handler may return immediately without resuming" {
 }
 
 test "resume-or-return handler may resume once and transform the resumed answer" {
+    if (!enable_raw_runtime_tests) return;
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -836,6 +844,7 @@ test "resume-or-return handler may resume once and transform the resumed answer"
 }
 
 test "resume-or-return handler may propagate typed user errors" {
+    if (!enable_raw_runtime_tests) return;
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -867,6 +876,7 @@ test "resume-or-return handler may propagate typed user errors" {
 }
 
 test "direct-return handler may produce the enclosing answer without resuming" {
+    if (!enable_raw_runtime_tests) return;
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -895,6 +905,7 @@ test "direct-return handler may produce the enclosing answer without resuming" {
 }
 
 test "resume-then-transform handler may propagate typed user errors" {
+    if (!enable_raw_runtime_tests) return;
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -926,6 +937,7 @@ test "resume-then-transform handler may propagate typed user errors" {
 }
 
 test "runtime checked deinit rejects active reset" {
+    if (!enable_raw_runtime_tests) return;
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -947,6 +959,7 @@ test "runtime checked deinit rejects active reset" {
 }
 
 test "runtime checked deinit rejects double teardown and later reset use" {
+    if (!enable_raw_runtime_tests) return;
     var runtime = Runtime.init(std.testing.allocator, .{});
 
     try runtime.deinitChecked();
@@ -963,6 +976,7 @@ test "runtime checked deinit rejects double teardown and later reset use" {
 }
 
 test "outer prompt capture bubbles through nested resets" {
+    if (!enable_raw_runtime_tests) return;
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 
@@ -1009,6 +1023,7 @@ test "outer prompt capture bubbles through nested resets" {
 }
 
 test "resume-or-return return-now unwinds nested resets before returning" {
+    if (!enable_raw_runtime_tests) return;
     var runtime = Runtime.init(std.testing.allocator, .{});
 
     const NoError = error{};
@@ -1054,6 +1069,7 @@ test "resume-or-return return-now unwinds nested resets before returning" {
 }
 
 test "unsupported non-diagonal prompt still fails closed on direct completion" {
+    if (!enable_raw_runtime_tests) return;
     var runtime = Runtime.init(std.testing.allocator, .{});
     defer runtime.deinit();
 

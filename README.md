@@ -18,11 +18,11 @@ not as the source of truth:
 2. executable reference witness
 3. executable reference machine
 4. CPS account
-5. fiber-backed stackful runtime
+5. authored-body replay runtime
 
-The current runtime backend is stackful and supported on `x86_64` and
-`aarch64` hosts only. Unsupported hosts fail at compile time; this repo does
-not ship a fallback backend.
+The shipped runtime backend is the canonical authored-body replay interpreter.
+The old fiber-backed stackful runtime remains only in `src/compat/raw.zig` for
+legacy compatibility work and is not part of the shipped backend path.
 
 The current public product claim is:
 
@@ -558,13 +558,14 @@ The generated artifact lives at `docs/runtime_route_matrix.json`.
 `zig build runtime-route-matrix-check` is the architectural truth gate for that
 claim, and
 `zig build runtime-obligation-matrix-check` is the remaining-contract truth
-gate for the parts of the public runtime surface that still need stackful
-migration. `tools/render_runtime_obligation_matrix.zig` renders that artifact,
-which lives at `docs/runtime_obligation_matrix.json`.
+gate for the parts of the public runtime surface that are now compat-only or
+otherwise outside the shipped backend path.
+`tools/render_runtime_obligation_matrix.zig` renders that artifact, which lives
+at `docs/runtime_obligation_matrix.json`.
 
 `zig build runtime-contract-suite` is the executable complement to that
 artifact: it runs the remaining public-runtime contract cases through the
-current public API so the last stackful-backed behaviors are tracked by tests,
+current public API so the remaining runtime obligations are tracked by tests,
 not just by documentation.
 
 `tools/render_runtime_error_surface_matrix.zig` renders the checked public
