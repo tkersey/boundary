@@ -8,7 +8,7 @@ that surface. Today, that support comes in two internal forms:
 
 - `src/program_frontend.zig` lowers internal structured programs into the
   canonical lowered IR in `src/parity_scenarios.zig`
-- `src/program_bridge.zig` maps a small unchanged-body direct-style subset onto
+- `src/program_bridge.zig` maps a named unchanged-body direct-style subset onto
   the same lowered scenarios for parity proof
 
 The current limit is structural:

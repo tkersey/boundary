@@ -1,7 +1,8 @@
-const program_bridge = @import("program_bridge");
+const bridge_manifest = @import("direct_style_bridge_manifest");
 const std = @import("std");
-const unsupported_nested = @import("direct_style_bridge_unsupported_nested");
 
-test "direct-style bridge rejects unsupported unchanged-body cases" {
-    try std.testing.expectError(error.UnsupportedBridgeCase, program_bridge.lowerFixture(unsupported_nested));
+test "direct-style bridge manifest has no blocked core cases" {
+    for (bridge_manifest.cases) |case| {
+        try std.testing.expect(case.status == .supported);
+    }
 }

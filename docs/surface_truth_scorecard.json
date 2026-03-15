@@ -6,7 +6,7 @@
   "benchmark_stability": {
     "harness_step": "bench-effect-matrix-stability",
     "lane_policy": "evidence-backed retiering only",
-    "status": "pending_clean_commit_refresh"
+    "status": "published_clean_refresh"
   },
   "lowered_engine": {
     "surface": "parity_scenarios + parity_kernel",
@@ -18,9 +18,12 @@
     "status": "implemented"
   },
   "direct_style_bridge": {
-    "supported_cases": ["atm_resume_transform","direct_return","multi_prompt","resume_or_return_resume","resume_or_return_return_now","static_redelim","early_exit","resume_or_return","state_basic","reader_basic","optional_basic","exception_basic"],
-    "blocked_cases": ["nested_workflow"],
-    "status": "partial"
+    "supported_cases": ["atm_resume_transform","direct_return","multi_prompt","resume_or_return_resume","resume_or_return_return_now","static_redelim","early_exit","resume_or_return","nested_workflow","state_basic","reader_basic","optional_basic","exception_basic"],
+    "blocked_cases": [],
+    "status": "supported_core_examples"
   },
-  "hidden_backend_recommendation": "blocked"
+  "private_lowered_runtime_seam": {
+    "decision": "worth_finishing",
+    "rationale": "nested_workflow now bridges through the canonical public example without API changes"
+  }
 }

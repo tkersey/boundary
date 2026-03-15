@@ -1,4 +1,4 @@
-const program_bridge = @import("program_bridge");
+const bridge_manifest = @import("direct_style_bridge_manifest");
 const program_frontend = @import("program_frontend");
 const std = @import("std");
 
@@ -22,7 +22,26 @@ fn appendStringList(list: *std.ArrayList(u8), allocator: std.mem.Allocator, item
     try list.appendSlice(allocator, "]");
 }
 
+fn appendCaseIdsByStatus(
+    list: *std.ArrayList(u8),
+    allocator: std.mem.Allocator,
+    status: bridge_manifest.Status,
+) !void {
+    try list.appendSlice(allocator, "[");
+    var first = true;
+    for (bridge_manifest.cases) |case| {
+        if (case.status != status) continue;
+        if (!first) try list.appendSlice(allocator, ",");
+        first = false;
+        const rendered = try std.fmt.allocPrint(allocator, "\"{s}\"", .{case.case_id});
+        defer allocator.free(rendered);
+        try list.appendSlice(allocator, rendered);
+    }
+    try list.appendSlice(allocator, "]");
+}
+
 fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
+    const has_blocked_cases = bridge_manifest.blockedCount() != 0;
     try list.appendSlice(allocator, "{\n");
     try list.appendSlice(allocator, "  \"public_surface\": {\n");
     try list.appendSlice(allocator, "    \"contract\": \"prompt-value direct-style shift/reset\",\n");
@@ -31,7 +50,7 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, "  \"benchmark_stability\": {\n");
     try list.appendSlice(allocator, "    \"harness_step\": \"bench-effect-matrix-stability\",\n");
     try list.appendSlice(allocator, "    \"lane_policy\": \"evidence-backed retiering only\",\n");
-    try list.appendSlice(allocator, "    \"status\": \"pending_clean_commit_refresh\"\n");
+    try list.appendSlice(allocator, "    \"status\": \"published_clean_refresh\"\n");
     try list.appendSlice(allocator, "  },\n");
     try list.appendSlice(allocator, "  \"lowered_engine\": {\n");
     try list.appendSlice(allocator, "    \"surface\": \"parity_scenarios + parity_kernel\",\n");
@@ -49,12 +68,20 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, "  },\n");
     try list.appendSlice(allocator, "  \"direct_style_bridge\": {\n");
     try list.appendSlice(allocator, "    \"supported_cases\": ");
-    try appendStringList(list, allocator, &program_bridge.supported_cases);
+    try appendCaseIdsByStatus(list, allocator, .supported);
     try list.appendSlice(allocator, ",\n");
-    try list.appendSlice(allocator, "    \"blocked_cases\": [\"nested_workflow\"],\n");
-    try list.appendSlice(allocator, "    \"status\": \"partial\"\n");
+    try list.appendSlice(allocator, "    \"blocked_cases\": ");
+    try appendCaseIdsByStatus(list, allocator, .blocked);
+    try list.appendSlice(allocator, ",\n");
+    try list.appendSlice(allocator, if (has_blocked_cases) "    \"status\": \"partial\"\n" else "    \"status\": \"supported_core_examples\"\n");
     try list.appendSlice(allocator, "  },\n");
-    try list.appendSlice(allocator, "  \"hidden_backend_recommendation\": \"blocked\"\n");
+    try list.appendSlice(allocator, "  \"private_lowered_runtime_seam\": {\n");
+    try list.appendSlice(allocator, if (has_blocked_cases) "    \"decision\": \"not_worth_finishing\",\n" else "    \"decision\": \"worth_finishing\",\n");
+    try list.appendSlice(allocator, if (has_blocked_cases)
+        "    \"rationale\": \"unchanged-body bridge coverage is still incomplete\"\n"
+    else
+        "    \"rationale\": \"nested_workflow now bridges through the canonical public example without API changes\"\n");
+    try list.appendSlice(allocator, "  }\n");
     try list.appendSlice(allocator, "}\n");
 }
 

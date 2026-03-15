@@ -95,6 +95,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     program_frontend_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    const bridge_manifest_mod = b.createModule(.{
+        .root_source_file = b.path("src/direct_style_bridge_manifest.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    bridge_manifest_mod.addImport("parity_scenarios", parity_scenarios_mod);
     const reference_eval_mod = b.createModule(.{
         .root_source_file = b.path("src/reference_eval.zig"),
         .target = target,
@@ -323,6 +329,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    program_bridge_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
     program_bridge_mod.addImport("parity_scenarios", parity_scenarios_mod);
     program_bridge_mod.addImport("program_frontend", program_frontend_mod);
     const bridge_mod = b.createModule(.{
@@ -339,22 +346,19 @@ pub fn build(b: *std.Build) void {
     bridge_mod.addImport("direct_style_bridge_resume_or_return_return_now", createBridgeWitnessModule(b, "test/direct_style_bridge/resume_or_return_return_now.zig", target, optimize, witnesses_mod));
     bridge_mod.addImport("direct_style_bridge_static_redelim", createBridgeWitnessModule(b, "test/direct_style_bridge/static_redelim.zig", target, optimize, witnesses_mod));
     bridge_mod.addImport("direct_style_bridge_early_exit", createBridgeExampleModule(b, "test/direct_style_bridge/early_exit.zig", target, optimize, .{ .name = "example_early_exit", .mod = createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, shift_mod) }));
+    bridge_mod.addImport("direct_style_bridge_nested_workflow", createBridgeExampleModule(b, "test/direct_style_bridge/nested_workflow.zig", target, optimize, .{ .name = "example_nested_workflow", .mod = createShiftConsumerModule(b, "examples/nested_workflow.zig", target, optimize, shift_mod) }));
     bridge_mod.addImport("direct_style_bridge_resume_or_return", createBridgeExampleModule(b, "test/direct_style_bridge/resume_or_return.zig", target, optimize, .{ .name = "example_resume_or_return", .mod = createShiftConsumerModule(b, "examples/resume_or_return.zig", target, optimize, shift_mod) }));
     bridge_mod.addImport("direct_style_bridge_state_basic", createBridgeExampleModule(b, "test/direct_style_bridge/state_basic.zig", target, optimize, .{ .name = "example_state_basic", .mod = createShiftConsumerModule(b, "examples/state_basic.zig", target, optimize, shift_mod) }));
     bridge_mod.addImport("direct_style_bridge_reader_basic", createBridgeExampleModule(b, "test/direct_style_bridge/reader_basic.zig", target, optimize, .{ .name = "example_reader_basic", .mod = createShiftConsumerModule(b, "examples/reader_basic.zig", target, optimize, shift_mod) }));
     bridge_mod.addImport("direct_style_bridge_optional_basic", createBridgeExampleModule(b, "test/direct_style_bridge/optional_basic.zig", target, optimize, .{ .name = "example_optional_basic", .mod = createShiftConsumerModule(b, "examples/optional_basic.zig", target, optimize, shift_mod) }));
     bridge_mod.addImport("direct_style_bridge_exception_basic", createBridgeExampleModule(b, "test/direct_style_bridge/exception_basic.zig", target, optimize, .{ .name = "example_exception_basic", .mod = createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, shift_mod) }));
+    bridge_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
     const bridge_boundary_mod = b.createModule(.{
         .root_source_file = b.path("test/direct_style_bridge_boundary_test.zig"),
         .target = target,
         .optimize = optimize,
     });
-    bridge_boundary_mod.addImport("program_bridge", program_bridge_mod);
-    bridge_boundary_mod.addImport("direct_style_bridge_unsupported_nested", b.createModule(.{
-        .root_source_file = b.path("test/direct_style_bridge/unsupported_nested_workflow.zig"),
-        .target = target,
-        .optimize = optimize,
-    }));
+    bridge_boundary_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
     const boundary_tests = b.addTest(.{
         .root_module = boundary_mod,
     });
@@ -379,7 +383,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     scorecard_mod.addImport("program_frontend", program_frontend_mod);
-    scorecard_mod.addImport("program_bridge", program_bridge_mod);
+    scorecard_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
     const scorecard_exe = b.addExecutable(.{
         .name = "shift-surface-truth-scorecard",
         .root_module = scorecard_mod,
