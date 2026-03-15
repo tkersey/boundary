@@ -26,6 +26,15 @@ pub inline fn set(
     return try algebraic.writeTransformState(Cap, ctx, value);
 }
 
+/// Build one explicit state body program with no prompt operation.
+pub inline fn computeProgram(
+    comptime Cap: type,
+    ctx: anytype,
+    comptime Thunk: type,
+) @TypeOf(family.computeProgram(Cap, ctx, Thunk)) {
+    return family.computeProgram(Cap, ctx, Thunk);
+}
+
 /// Run a state effect body and return the final state plus the body answer.
 pub fn handle(
     comptime AnswerType: type,
@@ -58,10 +67,22 @@ test "state handle threads value and final state" {
 
     const demo = struct {
         /// Execute the strict-affinity state-effect test body.
-        pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!i32 {
-            const before = try get(Cap, ctx);
-            try set(Cap, ctx, before + 1);
-            return try get(Cap, ctx);
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(family.computeProgram(Cap, ctx, struct {
+            /// Read, update, and read the state cell once.
+            pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)!i32 {
+                const before = try get(ProgramCap, program_ctx);
+                try set(ProgramCap, program_ctx, before + 1);
+                return try get(ProgramCap, program_ctx);
+            }
+        })) {
+            return family.computeProgram(Cap, ctx, struct {
+                /// Read, update, and read the state cell once.
+                pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)!i32 {
+                    const before = try get(ProgramCap, program_ctx);
+                    try set(ProgramCap, program_ctx, before + 1);
+                    return try get(ProgramCap, program_ctx);
+                }
+            });
         }
     };
 
@@ -84,11 +105,21 @@ test "nested same-shaped state handles get distinct capability types" {
         pub fn outer(comptime OuterCap: type, _: anytype) shift.ResetError(NoError)!i32 {
             const result = try handle(i32, runtime_ptr.?, inner_ptr.?, 0, struct {
                 /// Reject capability-type collapse inside the nested handle.
-                pub fn body(comptime InnerCap: type, _: anytype) shift.ResetError(NoError)!i32 {
+                pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(family.computeProgram(InnerCap, inner_ctx, struct {
+                    /// Return a neutral value from the nested state body.
+                    pub fn run(_: type, _: anytype) i32 {
+                        return 0;
+                    }
+                })) {
                     comptime if (OuterCap == InnerCap) {
                         @compileError("nested state handles must receive distinct capability types");
                     };
-                    return 0;
+                    return family.computeProgram(InnerCap, inner_ctx, struct {
+                        /// Return a neutral value from the nested state body.
+                        pub fn run(_: type, _: anytype) i32 {
+                            return 0;
+                        }
+                    });
                 }
             });
             return result.value;
@@ -103,8 +134,18 @@ test "nested same-shaped state handles get distinct capability types" {
     demo.inner_ptr = &inner_instance;
     const result = try handle(i32, &runtime, &outer_instance, 0, struct {
         /// Enter the outer handle and hand its capability to the nested check.
-        pub fn body(comptime OuterCap: type, ctx: anytype) shift.ResetError(NoError)!i32 {
-            return try demo.outer(OuterCap, ctx);
+        pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(family.computeProgram(OuterCap, ctx, struct {
+            /// Re-enter the nested state witness through the outer capability.
+            pub fn run(_: type, _: anytype) shift.ResetError(NoError)!i32 {
+                return try demo.outer(OuterCap, {});
+            }
+        })) {
+            return family.computeProgram(OuterCap, ctx, struct {
+                /// Re-enter the nested state witness through the outer capability.
+                pub fn run(_: type, _: anytype) shift.ResetError(NoError)!i32 {
+                    return try demo.outer(OuterCap, {});
+                }
+            });
         }
     });
     try std.testing.expectEqual(@as(i32, 0), result.value);

@@ -78,6 +78,15 @@ pub inline fn tell(
     });
 }
 
+/// Build one explicit writer body program with no prompt operation.
+pub inline fn computeProgram(
+    comptime Cap: type,
+    ctx: anytype,
+    comptime Thunk: type,
+) @TypeOf(family.computeProgram(Cap, ctx, Thunk)) {
+    return family.computeProgram(Cap, ctx, Thunk);
+}
+
 /// Run a writer effect body and return the accumulated log plus the body answer.
 pub fn handle(
     comptime ItemType: type,
@@ -108,10 +117,22 @@ test "writer handle accumulates items in order" {
     const WriterInstance = Instance([]const u8, NoError);
     const demo = struct {
         /// Append two items and then return normally.
-        pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)![]const u8 {
-            try tell(Cap, ctx, "a");
-            try tell(Cap, ctx, "b");
-            return "done";
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(family.computeProgram(Cap, ctx, struct {
+            /// Append two items and then return normally.
+            pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)![]const u8 {
+                try tell(ProgramCap, program_ctx, "a");
+                try tell(ProgramCap, program_ctx, "b");
+                return "done";
+            }
+        })) {
+            return family.computeProgram(Cap, ctx, struct {
+                /// Append two items and then return normally.
+                pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)![]const u8 {
+                    try tell(ProgramCap, program_ctx, "a");
+                    try tell(ProgramCap, program_ctx, "b");
+                    return "done";
+                }
+            });
         }
     };
 
@@ -137,11 +158,21 @@ test "nested same-shaped writer handles get distinct capability types" {
         pub fn outer(comptime OuterCap: type, _: anytype) shift.ResetError(NoError)![]const u8 {
             const result = try handle([]const u8, []const u8, runtime_ptr.?, inner_ptr.?, std.testing.allocator, struct {
                 /// Reject capability-type collapse inside the nested writer handle.
-                pub fn body(comptime InnerCap: type, _: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(family.computeProgram(InnerCap, inner_ctx, struct {
+                    /// Return a neutral value from the nested writer body.
+                    pub fn run(_: type, _: anytype) []const u8 {
+                        return "done";
+                    }
+                })) {
                     comptime if (OuterCap == InnerCap) {
                         @compileError("nested writer handles must receive distinct capability types");
                     };
-                    return "done";
+                    return family.computeProgram(InnerCap, inner_ctx, struct {
+                        /// Return a neutral value from the nested writer body.
+                        pub fn run(_: type, _: anytype) []const u8 {
+                            return "done";
+                        }
+                    });
                 }
             });
             defer std.testing.allocator.free(result.items);
@@ -157,8 +188,18 @@ test "nested same-shaped writer handles get distinct capability types" {
     demo.inner_ptr = &inner_instance;
     const result = try handle([]const u8, []const u8, &runtime, &outer_instance, std.testing.allocator, struct {
         /// Enter the outer writer handle and hand its capability inward.
-        pub fn body(comptime OuterCap: type, ctx: anytype) shift.ResetError(NoError)![]const u8 {
-            return try demo.outer(OuterCap, ctx);
+        pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(family.computeProgram(OuterCap, ctx, struct {
+            /// Re-enter the nested writer witness through the outer capability.
+            pub fn run(_: type, _: anytype) shift.ResetError(NoError)![]const u8 {
+                return try demo.outer(OuterCap, {});
+            }
+        })) {
+            return family.computeProgram(OuterCap, ctx, struct {
+                /// Re-enter the nested writer witness through the outer capability.
+                pub fn run(_: type, _: anytype) shift.ResetError(NoError)![]const u8 {
+                    return try demo.outer(OuterCap, {});
+                }
+            });
         }
     });
     defer std.testing.allocator.free(result.items);

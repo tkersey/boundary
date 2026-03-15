@@ -609,8 +609,6 @@ const DemoError = error{};
 const DemoPrompt = shift.Prompt(.resume_then_transform, i32, i32, DemoError);
 
 const demo = struct {
-    var prompt_ptr: ?*const DemoPrompt = null;
-
     const Handle = struct {
         pub fn resumeValue() i32 {
             return 41;
@@ -621,9 +619,12 @@ const demo = struct {
         }
     };
 
-    fn body() shift.ResetError(DemoError)!i32 {
-        const value = try shift.frontend.perform(i32, prompt_ptr.?, Handle);
-        return value + 1;
+    pub fn program() shift.frontend.Program(DemoPrompt) {
+        return shift.frontend.transformProgram(DemoPrompt, i32, Handle, struct {
+            pub fn apply(value: i32) i32 {
+                return value + 1;
+            }
+        });
     }
 };
 
@@ -631,7 +632,6 @@ pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     var prompt = DemoPrompt.init();
-    demo.prompt_ptr = &prompt;
 
     const answer = try shift.reset(&runtime, &prompt, shift.frontend.build(DemoPrompt, demo));
     _ = answer;
@@ -642,3 +642,4 @@ See `src/root.zig` for the public surface, `src/witnesses.zig` for executable
 witnesses, `test/witness_corpus_test.zig` and `test/semantic_manifest.zig` for
 the locked semantic evidence, `FORMAL_CORE.md` for the implementation-derived
 law anchors, and `examples/` for runnable usage.
+{"id":"lrn-20260315T192402Z-0f4b88e1","captured_at":"2026-03-15T19:24:02Z","status":"do_more","learning":"When removing shift's remaining legacy_body and Body.body residue, move family/resource compute programs onto typed explicit prompts with shim-managed active contexts because otherwise explicit compute thunks cannot access handled capabilities and nested outer-prompt suspends break cleanup ordering.","evidence":["zig build test, zig build compile-fail, zig build lint -- --max-warnings 0, and zig build readme-contract all passed after family.handle/resource.handle switched to Body.program and frontend no longer exposed legacy_body/coercion"],"application":"For future explicit-program migrations, give helper-generated compute programs their own prompt type plus a handle-scoped active-context shim instead of capturing ctx in zero-arg thunks or keeping body-based wrapper execution alive.","context":{"repo":"tkersey/shift","branch":"main","paths":["README.md","src/effect/algebraic.zig","src/effect/family.zig","src/effect/reader.zig","src/effect/resource.zig","src/effect/state.zig","src/effect/writer.zig","src/frontend.zig","test/compile_fail/effect_reader_cross_instance_context_fails.zig","test/compile_fail/effect_resource_cross_instance_context_fails.zig","test/compile_fail/effect_resource_manager_missing_acquire.zig","test/compile_fail/effect_resource_manager_missing_release.zig","test/compile_fail/effect_resource_manager_wrong_release_type.zig","test/compile_fail/effect_state_cross_instance_context_fails.zig","test/compile_fail/effect_writer_cross_instance_context_fails.zig"]},"source":"skill:learnings","fingerprint":"0f4b88e1be9b8467","tags":["zig","migration","frontend","effects","cleanup"]}

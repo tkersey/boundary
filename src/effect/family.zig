@@ -1,3 +1,4 @@
+const frontend = @import("../frontend.zig");
 const kernel = @import("kernel.zig");
 const raw = @import("../raw.zig");
 const shift = @import("../root.zig");
@@ -127,6 +128,33 @@ pub fn ContextSpec(comptime StateType: type, comptime AnswerType: type, comptime
     };
 }
 
+fn ProgramShim(comptime ContextType: type) type {
+    return struct {
+        threadlocal var active_context: ?*ContextType = null;
+    };
+}
+
+/// Build one explicit family body program with no prompt operation.
+pub inline fn computeProgram(
+    comptime Cap: type,
+    ctx: anytype,
+    comptime Thunk: type,
+) frontend.Program(raw.Prompt(.resume_then_transform, ContextAnswerType(@TypeOf(ctx)), ContextAnswerType(@TypeOf(ctx)), ContextErrorSetType(@TypeOf(ctx)))) {
+    comptime assertContextType(Cap, @TypeOf(ctx));
+    const ContextType = ContextTypeFromPtr(@TypeOf(ctx));
+    const PromptType = raw.Prompt(.resume_then_transform, ContextType.AnswerType, ContextType.AnswerType, ContextType.ErrorSetType);
+    const shim = ProgramShim(ContextType);
+    _ = ctx._cap;
+    return frontend.computeProgram(PromptType, struct {
+        fn invoke() raw.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
+            const RunFn = @TypeOf(Thunk.run);
+            const ReturnType = @typeInfo(RunFn).@"fn".return_type.?;
+            if (@typeInfo(ReturnType) != .error_union) return Thunk.run(Cap, shim.active_context.?);
+            return try Thunk.run(Cap, shim.active_context.?);
+        }
+    }.invoke);
+}
+
 /// Mint a fresh capability witness and exact private context, then hand both to `Runner.run`.
 pub fn withCapability(
     comptime context_spec: type,
@@ -155,7 +183,7 @@ pub fn withCapability(
 /// Run a family body under a fresh capability witness and return the final family state plus answer.
 pub fn handle(
     comptime AnswerType: type,
-    _: *shift.Runtime,
+    runtime: *shift.Runtime,
     instance: anytype,
     initial_state: InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
@@ -175,27 +203,22 @@ pub fn handle(
         const body_tag = Body;
     };
     const ContextType = Context(Cap, StateType, AnswerType, ErrorSetType);
+    const PromptType = raw.Prompt(.resume_then_transform, AnswerType, AnswerType, ErrorSetType);
+    const shim = ProgramShim(ContextType);
 
     var cap_token = Cap{ ._seal = .{} };
     var context = ContextType{ ._cap = &cap_token };
-
-    const invoker = struct {
-        threadlocal var active_context: ?*ContextType = null;
-
-        fn invoke() shift.ResetError(ErrorSetType)!AnswerType {
-            return try Body.body(Cap, active_context.?);
-        }
-    };
+    var prompt = PromptType{ .token = instance.prompt.token };
 
     const previous_family_frame = family_impl.active_frame;
-    const previous_context = invoker.active_context;
+    const previous_context = shim.active_context;
     family_impl.active_frame = &frame;
-    invoker.active_context = &context;
+    shim.active_context = &context;
     defer {
         family_impl.active_frame = previous_family_frame;
-        invoker.active_context = previous_context;
+        shim.active_context = previous_context;
     }
 
-    const value = try invoker.invoke();
+    const value = try frontend.run(runtime, &prompt, Body.program(Cap, &context));
     return ResultType{ .state = frame.state, .value = value };
 }

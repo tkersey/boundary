@@ -16,6 +16,15 @@ pub inline fn acquire(
     return try algebraic.acquireResource(Cap, ctx);
 }
 
+/// Build one explicit resource body program with no prompt operation.
+pub inline fn computeProgram(
+    comptime Cap: type,
+    ctx: anytype,
+    comptime Thunk: type,
+) @TypeOf(algebraic.resourceComputeProgram(Cap, ctx, Thunk)) {
+    return algebraic.resourceComputeProgram(Cap, ctx, Thunk);
+}
+
 /// Run a resource effect body and guarantee LIFO cleanup of acquired resources.
 pub fn handle(
     comptime AnswerType: type,
@@ -62,12 +71,26 @@ test "resource handle releases in LIFO order after normal completion" {
     };
     const demo = struct {
         /// Acquire two resources in order and return normally.
-        pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)![]const u8 {
-            const first = try acquire(Cap, ctx);
-            manager.note(first);
-            const second = try acquire(Cap, ctx);
-            manager.note(second);
-            return "done";
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(computeProgram(Cap, ctx, struct {
+            /// Acquire two resources in order and return normally.
+            pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)![]const u8 {
+                const first = try acquire(ProgramCap, program_ctx);
+                manager.note(first);
+                const second = try acquire(ProgramCap, program_ctx);
+                manager.note(second);
+                return "done";
+            }
+        })) {
+            return computeProgram(Cap, ctx, struct {
+                /// Acquire two resources in order and return normally.
+                pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)![]const u8 {
+                    const first = try acquire(ProgramCap, program_ctx);
+                    manager.note(first);
+                    const second = try acquire(ProgramCap, program_ctx);
+                    manager.note(second);
+                    return "done";
+                }
+            });
         }
     };
 
@@ -134,11 +157,24 @@ test "resource handle releases before outer exception catch returns" {
                 threadlocal var active_exception_ctx: ?ExceptionCtxType = null;
 
                 /// Acquire once, then abort through the outer exception handler.
-                pub fn body(comptime ResourceCap: type, resource_ctx: anytype) shift.ResetError(NoError)![]const u8 {
-                    const resource = try acquire(ResourceCap, resource_ctx);
-                    _ = resource;
-                    manager.note("use=r");
-                    try @import("exception.zig").throw(ExceptionCap, active_exception_ctx.?, "boom");
+                pub fn program(comptime ResourceCap: type, resource_ctx: anytype) @TypeOf(computeProgram(ResourceCap, resource_ctx, struct {
+                    /// Acquire once, then abort through the outer exception handler.
+                    pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)![]const u8 {
+                        const resource = try acquire(ProgramCap, program_ctx);
+                        _ = resource;
+                        manager.note("use=r");
+                        try @import("exception.zig").throw(ExceptionCap, active_exception_ctx.?, "boom");
+                    }
+                })) {
+                    return computeProgram(ResourceCap, resource_ctx, struct {
+                        /// Acquire once, then abort through the outer exception handler.
+                        pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)![]const u8 {
+                            const resource = try acquire(ProgramCap, program_ctx);
+                            _ = resource;
+                            manager.note("use=r");
+                            try @import("exception.zig").throw(ExceptionCap, active_exception_ctx.?, "boom");
+                        }
+                    });
                 }
             };
 
@@ -238,12 +274,26 @@ test "resource handle releases before outer optional return-now completes" {
                 threadlocal var active_optional_ctx: ?OptionalCtxType = null;
 
                 /// Acquire once, then early-return through the outer optional handler.
-                pub fn body(comptime ResourceCap: type, resource_ctx: anytype) shift.ResetError(NoError)![]const u8 {
-                    const resource = try acquire(ResourceCap, resource_ctx);
-                    _ = resource;
-                    manager.note("use=r");
-                    _ = try @import("optional.zig").request(OptionalCap, active_optional_ctx.?);
-                    return "result=late";
+                pub fn program(comptime ResourceCap: type, resource_ctx: anytype) @TypeOf(computeProgram(ResourceCap, resource_ctx, struct {
+                    /// Acquire once, then early-return through the outer optional handler.
+                    pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)![]const u8 {
+                        const resource = try acquire(ProgramCap, program_ctx);
+                        _ = resource;
+                        manager.note("use=r");
+                        _ = try @import("optional.zig").request(OptionalCap, active_optional_ctx.?);
+                        return "result=late";
+                    }
+                })) {
+                    return computeProgram(ResourceCap, resource_ctx, struct {
+                        /// Acquire once, then early-return through the outer optional handler.
+                        pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)![]const u8 {
+                            const resource = try acquire(ProgramCap, program_ctx);
+                            _ = resource;
+                            manager.note("use=r");
+                            _ = try @import("optional.zig").request(OptionalCap, active_optional_ctx.?);
+                            return "result=late";
+                        }
+                    });
                 }
             };
 
@@ -309,9 +359,20 @@ test "resource release error wins after a successful body" {
 
     const demo = struct {
         /// Acquire one resource and otherwise complete successfully.
-        pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(DemoError)![]const u8 {
-            _ = try acquire(Cap, ctx);
-            return "done";
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(computeProgram(Cap, ctx, struct {
+            /// Acquire one resource and otherwise complete successfully.
+            pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(DemoError)![]const u8 {
+                _ = try acquire(ProgramCap, program_ctx);
+                return "done";
+            }
+        })) {
+            return computeProgram(Cap, ctx, struct {
+                /// Acquire one resource and otherwise complete successfully.
+                pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(DemoError)![]const u8 {
+                    _ = try acquire(ProgramCap, program_ctx);
+                    return "done";
+                }
+            });
         }
     };
 
@@ -339,9 +400,20 @@ test "resource body error wins over release error" {
 
     const demo = struct {
         /// Acquire one resource and then fail the body.
-        pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(DemoError)![]const u8 {
-            _ = try acquire(Cap, ctx);
-            return error.BodyFailed;
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(computeProgram(Cap, ctx, struct {
+            /// Acquire one resource and then fail the body.
+            pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(DemoError)![]const u8 {
+                _ = try acquire(ProgramCap, program_ctx);
+                return error.BodyFailed;
+            }
+        })) {
+            return computeProgram(Cap, ctx, struct {
+                /// Acquire one resource and then fail the body.
+                pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(DemoError)![]const u8 {
+                    _ = try acquire(ProgramCap, program_ctx);
+                    return error.BodyFailed;
+                }
+            });
         }
     };
 
@@ -373,11 +445,21 @@ test "nested same-shaped resource handles get distinct capability types" {
         pub fn outer(comptime OuterCap: type, _: anytype) shift.ResetError(NoError)!i32 {
             return try handle(i32, runtime_ptr.?, inner_ptr.?, manager, struct {
                 /// Reject capability-type collapse inside the nested resource handle.
-                pub fn body(comptime InnerCap: type, _: anytype) shift.ResetError(NoError)!i32 {
+                pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(computeProgram(InnerCap, inner_ctx, struct {
+                    /// Return a neutral value from the nested resource body.
+                    pub fn run(_: type, _: anytype) i32 {
+                        return 0;
+                    }
+                })) {
                     comptime if (OuterCap == InnerCap) {
                         @compileError("nested resource handles must receive distinct capability types");
                     };
-                    return 0;
+                    return computeProgram(InnerCap, inner_ctx, struct {
+                        /// Return a neutral value from the nested resource body.
+                        pub fn run(_: type, _: anytype) i32 {
+                            return 0;
+                        }
+                    });
                 }
             });
         }
@@ -391,10 +473,19 @@ test "nested same-shaped resource handles get distinct capability types" {
     demo.inner_ptr = &inner_instance;
     const result = try handle(i32, &runtime, &outer_instance, manager, struct {
         /// Enter the outer resource handle and hand its capability inward.
-        pub fn body(comptime OuterCap: type, ctx: anytype) shift.ResetError(NoError)!i32 {
-            return try demo.outer(OuterCap, ctx);
+        pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(computeProgram(OuterCap, ctx, struct {
+            /// Re-enter the nested resource witness through the outer capability.
+            pub fn run(_: type, _: anytype) shift.ResetError(NoError)!i32 {
+                return try demo.outer(OuterCap, {});
+            }
+        })) {
+            return computeProgram(OuterCap, ctx, struct {
+                /// Re-enter the nested resource witness through the outer capability.
+                pub fn run(_: type, _: anytype) shift.ResetError(NoError)!i32 {
+                    return try demo.outer(OuterCap, {});
+                }
+            });
         }
     });
     try std.testing.expectEqual(@as(i32, 0), result);
 }
-{"id":"lrn-20260315T190820Z-f31806a4","captured_at":"2026-03-15T19:08:20Z","status":"do_more","learning":"When migrating shift effect/algebraic callers onto explicit programs, keep frontend.run's explicit compute path active-frame aware because nested outer-prompt abort/choice operations otherwise fail with MissingPrompt-style control loss instead of completing through the active prompt.","evidence":["zig build test passed only after frontend.run compute pushed an active frame and resource cleanup tests stopped failing across outer exception/optional handles"],"application":"When adding or refactoring explicit computeProgram callers, ensure frontend.run establishes the prompt frame before executing the thunk and only treats FrontendSuspend as terminal when the frame already carries a terminal answer.","context":{"repo":"tkersey/shift","branch":"main","paths":[".learnings.jsonl","src/algebraic.zig","src/effect/algebraic.zig","src/effect/exception.zig","src/effect/optional.zig","src/effect/resource.zig","src/frontend.zig","src/lowered_machine.zig","test/compile_fail/algebraic_missing_handler.zig","test/compile_fail/algebraic_undeclared_op.zig","test/compile_fail/algebraic_wrong_after_resume_type.zig","test/compile_fail/algebraic_wrong_builder_mode.zig","test/compile_fail/effect_exception_catch_missing_direct_return.zig","test/compile_fail/effect_exception_catch_wrong_direct_return_type.zig","test/compile_fail/effect_exception_cross_instance_context_fails.zig","test/compile_fail/effect_optional_cross_instance_context_fails.zig","test/compile_fail/effect_optional_policy_missing_resume_or_return.zig","test/compile_fail/effect_optional_policy_wrong_after_resume_type.zig","test/compile_fail/run.sh","test/one_shot_survey/run.sh"]},"source":"skill:learnings","fingerprint":"f31806a4f80c4f15","tags":["zig","migration","frontend","effects"]}

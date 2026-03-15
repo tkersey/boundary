@@ -12,10 +12,20 @@ const demo = struct {
     pub fn outer(comptime OuterCap: type, _: anytype) shift.ResetError(NoError)!i32 {
         const result = try shift.effect.state.handle(i32, runtime_ptr.?, inner_ptr.?, 0, struct {
             /// Attempt to coerce the inner capability to the outer capability type.
-            pub fn body(comptime InnerCap: type, inner_ctx: anytype) shift.ResetError(NoError)!i32 {
-                _ = InnerCap;
-                _ = try shift.effect.state.get(OuterCap, inner_ctx);
-                return 0;
+            pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(shift.effect.state.computeProgram(InnerCap, inner_ctx, struct {
+                /// Attempt to read state with the wrong capability type.
+                pub fn run(_: type, program_ctx: anytype) shift.ResetError(NoError)!i32 {
+                    _ = try shift.effect.state.get(OuterCap, program_ctx);
+                    return 0;
+                }
+            })) {
+                return shift.effect.state.computeProgram(InnerCap, inner_ctx, struct {
+                    /// Attempt to read state with the wrong capability type.
+                    pub fn run(_: type, program_ctx: anytype) shift.ResetError(NoError)!i32 {
+                        _ = try shift.effect.state.get(OuterCap, program_ctx);
+                        return 0;
+                    }
+                });
             }
         });
         return result.value;
@@ -32,8 +42,18 @@ pub fn main() anyerror!void {
     demo.inner_ptr = &inner_instance;
     _ = try shift.effect.state.handle(i32, &runtime, &outer_instance, 0, struct {
         /// Invoke the outer body with the fresh outer capability.
-        pub fn body(comptime OuterCap: type, ctx: anytype) shift.ResetError(NoError)!i32 {
-            return try demo.outer(OuterCap, ctx);
+        pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(shift.effect.state.computeProgram(OuterCap, ctx, struct {
+            /// Re-enter the nested state compile-fail witness.
+            pub fn run(_: type, _: anytype) shift.ResetError(NoError)!i32 {
+                return try demo.outer(OuterCap, {});
+            }
+        })) {
+            return shift.effect.state.computeProgram(OuterCap, ctx, struct {
+                /// Re-enter the nested state compile-fail witness.
+                pub fn run(_: type, _: anytype) shift.ResetError(NoError)!i32 {
+                    return try demo.outer(OuterCap, {});
+                }
+            });
         }
     });
 }

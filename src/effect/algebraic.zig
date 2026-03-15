@@ -515,6 +515,45 @@ pub inline fn acquireResource(
     return resource;
 }
 
+fn ResourceProgramShim(comptime ContextType: type) type {
+    return struct {
+        threadlocal var active_context: ?*ContextType = null;
+    };
+}
+
+/// Build one explicit resource body program with no prompt operation.
+pub inline fn resourceComputeProgram(
+    comptime Cap: type,
+    ctx: anytype,
+    comptime Thunk: type,
+) frontend.Program(ResourceKernel(
+    family.ContextTypeFromPtr(@TypeOf(ctx)).StateType,
+    family.ContextTypeFromPtr(@TypeOf(ctx)).AnswerType,
+    family.ContextTypeFromPtr(@TypeOf(ctx)).ErrorSetType,
+    family.ContextTypeFromPtr(@TypeOf(ctx)).capability.ManagerType(),
+).Prompt) {
+    comptime family.assertContextType(Cap, @TypeOf(ctx));
+    const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
+    comptime {
+        if (!family.hasDeclSafe(ContextType.capability, "ManagerType")) {
+            @compileError("resource capability does not carry a manager type");
+        }
+    }
+    const ManagerType = ContextType.capability.ManagerType();
+    comptime assertManagerType(ContextType.StateType, ContextType.ErrorSetType, ManagerType);
+    const resource_impl = ResourceKernel(ContextType.StateType, ContextType.AnswerType, ContextType.ErrorSetType, ManagerType);
+    const shim = ResourceProgramShim(ContextType);
+    _ = ctx._cap;
+    return frontend.computeProgram(resource_impl.Prompt, struct {
+        fn invoke() shift.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
+            const RunFn = @TypeOf(Thunk.run);
+            const ReturnType = @typeInfo(RunFn).@"fn".return_type.?;
+            if (@typeInfo(ReturnType) != .error_union) return Thunk.run(Cap, shim.active_context.?);
+            return try Thunk.run(Cap, shim.active_context.?);
+        }
+    }.invoke);
+}
+
 /// Run a resource family through the generalized substrate.
 pub fn handleResource(
     comptime AnswerType: type,
@@ -545,28 +584,21 @@ pub fn handleResource(
     defer frame.deinit();
     var cap_token = Cap{ ._seal = .{} };
     var context = ContextType{ ._cap = &cap_token };
-
-    const invoker = struct {
-        threadlocal var active_context: ?*ContextType = null;
-
-        fn invoke() shift.ResetError(ErrorSetType)!AnswerType {
-            return try Body.body(Cap, active_context.?);
-        }
-    };
+    const shim = ResourceProgramShim(ContextType);
 
     const previous_frame = resource_impl.active_frame;
-    const previous_context = invoker.active_context;
+    const previous_context = shim.active_context;
     resource_impl.active_frame = &frame;
-    invoker.active_context = &context;
+    shim.active_context = &context;
     cleanup.push(&frame.cleanup_frame);
     defer {
         resource_impl.active_frame = previous_frame;
-        invoker.active_context = previous_context;
+        shim.active_context = previous_context;
     }
 
     var body_error: ?shift.ResetError(ErrorSetType) = null;
     var answer: ?AnswerType = null;
-    answer = invoker.invoke() catch |err| blk: {
+    answer = frontend.run(runtime, &frame.prompt, Body.program(Cap, &context)) catch |err| blk: {
         body_error = err;
         break :blk null;
     };

@@ -22,9 +22,20 @@ pub fn main() anyerror!void {
     var instance = ResourceInstance.init();
     _ = try shift.effect.resource.handle(i32, &runtime, &instance, bad_manager, struct {
         /// Force the handler to instantiate the malformed manager.
-        pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!i32 {
-            _ = try shift.effect.resource.acquire(Cap, ctx);
-            return 0;
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.resource.computeProgram(Cap, ctx, struct {
+            /// Attempt one resource acquire under the malformed manager.
+            pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)!i32 {
+                _ = try shift.effect.resource.acquire(ProgramCap, program_ctx);
+                return 0;
+            }
+        })) {
+            return shift.effect.resource.computeProgram(Cap, ctx, struct {
+                /// Attempt one resource acquire under the malformed manager.
+                pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)!i32 {
+                    _ = try shift.effect.resource.acquire(ProgramCap, program_ctx);
+                    return 0;
+                }
+            });
         }
     });
 }

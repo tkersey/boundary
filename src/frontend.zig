@@ -210,7 +210,6 @@ pub fn Program(comptime PromptType: type) type {
             afterResumeFn: AfterResumeFn(PromptType),
         },
         compute: *const fn () raw.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
-        legacy_body: *const fn () raw.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
         pure: PromptType.InAnswer,
         transform: struct {
             resumeValueFn: *const fn () raw.ControlError(PromptType.ErrorSet)!EncodedValue,
@@ -240,20 +239,19 @@ pub fn BoundProgram(comptime PromptType: type) type {
     };
 }
 
-/// Wrap one authored body function in a first-class program shell.
-fn fromBody(
-    comptime PromptType: type,
-    body: anytype,
-) Program(PromptType) {
-    return .{ .legacy_body = normalizeBodyFn(PromptType, body) };
-}
-
 /// Build one explicit canonical program from a body spec type.
 pub fn build(
     comptime PromptType: type,
     comptime Spec: type,
 ) Program(PromptType) {
-    return fromBody(PromptType, @field(Spec, "body"));
+    if (!hasDeclSafe(Spec, "program")) {
+        @compileError("frontend.build requires Spec.program");
+    }
+    const ProgramFn = @TypeOf(Spec.program);
+    if (ProgramFn != fn () Program(PromptType)) {
+        @compileError("Spec.program must have type fn () frontend.Program(PromptType)");
+    }
+    return Spec.program();
 }
 
 /// Build a pure explicit program for prompts whose body answer is already final.
@@ -366,13 +364,6 @@ fn normalizeBodyFn(
     }
 
     @compileError("expected authored body with type fn () InAnswer or fn () ResetError(ErrorSet)!InAnswer");
-}
-
-/// Accept either a first-class program or an authored body function for the supplied prompt type.
-fn coerceProgram(comptime PromptType: type, body_or_program: anytype) Program(PromptType) {
-    const InputType = @TypeOf(body_or_program);
-    if (InputType == Program(PromptType)) return body_or_program;
-    return fromBody(PromptType, body_or_program);
 }
 
 /// Normalize either a canonical runtime wrapper or a raw runtime pointer to the active execution engine.
@@ -508,10 +499,9 @@ fn finalizeAnswer(
 pub fn run(
     runtime: anytype,
     prompt: anytype,
-    body_or_program: anytype,
+    program: Program(PromptTypeFromPtr(@TypeOf(prompt))),
 ) raw.ResetError(PromptErrorSetType(@TypeOf(prompt)))!PromptOutAnswerType(@TypeOf(prompt)) {
     const PromptType = PromptTypeFromPtr(@TypeOf(prompt));
-    const program = coerceProgram(PromptType, body_or_program);
     const raw_runtime = unwrapRuntimePtr(runtime);
 
     try ensureRuntime(raw_runtime);
@@ -530,7 +520,7 @@ pub fn run(
             const value = node() catch |err| switch (err) {
                 error.FrontendSuspend => {
                     if (frame.terminal) |answer| return answer;
-                    return error.ProgramContractViolation;
+                    return error.FrontendSuspend;
                 },
                 else => return @errorCast(err),
             };
@@ -539,29 +529,8 @@ pub fn run(
         },
         .pure => |value| return lowered_machine.runExplicitPure(PromptType, value) catch |err| return @errorCast(err),
         .transform => |node| return lowered_machine.runExplicitTransform(PromptType, node) catch |err| return @errorCast(err),
-        .legacy_body => {},
     }
-
-    var frame = Frame(PromptType).init(raw_runtime, prompt);
-    defer frame.deinit();
-    pushActiveFrame(&frame.base);
-    defer popActiveFrame(&frame.base);
-
-    while (true) {
-        frame.cursor = 0;
-        frame.terminal = null;
-        frame.applied_after_len = 0;
-
-        const value = program.legacy_body() catch |err| switch (err) {
-            error.FrontendSuspend => {
-                if (frame.terminal) |answer| return answer;
-                continue;
-            },
-            else => return err,
-        };
-
-        return try finalizeAnswer(PromptType, &frame, value);
-    }
+    unreachable;
 }
 
 /// Perform one prompt-delimited operation using replay instead of raw continuation capture.
