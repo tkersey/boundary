@@ -485,6 +485,10 @@ pub fn build(b: *std.Build) void {
     const obligation_matrix_write_step = b.step("runtime-obligation-matrix-write", "Refresh the runtime obligation matrix for remaining stack-runtime dependencies.");
     obligation_matrix_write_step.dependOn(&obligation_matrix_write_cmd.step);
 
+    const shipped_backend_cmd = b.addSystemCommand(&.{ "sh", "test/shipped_backend_contract/run.sh" });
+    const shipped_backend_step = b.step("shipped-backend-check", "Check that the shipped path no longer depends on the stackful backend.");
+    shipped_backend_step.dependOn(&shipped_backend_cmd.step);
+
     test_step.dependOn(&authoring_lower_check_cmd.step);
     test_step.dependOn(&run_structured_program_tests.step);
     test_step.dependOn(&run_boundary_tests.step);

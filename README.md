@@ -75,6 +75,7 @@ zig build runtime-route-matrix-write
 zig build runtime-route-matrix-check
 zig build runtime-obligation-matrix-write
 zig build runtime-obligation-matrix-check
+zig build shipped-backend-check
 zig build surface-truth-scorecard-write
 zig build surface-truth-scorecard-check
 zig build effect-construction-boundary
@@ -126,6 +127,9 @@ one of these proof surfaces:
 - `zig build runtime-obligation-matrix-check` for the checked obligation matrix
   that records which public-runtime obligations still depend on the stackful
   backend
+- `zig build shipped-backend-check` as the final Phase-A removal gate; it is
+  expected to fail until the shipped path no longer depends on stackful runtime
+  assembly or stackful-only obligation rows
 - `zig build surface-truth-scorecard-check` for the machine-readable
   maintainers' scorecard that summarizes whether the lowered path can honestly
   stay hidden beneath the canonical public surface

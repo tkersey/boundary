@@ -1,8 +1,10 @@
 /// Current migration status for one public-runtime obligation.
 pub const Status = enum {
+    compat_noop_landed,
     compat_noop_planned,
     compile_time_only,
     lowered_backend_ready,
+    removed_from_shipped_path,
     stack_backend_required,
 };
 
