@@ -89,6 +89,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     parity_scenarios_mod.addImport("formal_core_registry", formal_core_registry_mod);
+    const lowered_machine_mod = b.createModule(.{
+        .root_source_file = b.path("src/lowered_machine.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lowered_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
     const program_frontend_mod = b.createModule(.{
         .root_source_file = b.path("src/program_frontend.zig"),
         .target = target,
@@ -118,6 +124,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    parity_kernel_mod.addImport("lowered_machine", lowered_machine_mod);
     parity_kernel_mod.addImport("parity_scenarios", parity_scenarios_mod);
     reference_machine_mod.addImport("parity_kernel", parity_kernel_mod);
 
@@ -338,9 +345,14 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     private_lowered_runtime_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
-    private_lowered_runtime_mod.addImport("parity_kernel", parity_kernel_mod);
+    private_lowered_runtime_mod.addImport("lowered_machine", lowered_machine_mod);
     private_lowered_runtime_mod.addImport("parity_scenarios", parity_scenarios_mod);
     private_lowered_runtime_mod.addImport("program_bridge", program_bridge_mod);
+    const runtime_route_registry_mod = b.createModule(.{
+        .root_source_file = b.path("src/runtime_route_registry.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const runtime_stack_baseline_mod = b.createModule(.{
         .root_source_file = b.path("src/runtime_stack_baseline.zig"),
         .target = target,
@@ -430,12 +442,32 @@ pub fn build(b: *std.Build) void {
     const scorecard_write_step = b.step("surface-truth-scorecard-write", "Refresh the machine-readable surface-truth scorecard.");
     scorecard_write_step.dependOn(&scorecard_write_cmd.step);
 
+    const route_matrix_mod = b.createModule(.{
+        .root_source_file = b.path("tools/render_runtime_route_matrix.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    route_matrix_mod.addImport("runtime_route_registry", runtime_route_registry_mod);
+    const route_matrix_exe = b.addExecutable(.{
+        .name = "shift-runtime-route-matrix",
+        .root_module = route_matrix_mod,
+    });
+    const route_matrix_check_cmd = b.addRunArtifact(route_matrix_exe);
+    route_matrix_check_cmd.addArg("check");
+    const route_matrix_check_step = b.step("runtime-route-matrix-check", "Check the runtime route matrix for the supported lowered runtime corpus.");
+    route_matrix_check_step.dependOn(&route_matrix_check_cmd.step);
+    const route_matrix_write_cmd = b.addRunArtifact(route_matrix_exe);
+    route_matrix_write_cmd.addArg("write");
+    const route_matrix_write_step = b.step("runtime-route-matrix-write", "Refresh the runtime route matrix for the supported lowered runtime corpus.");
+    route_matrix_write_step.dependOn(&route_matrix_write_cmd.step);
+
     test_step.dependOn(&authoring_lower_check_cmd.step);
     test_step.dependOn(&run_structured_program_tests.step);
     test_step.dependOn(&run_boundary_tests.step);
     test_step.dependOn(&run_bridge_tests.step);
     test_step.dependOn(&run_bridge_boundary_tests.step);
     test_step.dependOn(&scorecard_check_cmd.step);
+    test_step.dependOn(&route_matrix_check_cmd.step);
 
     const compile_fail_cmd = b.addSystemCommand(&.{ "sh", "test/compile_fail/run.sh" });
     const compile_fail_step = b.step("compile-fail", "Verify compile-fail misuse fixtures.");

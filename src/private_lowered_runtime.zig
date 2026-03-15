@@ -1,5 +1,5 @@
 const bridge_manifest = @import("direct_style_bridge_manifest");
-const parity_kernel = @import("parity_kernel");
+const lowered_machine = @import("lowered_machine");
 const parity_scenarios = @import("parity_scenarios");
 const program_bridge = @import("program_bridge");
 
@@ -21,8 +21,8 @@ pub fn runCaseId(writer: anytype, case_id: []const u8) anyerror!Execution {
     if (case.status == .blocked) return error.UnsupportedBridgeCase;
 
     const scenario = parity_scenarios.byId(case.scenario_id);
-    const state = parity_kernel.runScenario(case.scenario_id);
-    try parity_kernel.writeTranscript(writer, &state);
+    const state = lowered_machine.runSteps(scenario.steps);
+    try lowered_machine.writeTranscript(writer, &state);
     return .{
         .label = case.label,
         .scenario = scenario,
@@ -32,8 +32,8 @@ pub fn runCaseId(writer: anytype, case_id: []const u8) anyerror!Execution {
 /// Execute one supported direct-style bridge fixture through the private seam.
 pub fn runBridgeFixture(comptime Fixture: type, writer: anytype) anyerror!Execution {
     const lowered = try program_bridge.lowerFixture(Fixture);
-    const state = parity_kernel.runScenario(lowered.scenario.scenario_id);
-    try parity_kernel.writeTranscript(writer, &state);
+    const state = lowered_machine.runSteps(lowered.scenario.steps);
+    try lowered_machine.writeTranscript(writer, &state);
     return .{
         .label = lowered.label,
         .scenario = lowered.scenario,

@@ -71,6 +71,8 @@ zig build authoring-lowering-check
 zig build structured-program-suite
 zig build direct-style-bridge-parity
 zig build direct-style-boundary
+zig build runtime-route-matrix-write
+zig build runtime-route-matrix-check
 zig build surface-truth-scorecard-write
 zig build surface-truth-scorecard-check
 zig build effect-construction-boundary
@@ -116,6 +118,9 @@ one of these proof surfaces:
   the supported direct-style bridge corpus
 - `zig build direct-style-boundary` for explicit boundary checks around
   unsupported unchanged direct-style shapes
+- `zig build runtime-route-matrix-check` for the checked execution-route matrix
+  that records whether supported cases are still replayed or now run through
+  the shared lowered machine
 - `zig build surface-truth-scorecard-check` for the machine-readable
   maintainers' scorecard that summarizes whether the lowered path can honestly
   stay hidden beneath the canonical public surface
@@ -514,6 +519,16 @@ unchanged direct-style subset, and `src/private_lowered_runtime.zig` is the
 internal lowered-runtime seam that executes that supported subset without
 changing the public API. `zig build direct-style-bridge-parity` proves
 that subset against the canonical lowered scenarios, and
+`tools/render_runtime_route_matrix.zig` renders the machine-readable route
+matrix showing that those supported cases now execute through the shared
+lowered machine instead of direct scenario replay.
+The generated artifact lives at `docs/runtime_route_matrix.json`.
+
+`src/lowered_machine.zig` is now the shared executable machine core, while
+`src/parity_kernel.zig` acts as a proof façade over that core.
+
+`zig build runtime-route-matrix-check` is the architectural truth gate for that
+claim, and
 `tools/render_surface_truth_scorecard.zig` renders the machine-readable
 scorecard used by the final hidden-backend recommendation gate. The generated
 artifact lives at `docs/surface_truth_scorecard.json`.
