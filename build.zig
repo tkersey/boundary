@@ -171,6 +171,26 @@ pub fn build(b: *std.Build) void {
     const run_witness_tests = b.addRunArtifact(witness_tests);
     test_step.dependOn(&run_witness_tests.step);
 
+    const runtime_contract_mod = b.createModule(.{
+        .root_source_file = b.path("test/runtime_contract_suite.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    runtime_contract_mod.addImport("shift", shift_mod);
+    runtime_contract_mod.addImport("runtime_contract_registry", b.createModule(.{
+        .root_source_file = b.path("src/runtime_contract_registry.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
+    runtime_contract_mod.addImport("survey_resume_transform_executes", createShiftConsumerModule(b, "test/one_shot_survey/protocol_resume_transform_executes.zig", target, optimize, shift_mod));
+    const runtime_contract_tests = b.addTest(.{
+        .root_module = runtime_contract_mod,
+    });
+    const run_runtime_contract_tests = b.addRunArtifact(runtime_contract_tests);
+    const runtime_contract_step = b.step("runtime-contract-suite", "Run executable lowered-runtime contract cases for the remaining runtime obligations.");
+    runtime_contract_step.dependOn(&run_runtime_contract_tests.step);
+    test_step.dependOn(&run_runtime_contract_tests.step);
+
     const backend_parity_mod = b.createModule(.{
         .root_source_file = b.path("test/backend_parity_test.zig"),
         .target = target,

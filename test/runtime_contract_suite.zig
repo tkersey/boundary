@@ -1,0 +1,114 @@
+const runtime_contracts = @import("runtime_contract_registry");
+const shift = @import("shift");
+const std = @import("std");
+const survey_resume_transform_executes = @import("survey_resume_transform_executes");
+
+test "runtime contract registry stays in sync with the executable suite" {
+    try std.testing.expectEqual(@as(usize, 6), runtime_contracts.cases.len);
+}
+
+test "missing prompt still fails closed through the public API" {
+    const NoError = error{};
+    const DemoPrompt = shift.Prompt(.resume_then_transform, i32, i32, NoError);
+    var prompt = DemoPrompt.init();
+
+    const handle = struct {
+        /// Supply the resumed value for the runtime-contract survey case.
+        pub fn resumeValue() i32 {
+            return 1;
+        }
+        /// Preserve the resumed value on the enclosing answer path.
+        pub fn afterResume(value: i32) i32 {
+            return value;
+        }
+    };
+
+    try std.testing.expectError(error.MissingPrompt, shift.shift(i32, &prompt, handle));
+}
+
+test "cross-thread runtime misuse still fails closed" {
+    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    const Result = struct {
+        err: ?shift.Error = null,
+    };
+    var result = Result{};
+
+    const worker = struct {
+        fn run(runtime_ptr: *shift.Runtime, result_ptr: *Result) void {
+            runtime_ptr.deinitChecked() catch |err| {
+                result_ptr.err = err;
+                return;
+            };
+        }
+    }.run;
+
+    const thread = try std.Thread.spawn(.{}, worker, .{ &runtime, &result });
+    thread.join();
+    try std.testing.expectEqual(error.CrossThread, result.err.?);
+}
+
+test "runtime deinit rejects active reset" {
+    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    const NoError = error{};
+    const DemoPrompt = shift.Prompt(.resume_then_transform, usize, usize, NoError);
+    var prompt = DemoPrompt.init();
+
+    const demo = struct {
+        var runtime_ptr: *shift.Runtime = undefined;
+
+        fn body() shift.ResetError(NoError)!usize {
+            runtime_ptr.deinitChecked() catch |err| {
+                if (err != error.RuntimeBusy) return error.Unexpected;
+                return 7;
+            };
+            return error.Unexpected;
+        }
+    };
+
+    demo.runtime_ptr = &runtime;
+    const answer = try shift.reset(&runtime, &prompt, demo.body);
+    try std.testing.expectEqual(@as(usize, 7), answer);
+}
+
+test "destroyed runtime rejects later reset use" {
+    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    try runtime.deinitChecked();
+    try std.testing.expectError(error.RuntimeDestroyed, runtime.deinitChecked());
+
+    const NoError = error{};
+    const DemoPrompt = shift.Prompt(.resume_then_transform, usize, usize, NoError);
+    var prompt = DemoPrompt.init();
+
+    const body = struct {
+        fn run() shift.ResetError(NoError)!usize {
+            return 7;
+        }
+    }.run;
+
+    try std.testing.expectError(error.RuntimeDestroyed, shift.reset(&runtime, &prompt, body));
+}
+
+test "unsupported non-diagonal completion still fails closed" {
+    var runtime = shift.Runtime.init(std.testing.allocator, .{});
+    defer runtime.deinit();
+
+    const NoError = error{};
+    const DemoPrompt = shift.Prompt(.resume_then_transform, i32, []const u8, NoError);
+    var prompt = DemoPrompt.init();
+
+    const body = struct {
+        fn run() shift.ResetError(NoError)!i32 {
+            return 7;
+        }
+    }.run;
+
+    try std.testing.expectError(error.NonDiagonalComplete, shift.reset(&runtime, &prompt, body));
+}
+
+test "runtime-positive one-shot survey fixture still executes" {
+    try survey_resume_transform_executes.main();
+}

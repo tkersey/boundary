@@ -75,6 +75,7 @@ zig build runtime-route-matrix-write
 zig build runtime-route-matrix-check
 zig build runtime-obligation-matrix-write
 zig build runtime-obligation-matrix-check
+zig build runtime-contract-suite
 zig build shipped-backend-check
 zig build surface-truth-scorecard-write
 zig build surface-truth-scorecard-check
@@ -127,6 +128,8 @@ one of these proof surfaces:
 - `zig build runtime-obligation-matrix-check` for the checked obligation matrix
   that records which public-runtime obligations still depend on the stackful
   backend
+- `zig build runtime-contract-suite` for executable public-runtime contract
+  cases that still guard the final stackful-backed behaviors
 - `zig build shipped-backend-check` as the final Phase-A removal gate; it is
   expected to fail until the shipped path no longer depends on stackful runtime
   assembly or stackful-only obligation rows
@@ -542,6 +545,11 @@ claim, and
 gate for the parts of the public runtime surface that still need stackful
 migration. `tools/render_runtime_obligation_matrix.zig` renders that artifact,
 which lives at `docs/runtime_obligation_matrix.json`.
+
+`zig build runtime-contract-suite` is the executable complement to that
+artifact: it runs the remaining public-runtime contract cases through the
+current public API so the last stackful-backed behaviors are tracked by tests,
+not just by documentation.
 
 `tools/render_surface_truth_scorecard.zig` renders the machine-readable
 scorecard used by the final hidden-backend recommendation gate. The generated
