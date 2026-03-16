@@ -1,3 +1,4 @@
+const choice = @import("choice.zig");
 const family = @import("family.zig");
 const frontend = @import("../frontend.zig");
 const internal = @import("../internal/algebraic_engine.zig");
@@ -245,15 +246,15 @@ fn assertTransformHandlerBundle(comptime HandlerType: type, comptime StateType: 
 
 fn assertChoiceHandlerBundle(comptime HandlerType: type, comptime AnswerType: type, comptime ErrorSetType: type, comptime Op: type) void {
     if (!@hasDecl(HandlerType, opName(Op))) @compileError("generated choice handler is missing op method");
-    const DecisionType = shift.ResumeOrReturn(OpResumeType(Op), AnswerType);
+    const DecisionType = choice.Decision(OpResumeType(Op), AnswerType);
     const ResumeFn = @TypeOf(@field(HandlerType, opName(Op)));
     if (comptime OpPayloadType(Op) == void) {
         if (ResumeFn != fn (*HandlerType) DecisionType and ResumeFn != fn (*HandlerType) shift.ResetError(ErrorSetType)!DecisionType) {
-            @compileError("generated choice handler op method must have type fn (*Handler) ResumeOrReturn or fn (*Handler) ResetError(ErrorSet)!ResumeOrReturn");
+            @compileError("generated choice handler op method must have type fn (*Handler) effect.choice.Decision or fn (*Handler) ResetError(ErrorSet)!effect.choice.Decision");
         }
     } else {
         if (ResumeFn != fn (*HandlerType, OpPayloadType(Op)) DecisionType and ResumeFn != fn (*HandlerType, OpPayloadType(Op)) shift.ResetError(ErrorSetType)!DecisionType) {
-            @compileError("generated choice handler op method must have type fn (*Handler, Payload) ResumeOrReturn or fn (*Handler, Payload) ResetError(ErrorSet)!ResumeOrReturn");
+            @compileError("generated choice handler op method must have type fn (*Handler, Payload) effect.choice.Decision or fn (*Handler, Payload) ResetError(ErrorSet)!effect.choice.Decision");
         }
     }
 
@@ -477,13 +478,13 @@ pub fn Build(comptime spec: anytype) type {
                 },
                 .resume_or_return => struct {
                     /// Decide whether one generated choice op resumes or returns now.
-                    pub fn resumeOrReturn(self: HandlerPtrType, payload: OpPayloadType(op_type)) shift.ResetError(ErrorSetType)!shift.ResumeOrReturn(OpResumeType(op_type), AnswerType) {
+                    pub fn resumeOrReturn(self: HandlerPtrType, payload: OpPayloadType(op_type)) shift.ResetError(ErrorSetType)!choice.Decision(OpResumeType(op_type), AnswerType) {
                         const ResumeFn = @TypeOf(@field(HandlerType, opName(op_type)));
                         if (comptime OpPayloadType(op_type) == void) {
-                            if (ResumeFn == fn (HandlerPtrType) shift.ResumeOrReturn(OpResumeType(op_type), AnswerType)) return @field(HandlerType, opName(op_type))(self);
+                            if (ResumeFn == fn (HandlerPtrType) choice.Decision(OpResumeType(op_type), AnswerType)) return @field(HandlerType, opName(op_type))(self);
                             return try @field(HandlerType, opName(op_type))(self);
                         }
-                        if (ResumeFn == fn (HandlerPtrType, OpPayloadType(op_type)) shift.ResumeOrReturn(OpResumeType(op_type), AnswerType)) return @field(HandlerType, opName(op_type))(self, payload);
+                        if (ResumeFn == fn (HandlerPtrType, OpPayloadType(op_type)) choice.Decision(OpResumeType(op_type), AnswerType)) return @field(HandlerType, opName(op_type))(self, payload);
                         return try @field(HandlerType, opName(op_type))(self, payload);
                     }
 
@@ -573,78 +574,6 @@ pub fn Build(comptime spec: anytype) type {
             return shim.active_engine.?;
         }
 
-        fn TransformLexicalHandle(
-            comptime Cap: type,
-            comptime ContextPtrType: type,
-            comptime HandlersType: type,
-            comptime PreviousEffType: type,
-            comptime index: usize,
-        ) type {
-            return struct {
-                const Handle = @This();
-
-                ctx: ?ContextPtrType,
-                runtime: ?*shift.Runtime,
-                handlers_ptr: ?*HandlersType,
-                previous_eff: PreviousEffType,
-                outputs_ptr: ?*lexical_with.OutputBundleType(HandlersType),
-
-                /// Perform one payload-carrying generated lexical choice op.
-                pub fn perform(self: Handle, comptime tag: OpTag, payload: anytype, comptime Continuation: type) shift.ResetError(ErrorSetType)!lexical_with.ChoiceAnswerType(Continuation) {
-                    comptime if (mode != .resume_or_return) @compileError("generated lexical perform(tag, payload, Continuation) only exists for choice families");
-                    const request_state = struct {
-                        threadlocal var active_handle: ?Handle = null;
-
-                        /// Re-enter the lexical continuation after one generated choice resume.
-                        pub fn apply(value: OpResumeType(OpType(op_specs, tag))) shift.ResetError(ErrorSetType)!lexical_with.ChoiceAnswerType(Continuation) {
-                            const current_handle = active_handle.?;
-                            return try lexical_with.continueChoice(
-                                HandlersType,
-                                index,
-                                .{
-                                    .runtime = current_handle.runtime.?,
-                                    .handlers_ptr = current_handle.handlers_ptr.?,
-                                    .previous_eff = current_handle.previous_eff,
-                                    .current_handle = current_handle,
-                                    .outputs_ptr = current_handle.outputs_ptr.?,
-                                },
-                                Continuation,
-                                value,
-                            );
-                        }
-                    };
-
-                    const previous_handle = request_state.active_handle;
-                    request_state.active_handle = self;
-                    defer request_state.active_handle = previous_handle;
-
-                    return switch (OpPayloadType(OpType(op_specs, tag))) {
-                        void => blk: {
-                            const authored = Op(tag).program(Cap, self.ctx.?, request_state);
-                            authored.activate();
-                            defer authored.deactivate();
-                            break :blk try frontend.run(self.runtime.?, authored.prompt, authored.program);
-                        },
-                        else => blk: {
-                            const authored = Op(tag).program(Cap, self.ctx.?, payload, request_state);
-                            authored.activate();
-                            defer authored.deactivate();
-                            break :blk try frontend.run(self.runtime.?, authored.prompt, authored.program);
-                        },
-                    };
-                }
-
-                /// Perform one payload-carrying generated lexical abort op.
-                pub fn abort(self: Handle, comptime tag: OpTag, payload: anytype) shift.ResetError(ErrorSetType)!noreturn {
-                    comptime if (mode != .direct_return) @compileError("generated lexical abort(tag, payload) only exists for abort families");
-                    return switch (OpPayloadType(OpType(op_specs, tag))) {
-                        void => try Op(tag).perform(Cap, self.ctx.?),
-                        else => try Op(tag).perform(Cap, self.ctx.?, payload),
-                    };
-                }
-            };
-        }
-
         fn LexicalFieldConfig(
             comptime Cap: type,
             comptime ContextPtrType: type,
@@ -667,6 +596,21 @@ pub fn Build(comptime spec: anytype) type {
         ) type {
             const OpTypeValue = OpType(op_specs, tag);
             return switch (mode) {
+                .resume_then_transform => if (OpPayloadType(OpTypeValue) == void) struct {
+                    ctx: ?Config.ContextPtr,
+
+                    /// Perform one zero-payload generated lexical transform op.
+                    pub fn perform(self: @This()) shift.ResetError(ErrorSetType)!OpResumeType(OpTypeValue) {
+                        return try Op(tag).perform(Config.Capability, self.ctx.?);
+                    }
+                } else struct {
+                    ctx: ?Config.ContextPtr,
+
+                    /// Perform one payload-carrying generated lexical transform op.
+                    pub fn perform(self: @This(), payload: OpPayloadType(OpTypeValue)) shift.ResetError(ErrorSetType)!OpResumeType(OpTypeValue) {
+                        return try Op(tag).perform(Config.Capability, self.ctx.?, payload);
+                    }
+                },
                 .resume_or_return => if (OpPayloadType(OpTypeValue) == void) struct {
                     const Handle = @This();
 
@@ -767,7 +711,6 @@ pub fn Build(comptime spec: anytype) type {
                         return try Op(tag).perform(Config.Capability, self.ctx.?, payload);
                     }
                 },
-                .resume_then_transform => unreachable,
             };
         }
 
@@ -816,10 +759,7 @@ pub fn Build(comptime spec: anytype) type {
             comptime PreviousEffType: type,
             comptime index: usize,
         ) type {
-            return switch (mode) {
-                .resume_then_transform => TransformLexicalHandle(Cap, ContextPtrType, HandlersType, PreviousEffType, index),
-                .resume_or_return, .direct_return => LexicalFieldContainerHandle(Cap, ContextPtrType, HandlersType, PreviousEffType, index),
-            };
+            return LexicalFieldContainerHandle(Cap, ContextPtrType, HandlersType, PreviousEffType, index);
         }
 
         /// Descriptor value used by `shift.with(...)` for generated families.
@@ -855,35 +795,26 @@ pub fn Build(comptime spec: anytype) type {
                     comptime index: usize,
                 ) HandleType(Cap, @TypeOf(ctx), @TypeOf(handlers_ptr.*), @TypeOf(previous_eff), index) {
                     _ = self;
-                    return switch (mode) {
-                        .resume_then_transform => .{
-                            .ctx = ctx,
-                            .runtime = runtime,
-                        .handlers_ptr = handlers_ptr,
-                        .previous_eff = previous_eff,
-                        .outputs_ptr = outputs_ptr,
-                    },
-                        .resume_or_return, .direct_return => blk: {
-                            var field_container = std.mem.zeroInit(HandleType(Cap, @TypeOf(ctx), @TypeOf(handlers_ptr.*), @TypeOf(previous_eff), index), .{});
-                            inline for (op_specs) |SpecOp| {
-                                const field_handle = switch (mode) {
-                                    .resume_or_return => LexicalOpFieldHandle(@field(OpTag, opName(SpecOp)), LexicalFieldConfig(Cap, @TypeOf(ctx), @TypeOf(handlers_ptr.*), @TypeOf(previous_eff), index)){
-                                        .ctx = ctx,
-                                        .runtime = runtime,
-                                        .handlers_ptr = handlers_ptr,
-                                        .previous_eff = previous_eff,
-                                        .outputs_ptr = outputs_ptr,
-                                    },
-                                    .direct_return => LexicalOpFieldHandle(@field(OpTag, opName(SpecOp)), LexicalFieldConfig(Cap, @TypeOf(ctx), @TypeOf(handlers_ptr.*), @TypeOf(previous_eff), index)){
-                                        .ctx = ctx,
-                                    },
-                                    .resume_then_transform => unreachable,
-                                };
-                                @field(field_container, opName(SpecOp)) = field_handle;
-                            }
-                            break :blk field_container;
-                        },
-                    };
+                    var field_container = std.mem.zeroInit(HandleType(Cap, @TypeOf(ctx), @TypeOf(handlers_ptr.*), @TypeOf(previous_eff), index), .{});
+                    inline for (op_specs) |SpecOp| {
+                        const field_handle = switch (mode) {
+                            .resume_then_transform => LexicalOpFieldHandle(@field(OpTag, opName(SpecOp)), LexicalFieldConfig(Cap, @TypeOf(ctx), @TypeOf(handlers_ptr.*), @TypeOf(previous_eff), index)){
+                                .ctx = ctx,
+                            },
+                            .resume_or_return => LexicalOpFieldHandle(@field(OpTag, opName(SpecOp)), LexicalFieldConfig(Cap, @TypeOf(ctx), @TypeOf(handlers_ptr.*), @TypeOf(previous_eff), index)){
+                                .ctx = ctx,
+                                .runtime = runtime,
+                                .handlers_ptr = handlers_ptr,
+                                .previous_eff = previous_eff,
+                                .outputs_ptr = outputs_ptr,
+                            },
+                            .direct_return => LexicalOpFieldHandle(@field(OpTag, opName(SpecOp)), LexicalFieldConfig(Cap, @TypeOf(ctx), @TypeOf(handlers_ptr.*), @TypeOf(previous_eff), index)){
+                                .ctx = ctx,
+                            },
+                        };
+                        @field(field_container, opName(SpecOp)) = field_handle;
+                    }
+                    return field_container;
                 }
 
                 /// Run one generated lexical descriptor through the existing generated-family handler path.

@@ -1,7 +1,9 @@
 # Direct-Style Boundary
 
-`shift` still treats the public prompt-value `shift/reset` surface as the only
-product truth.
+`shift` now treats the lexical `shift.with(...)` surface together with
+`shift.effect.*`, `shift.effect.Define(.{ ... })`, and `shift.algebraic` as
+the canonical product truth. The older root prompt surface remains retained
+compat/internal scaffolding beneath that story.
 
 The lowered path is only acceptable as hidden support infrastructure beneath
 that surface. Today, that support comes in two internal forms:

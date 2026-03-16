@@ -1,4 +1,6 @@
 const family = @import("family.zig");
+/// Public lexical choice-decision helper namespace.
+pub const choice = @import("choice.zig");
 /// Public sealed custom-effect generator.
 pub const Define = @import("define.zig").Define;
 /// Public op-descriptor namespace for `shift.effect.Define(...)`.
@@ -18,6 +20,7 @@ pub const writer = @import("writer.zig");
 
 test {
     _ = Define;
+    _ = choice;
     _ = exception;
     _ = family;
     _ = ops;

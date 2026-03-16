@@ -92,6 +92,7 @@ run_fixture "$repo_root/test/compile_fail/effect_define_duplicate_op_name_fails.
 run_fixture "$repo_root/test/compile_fail/effect_define_explicit_mode_mismatch_fails.zig" "generated effect explicit mode must match inferred op mode"
 run_fixture "$repo_root/test/compile_fail/effect_define_reserved_name_fails.zig" "generated effect op name collides with reserved family export"
 run_fixture "$repo_root/test/compile_fail/effect_define_missing_after_hook_fails.zig" "generated transform handler is missing after_<op> method"
+run_fixture "$repo_root/test/compile_fail/effect_define_lexical_transform_tag_dispatch_removed.zig" "no field or member function named 'perform'"
 run_fixture "$repo_root/test/compile_fail/effect_define_choice_wrong_hook_type_fails.zig" "generated choice handler op method must have type"
 run_fixture "$repo_root/test/compile_fail/effect_define_lexical_choice_tag_dispatch_removed.zig" "no field or member function named 'perform'"
 run_fixture "$repo_root/test/compile_fail/effect_define_lexical_abort_tag_dispatch_removed.zig" "no field or member function named 'abort'"

@@ -24,9 +24,9 @@ pub fn run(writer: anytype) anyerror!void {
 
     const return_now_handler = struct {
         /// Return now for the generated lexical choice example.
-        pub fn pick(_: *@This(), _: i32) shift.ResetError(NoError)!shift.ResumeOrReturn(i32, []const u8) {
+        pub fn pick(_: *@This(), _: i32) shift.ResetError(NoError)!shift.effect.choice.Decision(i32, []const u8) {
             transcript.note("policy-return-now");
-            return shift.ResumeOrReturn(i32, []const u8).returnNow("result=early");
+            return shift.effect.choice.Decision(i32, []const u8).returnNow("result=early");
         }
 
         /// Preserve the early answer unchanged.
@@ -37,9 +37,9 @@ pub fn run(writer: anytype) anyerror!void {
 
     const resume_handler = struct {
         /// Resume with the canonical generated choice value.
-        pub fn pick(_: *@This(), payload: i32) shift.ResetError(NoError)!shift.ResumeOrReturn(i32, []const u8) {
+        pub fn pick(_: *@This(), payload: i32) shift.ResetError(NoError)!shift.effect.choice.Decision(i32, []const u8) {
             transcript.note("policy-resume");
-            return shift.ResumeOrReturn(i32, []const u8).resumeWith(payload);
+            return shift.effect.choice.Decision(i32, []const u8).resumeWith(payload);
         }
 
         /// Finalize the resumed generated choice answer.

@@ -9,7 +9,7 @@ cannot drift independently from the witness and contract registries.
 <a id="atm-resume-transform"></a>
 ## ATM Resume Transform
 
-`shift.Prompt(.resume_then_transform, InAnswer, OutAnswer, ErrorSet)` selects a single-resume handler protocol with `resumeValue` and `afterResume`. The live semantic witness is `atm_resume_transform`, and the implementation path is the canonical lowered frontend/runtime path in `src/frontend.zig` and `src/lowered_machine.zig`.
+`atm_resume_transform` is the single-resume semantic witness behind the transform-style branch of the public lexical `shift.with(...)` story. The corresponding prompt protocol still exists in `src/frontend.zig` and `src/lowered_machine.zig`, but canonical docs now treat it as hidden implementation scaffolding rather than the root API.
 
 <a id="construction-coverage"></a>
 ## Construction Coverage
@@ -19,16 +19,16 @@ The public effect families are now expected to route through one shared internal
 <a id="direct-return"></a>
 ## Direct Return
 
-`shift.Prompt(.direct_return, InAnswer, OutAnswer, ErrorSet)` selects the direct-completion protocol with `directReturn`. The live witness is `direct_return`, and the implementation path is the canonical lowered frontend/runtime path in `src/frontend.zig` and `src/lowered_machine.zig`.
+`direct_return` is the abortive semantic witness behind lexical exception handling and abortive algebraic operations on `shift.with(...)`. The corresponding direct-return prompt protocol remains hidden implementation scaffolding in `src/frontend.zig` and `src/lowered_machine.zig`, not the canonical public story.
 
 <a id="effect-mode-coverage"></a>
 ## Effect Mode Coverage
 
-The shipped effect layer now covers each prompt mode explicitly:
+The shipped lexical/effect layer now covers each hidden internal control class explicitly:
 
-- `.resume_then_transform`: `shift.effect.state`, `shift.effect.reader`, `shift.effect.resource`, `shift.effect.writer`
-- `.resume_or_return`: `shift.effect.optional`
-- `.direct_return`: `shift.effect.exception`
+- transform-style (`.resume_then_transform` internally): `shift.effect.state`, `shift.effect.reader`, `shift.effect.resource`, `shift.effect.writer`
+- choice-style (`.resume_or_return` internally): `shift.effect.optional`
+- abortive (`.direct_return` internally): `shift.effect.exception`
 
 <a id="exception-effect"></a>
 ## Exception Effect
@@ -38,7 +38,7 @@ The shipped effect layer now covers each prompt mode explicitly:
 <a id="optional-resumption"></a>
 ## Optional Resumption
 
-`shift.Prompt(.resume_or_return, InAnswer, OutAnswer, ErrorSet)` selects the zero-or-one-resume protocol with `resumeOrReturn` and `afterResume`. The live witnesses are `resume_or_return_return_now` and `resume_or_return_resume`, and the additive effect-family proof surface is `shift.effect.optional.request(Cap, ctx)` plus `examples/optional_basic.zig`.
+`resume_or_return_return_now` and `resume_or_return_resume` are the zero-or-one-resume witnesses behind lexical optional handling and generated choice ops on `shift.with(...)`. Canonical docs now explain that behavior through `shift.effect.optional.request(Cap, ctx)`, generated choice handlers, and `shift.effect.choice.Decision`, while root `ResumeOrReturn` stays hidden helper machinery.
 
 <a id="performance-coverage"></a>
 ## Performance Coverage
@@ -93,7 +93,7 @@ The shipped additive families are `shift.effect.state`, `shift.effect.reader`, `
 - `shift.effect.resource.acquire(Cap, ctx)`
 - `shift.effect.writer.tell(Cap, ctx, item)`
 
-`shift.effect.Define(.{ ... })` now lets users mint their own sealed transform, choice, and abort families on top of the same shared engine and exact-context boundary. Generated families export `Instance`, `computeProgram`, `handle`, `OpTag`, `definition`, `proof`, and `Op(.tag).perform(...)` / `Op(.tag).program(...)` helper surfaces without exposing raw contexts or public continuations. When installed through `shift.with(...)`, generated choice and abort families are projected as named lexical op fields such as `eff.<binding>.<op>.perform(...)` and `eff.<binding>.<op>.abort(...)`.
+`shift.effect.Define(.{ ... })` now lets users mint their own sealed transform, choice, and abort families on top of the same shared engine and exact-context boundary. Generated families export `Instance`, `computeProgram`, `handle`, `OpTag`, `definition`, `proof`, and `Op(.tag).perform(...)` / `Op(.tag).program(...)` helper surfaces without exposing raw contexts or public continuations. When installed through `shift.with(...)`, generated transform, choice, and abort families are projected as named lexical op fields such as `eff.<binding>.<op>.perform(...)` and `eff.<binding>.<op>.abort(...)`.
 
 Forgery and cross-instance misuse are witnessed by compile-fail fixtures under `test/compile_fail/`.
 

@@ -570,6 +570,31 @@ pub fn build(b: *std.Build) void {
     const surface_repl_write_step = b.step("surface-replacement-matrix-write", "Refresh the long-horizon surface replacement matrix artifact.");
     surface_repl_write_step.dependOn(&surface_repl_write_cmd.step);
 
+    const witness_admission_registry_mod = b.createModule(.{
+        .root_source_file = b.path("src/witness_admission_registry.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    witness_admission_registry_mod.addImport("formal_core_registry", formal_core_registry_mod);
+    const witness_admission_mod = b.createModule(.{
+        .root_source_file = b.path("tools/render_witness_admission_matrix.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    witness_admission_mod.addImport("witness_admission_registry", witness_admission_registry_mod);
+    const witness_admission_exe = b.addExecutable(.{
+        .name = "shift-witness-admission-matrix",
+        .root_module = witness_admission_mod,
+    });
+    const witness_admission_check_cmd = b.addRunArtifact(witness_admission_exe);
+    witness_admission_check_cmd.addArg("check");
+    const witness_admission_check_step = b.step("witness-admission-matrix-check", "Check the witness admission matrix.");
+    witness_admission_check_step.dependOn(&witness_admission_check_cmd.step);
+    const witness_admission_write_cmd = b.addRunArtifact(witness_admission_exe);
+    witness_admission_write_cmd.addArg("write");
+    const witness_admission_write_step = b.step("witness-admission-matrix-write", "Refresh the witness admission matrix.");
+    witness_admission_write_step.dependOn(&witness_admission_write_cmd.step);
+
     const ordinary_gauntlet_step = b.step("ordinary-zig-gauntlet", "Run the ordinary-Zig experimental proof surface.");
     ordinary_gauntlet_step.dependOn(&run_ordinary_corpus_tests.step);
     ordinary_gauntlet_step.dependOn(&run_ordinary_boundary_tests.step);
@@ -578,6 +603,7 @@ pub fn build(b: *std.Build) void {
     ordinary_gauntlet_step.dependOn(&ordinary_matrix_check_cmd.step);
     test_step.dependOn(ordinary_gauntlet_step);
     test_step.dependOn(&surface_repl_check_cmd.step);
+    test_step.dependOn(&witness_admission_check_cmd.step);
 
     const scorecard_mod = b.createModule(.{
         .root_source_file = b.path("tools/render_surface_truth_scorecard.zig"),
@@ -689,6 +715,21 @@ pub fn build(b: *std.Build) void {
     root_migration_write_cmd.addArg("write");
     const root_migration_write_step = b.step("root-surface-migration-matrix-write", "Refresh the canonical root-surface migration matrix.");
     root_migration_write_step.dependOn(&root_migration_write_cmd.step);
+
+    const lexical_witness_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_witness_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_witness_mod.addImport("shift", shift_mod);
+    lexical_witness_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    const lexical_witness_tests = b.addTest(.{
+        .root_module = lexical_witness_mod,
+    });
+    const run_lexical_witness_tests = b.addRunArtifact(lexical_witness_tests);
+    const lexical_witness_step = b.step("lexical-witness-suite", "Run the lexical witness proof surface.");
+    lexical_witness_step.dependOn(&run_lexical_witness_tests.step);
+    test_step.dependOn(&run_lexical_witness_tests.step);
 
     const shipped_frontier_registry_mod = b.createModule(.{
         .root_source_file = b.path("src/shipped_surface_frontier_registry.zig"),

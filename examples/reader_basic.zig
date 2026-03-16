@@ -1,9 +1,24 @@
-const lowered_runtime = @import("private_lowered_runtime");
+const shift = @import("shift");
 const std = @import("std");
 
-/// Write the reader-effect transcript through the lowered runtime seam.
+const NoError = error{};
+
+/// Write the reader-effect transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
-    _ = try lowered_runtime.runCaseId(writer, "reader_basic");
+    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(&runtime, .{
+        .reader = shift.effect.reader.use(NoError, @as(i32, 21)),
+    }, struct {
+        /// Read the lexical reader environment once and double it.
+        pub fn body(eff: anytype) shift.ResetError(NoError)!i32 {
+            const env = try eff.reader.ask();
+            return env * 2;
+        }
+    });
+
+    try writer.print("env=21\nvalue={d}\n", .{result.value});
 }
 
 /// Run the reader-effect example.

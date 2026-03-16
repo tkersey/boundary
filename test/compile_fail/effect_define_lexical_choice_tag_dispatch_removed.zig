@@ -18,8 +18,8 @@ pub fn main() anyerror!void {
     _ = try shift.with(&runtime, .{
         .picker = Picker.use(.{ .handler = struct {
             /// Return now for the removed lexical choice surface fixture.
-            pub fn pick(_: *@This(), _: i32) shift.ResumeOrReturn(i32, []const u8) {
-                return shift.ResumeOrReturn(i32, []const u8).returnNow("result=early");
+            pub fn pick(_: *@This(), _: i32) shift.effect.choice.Decision(i32, []const u8) {
+                return shift.effect.choice.Decision(i32, []const u8).returnNow("result=early");
             }
 
             /// Preserve the early answer unchanged.

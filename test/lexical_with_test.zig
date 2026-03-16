@@ -87,9 +87,9 @@ test "shift.with matches the optional fixture transcript through lexical handles
 
             const return_now_policy = struct {
                 /// Choose the direct-return branch for the lexical optional test.
-                pub fn resumeOrReturn() shift.ResumeOrReturn(i32, []const u8) {
+                pub fn resumeOrReturn() shift.effect.choice.Decision(i32, []const u8) {
                     transcript.note("policy-return-now\n");
-                    return shift.ResumeOrReturn(i32, []const u8).returnNow("result=early");
+                    return shift.effect.choice.Decision(i32, []const u8).returnNow("result=early");
                 }
 
                 /// Preserve the early answer unchanged in the return-now branch.
@@ -100,9 +100,9 @@ test "shift.with matches the optional fixture transcript through lexical handles
 
             const resume_policy = struct {
                 /// Resume the lexical optional request with the canonical value.
-                pub fn resumeOrReturn() shift.ResumeOrReturn(i32, []const u8) {
+                pub fn resumeOrReturn() shift.effect.choice.Decision(i32, []const u8) {
                     transcript.note("policy-resume\n");
-                    return shift.ResumeOrReturn(i32, []const u8).resumeWith(41);
+                    return shift.effect.choice.Decision(i32, []const u8).resumeWith(41);
                 }
 
                 /// Finalize the resumed lexical optional answer.
@@ -317,9 +317,9 @@ test "generated choice families use the lexical choice form" {
 
             const return_now_handler = struct {
                 /// Return now for the generated lexical choice family.
-                pub fn pick(_: *@This(), _: i32) shift.ResumeOrReturn(i32, []const u8) {
+                pub fn pick(_: *@This(), _: i32) shift.effect.choice.Decision(i32, []const u8) {
                     transcript.note("policy-return-now\n");
-                    return shift.ResumeOrReturn(i32, []const u8).returnNow("result=early");
+                    return shift.effect.choice.Decision(i32, []const u8).returnNow("result=early");
                 }
 
                 /// Preserve the early answer unchanged.
@@ -330,9 +330,9 @@ test "generated choice families use the lexical choice form" {
 
             const resume_handler = struct {
                 /// Resume with the canonical generated choice value.
-                pub fn pick(_: *@This(), payload: i32) shift.ResumeOrReturn(i32, []const u8) {
+                pub fn pick(_: *@This(), payload: i32) shift.effect.choice.Decision(i32, []const u8) {
                     transcript.note("policy-resume\n");
-                    return shift.ResumeOrReturn(i32, []const u8).resumeWith(payload);
+                    return shift.effect.choice.Decision(i32, []const u8).resumeWith(payload);
                 }
 
                 /// Finalize the resumed generated choice answer.
@@ -449,8 +449,8 @@ test "generated zero-payload choice fields stay ergonomic" {
     const result = try shift.with(&runtime, .{
         .asker = Ask.use(.{ .handler = struct {
             /// Resume a zero-payload generated choice with a fixed value.
-            pub fn ask(_: *@This()) shift.ResumeOrReturn(i32, []const u8) {
-                return shift.ResumeOrReturn(i32, []const u8).resumeWith(7);
+            pub fn ask(_: *@This()) shift.effect.choice.Decision(i32, []const u8) {
+                return shift.effect.choice.Decision(i32, []const u8).resumeWith(7);
             }
 
             /// Preserve the resumed answer unchanged.
