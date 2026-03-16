@@ -16,12 +16,16 @@ pub const Error = root.Error;
 pub const ControlError = root.ControlError;
 /// Reset-time error union for a user-provided error set.
 pub const ResetError = root.ResetError;
+/// Canonical lexical result type returned from `shift.with(...)`.
+pub const WithResult = root.WithResult;
 /// Handler decision for zero-or-one-resume prompt modes.
 pub const ResumeOrReturn = root.ResumeOrReturn;
 /// First-class delimiter value for one-shot shift/reset.
 pub const Prompt = root.Prompt;
 /// Canonical reset entrypoint.
 pub const reset = root.reset;
+/// Canonical lexical execution entrypoint.
+pub const with = root.with;
 
 test {
     _ = root;

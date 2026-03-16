@@ -58,6 +58,19 @@ fn createBridgeExampleModule(
     return mod;
 }
 
+fn createPlainModule(
+    b: *std.Build,
+    path: []const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Module {
+    return b.createModule(.{
+        .root_source_file = b.path(path),
+        .target = target,
+        .optimize = optimize,
+    });
+}
+
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -122,6 +135,26 @@ pub fn build(b: *std.Build) void {
     private_lowered_runtime_mod.addImport("lowered_machine", lowered_machine_mod);
     private_lowered_runtime_mod.addImport("parity_scenarios", parity_scenarios_mod);
     private_lowered_runtime_mod.addImport("program_bridge", program_bridge_mod);
+    const ordinary_registry_mod = b.createModule(.{
+        .root_source_file = b.path("src/ordinary_zig_registry.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ordinary_registry_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    const ordinary_lowering_mod = b.createModule(.{
+        .root_source_file = b.path("src/ordinary_zig_lowering.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ordinary_lowering_mod.addImport("ordinary_zig_registry", ordinary_registry_mod);
+    ordinary_lowering_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    ordinary_lowering_mod.addImport("program_frontend", program_frontend_mod);
+    const surface_repl_registry_mod = b.createModule(.{
+        .root_source_file = b.path("src/surface_replacement_registry.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    surface_repl_registry_mod.addImport("formal_core_registry", formal_core_registry_mod);
     witnesses_mod.addImport("private_lowered_runtime", private_lowered_runtime_mod);
     const reference_eval_mod = b.createModule(.{
         .root_source_file = b.path("src/reference_eval.zig"),
@@ -211,6 +244,18 @@ pub fn build(b: *std.Build) void {
     const runtime_contract_step = b.step("runtime-contract-suite", "Run executable lowered-runtime contract cases for the remaining runtime obligations.");
     runtime_contract_step.dependOn(&run_runtime_contract_tests.step);
     test_step.dependOn(&run_runtime_contract_tests.step);
+
+    const lexical_with_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_with_mod.addImport("shift", shift_mod);
+    const lexical_with_tests = b.addTest(.{
+        .root_module = lexical_with_mod,
+    });
+    const run_lexical_with_tests = b.addRunArtifact(lexical_with_tests);
+    test_step.dependOn(&run_lexical_with_tests.step);
 
     const backend_parity_mod = b.createModule(.{
         .root_source_file = b.path("test/backend_parity_test.zig"),
@@ -452,6 +497,88 @@ pub fn build(b: *std.Build) void {
     const bridge_parity_step = b.step("direct-style-bridge-parity", "Run unchanged-body parity checks for the supported direct-style bridge corpus.");
     bridge_parity_step.dependOn(&run_bridge_tests.step);
 
+    const ordinary_corpus_mod = b.createModule(.{
+        .root_source_file = b.path("test/ordinary_zig_corpus_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ordinary_corpus_mod.addImport("ordinary_zig_registry", ordinary_registry_mod);
+    ordinary_corpus_mod.addImport("ordinary_zig_lowering", ordinary_lowering_mod);
+    ordinary_corpus_mod.addImport("lowered_machine", lowered_machine_mod);
+    ordinary_corpus_mod.addImport("ordinary_fixture_branch_resume", createPlainModule(b, "test/ordinary_zig_corpus/fixtures/branch_resume.zig", target, optimize));
+    ordinary_corpus_mod.addImport("ordinary_fixture_defer_resume", createPlainModule(b, "test/ordinary_zig_corpus/fixtures/defer_resume.zig", target, optimize));
+    ordinary_corpus_mod.addImport("ordinary_fixture_errdefer_error", createPlainModule(b, "test/ordinary_zig_corpus/fixtures/errdefer_error.zig", target, optimize));
+    ordinary_corpus_mod.addImport("ordinary_fixture_helper_call_resume", createPlainModule(b, "test/ordinary_zig_corpus/fixtures/helper_call_resume.zig", target, optimize));
+    ordinary_corpus_mod.addImport("ordinary_fixture_local_mutation_resume", createPlainModule(b, "test/ordinary_zig_corpus/fixtures/local_mutation_resume.zig", target, optimize));
+    ordinary_corpus_mod.addImport("ordinary_fixture_loop_resume", createPlainModule(b, "test/ordinary_zig_corpus/fixtures/loop_resume.zig", target, optimize));
+    ordinary_corpus_mod.addImport("ordinary_fixture_nested_prompt_static_redelim", createPlainModule(b, "test/ordinary_zig_corpus/fixtures/nested_prompt_static_redelim.zig", target, optimize));
+    ordinary_corpus_mod.addImport("ordinary_fixture_typed_error_try", createPlainModule(b, "test/ordinary_zig_corpus/fixtures/typed_error_try.zig", target, optimize));
+    const ordinary_corpus_tests = b.addTest(.{
+        .root_module = ordinary_corpus_mod,
+    });
+    const run_ordinary_corpus_tests = b.addRunArtifact(ordinary_corpus_tests);
+
+    const ordinary_boundary_mod = b.createModule(.{
+        .root_source_file = b.path("test/ordinary_zig_boundary_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ordinary_boundary_mod.addImport("ordinary_zig_registry", ordinary_registry_mod);
+    ordinary_boundary_mod.addImport("ordinary_zig_lowering", ordinary_lowering_mod);
+    const ordinary_boundary_tests = b.addTest(.{
+        .root_module = ordinary_boundary_mod,
+    });
+    const run_ordinary_boundary_tests = b.addRunArtifact(ordinary_boundary_tests);
+
+    const ordinary_contract_cmd = b.addSystemCommand(&.{ "sh", "test/ordinary_zig_contract/run.sh" });
+
+    const ordinary_matrix_mod = b.createModule(.{
+        .root_source_file = b.path("tools/render_ordinary_zig_matrix.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ordinary_matrix_mod.addImport("ordinary_zig_registry", ordinary_registry_mod);
+    const ordinary_matrix_exe = b.addExecutable(.{
+        .name = "shift-ordinary-zig-matrix",
+        .root_module = ordinary_matrix_mod,
+    });
+    const ordinary_matrix_check_cmd = b.addRunArtifact(ordinary_matrix_exe);
+    ordinary_matrix_check_cmd.addArg("check");
+    const ordinary_matrix_check_step = b.step("ordinary-zig-matrix-check", "Check the ordinary-Zig experimental matrix artifact.");
+    ordinary_matrix_check_step.dependOn(&ordinary_matrix_check_cmd.step);
+    const ordinary_matrix_write_cmd = b.addRunArtifact(ordinary_matrix_exe);
+    ordinary_matrix_write_cmd.addArg("write");
+    const ordinary_matrix_write_step = b.step("ordinary-zig-matrix-write", "Refresh the ordinary-Zig experimental matrix artifact.");
+    ordinary_matrix_write_step.dependOn(&ordinary_matrix_write_cmd.step);
+
+    const surface_repl_mod = b.createModule(.{
+        .root_source_file = b.path("tools/render_surface_replacement_matrix.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    surface_repl_mod.addImport("surface_replacement_registry", surface_repl_registry_mod);
+    const surface_repl_exe = b.addExecutable(.{
+        .name = "shift-surface-replacement-matrix",
+        .root_module = surface_repl_mod,
+    });
+    const surface_repl_check_cmd = b.addRunArtifact(surface_repl_exe);
+    surface_repl_check_cmd.addArg("check");
+    const surface_repl_check_step = b.step("surface-replacement-check", "Check the long-horizon surface replacement matrix artifact.");
+    surface_repl_check_step.dependOn(&surface_repl_check_cmd.step);
+    const surface_repl_write_cmd = b.addRunArtifact(surface_repl_exe);
+    surface_repl_write_cmd.addArg("write");
+    const surface_repl_write_step = b.step("surface-replacement-matrix-write", "Refresh the long-horizon surface replacement matrix artifact.");
+    surface_repl_write_step.dependOn(&surface_repl_write_cmd.step);
+
+    const ordinary_gauntlet_step = b.step("ordinary-zig-gauntlet", "Run the ordinary-Zig experimental proof surface.");
+    ordinary_gauntlet_step.dependOn(&run_ordinary_corpus_tests.step);
+    ordinary_gauntlet_step.dependOn(&run_ordinary_boundary_tests.step);
+    ordinary_gauntlet_step.dependOn(&run_lexical_with_tests.step);
+    ordinary_gauntlet_step.dependOn(&ordinary_contract_cmd.step);
+    ordinary_gauntlet_step.dependOn(&ordinary_matrix_check_cmd.step);
+    test_step.dependOn(ordinary_gauntlet_step);
+    test_step.dependOn(&surface_repl_check_cmd.step);
+
     const scorecard_mod = b.createModule(.{
         .root_source_file = b.path("tools/render_surface_truth_scorecard.zig"),
         .target = target,
@@ -660,7 +787,9 @@ pub fn build(b: *std.Build) void {
     });
     example_proof_mod.addImport("example_algebraic_abortive_validation", createShiftConsumerModule(b, "examples/algebraic_abortive_validation.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     example_proof_mod.addImport("example_algebraic_artifact_search", createShiftConsumerModule(b, "examples/algebraic_artifact_search.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    example_proof_mod.addImport("example_define_abort_basic", createShiftConsumerModule(b, "examples/define_abort_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     example_proof_mod.addImport("example_define_basic", createShiftConsumerModule(b, "examples/define_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    example_proof_mod.addImport("example_define_choice_basic", createShiftConsumerModule(b, "examples/define_choice_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     example_proof_mod.addImport("example_early_exit", createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     example_proof_mod.addImport("example_exception_basic", createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     example_proof_mod.addImport("example_generator", createShiftConsumerModule(b, "examples/generator.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
@@ -699,10 +828,22 @@ pub fn build(b: *std.Build) void {
             .step_desc = "Run the algebraic artifact-search example.",
         },
         .{
+            .name = "define_abort_basic",
+            .src = "examples/define_abort_basic.zig",
+            .step_name = "run-define-abort-basic",
+            .step_desc = "Run the lexical generated abort-family example.",
+        },
+        .{
             .name = "define_basic",
             .src = "examples/define_basic.zig",
             .step_name = "run-define-basic",
             .step_desc = "Run the sealed custom-effect definition example.",
+        },
+        .{
+            .name = "define_choice_basic",
+            .src = "examples/define_choice_basic.zig",
+            .step_name = "run-define-choice-basic",
+            .step_desc = "Run the lexical generated choice-family example.",
         },
         .{
             .name = "early_exit",

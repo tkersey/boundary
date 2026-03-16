@@ -1,10 +1,61 @@
 const algebraic = @import("algebraic.zig");
 const family = @import("family.zig");
+const lexical_with = @import("../with_api.zig");
 const shift = @import("../root.zig");
 const std = @import("std");
 
 /// Prompt-backed effect instance for a reader family.
 pub const Instance = family.Instance;
+
+/// Lexical reader handle used by `shift.with(...)`.
+pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
+    return struct {
+        ctx: ?ContextPtrType,
+
+        /// Read the current environment through the lexical handle.
+        pub fn ask(self: @This()) shift.ResetError(family.ContextErrorSetType(ContextPtrType))!family.ContextStateType(ContextPtrType) {
+            return try algebraic.readerAsk(Cap, self.ctx.?);
+        }
+    };
+}
+
+/// Descriptor value used by `shift.with(...)` for the built-in reader family.
+pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) type {
+    return struct {
+        /// Shared error set carried by the lexical reader descriptor.
+        pub const ErrorSet = ErrorSetType;
+        /// Reader lexical descriptors do not surface an extra output value.
+        pub const Output = void;
+
+        environment: StateType,
+
+        /// Resolve the lexical reader handle type for one exact context.
+        pub fn HandleType(comptime Cap: type, comptime ContextPtrType: type) type {
+            return LexicalHandle(Cap, ContextPtrType);
+        }
+
+        /// Bind one lexical reader handle to the active exact context.
+        pub fn bindLexical(self: @This(), comptime Cap: type, ctx: anytype) HandleType(Cap, @TypeOf(ctx)) {
+            _ = self;
+            return .{ .ctx = ctx };
+        }
+
+        /// Run one lexical reader descriptor through the existing reader family.
+        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+            var instance = Instance(StateType, ErrorSetType).init();
+            const result = try handle(AnswerType, runtime, &instance, self.environment, Body);
+            return .{
+                .output = {},
+                .value = result,
+            };
+        }
+    };
+}
+
+/// Create one lexical reader descriptor for `shift.with(...)`.
+pub fn use(comptime ErrorSetType: type, environment: anytype) LexicalDescriptor(@TypeOf(environment), ErrorSetType) {
+    return .{ .environment = environment };
+}
 
 /// Read the current environment value for the supplied capability and handled context.
 pub inline fn ask(

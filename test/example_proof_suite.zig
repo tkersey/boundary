@@ -1,6 +1,8 @@
 const algebraic_abortive_validation = @import("example_algebraic_abortive_validation");
 const algebraic_artifact_search = @import("example_algebraic_artifact_search");
+const define_abort_basic = @import("example_define_abort_basic");
 const define_basic = @import("example_define_basic");
+const define_choice_basic = @import("example_define_choice_basic");
 const early_exit = @import("example_early_exit");
 const exception_basic = @import("example_exception_basic");
 const generator = @import("example_generator");
@@ -23,7 +25,9 @@ fn expectExample(comptime Runner: type, comptime fixture_rel: []const u8) !void 
 test "example proof fixtures stay exact" {
     try expectExample(algebraic_abortive_validation, "example_proof/fixtures/algebraic_abortive_validation.txt");
     try expectExample(algebraic_artifact_search, "example_proof/fixtures/algebraic_artifact_search.txt");
+    try expectExample(define_abort_basic, "example_proof/fixtures/define_abort_basic.txt");
     try expectExample(define_basic, "example_proof/fixtures/define_basic.txt");
+    try expectExample(define_choice_basic, "example_proof/fixtures/define_choice_basic.txt");
     try expectExample(early_exit, "example_proof/fixtures/early_exit.txt");
     try expectExample(exception_basic, "example_proof/fixtures/exception_basic.txt");
     try expectExample(generator, "example_proof/fixtures/generator.txt");

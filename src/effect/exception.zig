@@ -1,11 +1,61 @@
 const algebraic = @import("algebraic.zig");
 const family = @import("family.zig");
+const lexical_with = @import("../with_api.zig");
 const shift = @import("../root.zig");
 const std = @import("std");
 
 /// Prompt-backed effect instance for an exception family.
 pub fn Instance(comptime PayloadType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.direct_return, PayloadType, ErrorSetType);
+}
+
+/// Lexical exception handle used by `shift.with(...)`.
+pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
+    return struct {
+        ctx: ?ContextPtrType,
+
+        /// Throw one payload through the lexical exception handle.
+        pub fn throw(self: @This(), payload: family.ContextStateType(ContextPtrType)) shift.ResetError(family.ContextErrorSetType(ContextPtrType))!noreturn {
+            return try algebraic.throwException(Cap, self.ctx.?, payload);
+        }
+    };
+}
+
+/// Descriptor value used by `shift.with(...)` for the built-in exception family.
+pub fn LexicalDescriptor(comptime PayloadType: type, comptime ErrorSetType: type, comptime Catch: type) type {
+    return struct {
+        /// Shared error set carried by the lexical exception descriptor.
+        pub const ErrorSet = ErrorSetType;
+        /// Exception lexical descriptors do not surface an extra output value.
+        pub const Output = void;
+
+        /// Resolve the lexical exception handle type for one exact context.
+        pub fn HandleType(comptime Cap: type, comptime ContextPtrType: type) type {
+            return LexicalHandle(Cap, ContextPtrType);
+        }
+
+        /// Bind one lexical exception handle to the active exact context.
+        pub fn bindLexical(self: @This(), comptime Cap: type, ctx: anytype) HandleType(Cap, @TypeOf(ctx)) {
+            _ = self;
+            return .{ .ctx = ctx };
+        }
+
+        /// Run one lexical exception descriptor through the existing exception family.
+        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+            _ = self;
+            var instance = Instance(PayloadType, ErrorSetType).init();
+            const result = try handle(AnswerType, runtime, &instance, Catch, Body);
+            return .{
+                .output = {},
+                .value = result,
+            };
+        }
+    };
+}
+
+/// Create one lexical exception descriptor for `shift.with(...)`.
+pub fn use(comptime PayloadType: type, comptime ErrorSetType: type, comptime Catch: type) LexicalDescriptor(PayloadType, ErrorSetType, Catch) {
+    return .{};
 }
 
 /// Throw one payload through the supplied capability and handled context.

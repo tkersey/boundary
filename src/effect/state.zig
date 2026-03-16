@@ -1,5 +1,6 @@
 const algebraic = @import("algebraic.zig");
 const family = @import("family.zig");
+const lexical_with = @import("../with_api.zig");
 const shift = @import("../root.zig");
 const std = @import("std");
 
@@ -8,6 +9,61 @@ pub const Instance = family.Instance;
 
 /// Final state plus body answer returned from a handled state program.
 pub const HandleResult = family.HandleResult;
+
+/// Lexical state handle used by `shift.with(...)`.
+pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
+    return struct {
+        ctx: ?ContextPtrType,
+
+        /// Read the current state value through the lexical handle.
+        pub fn get(self: @This()) shift.ResetError(family.ContextErrorSetType(ContextPtrType))!family.ContextStateType(ContextPtrType) {
+            return try algebraic.stateGet(Cap, self.ctx.?);
+        }
+
+        /// Replace the current state value through the lexical handle.
+        pub fn set(self: @This(), value: family.ContextStateType(ContextPtrType)) shift.ResetError(family.ContextErrorSetType(ContextPtrType))!void {
+            try algebraic.stateSet(Cap, self.ctx.?, value);
+        }
+    };
+}
+
+/// Descriptor value used by `shift.with(...)` for the built-in state family.
+pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) type {
+    return struct {
+        /// Shared error set carried by the lexical state descriptor.
+        pub const ErrorSet = ErrorSetType;
+        /// Final state output produced by the lexical state descriptor.
+        pub const Output = StateType;
+
+        initial_state: StateType,
+
+        /// Resolve the lexical state handle type for one exact context.
+        pub fn HandleType(comptime Cap: type, comptime ContextPtrType: type) type {
+            return LexicalHandle(Cap, ContextPtrType);
+        }
+
+        /// Bind one lexical state handle to the active exact context.
+        pub fn bindLexical(self: @This(), comptime Cap: type, ctx: anytype) HandleType(Cap, @TypeOf(ctx)) {
+            _ = self;
+            return .{ .ctx = ctx };
+        }
+
+        /// Run one lexical state descriptor through the existing state family.
+        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+            var instance = Instance(StateType, ErrorSetType).init();
+            const result = try handle(AnswerType, runtime, &instance, self.initial_state, Body);
+            return .{
+                .output = result.state,
+                .value = result.value,
+            };
+        }
+    };
+}
+
+/// Create one lexical state descriptor for `shift.with(...)`.
+pub fn use(comptime ErrorSetType: type, initial_state: anytype) LexicalDescriptor(@TypeOf(initial_state), ErrorSetType) {
+    return .{ .initial_state = initial_state };
+}
 
 /// Read the current state value for the supplied capability and handled context.
 pub inline fn get(

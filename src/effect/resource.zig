@@ -1,11 +1,61 @@
 const algebraic = @import("algebraic.zig");
 const family = @import("family.zig");
+const lexical_with = @import("../with_api.zig");
 const shift = @import("../root.zig");
 const std = @import("std");
 
 /// Prompt-backed effect instance for a bracketed resource family.
 pub fn Instance(comptime ResourceType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.resume_then_transform, ResourceType, ErrorSetType);
+}
+
+/// Lexical resource handle used by `shift.with(...)`.
+pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
+    return struct {
+        ctx: ?ContextPtrType,
+
+        /// Acquire one resource through the lexical handle.
+        pub fn acquire(self: @This()) shift.ResetError(family.ContextErrorSetType(ContextPtrType))!family.ContextStateType(ContextPtrType) {
+            return try algebraic.acquireResource(Cap, self.ctx.?);
+        }
+    };
+}
+
+/// Descriptor value used by `shift.with(...)` for the built-in resource family.
+pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: type, comptime Manager: type) type {
+    return struct {
+        /// Shared error set carried by the lexical resource descriptor.
+        pub const ErrorSet = ErrorSetType;
+        /// Resource lexical descriptors do not surface an extra output value.
+        pub const Output = void;
+
+        /// Resolve the lexical resource handle type for one exact context.
+        pub fn HandleType(comptime Cap: type, comptime ContextPtrType: type) type {
+            return LexicalHandle(Cap, ContextPtrType);
+        }
+
+        /// Bind one lexical resource handle to the active exact context.
+        pub fn bindLexical(self: @This(), comptime Cap: type, ctx: anytype) HandleType(Cap, @TypeOf(ctx)) {
+            _ = self;
+            return .{ .ctx = ctx };
+        }
+
+        /// Run one lexical resource descriptor through the existing resource family.
+        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+            _ = self;
+            var instance = Instance(ResourceType, ErrorSetType).init();
+            const result = try handle(AnswerType, runtime, &instance, Manager, Body);
+            return .{
+                .output = {},
+                .value = result,
+            };
+        }
+    };
+}
+
+/// Create one lexical resource descriptor for `shift.with(...)`.
+pub fn use(comptime ResourceType: type, comptime ErrorSetType: type, comptime Manager: type) LexicalDescriptor(ResourceType, ErrorSetType, Manager) {
+    return .{};
 }
 
 /// Acquire one resource under the supplied capability and handled context.

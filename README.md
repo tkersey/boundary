@@ -69,6 +69,9 @@ zig build authoring-lowering-check
 zig build structured-program-suite
 zig build direct-style-bridge-parity
 zig build direct-style-boundary
+zig build ordinary-zig-gauntlet
+zig build surface-replacement-matrix-write
+zig build surface-replacement-check
 zig build runtime-route-matrix-write
 zig build runtime-route-matrix-check
 zig build runtime-obligation-matrix-write
@@ -131,6 +134,12 @@ one of these proof surfaces:
   the supported direct-style bridge corpus
 - `zig build direct-style-boundary` for explicit boundary checks around
   unsupported unchanged direct-style shapes
+- `zig build ordinary-zig-gauntlet` for the current promised-wave ordinary-Zig
+  contract over direct source fixtures plus the internal restricted-lowering
+  path
+- `zig build surface-replacement-check` for the checked long-horizon replacement
+  ledger that blocks the eventual canonical ordinary-body cutover until every
+  current witness/example/effect target has parity coverage
 - `zig build runtime-route-matrix-check` for the checked execution-route matrix
   that records whether supported cases are still replayed or now run through
   the shared lowered machine
@@ -569,6 +578,14 @@ The internal structured-program scaffolding layer is `src/program_frontend.zig`.
 corpus lowers into canonical scenarios and executes correctly. The current raw
 direct-style boundary is documented in `docs/direct_style_boundary.md` and
 checked by `zig build direct-style-boundary`.
+
+`docs/ordinary_zig_contract.md` is the versioned contract for the current
+ordinary-Zig experimental track. `zig build ordinary-zig-gauntlet` is the
+green-only gate for the currently promised ordinary-Zig wave, and
+`tools/render_surface_replacement_matrix.zig` renders the checked
+`docs/surface_replacement_matrix.json` ledger that tracks the long-horizon
+ordinary-body replacement bar for current witnesses, examples, and effect
+surfaces.
 
 `src/program_bridge.zig` is the current hidden-backend bridge for the supported
 unchanged direct-style subset, and `src/private_lowered_runtime.zig` is the

@@ -1,5 +1,6 @@
 const algebraic = @import("algebraic.zig");
 const family = @import("family.zig");
+const lexical_with = @import("../with_api.zig");
 const shift = @import("../root.zig");
 const std = @import("std");
 
@@ -62,6 +63,56 @@ pub fn HandleResult(comptime ItemType: type, comptime ValueType: type) type {
         items: []ItemType,
         value: ValueType,
     };
+}
+
+/// Lexical writer handle used by `shift.with(...)`.
+pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type, comptime ItemType: type) type {
+    return struct {
+        ctx: ?ContextPtrType,
+
+        /// Append one item through the lexical writer handle.
+        pub fn tell(self: @This(), item: ItemType) shift.ResetError(family.ContextErrorSetType(ContextPtrType))!void {
+            try algebraic.writerTell(Cap, self.ctx.?, item);
+        }
+    };
+}
+
+/// Descriptor value used by `shift.with(...)` for the built-in writer family.
+pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) type {
+    return struct {
+        /// Shared error set carried by the lexical writer descriptor.
+        pub const ErrorSet = ErrorSetType;
+        /// Final writer log output produced by the lexical writer descriptor.
+        pub const Output = []ItemType;
+
+        allocator: std.mem.Allocator,
+
+        /// Resolve the lexical writer handle type for one exact context.
+        pub fn HandleType(comptime Cap: type, comptime ContextPtrType: type) type {
+            return LexicalHandle(Cap, ContextPtrType, ItemType);
+        }
+
+        /// Bind one lexical writer handle to the active exact context.
+        pub fn bindLexical(self: @This(), comptime Cap: type, ctx: anytype) HandleType(Cap, @TypeOf(ctx)) {
+            _ = self;
+            return .{ .ctx = ctx };
+        }
+
+        /// Run one lexical writer descriptor through the existing writer family.
+        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+            var instance = Instance(ItemType, ErrorSetType).init();
+            const result = try handle(ItemType, AnswerType, runtime, &instance, self.allocator, Body);
+            return .{
+                .output = result.items,
+                .value = result.value,
+            };
+        }
+    };
+}
+
+/// Create one lexical writer descriptor for `shift.with(...)`.
+pub fn use(comptime ItemType: type, comptime ErrorSetType: type, allocator: std.mem.Allocator) LexicalDescriptor(ItemType, ErrorSetType) {
+    return .{ .allocator = allocator };
 }
 
 /// Append one item to the current writer log.

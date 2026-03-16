@@ -15,9 +15,11 @@ example_rows() {
   cat <<'EOF'
 algebraic_abortive_validation.zig|primary|run-algebraic-abortive-validation|algebraic_abortive_validation.txt
 algebraic_artifact_search.zig|primary|run-algebraic-artifact-search|algebraic_artifact_search.txt
+define_abort_basic.zig|primary|run-define-abort-basic|define_abort_basic.txt
 early_exit.zig|primary|run-early-exit|early_exit.txt
 exception_basic.zig|primary|run-exception-basic|exception_basic.txt
 define_basic.zig|primary|run-define-basic|define_basic.txt
+define_choice_basic.zig|primary|run-define-choice-basic|define_choice_basic.txt
 generator.zig|extra|run-generator|generator.txt
 nested_workflow.zig|primary|run-nested-workflow|nested_workflow.txt
 optional_basic.zig|primary|run-optional-basic|optional_basic.txt

@@ -1,0 +1,21 @@
+/// Stable ordinary-Zig case id.
+pub const ordinary_case_id = "ordinary.nested_prompt_static_redelim";
+
+fn inner(writer: anytype) anyerror!i32 {
+    try writer.writeAll("inner=enter\n");
+    try writer.writeAll("inner=exit\n");
+    return 7;
+}
+
+fn outer(writer: anytype) anyerror!i32 {
+    try writer.writeAll("outer=enter\n");
+    const inner_value = try inner(writer);
+    try writer.writeAll("outer=exit\n");
+    return inner_value + 5;
+}
+
+/// Run the nested static re-delimitation case with ordinary Zig control flow.
+pub fn run(writer: anytype) anyerror!void {
+    const answer = try outer(writer);
+    try writer.print("final={d}\n", .{answer});
+}

@@ -68,7 +68,6 @@ test "algebraic descriptor and context shells stay compact" {
 test "generated effect family shell stays compact and hides context" {
     const NoError = error{};
     const Counter = shift.effect.Define(.{
-        .mode = shift.PromptMode.resume_then_transform,
         .state_type = i32,
         .error_set_type = NoError,
         .ops = .{

@@ -6,6 +6,7 @@ pub const Surface = enum {
     algebraic,
     effect,
     example,
+    ordinary,
     witness,
 };
 
@@ -21,6 +22,14 @@ pub const ScenarioId = enum {
     multi_prompt,
     nested_workflow_publish,
     optional_basic,
+    ordinary_branch_resume,
+    ordinary_defer_resume,
+    ordinary_errdefer_error,
+    ordinary_helper_call_resume,
+    ordinary_local_mutation_resume,
+    ordinary_loop_resume,
+    ordinary_static_redelim,
+    ordinary_typed_error_try,
     reader_basic,
     resource_basic,
     resume_or_return,
@@ -524,6 +533,74 @@ const state_basic_steps = [_]Step{
     .{ .emit = .{ .note = "value=11" } },
 };
 
+const ordinary_local_mutation_steps = [_]Step{
+    .{ .emit = .{ .note = "local=1" } },
+    .{ .emit = .{ .note = "resume=41" } },
+    .{ .emit = .{ .note = "local=42" } },
+    .{ .set_final = .{ .i32 = 42 } },
+    .{ .emit = .{ .note = "final=42" } },
+};
+
+const ordinary_branch_steps = [_]Step{
+    .{ .emit = .{ .note = "branch=before" } },
+    .{ .emit = .{ .note = "branch=taken" } },
+    .{ .emit = .{ .note = "resume=41" } },
+    .{ .emit = .{ .note = "branch=after" } },
+    .{ .set_final = .{ .i32 = 42 } },
+    .{ .emit = .{ .note = "final=42" } },
+};
+
+const ordinary_loop_steps = [_]Step{
+    .{ .emit = .{ .note = "loop=0" } },
+    .{ .emit = .{ .note = "loop=1" } },
+    .{ .emit = .{ .note = "resume=41" } },
+    .{ .emit = .{ .note = "loop=done" } },
+    .{ .set_final = .{ .i32 = 42 } },
+    .{ .emit = .{ .note = "final=42" } },
+};
+
+const ordinary_helper_steps = [_]Step{
+    .{ .emit = .{ .note = "helper=enter" } },
+    .{ .emit = .{ .note = "resume=41" } },
+    .{ .emit = .{ .note = "helper=exit" } },
+    .{ .set_final = .{ .i32 = 42 } },
+    .{ .emit = .{ .note = "final=42" } },
+};
+
+const ordinary_nested_steps = [_]Step{
+    .{ .emit = .{ .note = "outer=enter" } },
+    .{ .emit = .{ .note = "inner=enter" } },
+    .{ .emit = .{ .note = "inner=exit" } },
+    .{ .emit = .{ .note = "outer=exit" } },
+    .{ .set_final = .{ .i32 = 12 } },
+    .{ .emit = .{ .note = "final=12" } },
+};
+
+const ordinary_typed_error_steps = [_]Step{
+    .{ .emit = .{ .note = "branch=ok" } },
+    .{ .emit = .{ .note = "value=42" } },
+    .{ .emit = .{ .note = "branch=err" } },
+    .{ .emit = .{ .note = "error=boom" } },
+    .{ .set_final = .{ .string = "error=boom" } },
+    .{ .emit = .{ .note = "final=error=boom" } },
+};
+
+const ordinary_defer_steps = [_]Step{
+    .{ .emit = .{ .note = "body=enter" } },
+    .{ .emit = .{ .note = "resume=41" } },
+    .{ .emit = .{ .note = "defer=cleanup" } },
+    .{ .set_final = .{ .i32 = 42 } },
+    .{ .emit = .{ .note = "final=42" } },
+};
+
+const ordinary_errdefer_steps = [_]Step{
+    .{ .emit = .{ .note = "body=enter" } },
+    .{ .emit = .{ .note = "errdefer=cleanup" } },
+    .{ .emit = .{ .note = "error=boom" } },
+    .{ .set_final = .{ .string = "error=boom" } },
+    .{ .emit = .{ .note = "final=error=boom" } },
+};
+
 const alg_abort_steps = [_]Step{
     .{ .emit = .{ .note = "validate=name" } },
     .{ .emit = .{ .note = "abort=missing-name" } },
@@ -727,6 +804,62 @@ pub const scenarios = [_]Scenario{
         .scenario_id = .state_basic,
         .surface = .effect,
         .steps = &state_basic_steps,
+    },
+    .{
+        .case_id = "ordinary.local_mutation_resume",
+        .expected_transcript = "local=1\nresume=41\nlocal=42\nfinal=42\n",
+        .scenario_id = .ordinary_local_mutation_resume,
+        .surface = .ordinary,
+        .steps = &ordinary_local_mutation_steps,
+    },
+    .{
+        .case_id = "ordinary.branch_resume",
+        .expected_transcript = "branch=before\nbranch=taken\nresume=41\nbranch=after\nfinal=42\n",
+        .scenario_id = .ordinary_branch_resume,
+        .surface = .ordinary,
+        .steps = &ordinary_branch_steps,
+    },
+    .{
+        .case_id = "ordinary.loop_resume",
+        .expected_transcript = "loop=0\nloop=1\nresume=41\nloop=done\nfinal=42\n",
+        .scenario_id = .ordinary_loop_resume,
+        .surface = .ordinary,
+        .steps = &ordinary_loop_steps,
+    },
+    .{
+        .case_id = "ordinary.helper_call_resume",
+        .expected_transcript = "helper=enter\nresume=41\nhelper=exit\nfinal=42\n",
+        .scenario_id = .ordinary_helper_call_resume,
+        .surface = .ordinary,
+        .steps = &ordinary_helper_steps,
+    },
+    .{
+        .case_id = "ordinary.nested_prompt_static_redelim",
+        .expected_transcript = "outer=enter\ninner=enter\ninner=exit\nouter=exit\nfinal=12\n",
+        .scenario_id = .ordinary_static_redelim,
+        .surface = .ordinary,
+        .steps = &ordinary_nested_steps,
+    },
+    .{
+        .case_id = "ordinary.typed_error_try",
+        .expected_transcript = "branch=ok\nvalue=42\nbranch=err\nerror=boom\nfinal=error=boom\n",
+        .scenario_id = .ordinary_typed_error_try,
+        .surface = .ordinary,
+        .steps = &ordinary_typed_error_steps,
+    },
+    .{
+        .case_id = "ordinary.defer_resume",
+        .expected_transcript = "body=enter\nresume=41\ndefer=cleanup\nfinal=42\n",
+        .scenario_id = .ordinary_defer_resume,
+        .surface = .ordinary,
+        .steps = &ordinary_defer_steps,
+    },
+    .{
+        .case_id = "ordinary.errdefer_error",
+        .expected_transcript = "body=enter\nerrdefer=cleanup\nerror=boom\nfinal=error=boom\n",
+        .scenario_id = .ordinary_errdefer_error,
+        .surface = .ordinary,
+        .steps = &ordinary_errdefer_steps,
     },
     .{
         .case_id = "algebraic_abortive_validation",

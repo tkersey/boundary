@@ -1,11 +1,126 @@
 const algebraic = @import("algebraic.zig");
 const family = @import("family.zig");
+const lexical_with = @import("../with_api.zig");
 const shift = @import("../root.zig");
 const std = @import("std");
 
 /// Prompt-backed effect instance for an optional-resumption family.
 pub fn Instance(comptime ResumeType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.resume_or_return, ResumeType, ErrorSetType);
+}
+
+/// Lexical optional handle used by `shift.with(...)`.
+pub fn LexicalHandle(
+    comptime Cap: type,
+    comptime ContextPtrType: type,
+    comptime HandlersType: type,
+    comptime PreviousEffType: type,
+    comptime index: usize,
+) type {
+    const binder_index = index;
+    return struct {
+        ctx: ?ContextPtrType,
+        runtime: ?*shift.Runtime,
+        handlers_ptr: ?*HandlersType,
+        previous_eff: PreviousEffType,
+        outputs_ptr: ?*lexical_with.OutputBundleType(HandlersType),
+
+        /// Request the optional policy decision through the lexical handle and resume through an explicit lexical continuation.
+        pub fn request(self: @This(), comptime Continuation: type) shift.ResetError(family.ContextErrorSetType(ContextPtrType))!lexical_with.ChoiceAnswerType(Continuation) {
+            const Handle = @This();
+            const ResumeType = family.ContextStateType(ContextPtrType);
+            const AnswerType = lexical_with.ChoiceAnswerType(Continuation);
+
+            const request_state = struct {
+                threadlocal var active_handle: ?Handle = null;
+
+                /// Re-enter the lexical continuation after one optional resume.
+                pub fn apply(value: ResumeType) shift.ResetError(family.ContextErrorSetType(ContextPtrType))!AnswerType {
+                    const current_handle = active_handle.?;
+                    return try lexical_with.continueChoice(
+                        HandlersType,
+                        binder_index,
+                        .{
+                            .runtime = current_handle.runtime.?,
+                            .handlers_ptr = current_handle.handlers_ptr.?,
+                            .previous_eff = current_handle.previous_eff,
+                            .current_handle = current_handle,
+                            .outputs_ptr = current_handle.outputs_ptr.?,
+                        },
+                        Continuation,
+                        value,
+                    );
+                }
+            };
+
+            const previous_handle = request_state.active_handle;
+            request_state.active_handle = self;
+            defer request_state.active_handle = previous_handle;
+
+            const authored = algebraic.optionalRequestBoundProgram(Cap, self.ctx.?, request_state);
+            authored.activate();
+            defer authored.deactivate();
+            return try shift.frontend.run(self.runtime.?, authored.prompt, authored.program);
+        }
+    };
+}
+
+/// Descriptor value used by `shift.with(...)` for the built-in optional family.
+pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type, comptime Policy: type) type {
+    return struct {
+        /// Shared error set carried by the lexical optional descriptor.
+        pub const ErrorSet = ErrorSetType;
+        /// Optional lexical descriptors do not surface an extra output value.
+        pub const Output = void;
+
+        /// Resolve the lexical optional handle type for one exact context.
+        pub fn HandleType(
+            comptime Cap: type,
+            comptime ContextPtrType: type,
+            comptime HandlersType: type,
+            comptime PreviousEffType: type,
+            comptime index: usize,
+        ) type {
+            return LexicalHandle(Cap, ContextPtrType, HandlersType, PreviousEffType, index);
+        }
+
+        /// Bind one lexical optional handle to the active exact context.
+        pub fn bindLexical(
+            self: @This(),
+            comptime Cap: type,
+            ctx: anytype,
+            runtime: *shift.Runtime,
+            handlers_ptr: anytype,
+            previous_eff: anytype,
+            outputs_ptr: anytype,
+            comptime index: usize,
+        ) HandleType(Cap, @TypeOf(ctx), @TypeOf(handlers_ptr.*), @TypeOf(previous_eff), index) {
+            _ = self;
+            return .{
+                .ctx = ctx,
+                .runtime = runtime,
+                .handlers_ptr = handlers_ptr,
+                .previous_eff = previous_eff,
+                .outputs_ptr = outputs_ptr,
+            };
+        }
+
+        /// Run one lexical optional descriptor through the continuation-taking lexical optional family.
+        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+            _ = self;
+            var instance = Instance(ResumeType, ErrorSetType).init();
+            const result = try algebraic.handleOptionalLexical(AnswerType, runtime, &instance, Policy, Body);
+            return .{
+                .output = {},
+                .value = result,
+            };
+        }
+    };
+}
+
+/// Create one lexical optional descriptor for `shift.with(...)`.
+pub fn use(comptime ResumeType: type, comptime ErrorSetType: type, comptime Policy: type) LexicalDescriptor(ResumeType, ErrorSetType, Policy) {
+    return .{};
 }
 
 /// Request a policy decision for the supplied capability and handled context.

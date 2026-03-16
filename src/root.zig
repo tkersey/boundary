@@ -6,6 +6,7 @@ pub const effect = @import("effect/root.zig");
 pub const frontend = @import("frontend.zig");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract.zig");
+const with_api = @import("with_api.zig");
 
 /// Comptime-selected handler protocol for a prompt value.
 pub const PromptMode = prompt_contract.PromptMode;
@@ -23,6 +24,11 @@ pub fn ControlError(comptime ErrorSet: type) type {
 /// Reset-time error union for a user-provided error set.
 pub fn ResetError(comptime ErrorSet: type) type {
     return lowered_machine.ResetError(ErrorSet);
+}
+
+/// Canonical lexical result type returned from `shift.with(...)`.
+pub fn WithResult(comptime HandlersType: type, comptime Answer: type) type {
+    return with_api.WithResult(HandlersType, Answer);
 }
 
 /// Handler decision for zero-or-one-resume prompt modes.
@@ -62,12 +68,23 @@ pub fn reset(
     return frontend.run(runtime, prompt, program);
 }
 
+/// Run one ordinary Zig body against a lexical effect-handle bundle.
+pub fn with(
+    runtime: *Runtime,
+    handlers: anytype,
+    comptime Body: type,
+) with_api.WithFnReturnType(@TypeOf(handlers), Body) {
+    return with_api.with(runtime, handlers, Body);
+}
+
 test {
     _ = Prompt;
     _ = PromptMode;
     _ = ResumeOrReturn;
     _ = Runtime;
+    _ = WithResult;
     _ = effect;
     _ = algebraic;
     _ = frontend;
+    _ = with;
 }

@@ -386,6 +386,27 @@ pub fn assertOptionalPolicyType(comptime ResumeType: type, comptime AnswerType: 
     }
 }
 
+/// Assert the lexical policy shape required by a continuation-taking optional family.
+pub fn assertOptionalLexicalPolicyType(comptime ResumeType: type, comptime AnswerType: type, comptime ErrorSetType: type, comptime PolicyType: type) void {
+    const DecisionType = shift.ResumeOrReturn(ResumeType, AnswerType);
+    if (!family.hasDeclSafe(PolicyType, "resumeOrReturn")) {
+        @compileError("lexical optional policy must declare resumeOrReturn");
+    }
+    if (!family.hasDeclSafe(PolicyType, "afterResume")) {
+        @compileError("lexical optional policy must declare afterResume");
+    }
+
+    const ResumeOrReturnFn = @TypeOf(PolicyType.resumeOrReturn);
+    if (ResumeOrReturnFn != fn () DecisionType and ResumeOrReturnFn != fn () shift.ResetError(ErrorSetType)!DecisionType) {
+        @compileError("lexical optional policy resumeOrReturn must have type fn () ResumeOrReturn or fn () ResetError(ErrorSet)!ResumeOrReturn");
+    }
+
+    const AfterFn = @TypeOf(PolicyType.afterResume);
+    if (AfterFn != fn (AnswerType) AnswerType and AfterFn != fn (AnswerType) shift.ResetError(ErrorSetType)!AnswerType) {
+        @compileError("lexical optional policy afterResume must have type fn (Answer) Answer or fn (Answer) ResetError(ErrorSet)!Answer");
+    }
+}
+
 /// Perform the public `optional.request` operation through the shared algebraic engine.
 pub inline fn optionalRequest(
     comptime Cap: type,
@@ -408,6 +429,16 @@ pub inline fn optionalRequestProgram(
 )) {
     comptime family.assertContextType(Cap, @TypeOf(ctx));
     return activeEngineContext(Cap, ctx).bindings.bindingPtr(0).directProgram({}, Continuation);
+}
+
+/// Build one bound optional request program for the supplied capability and continuation.
+pub inline fn optionalRequestBoundProgram(
+    comptime Cap: type,
+    ctx: anytype,
+    comptime Continuation: type,
+) @TypeOf(activeEngineContext(Cap, ctx).performProgram(Cap.RequestOp(), {}, Continuation)) {
+    comptime family.assertContextType(Cap, @TypeOf(ctx));
+    return activeEngineContext(Cap, ctx).performProgram(Cap.RequestOp(), {}, Continuation);
 }
 
 /// Build one explicit optional body program with no request operation.
@@ -491,6 +522,79 @@ pub fn handleOptional(
 
     const contract = struct {
         const PromptTypeV = prompt_contract.Prompt(.resume_or_return, ResumeType, AnswerType, ErrorSetType);
+        const StateTypeV = ResumeType;
+        const AnswerTypeV = AnswerType;
+        const ErrorSetTypeV = ErrorSetType;
+        const capability_decls = capability_meta;
+    };
+    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+}
+
+/// Run a continuation-taking lexical optional family through the shared algebraic engine.
+pub fn handleOptionalLexical(
+    comptime AnswerType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Policy: type,
+    comptime Body: type,
+) shift.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
+    const ResumeType = family.InstanceStateType(@TypeOf(instance));
+    const ErrorSetType = family.InstanceErrorSetType(@TypeOf(instance));
+    comptime assertOptionalLexicalPolicyType(ResumeType, AnswerType, ErrorSetType, Policy);
+
+    const optional_request_op = internal.ChoiceOp("__effect_optional_request", void, ResumeType);
+    const hidden_program = internal.Program(AnswerType, AnswerType, ErrorSetType, .{optional_request_op});
+    const OptionalState = struct {
+        cleanup_marker: ?*cleanup.Frame,
+    };
+    const cleanup_marker = cleanup.checkpoint();
+    const specs = .{
+        internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker }, struct {
+            /// Choose whether the lexical optional request resumes or returns now.
+            pub fn resumeOrReturn(_: OptionalState, _: void) shift.ResetError(ErrorSetType)!shift.ResumeOrReturn(ResumeType, AnswerType) {
+                const DecisionFn = @TypeOf(Policy.resumeOrReturn);
+                if (DecisionFn == fn () shift.ResumeOrReturn(ResumeType, AnswerType)) return Policy.resumeOrReturn();
+                return try Policy.resumeOrReturn();
+            }
+
+            /// Finish one resumed lexical optional answer by applying cleanup and the policy's final answer transform.
+            pub fn afterResume(state: OptionalState, answer: AnswerType) shift.ResetError(ErrorSetType)!AnswerType {
+                if (cleanup.checkpoint() != state.cleanup_marker) {
+                    cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
+                }
+                const AfterFn = @TypeOf(Policy.afterResume);
+                if (AfterFn == fn (AnswerType) AnswerType) return Policy.afterResume(answer);
+                return try Policy.afterResume(answer);
+            }
+        }),
+    };
+    const configured = hidden_program.handlers(specs);
+    const GeneratedEngineContextType = @TypeOf(configured).Context;
+    const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, ErrorSetType);
+    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
+
+    const capability_meta = struct {
+        const body_tag = Body;
+
+        /// Hidden lexical optional policy metadata carried by the exact context.
+        pub fn PolicyType() type {
+            return Policy;
+        }
+
+        /// Shared engine context type used by the lexical optional exact context.
+        pub fn EngineContextType() type {
+            return GeneratedEngineContextType;
+        }
+
+        /// Hidden choice op used by the lexical optional exact context.
+        pub fn RequestOp() type {
+            return optional_request_op;
+        }
+    };
+
+    const contract = struct {
+        const PromptTypeV = prompt_contract.Prompt(.resume_or_return, AnswerType, AnswerType, ErrorSetType);
         const StateTypeV = ResumeType;
         const AnswerTypeV = AnswerType;
         const ErrorSetTypeV = ErrorSetType;

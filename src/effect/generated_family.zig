@@ -1,6 +1,7 @@
 const family = @import("family.zig");
 const frontend = @import("../frontend.zig");
 const internal = @import("../internal/algebraic_engine.zig");
+const lexical_with = @import("../with_api.zig");
 const prompt_contract = @import("../prompt_contract.zig");
 const shift = @import("../root.zig");
 const std = @import("std");
@@ -89,16 +90,35 @@ fn afterMethodName(comptime op_name: []const u8) []const u8 {
     return buffer[0..len];
 }
 
-fn opName(comptime Op: type) [:0]const u8 { return Op.op_name; }
-fn opMode(comptime Op: type) prompt_contract.PromptMode { return Op.mode; }
-fn OpPayloadType(comptime Op: type) type { return Op.Payload; }
-fn OpResumeType(comptime Op: type) type { return Op.Resume; }
+fn opName(comptime Op: type) [:0]const u8 {
+    return Op.op_name;
+}
+fn opMode(comptime Op: type) prompt_contract.PromptMode {
+    return Op.mode;
+}
+fn OpPayloadType(comptime Op: type) type {
+    return Op.Payload;
+}
+fn OpResumeType(comptime Op: type) type {
+    return Op.Resume;
+}
 
 fn assertSpecShape(comptime SpecType: type) void {
-    if (!@hasField(SpecType, "mode")) @compileError("generated effect spec must declare mode");
     if (!@hasField(SpecType, "state_type")) @compileError("generated effect spec must declare state_type");
     if (!@hasField(SpecType, "error_set_type")) @compileError("generated effect spec must declare error_set_type");
     if (!@hasField(SpecType, "ops")) @compileError("generated effect spec must declare ops");
+}
+
+fn inferMode(comptime op_specs: anytype) prompt_contract.PromptMode {
+    if (op_specs.len == 0) @compileError("generated effect families must declare at least one op");
+    const mode = opMode(op_specs[0]);
+    inline for (op_specs, 0..) |Op, index| {
+        if (index == 0) continue;
+        if (opMode(Op) != mode) {
+            @compileError("generated effect families support one prompt mode per family");
+        }
+    }
+    return mode;
 }
 
 fn isIdentifierStart(byte: u8) bool {
@@ -389,10 +409,16 @@ pub fn Build(comptime spec: anytype) type {
     const SpecType = @TypeOf(spec);
     comptime @setEvalBranchQuota(20_000);
     comptime assertSpecShape(SpecType);
-    const mode: prompt_contract.PromptMode = spec.mode;
     const StateType: type = spec.state_type;
     const ErrorSetType: type = spec.error_set_type;
     const op_specs = spec.ops;
+    const inferred_mode = comptime inferMode(op_specs);
+    const mode: prompt_contract.PromptMode = if (@hasField(SpecType, "mode")) blk: {
+        if (spec.mode != inferred_mode) {
+            @compileError("generated effect explicit mode must match inferred op mode");
+        }
+        break :blk spec.mode;
+    } else inferred_mode;
     comptime {
         if (op_specs.len == 0) @compileError("generated effect families must declare at least one op");
         if (op_specs.len > 8) @compileError("generated effect families currently support at most 8 ops");
@@ -545,6 +571,144 @@ pub fn Build(comptime spec: anytype) type {
             const shim = family.EngineShim(ContextType, EngineContextType);
             _ = ctx._cap;
             return shim.active_engine.?;
+        }
+
+        /// Lexical handle used by `shift.with(...)` for generated families.
+        pub fn LexicalHandle(
+            comptime Cap: type,
+            comptime ContextPtrType: type,
+            comptime HandlersType: type,
+            comptime PreviousEffType: type,
+            comptime index: usize,
+        ) type {
+            return struct {
+                const Handle = @This();
+
+                ctx: ?ContextPtrType,
+                runtime: ?*shift.Runtime,
+                handlers_ptr: ?*HandlersType,
+                previous_eff: PreviousEffType,
+                outputs_ptr: ?*lexical_with.OutputBundleType(HandlersType),
+
+                /// Perform one payload-carrying generated lexical choice op.
+                pub fn perform(self: Handle, comptime tag: OpTag, payload: anytype, comptime Continuation: type) shift.ResetError(ErrorSetType)!lexical_with.ChoiceAnswerType(Continuation) {
+                    comptime if (mode != .resume_or_return) @compileError("generated lexical perform(tag, payload, Continuation) only exists for choice families");
+                    const request_state = struct {
+                        threadlocal var active_handle: ?Handle = null;
+
+                        /// Re-enter the lexical continuation after one generated choice resume.
+                        pub fn apply(value: OpResumeType(OpType(op_specs, tag))) shift.ResetError(ErrorSetType)!lexical_with.ChoiceAnswerType(Continuation) {
+                            const current_handle = active_handle.?;
+                            return try lexical_with.continueChoice(
+                                HandlersType,
+                                index,
+                                .{
+                                    .runtime = current_handle.runtime.?,
+                                    .handlers_ptr = current_handle.handlers_ptr.?,
+                                    .previous_eff = current_handle.previous_eff,
+                                    .current_handle = current_handle,
+                                    .outputs_ptr = current_handle.outputs_ptr.?,
+                                },
+                                Continuation,
+                                value,
+                            );
+                        }
+                    };
+
+                    const previous_handle = request_state.active_handle;
+                    request_state.active_handle = self;
+                    defer request_state.active_handle = previous_handle;
+
+                    return switch (OpPayloadType(OpType(op_specs, tag))) {
+                        void => blk: {
+                            const authored = Op(tag).program(Cap, self.ctx.?, request_state);
+                            authored.activate();
+                            defer authored.deactivate();
+                            break :blk try frontend.run(self.runtime.?, authored.prompt, authored.program);
+                        },
+                        else => blk: {
+                            const authored = Op(tag).program(Cap, self.ctx.?, payload, request_state);
+                            authored.activate();
+                            defer authored.deactivate();
+                            break :blk try frontend.run(self.runtime.?, authored.prompt, authored.program);
+                        },
+                    };
+                }
+
+                /// Perform one payload-carrying generated lexical abort op.
+                pub fn abort(self: Handle, comptime tag: OpTag, payload: anytype) shift.ResetError(ErrorSetType)!noreturn {
+                    comptime if (mode != .direct_return) @compileError("generated lexical abort(tag, payload) only exists for abort families");
+                    return switch (OpPayloadType(OpType(op_specs, tag))) {
+                        void => try Op(tag).perform(Cap, self.ctx.?),
+                        else => try Op(tag).perform(Cap, self.ctx.?, payload),
+                    };
+                }
+            };
+        }
+
+        /// Descriptor value used by `shift.with(...)` for generated families.
+        pub fn LexicalDescriptor(comptime HandlerType: type) type {
+            return struct {
+                /// Shared error set carried by the generated lexical descriptor.
+                pub const ErrorSet = ErrorSetType;
+                /// Final generated descriptor output; transform families emit final state and control families emit no extra output.
+                pub const Output = if (mode == .resume_then_transform) StateType else void;
+
+                handler: HandlerType,
+
+                /// Resolve the generated lexical handle type for one exact context.
+                pub fn HandleType(
+                    comptime Cap: type,
+                    comptime ContextPtrType: type,
+                    comptime HandlersType: type,
+                    comptime PreviousEffType: type,
+                    comptime index: usize,
+                ) type {
+                    return LexicalHandle(Cap, ContextPtrType, HandlersType, PreviousEffType, index);
+                }
+
+                /// Bind one generated lexical handle bundle to the active exact context and private binder frame.
+                pub fn bindLexical(
+                    self: @This(),
+                    comptime Cap: type,
+                    ctx: anytype,
+                    runtime: *shift.Runtime,
+                    handlers_ptr: anytype,
+                    previous_eff: anytype,
+                    outputs_ptr: anytype,
+                    comptime index: usize,
+                ) HandleType(Cap, @TypeOf(ctx), @TypeOf(handlers_ptr.*), @TypeOf(previous_eff), index) {
+                    _ = self;
+                    return .{
+                        .ctx = ctx,
+                        .runtime = runtime,
+                        .handlers_ptr = handlers_ptr,
+                        .previous_eff = previous_eff,
+                        .outputs_ptr = outputs_ptr,
+                    };
+                }
+
+                /// Run one generated lexical descriptor through the existing generated-family handler path.
+                pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+                    var instance = Instance.init();
+                    const result = try self_type.handle(AnswerType, runtime, &instance, self.handler, Body);
+                    if (mode == .resume_then_transform) {
+                        return .{
+                            .output = result.state,
+                            .value = result.value,
+                        };
+                    }
+                    return .{
+                        .output = {},
+                        .value = result,
+                    };
+                }
+            };
+        }
+
+        /// Create one lexical descriptor for a generated family.
+        pub fn use(config: anytype) LexicalDescriptor(@TypeOf(config.handler)) {
+            return .{ .handler = config.handler };
         }
 
         /// Run one generated family body under a fresh exact context and hidden engine bindings.
