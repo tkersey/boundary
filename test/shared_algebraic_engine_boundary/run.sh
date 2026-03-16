@@ -5,6 +5,8 @@ repo_root="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
 
 rg -q '@import\("internal/algebraic_engine\.zig"\)' "$repo_root/src/algebraic.zig"
 rg -q '@import\("\.\./internal/algebraic_engine\.zig"\)' "$repo_root/src/effect/algebraic.zig"
+rg -q '@import\("\.\./internal/algebraic_engine\.zig"\)' "$repo_root/src/effect/generated_family.zig"
+rg -q '@import\("generated_family\.zig"\)' "$repo_root/src/effect/define.zig"
 
 if rg -n '@import\("kernel\.zig"\)|kernel\.' "$repo_root/src/effect" >/dev/null; then
   echo "shared algebraic engine boundary violated by lingering kernel usage" >&2
@@ -13,6 +15,11 @@ fi
 
 if ! rg -n 'internal\.Program\(' "$repo_root/src/effect/algebraic.zig" >/dev/null; then
   echo "shared algebraic engine boundary missing hidden effect programs" >&2
+  exit 1
+fi
+
+if ! rg -n 'internal\.Program\(' "$repo_root/src/effect/generated_family.zig" >/dev/null; then
+  echo "shared algebraic engine boundary missing generated-family hidden programs" >&2
   exit 1
 fi
 
@@ -29,3 +36,8 @@ do
     exit 1
   fi
 done
+
+if rg -n '@import\("\.\./internal/algebraic_engine\.zig"\)|@import\("cleanup\.zig"\)|@import\("\.\./frontend\.zig"\)' "$repo_root/src/effect/define.zig" >/dev/null; then
+  echo "public define surface bypasses the shared engine/sealing boundary" >&2
+  exit 1
+fi

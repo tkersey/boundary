@@ -1,4 +1,8 @@
 const family = @import("family.zig");
+/// Public sealed custom-effect generator.
+pub const Define = @import("define.zig").Define;
+/// Public op-descriptor namespace for `shift.effect.Define(...)`.
+pub const ops = @import("define.zig").ops;
 /// Exception effect family built on top of the core shift/reset runtime.
 pub const exception = @import("exception.zig");
 /// Optional-resumption effect family built on top of the core shift/reset runtime.
@@ -13,8 +17,10 @@ pub const state = @import("state.zig");
 pub const writer = @import("writer.zig");
 
 test {
+    _ = Define;
     _ = exception;
     _ = family;
+    _ = ops;
     _ = optional;
     _ = reader;
     _ = resource;

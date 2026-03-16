@@ -1,7 +1,7 @@
 {
   "surfaces": [
     {"surface_id":"root.prompt_runtime","surface":"canonical_root","frontier":"lowered_structured","source":"src/root.zig","note":"The canonical root now executes on the lowered runtime path directly."},
-    {"surface_id":"effect.public_families","surface":"canonical_effect","frontier":"lowered_structured","source":"src/effect/root.zig","note":"Public effect families now execute on top of the lowered runtime surface."},
+    {"surface_id":"effect.public_families","surface":"canonical_effect","frontier":"lowered_structured","source":"src/effect/root.zig","note":"Public effect families, including `shift.effect.Define(...)` generated sealed families, now execute on top of the lowered runtime surface."},
     {"surface_id":"algebraic.public_builders","surface":"canonical_algebraic","frontier":"lowered_structured","source":"src/algebraic.zig","note":"Public algebraic builders now execute on top of the lowered runtime surface."},
     {"surface_id":"bridge.supported_corpus","surface":"direct_style_bridge","frontier":"lowered_bridge","source":"src/private_lowered_runtime.zig","note":"The supported bridge corpus already executes through the lowered machine seam."},
     {"surface_id":"compile_fail.public_misuse","surface":"compile_fail","frontier":"compile_boundary","source":"test/compile_fail/run.sh","note":"Compile-fail misuse fixtures prove public boundary and type-shape behavior."},

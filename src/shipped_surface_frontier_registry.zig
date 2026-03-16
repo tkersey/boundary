@@ -29,7 +29,7 @@ pub const surfaces = [_]Surface{
         .surface = "canonical_effect",
         .frontier = .lowered_structured,
         .source = "src/effect/root.zig",
-        .note = "Public effect families now execute on top of the lowered runtime surface.",
+        .note = "Public effect families, including `shift.effect.Define(...)` generated sealed families, now execute on top of the lowered runtime surface.",
     },
     .{
         .surface_id = "algebraic.public_builders",

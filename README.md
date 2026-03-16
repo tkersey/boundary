@@ -171,6 +171,11 @@ The additive effect-family contract is now:
   - `shift.effect.exception.throw(Cap, ctx, payload)`
   - `shift.effect.resource.acquire(Cap, ctx)`
   - `shift.effect.writer.tell(Cap, ctx, item)`
+- user-defined sealed families are available through `shift.effect.Define(.{ ... })`
+  with `shift.effect.ops.Transform(...)`, `shift.effect.ops.Choice(...)`, and
+  `shift.effect.ops.Abort(...)`
+- generated families expose `Instance`, `computeProgram`, `handle`, `OpTag`,
+  `definition`, `proof`, and `Op(.tag).perform(...)` / `Op(.tag).program(...)`
 - forged or cross-instance contexts fail at compile time; see:
   - `effect_exception_forged_context_throw_fails.zig`
   - `effect_state_forged_context_get_fails.zig`
@@ -178,6 +183,8 @@ The additive effect-family contract is now:
   - `effect_optional_forged_context_request_fails.zig`
   - `effect_resource_forged_context_acquire_fails.zig`
   - `effect_writer_forged_context_tell_fails.zig`
+  - `effect_define_forged_context_fails.zig`
+  - `effect_define_cross_instance_context_fails.zig`
 
 The additive public algebraic-builder contract is now:
 
@@ -286,6 +293,18 @@ yield=3
 done=3
 ```
 
+### `define_basic`
+
+```bash
+zig build run-define-basic
+```
+
+Expected output:
+
+```text
+counter=6
+```
+
 ### `reader_effect`
 
 ```bash
@@ -390,7 +409,10 @@ The strict effect families now use helper-based bodies of the form
 plus `shift.effect.optional.request(Cap, ctx)`,
 `shift.effect.exception.throw(Cap, ctx, payload)`, and
 `shift.effect.resource.acquire(Cap, ctx)`, plus
-`shift.effect.writer.tell(Cap, ctx, item)`.
+`shift.effect.writer.tell(Cap, ctx, item)`. User-defined sealed families are
+declared with `shift.effect.Define(.{ ... })` and expose
+`Op(.tag).perform(...)` or `Op(.tag).program(...)` over the same exact-context
+boundary.
 
 The generalized construction boundary is checked by:
 
@@ -403,6 +425,9 @@ The current prompt-mode coverage at the effect layer is:
 - `.resume_then_transform`: `state`, `reader`, `resource`, `writer`
 - `.resume_or_return`: `optional`
 - `.direct_return`: `exception`
+- `shift.effect.Define(.{ ... })`: user-defined sealed families for one chosen
+  non-resource mode per family (`.resume_then_transform`, `.resume_or_return`,
+  or `.direct_return`)
 
 ## Benchmark Contract
 

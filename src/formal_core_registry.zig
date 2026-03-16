@@ -71,7 +71,7 @@ const multi_prompt_paragraphs = [_][]const u8{
 };
 
 const practical_witnesses_paragraphs = [_][]const u8{
-    "The repo keeps one extra practical witness, `generator`, plus primary exact-output examples for `early_exit`, `resume_or_return`, `nested_workflow`, `exception_basic`, `optional_basic`, `reader_basic`, `resource_basic`, `state_basic`, and `writer_basic`.",
+    "The repo keeps one extra practical witness, `generator`, plus primary exact-output examples for `define_basic`, `early_exit`, `resume_or_return`, `nested_workflow`, `exception_basic`, `optional_basic`, `reader_basic`, `resource_basic`, `state_basic`, and `writer_basic`.",
     "The lowered proof engine is checked by `zig build backend-parity`. `src/parity_scenarios.zig` is the canonical lowered proof registry, `src/parity_kernel.zig` interprets it, and `src/parity_machine.zig` is only a facade over that kernel. The exact-output fixture artifacts are rendered from the same registry by `zig build proof-fixtures-write` and checked by `zig build proof-fixtures-check`. This remains hidden internal infrastructure beneath the canonical public `shift/reset` surface, not a public fallback runtime.",
 };
 
@@ -81,6 +81,7 @@ const resource_bracketing_paragraphs = [_][]const u8{
 
 const effect_capability_paragraphs = [_][]const u8{
     "The shipped additive families are `shift.effect.state`, `shift.effect.reader`, `shift.effect.optional`, `shift.effect.exception`, `shift.effect.resource`, and `shift.effect.writer`. They all rely on an exact private context type plus a fresh capability witness minted inside the family handler. Public operations are helper-based:\n\n- `shift.effect.state.get(Cap, ctx)` / `shift.effect.state.set(Cap, ctx, value)`\n- `shift.effect.reader.ask(Cap, ctx)`\n- `shift.effect.optional.request(Cap, ctx)`\n- `shift.effect.exception.throw(Cap, ctx, payload)`\n- `shift.effect.resource.acquire(Cap, ctx)`\n- `shift.effect.writer.tell(Cap, ctx, item)`",
+    "`shift.effect.Define(.{ ... })` now lets users mint their own sealed transform, choice, and abort families on top of the same shared engine and exact-context boundary. Generated families export `Instance`, `computeProgram`, `handle`, `OpTag`, `definition`, `proof`, and `Op(.tag).perform(...)` / `Op(.tag).program(...)` helper surfaces without exposing raw contexts or public continuations.",
     "Forgery and cross-instance misuse are witnessed by compile-fail fixtures under `test/compile_fail/`.",
 };
 
@@ -155,7 +156,7 @@ pub const sections = [_]Section{
         .title = "Practical Witnesses",
         .paragraphs = &practical_witnesses_paragraphs,
         .witness_ids = &.{"generator"},
-        .example_ids = &.{ "early_exit", "resume_or_return", "nested_workflow", "exception_basic", "optional_basic", "reader_basic", "resource_basic", "state_basic", "writer_basic" },
+        .example_ids = &.{ "define_basic", "early_exit", "resume_or_return", "nested_workflow", "exception_basic", "optional_basic", "reader_basic", "resource_basic", "state_basic", "writer_basic" },
     },
     .{
         .section_id = .resource_bracketing,
@@ -185,6 +186,8 @@ pub const sections = [_]Section{
             "effect_state_cross_instance_context_fails.zig",
             "effect_reader_cross_instance_context_fails.zig",
             "effect_optional_cross_instance_context_fails.zig",
+            "effect_define_forged_context_fails.zig",
+            "effect_define_cross_instance_context_fails.zig",
         },
     },
 };

@@ -20,6 +20,8 @@ test "guard and continuation surfaces are not public" {
     try std.testing.expect(!@hasDecl(shift, "parity_machine"));
     try std.testing.expect(@hasDecl(shift, "ResumeOrReturn"));
     try std.testing.expect(@hasDecl(shift, "effect"));
+    try std.testing.expect(@hasDecl(shift.effect, "Define"));
+    try std.testing.expect(@hasDecl(shift.effect, "ops"));
     try std.testing.expect(!@hasDecl(shift.effect.state, "Continuation"));
 }
 
@@ -61,4 +63,22 @@ test "algebraic descriptor and context shells stay compact" {
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(search));
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(stop));
     try std.testing.expectEqual(@sizeOf(usize), @sizeOf(Configured.Context));
+}
+
+test "generated effect family shell stays compact and hides context" {
+    const NoError = error{};
+    const Counter = shift.effect.Define(.{
+        .mode = shift.PromptMode.resume_then_transform,
+        .state_type = i32,
+        .error_set_type = NoError,
+        .ops = .{
+            shift.effect.ops.Transform("get", void, i32),
+            shift.effect.ops.Transform("set", i32, void),
+        },
+    });
+
+    try std.testing.expectEqual(@sizeOf(usize), @sizeOf(Counter.Instance));
+    try std.testing.expect(!@hasDecl(Counter, "Context"));
+    try std.testing.expect(@hasDecl(Counter, "definition"));
+    try std.testing.expect(@hasDecl(Counter, "OpTag"));
 }

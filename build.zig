@@ -660,6 +660,7 @@ pub fn build(b: *std.Build) void {
     });
     example_proof_mod.addImport("example_algebraic_abortive_validation", createShiftConsumerModule(b, "examples/algebraic_abortive_validation.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     example_proof_mod.addImport("example_algebraic_artifact_search", createShiftConsumerModule(b, "examples/algebraic_artifact_search.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    example_proof_mod.addImport("example_define_basic", createShiftConsumerModule(b, "examples/define_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     example_proof_mod.addImport("example_early_exit", createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     example_proof_mod.addImport("example_exception_basic", createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     example_proof_mod.addImport("example_generator", createShiftConsumerModule(b, "examples/generator.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
@@ -696,6 +697,12 @@ pub fn build(b: *std.Build) void {
             .src = "examples/algebraic_artifact_search.zig",
             .step_name = "run-algebraic-artifact-search",
             .step_desc = "Run the algebraic artifact-search example.",
+        },
+        .{
+            .name = "define_basic",
+            .src = "examples/define_basic.zig",
+            .step_name = "run-define-basic",
+            .step_desc = "Run the sealed custom-effect definition example.",
         },
         .{
             .name = "early_exit",
