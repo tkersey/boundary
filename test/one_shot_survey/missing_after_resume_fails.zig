@@ -1,7 +1,8 @@
 comptime {
     const shift = @import("shift");
+    const prompt_support = shift.internal;
     const NoError = error{};
-    const DemoPrompt = shift.Prompt(.resume_then_transform, i32, i32, NoError);
+    const DemoPrompt = prompt_support.Prompt(.resume_then_transform, i32, i32, NoError);
 
     const bad_handler = struct {
         /// Supply only half of the required protocol to prove compile-time rejection.
@@ -10,5 +11,5 @@ comptime {
         }
     };
 
-    _ = shift.frontend.perform(i32, @as(*const DemoPrompt, @ptrFromInt(@alignOf(DemoPrompt))), bad_handler);
+    _ = prompt_support.frontend.perform(i32, @as(*const DemoPrompt, @ptrFromInt(@alignOf(DemoPrompt))), bad_handler);
 }

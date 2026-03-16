@@ -1,5 +1,6 @@
 const shift = @import("shift");
 const std = @import("std");
+const prompt_support = shift.internal;
 
 const NoError = error{};
 const ping = shift.algebraic.TransformOp("ping", void, i32);
@@ -9,8 +10,8 @@ const configured = demo.handlers(.{});
 
 const body = struct {
     /// Provide the compile-fail missing-handler witness program.
-    pub fn program(_: *@TypeOf(configured).Context) @TypeOf(shift.frontend.pureProgram(shift.Prompt(.resume_then_transform, i32, i32, NoError), 0)) {
-        return shift.frontend.pureProgram(shift.Prompt(.resume_then_transform, i32, i32, NoError), 0);
+    pub fn program(_: *@TypeOf(configured).Context) @TypeOf(prompt_support.frontend.pureProgram(prompt_support.Prompt(.resume_then_transform, i32, i32, NoError), 0)) {
+        return prompt_support.frontend.pureProgram(prompt_support.Prompt(.resume_then_transform, i32, i32, NoError), 0);
     }
 };
 

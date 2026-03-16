@@ -37,7 +37,8 @@ pub const rows = [_]Row{
         .current_signal = "parity_scenarios:atm_resume_transform",
         .law_anchor = formal_core.anchorPath(.atm_resume_transform),
         .ordinary_target = "ordinary.witness.atm_resume_transform",
-        .note = "Replace the explicit witness with a canonical ordinary-body transform witness over the same lowered machine.",
+        .status = .canonical,
+        .note = "The ATM witness is now a canonical lexical witness with matching transcript proof and resolved unchanged-body bridge admission.",
     },
     .{
         .replacement_id = "witness.direct_return",
@@ -46,7 +47,8 @@ pub const rows = [_]Row{
         .current_signal = "parity_scenarios:direct_return",
         .law_anchor = formal_core.anchorPath(.direct_return),
         .ordinary_target = "ordinary.witness.direct_return",
-        .note = "Replace the explicit direct-return witness with an ordinary-body canonical witness.",
+        .status = .canonical,
+        .note = "The direct-return witness is now a canonical lexical witness with matching transcript proof and resolved unchanged-body bridge admission.",
     },
     .{
         .replacement_id = "witness.resume_or_return_return_now",
@@ -55,7 +57,8 @@ pub const rows = [_]Row{
         .current_signal = "parity_scenarios:resume_or_return_return_now",
         .law_anchor = formal_core.anchorPath(.optional_resumption),
         .ordinary_target = "ordinary.witness.resume_or_return_return_now",
-        .note = "Replace the explicit return-now witness with an ordinary-body optional-resumption witness.",
+        .status = .canonical,
+        .note = "The return-now witness is now a canonical lexical optional-resumption witness with matching transcript proof and resolved unchanged-body bridge admission.",
     },
     .{
         .replacement_id = "witness.resume_or_return_resume",
@@ -64,7 +67,8 @@ pub const rows = [_]Row{
         .current_signal = "parity_scenarios:resume_or_return_resume",
         .law_anchor = formal_core.anchorPath(.optional_resumption),
         .ordinary_target = "ordinary.witness.resume_or_return_resume",
-        .note = "Replace the explicit single-resume witness with an ordinary-body optional-resumption witness.",
+        .status = .canonical,
+        .note = "The single-resume witness is now a canonical lexical optional-resumption witness with matching transcript proof and resolved unchanged-body bridge admission.",
     },
     .{
         .replacement_id = "witness.static_redelim",
@@ -73,7 +77,8 @@ pub const rows = [_]Row{
         .current_signal = "parity_scenarios:static_redelim",
         .law_anchor = formal_core.anchorPath(.static_redelim),
         .ordinary_target = "ordinary.witness.static_redelim",
-        .note = "Replace the explicit nested prompt witness with an ordinary-body static-re-delimitation witness.",
+        .status = .canonical,
+        .note = "The static re-delimitation witness is now a canonical lexical witness with matching transcript proof and resolved unchanged-body bridge admission.",
     },
     .{
         .replacement_id = "witness.multi_prompt",
@@ -82,7 +87,8 @@ pub const rows = [_]Row{
         .current_signal = "parity_scenarios:multi_prompt",
         .law_anchor = formal_core.anchorPath(.multi_prompt_separation),
         .ordinary_target = "ordinary.witness.multi_prompt",
-        .note = "Replace the explicit multi-prompt witness with an ordinary-body prompt-separation witness.",
+        .status = .canonical,
+        .note = "The multi-prompt witness is now a canonical lexical witness with matching transcript proof and resolved unchanged-body bridge admission.",
     },
     .{
         .replacement_id = "witness.generator",
@@ -91,7 +97,8 @@ pub const rows = [_]Row{
         .current_signal = "parity_scenarios:generator",
         .law_anchor = formal_core.anchorPath(.practical_witnesses),
         .ordinary_target = "ordinary.witness.generator",
-        .note = "Replace the practical generator witness with an ordinary-body canonical form.",
+        .status = .canonical,
+        .note = "The generator witness is now a canonical lexical witness with matching transcript proof and resolved unchanged-body bridge admission.",
     },
     .{
         .replacement_id = "example.define_basic",

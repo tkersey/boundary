@@ -1,6 +1,8 @@
 const shift = @import("shift");
 const std = @import("std");
 
+const prompt_support = shift.internal;
+
 fn hasErrorName(comptime ErrorSet: type, comptime wanted: []const u8) bool {
     inline for (@typeInfo(ErrorSet).error_set.?) |field| {
         if (comptime std.mem.eql(u8, field.name, wanted)) return true;
@@ -10,7 +12,7 @@ fn hasErrorName(comptime ErrorSet: type, comptime wanted: []const u8) bool {
 
 test "prompt shell stays compact" {
     const NoError = error{};
-    const DemoPrompt = shift.Prompt(.resume_then_transform, void, void, NoError);
+    const DemoPrompt = prompt_support.Prompt(.resume_then_transform, void, void, NoError);
     try std.testing.expect(@sizeOf(DemoPrompt) <= @sizeOf(usize));
 }
 
@@ -18,7 +20,7 @@ test "guard and continuation surfaces are not public" {
     try std.testing.expect(!@hasDecl(shift, "NoShiftGuard"));
     try std.testing.expect(!@hasDecl(shift, "Continuation"));
     try std.testing.expect(!@hasDecl(shift, "parity_machine"));
-    try std.testing.expect(@hasDecl(shift, "ResumeOrReturn"));
+    try std.testing.expect(!@hasDecl(shift, "ResumeOrReturn"));
     try std.testing.expect(@hasDecl(shift, "effect"));
     try std.testing.expect(@hasDecl(shift.effect, "Define"));
     try std.testing.expect(@hasDecl(shift.effect, "ops"));

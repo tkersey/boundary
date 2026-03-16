@@ -1,4 +1,4 @@
-const lowered_runtime = @import("private_lowered_runtime");
+const lexical = @import("internal/lexical_witness_runners.zig");
 const std = @import("std");
 
 /// Stable witness metadata for the tests-only corpus.
@@ -23,10 +23,6 @@ pub fn listWitnesses(writer: anytype) anyerror!void {
     for (witnesses) |witness| try writer.print("{s}\t{s}\n", .{ witness.witness_id, witness.title });
 }
 
-fn runLowered(writer: anytype, case_id: []const u8) anyerror!void {
-    _ = try lowered_runtime.runCaseId(writer, case_id);
-}
-
 /// Run one witness by stable id.
 pub fn runWitness(writer: anytype, id: []const u8) anyerror!void {
     if (std.mem.eql(u8, id, "atm_resume_transform")) return runAtmResumeTransform(writer);
@@ -41,12 +37,12 @@ pub fn runWitness(writer: anytype, id: []const u8) anyerror!void {
 
 /// Run the ATM resume-then-transform witness.
 pub fn runAtmResumeTransform(writer: anytype) anyerror!void {
-    try runLowered(writer, "atm_resume_transform");
+    try lexical.runAtmResumeTransform(writer);
 }
 
 /// Run the generator witness.
 pub fn runGenerator(writer: anytype) anyerror!void {
-    try runLowered(writer, "generator");
+    try lexical.runGenerator(writer);
 }
 
 /// Run the early-exit practical witness.
@@ -68,25 +64,25 @@ pub fn runNestedWorkflow(writer: anytype) anyerror!void {
 
 /// Run the direct-return witness.
 pub fn runDirectReturn(writer: anytype) anyerror!void {
-    try runLowered(writer, "direct_return");
+    try lexical.runDirectReturn(writer);
 }
 
 /// Run the return-now witness for resume-or-return prompts.
 pub fn runResumeOrReturnReturnNow(writer: anytype) anyerror!void {
-    try runLowered(writer, "resume_or_return_return_now");
+    try lexical.runResumeOrReturnReturnNow(writer);
 }
 
 /// Run the single-resume witness for resume-or-return prompts.
 pub fn runResumeOrReturnResume(writer: anytype) anyerror!void {
-    try runLowered(writer, "resume_or_return_resume");
+    try lexical.runResumeOrReturnResume(writer);
 }
 
 /// Run the static re-delimitation witness.
 pub fn runStaticRedelim(writer: anytype) anyerror!void {
-    try runLowered(writer, "static_redelim");
+    try lexical.runStaticRedelim(writer);
 }
 
 /// Run the prompt-separation witness.
 pub fn runMultiPrompt(writer: anytype) anyerror!void {
-    try runLowered(writer, "multi_prompt");
+    try lexical.runMultiPrompt(writer);
 }

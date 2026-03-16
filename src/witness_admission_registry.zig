@@ -1,4 +1,5 @@
 const formal_core = @import("formal_core_registry");
+const std = @import("std");
 
 /// Lexical proof state for one witness replacement row.
 pub const LexicalStatus = enum {
@@ -38,10 +39,10 @@ pub const entries = [_]Entry{
         .current_surface = "witnesses.atm_resume_transform",
         .lexical_target = "lexical_witness.atm_resume_transform",
         .law_anchor = formal_core.anchorPath(.atm_resume_transform),
-        .lexical_status = .explicit_only,
-        .bridge_status = .blocked,
-        .canonical_status = .planned,
-        .note = "A candidate lexical transform witness shape exists, but it does not yet reproduce the canonical witness transcript and is not admitted to the unchanged-body bridge corpus.",
+        .lexical_status = .lexical_proven,
+        .bridge_status = .supported,
+        .canonical_status = .canonical,
+        .note = "The lexical ATM witness now reproduces the canonical transcript and is admitted to the unchanged-body bridge corpus.",
     },
     .{
         .witness_id = "direct_return",
@@ -49,9 +50,9 @@ pub const entries = [_]Entry{
         .lexical_target = "lexical_witness.direct_return",
         .law_anchor = formal_core.anchorPath(.direct_return),
         .lexical_status = .lexical_proven,
-        .bridge_status = .unknown,
-        .canonical_status = .planned,
-        .note = "The lexical direct-return witness is proven against the canonical transcript; unchanged-body bridge admission still needs explicit evaluation.",
+        .bridge_status = .supported,
+        .canonical_status = .canonical,
+        .note = "The lexical direct-return witness is proven against the canonical transcript and admitted to the unchanged-body bridge corpus.",
     },
     .{
         .witness_id = "resume_or_return_return_now",
@@ -59,9 +60,9 @@ pub const entries = [_]Entry{
         .lexical_target = "lexical_witness.resume_or_return_return_now",
         .law_anchor = formal_core.anchorPath(.optional_resumption),
         .lexical_status = .lexical_proven,
-        .bridge_status = .unknown,
-        .canonical_status = .planned,
-        .note = "The lexical return-now witness is proven against the canonical transcript; unchanged-body bridge admission still needs explicit evaluation.",
+        .bridge_status = .supported,
+        .canonical_status = .canonical,
+        .note = "The lexical return-now witness is proven against the canonical transcript and admitted to the unchanged-body bridge corpus.",
     },
     .{
         .witness_id = "resume_or_return_resume",
@@ -69,29 +70,29 @@ pub const entries = [_]Entry{
         .lexical_target = "lexical_witness.resume_or_return_resume",
         .law_anchor = formal_core.anchorPath(.optional_resumption),
         .lexical_status = .lexical_proven,
-        .bridge_status = .unknown,
-        .canonical_status = .planned,
-        .note = "The lexical single-resume witness is proven against the canonical transcript; unchanged-body bridge admission still needs explicit evaluation.",
+        .bridge_status = .supported,
+        .canonical_status = .canonical,
+        .note = "The lexical single-resume witness is proven against the canonical transcript and admitted to the unchanged-body bridge corpus.",
     },
     .{
         .witness_id = "static_redelim",
         .current_surface = "witnesses.static_redelim",
         .lexical_target = "lexical_witness.static_redelim",
         .law_anchor = formal_core.anchorPath(.static_redelim),
-        .lexical_status = .explicit_only,
-        .bridge_status = .unknown,
-        .canonical_status = .planned,
-        .note = "A lexical static re-delimitation shape is sketched, but it is not yet proven against the canonical transcript.",
+        .lexical_status = .lexical_proven,
+        .bridge_status = .supported,
+        .canonical_status = .canonical,
+        .note = "The lexical static re-delimitation witness is proven against the canonical transcript and admitted to the unchanged-body bridge corpus.",
     },
     .{
         .witness_id = "multi_prompt",
         .current_surface = "witnesses.multi_prompt",
         .lexical_target = "lexical_witness.multi_prompt",
         .law_anchor = formal_core.anchorPath(.multi_prompt_separation),
-        .lexical_status = .explicit_only,
-        .bridge_status = .unknown,
-        .canonical_status = .planned,
-        .note = "A lexical prompt-separation witness shape is sketched, but it is not yet proven against the canonical transcript.",
+        .lexical_status = .lexical_proven,
+        .bridge_status = .supported,
+        .canonical_status = .canonical,
+        .note = "The lexical prompt-separation witness is proven against the canonical transcript and admitted to the unchanged-body bridge corpus.",
     },
     .{
         .witness_id = "generator",
@@ -99,8 +100,16 @@ pub const entries = [_]Entry{
         .lexical_target = "lexical_witness.generator",
         .law_anchor = formal_core.anchorPath(.practical_witnesses),
         .lexical_status = .lexical_proven,
-        .bridge_status = .unknown,
-        .canonical_status = .planned,
-        .note = "The lexical generator witness is proven against the canonical transcript; unchanged-body bridge admission still needs explicit evaluation.",
+        .bridge_status = .supported,
+        .canonical_status = .canonical,
+        .note = "The lexical generator witness is proven against the canonical transcript and admitted through the current bridge-facing generator surface.",
     },
 };
+
+/// Find one witness admission record by stable witness id.
+pub fn find(witness_id: []const u8) ?*const Entry {
+    for (&entries) |*entry| {
+        if (std.mem.eql(u8, entry.witness_id, witness_id)) return entry;
+    }
+    return null;
+}

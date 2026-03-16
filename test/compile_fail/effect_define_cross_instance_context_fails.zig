@@ -1,9 +1,10 @@
 const shift = @import("shift");
 const std = @import("std");
+const prompt_support = shift.internal;
 
 const NoError = error{};
 const Counter = shift.effect.Define(.{
-    .mode = shift.PromptMode.resume_then_transform,
+    .mode = prompt_support.PromptMode.resume_then_transform,
     .state_type = i32,
     .error_set_type = NoError,
     .ops = .{

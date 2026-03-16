@@ -34,8 +34,9 @@ The current public product claim is:
 - `shift.WithResult(...)` returns the body answer plus family outputs
 - `shift.effect.choice.Decision(...)` is the public choice-decision type for
   lexical optional and generated choice handlers
-- prompt descriptors, `PromptMode`, and the old root `ResumeOrReturn` remain hidden
-  compat/internal scaffolding beneath that public story
+- prompt descriptors, `PromptMode`, `ResumeOrReturn`, `reset`, and `frontend`
+  no longer live at the top level; repo-owned proof surfaces now reach them
+  only through `shift.internal.*`
 - no public continuation handle is exported
 
 ## Semantic Commitments

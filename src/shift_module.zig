@@ -4,10 +4,8 @@ const root = @import("root.zig");
 pub const algebraic = root.algebraic;
 /// Additive algebraic-effect families over the canonical shift root.
 pub const effect = root.effect;
-/// Canonical authored-body layer over the shift runtime.
-pub const frontend = root.frontend;
-/// Comptime-selected handler protocol for a prompt value.
-pub const PromptMode = root.PromptMode;
+/// Internal-only prompt/protocol support for repo-owned proof surfaces.
+pub const internal = root.internal;
 /// Canonical runtime handle.
 pub const Runtime = root.Runtime;
 /// Public runtime error surface.
@@ -18,12 +16,6 @@ pub const ControlError = root.ControlError;
 pub const ResetError = root.ResetError;
 /// Canonical lexical result type returned from `shift.with(...)`.
 pub const WithResult = root.WithResult;
-/// Handler decision for zero-or-one-resume prompt modes.
-pub const ResumeOrReturn = root.ResumeOrReturn;
-/// First-class delimiter value for one-shot shift/reset.
-pub const Prompt = root.Prompt;
-/// Canonical reset entrypoint.
-pub const reset = root.reset;
 /// Canonical lexical execution entrypoint.
 pub const with = root.with;
 

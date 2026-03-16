@@ -1,7 +1,8 @@
 comptime {
     const shift = @import("shift");
+    const prompt_support = shift.internal;
     const NoError = error{};
-    const DemoPrompt = shift.Prompt(.direct_return, i32, i32, NoError);
+    const DemoPrompt = prompt_support.Prompt(.direct_return, i32, i32, NoError);
 
     const wrong_mode_handler = struct {
         /// Deliberately provide the wrong protocol for a direct-return prompt.
@@ -15,5 +16,5 @@ comptime {
         }
     };
 
-    _ = shift.frontend.perform(i32, @as(*const DemoPrompt, @ptrFromInt(@alignOf(DemoPrompt))), wrong_mode_handler);
+    _ = prompt_support.frontend.perform(i32, @as(*const DemoPrompt, @ptrFromInt(@alignOf(DemoPrompt))), wrong_mode_handler);
 }

@@ -479,6 +479,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     bridge_boundary_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
+    bridge_boundary_mod.addImport("program_bridge", program_bridge_mod);
+    bridge_boundary_mod.addImport("private_lowered_runtime", private_lowered_runtime_mod);
+    bridge_boundary_mod.addImport("direct_style_bridge_atm", createBridgeWitnessModule(b, "test/direct_style_bridge/atm_resume_transform.zig", target, optimize, witnesses_mod));
+    bridge_boundary_mod.addImport("direct_style_bridge_multi_prompt", createBridgeWitnessModule(b, "test/direct_style_bridge/multi_prompt.zig", target, optimize, witnesses_mod));
+    bridge_boundary_mod.addImport("direct_style_bridge_static_redelim", createBridgeWitnessModule(b, "test/direct_style_bridge/static_redelim.zig", target, optimize, witnesses_mod));
     const boundary_tests = b.addTest(.{
         .root_module = boundary_mod,
     });
@@ -576,6 +581,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     witness_admission_registry_mod.addImport("formal_core_registry", formal_core_registry_mod);
+    bridge_manifest_mod.addImport("witness_admission_registry", witness_admission_registry_mod);
+    bridge_boundary_mod.addImport("witness_admission_registry", witness_admission_registry_mod);
     const witness_admission_mod = b.createModule(.{
         .root_source_file = b.path("tools/render_witness_admission_matrix.zig"),
         .target = target,
@@ -716,6 +723,12 @@ pub fn build(b: *std.Build) void {
     const root_migration_write_step = b.step("root-surface-migration-matrix-write", "Refresh the canonical root-surface migration matrix.");
     root_migration_write_step.dependOn(&root_migration_write_cmd.step);
 
+    const lexical_witness_runners_mod = b.createModule(.{
+        .root_source_file = b.path("src/internal/lexical_witness_runners.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_witness_runners_mod.addImport("shift", shift_mod);
     const lexical_witness_mod = b.createModule(.{
         .root_source_file = b.path("test/lexical_witness_test.zig"),
         .target = target,
@@ -723,6 +736,7 @@ pub fn build(b: *std.Build) void {
     });
     lexical_witness_mod.addImport("shift", shift_mod);
     lexical_witness_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    lexical_witness_mod.addImport("lexical_witness_runners", lexical_witness_runners_mod);
     const lexical_witness_tests = b.addTest(.{
         .root_module = lexical_witness_mod,
     });

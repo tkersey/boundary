@@ -1,6 +1,7 @@
 const algebraic = @import("algebraic.zig");
 const family = @import("family.zig");
 const lexical_with = @import("../with_api.zig");
+const prompt_support = @import("../prompt_support_internal.zig");
 const shift = @import("../root.zig");
 const std = @import("std");
 
@@ -60,7 +61,7 @@ pub fn LexicalHandle(
             const authored = algebraic.optionalRequestBoundProgram(Cap, self.ctx.?, request_state);
             authored.activate();
             defer authored.deactivate();
-            return try shift.frontend.run(self.runtime.?, authored.prompt, authored.program);
+            return try prompt_support.run(self.runtime.?, authored.prompt, authored.program);
         }
     };
 }
@@ -171,8 +172,8 @@ test "optional handle can return now without resuming the body tail" {
     const OptionalInstance = Instance(i32, NoError);
     const policy = struct {
         /// Choose the direct-return branch for this optional-family test.
-        pub fn resumeOrReturn() shift.ResumeOrReturn(i32, []const u8) {
-            return shift.ResumeOrReturn(i32, []const u8).returnNow("result=early");
+        pub fn resumeOrReturn() prompt_support.ResumeOrReturn(i32, []const u8) {
+            return prompt_support.ResumeOrReturn(i32, []const u8).returnNow("result=early");
         }
 
         /// Preserve the late answer if this branch were ever resumed.
@@ -215,8 +216,8 @@ test "optional handle can resume and transform the resumed answer" {
     const OptionalInstance = Instance(i32, NoError);
     const policy = struct {
         /// Resume the optional request with a known value.
-        pub fn resumeOrReturn() shift.ResumeOrReturn(i32, []const u8) {
-            return shift.ResumeOrReturn(i32, []const u8).resumeWith(41);
+        pub fn resumeOrReturn() prompt_support.ResumeOrReturn(i32, []const u8) {
+            return prompt_support.ResumeOrReturn(i32, []const u8).resumeWith(41);
         }
 
         /// Convert the resumed answer into the enclosing result.
@@ -254,8 +255,8 @@ test "nested same-shaped optional handles get distinct capability types" {
     const OptionalInstance = Instance(i32, NoError);
     const policy = struct {
         /// Resume the nested optional test with a neutral value.
-        pub fn resumeOrReturn() shift.ResumeOrReturn(i32, i32) {
-            return shift.ResumeOrReturn(i32, i32).resumeWith(0);
+        pub fn resumeOrReturn() prompt_support.ResumeOrReturn(i32, i32) {
+            return prompt_support.ResumeOrReturn(i32, i32).resumeWith(0);
         }
 
         /// Preserve the resumed answer in the nested optional test.

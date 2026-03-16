@@ -1,7 +1,8 @@
 const shift = @import("shift");
+const prompt_support = shift.internal;
 
 const NoError = error{};
-const DemoPrompt = shift.Prompt(.direct_return, i32, i32, NoError);
+const DemoPrompt = prompt_support.Prompt(.direct_return, i32, i32, NoError);
 
 const demo = struct {
     const handle = struct {
@@ -13,5 +14,5 @@ const demo = struct {
 };
 
 comptime {
-    _ = shift.frontend.abortProgram(DemoPrompt, demo.handle);
+    _ = prompt_support.frontend.abortProgram(DemoPrompt, demo.handle);
 }
