@@ -93,7 +93,7 @@ The shipped additive families are `shift.effect.state`, `shift.effect.reader`, `
 - `shift.effect.resource.acquire(Cap, ctx)`
 - `shift.effect.writer.tell(Cap, ctx, item)`
 
-`shift.effect.Define(.{ ... })` now lets users mint their own sealed transform, choice, and abort families on top of the same shared engine and exact-context boundary. Generated families export `Instance`, `computeProgram`, `handle`, `OpTag`, `definition`, `proof`, and `Op(.tag).perform(...)` / `Op(.tag).program(...)` helper surfaces without exposing raw contexts or public continuations.
+`shift.effect.Define(.{ ... })` now lets users mint their own sealed transform, choice, and abort families on top of the same shared engine and exact-context boundary. Generated families export `Instance`, `computeProgram`, `handle`, `OpTag`, `definition`, `proof`, and `Op(.tag).perform(...)` / `Op(.tag).program(...)` helper surfaces without exposing raw contexts or public continuations. When installed through `shift.with(...)`, generated choice and abort families are projected as named lexical op fields such as `eff.<binding>.<op>.perform(...)` and `eff.<binding>.<op>.abort(...)`.
 
 Forgery and cross-instance misuse are witnessed by compile-fail fixtures under `test/compile_fail/`.
 

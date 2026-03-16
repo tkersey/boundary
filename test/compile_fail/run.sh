@@ -93,6 +93,8 @@ run_fixture "$repo_root/test/compile_fail/effect_define_explicit_mode_mismatch_f
 run_fixture "$repo_root/test/compile_fail/effect_define_reserved_name_fails.zig" "generated effect op name collides with reserved family export"
 run_fixture "$repo_root/test/compile_fail/effect_define_missing_after_hook_fails.zig" "generated transform handler is missing after_<op> method"
 run_fixture "$repo_root/test/compile_fail/effect_define_choice_wrong_hook_type_fails.zig" "generated choice handler op method must have type"
+run_fixture "$repo_root/test/compile_fail/effect_define_lexical_choice_tag_dispatch_removed.zig" "no field or member function named 'perform'"
+run_fixture "$repo_root/test/compile_fail/effect_define_lexical_abort_tag_dispatch_removed.zig" "no field or member function named 'abort'"
 run_fixture "$repo_root/test/compile_fail/effect_define_mixed_mode_fails.zig" "generated effect families support one prompt mode per family"
 run_fixture "$repo_root/test/compile_fail/root_reset_requires_program.zig" "expected type 'frontend.Program"
 run_fixture "$repo_root/test/compile_fail/no_shift_guard_removed.zig" "NoShiftGuard"

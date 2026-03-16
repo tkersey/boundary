@@ -355,7 +355,7 @@ test "generated choice families use the lexical choice form" {
             }, struct {
                 /// Trigger the generated lexical choice point and prove the continuation is skipped.
                 pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
-                    return try eff.picker.perform(.pick, 41, struct {
+                    return try eff.picker.pick.perform(41, struct {
                         /// This generated continuation must never run in the return-now branch.
                         pub fn apply(_: i32, _: anytype) shift.ResetError(NoError)![]const u8 {
                             unreachable;
@@ -371,7 +371,7 @@ test "generated choice families use the lexical choice form" {
             }, struct {
                 /// Trigger the generated lexical choice point and complete the explicit continuation.
                 pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
-                    return try eff.picker.perform(.pick, 41, struct {
+                    return try eff.picker.pick.perform(41, struct {
                         /// Resume the generated lexical choice continuation with the canonical final answer.
                         pub fn apply(value: i32, _: anytype) shift.ResetError(NoError)![]const u8 {
                             if (value != 41) unreachable;
@@ -426,10 +426,50 @@ test "generated abort families use the lexical abort form" {
             }, struct {
                 /// Trigger the generated lexical abort point directly.
                 pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
-                    try eff.guard.abort(.fail, "missing-name");
+                    try eff.guard.fail.abort("missing-name");
                 }
             });
             try writer.print("final={s}\n", .{result.value});
         }
     }.run);
+}
+
+test "generated zero-payload choice fields stay ergonomic" {
+    const Ask = shift.effect.Define(.{
+        .state_type = struct {},
+        .error_set_type = NoError,
+        .ops = .{
+            shift.effect.ops.Choice("ask", void, i32),
+        },
+    });
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(&runtime, .{
+        .asker = Ask.use(.{ .handler = struct {
+            /// Resume a zero-payload generated choice with a fixed value.
+            pub fn ask(_: *@This()) shift.ResumeOrReturn(i32, []const u8) {
+                return shift.ResumeOrReturn(i32, []const u8).resumeWith(7);
+            }
+
+            /// Preserve the resumed answer unchanged.
+            pub fn afterAsk(_: *@This(), answer: []const u8) []const u8 {
+                return answer;
+            }
+        }{} }),
+    }, struct {
+        /// Trigger a zero-payload generated lexical choice op with no payload argument.
+        pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+            return try eff.asker.ask.perform(struct {
+                /// Convert the resumed generated answer into the final lexical result.
+                pub fn apply(value: i32, _: anytype) shift.ResetError(NoError)![]const u8 {
+                    if (value != 7) unreachable;
+                    return "answer=7";
+                }
+            });
+        }
+    });
+
+    try std.testing.expectEqualStrings("answer=7", result.value);
 }

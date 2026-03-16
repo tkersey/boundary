@@ -184,7 +184,10 @@ The additive effect-family contract is now:
   with `shift.effect.ops.Transform(...)`, `shift.effect.ops.Choice(...)`, and
   `shift.effect.ops.Abort(...)`
 - generated families expose `Instance`, `computeProgram`, `handle`, `OpTag`,
-  `definition`, `proof`, and `Op(.tag).perform(...)` / `Op(.tag).program(...)`
+  `definition`, `proof`, and `Op(.tag).perform(...)` / `Op(.tag).program(...)`.
+  When installed through the lexical front door, generated choice and abort
+  families also expose named op fields such as
+  `eff.picker.pick.perform(...)` and `eff.guard.fail.abort(...)`
 - forged or cross-instance contexts fail at compile time; see:
   - `effect_exception_forged_context_throw_fails.zig`
   - `effect_state_forged_context_get_fails.zig`
@@ -421,7 +424,9 @@ plus `shift.effect.optional.request(Cap, ctx)`,
 `shift.effect.writer.tell(Cap, ctx, item)`. User-defined sealed families are
 declared with `shift.effect.Define(.{ ... })` and expose
 `Op(.tag).perform(...)` or `Op(.tag).program(...)` over the same exact-context
-boundary.
+boundary, while the lexical front door projects generated choice and abort
+families as named op fields (`eff.<binding>.<op>.perform(...)` /
+`eff.<binding>.<op>.abort(...)`).
 
 The generalized construction boundary is checked by:
 

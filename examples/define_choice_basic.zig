@@ -59,7 +59,7 @@ pub fn run(writer: anytype) anyerror!void {
     }, struct {
         /// Trigger the generated lexical choice point and prove the continuation is skipped.
         pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
-            return try eff.picker.perform(.pick, 41, struct {
+            return try eff.picker.pick.perform(41, struct {
                 /// This generated continuation must never run in the return-now branch.
                 pub fn apply(_: i32, _: anytype) shift.ResetError(NoError)![]const u8 {
                     unreachable;
@@ -79,7 +79,7 @@ pub fn run(writer: anytype) anyerror!void {
     }, struct {
         /// Trigger the generated lexical choice point and complete the explicit continuation.
         pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
-            return try eff.picker.perform(.pick, 41, struct {
+            return try eff.picker.pick.perform(41, struct {
                 /// Resume the generated lexical choice continuation with the canonical final answer.
                 pub fn apply(value: i32, _: anytype) shift.ResetError(NoError)![]const u8 {
                     if (value != 41) unreachable;

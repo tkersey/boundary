@@ -35,7 +35,7 @@ pub fn run(writer: anytype) anyerror!void {
     }, struct {
         /// Trigger the generated lexical abort point directly.
         pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
-            try eff.guard.abort(.fail, "missing-name");
+            try eff.guard.fail.abort("missing-name");
         }
     });
     try writer.print("abort={s}\n", .{transcript.abort_line});
