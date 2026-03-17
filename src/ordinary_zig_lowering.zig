@@ -393,6 +393,7 @@ const witness_atm_match = Match{
         "return \"answer=42\";",
     },
     .entry_required_snippets = &.{
+        "pub fn runAtmResumeTransform(writer: anytype)",
         "_ = try eff.atm.step.perform();",
         "return \"answer=42\";",
     },
@@ -406,6 +407,7 @@ const witness_direct_match = Match{
         "try eff.exception.throw(\"result=early\")",
     },
     .entry_required_snippets = &.{
+        "pub fn runDirectReturn(writer: anytype)",
         "try eff.exception.throw(\"result=early\")",
     },
     .feature_flags = &.{ "witness", "abort", "ordinary_canonical" },
@@ -418,6 +420,8 @@ const witness_ror_return_match = Match{
         "return try eff.optional.request",
     },
     .entry_required_snippets = &.{
+        "pub fn runResumeOrReturnReturnNow(writer: anytype)",
+        "transcript.note(\"handler-return-now\")",
         "return try eff.optional.request",
     },
     .feature_flags = &.{ "witness", "choice_return_now", "ordinary_canonical" },
@@ -431,6 +435,8 @@ const witness_ror_resume_match = Match{
         "return \"answer=42\";",
     },
     .entry_required_snippets = &.{
+        "pub fn runResumeOrReturnResume(writer: anytype)",
+        "transcript.note(\"handler-decide-resume\")",
         "transcript.note(\"body-after-shift\")",
         "return \"answer=42\";",
     },
@@ -445,6 +451,7 @@ const witness_static_redelim_match = Match{
         "return inner_value + 9 + transcript.outer_value;",
     },
     .entry_required_snippets = &.{
+        "pub fn runStaticRedelim(writer: anytype)",
         "transcript.outer_value = try outer_eff.outer.step.perform();",
         "return nested.value;",
     },
@@ -460,6 +467,7 @@ const witness_multi_prompt_match = Match{
         "return 42;",
     },
     .entry_required_snippets = &.{
+        "pub fn runMultiPrompt(writer: anytype)",
         "_ = eff.inner;",
         "return 42;",
     },
@@ -474,6 +482,7 @@ const witness_generator_match = Match{
         "done={d}",
     },
     .entry_required_snippets = &.{
+        "pub fn runGenerator(writer: anytype)",
         "while (true) {",
         "return current;",
     },

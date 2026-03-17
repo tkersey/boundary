@@ -57,6 +57,32 @@ test "ordinary Zig lowering rejects the wrong witness entry in shared witness so
     try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
 }
 
+test "ordinary Zig lowering rejects return-now witness ids when pointed at the resume witness body" {
+    var lowered = try ordinary_zig_lowering.inspectSource(std.testing.allocator, .{
+        .case_id = "witness.resume_or_return_return_now",
+        .source_path = "src/witness_sources.zig",
+        .entry_symbol = "runResumeOrReturnResume",
+        .surface_kind = .witness,
+    });
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(!lowered.isAccepted());
+    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+}
+
+test "ordinary Zig lowering rejects resume witness ids when pointed at the ATM witness body" {
+    var lowered = try ordinary_zig_lowering.inspectSource(std.testing.allocator, .{
+        .case_id = "witness.resume_or_return_resume",
+        .source_path = "src/witness_sources.zig",
+        .entry_symbol = "runAtmResumeTransform",
+        .surface_kind = .witness,
+    });
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(!lowered.isAccepted());
+    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+}
+
 test "ordinary Zig lowering rejects altered fixture sources with dead-code canonical snippets" {
     const modified_source =
         \\pub fn run(writer: anytype) anyerror!void {
