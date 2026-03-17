@@ -67,6 +67,21 @@ grep -F -q '"path":"' "$json_out"
 )
 
 grep -F -q 'expected_transcript = "validate=name\nabort=missing-name\nfinal=error=missing-name\n"' "$accepted_out"
+
+(
+  cd "$repo_root/examples"
+  "$tool" \
+    --id example.define_basic \
+    --source define_basic.zig \
+    --entry run \
+    --surface example \
+    --emit json \
+    --out "$json_out"
+)
+
+grep -F -q '"case_id":"example.define_basic"' "$json_out"
+grep -F -q '"status":"canonical"' "$json_out"
+
 zig fmt "$accepted_out" >/dev/null
 grep -F -q 'const shift = @import("shift");' "$accepted_out"
 if rg -q 'ordinary_zig_lowering|lowered_machine' "$accepted_out"; then

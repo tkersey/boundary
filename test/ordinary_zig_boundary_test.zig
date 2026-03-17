@@ -168,6 +168,20 @@ test "ordinary Zig lowering owns rejected source paths" {
     try std.testing.expectEqualStrings(original_path, lowered.diagnostics[0].path);
 }
 
+test "ordinary Zig lowering rejects mismatched expected_status values" {
+    var lowered = try ordinary_zig_lowering.inspectSource(std.testing.allocator, .{
+        .case_id = "example.define_basic",
+        .source_path = "examples/define_basic.zig",
+        .entry_symbol = "run",
+        .surface_kind = .example,
+        .expected_status = .candidate_green,
+    });
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(!lowered.isAccepted());
+    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+}
+
 test "ordinary Zig lowering exposes a public experimental root surface" {
     const shift = @import("shift");
 

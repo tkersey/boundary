@@ -39,7 +39,7 @@ pub const Spec = struct {
     source_path: []const u8,
     entry_symbol: []const u8,
     surface_kind: SurfaceKind,
-    expected_status: LowerStatus = .candidate_green,
+    expected_status: LowerStatus = .canonical,
 };
 
 /// Generated lowered program plus diagnostics for one restricted ordinary-Zig source.
@@ -890,13 +890,8 @@ fn sourcePathMatchesExpected(allocator: std.mem.Allocator, actual_path: []const 
 }
 
 fn resolvedSourcePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
-    if (std.fs.path.isAbsolute(source_path)) {
-        return try std.fs.cwd().realpathAlloc(allocator, source_path);
-    }
-
-    const joined_path = try std.fs.path.resolve(allocator, &.{ build_options.package_root, source_path });
-    defer allocator.free(joined_path);
-    return try std.fs.cwd().realpathAlloc(allocator, joined_path);
+    _ = build_options;
+    return try std.fs.cwd().realpathAlloc(allocator, source_path);
 }
 
 fn hasTopLevelFunctionNamed(tree: std.zig.Ast, name: []const u8) bool {
@@ -1174,6 +1169,14 @@ fn inspectSourceText(
             spec,
             case,
             try shapeDiagnostic(allocator, spec.source_path, "source does not match the currently supported restricted ordinary-Zig shape"),
+        );
+    }
+    if (spec.expected_status != case.status) {
+        return rejectedProgram(
+            allocator,
+            spec,
+            case,
+            try shapeDiagnostic(allocator, spec.source_path, "requested expected_status does not match the supported status for this case"),
         );
     }
 
