@@ -4,8 +4,6 @@ const allowedExports = &[_][]const u8{
     "Runtime",
     "RuntimeError",
     "ErrorWitnessV1",
-    "ControlError",
-    "ResetError",
     "algebraic",
     "effect",
     "ordinary",
@@ -13,7 +11,7 @@ const allowedExports = &[_][]const u8{
     "with",
 };
 
-const error = error{ PublicApiBanViolation };
+const BanError = error{ PublicApiBanViolation };
 
 fn trimWhitespace(line: []const u8) []const u8 {
     var start: usize = 0;
@@ -50,13 +48,13 @@ pub fn main() anyerror!void {
     const content = try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
     defer allocator.free(content);
 
-    var names = std.ArrayList([]const u8).init(allocator);
-    defer names.deinit();
+    var names = std.ArrayList([]const u8).empty;
+    defer names.deinit(allocator);
 
     var offset: usize = 0;
     while (offset <= content.len) {
         var line_end = offset;
-        while (line_end < content.len and content[line_end] != '\\n') : (line_end += 1) {}
+        while (line_end < content.len and content[line_end] != '\n') : (line_end += 1) {}
         const line = content[offset..line_end];
         const trimmed = trimWhitespace(line);
         if (trimmed.len != 0) {
@@ -64,23 +62,23 @@ pub fn main() anyerror!void {
             const pubFn = "pub fn ";
             if (trimmed.len > pubConst.len and std.mem.startsWith(u8, trimmed, pubConst)) {
                 const name = readIdentifier(trimmed, pubConst.len);
-                if (name.len != 0 and !contains(names.items, name)) try names.append(name);
+                if (name.len != 0 and !contains(names.items, name)) try names.append(allocator, name);
             } else if (trimmed.len > pubFn.len and std.mem.startsWith(u8, trimmed, pubFn)) {
                 const name = readIdentifier(trimmed, pubFn.len);
-                if (name.len != 0 and !contains(names.items, name)) try names.append(name);
+                if (name.len != 0 and !contains(names.items, name)) try names.append(allocator, name);
             }
         }
         if (line_end >= content.len) break;
         offset = line_end + 1;
     }
 
-    var banned = std.ArrayList([]const u8).init(allocator);
-    defer banned.deinit();
-    for (names.items) |name| if (!contains(allowedExports, name)) try banned.append(name);
+    var banned = std.ArrayList([]const u8).empty;
+    defer banned.deinit(allocator);
+    for (names.items) |name| if (!contains(allowedExports, name)) try banned.append(allocator, name);
 
     if (banned.items.len != 0) {
         std.debug.print("public API ban failure: disallowed exports found:\\n", .{});
-        for (banned.items) |name| try std.debug.print("  {s}\\n", .{name});
-        return error.PublicApiBanViolation;
+        for (banned.items) |name| std.debug.print("  {s}\\n", .{name});
+        return BanError.PublicApiBanViolation;
     }
 }

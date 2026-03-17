@@ -319,6 +319,7 @@ pub fn build(b: *std.Build) void {
     });
     lib_check.root_module.addImport("lowered_machine", lowered_machine_mod);
     lib_check.root_module.addImport("ordinary_zig_lowering", ordinary_lowering_mod);
+    lib_check.root_module.addImport("error_witness", error_witness_mod);
     check_step.dependOn(&lib_check.step);
 
     const root_tests = b.addTest(.{
@@ -330,6 +331,7 @@ pub fn build(b: *std.Build) void {
     });
     root_tests.root_module.addImport("lowered_machine", lowered_machine_mod);
     root_tests.root_module.addImport("ordinary_zig_lowering", ordinary_lowering_mod);
+    root_tests.root_module.addImport("error_witness", error_witness_mod);
     root_tests.root_module.addImport("prompt_contract_support", prompt_contract_support_mod);
     root_tests.root_module.addImport("frontend_support", frontend_support_mod);
     const run_root_tests = b.addRunArtifact(root_tests);

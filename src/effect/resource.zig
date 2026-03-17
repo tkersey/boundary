@@ -406,7 +406,7 @@ test "resource handle releases before outer optional return-now completes" {
 
 test "resource release error wins after a successful body" {
     const DemoError = error{ReleaseFailed};
-    const ResourceInstance = Instance(i32, DemoError);
+    const ResourceInstance = family.InstanceWithMode(.resume_then_transform, i32, DemoError);
 
     const manager = struct {
         /// Hand out one resource for the release-error precedence test.
@@ -447,7 +447,7 @@ test "resource release error wins after a successful body" {
 
 test "resource body error wins over release error" {
     const DemoError = error{BodyFailed, ReleaseFailed};
-    const ResourceInstance = Instance(i32, DemoError);
+    const ResourceInstance = family.InstanceWithMode(.resume_then_transform, i32, DemoError);
 
     const manager = struct {
         /// Hand out one resource for the body-error precedence test.
