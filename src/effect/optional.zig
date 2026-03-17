@@ -108,10 +108,10 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
         }
 
         /// Run one lexical optional descriptor through the continuation-taking lexical optional family.
-        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
             var instance = Instance(ResumeType, ErrorSetType).init();
-            const result = try algebraic.handleOptionalLexical(AnswerType, runtime, &instance, Policy, Body);
+            const result = try algebraic.handleOptionalLexicalWithErrorSet(AnswerType, RunErrorSetType, runtime, &instance, Policy, Body);
             return .{
                 .output = {},
                 .value = result,

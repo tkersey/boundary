@@ -41,10 +41,10 @@ pub fn LexicalDescriptor(comptime PayloadType: type, comptime ErrorSetType: type
         }
 
         /// Run one lexical exception descriptor through the existing exception family.
-        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
             var instance = Instance(PayloadType, ErrorSetType).init();
-            const result = try handle(AnswerType, runtime, &instance, Catch, Body);
+            const result = try algebraic.handleExceptionWithErrorSet(AnswerType, RunErrorSetType, runtime, &instance, Catch, Body);
             return .{
                 .output = {},
                 .value = result,

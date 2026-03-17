@@ -16,10 +16,8 @@ const policy = struct {
 
 /// Trigger the missing lexical optional continuation apply hook compile failure.
 pub fn main() anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
 
-    _ = try shift.with(&runtime, .{
+    _ = try shift.with(.{
         .optional = shift.effect.optional.use(i32, NoError, policy),
     }, struct {
         /// Attempt to call the lexical optional choice form with no apply hook.

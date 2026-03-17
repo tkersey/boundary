@@ -1,11 +1,12 @@
 const shift = @import("shift");
+const shift_internal = @import("shift_internal");
 const std = @import("std");
 
 const NoError = error{};
 const StateInstance = shift.effect.state.Instance(i32, NoError);
 
 const demo = struct {
-    var runtime_ptr: ?*shift.Runtime = null;
+    var runtime_ptr: ?*shift_internal.Runtime = null;
     var inner_ptr: ?*const StateInstance = null;
 
     /// Start a nested handle and try to treat its context as the outer one.
@@ -34,7 +35,7 @@ const demo = struct {
 
 /// Attempt to treat one instance capability as though it belonged to another.
 pub fn main() anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    var runtime = shift_internal.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     var outer_instance = StateInstance.init();
     var inner_instance = StateInstance.init();

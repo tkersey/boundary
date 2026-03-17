@@ -27,10 +27,8 @@ pub fn runDirectReturn(writer: anytype) anyerror!void {
         }
     };
 
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
     transcript.handler_line = "";
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(.{
         .exception = shift.effect.exception.use([]const u8, NoError, catch_policy),
     }, struct {
         /// Abort immediately through the lexical exception surface.
@@ -66,10 +64,8 @@ pub fn runResumeOrReturnReturnNow(writer: anytype) anyerror!void {
         }
     };
 
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
     transcript.len = 0;
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(.{
         .optional = shift.effect.optional.use(i32, NoError, policy),
     }, struct {
         /// Trigger the lexical choice point and confirm the continuation is skipped.
@@ -111,10 +107,8 @@ pub fn runResumeOrReturnResume(writer: anytype) anyerror!void {
         }
     };
 
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
     transcript.len = 0;
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(.{
         .optional = shift.effect.optional.use(i32, NoError, policy),
     }, struct {
         /// Trigger the lexical choice point and finish the resumed continuation.
@@ -135,11 +129,10 @@ pub fn runResumeOrReturnResume(writer: anytype) anyerror!void {
 
 /// Run the lexical generator witness transcript.
 pub fn runGenerator(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
+
     var output_buffer: [256]u8 = undefined;
     var output_fba = std.heap.FixedBufferAllocator.init(&output_buffer);
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(.{
         .writer = shift.effect.writer.use([]const u8, NoError, output_fba.allocator()),
         .state = shift.effect.state.use(NoError, @as(i32, 0)),
     }, struct {
@@ -189,10 +182,8 @@ pub fn runAtmResumeTransform(writer: anytype) anyerror!void {
         }
     };
 
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
     transcript.len = 0;
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(.{
         .atm = ResumeWitness.use(.{ .handler = Handler{} }),
     }, struct {
         /// Resume once through the lexical ATM witness and return the final answer.
@@ -212,7 +203,6 @@ pub fn runStaticRedelim(writer: anytype) anyerror!void {
     const transcript = struct {
         threadlocal var items = [_][]const u8{ "", "", "", "", "", "" };
         threadlocal var len: usize = 0;
-        threadlocal var runtime_ptr: ?*shift.Runtime = null;
         threadlocal var outer_value: i32 = 0;
 
         fn note(message: []const u8) void {
@@ -249,18 +239,15 @@ pub fn runStaticRedelim(writer: anytype) anyerror!void {
         }
     };
 
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
     transcript.len = 0;
-    transcript.runtime_ptr = &runtime;
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(.{
         .outer = ResumeWitness.use(.{ .handler = OuterHandler{} }),
     }, struct {
         /// Resume the outer witness, then open and resolve the nested inner witness.
         pub fn body(outer_eff: anytype) shift.ResetError(NoError)!i32 {
             transcript.outer_value = try outer_eff.outer.step.perform();
             transcript.note("after-outer-shift");
-            const nested = try shift.with(transcript.runtime_ptr.?, .{
+            const nested = try shift.with(.{
                 .inner = ResumeWitness.use(.{ .handler = InnerHandler{} }),
             }, struct {
                 /// Resume the nested inner witness and return the composed answer.
@@ -318,10 +305,8 @@ pub fn runMultiPrompt(writer: anytype) anyerror!void {
         }
     };
 
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
     transcript.len = 0;
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(.{
         .outer = ResumeWitness.use(.{ .handler = OuterHandler{} }),
         .inner = ResumeWitness.use(.{ .handler = InnerHandler{} }),
     }, struct {

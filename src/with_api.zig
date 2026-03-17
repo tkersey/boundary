@@ -75,13 +75,43 @@ fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
 fn HandlerErrorSet(comptime HandlersType: type) type {
     comptime assertHandlerBundleShape(HandlersType);
     const fields = @typeInfo(HandlersType).@"struct".fields;
-    const ErrorSet = fields[0].type.ErrorSet;
-    inline for (fields[1..]) |field| {
-        if (field.type.ErrorSet != ErrorSet) {
-            @compileError("all shift.with handler descriptors must share one ErrorSet");
-        }
+    var ErrorSet = error{};
+    inline for (fields) |field| {
+        ErrorSet = ErrorSet || field.type.ErrorSet;
     }
     return ErrorSet;
+}
+
+fn BodyErrorSet(comptime Body: type, comptime EffType: type) type {
+    _ = EffType;
+    const BodyFn = BodyFunctionType(Body);
+    const FnType = switch (@typeInfo(BodyFn)) {
+        .pointer => |pointer| pointer.child,
+        .@"fn" => BodyFn,
+        else => unreachable,
+    };
+    const ReturnType = @typeInfo(FnType).@"fn".return_type.?;
+    return switch (@typeInfo(ReturnType)) {
+        .error_union => |err_union| err_union.error_set,
+        else => error{},
+    };
+}
+
+fn WithErrorSet(comptime HandlersType: type, comptime Body: type, comptime EffType: type) type {
+    return HandlerErrorSet(HandlersType) || BodyErrorSet(Body, EffType);
+}
+
+fn ContinuationErrorSet(comptime Continuation: type) type {
+    const ResumeFn = ContinuationFnType(Continuation);
+    const ReturnType = @typeInfo(ResumeFn).@"fn".return_type.?;
+    return switch (@typeInfo(ReturnType)) {
+        .error_union => |err_union| err_union.error_set,
+        else => error{},
+    };
+}
+
+fn ChoiceErrorSet(comptime HandlersType: type, comptime Continuation: type) type {
+    return HandlerErrorSet(HandlersType) || ContinuationErrorSet(Continuation);
 }
 
 fn ExtendBundleType(comptime Base: type, comptime field_name: [:0]const u8, comptime FieldType: type) type {
@@ -247,8 +277,8 @@ fn runChainCollected(
     comptime index: usize,
     comptime EffType: type,
     state: CollectedRunState(HandlersType, EffType),
-) lowered_machine.ResetError(HandlerErrorSet(HandlersType))!BodyAnswerType(Body, EffType) {
-    const ErrorSet = HandlerErrorSet(HandlersType);
+) lowered_machine.ResetError(WithErrorSet(HandlersType, Body, EffType))!BodyAnswerType(Body, EffType) {
+    const ErrorSet = WithErrorSet(HandlersType, Body, EffType);
     const Answer = BodyAnswerType(Body, EffType);
     const fields = @typeInfo(HandlersType).@"struct".fields;
 
@@ -301,7 +331,15 @@ fn runChainCollected(
     defer step_ctx.previous_eff = previous_eff;
     defer step_ctx.outputs_ptr = previous_outputs;
 
-    const result = try desc_value.run(Answer, state.runtime, step_ctx);
+    const result = blk: {
+        const RunFn = @TypeOf(DescriptorType.run);
+        const params = @typeInfo(RunFn).@"fn".params;
+        switch (params.len) {
+            4 => break :blk try desc_value.run(Answer, state.runtime, step_ctx),
+            5 => break :blk try desc_value.run(Answer, ErrorSet, state.runtime, step_ctx),
+            else => @compileError("shift.with descriptor run must accept either (self, AnswerType, runtime, Body) or (self, AnswerType, RunErrorSetType, runtime, Body)"),
+        }
+    };
     if (DescriptorType.Output != void) {
         @field(state.outputs_ptr.*, field.name) = result.output;
     }
@@ -315,8 +353,8 @@ fn runChoiceChain(
     state: ChoiceRunState(HandlersType, EffType),
     comptime Continuation: type,
     resume_value: anytype,
-) lowered_machine.ResetError(HandlerErrorSet(HandlersType))!ChoiceAnswerType(Continuation) {
-    const ErrorSet = HandlerErrorSet(HandlersType);
+) lowered_machine.ResetError(ChoiceErrorSet(HandlersType, Continuation))!ChoiceAnswerType(Continuation) {
+    const ErrorSet = ChoiceErrorSet(HandlersType, Continuation);
     const fields = @typeInfo(HandlersType).@"struct".fields;
 
     if (index == fields.len) {
@@ -368,7 +406,15 @@ fn runChoiceChain(
     defer step_ctx.previous_eff = previous_eff;
     defer step_ctx.outputs_ptr = previous_outputs;
 
-    const result = try desc_value.run(ChoiceAnswerType(Continuation), state.runtime, step_ctx);
+    const result = blk: {
+        const RunFn = @TypeOf(DescriptorType.run);
+        const params = @typeInfo(RunFn).@"fn".params;
+        switch (params.len) {
+            4 => break :blk try desc_value.run(ChoiceAnswerType(Continuation), state.runtime, step_ctx),
+            5 => break :blk try desc_value.run(ChoiceAnswerType(Continuation), ErrorSet, state.runtime, step_ctx),
+            else => @compileError("shift.with descriptor run must accept either (self, AnswerType, runtime, Body) or (self, AnswerType, RunErrorSetType, runtime, Body)"),
+        }
+    };
     if (DescriptorType.Output != void) {
         @field(state.outputs_ptr.*, field.name) = result.output;
     }
@@ -382,7 +428,7 @@ pub fn continueChoice(
     frame: anytype,
     comptime Continuation: type,
     resume_value: anytype,
-) lowered_machine.ResetError(HandlerErrorSet(HandlersType))!ChoiceAnswerType(Continuation) {
+) lowered_machine.ResetError(ChoiceErrorSet(HandlersType, Continuation))!ChoiceAnswerType(Continuation) {
     const field = @typeInfo(HandlersType).@"struct".fields[index];
     const current_eff = extendBundle(@TypeOf(frame.previous_eff), frame.previous_eff, field.name, frame.current_handle);
     return try runChoiceChain(HandlersType, index + 1, @TypeOf(current_eff), .{
@@ -395,7 +441,7 @@ pub fn continueChoice(
 
 /// Return type for one lexical `shift.with(...)` instantiation.
 pub fn WithFnReturnType(comptime HandlersType: type, comptime Body: type) type {
-    return lowered_machine.ResetError(HandlerErrorSet(HandlersType))!WithResult(HandlersType, BodyAnswerType(Body, struct {}));
+    return lowered_machine.ResetError(WithErrorSet(HandlersType, Body, struct {}))!WithResult(HandlersType, BodyAnswerType(Body, struct {}));
 }
 
 /// Run one lexical effect bundle and return descriptor outputs alongside the body answer.
@@ -419,4 +465,14 @@ pub fn with(
         .outputs = outputs,
         .value = value,
     };
+}
+
+/// Run one lexical effect bundle with an internal page-allocator-backed runtime.
+pub fn withManaged(
+    handlers: anytype,
+    comptime Body: type,
+) WithFnReturnType(@TypeOf(handlers), Body) {
+    var runtime = lowered_machine.Runtime.init(std.heap.page_allocator);
+    defer runtime.deinit();
+    return try with(&runtime, handlers, Body);
 }

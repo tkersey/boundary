@@ -42,12 +42,9 @@ pub fn run(writer: anytype) anyerror!void {
         }
     };
 
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
-
     try writer.writeAll("branch=return_now\n");
     transcript.len = 0;
-    const early = try shift.with(&runtime, .{
+    const early = try shift.with(.{
         .optional = shift.effect.optional.use(i32, NoError, return_now_policy),
     }, struct {
         /// Trigger the lexical choice point and prove the return-now branch skips the continuation.
@@ -67,7 +64,7 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=resume_with\n");
     transcript.len = 0;
-    const resumed = try shift.with(&runtime, .{
+    const resumed = try shift.with(.{
         .optional = shift.effect.optional.use(i32, NoError, resume_policy),
     }, struct {
         /// Trigger the lexical choice point and complete the resumed continuation.

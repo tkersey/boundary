@@ -25,7 +25,7 @@ The shipped runtime backend is the canonical authored-body lowered runtime.
 
 The current public product claim is:
 
-- `shift.with(&runtime, handlers, Body)` is the canonical public entrypoint
+- `shift.with(handlers, Body)` is the canonical public entrypoint
 - built-in families install lexical handlers through `shift.effect.state`,
   `shift.effect.reader`, `shift.effect.optional`, `shift.effect.exception`,
   `shift.effect.resource`, and `shift.effect.writer`
@@ -211,7 +211,7 @@ The additive effect-family contract is now:
 The additive public algebraic-builder contract is now:
 
 - `shift.algebraic.TransformOp`, `shift.algebraic.ChoiceOp`, and `shift.algebraic.AbortOp` define closed-world operation descriptors
-- `shift.algebraic.Program(Answer, ErrorSet, .{ ...ops })` generates a typed runner surface
+- `shift.algebraic.Program(Answer, .{ ...ops })` generates a typed runner surface
 - `Program.handlers(.{ ... })` installs handlers in declaration order
 - `Configured.Context.perform(Op, payload)` only accepts declared ops
 - handlers are built with static `Impl` types via `handleTransform` / `handleChoice` / `handleAbort`
@@ -667,10 +667,8 @@ const std = @import("std");
 const NoError = error{};
 
 pub fn main() anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(.{
         .state = shift.effect.state.use(NoError, @as(i32, 5)),
         .reader = shift.effect.reader.use(NoError, @as(i32, 21)),
     }, struct {

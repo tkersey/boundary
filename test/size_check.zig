@@ -1,5 +1,6 @@
 const prompt_support = @import("prompt_support");
 const shift = @import("shift");
+const shift_internal = @import("shift_internal");
 const std = @import("std");
 
 fn hasErrorName(comptime ErrorSet: type, comptime wanted: []const u8) bool {
@@ -20,28 +21,33 @@ test "guard and continuation surfaces are not public" {
     try std.testing.expect(!@hasDecl(shift, "Continuation"));
     try std.testing.expect(!@hasDecl(shift, "parity_machine"));
     try std.testing.expect(!@hasDecl(shift, "ResumeOrReturn"));
+    try std.testing.expect(!@hasDecl(shift, "Runtime"));
+    try std.testing.expect(!@hasDecl(shift, "Error"));
+    try std.testing.expect(!@hasDecl(shift, "ControlError"));
     try std.testing.expect(@hasDecl(shift, "effect"));
     try std.testing.expect(@hasDecl(shift.effect, "Define"));
     try std.testing.expect(@hasDecl(shift.effect, "ops"));
     try std.testing.expect(!@hasDecl(shift.effect.state, "Continuation"));
+    try std.testing.expect(@hasDecl(shift_internal, "Runtime"));
+    try std.testing.expect(@hasDecl(shift_internal, "Error"));
+    try std.testing.expect(@hasDecl(shift_internal, "ControlError"));
 }
 
-test "public runtime error surface still exposes the current raw contract" {
-    try std.testing.expect(hasErrorName(shift.Error, "MissingPrompt"));
-    try std.testing.expect(hasErrorName(shift.Error, "CrossThread"));
-    try std.testing.expect(hasErrorName(shift.Error, "RuntimeBusy"));
-    try std.testing.expect(hasErrorName(shift.Error, "RuntimeDestroyed"));
-    try std.testing.expect(hasErrorName(shift.Error, "NonDiagonalComplete"));
-    try std.testing.expect(!hasErrorName(shift.Error, "AlreadyResolved"));
-    try std.testing.expect(!hasErrorName(shift.Error, "NestedNonDiagonalCapture"));
+test "internal runtime support still exposes the raw runtime contract" {
+    try std.testing.expect(hasErrorName(shift_internal.Error, "MissingPrompt"));
+    try std.testing.expect(hasErrorName(shift_internal.Error, "CrossThread"));
+    try std.testing.expect(hasErrorName(shift_internal.Error, "RuntimeBusy"));
+    try std.testing.expect(hasErrorName(shift_internal.Error, "RuntimeDestroyed"));
+    try std.testing.expect(hasErrorName(shift_internal.Error, "NonDiagonalComplete"));
+    try std.testing.expect(!hasErrorName(shift_internal.Error, "AlreadyResolved"));
+    try std.testing.expect(!hasErrorName(shift_internal.Error, "NestedNonDiagonalCapture"));
 }
 
 test "algebraic descriptor and context shells stay compact" {
-    const NoError = error{};
     const no_state = struct {};
     const search = shift.algebraic.TransformOp("search", void, usize);
     const stop = shift.algebraic.AbortOp("stop", []const u8);
-    const program = shift.algebraic.Program(usize, NoError, .{ search, stop });
+    const program = shift.algebraic.Program(usize, .{ search, stop });
     const Configured = @TypeOf(program.handlers(.{
         shift.algebraic.handleTransform(search, no_state{}, struct {
             /// Supply the compact transform witness value.

@@ -49,12 +49,9 @@ pub fn run(writer: anytype) anyerror!void {
         }
     };
 
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
-
     try writer.writeAll("branch=return_now\n");
     transcript.len = 0;
-    const early = try shift.with(&runtime, .{
+    const early = try shift.with(.{
         .picker = Picker.use(.{ .handler = return_now_handler{} }),
     }, struct {
         /// Trigger the generated lexical choice point and prove the continuation is skipped.
@@ -74,7 +71,7 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=resume_with\n");
     transcript.len = 0;
-    const resumed = try shift.with(&runtime, .{
+    const resumed = try shift.with(.{
         .picker = Picker.use(.{ .handler = resume_handler{} }),
     }, struct {
         /// Trigger the generated lexical choice point and complete the explicit continuation.

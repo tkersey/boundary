@@ -12,10 +12,8 @@ const Picker = shift.effect.Define(.{
 
 /// Trigger the removed generated lexical choice tag-dispatch compile failure.
 pub fn main() anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
 
-    _ = try shift.with(&runtime, .{
+    _ = try shift.with(.{
         .picker = Picker.use(.{ .handler = struct {
             /// Return now for the removed lexical choice surface fixture.
             pub fn pick(_: *@This(), _: i32) shift.effect.choice.Decision(i32, []const u8) {

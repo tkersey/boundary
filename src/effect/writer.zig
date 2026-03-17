@@ -99,9 +99,14 @@ pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) t
         }
 
         /// Run one lexical writer descriptor through the existing writer family.
-        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             var instance = Instance(ItemType, ErrorSetType).init();
-            const result = try handle(ItemType, AnswerType, runtime, &instance, self.allocator, Body);
+            const WriterContract = struct {
+                pub const Item = ItemType;
+                pub const Answer = AnswerType;
+                pub const WriterStateType = WriterState(ItemType);
+            };
+            const result = try algebraic.handleWriterWithErrorSet(WriterContract, RunErrorSetType, runtime, &instance, self.allocator, Body);
             return .{
                 .output = result.items,
                 .value = result.value,

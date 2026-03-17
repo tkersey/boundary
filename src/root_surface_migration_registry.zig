@@ -2,6 +2,7 @@
 pub const Status = enum {
     removed_from_public_root,
     retained_public,
+    retained_internal_only,
 };
 
 /// One root-surface migration record.
@@ -39,9 +40,9 @@ pub const entries = [_]Entry{
     .{
         .symbol = "ControlError",
         .current_path = "shift.ControlError",
-        .target_path = "shift.ControlError",
-        .status = .retained_public,
-        .note = "ControlError remains part of the public lowered-first root surface.",
+        .target_path = "src/internal/runtime_support.zig:ControlError",
+        .status = .retained_internal_only,
+        .note = "ControlError is removed from the public root and retained only through `src/internal/runtime_support.zig` for repo-owned proof/runtime callers.",
     },
     .{
         .symbol = "ResetError",
@@ -53,16 +54,16 @@ pub const entries = [_]Entry{
     .{
         .symbol = "Runtime",
         .current_path = "shift.Runtime",
-        .target_path = "shift.Runtime",
-        .status = .retained_public,
-        .note = "Runtime remains the public lowered-first runtime handle.",
+        .target_path = "src/internal/runtime_support.zig:Runtime",
+        .status = .retained_internal_only,
+        .note = "Runtime is removed from the public root and retained only through `src/internal/runtime_support.zig` for repo-owned proof/runtime callers.",
     },
     .{
         .symbol = "Error",
         .current_path = "shift.Error",
-        .target_path = "shift.Error",
-        .status = .retained_public,
-        .note = "Error remains the public lowered-first runtime error surface.",
+        .target_path = "src/internal/runtime_support.zig:Error",
+        .status = .retained_internal_only,
+        .note = "Error is removed from the public root and retained only through `src/internal/runtime_support.zig` for repo-owned proof/runtime callers.",
     },
     .{
         .symbol = "frontend",

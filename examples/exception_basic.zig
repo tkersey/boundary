@@ -18,11 +18,8 @@ pub fn run(writer: anytype) anyerror!void {
         }
     };
 
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
-
     try writer.writeAll("branch=pass\n");
-    const ok = try shift.with(&runtime, .{
+    const ok = try shift.with(.{
         .exception = shift.effect.exception.use([]const u8, NoError, catch_policy),
     }, struct {
         /// Return normally through the lexical exception scope.
@@ -36,7 +33,7 @@ pub fn run(writer: anytype) anyerror!void {
     try writer.writeAll("branch=throw\n");
     transcript.body_before_throw = false;
     transcript.caught_payload = "";
-    const thrown = try shift.with(&runtime, .{
+    const thrown = try shift.with(.{
         .exception = shift.effect.exception.use([]const u8, NoError, catch_policy),
     }, struct {
         /// Throw once through the lexical exception scope.

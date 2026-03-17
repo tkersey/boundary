@@ -11,7 +11,7 @@ const Counter = shift.effect.Define(.{
     },
 });
 
-fn runCounter(runtime: *shift.Runtime) !i32 {
+fn runCounter() !i32 {
     const Handler = struct {
         state: i32,
 
@@ -36,7 +36,7 @@ fn runCounter(runtime: *shift.Runtime) !i32 {
         }
     };
 
-    const result = try shift.with(runtime, .{
+    const result = try shift.with(.{
         .counter = Counter.use(.{ .handler = Handler{ .state = 5 } }),
     }, struct {
         /// Increment the generated counter once and return the new value.
@@ -51,9 +51,7 @@ fn runCounter(runtime: *shift.Runtime) !i32 {
 
 /// Render the generated-family example transcript.
 pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
-    try writer.print("counter={d}\n", .{try runCounter(&runtime)});
+    try writer.print("counter={d}\n", .{try runCounter()});
 }
 
 /// Run the generated-family example on stdout.

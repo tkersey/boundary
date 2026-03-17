@@ -5,10 +5,8 @@ const NoError = error{};
 
 /// Write the state-effect transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(.{
         .state = shift.effect.state.use(NoError, @as(i32, 5)),
     }, struct {
         /// Increment the lexical state once and return the canonical value witness.

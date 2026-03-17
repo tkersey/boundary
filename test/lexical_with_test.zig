@@ -3,6 +3,13 @@ const std = @import("std");
 
 const NoError = error{};
 
+fn hasErrorName(comptime ErrorSet: type, comptime wanted: []const u8) bool {
+    inline for (@typeInfo(ErrorSet).error_set.?) |field| {
+        if (comptime std.mem.eql(u8, field.name, wanted)) return true;
+    }
+    return false;
+}
+
 fn expectFixtureTranscript(comptime fixture_path: []const u8, writer_fn: anytype) !void {
     var buffer: std.io.Writer.Allocating = .init(std.testing.allocator);
     defer buffer.deinit();
@@ -10,11 +17,94 @@ fn expectFixtureTranscript(comptime fixture_path: []const u8, writer_fn: anytype
     try std.testing.expectEqualStrings(@embedFile(fixture_path), buffer.written());
 }
 
-test "shift.with composes state and reader through lexical handles" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
-    defer runtime.deinit();
+test "shift.with composes state reader and body error sets on the public root path" {
+    const ReaderError = error{ReaderOops};
+    const StateError = error{StateOops};
+    const BodyError = error{BodyOops};
 
-    const result = try shift.with(&runtime, .{
+    const CallType = @TypeOf(shift.with(.{
+        .reader = shift.effect.reader.use(ReaderError, @as(i32, 21)),
+        .state = shift.effect.state.use(StateError, @as(i32, 7)),
+    }, struct {
+        pub fn body(eff: anytype) shift.ResetError(ReaderError || StateError || BodyError)!i32 {
+            _ = try eff.reader.ask();
+            return try eff.state.get();
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "ReaderOops"));
+    try std.testing.expect(hasErrorName(ErrorSet, "StateOops"));
+    try std.testing.expect(hasErrorName(ErrorSet, "BodyOops"));
+
+    const result = try shift.with(.{
+        .reader = shift.effect.reader.use(ReaderError, @as(i32, 21)),
+        .state = shift.effect.state.use(StateError, @as(i32, 7)),
+    }, struct {
+        pub fn body(eff: anytype) shift.ResetError(ReaderError || StateError || BodyError)!i32 {
+            _ = try eff.reader.ask();
+            return try eff.state.get();
+        }
+    });
+
+    try std.testing.expectEqual(@as(i32, 7), result.value);
+}
+
+test "shift.with composes generated-family reader and body error sets on the public root path" {
+    const ReaderError = error{ReaderOops};
+    const CounterError = error{CounterOops};
+    const BodyError = error{BodyOops};
+    const Counter = shift.effect.Define(.{
+        .state_type = i32,
+        .error_set_type = CounterError,
+        .ops = .{
+            shift.effect.ops.Transform("get", void, i32),
+        },
+    });
+
+    const handler = struct {
+        state: i32 = 7,
+
+        pub fn get(self: *@This()) shift.ResetError(CounterError)!i32 {
+            return self.state;
+        }
+
+        pub fn afterGet(_: *@This(), answer: i32) shift.ResetError(CounterError)!i32 {
+            return answer;
+        }
+    };
+
+    const CallType = @TypeOf(shift.with(.{
+        .reader = shift.effect.reader.use(ReaderError, @as(i32, 21)),
+        .counter = Counter.use(.{ .handler = handler{} }),
+    }, struct {
+        pub fn body(eff: anytype) shift.ResetError(ReaderError || CounterError || BodyError)!i32 {
+            _ = try eff.reader.ask();
+            return try eff.counter.get.perform();
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "ReaderOops"));
+    try std.testing.expect(hasErrorName(ErrorSet, "CounterOops"));
+    try std.testing.expect(hasErrorName(ErrorSet, "BodyOops"));
+
+    const result = try shift.with(.{
+        .reader = shift.effect.reader.use(ReaderError, @as(i32, 21)),
+        .counter = Counter.use(.{ .handler = handler{} }),
+    }, struct {
+        pub fn body(eff: anytype) shift.ResetError(ReaderError || CounterError || BodyError)!i32 {
+            _ = try eff.reader.ask();
+            return try eff.counter.get.perform();
+        }
+    });
+
+    try std.testing.expectEqual(@as(i32, 7), result.value);
+}
+
+test "shift.with composes state and reader through lexical handles" {
+
+    const result = try shift.with(.{
         .state = shift.effect.state.use(NoError, @as(i32, 5)),
         .reader = shift.effect.reader.use(NoError, @as(i32, 21)),
     }, struct {
@@ -34,10 +124,8 @@ test "shift.with composes state and reader through lexical handles" {
 test "shift.with matches the state fixture transcript through lexical handles" {
     try expectFixtureTranscript("example_proof/fixtures/state_basic.txt", struct {
         fn run(writer: anytype) !void {
-            var runtime = shift.Runtime.init(std.testing.allocator);
-            defer runtime.deinit();
 
-            const result = try shift.with(&runtime, .{
+            const result = try shift.with(.{
                 .state = shift.effect.state.use(NoError, @as(i32, 5)),
             }, struct {
                 /// Match the public state example transcript through lexical handles.
@@ -56,10 +144,8 @@ test "shift.with matches the state fixture transcript through lexical handles" {
 test "shift.with matches the reader fixture transcript through lexical handles" {
     try expectFixtureTranscript("example_proof/fixtures/reader_basic.txt", struct {
         fn run(writer: anytype) !void {
-            var runtime = shift.Runtime.init(std.testing.allocator);
-            defer runtime.deinit();
 
-            const result = try shift.with(&runtime, .{
+            const result = try shift.with(.{
                 .reader = shift.effect.reader.use(NoError, @as(i32, 21)),
             }, struct {
                 /// Match the public reader example transcript through lexical handles.
@@ -112,15 +198,12 @@ test "shift.with matches the optional fixture transcript through lexical handles
                 }
             };
 
-            var runtime = shift.Runtime.init(std.testing.allocator);
-            defer runtime.deinit();
-
             const previous_writer = transcript.active_writer;
             transcript.active_writer = writer;
             defer transcript.active_writer = previous_writer;
 
             try writer.writeAll("branch=return_now\n");
-            const early = try shift.with(&runtime, .{
+            const early = try shift.with(.{
                 .optional = shift.effect.optional.use(i32, NoError, return_now_policy),
             }, struct {
                 /// Trigger the lexical optional choice point and prove the resume continuation is skipped.
@@ -136,7 +219,7 @@ test "shift.with matches the optional fixture transcript through lexical handles
             try writer.print("final={s}\n", .{early.value});
 
             try writer.writeAll("branch=resume_with\n");
-            const resumed = try shift.with(&runtime, .{
+            const resumed = try shift.with(.{
                 .optional = shift.effect.optional.use(i32, NoError, resume_policy),
             }, struct {
                 /// Trigger the lexical optional choice point and complete the resumed continuation explicitly.
@@ -175,15 +258,12 @@ test "shift.with matches the exception fixture transcript through lexical handle
                 }
             };
 
-            var runtime = shift.Runtime.init(std.testing.allocator);
-            defer runtime.deinit();
-
             const previous_writer = transcript.active_writer;
             transcript.active_writer = writer;
             defer transcript.active_writer = previous_writer;
 
             try writer.writeAll("branch=pass\n");
-            const ok = try shift.with(&runtime, .{
+            const ok = try shift.with(.{
                 .exception = shift.effect.exception.use([]const u8, NoError, catch_policy),
             }, struct {
                 /// Return normally through the lexical exception scope.
@@ -195,7 +275,7 @@ test "shift.with matches the exception fixture transcript through lexical handle
             try writer.print("final={s}\n", .{ok.value});
 
             try writer.writeAll("branch=throw\n");
-            const thrown = try shift.with(&runtime, .{
+            const thrown = try shift.with(.{
                 .exception = shift.effect.exception.use([]const u8, NoError, catch_policy),
             }, struct {
                 /// Throw once through the lexical exception scope.
@@ -238,15 +318,12 @@ test "shift.with matches the resource fixture transcript through lexical handles
                 }
             };
 
-            var runtime = shift.Runtime.init(std.testing.allocator);
-            defer runtime.deinit();
-
             const previous_writer = transcript.active_writer;
             transcript.active_writer = writer;
             defer transcript.active_writer = previous_writer;
             resource_manager.next_index = 0;
 
-            const result = try shift.with(&runtime, .{
+            const result = try shift.with(.{
                 .resource = shift.effect.resource.use([]const u8, NoError, resource_manager),
             }, struct {
                 /// Acquire and use two resources through the lexical scope.
@@ -273,10 +350,8 @@ test "shift.with matches the resource fixture transcript through lexical handles
 test "shift.with matches the writer fixture transcript through lexical handles" {
     try expectFixtureTranscript("example_proof/fixtures/writer_basic.txt", struct {
         fn run(writer: anytype) !void {
-            var runtime = shift.Runtime.init(std.testing.allocator);
-            defer runtime.deinit();
 
-            const result = try shift.with(&runtime, .{
+            const result = try shift.with(.{
                 .writer = shift.effect.writer.use([]const u8, NoError, std.testing.allocator),
             }, struct {
                 /// Append two items and return the canonical writer answer.
@@ -342,15 +417,12 @@ test "generated choice families use the lexical choice form" {
                 }
             };
 
-            var runtime = shift.Runtime.init(std.testing.allocator);
-            defer runtime.deinit();
-
             const previous_writer = transcript.active_writer;
             transcript.active_writer = writer;
             defer transcript.active_writer = previous_writer;
 
             try writer.writeAll("branch=return_now\n");
-            const early = try shift.with(&runtime, .{
+            const early = try shift.with(.{
                 .picker = Picker.use(.{ .handler = return_now_handler{} }),
             }, struct {
                 /// Trigger the generated lexical choice point and prove the continuation is skipped.
@@ -366,7 +438,7 @@ test "generated choice families use the lexical choice form" {
             try writer.print("final={s}\n", .{early.value});
 
             try writer.writeAll("branch=resume_with\n");
-            const resumed = try shift.with(&runtime, .{
+            const resumed = try shift.with(.{
                 .picker = Picker.use(.{ .handler = resume_handler{} }),
             }, struct {
                 /// Trigger the generated lexical choice point and complete the explicit continuation.
@@ -413,15 +485,12 @@ test "generated abort families use the lexical abort form" {
                 }
             };
 
-            var runtime = shift.Runtime.init(std.testing.allocator);
-            defer runtime.deinit();
-
             const previous_writer = transcript.active_writer;
             transcript.active_writer = writer;
             defer transcript.active_writer = previous_writer;
 
             try writer.writeAll("validate=name\n");
-            const result = try shift.with(&runtime, .{
+            const result = try shift.with(.{
                 .guard = Guard.use(.{ .handler = guard_handler{} }),
             }, struct {
                 /// Trigger the generated lexical abort point directly.
@@ -443,10 +512,7 @@ test "generated zero-payload choice fields stay ergonomic" {
         },
     });
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
-    defer runtime.deinit();
-
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(.{
         .asker = Ask.use(.{ .handler = struct {
             /// Resume a zero-payload generated choice with a fixed value.
             pub fn ask(_: *@This()) shift.effect.choice.Decision(i32, []const u8) {

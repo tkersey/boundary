@@ -3,7 +3,7 @@ const ordinary_zig_lowering = @import("ordinary_zig_lowering");
 const std = @import("std");
 
 test "ordinary Zig registry keeps the exact wave-one case count" {
-    try std.testing.expectEqual(@as(usize, 8), ordinary.cases.len);
+    try std.testing.expectEqual(@as(usize, 11), ordinary.cases.len);
     for (ordinary.cases) |case| {
         try std.testing.expect(case.status == .green);
     }

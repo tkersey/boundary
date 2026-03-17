@@ -13,10 +13,8 @@ const Counter = shift.effect.Define(.{
 
 /// Trigger the removed generated lexical transform tag-dispatch compile failure.
 pub fn main() anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
 
-    _ = try shift.with(&runtime, .{
+    _ = try shift.with(.{
         .counter = Counter.use(.{ .handler = struct {
             state: i32 = 5,
 

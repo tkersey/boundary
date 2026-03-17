@@ -452,13 +452,13 @@ pub fn Build(comptime spec: anytype) type {
             return computeProgramForPrompt(Cap, ctx, FamilyPrompt, thunk);
         }
 
-        fn GeneratedImplType(comptime AnswerType: type, comptime HandlerPtrType: type, comptime index: usize) type {
+        fn GeneratedImplType(comptime AnswerType: type, comptime RunErrorSetType: type, comptime HandlerPtrType: type, comptime index: usize) type {
             const HandlerType = std.meta.Child(HandlerPtrType);
             const op_type = op_specs[index];
             return switch (mode) {
                 .resume_then_transform => struct {
                     /// Produce one resumptive value from the generated handler bundle.
-                    pub fn resumeValue(self: HandlerPtrType, payload: OpPayloadType(op_type)) shift.ResetError(ErrorSetType)!OpResumeType(op_type) {
+                    pub fn resumeValue(self: HandlerPtrType, payload: OpPayloadType(op_type)) shift.ResetError(RunErrorSetType)!OpResumeType(op_type) {
                         const ResumeFn = @TypeOf(@field(HandlerType, opName(op_type)));
                         if (comptime OpPayloadType(op_type) == void) {
                             if (ResumeFn == fn (HandlerPtrType) OpResumeType(op_type)) return @field(HandlerType, opName(op_type))(self);
@@ -469,7 +469,7 @@ pub fn Build(comptime spec: anytype) type {
                     }
 
                     /// Convert one resumed answer into the enclosing generated answer.
-                    pub fn afterResume(self: HandlerPtrType, answer: AnswerType) shift.ResetError(ErrorSetType)!AnswerType {
+                    pub fn afterResume(self: HandlerPtrType, answer: AnswerType) shift.ResetError(RunErrorSetType)!AnswerType {
                         const after_name = comptime afterMethodName(opName(op_type));
                         const AfterFn = @TypeOf(@field(HandlerType, after_name));
                         if (AfterFn == fn (HandlerPtrType, AnswerType) AnswerType) return @field(HandlerType, after_name)(self, answer);
@@ -478,7 +478,7 @@ pub fn Build(comptime spec: anytype) type {
                 },
                 .resume_or_return => struct {
                     /// Decide whether one generated choice op resumes or returns now.
-                    pub fn resumeOrReturn(self: HandlerPtrType, payload: OpPayloadType(op_type)) shift.ResetError(ErrorSetType)!choice.Decision(OpResumeType(op_type), AnswerType) {
+                    pub fn resumeOrReturn(self: HandlerPtrType, payload: OpPayloadType(op_type)) shift.ResetError(RunErrorSetType)!choice.Decision(OpResumeType(op_type), AnswerType) {
                         const ResumeFn = @TypeOf(@field(HandlerType, opName(op_type)));
                         if (comptime OpPayloadType(op_type) == void) {
                             if (ResumeFn == fn (HandlerPtrType) choice.Decision(OpResumeType(op_type), AnswerType)) return @field(HandlerType, opName(op_type))(self);
@@ -489,7 +489,7 @@ pub fn Build(comptime spec: anytype) type {
                     }
 
                     /// Convert one resumed choice answer into the enclosing generated answer.
-                    pub fn afterResume(self: HandlerPtrType, answer: AnswerType) shift.ResetError(ErrorSetType)!AnswerType {
+                    pub fn afterResume(self: HandlerPtrType, answer: AnswerType) shift.ResetError(RunErrorSetType)!AnswerType {
                         const after_name = comptime afterMethodName(opName(op_type));
                         const AfterFn = @TypeOf(@field(HandlerType, after_name));
                         if (AfterFn == fn (HandlerPtrType, AnswerType) AnswerType) return @field(HandlerType, after_name)(self, answer);
@@ -498,7 +498,7 @@ pub fn Build(comptime spec: anytype) type {
                 },
                 .direct_return => struct {
                     /// Convert one generated abort payload into the enclosing answer.
-                    pub fn directReturn(self: HandlerPtrType, payload: OpPayloadType(op_type)) shift.ResetError(ErrorSetType)!AnswerType {
+                    pub fn directReturn(self: HandlerPtrType, payload: OpPayloadType(op_type)) shift.ResetError(RunErrorSetType)!AnswerType {
                         const DirectFn = @TypeOf(@field(HandlerType, opName(op_type)));
                         if (comptime OpPayloadType(op_type) == void) {
                             if (DirectFn == fn (HandlerPtrType) AnswerType) return @field(HandlerType, opName(op_type))(self);
@@ -511,9 +511,9 @@ pub fn Build(comptime spec: anytype) type {
             };
         }
 
-        fn GeneratedSpecType(comptime AnswerType: type, comptime HandlerPtrType: type, comptime index: usize) type {
+        fn GeneratedSpecType(comptime AnswerType: type, comptime RunErrorSetType: type, comptime HandlerPtrType: type, comptime index: usize) type {
             const op_type = op_specs[index];
-            const Impl = GeneratedImplType(AnswerType, HandlerPtrType, index);
+            const Impl = GeneratedImplType(AnswerType, RunErrorSetType, HandlerPtrType, index);
             return switch (mode) {
                 .resume_then_transform => @TypeOf(internal.handleDirectTransform(op_type, dummyPointer(HandlerPtrType), Impl)),
                 .resume_or_return => @TypeOf(internal.handleChoice(op_type, dummyPointer(HandlerPtrType), Impl)),
@@ -523,11 +523,12 @@ pub fn Build(comptime spec: anytype) type {
 
         fn generatedSpec(
             comptime AnswerType: type,
+            comptime RunErrorSetType: type,
             handler_ptr: anytype,
             comptime index: usize,
-        ) GeneratedSpecType(AnswerType, @TypeOf(handler_ptr), index) {
+        ) GeneratedSpecType(AnswerType, RunErrorSetType, @TypeOf(handler_ptr), index) {
             const op_type = op_specs[index];
-            const Impl = GeneratedImplType(AnswerType, @TypeOf(handler_ptr), index);
+            const Impl = GeneratedImplType(AnswerType, RunErrorSetType, @TypeOf(handler_ptr), index);
             return switch (mode) {
                 .resume_then_transform => internal.handleDirectTransform(op_type, handler_ptr, Impl),
                 .resume_or_return => internal.handleChoice(op_type, handler_ptr, Impl),
@@ -535,32 +536,32 @@ pub fn Build(comptime spec: anytype) type {
             };
         }
 
-        fn SpecsTupleType(comptime AnswerType: type, comptime HandlerPtrType: type) type {
+        fn SpecsTupleType(comptime AnswerType: type, comptime RunErrorSetType: type, comptime HandlerPtrType: type) type {
             const HandlerType = std.meta.Child(HandlerPtrType);
             comptime assertHandlerBundle(mode, StateType, AnswerType, ErrorSetType, op_specs, HandlerType);
             return switch (op_specs.len) {
-                1 => std.meta.Tuple(&.{GeneratedSpecType(AnswerType, HandlerPtrType, 0)}),
-                2 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, HandlerPtrType, 1) }),
-                3 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, HandlerPtrType, 2) }),
-                4 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, HandlerPtrType, 3) }),
-                5 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, HandlerPtrType, 3), GeneratedSpecType(AnswerType, HandlerPtrType, 4) }),
-                6 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, HandlerPtrType, 3), GeneratedSpecType(AnswerType, HandlerPtrType, 4), GeneratedSpecType(AnswerType, HandlerPtrType, 5) }),
-                7 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, HandlerPtrType, 3), GeneratedSpecType(AnswerType, HandlerPtrType, 4), GeneratedSpecType(AnswerType, HandlerPtrType, 5), GeneratedSpecType(AnswerType, HandlerPtrType, 6) }),
-                8 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, HandlerPtrType, 3), GeneratedSpecType(AnswerType, HandlerPtrType, 4), GeneratedSpecType(AnswerType, HandlerPtrType, 5), GeneratedSpecType(AnswerType, HandlerPtrType, 6), GeneratedSpecType(AnswerType, HandlerPtrType, 7) }),
+                1 => std.meta.Tuple(&.{GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0)}),
+                2 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1) }),
+                3 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 2) }),
+                4 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 3) }),
+                5 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 3), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 4) }),
+                6 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 3), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 4), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 5) }),
+                7 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 3), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 4), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 5), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 6) }),
+                8 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 3), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 4), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 5), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 6), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 7) }),
                 else => unreachable,
             };
         }
 
-        fn buildSpecs(comptime AnswerType: type, handler_ptr: anytype) SpecsTupleType(AnswerType, @TypeOf(handler_ptr)) {
+        fn buildSpecs(comptime AnswerType: type, comptime RunErrorSetType: type, handler_ptr: anytype) SpecsTupleType(AnswerType, RunErrorSetType, @TypeOf(handler_ptr)) {
             return switch (op_specs.len) {
-                1 => .{generatedSpec(AnswerType, handler_ptr, 0)},
-                2 => .{ generatedSpec(AnswerType, handler_ptr, 0), generatedSpec(AnswerType, handler_ptr, 1) },
-                3 => .{ generatedSpec(AnswerType, handler_ptr, 0), generatedSpec(AnswerType, handler_ptr, 1), generatedSpec(AnswerType, handler_ptr, 2) },
-                4 => .{ generatedSpec(AnswerType, handler_ptr, 0), generatedSpec(AnswerType, handler_ptr, 1), generatedSpec(AnswerType, handler_ptr, 2), generatedSpec(AnswerType, handler_ptr, 3) },
-                5 => .{ generatedSpec(AnswerType, handler_ptr, 0), generatedSpec(AnswerType, handler_ptr, 1), generatedSpec(AnswerType, handler_ptr, 2), generatedSpec(AnswerType, handler_ptr, 3), generatedSpec(AnswerType, handler_ptr, 4) },
-                6 => .{ generatedSpec(AnswerType, handler_ptr, 0), generatedSpec(AnswerType, handler_ptr, 1), generatedSpec(AnswerType, handler_ptr, 2), generatedSpec(AnswerType, handler_ptr, 3), generatedSpec(AnswerType, handler_ptr, 4), generatedSpec(AnswerType, handler_ptr, 5) },
-                7 => .{ generatedSpec(AnswerType, handler_ptr, 0), generatedSpec(AnswerType, handler_ptr, 1), generatedSpec(AnswerType, handler_ptr, 2), generatedSpec(AnswerType, handler_ptr, 3), generatedSpec(AnswerType, handler_ptr, 4), generatedSpec(AnswerType, handler_ptr, 5), generatedSpec(AnswerType, handler_ptr, 6) },
-                8 => .{ generatedSpec(AnswerType, handler_ptr, 0), generatedSpec(AnswerType, handler_ptr, 1), generatedSpec(AnswerType, handler_ptr, 2), generatedSpec(AnswerType, handler_ptr, 3), generatedSpec(AnswerType, handler_ptr, 4), generatedSpec(AnswerType, handler_ptr, 5), generatedSpec(AnswerType, handler_ptr, 6), generatedSpec(AnswerType, handler_ptr, 7) },
+                1 => .{generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 0)},
+                2 => .{ generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 0), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 1) },
+                3 => .{ generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 0), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 1), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 2) },
+                4 => .{ generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 0), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 1), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 2), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 3) },
+                5 => .{ generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 0), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 1), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 2), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 3), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 4) },
+                6 => .{ generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 0), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 1), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 2), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 3), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 4), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 5) },
+                7 => .{ generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 0), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 1), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 2), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 3), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 4), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 5), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 6) },
+                8 => .{ generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 0), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 1), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 2), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 3), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 4), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 5), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 6), generatedSpec(AnswerType, RunErrorSetType, handler_ptr, 7) },
                 else => unreachable,
             };
         }
@@ -595,19 +596,20 @@ pub fn Build(comptime spec: anytype) type {
             comptime Config: type,
         ) type {
             const OpTypeValue = OpType(op_specs, tag);
+            const RunErrorSetType = family.ContextErrorSetType(Config.ContextPtr);
             return switch (mode) {
                 .resume_then_transform => if (OpPayloadType(OpTypeValue) == void) struct {
                     ctx: ?Config.ContextPtr,
 
                     /// Perform one zero-payload generated lexical transform op.
-                    pub fn perform(self: @This()) shift.ResetError(ErrorSetType)!OpResumeType(OpTypeValue) {
+                    pub fn perform(self: @This()) shift.ResetError(RunErrorSetType)!OpResumeType(OpTypeValue) {
                         return try Op(tag).perform(Config.Capability, self.ctx.?);
                     }
                 } else struct {
                     ctx: ?Config.ContextPtr,
 
                     /// Perform one payload-carrying generated lexical transform op.
-                    pub fn perform(self: @This(), payload: OpPayloadType(OpTypeValue)) shift.ResetError(ErrorSetType)!OpResumeType(OpTypeValue) {
+                    pub fn perform(self: @This(), payload: OpPayloadType(OpTypeValue)) shift.ResetError(RunErrorSetType)!OpResumeType(OpTypeValue) {
                         return try Op(tag).perform(Config.Capability, self.ctx.?, payload);
                     }
                 },
@@ -621,12 +623,12 @@ pub fn Build(comptime spec: anytype) type {
                     outputs_ptr: ?*lexical_with.OutputBundleType(Config.Handlers),
 
                     /// Perform one zero-payload generated lexical choice op.
-                    pub fn perform(self: Handle, comptime Continuation: type) shift.ResetError(ErrorSetType)!lexical_with.ChoiceAnswerType(Continuation) {
+                    pub fn perform(self: Handle, comptime Continuation: type) shift.ResetError(RunErrorSetType)!lexical_with.ChoiceAnswerType(Continuation) {
                         const request_state = struct {
                             threadlocal var active_handle: ?Handle = null;
 
                             /// Re-enter the lexical continuation after one generated choice resume.
-                            pub fn apply(value: OpResumeType(OpTypeValue)) shift.ResetError(ErrorSetType)!lexical_with.ChoiceAnswerType(Continuation) {
+                            pub fn apply(value: OpResumeType(OpTypeValue)) shift.ResetError(RunErrorSetType)!lexical_with.ChoiceAnswerType(Continuation) {
                                 const current_handle = active_handle.?;
                                 return try lexical_with.continueChoice(
                                     Config.Handlers,
@@ -663,12 +665,12 @@ pub fn Build(comptime spec: anytype) type {
                     outputs_ptr: ?*lexical_with.OutputBundleType(Config.Handlers),
 
                     /// Perform one payload-carrying generated lexical choice op.
-                    pub fn perform(self: Handle, payload: OpPayloadType(OpTypeValue), comptime Continuation: type) shift.ResetError(ErrorSetType)!lexical_with.ChoiceAnswerType(Continuation) {
+                    pub fn perform(self: Handle, payload: OpPayloadType(OpTypeValue), comptime Continuation: type) shift.ResetError(RunErrorSetType)!lexical_with.ChoiceAnswerType(Continuation) {
                         const request_state = struct {
                             threadlocal var active_handle: ?Handle = null;
 
                             /// Re-enter the lexical continuation after one generated choice resume.
-                            pub fn apply(value: OpResumeType(OpTypeValue)) shift.ResetError(ErrorSetType)!lexical_with.ChoiceAnswerType(Continuation) {
+                            pub fn apply(value: OpResumeType(OpTypeValue)) shift.ResetError(RunErrorSetType)!lexical_with.ChoiceAnswerType(Continuation) {
                                 const current_handle = active_handle.?;
                                 return try lexical_with.continueChoice(
                                     Config.Handlers,
@@ -700,14 +702,14 @@ pub fn Build(comptime spec: anytype) type {
                     ctx: ?Config.ContextPtr,
 
                     /// Perform one zero-payload generated lexical abort op.
-                    pub fn abort(self: @This()) shift.ResetError(ErrorSetType)!noreturn {
+                    pub fn abort(self: @This()) shift.ResetError(RunErrorSetType)!noreturn {
                         return try Op(tag).perform(Config.Capability, self.ctx.?);
                     }
                 } else struct {
                     ctx: ?Config.ContextPtr,
 
                     /// Perform one payload-carrying generated lexical abort op.
-                    pub fn abort(self: @This(), payload: OpPayloadType(OpTypeValue)) shift.ResetError(ErrorSetType)!noreturn {
+                    pub fn abort(self: @This(), payload: OpPayloadType(OpTypeValue)) shift.ResetError(RunErrorSetType)!noreturn {
                         return try Op(tag).perform(Config.Capability, self.ctx.?, payload);
                     }
                 },
@@ -818,9 +820,9 @@ pub fn Build(comptime spec: anytype) type {
                 }
 
                 /// Run one generated lexical descriptor through the existing generated-family handler path.
-                pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+                pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
                     var instance = Instance.init();
-                    const result = try self_type.handle(AnswerType, runtime, &instance, self.handler, Body);
+                    const result = try self_type.handleWithErrorSet(AnswerType, RunErrorSetType, runtime, &instance, self.handler, Body);
                     if (mode == .resume_then_transform) {
                         return .{
                             .output = result.state,
@@ -847,7 +849,7 @@ pub fn Build(comptime spec: anytype) type {
             const HandlerType = @TypeOf(handler_value);
             comptime assertHandlerBundle(mode, StateType, AnswerType, ErrorSetType, op_specs, HandlerType);
 
-            const specs = buildSpecs(AnswerType, handler_ptr);
+            const specs = buildSpecs(AnswerType, ErrorSetType, handler_ptr);
             const Configured = @TypeOf(internal.Program(AnswerType, AnswerType, ErrorSetType, op_specs).handlers(specs));
             const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, ErrorSetType);
             var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
@@ -867,6 +869,45 @@ pub fn Build(comptime spec: anytype) type {
                 const StateTypeG = StateType;
                 const AnswerTypeG = AnswerType;
                 const ErrorSetTypeG = ErrorSetType;
+                const capability_decls = capability_meta;
+            };
+            const value = try runWithSealedEngine(
+                sealed_contract,
+                .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx },
+                Body,
+            );
+            if (mode == .resume_then_transform) {
+                return .{ .state = handler_value.state, .value = value };
+            }
+            return value;
+        }
+
+        /// Run one generated family body under a fresh exact context and hidden engine bindings with a broader lexical run error contract.
+        pub fn handleWithErrorSet(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) shift.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+            var handler_value = handler;
+            const handler_ptr = &handler_value;
+            const HandlerType = @TypeOf(handler_value);
+            comptime assertHandlerBundle(mode, StateType, AnswerType, ErrorSetType, op_specs, HandlerType);
+
+            const specs = buildSpecs(AnswerType, RunErrorSetType, handler_ptr);
+            const Configured = @TypeOf(internal.Program(AnswerType, AnswerType, RunErrorSetType, op_specs).handlers(specs));
+            const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
+            var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+            var engine_ctx = Configured.Context{ .bindings = &bindings };
+
+            const capability_meta = struct {
+                const body_tag = Body;
+
+                pub fn EngineContextType() type {
+                    return Configured.Context;
+                }
+            };
+
+            const sealed_contract = struct {
+                const PromptTypeG = prompt_contract.Prompt(mode, AnswerType, AnswerType, RunErrorSetType);
+                const StateTypeG = StateType;
+                const AnswerTypeG = AnswerType;
+                const ErrorSetTypeG = RunErrorSetType;
                 const capability_decls = capability_meta;
             };
             const value = try runWithSealedEngine(

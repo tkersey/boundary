@@ -41,8 +41,11 @@ Wave one supports exactly these ordinary-Zig case ids:
 - `ordinary.branch_resume`
 - `ordinary.loop_resume`
 - `ordinary.helper_call_resume`
+- `ordinary.cross_module_helper_resume`
+- `ordinary.cross_module_helper_chain_resume`
 - `ordinary.nested_prompt_static_redelim`
 - `ordinary.typed_error_try`
+- `ordinary.cross_module_typed_error_try`
 - `ordinary.defer_resume`
 - `ordinary.errdefer_error`
 
@@ -52,8 +55,10 @@ These cases cover the wave-one subset:
 - `if` / `else`
 - `while`
 - same-module helper calls
+- static imported helper calls and helper chains
 - nested prompts with static re-delimitation made visible in the transcript
 - typed error propagation with `try` / `catch`
+- typed error propagation through imported helpers
 - `defer`
 - `errdefer`
 

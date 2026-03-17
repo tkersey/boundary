@@ -42,10 +42,10 @@ pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: typ
         }
 
         /// Run one lexical resource descriptor through the existing resource family.
-        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
             var instance = Instance(ResourceType, ErrorSetType).init();
-            const result = try handle(AnswerType, runtime, &instance, Manager, Body);
+            const result = try algebraic.handleResourceWithErrorSet(AnswerType, RunErrorSetType, runtime, &instance, Manager, Body);
             return .{
                 .output = {},
                 .value = result,

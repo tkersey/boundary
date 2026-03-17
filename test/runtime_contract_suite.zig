@@ -1,6 +1,7 @@
 const prompt_support = @import("prompt_support");
 const runtime_contracts = @import("runtime_contract_registry");
 const shift = @import("shift");
+const shift_internal = @import("shift_internal");
 const std = @import("std");
 const survey_resume_transform_executes = @import("survey_resume_transform_executes");
 
@@ -28,16 +29,16 @@ test "missing prompt still fails closed through the public API" {
 }
 
 test "cross-thread runtime misuse still fails closed" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_internal.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Result = struct {
-        err: ?shift.Error = null,
+        err: ?shift_internal.Error = null,
     };
     var result = Result{};
 
     const worker = struct {
-        fn run(runtime_ptr: *shift.Runtime, result_ptr: *Result) void {
+        fn run(runtime_ptr: *shift_internal.Runtime, result_ptr: *Result) void {
             runtime_ptr.deinitChecked() catch |err| {
                 result_ptr.err = err;
                 return;
@@ -51,7 +52,7 @@ test "cross-thread runtime misuse still fails closed" {
 }
 
 test "runtime deinit rejects active reset" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_internal.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const NoError = error{};
@@ -70,7 +71,7 @@ test "runtime deinit rejects active reset" {
         }
     };
     const continuation = struct {
-        var runtime_ptr: *shift.Runtime = undefined;
+        var runtime_ptr: *shift_internal.Runtime = undefined;
 
         /// Probe the runtime-busy contract from the resumed continuation.
         pub fn apply(_: usize) shift.ResetError(NoError)!usize {
@@ -88,7 +89,7 @@ test "runtime deinit rejects active reset" {
 }
 
 test "destroyed runtime rejects later reset use" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_internal.Runtime.init(std.testing.allocator);
     try runtime.deinitChecked();
     try std.testing.expectError(error.RuntimeDestroyed, runtime.deinitChecked());
 
@@ -100,7 +101,7 @@ test "destroyed runtime rejects later reset use" {
 }
 
 test "unsupported non-diagonal completion still fails closed" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_internal.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const NoError = error{};

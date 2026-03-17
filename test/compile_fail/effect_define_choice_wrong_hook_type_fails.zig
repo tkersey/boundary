@@ -1,5 +1,6 @@
 const prompt_support = @import("prompt_support");
 const shift = @import("shift");
+const shift_internal = @import("shift_internal");
 const std = @import("std");
 
 const NoError = error{};
@@ -26,7 +27,7 @@ const bad_handler = struct {
 
 /// Trigger the generated-family wrong-choice-hook-type compile failure.
 pub fn main() anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    var runtime = shift_internal.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     var instance = Picker.Instance.init();
     _ = try Picker.handle([]const u8, &runtime, &instance, bad_handler{}, struct {

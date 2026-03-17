@@ -1,4 +1,5 @@
 const shift = @import("shift");
+const shift_internal = @import("shift_internal");
 const std = @import("std");
 
 const NoError = error{};
@@ -12,7 +13,7 @@ const bad_policy = struct {
 
 /// Attempt to handle an optional effect with a malformed policy type.
 pub fn main() anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    var runtime = shift_internal.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     var instance = OptionalInstance.init();
     _ = try shift.effect.optional.handle(i32, &runtime, &instance, bad_policy, struct {

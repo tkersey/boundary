@@ -9,6 +9,7 @@ const ShiftConsumerDeps = struct {
 const ShiftPromptFixtureDeps = struct {
     prompt_support_mod: *std.Build.Module,
     shift_mod: *std.Build.Module,
+    shift_internal_mod: *std.Build.Module,
 };
 
 fn createShiftConsumerModule(
@@ -41,6 +42,7 @@ fn createShiftPromptFixtureModule(
         .optimize = optimize,
     });
     mod.addImport("shift", deps.shift_mod);
+    mod.addImport("shift_internal", deps.shift_internal_mod);
     mod.addImport("prompt_support", deps.prompt_support_mod);
     return mod;
 }
@@ -100,7 +102,12 @@ pub fn build(b: *std.Build) void {
     const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
 
     const shift_mod = b.addModule("shift", .{
-        .root_source_file = b.path("src/root.zig"),
+        .root_source_file = b.path("src/shift_module.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const shift_internal_mod = b.createModule(.{
+        .root_source_file = b.path("src/internal/runtime_support.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -117,6 +124,8 @@ pub fn build(b: *std.Build) void {
     frontend_support_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
     shift_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
     shift_mod.addImport("frontend_support", frontend_support_mod);
+    shift_internal_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
+    shift_internal_mod.addImport("frontend_support", frontend_support_mod);
     const witnesses_mod = b.createModule(.{
         .root_source_file = b.path("src/witnesses.zig"),
         .target = target,
@@ -142,6 +151,7 @@ pub fn build(b: *std.Build) void {
     lowered_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
     frontend_support_mod.addImport("lowered_machine", lowered_machine_mod);
     shift_mod.addImport("lowered_machine", lowered_machine_mod);
+    shift_internal_mod.addImport("lowered_machine", lowered_machine_mod);
     const prompt_support_mod = b.createModule(.{
         .root_source_file = b.path("src/internal/prompt_support.zig"),
         .target = target,
@@ -226,12 +236,14 @@ pub fn build(b: *std.Build) void {
     const lib_check = b.addObject(.{
         .name = "shift",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/root.zig"),
+            .root_source_file = b.path("src/shift_module.zig"),
             .target = target,
             .optimize = optimize,
         }),
     });
     lib_check.root_module.addImport("lowered_machine", lowered_machine_mod);
+    lib_check.root_module.addImport("frontend_support", frontend_support_mod);
+    lib_check.root_module.addImport("prompt_contract_support", prompt_contract_support_mod);
     check_step.dependOn(&lib_check.step);
 
     const root_tests = b.addTest(.{
@@ -271,6 +283,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     runtime_contract_mod.addImport("shift", shift_mod);
+    runtime_contract_mod.addImport("shift_internal", shift_internal_mod);
     runtime_contract_mod.addImport("prompt_support", prompt_support_mod);
     runtime_contract_mod.addImport("runtime_contract_registry", b.createModule(.{
         .root_source_file = b.path("src/runtime_contract_registry.zig"),
@@ -430,6 +443,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     size_check_mod.addImport("shift", shift_mod);
+    size_check_mod.addImport("shift_internal", shift_internal_mod);
     size_check_mod.addImport("prompt_support", prompt_support_mod);
     const size_tests = b.addTest(.{
         .root_module = size_check_mod,
@@ -558,6 +572,9 @@ pub fn build(b: *std.Build) void {
     ordinary_corpus_mod.addImport("ordinary_zig_lowering", ordinary_lowering_mod);
     ordinary_corpus_mod.addImport("lowered_machine", lowered_machine_mod);
     ordinary_corpus_mod.addImport("ordinary_fixture_branch_resume", createPlainModule(b, "test/ordinary_zig_corpus/fixtures/branch_resume.zig", target, optimize));
+    ordinary_corpus_mod.addImport("ordinary_fixture_cross_module_helper_chain_resume", createPlainModule(b, "test/ordinary_zig_corpus/fixtures/cross_module_helper_chain_resume.zig", target, optimize));
+    ordinary_corpus_mod.addImport("ordinary_fixture_cross_module_helper_resume", createPlainModule(b, "test/ordinary_zig_corpus/fixtures/cross_module_helper_resume.zig", target, optimize));
+    ordinary_corpus_mod.addImport("ordinary_fixture_cross_module_typed_error_try", createPlainModule(b, "test/ordinary_zig_corpus/fixtures/cross_module_typed_error_try.zig", target, optimize));
     ordinary_corpus_mod.addImport("ordinary_fixture_defer_resume", createPlainModule(b, "test/ordinary_zig_corpus/fixtures/defer_resume.zig", target, optimize));
     ordinary_corpus_mod.addImport("ordinary_fixture_errdefer_error", createPlainModule(b, "test/ordinary_zig_corpus/fixtures/errdefer_error.zig", target, optimize));
     ordinary_corpus_mod.addImport("ordinary_fixture_helper_call_resume", createPlainModule(b, "test/ordinary_zig_corpus/fixtures/helper_call_resume.zig", target, optimize));
@@ -875,6 +892,7 @@ pub fn build(b: *std.Build) void {
     inline for (one_shot_success_fixtures) |fixture| {
         const fixture_mod = createShiftPromptFixtureModule(b, fixture.path, target, optimize, .{
             .shift_mod = shift_mod,
+            .shift_internal_mod = shift_internal_mod,
             .prompt_support_mod = prompt_support_mod,
         });
         const fixture_check = b.addObject(.{
@@ -898,6 +916,7 @@ pub fn build(b: *std.Build) void {
     inline for (one_shot_success_fixtures) |fixture| {
         const fixture_mod = createShiftPromptFixtureModule(b, fixture.path, target, optimize, .{
             .shift_mod = shift_mod,
+            .shift_internal_mod = shift_internal_mod,
             .prompt_support_mod = prompt_support_mod,
         });
         const fixture_check = b.addObject(.{
@@ -962,12 +981,12 @@ pub fn build(b: *std.Build) void {
         .{ .name = "cf-effect-define-explicit-mode-mismatch", .path = "test/compile_fail/effect_define_explicit_mode_mismatch_fails.zig", .expected = "generated effect explicit mode must match inferred op mode" },
         .{ .name = "cf-effect-define-reserved-name", .path = "test/compile_fail/effect_define_reserved_name_fails.zig", .expected = "generated effect op name collides with reserved family export" },
         .{ .name = "cf-effect-define-missing-after-hook", .path = "test/compile_fail/effect_define_missing_after_hook_fails.zig", .expected = "generated transform handler is missing after_<op> method" },
-        .{ .name = "cf-effect-define-transform-tag-removed", .path = "test/compile_fail/effect_define_lexical_transform_tag_dispatch_removed.zig", .expected = "test/compile_fail/effect_define_lexical_transform_tag_dispatch_removed.zig:46:35: error: no field or member function named 'perform' in '/?/" },
+        .{ .name = "cf-effect-define-transform-tag-removed", .path = "test/compile_fail/effect_define_lexical_transform_tag_dispatch_removed.zig", .expected = "test/compile_fail/effect_define_lexical_transform_tag_dispatch_removed.zig:44:35: error: no field or member function named 'perform' in '/?/" },
         .{ .name = "cf-effect-define-choice-hook-wrong-type", .path = "test/compile_fail/effect_define_choice_wrong_hook_type_fails.zig", .expected = "generated choice handler op method must have type fn (*Handler) effect.choice.Decision or fn (*Handler) ResetError(ErrorSet)!effect.choice.Decision" },
-        .{ .name = "cf-effect-define-choice-tag-removed", .path = "test/compile_fail/effect_define_lexical_choice_tag_dispatch_removed.zig", .expected = "test/compile_fail/effect_define_lexical_choice_tag_dispatch_removed.zig:33:34: error: no field or member function named 'perform' in '/?/" },
-        .{ .name = "cf-effect-define-abort-tag-removed", .path = "test/compile_fail/effect_define_lexical_abort_tag_dispatch_removed.zig", .expected = "test/compile_fail/effect_define_lexical_abort_tag_dispatch_removed.zig:28:26: error: no field or member function named 'abort' in '/?/" },
+        .{ .name = "cf-effect-define-choice-tag-removed", .path = "test/compile_fail/effect_define_lexical_choice_tag_dispatch_removed.zig", .expected = "test/compile_fail/effect_define_lexical_choice_tag_dispatch_removed.zig:31:34: error: no field or member function named 'perform' in '/?/" },
+        .{ .name = "cf-effect-define-abort-tag-removed", .path = "test/compile_fail/effect_define_lexical_abort_tag_dispatch_removed.zig", .expected = "test/compile_fail/effect_define_lexical_abort_tag_dispatch_removed.zig:26:26: error: no field or member function named 'abort' in '/?/" },
         .{ .name = "cf-effect-define-mixed-mode", .path = "test/compile_fail/effect_define_mixed_mode_fails.zig", .expected = "generated effect families support one prompt mode per family" },
-        .{ .name = "cf-root-reset-requires-program", .path = "test/compile_fail/root_reset_requires_program.zig", .expected = "test/compile_fail/root_reset_requires_program.zig:16:15: error: expected type 'frontend.Program(prompt_contract.Prompt(.resume_then_transform,usize,usize,error{}))', found 'fn () error{CrossThread,FrontendSuspend,MissingPrompt,NonDiagonalComplete,OutOfMemory,ProgramContractViolation,RuntimeBusy,RuntimeDestroyed}!usize'" },
+        .{ .name = "cf-root-reset-requires-program", .path = "test/compile_fail/root_reset_requires_program.zig", .expected = "test/compile_fail/root_reset_requires_program.zig:17:15: error: expected type 'frontend.Program(prompt_contract.Prompt(.resume_then_transform,usize,usize,error{}))', found 'fn () error{CrossThread,FrontendSuspend,MissingPrompt,NonDiagonalComplete,OutOfMemory,ProgramContractViolation,RuntimeBusy,RuntimeDestroyed}!usize'" },
         .{ .name = "cf-no-shift-guard-removed", .path = "test/compile_fail/no_shift_guard_removed.zig", .expected = "has no member named 'NoShiftGuard'" },
         .{ .name = "cf-resume-value-mismatch", .path = "test/compile_fail/resume_value_mismatch.zig", .expected = "resumeValue must have type fn () i32 or fn () error{CrossThread,FrontendSuspend,MissingPrompt,NonDiagonalComplete,OutOfMemory,ProgramContractViolation,RuntimeBusy,RuntimeDestroyed}!i32" },
         .{ .name = "cf-one-shot-missing-after-resume", .path = "test/one_shot_survey/missing_after_resume_fails.zig", .expected = "must declare afterResume" },
@@ -982,6 +1001,7 @@ pub fn build(b: *std.Build) void {
     inline for (compile_fail_fixtures) |fixture| {
         const fixture_mod = createShiftPromptFixtureModule(b, fixture.path, target, optimize, .{
             .shift_mod = shift_mod,
+            .shift_internal_mod = shift_internal_mod,
             .prompt_support_mod = prompt_support_mod,
         });
         const fixture_check = b.addObject(.{
@@ -1143,11 +1163,13 @@ pub fn build(b: *std.Build) void {
     }
 
     const shift_bench_mod = b.createModule(.{
-        .root_source_file = b.path("src/root.zig"),
+        .root_source_file = b.path("src/shift_module.zig"),
         .target = target,
         .optimize = bench_optimize,
     });
     shift_bench_mod.addImport("lowered_machine", lowered_machine_mod);
+    shift_bench_mod.addImport("frontend_support", frontend_support_mod);
+    shift_bench_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
     const bench_specs = [_]struct {
         name: []const u8,
         src: []const u8,

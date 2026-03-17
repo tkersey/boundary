@@ -1,6 +1,7 @@
 comptime {
     const prompt_support = @import("prompt_support");
     const shift = @import("shift");
+    const shift_internal = @import("shift_internal");
     const NoError = error{};
     const DemoPrompt = prompt_support.Prompt(.resume_then_transform, usize, usize, NoError);
 
@@ -11,7 +12,7 @@ comptime {
     };
 
     _ = prompt_support.run(
-        @as(*shift.Runtime, @ptrFromInt(@alignOf(shift.Runtime))),
+        @as(*shift_internal.Runtime, @ptrFromInt(@alignOf(shift_internal.Runtime))),
         @as(*DemoPrompt, @ptrFromInt(@alignOf(DemoPrompt))),
         legacy.body,
     );

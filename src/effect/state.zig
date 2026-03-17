@@ -49,9 +49,9 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
         }
 
         /// Run one lexical state descriptor through the existing state family.
-        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             var instance = Instance(StateType, ErrorSetType).init();
-            const result = try handle(AnswerType, runtime, &instance, self.initial_state, Body);
+            const result = try algebraic.handleStateWithErrorSet(AnswerType, RunErrorSetType, runtime, &instance, self.initial_state, Body);
             return .{
                 .output = result.state,
                 .value = result.value,

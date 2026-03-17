@@ -5,10 +5,8 @@ const NoError = error{};
 
 /// Write the reader-effect transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(.{
         .reader = shift.effect.reader.use(NoError, @as(i32, 21)),
     }, struct {
         /// Read the lexical reader environment once and double it.

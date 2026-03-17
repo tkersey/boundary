@@ -12,10 +12,8 @@ const Guard = shift.effect.Define(.{
 
 /// Trigger the removed generated lexical abort tag-dispatch compile failure.
 pub fn main() anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
 
-    _ = try shift.with(&runtime, .{
+    _ = try shift.with(.{
         .guard = Guard.use(.{ .handler = struct {
             /// Return the canonical abort answer.
             pub fn fail(_: *@This(), _: []const u8) []const u8 {

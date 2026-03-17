@@ -1,5 +1,6 @@
 const prompt_support = @import("prompt_support");
 const shift = @import("shift");
+const shift_internal = @import("shift_internal");
 const std = @import("std");
 
 const NoError = error{};
@@ -27,7 +28,7 @@ const Handler = struct {
 };
 
 const demo = struct {
-    var runtime_ptr: ?*shift.Runtime = null;
+    var runtime_ptr: ?*shift_internal.Runtime = null;
     var inner_ptr: ?*const Counter.Instance = null;
 
     /// Open a nested generated-family handle and intentionally reuse the outer capability.
@@ -54,7 +55,7 @@ const demo = struct {
 
 /// Trigger the generated-family cross-instance compile failure.
 pub fn main() anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    var runtime = shift_internal.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     var outer_instance = Counter.Instance.init();
     var inner_instance = Counter.Instance.init();

@@ -17,11 +17,9 @@ pub fn run(writer: anytype) anyerror!void {
         }
     };
 
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
     transcript.handler_line = "";
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(.{
         .exception = shift.effect.exception.use([]const u8, NoError, catch_policy),
     }, struct {
         /// Abort immediately through the lexical exception surface.

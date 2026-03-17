@@ -24,13 +24,10 @@ pub fn run(writer: anytype) anyerror!void {
         }
     };
 
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
-
     transcript.abort_line = "";
 
     try writer.writeAll("validate=name\n");
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(.{
         .guard = Guard.use(.{ .handler = guard_handler{} }),
     }, struct {
         /// Trigger the generated lexical abort point directly.

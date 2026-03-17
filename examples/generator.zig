@@ -5,12 +5,10 @@ const NoError = error{};
 
 /// Write the generator transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
     var output_buffer: [256]u8 = undefined;
     var output_fba = std.heap.FixedBufferAllocator.init(&output_buffer);
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(.{
         .writer = shift.effect.writer.use([]const u8, NoError, output_fba.allocator()),
         .state = shift.effect.state.use(NoError, @as(i32, 0)),
     }, struct {

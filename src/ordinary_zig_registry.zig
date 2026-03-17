@@ -52,6 +52,22 @@ pub const cases = [_]Case{
         .note = "A same-module helper call remains green.",
     },
     .{
+        .case_id = "ordinary.cross_module_helper_resume",
+        .label = "ordinary.cross_module_helper_resume",
+        .scenario_id = .ordinary_helper_call_resume,
+        .fixture_path = "test/ordinary_zig_corpus/fixtures/cross_module_helper_resume.zig",
+        .forbidden_transcript = "helper=enter\nhelper=exit\nfinal=42\n",
+        .note = "A static imported helper call remains green.",
+    },
+    .{
+        .case_id = "ordinary.cross_module_helper_chain_resume",
+        .label = "ordinary.cross_module_helper_chain_resume",
+        .scenario_id = .ordinary_helper_call_resume,
+        .fixture_path = "test/ordinary_zig_corpus/fixtures/cross_module_helper_chain_resume.zig",
+        .forbidden_transcript = "helper=enter\nhelper=exit\nfinal=42\n",
+        .note = "A static imported helper chain remains green.",
+    },
+    .{
         .case_id = "ordinary.nested_prompt_static_redelim",
         .label = "ordinary.nested_prompt_static_redelim",
         .scenario_id = .ordinary_static_redelim,
@@ -66,6 +82,14 @@ pub const cases = [_]Case{
         .fixture_path = "test/ordinary_zig_corpus/fixtures/typed_error_try.zig",
         .forbidden_transcript = "branch=ok\nvalue=42\nbranch=err\nfinal=error=boom\n",
         .note = "Typed error propagation through try/catch remains green.",
+    },
+    .{
+        .case_id = "ordinary.cross_module_typed_error_try",
+        .label = "ordinary.cross_module_typed_error_try",
+        .scenario_id = .ordinary_typed_error_try,
+        .fixture_path = "test/ordinary_zig_corpus/fixtures/cross_module_typed_error_try.zig",
+        .forbidden_transcript = "branch=ok\nvalue=42\nbranch=err\nfinal=error=boom\n",
+        .note = "Typed error propagation through imported helpers remains green.",
     },
     .{
         .case_id = "ordinary.defer_resume",

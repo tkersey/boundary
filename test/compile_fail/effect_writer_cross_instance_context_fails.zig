@@ -1,11 +1,12 @@
 const shift = @import("shift");
+const shift_internal = @import("shift_internal");
 const std = @import("std");
 
 const NoError = error{};
 const WriterInstance = shift.effect.writer.Instance([]const u8, NoError);
 
 const demo = struct {
-    var runtime_ptr: ?*shift.Runtime = null;
+    var runtime_ptr: ?*shift_internal.Runtime = null;
     var inner_ptr: ?*const WriterInstance = null;
     var arena_ptr: ?*std.heap.ArenaAllocator = null;
 
@@ -35,7 +36,7 @@ const demo = struct {
 
 /// Attempt to treat one writer capability as though it belonged to another.
 pub fn main() anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    var runtime = shift_internal.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();

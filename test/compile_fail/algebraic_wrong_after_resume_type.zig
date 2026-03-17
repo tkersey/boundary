@@ -1,9 +1,10 @@
 const shift = @import("shift");
+const shift_internal = @import("shift_internal");
 const std = @import("std");
 
 const NoError = error{};
 const ping = shift.algebraic.TransformOp("ping", void, i32);
-const demo = shift.algebraic.Program(i32, NoError, .{ping});
+const demo = shift.algebraic.Program(i32, .{ping});
 
 const no_state = struct {};
 
@@ -40,7 +41,7 @@ const body = struct {
 
 /// Trigger the compile-fail wrong-afterResume-type witness.
 pub fn main() anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    var runtime = shift_internal.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     _ = try configured.run(&runtime, body);
 }

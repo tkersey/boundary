@@ -35,12 +35,10 @@ pub fn run(writer: anytype) anyerror!void {
         }
     };
 
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
     resource_manager.next_index = 0;
     transcript.len = 0;
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(.{
         .resource = shift.effect.resource.use([]const u8, NoError, resource_manager),
     }, struct {
         /// Acquire and use two resources through the lexical scope.

@@ -1,5 +1,6 @@
 const prompt_support = @import("prompt_support");
 const shift = @import("shift");
+const shift_internal = @import("shift_internal");
 const std = @import("std");
 
 const NoError = error{};
@@ -17,7 +18,7 @@ const policy = struct {
 };
 
 const demo = struct {
-    var runtime_ptr: ?*shift.Runtime = null;
+    var runtime_ptr: ?*shift_internal.Runtime = null;
     var inner_ptr: ?*const OptionalInstance = null;
 
     /// Start a nested handle and try to treat its context as the outer one.
@@ -44,7 +45,7 @@ const demo = struct {
 
 /// Attempt to treat one optional capability as though it belonged to another.
 pub fn main() anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    var runtime = shift_internal.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     var outer_instance = OptionalInstance.init();
     var inner_instance = OptionalInstance.init();

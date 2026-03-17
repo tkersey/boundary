@@ -35,11 +35,9 @@ pub fn run(writer: anytype) anyerror!void {
         }
     };
 
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
     transcript.len = 0;
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(.{
         .approval = Approval.use(.{ .handler = approval_handler{} }),
     }, struct {
         /// Queue the workflow, request approval, and finish on the resumed branch.
