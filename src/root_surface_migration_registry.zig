@@ -18,23 +18,23 @@ pub const entries = [_]Entry{
     .{
         .symbol = "Prompt",
         .current_path = "shift.Prompt",
-        .target_path = "shift.internal.Prompt",
+        .target_path = "src/internal/prompt_support.zig:Prompt",
         .status = .removed_from_public_root,
-        .note = "The top-level prompt shell is removed from the public root. Repo-owned proof surfaces now reach it through `shift.internal.Prompt` only.",
+        .note = "The top-level prompt shell is removed from the public root. Repo-owned proof surfaces now reach it through direct imports of `src/internal/prompt_support.zig` only.",
     },
     .{
         .symbol = "PromptMode",
         .current_path = "shift.PromptMode",
-        .target_path = "shift.internal.PromptMode",
+        .target_path = "src/internal/prompt_support.zig:PromptMode",
         .status = .removed_from_public_root,
-        .note = "The top-level prompt-mode enum is removed from the public root. Repo-owned proof surfaces now reach it through `shift.internal.PromptMode` only.",
+        .note = "The top-level prompt-mode enum is removed from the public root. Repo-owned proof surfaces now reach it through direct imports of `src/internal/prompt_support.zig` only.",
     },
     .{
         .symbol = "ResumeOrReturn",
         .current_path = "shift.ResumeOrReturn",
         .target_path = "shift.effect.choice.Decision",
         .status = .removed_from_public_root,
-        .note = "The top-level zero-or-one-resume decision type is removed from the public root. Public choice code uses `shift.effect.choice.Decision`; repo-owned prompt-protocol proofs use `shift.internal.ResumeOrReturn`.",
+        .note = "The top-level zero-or-one-resume decision type is removed from the public root. Public choice code uses `shift.effect.choice.Decision`; repo-owned prompt-protocol proofs use direct imports of `src/internal/prompt_support.zig:ResumeOrReturn`.",
     },
     .{
         .symbol = "ControlError",
@@ -67,15 +67,15 @@ pub const entries = [_]Entry{
     .{
         .symbol = "frontend",
         .current_path = "shift.frontend",
-        .target_path = "shift.internal.frontend",
+        .target_path = "src/internal/prompt_support.zig:frontend",
         .status = .removed_from_public_root,
-        .note = "The explicit program frontend is removed from the public root. Repo-owned proof surfaces now reach it through `shift.internal.frontend` only.",
+        .note = "The explicit program frontend is removed from the public root. Repo-owned proof surfaces now reach it through direct imports of `src/internal/prompt_support.zig:frontend` only.",
     },
     .{
         .symbol = "reset",
         .current_path = "shift.reset",
-        .target_path = "shift.internal.run",
+        .target_path = "src/internal/prompt_support.zig:run",
         .status = .removed_from_public_root,
-        .note = "The top-level reset helper is removed from the public root. Repo-owned prompt-protocol proofs now use `shift.internal.run` instead.",
+        .note = "The top-level reset helper is removed from the public root. Repo-owned prompt-protocol proofs now use direct imports of `src/internal/prompt_support.zig:run` instead.",
     },
 };

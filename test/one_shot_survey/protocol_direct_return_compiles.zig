@@ -1,5 +1,4 @@
-const shift = @import("shift");
-const prompt_support = shift.internal;
+const prompt_support = @import("prompt_support");
 
 const NoError = error{};
 const DemoPrompt = prompt_support.Prompt(.direct_return, i32, i32, NoError);

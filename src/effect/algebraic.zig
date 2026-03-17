@@ -1,9 +1,9 @@
 const choice = @import("choice.zig");
 const cleanup = @import("cleanup.zig");
 const family = @import("family.zig");
-const frontend = @import("../frontend.zig");
+const frontend = @import("frontend_support");
 const internal = @import("../internal/algebraic_engine.zig");
-const prompt_contract = @import("../prompt_contract.zig");
+const prompt_contract = @import("prompt_contract_support");
 const shift = @import("../root.zig");
 const std = @import("std");
 

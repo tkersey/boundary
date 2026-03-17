@@ -1,5 +1,5 @@
+const prompt_support = @import("prompt_support");
 const shift = @import("shift");
-const prompt_support = shift.internal;
 
 const Broken = shift.effect.Define(.{
     .mode = prompt_support.PromptMode.direct_return,

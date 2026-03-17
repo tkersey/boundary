@@ -1,7 +1,7 @@
 const algebraic = @import("algebraic.zig");
 const family = @import("family.zig");
 const lexical_with = @import("../with_api.zig");
-const prompt_support = @import("../prompt_support_internal.zig");
+const prompt_contract = @import("prompt_contract_support");
 const shift = @import("../root.zig");
 const std = @import("std");
 
@@ -302,9 +302,9 @@ test "resource handle releases before outer optional return-now completes" {
 
     const policy = struct {
         /// Return the enclosing optional answer after resource cleanup has run.
-        pub fn resumeOrReturn() prompt_support.ResumeOrReturn([]const u8, []const u8) {
+        pub fn resumeOrReturn() prompt_contract.ResumeOrReturn([]const u8, []const u8) {
             manager.note("policy-return-now");
-            return prompt_support.ResumeOrReturn([]const u8, []const u8).returnNow("result=early");
+            return prompt_contract.ResumeOrReturn([]const u8, []const u8).returnNow("result=early");
         }
 
         /// Preserve the resumed answer if this branch were ever resumed.

@@ -36,7 +36,7 @@ The current public product claim is:
   lexical optional and generated choice handlers
 - prompt descriptors, `PromptMode`, `ResumeOrReturn`, `reset`, and `frontend`
   no longer live at the top level; repo-owned proof surfaces now reach them
-  only through `shift.internal.*`
+  only through direct imports of `src/internal/prompt_support.zig`
 - no public continuation handle is exported
 
 ## Semantic Commitments

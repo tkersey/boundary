@@ -1,6 +1,6 @@
-const frontend = @import("../frontend.zig");
+const frontend = @import("frontend_support");
 const lowered_machine = @import("lowered_machine");
-const prompt_contract = @import("../prompt_contract.zig");
+const prompt_contract = @import("prompt_contract_support");
 const std = @import("std");
 
 const BuilderKind = enum {

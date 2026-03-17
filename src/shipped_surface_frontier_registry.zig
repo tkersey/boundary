@@ -49,8 +49,8 @@ pub const surfaces = [_]Surface{
         .surface_id = "compile_fail.public_misuse",
         .surface = "compile_fail",
         .frontier = .compile_boundary,
-        .source = "test/compile_fail/run.sh",
-        .note = "Compile-fail misuse fixtures prove public boundary and type-shape behavior.",
+        .source = "build.zig",
+        .note = "Compile-fail misuse fixtures prove public boundary and type-shape behavior through build-zig-managed compile checks.",
     },
     .{
         .surface_id = "one_shot_survey.runtime_success",

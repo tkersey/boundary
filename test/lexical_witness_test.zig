@@ -1,5 +1,5 @@
 const parity_scenarios = @import("parity_scenarios");
-const runners = @import("lexical_witness_runners");
+const runners = @import("lexical_witness_support.zig");
 const std = @import("std");
 
 fn expectLexicalWitness(comptime witness_id: []const u8, runner: anytype) !void {

@@ -1,6 +1,6 @@
+const prompt_support = @import("prompt_support");
 const shift = @import("shift");
 const std = @import("std");
-const prompt_support = shift.internal;
 
 const NoError = error{};
 const ping = shift.algebraic.TransformOp("ping", void, i32);

@@ -1,6 +1,6 @@
 comptime {
+    const prompt_support = @import("prompt_support");
     const shift = @import("shift");
-    const prompt_support = shift.internal;
     const NoError = error{};
     const DemoPrompt = prompt_support.Prompt(.direct_return, i32, i32, NoError);
 

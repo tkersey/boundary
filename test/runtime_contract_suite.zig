@@ -1,9 +1,8 @@
+const prompt_support = @import("prompt_support");
 const runtime_contracts = @import("runtime_contract_registry");
 const shift = @import("shift");
 const std = @import("std");
 const survey_resume_transform_executes = @import("survey_resume_transform_executes");
-
-const prompt_support = shift.internal;
 
 test "runtime contract registry stays in sync with the executable suite" {
     try std.testing.expectEqual(@as(usize, 6), runtime_contracts.cases.len);

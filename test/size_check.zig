@@ -1,7 +1,6 @@
+const prompt_support = @import("prompt_support");
 const shift = @import("shift");
 const std = @import("std");
-
-const prompt_support = shift.internal;
 
 fn hasErrorName(comptime ErrorSet: type, comptime wanted: []const u8) bool {
     inline for (@typeInfo(ErrorSet).error_set.?) |field| {

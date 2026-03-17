@@ -1,5 +1,4 @@
 const lowered_machine = @import("lowered_machine");
-const prompt_support = @import("prompt_support_internal.zig");
 const with_api = @import("with_api.zig");
 
 /// Canonical lowered-first runtime handle.
@@ -10,8 +9,6 @@ pub const Error = lowered_machine.Error;
 pub const algebraic = @import("algebraic.zig");
 /// Additive algebraic-effect families built on top of the core shift/reset runtime.
 pub const effect = @import("effect/root.zig");
-/// Internal-only prompt/protocol support for repo-owned proof surfaces.
-pub const internal = prompt_support;
 
 /// Runtime error union for a user-provided error set.
 pub fn ControlError(comptime ErrorSet: type) type {

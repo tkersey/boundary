@@ -1,4 +1,4 @@
-const lexical = @import("internal/lexical_witness_runners.zig");
+const compat = @import("internal/compat_witness_runners.zig");
 const std = @import("std");
 
 /// Stable witness metadata for the tests-only corpus.
@@ -37,12 +37,12 @@ pub fn runWitness(writer: anytype, id: []const u8) anyerror!void {
 
 /// Run the ATM resume-then-transform witness.
 pub fn runAtmResumeTransform(writer: anytype) anyerror!void {
-    try lexical.runAtmResumeTransform(writer);
+    try compat.runAtmResumeTransform(writer);
 }
 
 /// Run the generator witness.
 pub fn runGenerator(writer: anytype) anyerror!void {
-    try lexical.runGenerator(writer);
+    try compat.runGenerator(writer);
 }
 
 /// Run the early-exit practical witness.
@@ -64,25 +64,25 @@ pub fn runNestedWorkflow(writer: anytype) anyerror!void {
 
 /// Run the direct-return witness.
 pub fn runDirectReturn(writer: anytype) anyerror!void {
-    try lexical.runDirectReturn(writer);
+    try compat.runDirectReturn(writer);
 }
 
 /// Run the return-now witness for resume-or-return prompts.
 pub fn runResumeOrReturnReturnNow(writer: anytype) anyerror!void {
-    try lexical.runResumeOrReturnReturnNow(writer);
+    try compat.runResumeOrReturnReturnNow(writer);
 }
 
 /// Run the single-resume witness for resume-or-return prompts.
 pub fn runResumeOrReturnResume(writer: anytype) anyerror!void {
-    try lexical.runResumeOrReturnResume(writer);
+    try compat.runResumeOrReturnResume(writer);
 }
 
 /// Run the static re-delimitation witness.
 pub fn runStaticRedelim(writer: anytype) anyerror!void {
-    try lexical.runStaticRedelim(writer);
+    try compat.runStaticRedelim(writer);
 }
 
 /// Run the prompt-separation witness.
 pub fn runMultiPrompt(writer: anytype) anyerror!void {
-    try lexical.runMultiPrompt(writer);
+    try compat.runMultiPrompt(writer);
 }

@@ -1,5 +1,5 @@
+const prompt_support = @import("prompt_support");
 const shift = @import("shift");
-const prompt_support = shift.internal;
 
 const NoError = error{};
 const Counter = shift.effect.Define(.{

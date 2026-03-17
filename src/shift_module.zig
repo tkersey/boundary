@@ -4,8 +4,6 @@ const root = @import("root.zig");
 pub const algebraic = root.algebraic;
 /// Additive algebraic-effect families over the canonical shift root.
 pub const effect = root.effect;
-/// Internal-only prompt/protocol support for repo-owned proof surfaces.
-pub const internal = root.internal;
 /// Canonical runtime handle.
 pub const Runtime = root.Runtime;
 /// Public runtime error surface.
