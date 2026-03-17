@@ -94,7 +94,7 @@ fn createPlainModule(
 }
 
 fn canonicalSourceHash(b: *std.Build, path: []const u8) [32]u8 {
-    const bytes = std.fs.cwd().readFileAlloc(b.allocator, path, 1 << 20) catch
+    const bytes = std.fs.cwd().readFileAlloc(b.allocator, b.pathFromRoot(path), 1 << 20) catch
         @panic("unable to read canonical ordinary source");
     defer b.allocator.free(bytes);
 
@@ -200,6 +200,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const ordinary_lowering_options = b.addOptions();
+    ordinary_lowering_options.addOption([]const u8, "package_root", b.pathFromRoot("."));
     ordinary_lowering_options.addOption([32]u8, "hash_local_mutation_resume", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/local_mutation_resume.zig"));
     ordinary_lowering_options.addOption([32]u8, "hash_branch_resume", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/branch_resume.zig"));
     ordinary_lowering_options.addOption([32]u8, "hash_loop_resume", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/loop_resume.zig"));

@@ -875,6 +875,16 @@ fn sourcePathMatchesExpected(allocator: std.mem.Allocator, actual_path: []const 
     return true;
 }
 
+fn resolvedSourcePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
+    if (std.fs.path.isAbsolute(source_path)) {
+        return try std.fs.cwd().realpathAlloc(allocator, source_path);
+    }
+
+    const joined_path = try std.fs.path.resolve(allocator, &.{ build_options.package_root, source_path });
+    defer allocator.free(joined_path);
+    return try std.fs.cwd().realpathAlloc(allocator, joined_path);
+}
+
 fn hasTopLevelFunctionNamed(tree: std.zig.Ast, name: []const u8) bool {
     var container_buffer: [2]std.zig.Ast.Node.Index = undefined;
     const root = tree.fullContainerDecl(&container_buffer, .root) orelse return false;
@@ -1106,7 +1116,17 @@ pub fn inspectSource(allocator: std.mem.Allocator, spec: Spec) LowerError!Genera
         .ordinary_case => ordinarySupportedCase(ordinary.find(spec.case_id) orelse return error.UnsupportedOrdinaryCase),
         .example, .effect, .user_defined_effect, .witness => promotedSupportedCase(spec.case_id, spec.surface_kind) orelse return error.UnsupportedOrdinaryCase,
     };
-    const source = std.fs.cwd().readFileAlloc(allocator, spec.source_path, 1 << 20) catch {
+    const resolved_source_path = resolvedSourcePathAlloc(allocator, spec.source_path) catch {
+        return rejectedProgram(
+            allocator,
+            spec,
+            case,
+            try shapeDiagnostic(allocator, spec.source_path, "source file could not be read"),
+        );
+    };
+    defer allocator.free(resolved_source_path);
+
+    const source = std.fs.cwd().readFileAlloc(allocator, resolved_source_path, 1 << 20) catch {
         return rejectedProgram(
             allocator,
             spec,
@@ -1115,7 +1135,7 @@ pub fn inspectSource(allocator: std.mem.Allocator, spec: Spec) LowerError!Genera
         );
     };
     defer allocator.free(source);
-    if (!sourcePathMatchesExpected(allocator, spec.source_path, case.source_path)) {
+    if (!sourcePathMatchesExpected(allocator, resolved_source_path, case.source_path)) {
         return rejectedProgram(
             allocator,
             spec,
