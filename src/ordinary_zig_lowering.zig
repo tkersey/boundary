@@ -1009,7 +1009,7 @@ fn acceptedProgram(
     return .{
         .case_id = case.case_id,
         .label = case.label,
-        .source_path = spec.source_path,
+        .source_path = case.source_path,
         .surface_kind = spec.surface_kind,
         .status = case.status,
         .canonical_scenario_id = case.scenario_id,

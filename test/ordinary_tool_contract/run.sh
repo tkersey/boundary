@@ -49,7 +49,11 @@ then
 fi
 
 grep -q '\\\"bad\\\"' "$json_out"
-jq -e . "$json_out" >/dev/null
+grep -F -q '"case_id":"ordinary.branch_resume"' "$json_out"
+grep -F -q '"surface_kind":"ordinary_case"' "$json_out"
+grep -F -q '"status":"rejected"' "$json_out"
+grep -F -q '"diagnostics":[{"code":"non_canonical_source_path"' "$json_out"
+grep -F -q '"path":"' "$json_out"
 
 (
   cd "$external_cwd"
