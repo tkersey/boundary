@@ -81,6 +81,7 @@ grep -F -q 'expected_transcript = "validate=name\nabort=missing-name\nfinal=erro
 
 grep -F -q '"case_id":"example.define_basic"' "$json_out"
 grep -F -q '"status":"canonical"' "$json_out"
+grep -F -q '"semantic_error_names":[],"contributors":[],"diagnostics":[]}' "$json_out"
 
 zig fmt "$accepted_out" >/dev/null
 grep -F -q 'const shift = @import("shift");' "$accepted_out"
@@ -92,5 +93,6 @@ grep -F -q 'pub fn initGeneratedProgram(allocator: std.mem.Allocator) !shift.ord
 grep -F -q 'var generated_program = try initGeneratedProgram(allocator);' "$accepted_out"
 grep -F -q '.steps = try allocator.dupe(shift.ordinary.Step, &generated_program_steps),' "$accepted_out"
 grep -F -q '.diagnostics = try allocator.dupe(shift.ordinary.Diagnostic, &generated_program_diagnostics),' "$accepted_out"
+grep -F -q '.contributors = &.{}, .diagnostics = &.{} },' "$accepted_out"
 
 zig run tools/check_public_api_ban.zig >/dev/null

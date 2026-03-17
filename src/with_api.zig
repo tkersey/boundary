@@ -226,7 +226,8 @@ fn ChoiceErrorSet(comptime Continuation: type) type {
 }
 
 fn WithSemanticErrorSet(comptime HandlersType: type, comptime Body: type) type {
-    return HandlerErrorSet(HandlersType) || BodyErrorSet(Body, struct {});
+    _ = Body;
+    return HandlerErrorSet(HandlersType);
 }
 
 pub fn With(comptime HandlersType: type, comptime Body: type) type {
