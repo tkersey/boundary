@@ -1,8 +1,8 @@
-const shift = @import("shift");
+const prompt_support = @import("prompt_support");
 
 const NoError = error{};
-const DemoPrompt = shift.Prompt(.resume_or_return, i32, i32, NoError);
-const Decision = shift.ResumeOrReturn(i32, i32);
+const DemoPrompt = prompt_support.Prompt(.resume_or_return, i32, i32, NoError);
+const Decision = prompt_support.ResumeOrReturn(i32, i32);
 
 const demo = struct {
     const handle = struct {
@@ -24,5 +24,5 @@ const demo = struct {
 };
 
 comptime {
-    _ = shift.frontend.choiceProgram(DemoPrompt, i32, demo.handle, demo);
+    _ = prompt_support.frontend.choiceProgram(DemoPrompt, i32, demo.handle, demo);
 }

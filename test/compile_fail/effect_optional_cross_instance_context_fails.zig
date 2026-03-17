@@ -1,3 +1,4 @@
+const prompt_support = @import("prompt_support");
 const shift = @import("shift");
 const std = @import("std");
 
@@ -5,8 +6,8 @@ const NoError = error{};
 const OptionalInstance = shift.effect.optional.Instance(i32, NoError);
 const policy = struct {
     /// Resume the optional request with a neutral value.
-    pub fn resumeOrReturn() shift.ResumeOrReturn(i32, i32) {
-        return shift.ResumeOrReturn(i32, i32).resumeWith(0);
+    pub fn resumeOrReturn() prompt_support.ResumeOrReturn(i32, i32) {
+        return prompt_support.ResumeOrReturn(i32, i32).resumeWith(0);
     }
 
     /// Preserve the resumed answer for the optional mismatch fixture.

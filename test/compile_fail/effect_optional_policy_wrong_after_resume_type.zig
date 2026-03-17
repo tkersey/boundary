@@ -1,3 +1,4 @@
+const prompt_support = @import("prompt_support");
 const shift = @import("shift");
 const std = @import("std");
 
@@ -5,8 +6,8 @@ const NoError = error{};
 const OptionalInstance = shift.effect.optional.Instance(i32, NoError);
 const bad_policy = struct {
     /// Deliberately pick the resumptive optional branch.
-    pub fn resumeOrReturn() shift.ResumeOrReturn(i32, i32) {
-        return shift.ResumeOrReturn(i32, i32).resumeWith(1);
+    pub fn resumeOrReturn() prompt_support.ResumeOrReturn(i32, i32) {
+        return prompt_support.ResumeOrReturn(i32, i32).resumeWith(1);
     }
 
     /// Deliberately use the wrong parameter type for optional afterResume.

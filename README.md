@@ -7,7 +7,8 @@
 
 In the repo's current state, that means two things:
 
-- the public surface is prompt-value-based, ATM-bearing, and protocol-driven
+- the canonical public surface is lexical, effect-oriented, and rooted in
+  `shift.with(...)`
 - the public API preserves direct-style ordinary Zig without exposing a public
   continuation handle
 
@@ -24,19 +25,25 @@ The shipped runtime backend is the canonical authored-body lowered runtime.
 
 The current public product claim is:
 
-- `const P = shift.Prompt(.resume_then_transform, InAnswer, OutAnswer, ErrorSet); var prompt = P.init();`
-- `const program = shift.frontend.build(P, Spec); shift.reset(&runtime, &prompt, program)`
-- `shift.frontend.perform(Resume, &prompt, Handler)` is the low-level canonical prompt operation surface
-- `shift.algebraic` adds closed-world builder types `TransformOp`, `ChoiceOp`, `AbortOp`, `Program`, and `handleTransform` / `handleChoice` / `handleAbort` over the same runtime
-- the handler protocol is selected by `PromptMode` at comptime
-- `.resume_or_return` handlers may return `shift.ResumeOrReturn(Resume, OutAnswer)` and still provide `afterResume`
-- protocol methods may return either plain values or `ResetError(ErrorSet)!...`
+- `shift.with(&runtime, handlers, Body)` is the canonical public entrypoint
+- built-in families install lexical handlers through `shift.effect.state`,
+  `shift.effect.reader`, `shift.effect.optional`, `shift.effect.exception`,
+  `shift.effect.resource`, and `shift.effect.writer`
+- `shift.effect.Define(.{ ... })` and `shift.algebraic` add user-defined and
+  closed-world operation surfaces over the same lowered runtime
+- `shift.WithResult(...)` returns the body answer plus family outputs
+- `shift.effect.choice.Decision(...)` is the public choice-decision type for
+  lexical optional and generated choice handlers
+- prompt descriptors, `PromptMode`, `ResumeOrReturn`, `reset`, and `frontend`
+  no longer live at the top level; repo-owned proof surfaces now reach them
+  only through direct imports of `src/internal/prompt_support.zig`
+- no public continuation handle is exported
 
 ## Semantic Commitments
 
 - static `shift/reset`, not `control/prompt`
-- explicit typed prompt values
-- comptime-selected handler protocols
+- lexical effect/algebraic handlers as the public story
+- internal typed prompt discipline beneath that story
 - one-shot continuation use
 - honest answer-type pressure if the kernel requires it
 - typed user errors in the host-language embedding
@@ -72,6 +79,8 @@ zig build direct-style-boundary
 zig build ordinary-zig-gauntlet
 zig build surface-replacement-matrix-write
 zig build surface-replacement-check
+zig build witness-admission-matrix-write
+zig build witness-admission-matrix-check
 zig build runtime-route-matrix-write
 zig build runtime-route-matrix-check
 zig build runtime-obligation-matrix-write
@@ -185,9 +194,10 @@ The additive effect-family contract is now:
   `shift.effect.ops.Abort(...)`
 - generated families expose `Instance`, `computeProgram`, `handle`, `OpTag`,
   `definition`, `proof`, and `Op(.tag).perform(...)` / `Op(.tag).program(...)`.
-  When installed through the lexical front door, generated choice and abort
-  families also expose named op fields such as
-  `eff.picker.pick.perform(...)` and `eff.guard.fail.abort(...)`
+  When installed through the lexical front door, generated transform, choice,
+  and abort families also expose named op fields such as
+  `eff.counter.get.perform(...)`, `eff.picker.pick.perform(...)`, and
+  `eff.guard.fail.abort(...)`
 - forged or cross-instance contexts fail at compile time; see:
   - `effect_exception_forged_context_throw_fails.zig`
   - `effect_state_forged_context_get_fails.zig`
@@ -426,7 +436,8 @@ declared with `shift.effect.Define(.{ ... })` and expose
 `Op(.tag).perform(...)` or `Op(.tag).program(...)` over the same exact-context
 boundary, while the lexical front door projects generated choice and abort
 families as named op fields (`eff.<binding>.<op>.perform(...)` /
-`eff.<binding>.<op>.abort(...)`).
+`eff.<binding>.<op>.abort(...)`), and generated transform families as named
+op fields like `eff.<binding>.<op>.perform(...)`.
 
 The generalized construction boundary is checked by:
 
@@ -434,11 +445,12 @@ The generalized construction boundary is checked by:
 zig build effect-construction-boundary
 ```
 
-The current prompt-mode coverage at the effect layer is:
+The current hidden internal control-class coverage at the effect layer is:
 
-- `.resume_then_transform`: `state`, `reader`, `resource`, `writer`
-- `.resume_or_return`: `optional`
-- `.direct_return`: `exception`
+- transform-style (`.resume_then_transform` internally): `state`, `reader`,
+  `resource`, `writer`
+- choice-style (`.resume_or_return` internally): `optional`
+- abortive (`.direct_return` internally): `exception`
 - `shift.effect.Define(.{ ... })`: user-defined sealed families for one chosen
   non-resource mode per family (`.resume_then_transform`, `.resume_or_return`,
   or `.direct_return`)
@@ -592,6 +604,10 @@ green-only gate for the currently promised ordinary-Zig wave, and
 ordinary-body replacement bar for current witnesses, examples, and effect
 surfaces.
 
+`tools/render_witness_admission_matrix.zig` renders the checked
+`docs/witness_admission_matrix.json` ledger that separates lexical witness proof
+from unchanged-body bridge admission.
+
 `src/program_bridge.zig` is the current hidden-backend bridge for the supported
 unchanged direct-style subset, and `src/private_lowered_runtime.zig` is the
 internal lowered-runtime seam that executes that supported subset without
@@ -648,36 +664,25 @@ artifact lives at `docs/surface_truth_scorecard.json`.
 const shift = @import("shift");
 const std = @import("std");
 
-const DemoError = error{};
-const DemoPrompt = shift.Prompt(.resume_then_transform, i32, i32, DemoError);
-
-const demo = struct {
-    const Handle = struct {
-        pub fn resumeValue() i32 {
-            return 41;
-        }
-
-        pub fn afterResume(value: i32) i32 {
-            return value;
-        }
-    };
-
-    pub fn program() shift.frontend.Program(DemoPrompt) {
-        return shift.frontend.transformProgram(DemoPrompt, i32, Handle, struct {
-            pub fn apply(value: i32) i32 {
-                return value + 1;
-            }
-        });
-    }
-};
+const NoError = error{};
 
 pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
-    var prompt = DemoPrompt.init();
 
-    const answer = try shift.reset(&runtime, &prompt, shift.frontend.build(DemoPrompt, demo));
-    _ = answer;
+    const result = try shift.with(&runtime, .{
+        .state = shift.effect.state.use(NoError, @as(i32, 5)),
+        .reader = shift.effect.reader.use(NoError, @as(i32, 21)),
+    }, struct {
+        pub fn body(eff: anytype) shift.ResetError(NoError)!i32 {
+            const env = try eff.reader.ask();
+            const before = try eff.state.get();
+            try eff.state.set(before + env);
+            return try eff.state.get();
+        }
+    });
+
+    std.debug.print("value={d} state={d}\n", .{ result.value, result.outputs.state });
 }
 ```
 

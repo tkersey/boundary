@@ -1,9 +1,10 @@
+const prompt_support = @import("prompt_support");
 const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
 const Picker = shift.effect.Define(.{
-    .mode = shift.PromptMode.resume_or_return,
+    .mode = prompt_support.PromptMode.resume_or_return,
     .state_type = i32,
     .error_set_type = NoError,
     .ops = .{

@@ -1,12 +1,10 @@
 const algebraic_abortive_validation = @import("direct_style_bridge_algebraic_abortive_validation");
 const algebraic_artifact_search = @import("direct_style_bridge_algebraic_artifact_search");
-const atm = @import("direct_style_bridge_atm");
 const bridge_manifest = @import("direct_style_bridge_manifest");
 const direct_return = @import("direct_style_bridge_direct_return");
 const early_exit = @import("direct_style_bridge_early_exit");
 const exception_basic = @import("direct_style_bridge_exception_basic");
 const generator = @import("direct_style_bridge_generator");
-const multi_prompt = @import("direct_style_bridge_multi_prompt");
 const nested_workflow = @import("direct_style_bridge_nested_workflow");
 const optional_basic = @import("direct_style_bridge_optional_basic");
 const private_lowered_runtime = @import("private_lowered_runtime");
@@ -16,7 +14,6 @@ const resume_or_return = @import("direct_style_bridge_resume_or_return");
 const resume_or_return_resume = @import("direct_style_bridge_resume_or_return_resume");
 const resume_or_return_return_now = @import("direct_style_bridge_resume_or_return_return_now");
 const state_basic = @import("direct_style_bridge_state_basic");
-const static_redelim = @import("direct_style_bridge_static_redelim");
 const std = @import("std");
 const writer_basic = @import("direct_style_bridge_writer_basic");
 
@@ -39,12 +36,9 @@ fn expectBridgeParity(comptime Fixture: type) !void {
 test "direct-style bridge lowers the supported unchanged-body corpus" {
     try expectBridgeParity(algebraic_abortive_validation);
     try expectBridgeParity(algebraic_artifact_search);
-    try expectBridgeParity(atm);
     try expectBridgeParity(direct_return);
-    try expectBridgeParity(multi_prompt);
     try expectBridgeParity(resume_or_return_resume);
     try expectBridgeParity(resume_or_return_return_now);
-    try expectBridgeParity(static_redelim);
     try expectBridgeParity(early_exit);
     try expectBridgeParity(generator);
     try expectBridgeParity(resume_or_return);

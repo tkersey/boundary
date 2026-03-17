@@ -6,6 +6,11 @@ const ShiftConsumerDeps = struct {
     shift_mod: *std.Build.Module,
 };
 
+const ShiftPromptFixtureDeps = struct {
+    prompt_support_mod: *std.Build.Module,
+    shift_mod: *std.Build.Module,
+};
+
 fn createShiftConsumerModule(
     b: *std.Build,
     path: []const u8,
@@ -20,6 +25,23 @@ fn createShiftConsumerModule(
     });
     mod.addImport("shift", deps.shift_mod);
     if (deps.lowered_runtime_mod) |runtime_mod| mod.addImport("private_lowered_runtime", runtime_mod);
+    return mod;
+}
+
+fn createShiftPromptFixtureModule(
+    b: *std.Build,
+    path: []const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    deps: ShiftPromptFixtureDeps,
+) *std.Build.Module {
+    const mod = b.createModule(.{
+        .root_source_file = b.path(path),
+        .target = target,
+        .optimize = optimize,
+    });
+    mod.addImport("shift", deps.shift_mod);
+    mod.addImport("prompt_support", deps.prompt_support_mod);
     return mod;
 }
 
@@ -82,6 +104,19 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const prompt_contract_support_mod = b.createModule(.{
+        .root_source_file = b.path("src/prompt_contract.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const frontend_support_mod = b.createModule(.{
+        .root_source_file = b.path("src/frontend.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    frontend_support_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
+    shift_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
+    shift_mod.addImport("frontend_support", frontend_support_mod);
     const witnesses_mod = b.createModule(.{
         .root_source_file = b.path("src/witnesses.zig"),
         .target = target,
@@ -105,7 +140,15 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     lowered_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    frontend_support_mod.addImport("lowered_machine", lowered_machine_mod);
     shift_mod.addImport("lowered_machine", lowered_machine_mod);
+    const prompt_support_mod = b.createModule(.{
+        .root_source_file = b.path("src/internal/prompt_support.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    prompt_support_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
+    prompt_support_mod.addImport("frontend_support", frontend_support_mod);
     const program_frontend_mod = b.createModule(.{
         .root_source_file = b.path("src/program_frontend.zig"),
         .target = target,
@@ -199,6 +242,8 @@ pub fn build(b: *std.Build) void {
         }),
     });
     root_tests.root_module.addImport("lowered_machine", lowered_machine_mod);
+    root_tests.root_module.addImport("prompt_contract_support", prompt_contract_support_mod);
+    root_tests.root_module.addImport("frontend_support", frontend_support_mod);
     const run_root_tests = b.addRunArtifact(root_tests);
     const test_step = b.step("test", "Run the default shift proof surface.");
     test_step.dependOn(&run_root_tests.step);
@@ -226,6 +271,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     runtime_contract_mod.addImport("shift", shift_mod);
+    runtime_contract_mod.addImport("prompt_support", prompt_support_mod);
     runtime_contract_mod.addImport("runtime_contract_registry", b.createModule(.{
         .root_source_file = b.path("src/runtime_contract_registry.zig"),
         .target = target,
@@ -384,6 +430,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     size_check_mod.addImport("shift", shift_mod);
+    size_check_mod.addImport("prompt_support", prompt_support_mod);
     const size_tests = b.addTest(.{
         .root_module = size_check_mod,
     });
@@ -479,6 +526,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     bridge_boundary_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
+    bridge_boundary_mod.addImport("program_bridge", program_bridge_mod);
+    bridge_boundary_mod.addImport("private_lowered_runtime", private_lowered_runtime_mod);
+    bridge_boundary_mod.addImport("direct_style_bridge_atm", createBridgeWitnessModule(b, "test/direct_style_bridge/atm_resume_transform.zig", target, optimize, witnesses_mod));
+    bridge_boundary_mod.addImport("direct_style_bridge_multi_prompt", createBridgeWitnessModule(b, "test/direct_style_bridge/multi_prompt.zig", target, optimize, witnesses_mod));
+    bridge_boundary_mod.addImport("direct_style_bridge_static_redelim", createBridgeWitnessModule(b, "test/direct_style_bridge/static_redelim.zig", target, optimize, witnesses_mod));
     const boundary_tests = b.addTest(.{
         .root_module = boundary_mod,
     });
@@ -570,6 +622,33 @@ pub fn build(b: *std.Build) void {
     const surface_repl_write_step = b.step("surface-replacement-matrix-write", "Refresh the long-horizon surface replacement matrix artifact.");
     surface_repl_write_step.dependOn(&surface_repl_write_cmd.step);
 
+    const witness_admission_registry_mod = b.createModule(.{
+        .root_source_file = b.path("src/witness_admission_registry.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    witness_admission_registry_mod.addImport("formal_core_registry", formal_core_registry_mod);
+    bridge_manifest_mod.addImport("witness_admission_registry", witness_admission_registry_mod);
+    bridge_boundary_mod.addImport("witness_admission_registry", witness_admission_registry_mod);
+    const witness_admission_mod = b.createModule(.{
+        .root_source_file = b.path("tools/render_witness_admission_matrix.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    witness_admission_mod.addImport("witness_admission_registry", witness_admission_registry_mod);
+    const witness_admission_exe = b.addExecutable(.{
+        .name = "shift-witness-admission-matrix",
+        .root_module = witness_admission_mod,
+    });
+    const witness_admission_check_cmd = b.addRunArtifact(witness_admission_exe);
+    witness_admission_check_cmd.addArg("check");
+    const witness_admission_check_step = b.step("witness-admission-matrix-check", "Check the witness admission matrix.");
+    witness_admission_check_step.dependOn(&witness_admission_check_cmd.step);
+    const witness_admission_write_cmd = b.addRunArtifact(witness_admission_exe);
+    witness_admission_write_cmd.addArg("write");
+    const witness_admission_write_step = b.step("witness-admission-matrix-write", "Refresh the witness admission matrix.");
+    witness_admission_write_step.dependOn(&witness_admission_write_cmd.step);
+
     const ordinary_gauntlet_step = b.step("ordinary-zig-gauntlet", "Run the ordinary-Zig experimental proof surface.");
     ordinary_gauntlet_step.dependOn(&run_ordinary_corpus_tests.step);
     ordinary_gauntlet_step.dependOn(&run_ordinary_boundary_tests.step);
@@ -578,6 +657,7 @@ pub fn build(b: *std.Build) void {
     ordinary_gauntlet_step.dependOn(&ordinary_matrix_check_cmd.step);
     test_step.dependOn(ordinary_gauntlet_step);
     test_step.dependOn(&surface_repl_check_cmd.step);
+    test_step.dependOn(&witness_admission_check_cmd.step);
 
     const scorecard_mod = b.createModule(.{
         .root_source_file = b.path("tools/render_surface_truth_scorecard.zig"),
@@ -690,6 +770,28 @@ pub fn build(b: *std.Build) void {
     const root_migration_write_step = b.step("root-surface-migration-matrix-write", "Refresh the canonical root-surface migration matrix.");
     root_migration_write_step.dependOn(&root_migration_write_cmd.step);
 
+    const lexical_witness_runners_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_witness_support.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_witness_runners_mod.addImport("shift", shift_mod);
+    const lexical_witness_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_witness_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_witness_mod.addImport("shift", shift_mod);
+    lexical_witness_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    lexical_witness_mod.addImport("lexical_witness_runners", lexical_witness_runners_mod);
+    const lexical_witness_tests = b.addTest(.{
+        .root_module = lexical_witness_mod,
+    });
+    const run_lexical_witness_tests = b.addRunArtifact(lexical_witness_tests);
+    const lexical_witness_step = b.step("lexical-witness-suite", "Run the lexical witness proof surface.");
+    lexical_witness_step.dependOn(&run_lexical_witness_tests.step);
+    test_step.dependOn(&run_lexical_witness_tests.step);
+
     const shipped_frontier_registry_mod = b.createModule(.{
         .root_source_file = b.path("src/shipped_surface_frontier_registry.zig"),
         .target = target,
@@ -758,12 +860,30 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&root_migration_check_cmd.step);
     test_step.dependOn(&shipped_frontier_check_cmd.step);
 
-    const compile_fail_cmd = b.addSystemCommand(&.{ "sh", "test/compile_fail/run.sh" });
     const compile_fail_step = b.step("compile-fail", "Verify compile-fail misuse fixtures.");
-    compile_fail_step.dependOn(&compile_fail_cmd.step);
-    test_step.dependOn(&compile_fail_cmd.step);
-
-    const one_shot_survey_cmd = b.addSystemCommand(&.{ "sh", "test/one_shot_survey/run.sh" });
+    const one_shot_success_fixtures = [_]struct {
+        name: []const u8,
+        path: []const u8,
+    }{
+        .{ .name = "one-shot-protocol-resume-transform", .path = "test/one_shot_survey/protocol_resume_transform_compiles.zig" },
+        .{ .name = "one-shot-protocol-erroring-resume-transform", .path = "test/one_shot_survey/protocol_erroring_resume_transform_compiles.zig" },
+        .{ .name = "one-shot-protocol-direct-return", .path = "test/one_shot_survey/protocol_direct_return_compiles.zig" },
+        .{ .name = "one-shot-protocol-erroring-direct-return", .path = "test/one_shot_survey/protocol_erroring_direct_return_compiles.zig" },
+        .{ .name = "one-shot-protocol-resume-or-return", .path = "test/one_shot_survey/protocol_resume_or_return_compiles.zig" },
+        .{ .name = "one-shot-protocol-erroring-resume-or-return", .path = "test/one_shot_survey/protocol_erroring_resume_or_return_compiles.zig" },
+    };
+    inline for (one_shot_success_fixtures) |fixture| {
+        const fixture_mod = createShiftPromptFixtureModule(b, fixture.path, target, optimize, .{
+            .shift_mod = shift_mod,
+            .prompt_support_mod = prompt_support_mod,
+        });
+        const fixture_check = b.addObject(.{
+            .name = fixture.name,
+            .root_module = fixture_mod,
+        });
+        const fixture_check_step = b.step(fixture.name, "Compile one plain-Zig one-shot survey success fixture.");
+        fixture_check_step.dependOn(&fixture_check.step);
+    }
     const one_shot_runtime_mod = b.createModule(.{
         .root_source_file = b.path("test/one_shot_survey/runtime_success_test.zig"),
         .target = target,
@@ -775,10 +895,103 @@ pub fn build(b: *std.Build) void {
     });
     const run_one_shot_runtime_tests = b.addRunArtifact(one_shot_runtime_tests);
     const one_shot_survey_step = b.step("one-shot-survey", "Run the current plain-Zig one-shot survey contract.");
-    one_shot_survey_step.dependOn(&one_shot_survey_cmd.step);
+    inline for (one_shot_success_fixtures) |fixture| {
+        const fixture_mod = createShiftPromptFixtureModule(b, fixture.path, target, optimize, .{
+            .shift_mod = shift_mod,
+            .prompt_support_mod = prompt_support_mod,
+        });
+        const fixture_check = b.addObject(.{
+            .name = fixture.name ++ "-aggregate",
+            .root_module = fixture_mod,
+        });
+        one_shot_survey_step.dependOn(&fixture_check.step);
+        test_step.dependOn(&fixture_check.step);
+    }
     one_shot_survey_step.dependOn(&run_one_shot_runtime_tests.step);
-    test_step.dependOn(&one_shot_survey_cmd.step);
     test_step.dependOn(&run_one_shot_runtime_tests.step);
+
+    const compile_fail_fixtures = [_]struct {
+        name: []const u8,
+        path: []const u8,
+        expected: []const u8,
+    }{
+        .{ .name = "cf-continuation-discontinue-removed", .path = "test/compile_fail/continuation_discontinue_removed.zig", .expected = "has no member named 'Continuation'" },
+        .{ .name = "cf-effect-state-continuation-removed", .path = "test/compile_fail/effect_state_continuation_removed.zig", .expected = "has no member named 'Continuation'" },
+        .{ .name = "cf-effect-state-context-removed", .path = "test/compile_fail/effect_state_context_removed.zig", .expected = "has no member named 'Context'" },
+        .{ .name = "cf-effect-state-cross-instance", .path = "test/compile_fail/effect_state_cross_instance_context_fails.zig", .expected = "context capability does not match supplied capability" },
+        .{ .name = "cf-effect-state-forged-context", .path = "test/compile_fail/effect_state_forged_context_get_fails.zig", .expected = "expected exact shift.effect context type" },
+        .{ .name = "cf-effect-state-get-without-context", .path = "test/compile_fail/effect_state_get_without_context.zig", .expected = "expected a pointer to a shift.effect context" },
+        .{ .name = "cf-effect-state-set-without-context", .path = "test/compile_fail/effect_state_set_without_context.zig", .expected = "expected a pointer to a shift.effect context" },
+        .{ .name = "cf-effect-reader-context-removed", .path = "test/compile_fail/effect_reader_context_removed.zig", .expected = "has no member named 'Context'" },
+        .{ .name = "cf-effect-reader-cross-instance", .path = "test/compile_fail/effect_reader_cross_instance_context_fails.zig", .expected = "context capability does not match supplied capability" },
+        .{ .name = "cf-effect-reader-forged-context", .path = "test/compile_fail/effect_reader_forged_context_ask_fails.zig", .expected = "expected exact shift.effect context type" },
+        .{ .name = "cf-effect-reader-ask-without-context", .path = "test/compile_fail/effect_reader_ask_without_context.zig", .expected = "expected a pointer to a shift.effect context" },
+        .{ .name = "cf-effect-exception-context-removed", .path = "test/compile_fail/effect_exception_context_removed.zig", .expected = "has no member named 'Context'" },
+        .{ .name = "cf-effect-exception-cross-instance", .path = "test/compile_fail/effect_exception_cross_instance_context_fails.zig", .expected = "context capability does not match supplied capability" },
+        .{ .name = "cf-effect-exception-forged-context", .path = "test/compile_fail/effect_exception_forged_context_throw_fails.zig", .expected = "expected exact shift.effect context type" },
+        .{ .name = "cf-effect-exception-throw-without-context", .path = "test/compile_fail/effect_exception_throw_without_context.zig", .expected = "expected a pointer to a shift.effect context" },
+        .{ .name = "cf-effect-exception-catch-missing", .path = "test/compile_fail/effect_exception_catch_missing_direct_return.zig", .expected = "exception catch policy must declare directReturn" },
+        .{ .name = "cf-effect-exception-catch-wrong-type", .path = "test/compile_fail/effect_exception_catch_wrong_direct_return_type.zig", .expected = "exception catch policy directReturn must have type fn (Payload) Answer or fn (Payload) ResetError(ErrorSet)!Answer" },
+        .{ .name = "cf-effect-optional-context-removed", .path = "test/compile_fail/effect_optional_context_removed.zig", .expected = "has no member named 'Context'" },
+        .{ .name = "cf-effect-optional-cross-instance", .path = "test/compile_fail/effect_optional_cross_instance_context_fails.zig", .expected = "context capability does not match supplied capability" },
+        .{ .name = "cf-effect-optional-forged-context", .path = "test/compile_fail/effect_optional_forged_context_request_fails.zig", .expected = "expected exact shift.effect context type" },
+        .{ .name = "cf-effect-optional-request-without-context", .path = "test/compile_fail/effect_optional_request_without_context.zig", .expected = "expected a pointer to a shift.effect context" },
+        .{ .name = "cf-effect-optional-lexical-missing-apply", .path = "test/compile_fail/effect_optional_lexical_missing_apply_fails.zig", .expected = "lexical choice continuation must declare apply(value, eff) or be a callable function" },
+        .{ .name = "cf-effect-optional-lexical-wrong-arity", .path = "test/compile_fail/effect_optional_lexical_wrong_apply_arity_fails.zig", .expected = "lexical choice continuation apply must accept exactly (value, eff)" },
+        .{ .name = "cf-effect-optional-policy-missing", .path = "test/compile_fail/effect_optional_policy_missing_resume_or_return.zig", .expected = "optional policy must declare resumeOrReturn" },
+        .{ .name = "cf-effect-optional-policy-wrong-after", .path = "test/compile_fail/effect_optional_policy_wrong_after_resume_type.zig", .expected = "optional policy afterResume must have type fn (Resume) Answer or fn (Resume) ResetError(ErrorSet)!Answer" },
+        .{ .name = "cf-algebraic-missing-handler", .path = "test/compile_fail/algebraic_missing_handler.zig", .expected = "algebraic Program.handlers expects one spec per op in declaration order" },
+        .{ .name = "cf-algebraic-wrong-builder-mode", .path = "test/compile_fail/algebraic_wrong_builder_mode.zig", .expected = "algebraic choice handler requires matching op mode" },
+        .{ .name = "cf-algebraic-wrong-after-resume", .path = "test/compile_fail/algebraic_wrong_after_resume_type.zig", .expected = "transform handler afterResume must have type fn (State, ContinueAnswer) Answer or fn (State, ContinueAnswer) ResetError(ErrorSet)!Answer" },
+        .{ .name = "cf-algebraic-undeclared-op", .path = "test/compile_fail/algebraic_undeclared_op.zig", .expected = "does not include the requested op" },
+        .{ .name = "cf-effect-resource-context-removed", .path = "test/compile_fail/effect_resource_context_removed.zig", .expected = "has no member named 'Context'" },
+        .{ .name = "cf-effect-resource-cross-instance", .path = "test/compile_fail/effect_resource_cross_instance_context_fails.zig", .expected = "context capability does not match supplied capability" },
+        .{ .name = "cf-effect-resource-forged-context", .path = "test/compile_fail/effect_resource_forged_context_acquire_fails.zig", .expected = "expected exact shift.effect context type" },
+        .{ .name = "cf-effect-resource-acquire-without-context", .path = "test/compile_fail/effect_resource_acquire_without_context.zig", .expected = "expected a pointer to a shift.effect context" },
+        .{ .name = "cf-effect-resource-manager-missing-acquire", .path = "test/compile_fail/effect_resource_manager_missing_acquire.zig", .expected = "resource manager must declare acquire" },
+        .{ .name = "cf-effect-resource-manager-missing-release", .path = "test/compile_fail/effect_resource_manager_missing_release.zig", .expected = "resource manager must declare release" },
+        .{ .name = "cf-effect-resource-manager-wrong-release", .path = "test/compile_fail/effect_resource_manager_wrong_release_type.zig", .expected = "resource manager release must have type fn (Resource) void or fn (Resource) ResetError(ErrorSet)!void" },
+        .{ .name = "cf-effect-writer-context-removed", .path = "test/compile_fail/effect_writer_context_removed.zig", .expected = "has no member named 'Context'" },
+        .{ .name = "cf-effect-writer-cross-instance", .path = "test/compile_fail/effect_writer_cross_instance_context_fails.zig", .expected = "context capability does not match supplied capability" },
+        .{ .name = "cf-effect-writer-forged-context", .path = "test/compile_fail/effect_writer_forged_context_tell_fails.zig", .expected = "expected exact shift.effect context type" },
+        .{ .name = "cf-effect-writer-tell-without-context", .path = "test/compile_fail/effect_writer_tell_without_context.zig", .expected = "expected a pointer to a shift.effect context" },
+        .{ .name = "cf-effect-define-missing-context", .path = "test/compile_fail/effect_define_missing_context_fails.zig", .expected = "expected a pointer to a shift.effect context" },
+        .{ .name = "cf-effect-define-forged-context", .path = "test/compile_fail/effect_define_forged_context_fails.zig", .expected = "expected exact shift.effect context type" },
+        .{ .name = "cf-effect-define-cross-instance", .path = "test/compile_fail/effect_define_cross_instance_context_fails.zig", .expected = "context capability does not match supplied capability" },
+        .{ .name = "cf-effect-define-duplicate-op", .path = "test/compile_fail/effect_define_duplicate_op_name_fails.zig", .expected = "generated effect op names must be unique" },
+        .{ .name = "cf-effect-define-explicit-mode-mismatch", .path = "test/compile_fail/effect_define_explicit_mode_mismatch_fails.zig", .expected = "generated effect explicit mode must match inferred op mode" },
+        .{ .name = "cf-effect-define-reserved-name", .path = "test/compile_fail/effect_define_reserved_name_fails.zig", .expected = "generated effect op name collides with reserved family export" },
+        .{ .name = "cf-effect-define-missing-after-hook", .path = "test/compile_fail/effect_define_missing_after_hook_fails.zig", .expected = "generated transform handler is missing after_<op> method" },
+        .{ .name = "cf-effect-define-transform-tag-removed", .path = "test/compile_fail/effect_define_lexical_transform_tag_dispatch_removed.zig", .expected = "test/compile_fail/effect_define_lexical_transform_tag_dispatch_removed.zig:46:35: error: no field or member function named 'perform' in '/?/" },
+        .{ .name = "cf-effect-define-choice-hook-wrong-type", .path = "test/compile_fail/effect_define_choice_wrong_hook_type_fails.zig", .expected = "generated choice handler op method must have type fn (*Handler) effect.choice.Decision or fn (*Handler) ResetError(ErrorSet)!effect.choice.Decision" },
+        .{ .name = "cf-effect-define-choice-tag-removed", .path = "test/compile_fail/effect_define_lexical_choice_tag_dispatch_removed.zig", .expected = "test/compile_fail/effect_define_lexical_choice_tag_dispatch_removed.zig:33:34: error: no field or member function named 'perform' in '/?/" },
+        .{ .name = "cf-effect-define-abort-tag-removed", .path = "test/compile_fail/effect_define_lexical_abort_tag_dispatch_removed.zig", .expected = "test/compile_fail/effect_define_lexical_abort_tag_dispatch_removed.zig:28:26: error: no field or member function named 'abort' in '/?/" },
+        .{ .name = "cf-effect-define-mixed-mode", .path = "test/compile_fail/effect_define_mixed_mode_fails.zig", .expected = "generated effect families support one prompt mode per family" },
+        .{ .name = "cf-root-reset-requires-program", .path = "test/compile_fail/root_reset_requires_program.zig", .expected = "test/compile_fail/root_reset_requires_program.zig:16:15: error: expected type 'frontend.Program(prompt_contract.Prompt(.resume_then_transform,usize,usize,error{}))', found 'fn () error{CrossThread,FrontendSuspend,MissingPrompt,NonDiagonalComplete,OutOfMemory,ProgramContractViolation,RuntimeBusy,RuntimeDestroyed}!usize'" },
+        .{ .name = "cf-no-shift-guard-removed", .path = "test/compile_fail/no_shift_guard_removed.zig", .expected = "has no member named 'NoShiftGuard'" },
+        .{ .name = "cf-resume-value-mismatch", .path = "test/compile_fail/resume_value_mismatch.zig", .expected = "resumeValue must have type fn () i32 or fn () error{CrossThread,FrontendSuspend,MissingPrompt,NonDiagonalComplete,OutOfMemory,ProgramContractViolation,RuntimeBusy,RuntimeDestroyed}!i32" },
+        .{ .name = "cf-one-shot-missing-after-resume", .path = "test/one_shot_survey/missing_after_resume_fails.zig", .expected = "must declare afterResume" },
+        .{ .name = "cf-one-shot-missing-resume-or-return", .path = "test/one_shot_survey/missing_resume_or_return_fails.zig", .expected = "must declare resumeOrReturn" },
+        .{ .name = "cf-one-shot-wrong-after-resume", .path = "test/one_shot_survey/wrong_after_resume_type_fails.zig", .expected = "afterResume must have type fn (i32) i32 or fn (i32) error{CrossThread,FrontendSuspend,MissingPrompt,NonDiagonalComplete,OutOfMemory,ProgramContractViolation,RuntimeBusy,RuntimeDestroyed}!i32" },
+        .{ .name = "cf-one-shot-wrong-ror-type", .path = "test/one_shot_survey/wrong_resume_or_return_type_fails.zig", .expected = "resumeOrReturn must have type fn () prompt_contract.ResumeOrReturn(i32,i32) or fn () error{CrossThread,FrontendSuspend,MissingPrompt,NonDiagonalComplete,OutOfMemory,ProgramContractViolation,RuntimeBusy,RuntimeDestroyed}!prompt_contract.ResumeOrReturn(i32,i32)" },
+        .{ .name = "cf-one-shot-wrong-ror-after", .path = "test/one_shot_survey/wrong_resume_or_return_after_resume_fails.zig", .expected = "afterResume must have type fn (i32) i32 or fn (i32) error{CrossThread,FrontendSuspend,MissingPrompt,NonDiagonalComplete,OutOfMemory,ProgramContractViolation,RuntimeBusy,RuntimeDestroyed}!i32" },
+        .{ .name = "cf-one-shot-direct-return-mode-mismatch", .path = "test/one_shot_survey/direct_return_mode_mismatch_fails.zig", .expected = "must declare directReturn" },
+        .{ .name = "cf-one-shot-legacy-alias", .path = "test/one_shot_survey/legacy_continuation_alias_recheck_fails.zig", .expected = "has no member named 'Continuation'" },
+        .{ .name = "cf-one-shot-legacy-store", .path = "test/one_shot_survey/legacy_continuation_store_recheck_fails.zig", .expected = "has no member named 'Continuation'" },
+    };
+    inline for (compile_fail_fixtures) |fixture| {
+        const fixture_mod = createShiftPromptFixtureModule(b, fixture.path, target, optimize, .{
+            .shift_mod = shift_mod,
+            .prompt_support_mod = prompt_support_mod,
+        });
+        const fixture_check = b.addObject(.{
+            .name = fixture.name,
+            .root_module = fixture_mod,
+        });
+        fixture_check.expect_errors = .{ .contains = fixture.expected };
+        compile_fail_step.dependOn(&fixture_check.step);
+        test_step.dependOn(&fixture_check.step);
+    }
 
     const example_proof_mod = b.createModule(.{
         .root_source_file = b.path("test/example_proof_suite.zig"),

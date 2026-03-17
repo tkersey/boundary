@@ -1,7 +1,8 @@
+const prompt_support = @import("prompt_support");
 const shift = @import("shift");
 
 const Counter = shift.effect.Define(.{
-    .mode = shift.PromptMode.resume_then_transform,
+    .mode = prompt_support.PromptMode.resume_then_transform,
     .state_type = i32,
     .error_set_type = error{},
     .ops = .{

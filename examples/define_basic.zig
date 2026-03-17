@@ -12,14 +12,6 @@ const Counter = shift.effect.Define(.{
 });
 
 fn runCounter(runtime: *shift.Runtime) !i32 {
-    const body = struct {
-        /// Increment the generated counter once and return the new value.
-        pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!i32 {
-            const before = try Counter.Op(.get).perform(Cap, ctx);
-            try Counter.Op(.set).perform(Cap, ctx, before + 1);
-            return try Counter.Op(.get).perform(Cap, ctx);
-        }
-    };
     const Handler = struct {
         state: i32,
 
@@ -44,8 +36,16 @@ fn runCounter(runtime: *shift.Runtime) !i32 {
         }
     };
 
-    var instance = Counter.Instance.init();
-    const result = try Counter.proof.exampleHarness(i32, runtime, &instance, Handler{ .state = 5 }, body);
+    const result = try shift.with(runtime, .{
+        .counter = Counter.use(.{ .handler = Handler{ .state = 5 } }),
+    }, struct {
+        /// Increment the generated counter once and return the new value.
+        pub fn body(eff: anytype) shift.ResetError(NoError)!i32 {
+            const before = try eff.counter.get.perform();
+            try eff.counter.set.perform(before + 1);
+            return try eff.counter.get.perform();
+        }
+    });
     return result.value;
 }
 

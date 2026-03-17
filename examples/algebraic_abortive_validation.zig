@@ -1,9 +1,44 @@
-const lowered_runtime = @import("private_lowered_runtime");
+const shift = @import("shift");
 const std = @import("std");
 
-/// Write the algebraic abortive-validation transcript through the lowered runtime seam.
+const NoError = error{};
+const Guard = shift.effect.Define(.{
+    .state_type = struct {},
+    .error_set_type = NoError,
+    .ops = .{
+        shift.effect.ops.Abort("fail", []const u8),
+    },
+});
+
+/// Write the algebraic abortive-validation transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
-    _ = try lowered_runtime.runCaseId(writer, "algebraic_abortive_validation");
+    const transcript = struct {
+        threadlocal var abort_line: []const u8 = "";
+    };
+
+    const guard_handler = struct {
+        /// Validate one missing name and return the canonical generated abort answer.
+        pub fn fail(_: *@This(), payload: []const u8) shift.ResetError(NoError)![]const u8 {
+            transcript.abort_line = payload;
+            return "error=missing-name";
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    defer runtime.deinit();
+
+    transcript.abort_line = "";
+    try writer.writeAll("validate=name\n");
+    const result = try shift.with(&runtime, .{
+        .guard = Guard.use(.{ .handler = guard_handler{} }),
+    }, struct {
+        /// Trigger the generated lexical abort point directly.
+        pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+            try eff.guard.fail.abort("missing-name");
+        }
+    });
+    try writer.print("abort={s}\n", .{transcript.abort_line});
+    try writer.print("final={s}\n", .{result.value});
 }
 
 /// Run the algebraic abortive-validation example.

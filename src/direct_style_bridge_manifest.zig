@@ -1,5 +1,6 @@
 const parity_scenarios = @import("parity_scenarios");
 const std = @import("std");
+const witness_admission = @import("witness_admission_registry");
 
 /// Support state for one unchanged-body bridge case.
 pub const Status = enum {
@@ -24,6 +25,23 @@ pub const Case = struct {
     blocked_reason: ?[]const u8 = null,
 };
 
+fn resolvedWitnessStatus(witness_id: []const u8) Status {
+    const entry = witness_admission.find(witness_id) orelse return .supported;
+    return switch (entry.bridge_status) {
+        .supported => .supported,
+        .blocked, .unknown => .blocked,
+    };
+}
+
+fn resolvedWitnessReason(witness_id: []const u8) ?[]const u8 {
+    const entry = witness_admission.find(witness_id) orelse return null;
+    return switch (entry.bridge_status) {
+        .supported => null,
+        .blocked => entry.note,
+        .unknown => "Witness bridge admission is not resolved yet; treat this case as blocked until the admission matrix is updated.",
+    };
+}
+
 /// Canonical bridge support registry for unchanged-body direct-style cases.
 pub const cases = [_]Case{
     .{
@@ -32,7 +50,8 @@ pub const cases = [_]Case{
         .source_kind = .witness,
         .source_module = "src/witnesses.zig",
         .scenario_id = .atm_resume_transform,
-        .status = .supported,
+        .status = resolvedWitnessStatus("atm_resume_transform"),
+        .blocked_reason = resolvedWitnessReason("atm_resume_transform"),
     },
     .{
         .case_id = "direct_return",
@@ -40,7 +59,8 @@ pub const cases = [_]Case{
         .source_kind = .witness,
         .source_module = "src/witnesses.zig",
         .scenario_id = .direct_return,
-        .status = .supported,
+        .status = resolvedWitnessStatus("direct_return"),
+        .blocked_reason = resolvedWitnessReason("direct_return"),
     },
     .{
         .case_id = "multi_prompt",
@@ -48,7 +68,8 @@ pub const cases = [_]Case{
         .source_kind = .witness,
         .source_module = "src/witnesses.zig",
         .scenario_id = .multi_prompt,
-        .status = .supported,
+        .status = resolvedWitnessStatus("multi_prompt"),
+        .blocked_reason = resolvedWitnessReason("multi_prompt"),
     },
     .{
         .case_id = "resume_or_return_resume",
@@ -56,7 +77,8 @@ pub const cases = [_]Case{
         .source_kind = .witness,
         .source_module = "src/witnesses.zig",
         .scenario_id = .resume_or_return_resume,
-        .status = .supported,
+        .status = resolvedWitnessStatus("resume_or_return_resume"),
+        .blocked_reason = resolvedWitnessReason("resume_or_return_resume"),
     },
     .{
         .case_id = "resume_or_return_return_now",
@@ -64,7 +86,8 @@ pub const cases = [_]Case{
         .source_kind = .witness,
         .source_module = "src/witnesses.zig",
         .scenario_id = .resume_or_return_return_now,
-        .status = .supported,
+        .status = resolvedWitnessStatus("resume_or_return_return_now"),
+        .blocked_reason = resolvedWitnessReason("resume_or_return_return_now"),
     },
     .{
         .case_id = "static_redelim",
@@ -72,7 +95,8 @@ pub const cases = [_]Case{
         .source_kind = .witness,
         .source_module = "src/witnesses.zig",
         .scenario_id = .static_redelim,
-        .status = .supported,
+        .status = resolvedWitnessStatus("static_redelim"),
+        .blocked_reason = resolvedWitnessReason("static_redelim"),
     },
     .{
         .case_id = "early_exit",
@@ -104,7 +128,8 @@ pub const cases = [_]Case{
         .source_kind = .example,
         .source_module = "examples/generator.zig",
         .scenario_id = .generator,
-        .status = .supported,
+        .status = resolvedWitnessStatus("generator"),
+        .blocked_reason = resolvedWitnessReason("generator"),
     },
     .{
         .case_id = "state_basic",

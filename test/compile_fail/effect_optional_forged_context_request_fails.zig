@@ -1,3 +1,4 @@
+const prompt_support = @import("prompt_support");
 const shift = @import("shift");
 
 const NoError = error{};
@@ -6,8 +7,8 @@ const fake_cap = struct {
     pub fn PolicyType() type {
         return struct {
             /// Supply a resumptive branch for the forged optional policy.
-            pub fn resumeOrReturn() shift.ResumeOrReturn(i32, i32) {
-                return shift.ResumeOrReturn(i32, i32).resumeWith(1);
+            pub fn resumeOrReturn() prompt_support.ResumeOrReturn(i32, i32) {
+                return prompt_support.ResumeOrReturn(i32, i32).resumeWith(1);
             }
 
             /// Preserve the resumed answer for the forged optional policy.

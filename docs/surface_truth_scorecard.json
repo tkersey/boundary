@@ -1,6 +1,6 @@
 {
   "public_surface": {
-    "contract": "prompt-value direct-style shift/reset",
+    "contract": "lexical effect/algebraic shift.with(...) surface",
     "status": "canonical"
   },
   "benchmark_stability": {

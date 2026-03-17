@@ -1,7 +1,7 @@
-const shift = @import("shift");
+const prompt_support = @import("prompt_support");
 
 const NoError = error{};
-const DemoPrompt = shift.Prompt(.resume_then_transform, i32, i32, NoError);
+const DemoPrompt = prompt_support.Prompt(.resume_then_transform, i32, i32, NoError);
 
 const demo = struct {
     const handle = struct {
@@ -23,5 +23,5 @@ const demo = struct {
 };
 
 comptime {
-    _ = shift.frontend.transformProgram(DemoPrompt, i32, demo.handle, demo);
+    _ = prompt_support.frontend.transformProgram(DemoPrompt, i32, demo.handle, demo);
 }

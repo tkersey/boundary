@@ -1,3 +1,4 @@
+const prompt_support = @import("prompt_support");
 const shift = @import("shift");
 const std = @import("std");
 
@@ -9,8 +10,8 @@ const no_state = struct {};
 const configured = shift.algebraic.Program(i32, NoError, .{ping}).handlers(.{
     shift.algebraic.handleChoice(ping, no_state{}, struct {
         /// Trigger the wrong-builder-mode compile failure.
-        pub fn resumeOrReturn(_: no_state, _: void) shift.ResumeOrReturn(i32, i32) {
-            return shift.ResumeOrReturn(i32, i32).resumeWith(0);
+        pub fn resumeOrReturn(_: no_state, _: void) prompt_support.ResumeOrReturn(i32, i32) {
+            return prompt_support.ResumeOrReturn(i32, i32).resumeWith(0);
         }
 
         /// Preserve the resumed answer unchanged.
@@ -22,8 +23,8 @@ const configured = shift.algebraic.Program(i32, NoError, .{ping}).handlers(.{
 
 const body = struct {
     /// Provide the compile-fail wrong-builder-mode witness program.
-    pub fn program(_: *@TypeOf(configured).Context) @TypeOf(shift.frontend.pureProgram(shift.Prompt(.resume_then_transform, i32, i32, NoError), 0)) {
-        return shift.frontend.pureProgram(shift.Prompt(.resume_then_transform, i32, i32, NoError), 0);
+    pub fn program(_: *@TypeOf(configured).Context) @TypeOf(prompt_support.frontend.pureProgram(prompt_support.Prompt(.resume_then_transform, i32, i32, NoError), 0)) {
+        return prompt_support.frontend.pureProgram(prompt_support.Prompt(.resume_then_transform, i32, i32, NoError), 0);
     }
 };
 

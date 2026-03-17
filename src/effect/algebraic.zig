@@ -1,8 +1,9 @@
+const choice = @import("choice.zig");
 const cleanup = @import("cleanup.zig");
 const family = @import("family.zig");
-const frontend = @import("../frontend.zig");
+const frontend = @import("frontend_support");
 const internal = @import("../internal/algebraic_engine.zig");
-const prompt_contract = @import("../prompt_contract.zig");
+const prompt_contract = @import("prompt_contract_support");
 const shift = @import("../root.zig");
 const std = @import("std");
 
@@ -367,7 +368,7 @@ pub fn handleWriter(
 
 /// Assert the handler policy shape required by an optional family.
 pub fn assertOptionalPolicyType(comptime ResumeType: type, comptime AnswerType: type, comptime ErrorSetType: type, comptime PolicyType: type) void {
-    const DecisionType = shift.ResumeOrReturn(ResumeType, AnswerType);
+    const DecisionType = choice.Decision(ResumeType, AnswerType);
     if (!family.hasDeclSafe(PolicyType, "resumeOrReturn")) {
         @compileError("optional policy must declare resumeOrReturn");
     }
@@ -377,7 +378,7 @@ pub fn assertOptionalPolicyType(comptime ResumeType: type, comptime AnswerType: 
 
     const ResumeOrReturnFn = @TypeOf(PolicyType.resumeOrReturn);
     if (ResumeOrReturnFn != fn () DecisionType and ResumeOrReturnFn != fn () shift.ResetError(ErrorSetType)!DecisionType) {
-        @compileError("optional policy resumeOrReturn must have type fn () ResumeOrReturn or fn () ResetError(ErrorSet)!ResumeOrReturn");
+        @compileError("optional policy resumeOrReturn must have type fn () effect.choice.Decision or fn () ResetError(ErrorSet)!effect.choice.Decision");
     }
 
     const AfterResumeFn = @TypeOf(PolicyType.afterResume);
@@ -388,7 +389,7 @@ pub fn assertOptionalPolicyType(comptime ResumeType: type, comptime AnswerType: 
 
 /// Assert the lexical policy shape required by a continuation-taking optional family.
 pub fn assertOptionalLexicalPolicyType(comptime ResumeType: type, comptime AnswerType: type, comptime ErrorSetType: type, comptime PolicyType: type) void {
-    const DecisionType = shift.ResumeOrReturn(ResumeType, AnswerType);
+    const DecisionType = choice.Decision(ResumeType, AnswerType);
     if (!family.hasDeclSafe(PolicyType, "resumeOrReturn")) {
         @compileError("lexical optional policy must declare resumeOrReturn");
     }
@@ -398,7 +399,7 @@ pub fn assertOptionalLexicalPolicyType(comptime ResumeType: type, comptime Answe
 
     const ResumeOrReturnFn = @TypeOf(PolicyType.resumeOrReturn);
     if (ResumeOrReturnFn != fn () DecisionType and ResumeOrReturnFn != fn () shift.ResetError(ErrorSetType)!DecisionType) {
-        @compileError("lexical optional policy resumeOrReturn must have type fn () ResumeOrReturn or fn () ResetError(ErrorSet)!ResumeOrReturn");
+        @compileError("lexical optional policy resumeOrReturn must have type fn () effect.choice.Decision or fn () ResetError(ErrorSet)!effect.choice.Decision");
     }
 
     const AfterFn = @TypeOf(PolicyType.afterResume);
@@ -478,9 +479,9 @@ pub fn handleOptional(
     const specs = .{
         internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker }, struct {
             /// Choose whether the optional request resumes or returns now.
-            pub fn resumeOrReturn(_: OptionalState, _: void) shift.ResetError(ErrorSetType)!shift.ResumeOrReturn(ResumeType, AnswerType) {
+            pub fn resumeOrReturn(_: OptionalState, _: void) shift.ResetError(ErrorSetType)!choice.Decision(ResumeType, AnswerType) {
                 const DecisionFn = @TypeOf(Policy.resumeOrReturn);
-                if (DecisionFn == fn () shift.ResumeOrReturn(ResumeType, AnswerType)) return Policy.resumeOrReturn();
+                if (DecisionFn == fn () choice.Decision(ResumeType, AnswerType)) return Policy.resumeOrReturn();
                 return try Policy.resumeOrReturn();
             }
 
@@ -551,9 +552,9 @@ pub fn handleOptionalLexical(
     const specs = .{
         internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker }, struct {
             /// Choose whether the lexical optional request resumes or returns now.
-            pub fn resumeOrReturn(_: OptionalState, _: void) shift.ResetError(ErrorSetType)!shift.ResumeOrReturn(ResumeType, AnswerType) {
+            pub fn resumeOrReturn(_: OptionalState, _: void) shift.ResetError(ErrorSetType)!choice.Decision(ResumeType, AnswerType) {
                 const DecisionFn = @TypeOf(Policy.resumeOrReturn);
-                if (DecisionFn == fn () shift.ResumeOrReturn(ResumeType, AnswerType)) return Policy.resumeOrReturn();
+                if (DecisionFn == fn () choice.Decision(ResumeType, AnswerType)) return Policy.resumeOrReturn();
                 return try Policy.resumeOrReturn();
             }
 

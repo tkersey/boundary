@@ -4,8 +4,8 @@ const std = @import("std");
 const NoError = error{};
 const policy = struct {
     /// Choose the direct-return branch for the lexical optional compile-fail fixture.
-    pub fn resumeOrReturn() shift.ResumeOrReturn(i32, []const u8) {
-        return shift.ResumeOrReturn(i32, []const u8).returnNow("result=early");
+    pub fn resumeOrReturn() shift.effect.choice.Decision(i32, []const u8) {
+        return shift.effect.choice.Decision(i32, []const u8).returnNow("result=early");
     }
 
     /// Preserve the early answer unchanged in the compile-fail fixture.
