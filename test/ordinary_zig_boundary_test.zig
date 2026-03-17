@@ -31,6 +31,32 @@ test "ordinary Zig lowering rejects non-canonical source paths for known cases" 
     try std.testing.expectEqualStrings("non_canonical_source_path", lowered.diagnostics[0].code);
 }
 
+test "ordinary Zig lowering rejects the wrong entry function for supported examples" {
+    var lowered = try ordinary_zig_lowering.inspectSource(std.testing.allocator, .{
+        .case_id = "example.define_basic",
+        .source_path = "examples/define_basic.zig",
+        .entry_symbol = "runCounter",
+        .surface_kind = .example,
+    });
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(!lowered.isAccepted());
+    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+}
+
+test "ordinary Zig lowering rejects the wrong witness entry in shared witness sources" {
+    var lowered = try ordinary_zig_lowering.inspectSource(std.testing.allocator, .{
+        .case_id = "witness.atm_resume_transform",
+        .source_path = "src/witness_sources.zig",
+        .entry_symbol = "runResumeOrReturnResume",
+        .surface_kind = .witness,
+    });
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(!lowered.isAccepted());
+    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+}
+
 test "ordinary Zig lowering exposes a public experimental root surface" {
     const shift = @import("shift");
 

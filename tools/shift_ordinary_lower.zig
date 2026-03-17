@@ -36,13 +36,32 @@ fn writeZigStringLiteral(writer: anytype, value: []const u8) !void {
     try writer.writeByte('"');
 }
 
+fn writeJsonStringLiteral(writer: anytype, value: []const u8) !void {
+    try writer.writeByte('"');
+    for (value) |byte| switch (byte) {
+        '"' => try writer.writeAll("\\\""),
+        '\\' => try writer.writeAll("\\\\"),
+        '\x08' => try writer.writeAll("\\b"),
+        '\x0c' => try writer.writeAll("\\f"),
+        '\n' => try writer.writeAll("\\n"),
+        '\r' => try writer.writeAll("\\r"),
+        '\t' => try writer.writeAll("\\t"),
+        0...7, 11, 14...0x1f => try writer.print("\\u00{x:0>2}", .{byte}),
+        else => try writer.writeByte(byte),
+    };
+    try writer.writeByte('"');
+}
+
 fn writeJson(program: ordinary.GeneratedProgram, writer: anytype) !void {
-    try writer.print(
-        "{{\"case_id\":\"{s}\",\"surface_kind\":\"{s}\",\"status\":\"{s}\",\"canonical_scenario_id\":",
-        .{ program.case_id, @tagName(program.surface_kind), @tagName(program.status) },
-    );
+    try writer.writeAll("{\"case_id\":");
+    try writeJsonStringLiteral(writer, program.case_id);
+    try writer.writeAll(",\"surface_kind\":");
+    try writeJsonStringLiteral(writer, @tagName(program.surface_kind));
+    try writer.writeAll(",\"status\":");
+    try writeJsonStringLiteral(writer, @tagName(program.status));
+    try writer.writeAll(",\"canonical_scenario_id\":");
     if (program.canonical_scenario_id) |id| {
-        try writer.print("\"{s}\"", .{@tagName(id)});
+        try writeJsonStringLiteral(writer, @tagName(id));
     } else {
         try writer.writeAll("null");
     }
@@ -54,10 +73,13 @@ fn writeJson(program: ordinary.GeneratedProgram, writer: anytype) !void {
     try writer.writeAll("],\"diagnostics\":[");
     for (program.diagnostics, 0..) |diag, idx| {
         if (idx != 0) try writer.writeAll(",");
-        try writer.print(
-            "{{\"code\":\"{s}\",\"message\":\"{s}\",\"path\":\"{s}\",\"line\":{d},\"column\":{d}}}",
-            .{ diag.code, diag.message, diag.path, diag.line, diag.column },
-        );
+        try writer.writeAll("{\"code\":");
+        try writeJsonStringLiteral(writer, diag.code);
+        try writer.writeAll(",\"message\":");
+        try writeJsonStringLiteral(writer, diag.message);
+        try writer.writeAll(",\"path\":");
+        try writeJsonStringLiteral(writer, diag.path);
+        try writer.print(",\"line\":{d},\"column\":{d}}}", .{ diag.line, diag.column });
     }
     try writer.writeAll("]}\n");
 }

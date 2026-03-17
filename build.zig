@@ -189,6 +189,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const ordinary_lowering_options = b.addOptions();
+    ordinary_lowering_options.addOption([]const u8, "repo_root", b.pathFromRoot("."));
+    ordinary_lowering_mod.addOptions("build_options", ordinary_lowering_options);
     ordinary_lowering_mod.addImport("ordinary_zig_registry", ordinary_registry_mod);
     ordinary_lowering_mod.addImport("parity_scenarios", parity_scenarios_mod);
     ordinary_lowering_mod.addImport("lowered_machine", lowered_machine_mod);

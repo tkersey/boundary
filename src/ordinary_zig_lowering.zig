@@ -2,6 +2,7 @@ const lowered_machine = @import("lowered_machine");
 const ordinary = @import("ordinary_zig_registry");
 const parity_scenarios = @import("parity_scenarios");
 const std = @import("std");
+const build_options = @import("build_options");
 
 /// Source classification for one restricted ordinary-Zig lowering request.
 pub const SurfaceKind = enum {
@@ -73,6 +74,7 @@ pub const LowerError = std.mem.Allocator.Error || error{
 
 const Match = struct {
     required_snippets: []const []const u8,
+    entry_required_snippets: []const []const u8 = &.{},
     feature_flags: []const []const u8,
 };
 
@@ -113,6 +115,10 @@ const helper_match = Match{
         "try writer.writeAll(\"helper=exit\\n\");",
         "const answer = try helper(writer);",
     },
+    .entry_required_snippets = &.{
+        "const answer = try helper(writer);",
+        "try writer.print(\"final={d}\\n\", .{answer});",
+    },
     .feature_flags = &.{ "same_module_helper", "resume_value", "calls" },
 };
 
@@ -122,6 +128,10 @@ const nested_match = Match{
         "fn outer(writer: anytype) anyerror!i32 {",
         "const inner_value = try inner(writer);",
         "const answer = try outer(writer);",
+    },
+    .entry_required_snippets = &.{
+        "const answer = try outer(writer);",
+        "try writer.print(\"final={d}\\n\", .{answer});",
     },
     .feature_flags = &.{ "nested_helpers", "static_redelim_shape", "calls" },
 };
@@ -142,6 +152,10 @@ const defer_match = Match{
         "fn body(writer: anytype) anyerror!i32 {",
         "const answer = try body(writer);",
     },
+    .entry_required_snippets = &.{
+        "const answer = try body(writer);",
+        "try writer.print(\"final={d}\\n\", .{answer});",
+    },
     .feature_flags = &.{ "defer", "resume_value", "helper_body" },
 };
 
@@ -150,6 +164,10 @@ const errdefer_match = Match{
         "errdefer writeCleanup(writer, \"errdefer=cleanup\\n\");",
         "fn body(writer: anytype) anyerror!void {",
         "body(writer) catch |err| switch (err) {",
+    },
+    .entry_required_snippets = &.{
+        "body(writer) catch |err| switch (err) {",
+        "try writer.writeAll(\"final=error=boom\\n\");",
     },
     .feature_flags = &.{ "errdefer", "error_path", "helper_body" },
 };
@@ -226,6 +244,9 @@ const define_basic_match = Match{
         "eff.counter.set.perform(before + 1)",
         "counter={d}",
     },
+    .entry_required_snippets = &.{
+        "try writer.print(\"counter={d}\\n\", .{try runCounter(&runtime)});",
+    },
     .feature_flags = &.{ "generated_transform", "user_defined_effect", "ordinary_canonical" },
 };
 
@@ -236,6 +257,10 @@ const define_choice_match = Match{
         "body-after-pick",
         "policy-after-resume",
     },
+    .entry_required_snippets = &.{
+        "try writer.writeAll(\"branch=return_now\\n\");",
+        "try writer.writeAll(\"branch=resume_with\\n\");",
+    },
     .feature_flags = &.{ "generated_choice", "user_defined_effect", "ordinary_canonical" },
 };
 
@@ -244,6 +269,10 @@ const define_abort_match = Match{
         "const Guard = shift.effect.Define",
         "eff.guard.fail.abort(\"missing-name\")",
         "abort={s}",
+    },
+    .entry_required_snippets = &.{
+        "try writer.writeAll(\"validate=name\\n\");",
+        "try writer.print(\"abort={s}\\n\", .{transcript.abort_line});",
     },
     .feature_flags = &.{ "generated_abort", "user_defined_effect", "ordinary_canonical" },
 };
@@ -255,6 +284,10 @@ const resource_example_match = Match{
         "const second = try eff.resource.acquire();",
         "release=a",
     },
+    .entry_required_snippets = &.{
+        "const result = try shift.with(&runtime, .{",
+        "try writer.print(\"final={s}\\n\", .{result.value});",
+    },
     .feature_flags = &.{ "resource_effect", "lexical_effect", "ordinary_canonical" },
 };
 
@@ -264,6 +297,10 @@ const writer_example_match = Match{
         "try eff.writer.tell(\"a\")",
         "try eff.writer.tell(\"b\")",
         "value={s}",
+    },
+    .entry_required_snippets = &.{
+        "const result = try shift.with(&runtime, .{",
+        "try writer.print(\"value={s}\\n\", .{result.value});",
     },
     .feature_flags = &.{ "writer_effect", "lexical_effect", "ordinary_canonical" },
 };
@@ -275,6 +312,10 @@ const algebraic_abort_match = Match{
         "ctx.performProgram(fail, \"missing-name\"",
         "abort={s}",
     },
+    .entry_required_snippets = &.{
+        "try writer.writeAll(\"validate=name\\n\");",
+        "try writer.print(\"abort={s}\\n\", .{transcript.abort_line});",
+    },
     .feature_flags = &.{ "algebraic_abort", "ordinary_canonical" },
 };
 
@@ -284,6 +325,10 @@ const algebraic_artifact_match = Match{
         "const ArtifactSearch = shift.algebraic.Program(i32, NoError, .{search});",
         "ctx.performProgram(search, \"artifact-search\"",
         "opencode_source=jsonl",
+    },
+    .entry_required_snippets = &.{
+        "const result = try configured.run(&runtime, body);",
+        "try writer.print(\"total={d}\\n\", .{result});",
     },
     .feature_flags = &.{ "algebraic_transform", "ordinary_canonical" },
 };
@@ -295,6 +340,10 @@ const witness_atm_match = Match{
         "transcript.note(\"body-after-shift\")",
         "return \"answer=42\";",
     },
+    .entry_required_snippets = &.{
+        "_ = try eff.atm.step.perform();",
+        "return \"answer=42\";",
+    },
     .feature_flags = &.{ "witness", "transform", "ordinary_canonical" },
 };
 
@@ -302,6 +351,9 @@ const witness_direct_match = Match{
     .required_snippets = &.{
         "pub fn runDirectReturn(writer: anytype)",
         "transcript.handler_line = \"handler-direct-return\"",
+        "try eff.exception.throw(\"result=early\")",
+    },
+    .entry_required_snippets = &.{
         "try eff.exception.throw(\"result=early\")",
     },
     .feature_flags = &.{ "witness", "abort", "ordinary_canonical" },
@@ -313,6 +365,9 @@ const witness_ror_return_match = Match{
         "transcript.note(\"handler-return-now\")",
         "return try eff.optional.request",
     },
+    .entry_required_snippets = &.{
+        "return try eff.optional.request",
+    },
     .feature_flags = &.{ "witness", "choice_return_now", "ordinary_canonical" },
 };
 
@@ -320,6 +375,10 @@ const witness_ror_resume_match = Match{
     .required_snippets = &.{
         "pub fn runResumeOrReturnResume(writer: anytype)",
         "transcript.note(\"handler-decide-resume\")",
+        "transcript.note(\"body-after-shift\")",
+        "return \"answer=42\";",
+    },
+    .entry_required_snippets = &.{
         "transcript.note(\"body-after-shift\")",
         "return \"answer=42\";",
     },
@@ -333,6 +392,10 @@ const witness_static_redelim_match = Match{
         "transcript.note(\"inner-handler-enter\")",
         "return inner_value + 9 + transcript.outer_value;",
     },
+    .entry_required_snippets = &.{
+        "transcript.outer_value = try outer_eff.outer.step.perform();",
+        "return nested.value;",
+    },
     .feature_flags = &.{ "witness", "static_redelim", "ordinary_canonical" },
 };
 
@@ -344,6 +407,10 @@ const witness_multi_prompt_match = Match{
         "_ = try eff.outer.step.perform();",
         "return 42;",
     },
+    .entry_required_snippets = &.{
+        "_ = eff.inner;",
+        "return 42;",
+    },
     .feature_flags = &.{ "witness", "multi_prompt", "ordinary_canonical" },
 };
 
@@ -353,6 +420,10 @@ const witness_generator_match = Match{
         "try eff.writer.tell(switch (next)",
         "\"yield=3\"",
         "done={d}",
+    },
+    .entry_required_snippets = &.{
+        "while (true) {",
+        "return current;",
     },
     .feature_flags = &.{ "witness", "generator", "ordinary_canonical" },
 };
@@ -727,12 +798,19 @@ fn sourcePathDiagnostic(
 }
 
 fn sourcePathMatchesExpected(allocator: std.mem.Allocator, actual_path: []const u8, expected_path: []const u8) bool {
-    const cwd = std.fs.cwd();
-    const actual_realpath = cwd.realpathAlloc(allocator, actual_path) catch return false;
-    defer allocator.free(actual_realpath);
-    const expected_realpath = cwd.realpathAlloc(allocator, expected_path) catch return false;
-    defer allocator.free(expected_realpath);
-    return std.mem.eql(u8, actual_realpath, expected_realpath);
+    const cwd_realpath = std.fs.cwd().realpathAlloc(allocator, ".") catch return false;
+    defer allocator.free(cwd_realpath);
+
+    const actual_abs = if (std.fs.path.isAbsolute(actual_path))
+        std.fs.path.resolve(allocator, &.{actual_path}) catch return false
+    else
+        std.fs.path.resolve(allocator, &.{ cwd_realpath, actual_path }) catch return false;
+    defer allocator.free(actual_abs);
+
+    const expected_abs = std.fs.path.resolve(allocator, &.{ build_options.repo_root, expected_path }) catch return false;
+    defer allocator.free(expected_abs);
+
+    return std.mem.eql(u8, actual_abs, expected_abs);
 }
 
 fn hasTopLevelFunctionNamed(tree: std.zig.Ast, name: []const u8) bool {
@@ -801,15 +879,27 @@ fn entryFunctionSourceSlice(tree: std.zig.Ast, source: []const u8, name: []const
     return null;
 }
 
-fn containsAllInScopes(full_source: []const u8, entry_source: []const u8, snippets: []const []const u8) bool {
-    var entry_anchor_found = false;
-    for (snippets) |snippet| {
+fn containsAllInScopes(
+    full_source: []const u8,
+    entry_source: []const u8,
+    required_snippets: []const []const u8,
+    entry_required_snippets: []const []const u8,
+) bool {
+    for (required_snippets) |snippet| {
         if (std.mem.indexOf(u8, full_source, snippet) == null) return false;
-        if (!entry_anchor_found and std.mem.indexOf(u8, entry_source, snippet) != null) {
-            entry_anchor_found = true;
-        }
     }
-    return entry_anchor_found;
+
+    if (entry_required_snippets.len == 0) {
+        for (required_snippets) |snippet| {
+            if (std.mem.indexOf(u8, entry_source, snippet) != null) return true;
+        }
+        return false;
+    }
+
+    for (entry_required_snippets) |snippet| {
+        if (std.mem.indexOf(u8, entry_source, snippet) == null) return false;
+    }
+    return true;
 }
 
 fn acceptedProgram(
@@ -887,7 +977,12 @@ fn inspectSourceText(
     const stripped_entry_source = try stripLineCommentsAlloc(allocator, entry_source);
     defer allocator.free(stripped_entry_source);
 
-    if (!containsAllInScopes(stripped_source, stripped_entry_source, case.match.required_snippets)) {
+    if (!containsAllInScopes(
+        stripped_source,
+        stripped_entry_source,
+        case.match.required_snippets,
+        case.match.entry_required_snippets,
+    )) {
         return rejectedProgram(
             allocator,
             spec,
