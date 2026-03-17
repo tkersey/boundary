@@ -1,6 +1,6 @@
-const lowered_machine = @import("lowered_machine");
 const ordinary = @import("ordinary_zig_registry");
 const ordinary_zig_lowering = @import("ordinary_zig_lowering");
+const parity_scenarios = @import("parity_scenarios");
 const std = @import("std");
 
 const branch_resume = @import("ordinary_fixture_branch_resume");
@@ -14,7 +14,8 @@ const typed_error_try = @import("ordinary_fixture_typed_error_try");
 
 fn expectCase(comptime Fixture: type) !void {
     const case = ordinary.find(Fixture.ordinary_case_id).?;
-    const lowered = try ordinary_zig_lowering.lowerFixture(Fixture);
+    var lowered = try ordinary_zig_lowering.lowerFixture(std.testing.allocator, Fixture);
+    defer lowered.deinit(std.testing.allocator);
 
     var source_buffer: [1024]u8 = undefined;
     var source_writer = std.Io.Writer.fixed(&source_buffer);
@@ -22,11 +23,15 @@ fn expectCase(comptime Fixture: type) !void {
 
     var lowered_buffer: [1024]u8 = undefined;
     var lowered_writer = std.Io.Writer.fixed(&lowered_buffer);
-    const lowered_state = lowered_machine.runSteps(lowered.scenario.steps);
-    try lowered_machine.writeTranscript(&lowered_writer, &lowered_state);
+    try std.testing.expect(lowered.isAccepted());
+    try ordinary_zig_lowering.runLowered(&lowered_writer, &lowered);
 
-    try std.testing.expectEqualStrings(lowered.scenario.expected_transcript, source_writer.buffered());
-    try std.testing.expectEqualStrings(lowered.scenario.expected_transcript, lowered_writer.buffered());
+    const scenario = parity_scenarios.byId(case.scenario_id);
+    try std.testing.expectEqualStrings(scenario.expected_transcript, source_writer.buffered());
+    try std.testing.expectEqualStrings(scenario.expected_transcript, lowered_writer.buffered());
+    try std.testing.expectEqual(case.scenario_id, lowered.canonical_scenario_id.?);
+    try std.testing.expectEqual(@as(usize, scenario.steps.len), lowered.steps.len);
+    try std.testing.expect(lowered.status == .parity_green);
 
     if (case.forbidden_transcript) |forbidden| {
         try std.testing.expect(!std.mem.eql(u8, forbidden, source_writer.buffered()));

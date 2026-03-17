@@ -3,12 +3,17 @@
 ## Status
 
 This track is **public experimental** and additive. It does not replace the
-current canonical `shift` product story, and it does not expose a public
-ordinary-Zig lowering surface yet.
+current canonical `shift` product story. It now exposes a restricted
+source-validated lowering surface through `shift.ordinary` and the
+`shift-ordinary-lower` tool, but only for the exact supported subset.
 
-Wave one adds an **internal-only restricted lowering path** plus a checked
+Wave one adds a **public experimental restricted lowering path** plus a checked
 ordinary-Zig corpus. The purpose of the wave is to make a small, exact, all-green
-subset true without broadening the public API.
+subset true while keeping the stable product story honest.
+
+Wave two promotes the first **public source-backed authoring cohort** onto that
+same experimental lowering surface without changing the stable canonical product
+claim.
 
 ## Long-Term Canonical Target
 
@@ -64,12 +69,47 @@ These cases cover the wave-one subset:
 - No recursion
 - No dynamic callee lowering
 - No arbitrary cross-module lowering
-- No user-invocable lowering entrypoint
+- No reflective raw-body lowering API
+- No stable non-experimental runtime-call lowering API
 - No performance contract
 
 Anything outside the exact wave-one subset is out of scope for this contract and
 must not appear as a partial, skipped, or unsupported row in the wave-one
 matrix.
+
+## Wave-Two Promoted Cohort
+
+Wave two promotes exactly these rows through the public experimental ordinary
+surface:
+
+- `example.early_exit`
+- `example.resume_or_return`
+- `example.nested_workflow`
+- `example.state_basic`
+- `example.reader_basic`
+- `example.optional_basic`
+- `example.exception_basic`
+- `effect.state_basic`
+- `effect.reader_basic`
+- `effect.optional_basic`
+- `effect.exception_basic`
+
+Wave two is still experimental. It does not promote:
+
+- `example.resource_basic`
+- `example.writer_basic`
+- `example.define_basic`
+- `example.algebraic_abortive_validation`
+- `example.algebraic_artifact_search`
+- `user_defined.*`
+- witness rows
+
+Wave two is only considered complete when the promoted cohort stays
+`parity_green` in the replacement ledger and remains backed by:
+
+1. direct source execution
+2. source-validated lowering through `shift.ordinary` / `shift-ordinary-lower`
+3. canonical scenario transcript parity
 
 ## Surface Replacement Matrix
 

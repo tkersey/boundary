@@ -2,18 +2,21 @@
 
 `shift` now treats the lexical `shift.with(...)` surface together with
 `shift.effect.*`, `shift.effect.Define(.{ ... })`, and `shift.algebraic` as
-the canonical product truth. The older root prompt surface remains retained
-compat/internal scaffolding beneath that story.
+the canonical product truth. The repo now also exposes a public experimental
+restricted ordinary-Zig lowering surface through `shift.ordinary` and the
+`shift-ordinary-lower` tool. The older root prompt surface remains retained
+compat/internal scaffolding beneath the canonical story.
 
 The lowered path is only acceptable as hidden support infrastructure beneath
 that surface. Today, that support comes in two internal forms:
 
 - `src/program_frontend.zig` lowers internal structured programs into the
   canonical lowered IR in `src/parity_scenarios.zig`
+- `src/ordinary_zig_lowering.zig` validates the supported wave-one ordinary-Zig
+  source subset and the promoted Cohort A example/effect rows, then projects
+  them onto canonical lowered scenarios
 - `src/program_bridge.zig` maps a named unchanged-body direct-style subset onto
   the same lowered scenarios for parity proof
-- `src/ordinary_zig_lowering.zig` maps the wave-one ordinary-Zig experimental
-  subset onto the same lowered scenarios for contract proof
 - `src/private_lowered_runtime.zig` executes the currently supported bridge
   subset through an internal lowered-runtime seam
 
@@ -22,7 +25,8 @@ The current limit is structural:
 - the bridge currently supports only a named subset of unchanged direct-style
   cases
 - the ordinary-Zig experimental track currently supports only the exact wave-one
-  subset documented in `docs/ordinary_zig_contract.md`
+  subset plus the promoted Cohort A rows documented in
+  `docs/ordinary_zig_contract.md`
 - the long-horizon replacement scope for current public/proof surfaces is tracked
   separately in `docs/surface_replacement_matrix.json`
 - arbitrary public-style `fn body() ...` code still relies on host-language
@@ -35,8 +39,8 @@ So the current answer is:
 
 - structured internal programs are supported as scaffolding
 - a limited unchanged-body bridge subset is supported for parity proof
-- an internal-only ordinary-Zig restricted-lowering subset is supported for
-  experimental contract proof
+- a public experimental ordinary-Zig restricted-lowering subset is supported
+  for experimental contract proof, including the promoted Cohort A rows
 - arbitrary unchanged direct-style bodies are not
 
 This document is backed by `test/program_frontend_boundary_test.zig`,

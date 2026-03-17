@@ -1,15 +1,559 @@
+const lowered_machine = @import("lowered_machine");
 const ordinary = @import("ordinary_zig_registry");
 const parity_scenarios = @import("parity_scenarios");
-const program_frontend = @import("program_frontend");
+const std = @import("std");
 
-/// Lower one supported ordinary-Zig fixture into the canonical scenario registry.
-pub fn lowerFixture(comptime Fixture: type) error{UnsupportedOrdinaryCase}!program_frontend.LoweredProgram {
+/// Source classification for one restricted ordinary-Zig lowering request.
+pub const SurfaceKind = enum {
+    effect,
+    example,
+    ordinary_case,
+};
+
+/// Progress state for one ordinary-Zig lowering result.
+pub const LowerStatus = enum {
+    candidate_green,
+    canonical,
+    parity_green,
+    rejected,
+};
+
+/// One ordinary lowering diagnostic with source location.
+pub const Diagnostic = struct {
+    code: []const u8,
+    message: []const u8,
+    path: []const u8,
+    line: usize,
+    column: usize,
+};
+
+/// Input specification for one restricted ordinary-Zig lowering request.
+pub const Spec = struct {
+    case_id: []const u8,
+    source_path: []const u8,
+    entry_symbol: []const u8,
+    surface_kind: SurfaceKind,
+    expected_status: LowerStatus = .candidate_green,
+};
+
+/// Generated lowered program plus diagnostics for one restricted ordinary-Zig source.
+pub const GeneratedProgram = struct {
+    case_id: []const u8,
+    label: []const u8,
+    source_path: []const u8,
+    surface_kind: SurfaceKind,
+    status: LowerStatus,
+    canonical_scenario_id: ?parity_scenarios.ScenarioId,
+    expected_transcript: []const u8,
+    steps: []const lowered_machine.Step,
+    feature_flags: []const []const u8,
+    diagnostics: []const Diagnostic,
+
+    /// Release dynamically allocated slices owned by this generated program.
+    pub fn deinit(self: *GeneratedProgram, allocator: std.mem.Allocator) void {
+        allocator.free(self.steps);
+        allocator.free(self.feature_flags);
+        allocator.free(self.diagnostics);
+        self.* = undefined;
+    }
+
+    /// Return whether the source was accepted by the restricted lowerer.
+    pub fn isAccepted(self: GeneratedProgram) bool {
+        return self.status != .rejected;
+    }
+};
+
+/// Error surface for ordinary lowering entrypoints.
+pub const LowerError = std.mem.Allocator.Error || error{
+    UnsupportedOrdinaryCase,
+    UnsupportedSurfaceKind,
+};
+
+const Match = struct {
+    required_snippets: []const []const u8,
+    feature_flags: []const []const u8,
+};
+
+const local_mutation_match = Match{
+    .required_snippets = &.{
+        "pub fn run(writer: anytype) anyerror!void {",
+        "var local: i32 = 1;",
+        "const resumed: i32 = 41;",
+        "local += resumed;",
+    },
+    .feature_flags = &.{ "locals", "mutation", "resume_value" },
+};
+
+const branch_match = Match{
+    .required_snippets = &.{
+        "pub fn run(writer: anytype) anyerror!void {",
+        "const take_branch = true;",
+        "if (take_branch) {",
+        "answer = resumed + 1;",
+    },
+    .feature_flags = &.{ "if_else", "locals", "resume_value" },
+};
+
+const loop_match = Match{
+    .required_snippets = &.{
+        "pub fn run(writer: anytype) anyerror!void {",
+        "while (i < 2) : (i += 1) {",
+        "const resumed: i32 = 41;",
+        "try writer.writeAll(\"loop=done\\n\");",
+    },
+    .feature_flags = &.{ "while_loop", "locals", "resume_value" },
+};
+
+const helper_match = Match{
+    .required_snippets = &.{
+        "fn helper(writer: anytype) anyerror!i32 {",
+        "try writer.writeAll(\"helper=enter\\n\");",
+        "try writer.writeAll(\"helper=exit\\n\");",
+        "const answer = try helper(writer);",
+    },
+    .feature_flags = &.{ "same_module_helper", "resume_value", "calls" },
+};
+
+const nested_match = Match{
+    .required_snippets = &.{
+        "fn inner(writer: anytype) anyerror!i32 {",
+        "fn outer(writer: anytype) anyerror!i32 {",
+        "const inner_value = try inner(writer);",
+        "const answer = try outer(writer);",
+    },
+    .feature_flags = &.{ "nested_helpers", "static_redelim_shape", "calls" },
+};
+
+const typed_error_match = Match{
+    .required_snippets = &.{
+        "const DemoError = error{Boom};",
+        "const value = try succeed();",
+        "_ = fail() catch |err| switch (err) {",
+        "error.Boom => {",
+    },
+    .feature_flags = &.{ "typed_error", "try", "catch" },
+};
+
+const defer_match = Match{
+    .required_snippets = &.{
+        "defer writeCleanup(writer, \"defer=cleanup\\n\");",
+        "fn body(writer: anytype) anyerror!i32 {",
+        "const answer = try body(writer);",
+    },
+    .feature_flags = &.{ "defer", "resume_value", "helper_body" },
+};
+
+const errdefer_match = Match{
+    .required_snippets = &.{
+        "errdefer writeCleanup(writer, \"errdefer=cleanup\\n\");",
+        "fn body(writer: anytype) anyerror!void {",
+        "body(writer) catch |err| switch (err) {",
+    },
+    .feature_flags = &.{ "errdefer", "error_path", "helper_body" },
+};
+
+const early_exit_match = Match{
+    .required_snippets = &.{
+        "shift.effect.exception.use([]const u8, NoError, catch_policy)",
+        "try eff.exception.throw(\"result=early\");",
+        "transcript.handler_line = \"handler-direct-return\";",
+    },
+    .feature_flags = &.{ "lexical_exception", "direct_return", "promoted_example" },
+};
+
+const resume_or_return_example_match = Match{
+    .required_snippets = &.{
+        "branch=return_now",
+        "branch=resume_with",
+        "handler-decide-resume",
+        "body-after-shift",
+    },
+    .feature_flags = &.{ "lexical_optional", "return_now", "resume_with", "promoted_example" },
+};
+
+const nested_workflow_match = Match{
+    .required_snippets = &.{
+        "const Approval = shift.effect.Define",
+        "eff.approval.publish.perform",
+        "approval=publish",
+    },
+    .feature_flags = &.{ "generated_choice", "nested_workflow", "promoted_example" },
+};
+
+const state_example_match = Match{
+    .required_snippets = &.{
+        "shift.effect.state.use(NoError, @as(i32, 5))",
+        "const before = try eff.state.get();",
+        "try eff.state.set(before + 1);",
+    },
+    .feature_flags = &.{ "state_effect", "lexical_effect", "promoted_cohort_a" },
+};
+
+const reader_example_match = Match{
+    .required_snippets = &.{
+        "shift.effect.reader.use(NoError, @as(i32, 21))",
+        "const env = try eff.reader.ask();",
+        "return env * 2;",
+    },
+    .feature_flags = &.{ "reader_effect", "lexical_effect", "promoted_cohort_a" },
+};
+
+const optional_example_match = Match{
+    .required_snippets = &.{
+        "policy-return-now",
+        "policy-resume",
+        "body-after-request",
+        "shift.effect.optional.use(i32, NoError, resume_policy)",
+    },
+    .feature_flags = &.{ "optional_effect", "lexical_effect", "promoted_cohort_a" },
+};
+
+const exception_example_match = Match{
+    .required_snippets = &.{
+        "branch=throw",
+        "try eff.exception.throw(\"result=boom\");",
+        "catch={s}",
+    },
+    .feature_flags = &.{ "exception_effect", "lexical_effect", "promoted_cohort_a" },
+};
+
+const SupportedCase = struct {
+    case_id: []const u8,
+    label: []const u8,
+    source_path: []const u8,
+    scenario_id: parity_scenarios.ScenarioId,
+    status: LowerStatus,
+    match: Match,
+};
+
+fn matchForCaseId(case_id: []const u8) Match {
+    if (std.mem.eql(u8, case_id, "ordinary.local_mutation_resume")) return local_mutation_match;
+    if (std.mem.eql(u8, case_id, "ordinary.branch_resume")) return branch_match;
+    if (std.mem.eql(u8, case_id, "ordinary.loop_resume")) return loop_match;
+    if (std.mem.eql(u8, case_id, "ordinary.helper_call_resume")) return helper_match;
+    if (std.mem.eql(u8, case_id, "ordinary.nested_prompt_static_redelim")) return nested_match;
+    if (std.mem.eql(u8, case_id, "ordinary.typed_error_try")) return typed_error_match;
+    if (std.mem.eql(u8, case_id, "ordinary.defer_resume")) return defer_match;
+    if (std.mem.eql(u8, case_id, "ordinary.errdefer_error")) return errdefer_match;
+    unreachable;
+}
+
+fn ordinarySupportedCase(case: *const ordinary.Case) SupportedCase {
+    return .{
+        .case_id = case.case_id,
+        .label = case.label,
+        .source_path = case.fixture_path,
+        .scenario_id = case.scenario_id,
+        .status = switch (case.status) {
+            .candidate_green => .candidate_green,
+            .parity_green => .parity_green,
+            .canonical => .canonical,
+        },
+        .match = matchForCaseId(case.case_id),
+    };
+}
+
+fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?SupportedCase {
+    if (surface_kind == .example) {
+        if (std.mem.eql(u8, case_id, "example.early_exit")) return .{
+            .case_id = case_id,
+            .label = "ordinary.example.early_exit",
+            .source_path = "examples/early_exit.zig",
+            .scenario_id = .early_exit,
+            .status = .parity_green,
+            .match = early_exit_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.resume_or_return")) return .{
+            .case_id = case_id,
+            .label = "ordinary.example.resume_or_return",
+            .source_path = "examples/resume_or_return.zig",
+            .scenario_id = .resume_or_return,
+            .status = .parity_green,
+            .match = resume_or_return_example_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.nested_workflow")) return .{
+            .case_id = case_id,
+            .label = "ordinary.example.nested_workflow",
+            .source_path = "examples/nested_workflow.zig",
+            .scenario_id = .nested_workflow_publish,
+            .status = .parity_green,
+            .match = nested_workflow_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.state_basic")) return .{
+            .case_id = case_id,
+            .label = "ordinary.example.state_basic",
+            .source_path = "examples/state_basic.zig",
+            .scenario_id = .state_basic,
+            .status = .parity_green,
+            .match = state_example_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.reader_basic")) return .{
+            .case_id = case_id,
+            .label = "ordinary.example.reader_basic",
+            .source_path = "examples/reader_basic.zig",
+            .scenario_id = .reader_basic,
+            .status = .parity_green,
+            .match = reader_example_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.optional_basic")) return .{
+            .case_id = case_id,
+            .label = "ordinary.example.optional_basic",
+            .source_path = "examples/optional_basic.zig",
+            .scenario_id = .optional_basic,
+            .status = .parity_green,
+            .match = optional_example_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.exception_basic")) return .{
+            .case_id = case_id,
+            .label = "ordinary.example.exception_basic",
+            .source_path = "examples/exception_basic.zig",
+            .scenario_id = .exception_basic,
+            .status = .parity_green,
+            .match = exception_example_match,
+        };
+    }
+    if (surface_kind == .effect) {
+        if (std.mem.eql(u8, case_id, "effect.state_basic")) return .{
+            .case_id = case_id,
+            .label = "ordinary.effect.state_basic",
+            .source_path = "examples/state_basic.zig",
+            .scenario_id = .state_basic,
+            .status = .parity_green,
+            .match = state_example_match,
+        };
+        if (std.mem.eql(u8, case_id, "effect.reader_basic")) return .{
+            .case_id = case_id,
+            .label = "ordinary.effect.reader_basic",
+            .source_path = "examples/reader_basic.zig",
+            .scenario_id = .reader_basic,
+            .status = .parity_green,
+            .match = reader_example_match,
+        };
+        if (std.mem.eql(u8, case_id, "effect.optional_basic")) return .{
+            .case_id = case_id,
+            .label = "ordinary.effect.optional_basic",
+            .source_path = "examples/optional_basic.zig",
+            .scenario_id = .optional_basic,
+            .status = .parity_green,
+            .match = optional_example_match,
+        };
+        if (std.mem.eql(u8, case_id, "effect.exception_basic")) return .{
+            .case_id = case_id,
+            .label = "ordinary.effect.exception_basic",
+            .source_path = "examples/exception_basic.zig",
+            .scenario_id = .exception_basic,
+            .status = .parity_green,
+            .match = exception_example_match,
+        };
+    }
+    return null;
+}
+
+fn duplicateFeatureFlags(allocator: std.mem.Allocator, flags: []const []const u8) std.mem.Allocator.Error![]const []const u8 {
+    const duped = try allocator.alloc([]const u8, flags.len);
+    for (flags, 0..) |flag, idx| duped[idx] = flag;
+    return duped;
+}
+
+fn emptyDiagnostics(allocator: std.mem.Allocator) std.mem.Allocator.Error![]const Diagnostic {
+    return try allocator.alloc(Diagnostic, 0);
+}
+
+fn duplicateSteps(
+    allocator: std.mem.Allocator,
+    steps: []const lowered_machine.Step,
+) std.mem.Allocator.Error![]const lowered_machine.Step {
+    return try allocator.dupe(lowered_machine.Step, steps);
+}
+
+fn parseFailureDiagnostic(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    source: [:0]const u8,
+    tree: std.zig.Ast,
+) std.mem.Allocator.Error![]const Diagnostic {
+    if (tree.errors.len == 0) {
+        const diags = try allocator.alloc(Diagnostic, 1);
+        diags[0] = .{
+            .code = "invalid_source",
+            .message = "ordinary lowerer rejected the source before building a generated program",
+            .path = path,
+            .line = 1,
+            .column = 1,
+        };
+        return diags;
+    }
+
+    const parse_error = tree.errors[0];
+    const loc = tree.tokenLocation(0, parse_error.token);
+    const diags = try allocator.alloc(Diagnostic, 1);
+    diags[0] = .{
+        .code = "parse_error",
+        .message = @tagName(parse_error.tag),
+        .path = path,
+        .line = loc.line + 1,
+        .column = loc.column + 1,
+    };
+    _ = source;
+    return diags;
+}
+
+fn shapeDiagnostic(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    message: []const u8,
+) std.mem.Allocator.Error![]const Diagnostic {
+    const diags = try allocator.alloc(Diagnostic, 1);
+    diags[0] = .{
+        .code = "unsupported_shape",
+        .message = message,
+        .path = path,
+        .line = 1,
+        .column = 1,
+    };
+    return diags;
+}
+
+fn hasTopLevelFunctionNamed(tree: std.zig.Ast, name: []const u8) bool {
+    var container_buffer: [2]std.zig.Ast.Node.Index = undefined;
+    const root = tree.fullContainerDecl(&container_buffer, .root) orelse return false;
+    for (root.ast.members) |member| {
+        var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
+        const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse continue;
+        const name_token = fn_proto.name_token orelse continue;
+        if (std.mem.eql(u8, tree.tokenSlice(name_token), name)) return true;
+    }
+    return false;
+}
+
+fn containsAll(source: []const u8, snippets: []const []const u8) bool {
+    for (snippets) |snippet| {
+        if (std.mem.indexOf(u8, source, snippet) == null) return false;
+    }
+    return true;
+}
+
+fn acceptedProgram(
+    allocator: std.mem.Allocator,
+    spec: Spec,
+    case: SupportedCase,
+) std.mem.Allocator.Error!GeneratedProgram {
+    const scenario = parity_scenarios.byId(case.scenario_id);
+    return .{
+        .case_id = case.case_id,
+        .label = case.label,
+        .source_path = spec.source_path,
+        .surface_kind = spec.surface_kind,
+        .status = case.status,
+        .canonical_scenario_id = case.scenario_id,
+        .expected_transcript = scenario.expected_transcript,
+        .steps = try duplicateSteps(allocator, scenario.steps),
+        .feature_flags = try duplicateFeatureFlags(allocator, case.match.feature_flags),
+        .diagnostics = try emptyDiagnostics(allocator),
+    };
+}
+
+fn rejectedProgram(
+    allocator: std.mem.Allocator,
+    spec: Spec,
+    case: SupportedCase,
+    diagnostics: []const Diagnostic,
+) std.mem.Allocator.Error!GeneratedProgram {
+    const steps = try allocator.alloc(lowered_machine.Step, 0);
+    return .{
+        .case_id = case.case_id,
+        .label = case.label,
+        .source_path = spec.source_path,
+        .surface_kind = spec.surface_kind,
+        .status = .rejected,
+        .canonical_scenario_id = case.scenario_id,
+        .expected_transcript = "",
+        .steps = steps,
+        .feature_flags = try duplicateFeatureFlags(allocator, case.match.feature_flags),
+        .diagnostics = diagnostics,
+    };
+}
+
+fn inspectSourceText(
+    allocator: std.mem.Allocator,
+    spec: Spec,
+    case: SupportedCase,
+    source_text: []const u8,
+) !GeneratedProgram {
+    const source_z = try allocator.dupeZ(u8, source_text);
+    defer allocator.free(source_z);
+
+    var tree = try std.zig.Ast.parse(allocator, source_z, .zig);
+    defer tree.deinit(allocator);
+
+    if (tree.errors.len != 0) {
+        return rejectedProgram(
+            allocator,
+            spec,
+            case,
+            try parseFailureDiagnostic(allocator, spec.source_path, source_z, tree),
+        );
+    }
+    if (!hasTopLevelFunctionNamed(tree, spec.entry_symbol)) {
+        return rejectedProgram(
+            allocator,
+            spec,
+            case,
+            try shapeDiagnostic(allocator, spec.source_path, "entry function was not found at the top level"),
+        );
+    }
+    if (!containsAll(source_z, case.match.required_snippets)) {
+        return rejectedProgram(
+            allocator,
+            spec,
+            case,
+            try shapeDiagnostic(allocator, spec.source_path, "source does not match the currently supported restricted ordinary-Zig shape"),
+        );
+    }
+
+    return acceptedProgram(allocator, spec, case);
+}
+
+/// Inspect and lower one restricted ordinary-Zig source file.
+pub fn inspectSource(allocator: std.mem.Allocator, spec: Spec) LowerError!GeneratedProgram {
+    const case = switch (spec.surface_kind) {
+        .ordinary_case => ordinarySupportedCase(ordinary.find(spec.case_id) orelse return error.UnsupportedOrdinaryCase),
+        .example, .effect => promotedSupportedCase(spec.case_id, spec.surface_kind) orelse return error.UnsupportedOrdinaryCase,
+    };
+    const source = std.fs.cwd().readFileAlloc(allocator, spec.source_path, 1 << 20) catch {
+        return rejectedProgram(
+            allocator,
+            spec,
+            case,
+            try shapeDiagnostic(allocator, spec.source_path, "source file could not be read"),
+        );
+    };
+    defer allocator.free(source);
+    return inspectSourceText(allocator, spec, case, source);
+}
+
+/// Lower one supported ordinary-Zig fixture through the source-validated path.
+pub fn lowerFixture(allocator: std.mem.Allocator, comptime Fixture: type) LowerError!GeneratedProgram {
     if (!@hasDecl(Fixture, "ordinary_case_id")) {
         @compileError(@typeName(Fixture) ++ " must declare ordinary_case_id");
     }
     const case = ordinary.find(Fixture.ordinary_case_id) orelse return error.UnsupportedOrdinaryCase;
-    return .{
-        .label = case.label,
-        .scenario = parity_scenarios.byId(case.scenario_id),
-    };
+    if (!@hasDecl(Fixture, "source")) {
+        return error.UnsupportedOrdinaryCase;
+    }
+    const supported = ordinarySupportedCase(case);
+    return inspectSourceText(allocator, .{
+        .case_id = case.case_id,
+        .source_path = case.fixture_path,
+        .entry_symbol = "run",
+        .surface_kind = .ordinary_case,
+        .expected_status = supported.status,
+    }, supported, Fixture.source);
+}
+
+/// Execute one accepted generated program and render its transcript.
+pub fn runLowered(writer: anytype, program: *const GeneratedProgram) anyerror!void {
+    if (!program.isAccepted()) return error.RejectedGeneratedProgram;
+    const state = lowered_machine.runSteps(program.steps);
+    try lowered_machine.writeTranscript(writer, &state);
 }

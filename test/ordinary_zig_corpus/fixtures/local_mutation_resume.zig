@@ -1,5 +1,7 @@
 /// Stable ordinary-Zig case id.
 pub const ordinary_case_id = "ordinary.local_mutation_resume";
+/// Embedded source text consumed by the source-validated ordinary lowerer.
+pub const source = @embedFile("local_mutation_resume.zig");
 
 /// Run the local-mutation case with ordinary Zig control flow.
 pub fn run(writer: anytype) anyerror!void {

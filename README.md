@@ -12,6 +12,13 @@ In the repo's current state, that means two things:
 - the public API preserves direct-style ordinary Zig without exposing a public
   continuation handle
 
+The repo also exposes one public experimental ordinary-Zig lowering surface for
+the exact wave-one subset plus the promoted Cohort A examples/effects:
+
+- `shift.ordinary` for metadata and generated-program handling
+- `zig build ordinary-lower` / `zig-out/bin/shift-ordinary-lower` for restricted
+  source-backed lowering
+
 The repo therefore treats runtime code as the last rung of a semantics ladder,
 not as the source of truth:
 
@@ -77,6 +84,7 @@ zig build structured-program-suite
 zig build direct-style-bridge-parity
 zig build direct-style-boundary
 zig build ordinary-zig-gauntlet
+zig build ordinary-lower
 zig build surface-replacement-matrix-write
 zig build surface-replacement-check
 zig build witness-admission-matrix-write

@@ -1,5 +1,7 @@
 /// Stable ordinary-Zig case id.
 pub const ordinary_case_id = "ordinary.branch_resume";
+/// Embedded source text consumed by the source-validated ordinary lowerer.
+pub const source = @embedFile("branch_resume.zig");
 
 /// Run the branch case with ordinary Zig control flow.
 pub fn run(writer: anytype) anyerror!void {

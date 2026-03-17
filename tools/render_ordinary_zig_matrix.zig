@@ -13,6 +13,7 @@ fn usage() noreturn {
 fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, "{\n");
     try list.appendSlice(allocator, "  \"wave\": \"ordinary_zig_v1\",\n");
+    try list.appendSlice(allocator, "  \"lowering_surface\": \"public_experimental_source_validated\",\n");
     try list.appendSlice(allocator, "  \"cases\": [\n");
     for (ordinary.cases, 0..) |case, idx| {
         if (idx != 0) try list.appendSlice(allocator, ",\n");

@@ -5,7 +5,7 @@ const std = @import("std");
 test "ordinary Zig registry keeps the exact wave-one case count" {
     try std.testing.expectEqual(@as(usize, 8), ordinary.cases.len);
     for (ordinary.cases) |case| {
-        try std.testing.expect(case.status == .green);
+        try std.testing.expect(case.status == .parity_green);
     }
 }
 
@@ -15,5 +15,11 @@ test "ordinary Zig lowering rejects unsupported fixture ids" {
         pub const ordinary_case_id = "ordinary.recursion";
     };
 
-    try std.testing.expectError(error.UnsupportedOrdinaryCase, ordinary_zig_lowering.lowerFixture(unsupported_fixture));
+    try std.testing.expectError(error.UnsupportedOrdinaryCase, ordinary_zig_lowering.lowerFixture(std.testing.allocator, unsupported_fixture));
+}
+
+test "ordinary Zig lowering exposes a public experimental root surface" {
+    const shift = @import("shift");
+
+    try std.testing.expect(@hasDecl(shift, "ordinary"));
 }

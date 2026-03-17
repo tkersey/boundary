@@ -17,6 +17,10 @@
     "labels": ["witness.atm_resume_transform","witness.direct_return","witness.multi_prompt","witness.resume_or_return_resume","witness.resume_or_return_return_now","witness.static_redelim","example.early_exit","example.resume_or_return","example.nested_workflow_publish","effect.state_basic","effect.reader_basic","effect.optional_basic","effect.exception_basic"],
     "status": "implemented"
   },
+  "ordinary_experimental_surface": {
+    "contract": "public experimental source-validated lowering for the wave-one ordinary-Zig subset plus the promoted Cohort A example/effect rows",
+    "status": "promoted_cohort_a"
+  },
   "direct_style_bridge": {
     "supported_cases": ["atm_resume_transform","direct_return","multi_prompt","resume_or_return_resume","resume_or_return_return_now","static_redelim","early_exit","resume_or_return","nested_workflow","generator","state_basic","reader_basic","optional_basic","exception_basic","resource_basic","writer_basic","algebraic_abortive_validation","algebraic_artifact_search"],
     "blocked_cases": [],

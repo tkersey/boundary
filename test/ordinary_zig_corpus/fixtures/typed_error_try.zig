@@ -1,5 +1,7 @@
 /// Stable ordinary-Zig case id.
 pub const ordinary_case_id = "ordinary.typed_error_try";
+/// Embedded source text consumed by the source-validated ordinary lowerer.
+pub const source = @embedFile("typed_error_try.zig");
 
 const DemoError = error{Boom};
 

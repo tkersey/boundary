@@ -1,5 +1,8 @@
 const formal_core = @import("formal_core_registry");
 
+const planned_note = "Tracked by the ordinary-body cutover ledger, but not yet promoted through the public experimental ordinary-Zig lowering surface.";
+const promoted_note = "Promoted through the public experimental ordinary-Zig lowering surface with direct-source and canonical-scenario parity proof.";
+
 /// Replacement-row category for the long-horizon canonical ordinary-body campaign.
 pub const Category = enum {
     built_in_effect,
@@ -37,8 +40,8 @@ pub const rows = [_]Row{
         .current_signal = "parity_scenarios:atm_resume_transform",
         .law_anchor = formal_core.anchorPath(.atm_resume_transform),
         .ordinary_target = "ordinary.witness.atm_resume_transform",
-        .status = .canonical,
-        .note = "The ATM witness is now a canonical lexical witness with matching transcript proof and resolved unchanged-body bridge admission.",
+        .status = .planned,
+        .note = planned_note,
     },
     .{
         .replacement_id = "witness.direct_return",
@@ -47,8 +50,8 @@ pub const rows = [_]Row{
         .current_signal = "parity_scenarios:direct_return",
         .law_anchor = formal_core.anchorPath(.direct_return),
         .ordinary_target = "ordinary.witness.direct_return",
-        .status = .canonical,
-        .note = "The direct-return witness is now a canonical lexical witness with matching transcript proof and resolved unchanged-body bridge admission.",
+        .status = .planned,
+        .note = planned_note,
     },
     .{
         .replacement_id = "witness.resume_or_return_return_now",
@@ -57,8 +60,8 @@ pub const rows = [_]Row{
         .current_signal = "parity_scenarios:resume_or_return_return_now",
         .law_anchor = formal_core.anchorPath(.optional_resumption),
         .ordinary_target = "ordinary.witness.resume_or_return_return_now",
-        .status = .canonical,
-        .note = "The return-now witness is now a canonical lexical optional-resumption witness with matching transcript proof and resolved unchanged-body bridge admission.",
+        .status = .planned,
+        .note = planned_note,
     },
     .{
         .replacement_id = "witness.resume_or_return_resume",
@@ -67,8 +70,8 @@ pub const rows = [_]Row{
         .current_signal = "parity_scenarios:resume_or_return_resume",
         .law_anchor = formal_core.anchorPath(.optional_resumption),
         .ordinary_target = "ordinary.witness.resume_or_return_resume",
-        .status = .canonical,
-        .note = "The single-resume witness is now a canonical lexical optional-resumption witness with matching transcript proof and resolved unchanged-body bridge admission.",
+        .status = .planned,
+        .note = planned_note,
     },
     .{
         .replacement_id = "witness.static_redelim",
@@ -77,8 +80,8 @@ pub const rows = [_]Row{
         .current_signal = "parity_scenarios:static_redelim",
         .law_anchor = formal_core.anchorPath(.static_redelim),
         .ordinary_target = "ordinary.witness.static_redelim",
-        .status = .canonical,
-        .note = "The static re-delimitation witness is now a canonical lexical witness with matching transcript proof and resolved unchanged-body bridge admission.",
+        .status = .planned,
+        .note = planned_note,
     },
     .{
         .replacement_id = "witness.multi_prompt",
@@ -87,8 +90,8 @@ pub const rows = [_]Row{
         .current_signal = "parity_scenarios:multi_prompt",
         .law_anchor = formal_core.anchorPath(.multi_prompt_separation),
         .ordinary_target = "ordinary.witness.multi_prompt",
-        .status = .canonical,
-        .note = "The multi-prompt witness is now a canonical lexical witness with matching transcript proof and resolved unchanged-body bridge admission.",
+        .status = .planned,
+        .note = planned_note,
     },
     .{
         .replacement_id = "witness.generator",
@@ -97,8 +100,8 @@ pub const rows = [_]Row{
         .current_signal = "parity_scenarios:generator",
         .law_anchor = formal_core.anchorPath(.practical_witnesses),
         .ordinary_target = "ordinary.witness.generator",
-        .status = .canonical,
-        .note = "The generator witness is now a canonical lexical witness with matching transcript proof and resolved unchanged-body bridge admission.",
+        .status = .planned,
+        .note = planned_note,
     },
     .{
         .replacement_id = "example.define_basic",
@@ -107,8 +110,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:define_basic.txt",
         .law_anchor = formal_core.anchorPath(.strict_effect_capabilities),
         .ordinary_target = "ordinary.example.define_basic",
-        .status = .canonical,
-        .note = "The generated transform-family example is now a canonical public lexical example through shift.with(...), backed by its exact-output fixture.",
+        .status = .planned,
+        .note = planned_note,
     },
     .{
         .replacement_id = "example.early_exit",
@@ -117,8 +120,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:early_exit.txt",
         .law_anchor = formal_core.anchorPath(.direct_return),
         .ordinary_target = "ordinary.example.early_exit",
-        .status = .canonical,
-        .note = "The early-exit example is now a canonical lexical ordinary-body example backed by its exact-output fixture.",
+        .status = .parity_green,
+        .note = promoted_note,
     },
     .{
         .replacement_id = "example.resume_or_return",
@@ -127,8 +130,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:resume_or_return.txt",
         .law_anchor = formal_core.anchorPath(.optional_resumption),
         .ordinary_target = "ordinary.example.resume_or_return",
-        .status = .canonical,
-        .note = "The optional-resumption example is now a canonical lexical ordinary-body example backed by its exact-output fixture.",
+        .status = .parity_green,
+        .note = promoted_note,
     },
     .{
         .replacement_id = "example.nested_workflow",
@@ -137,8 +140,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:nested_workflow.txt",
         .law_anchor = formal_core.anchorPath(.practical_witnesses),
         .ordinary_target = "ordinary.example.nested_workflow",
-        .status = .canonical,
-        .note = "The nested-workflow example is now a canonical lexical ordinary-body example backed by its exact-output fixture.",
+        .status = .parity_green,
+        .note = promoted_note,
     },
     .{
         .replacement_id = "example.exception_basic",
@@ -147,8 +150,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:exception_basic.txt",
         .law_anchor = formal_core.anchorPath(.exception_effect),
         .ordinary_target = "ordinary.example.exception_basic",
-        .status = .canonical,
-        .note = "The exception example is now a canonical lexical ordinary-body example backed by its exact-output fixture.",
+        .status = .parity_green,
+        .note = promoted_note,
     },
     .{
         .replacement_id = "example.optional_basic",
@@ -157,8 +160,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:optional_basic.txt",
         .law_anchor = formal_core.anchorPath(.optional_resumption),
         .ordinary_target = "ordinary.example.optional_basic",
-        .status = .canonical,
-        .note = "The optional example is now a canonical lexical ordinary-body example backed by its exact-output fixture.",
+        .status = .parity_green,
+        .note = promoted_note,
     },
     .{
         .replacement_id = "example.reader_basic",
@@ -167,8 +170,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:reader_basic.txt",
         .law_anchor = formal_core.anchorPath(.strict_effect_capabilities),
         .ordinary_target = "ordinary.example.reader_basic",
-        .status = .canonical,
-        .note = "The reader example is now a canonical lexical ordinary-body example backed by its exact-output fixture.",
+        .status = .parity_green,
+        .note = promoted_note,
     },
     .{
         .replacement_id = "example.resource_basic",
@@ -177,8 +180,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:resource_basic.txt",
         .law_anchor = formal_core.anchorPath(.resource_bracketing),
         .ordinary_target = "ordinary.example.resource_basic",
-        .status = .canonical,
-        .note = "The resource example is now a canonical lexical ordinary-body example backed by its exact-output fixture.",
+        .status = .planned,
+        .note = planned_note,
     },
     .{
         .replacement_id = "example.state_basic",
@@ -187,8 +190,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:state_basic.txt",
         .law_anchor = formal_core.anchorPath(.strict_effect_capabilities),
         .ordinary_target = "ordinary.example.state_basic",
-        .status = .canonical,
-        .note = "The state example is now a canonical lexical ordinary-body example backed by its exact-output fixture.",
+        .status = .parity_green,
+        .note = promoted_note,
     },
     .{
         .replacement_id = "example.writer_basic",
@@ -197,8 +200,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:writer_basic.txt",
         .law_anchor = formal_core.anchorPath(.construction_coverage),
         .ordinary_target = "ordinary.example.writer_basic",
-        .status = .canonical,
-        .note = "The writer example is now a canonical lexical ordinary-body example backed by its exact-output fixture.",
+        .status = .planned,
+        .note = planned_note,
     },
     .{
         .replacement_id = "example.algebraic_abortive_validation",
@@ -207,8 +210,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:algebraic_abortive_validation.txt",
         .law_anchor = formal_core.anchorPath(.public_algebraic_builders),
         .ordinary_target = "ordinary.example.algebraic_abortive_validation",
-        .status = .canonical,
-        .note = "The algebraic abortive-validation example is now a canonical lexical ordinary-body example backed by its exact-output fixture.",
+        .status = .planned,
+        .note = planned_note,
     },
     .{
         .replacement_id = "example.algebraic_artifact_search",
@@ -217,8 +220,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:algebraic_artifact_search.txt",
         .law_anchor = formal_core.anchorPath(.public_algebraic_builders),
         .ordinary_target = "ordinary.example.algebraic_artifact_search",
-        .status = .canonical,
-        .note = "The algebraic artifact-search example is now a canonical lexical ordinary-body example backed by its exact-output fixture.",
+        .status = .planned,
+        .note = planned_note,
     },
     .{
         .replacement_id = "built_in.state",
@@ -227,8 +230,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:state_basic.txt",
         .law_anchor = formal_core.anchorPath(.strict_effect_capabilities),
         .ordinary_target = "ordinary.effect.state",
-        .status = .canonical,
-        .note = "The lexical state path is now part of the canonical public story through shift.with(...), backed by the canonical state fixture transcript.",
+        .status = .parity_green,
+        .note = promoted_note,
     },
     .{
         .replacement_id = "built_in.reader",
@@ -237,8 +240,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:reader_basic.txt",
         .law_anchor = formal_core.anchorPath(.strict_effect_capabilities),
         .ordinary_target = "ordinary.effect.reader",
-        .status = .canonical,
-        .note = "The lexical reader path is now part of the canonical public story through shift.with(...), backed by the canonical reader fixture transcript.",
+        .status = .parity_green,
+        .note = promoted_note,
     },
     .{
         .replacement_id = "built_in.optional",
@@ -247,8 +250,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:optional_basic.txt",
         .law_anchor = formal_core.anchorPath(.optional_resumption),
         .ordinary_target = "ordinary.effect.optional",
-        .status = .canonical,
-        .note = "The lexical optional path is now part of the canonical public story through shift.with(...), including the explicit continuation-taking choice form backed by the canonical optional fixture transcript.",
+        .status = .parity_green,
+        .note = promoted_note,
     },
     .{
         .replacement_id = "built_in.exception",
@@ -257,8 +260,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:exception_basic.txt",
         .law_anchor = formal_core.anchorPath(.exception_effect),
         .ordinary_target = "ordinary.effect.exception",
-        .status = .canonical,
-        .note = "The lexical exception path is now part of the canonical public story through shift.with(...), backed by the canonical exception fixture transcript.",
+        .status = .parity_green,
+        .note = promoted_note,
     },
     .{
         .replacement_id = "built_in.resource",
@@ -267,8 +270,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:resource_basic.txt",
         .law_anchor = formal_core.anchorPath(.resource_bracketing),
         .ordinary_target = "ordinary.effect.resource",
-        .status = .canonical,
-        .note = "The lexical resource path is now part of the canonical public story through shift.with(...), backed by the canonical resource fixture transcript.",
+        .status = .planned,
+        .note = planned_note,
     },
     .{
         .replacement_id = "built_in.writer",
@@ -277,8 +280,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:writer_basic.txt",
         .law_anchor = formal_core.anchorPath(.construction_coverage),
         .ordinary_target = "ordinary.effect.writer",
-        .status = .canonical,
-        .note = "The lexical writer path is now part of the canonical public story through shift.with(...), backed by the canonical writer fixture transcript.",
+        .status = .planned,
+        .note = planned_note,
     },
     .{
         .replacement_id = "user_defined.transform",
@@ -287,8 +290,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:define_basic.txt",
         .law_anchor = formal_core.anchorPath(.strict_effect_capabilities),
         .ordinary_target = "ordinary.user_defined.transform",
-        .status = .canonical,
-        .note = "The generated transform-family ordinary-body surface is now part of the canonical public story through shift.with(...), backed by its exact-output fixture.",
+        .status = .planned,
+        .note = planned_note,
     },
     .{
         .replacement_id = "user_defined.choice",
@@ -297,8 +300,8 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:define_choice_basic.txt",
         .law_anchor = formal_core.anchorPath(.strict_effect_capabilities),
         .ordinary_target = "ordinary.user_defined.choice",
-        .status = .canonical,
-        .note = "The lexical generated choice path is now part of the canonical public story through shift.with(...), backed by the dedicated exact-output public example.",
+        .status = .planned,
+        .note = planned_note,
     },
     .{
         .replacement_id = "user_defined.abort",
@@ -307,7 +310,7 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:define_abort_basic.txt",
         .law_anchor = formal_core.anchorPath(.strict_effect_capabilities),
         .ordinary_target = "ordinary.user_defined.abort",
-        .status = .canonical,
-        .note = "The lexical generated abort path is now part of the canonical public story through shift.with(...), backed by the dedicated exact-output public example.",
+        .status = .planned,
+        .note = planned_note,
     },
 };

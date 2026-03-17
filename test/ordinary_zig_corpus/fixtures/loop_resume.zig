@@ -1,5 +1,7 @@
 /// Stable ordinary-Zig case id.
 pub const ordinary_case_id = "ordinary.loop_resume";
+/// Embedded source text consumed by the source-validated ordinary lowerer.
+pub const source = @embedFile("loop_resume.zig");
 
 /// Run the loop case with ordinary Zig control flow.
 pub fn run(writer: anytype) anyerror!void {

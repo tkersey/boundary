@@ -65,6 +65,13 @@ pub const entries = [_]Entry{
         .note = "Error remains the public lowered-first runtime error surface.",
     },
     .{
+        .symbol = "ordinary",
+        .current_path = "shift.ordinary",
+        .target_path = "shift.ordinary",
+        .status = .retained_public,
+        .note = "ordinary is the public experimental source-backed lowering surface for the restricted ordinary-Zig wave-one subset.",
+    },
+    .{
         .symbol = "frontend",
         .current_path = "shift.frontend",
         .target_path = "src/internal/prompt_support.zig:frontend",
