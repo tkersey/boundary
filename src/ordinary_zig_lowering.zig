@@ -722,11 +722,69 @@ fn hasTopLevelFunctionNamed(tree: std.zig.Ast, name: []const u8) bool {
     return false;
 }
 
-fn containsAll(source: []const u8, snippets: []const []const u8) bool {
-    for (snippets) |snippet| {
-        if (std.mem.indexOf(u8, source, snippet) == null) return false;
+fn stripLineCommentsAlloc(allocator: std.mem.Allocator, source: []const u8) std.mem.Allocator.Error![]u8 {
+    var out = std.ArrayList(u8).empty;
+    defer out.deinit(allocator);
+
+    var in_string = false;
+    var escaped = false;
+    var idx: usize = 0;
+    while (idx < source.len) : (idx += 1) {
+        const byte = source[idx];
+        if (in_string) {
+            try out.append(allocator, byte);
+            if (escaped) {
+                escaped = false;
+            } else if (byte == '\\') {
+                escaped = true;
+            } else if (byte == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if (byte == '"') {
+            in_string = true;
+            try out.append(allocator, byte);
+            continue;
+        }
+        if (byte == '/' and idx + 1 < source.len and source[idx + 1] == '/') {
+            idx += 2;
+            while (idx < source.len and source[idx] != '\n') : (idx += 1) {}
+            if (idx < source.len and source[idx] == '\n') try out.append(allocator, '\n');
+            continue;
+        }
+        try out.append(allocator, byte);
     }
-    return true;
+
+    return try out.toOwnedSlice(allocator);
+}
+
+fn entryFunctionSourceSlice(tree: std.zig.Ast, source: []const u8, name: []const u8) ?[]const u8 {
+    var container_buffer: [2]std.zig.Ast.Node.Index = undefined;
+    const root = tree.fullContainerDecl(&container_buffer, .root) orelse return null;
+    for (root.ast.members) |member| {
+        var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
+        const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse continue;
+        const name_token = fn_proto.name_token orelse continue;
+        if (!std.mem.eql(u8, tree.tokenSlice(name_token), name)) continue;
+        const start = tree.tokenStart(fn_proto.firstToken());
+        const last = tree.lastToken(member);
+        const end = tree.tokenStart(last) + @as(u32, @intCast(tree.tokenSlice(last).len));
+        return source[start..end];
+    }
+    return null;
+}
+
+fn containsAllInScopes(full_source: []const u8, entry_source: []const u8, snippets: []const []const u8) bool {
+    var entry_anchor_found = false;
+    for (snippets) |snippet| {
+        if (std.mem.indexOf(u8, full_source, snippet) == null) return false;
+        if (!entry_anchor_found and std.mem.indexOf(u8, entry_source, snippet) != null) {
+            entry_anchor_found = true;
+        }
+    }
+    return entry_anchor_found;
 }
 
 fn acceptedProgram(
@@ -798,7 +856,13 @@ fn inspectSourceText(
             try shapeDiagnostic(allocator, spec.source_path, "entry function was not found at the top level"),
         );
     }
-    if (!containsAll(source_z, case.match.required_snippets)) {
+    const stripped_source = try stripLineCommentsAlloc(allocator, source_z);
+    defer allocator.free(stripped_source);
+    const entry_source = entryFunctionSourceSlice(tree, source_z, spec.entry_symbol) orelse "";
+    const stripped_entry_source = try stripLineCommentsAlloc(allocator, entry_source);
+    defer allocator.free(stripped_entry_source);
+
+    if (!containsAllInScopes(stripped_source, stripped_entry_source, case.match.required_snippets)) {
         return rejectedProgram(
             allocator,
             spec,

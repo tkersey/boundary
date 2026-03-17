@@ -30,6 +30,12 @@ fn parseEmit(value: []const u8) ?EmitMode {
     return null;
 }
 
+fn writeZigStringLiteral(writer: anytype, value: []const u8) !void {
+    try writer.writeByte('"');
+    try std.zig.stringEscape(value, writer);
+    try writer.writeByte('"');
+}
+
 fn writeJson(program: ordinary.GeneratedProgram, writer: anytype) !void {
     try writer.print(
         "{{\"case_id\":\"{s}\",\"surface_kind\":\"{s}\",\"status\":\"{s}\",\"canonical_scenario_id\":",
@@ -60,9 +66,17 @@ fn writeStepLiteral(writer: anytype, step: lowered_machine.Step) !void {
     switch (step) {
         .checkpoint => |tag| try writer.print("    .{{ .checkpoint = .{s} }},\n", .{@tagName(tag)}),
         .emit => |event| switch (event) {
-            .note => |line| try writer.print("    .{{ .emit = .{{ .note = \"{s}\" }} }},\n", .{line}),
+            .note => |line| {
+                try writer.writeAll("    .{ .emit = .{ .note = ");
+                try writeZigStringLiteral(writer, line);
+                try writer.writeAll(" } },\n");
+            },
             .final_i32 => |value| try writer.print("    .{{ .emit = .{{ .final_i32 = {d} }} }},\n", .{value}),
-            .final_string => |value| try writer.print("    .{{ .emit = .{{ .final_string = \"{s}\" }} }},\n", .{value}),
+            .final_string => |value| {
+                try writer.writeAll("    .{ .emit = .{ .final_string = ");
+                try writeZigStringLiteral(writer, value);
+                try writer.writeAll(" } },\n");
+            },
         },
         .pop_pending => try writer.writeAll("    .pop_pending,\n"),
         .push_pending => |frame| {
@@ -74,7 +88,11 @@ fn writeStepLiteral(writer: anytype, step: lowered_machine.Step) !void {
                 .none => try writer.writeAll(".none"),
                 .bool => |value| try writer.print(".{{ .bool = {} }}", .{value}),
                 .i32 => |value| try writer.print(".{{ .i32 = {d} }}", .{value}),
-                .string => |value| try writer.print(".{{ .string = \"{s}\" }}", .{value}),
+                .string => |value| {
+                    try writer.writeAll(".{ .string = ");
+                    try writeZigStringLiteral(writer, value);
+                    try writer.writeByte('}');
+                },
             }
             try writer.writeAll(" } },\n");
         },
@@ -89,7 +107,11 @@ fn writeStepLiteral(writer: anytype, step: lowered_machine.Step) !void {
             .none => try writer.writeAll("    .{ .set_final = .none },\n"),
             .bool => |typed| try writer.print("    .{{ .set_final = .{{ .bool = {} }} }},\n", .{typed}),
             .i32 => |typed| try writer.print("    .{{ .set_final = .{{ .i32 = {d} }} }},\n", .{typed}),
-            .string => |typed| try writer.print("    .{{ .set_final = .{{ .string = \"{s}\" }} }},\n", .{typed}),
+            .string => |typed| {
+                try writer.writeAll("    .{ .set_final = .{ .string = ");
+                try writeZigStringLiteral(writer, typed);
+                try writer.writeAll(" } },\n");
+            },
         },
     }
 }
@@ -100,9 +122,15 @@ fn writeZig(program: ordinary.GeneratedProgram, writer: anytype) !void {
             "const lowered_machine = @import(\"lowered_machine\");\n\n",
     );
     try writer.print("pub const generated_program = ordinary.GeneratedProgram{{\n", .{});
-    try writer.print("    .case_id = \"{s}\",\n", .{program.case_id});
-    try writer.print("    .label = \"{s}\",\n", .{program.label});
-    try writer.print("    .source_path = \"{s}\",\n", .{program.source_path});
+    try writer.writeAll("    .case_id = ");
+    try writeZigStringLiteral(writer, program.case_id);
+    try writer.writeAll(",\n");
+    try writer.writeAll("    .label = ");
+    try writeZigStringLiteral(writer, program.label);
+    try writer.writeAll(",\n");
+    try writer.writeAll("    .source_path = ");
+    try writeZigStringLiteral(writer, program.source_path);
+    try writer.writeAll(",\n");
     try writer.print("    .surface_kind = .{s},\n", .{@tagName(program.surface_kind)});
     try writer.print("    .status = .{s},\n", .{@tagName(program.status)});
     if (program.canonical_scenario_id) |id| {
@@ -110,14 +138,16 @@ fn writeZig(program: ordinary.GeneratedProgram, writer: anytype) !void {
     } else {
         try writer.writeAll("    .canonical_scenario_id = null,\n");
     }
-    try writer.print("    .expected_transcript = \"{s}\",\n", .{program.expected_transcript});
+    try writer.writeAll("    .expected_transcript = ");
+    try writeZigStringLiteral(writer, program.expected_transcript);
+    try writer.writeAll(",\n");
     try writer.writeAll("    .steps = &[_]lowered_machine.Step{\n");
     for (program.steps) |step| try writeStepLiteral(writer, step);
     try writer.writeAll("    },\n");
     try writer.writeAll("    .feature_flags = &.{");
     for (program.feature_flags, 0..) |flag, idx| {
         if (idx != 0) try writer.writeAll(", ");
-        try writer.print("\"{s}\"", .{flag});
+        try writeZigStringLiteral(writer, flag);
     }
     try writer.writeAll("},\n");
     try writer.writeAll("    .diagnostics = &.{},\n");
