@@ -2,7 +2,6 @@ const lowered_machine = @import("lowered_machine");
 const ordinary = @import("ordinary_zig_registry");
 const parity_scenarios = @import("parity_scenarios");
 const std = @import("std");
-const build_options = @import("build_options");
 
 /// Source classification for one restricted ordinary-Zig lowering request.
 pub const SurfaceKind = enum {
@@ -798,19 +797,12 @@ fn sourcePathDiagnostic(
 }
 
 fn sourcePathMatchesExpected(allocator: std.mem.Allocator, actual_path: []const u8, expected_path: []const u8) bool {
-    const cwd_realpath = std.fs.cwd().realpathAlloc(allocator, ".") catch return false;
-    defer allocator.free(cwd_realpath);
-
-    const actual_abs = if (std.fs.path.isAbsolute(actual_path))
-        std.fs.path.resolve(allocator, &.{actual_path}) catch return false
-    else
-        std.fs.path.resolve(allocator, &.{ cwd_realpath, actual_path }) catch return false;
-    defer allocator.free(actual_abs);
-
-    const expected_abs = std.fs.path.resolve(allocator, &.{ build_options.repo_root, expected_path }) catch return false;
-    defer allocator.free(expected_abs);
-
-    return std.mem.eql(u8, actual_abs, expected_abs);
+    const cwd = std.fs.cwd();
+    const actual_realpath = cwd.realpathAlloc(allocator, actual_path) catch return false;
+    defer allocator.free(actual_realpath);
+    const expected_realpath = cwd.realpathAlloc(allocator, expected_path) catch return false;
+    defer allocator.free(expected_realpath);
+    return std.mem.eql(u8, actual_realpath, expected_realpath);
 }
 
 fn hasTopLevelFunctionNamed(tree: std.zig.Ast, name: []const u8) bool {

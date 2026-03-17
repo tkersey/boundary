@@ -141,38 +141,19 @@ fn writeStepLiteral(writer: anytype, step: lowered_machine.Step) !void {
 fn writeZig(program: ordinary.GeneratedProgram, writer: anytype) !void {
     try writer.writeAll(
         "const ordinary = @import(\"ordinary_zig_lowering\");\n" ++
-            "const lowered_machine = @import(\"lowered_machine\");\n\n",
+            "const lowered_machine = @import(\"lowered_machine\");\n" ++
+            "const std = @import(\"std\");\n\n",
     );
-    try writer.print("pub const generated_program = ordinary.GeneratedProgram{{\n", .{});
-    try writer.writeAll("    .case_id = ");
-    try writeZigStringLiteral(writer, program.case_id);
-    try writer.writeAll(",\n");
-    try writer.writeAll("    .label = ");
-    try writeZigStringLiteral(writer, program.label);
-    try writer.writeAll(",\n");
-    try writer.writeAll("    .source_path = ");
-    try writeZigStringLiteral(writer, program.source_path);
-    try writer.writeAll(",\n");
-    try writer.print("    .surface_kind = .{s},\n", .{@tagName(program.surface_kind)});
-    try writer.print("    .status = .{s},\n", .{@tagName(program.status)});
-    if (program.canonical_scenario_id) |id| {
-        try writer.print("    .canonical_scenario_id = .{s},\n", .{@tagName(id)});
-    } else {
-        try writer.writeAll("    .canonical_scenario_id = null,\n");
-    }
-    try writer.writeAll("    .expected_transcript = ");
-    try writeZigStringLiteral(writer, program.expected_transcript);
-    try writer.writeAll(",\n");
-    try writer.writeAll("    .steps = &[_]lowered_machine.Step{\n");
+    try writer.writeAll("const generated_program_steps = [_]lowered_machine.Step{\n");
     for (program.steps) |step| try writeStepLiteral(writer, step);
     try writer.writeAll("    },\n");
-    try writer.writeAll("    .feature_flags = &.{");
+    try writer.writeAll("\nconst generated_program_feature_flags = [_][]const u8{");
     for (program.feature_flags, 0..) |flag, idx| {
         if (idx != 0) try writer.writeAll(", ");
         try writeZigStringLiteral(writer, flag);
     }
     try writer.writeAll("},\n");
-    try writer.writeAll("    .diagnostics = &.{");
+    try writer.writeAll("\nconst generated_program_diagnostics = [_]ordinary.Diagnostic{");
     for (program.diagnostics, 0..) |diag, idx| {
         if (idx != 0) try writer.writeAll(", ");
         try writer.writeAll(".{ .code = ");
@@ -183,10 +164,38 @@ fn writeZig(program: ordinary.GeneratedProgram, writer: anytype) !void {
         try writeZigStringLiteral(writer, diag.path);
         try writer.print(", .line = {d}, .column = {d} }}", .{ diag.line, diag.column });
     }
-    try writer.writeAll("},\n");
     try writer.writeAll("};\n\n");
+    try writer.writeAll("pub fn initGeneratedProgram(allocator: std.mem.Allocator) !ordinary.GeneratedProgram {\n");
+    try writer.writeAll("    return .{\n");
+    try writer.writeAll("        .case_id = ");
+    try writeZigStringLiteral(writer, program.case_id);
+    try writer.writeAll(",\n");
+    try writer.writeAll("        .label = ");
+    try writeZigStringLiteral(writer, program.label);
+    try writer.writeAll(",\n");
+    try writer.writeAll("        .source_path = ");
+    try writeZigStringLiteral(writer, program.source_path);
+    try writer.writeAll(",\n");
+    try writer.print("        .surface_kind = .{s},\n", .{@tagName(program.surface_kind)});
+    try writer.print("        .status = .{s},\n", .{@tagName(program.status)});
+    if (program.canonical_scenario_id) |id| {
+        try writer.print("        .canonical_scenario_id = .{s},\n", .{@tagName(id)});
+    } else {
+        try writer.writeAll("        .canonical_scenario_id = null,\n");
+    }
+    try writer.writeAll("        .expected_transcript = ");
+    try writeZigStringLiteral(writer, program.expected_transcript);
+    try writer.writeAll(",\n");
+    try writer.writeAll("        .steps = try allocator.dupe(lowered_machine.Step, &generated_program_steps),\n");
+    try writer.writeAll("        .feature_flags = try allocator.dupe([]const u8, &generated_program_feature_flags),\n");
+    try writer.writeAll("        .diagnostics = try allocator.dupe(ordinary.Diagnostic, &generated_program_diagnostics),\n");
+    try writer.writeAll("    };\n");
+    try writer.writeAll("}\n\n");
     try writer.writeAll(
         "pub fn runLowered(writer: anytype) !void {\n" ++
+            "    const allocator = std.heap.page_allocator;\n" ++
+            "    var generated_program = try initGeneratedProgram(allocator);\n" ++
+            "    defer generated_program.deinit(allocator);\n" ++
             "    try ordinary.runLowered(writer, &generated_program);\n" ++
             "}\n",
     );
