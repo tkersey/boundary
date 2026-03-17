@@ -27,21 +27,20 @@ test "guard and continuation surfaces are not public" {
 }
 
 test "public runtime error surface still exposes the current raw contract" {
-    try std.testing.expect(hasErrorName(shift.Error, "MissingPrompt"));
-    try std.testing.expect(hasErrorName(shift.Error, "CrossThread"));
-    try std.testing.expect(hasErrorName(shift.Error, "RuntimeBusy"));
-    try std.testing.expect(hasErrorName(shift.Error, "RuntimeDestroyed"));
-    try std.testing.expect(hasErrorName(shift.Error, "NonDiagonalComplete"));
-    try std.testing.expect(!hasErrorName(shift.Error, "AlreadyResolved"));
-    try std.testing.expect(!hasErrorName(shift.Error, "NestedNonDiagonalCapture"));
+    try std.testing.expect(hasErrorName(shift.RuntimeError, "MissingPrompt"));
+    try std.testing.expect(hasErrorName(shift.RuntimeError, "CrossThread"));
+    try std.testing.expect(hasErrorName(shift.RuntimeError, "RuntimeBusy"));
+    try std.testing.expect(hasErrorName(shift.RuntimeError, "RuntimeDestroyed"));
+    try std.testing.expect(hasErrorName(shift.RuntimeError, "NonDiagonalComplete"));
+    try std.testing.expect(!hasErrorName(shift.RuntimeError, "AlreadyResolved"));
+    try std.testing.expect(!hasErrorName(shift.RuntimeError, "NestedNonDiagonalCapture"));
 }
 
 test "algebraic descriptor and context shells stay compact" {
-    const NoError = error{};
     const no_state = struct {};
     const search = shift.algebraic.TransformOp("search", void, usize);
     const stop = shift.algebraic.AbortOp("stop", []const u8);
-    const program = shift.algebraic.Program(usize, NoError, .{ search, stop });
+    const program = shift.algebraic.Program(usize, .{ search, stop });
     const Configured = @TypeOf(program.handlers(.{
         shift.algebraic.handleTransform(search, no_state{}, struct {
             /// Supply the compact transform witness value.
@@ -67,10 +66,8 @@ test "algebraic descriptor and context shells stay compact" {
 }
 
 test "generated effect family shell stays compact and hides context" {
-    const NoError = error{};
     const Counter = shift.effect.Define(.{
         .state_type = i32,
-        .error_set_type = NoError,
         .ops = .{
             shift.effect.ops.Transform("get", void, i32),
             shift.effect.ops.Transform("set", i32, void),

@@ -20,10 +20,10 @@ pub fn main() anyerror!void {
     defer runtime.deinit();
 
     _ = try shift.with(&runtime, .{
-        .optional = shift.effect.optional.use(i32, NoError, policy),
+        .optional = shift.effect.optional.use(i32, policy),
     }, struct {
         /// Attempt to call the lexical optional choice form with the wrong apply arity.
-        pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+        pub fn body(eff: anytype) ![]const u8 {
             return try eff.optional.request(struct {
                 /// Deliberately omit the lexical effect bundle parameter.
                 pub fn apply(_: i32) []const u8 {

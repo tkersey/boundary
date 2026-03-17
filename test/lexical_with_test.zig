@@ -15,11 +15,11 @@ test "shift.with composes state and reader through lexical handles" {
     defer runtime.deinit();
 
     const result = try shift.with(&runtime, .{
-        .state = shift.effect.state.use(NoError, @as(i32, 5)),
-        .reader = shift.effect.reader.use(NoError, @as(i32, 21)),
+        .state = shift.effect.state.use(@as(i32, 5)),
+        .reader = shift.effect.reader.use(@as(i32, 21)),
     }, struct {
         /// Read from the lexical reader, update lexical state, and return the new state.
-        pub fn body(eff: anytype) shift.ResetError(NoError)!i32 {
+        pub fn body(eff: anytype) !i32 {
             const env = try eff.reader.ask();
             const before = try eff.state.get();
             try eff.state.set(before + env);
@@ -38,10 +38,10 @@ test "shift.with matches the state fixture transcript through lexical handles" {
             defer runtime.deinit();
 
             const result = try shift.with(&runtime, .{
-                .state = shift.effect.state.use(NoError, @as(i32, 5)),
+                .state = shift.effect.state.use(@as(i32, 5)),
             }, struct {
                 /// Match the public state example transcript through lexical handles.
-                pub fn body(eff: anytype) shift.ResetError(NoError)!i32 {
+                pub fn body(eff: anytype) !i32 {
                     const before = try eff.state.get();
                     try eff.state.set(before + 1);
                     return before + (try eff.state.get());
@@ -60,10 +60,10 @@ test "shift.with matches the reader fixture transcript through lexical handles" 
             defer runtime.deinit();
 
             const result = try shift.with(&runtime, .{
-                .reader = shift.effect.reader.use(NoError, @as(i32, 21)),
+                .reader = shift.effect.reader.use(@as(i32, 21)),
             }, struct {
                 /// Match the public reader example transcript through lexical handles.
-                pub fn body(eff: anytype) shift.ResetError(NoError)!i32 {
+                pub fn body(eff: anytype) !i32 {
                     const env = try eff.reader.ask();
                     return env * 2;
                 }
@@ -121,13 +121,13 @@ test "shift.with matches the optional fixture transcript through lexical handles
 
             try writer.writeAll("branch=return_now\n");
             const early = try shift.with(&runtime, .{
-                .optional = shift.effect.optional.use(i32, NoError, return_now_policy),
+                .optional = shift.effect.optional.use(i32, return_now_policy),
             }, struct {
                 /// Trigger the lexical optional choice point and prove the resume continuation is skipped.
-                pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn body(eff: anytype) ![]const u8 {
                     return try eff.optional.request(struct {
                         /// This continuation must never run in the return-now branch.
-                        pub fn apply(_: i32, _: anytype) shift.ResetError(NoError)![]const u8 {
+                        pub fn apply(_: i32, _: anytype) ![]const u8 {
                             unreachable;
                         }
                     });
@@ -137,13 +137,13 @@ test "shift.with matches the optional fixture transcript through lexical handles
 
             try writer.writeAll("branch=resume_with\n");
             const resumed = try shift.with(&runtime, .{
-                .optional = shift.effect.optional.use(i32, NoError, resume_policy),
+                .optional = shift.effect.optional.use(i32, resume_policy),
             }, struct {
                 /// Trigger the lexical optional choice point and complete the resumed continuation explicitly.
-                pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn body(eff: anytype) ![]const u8 {
                     return try eff.optional.request(struct {
                         /// Resume the lexical optional continuation with the canonical final answer.
-                        pub fn apply(value: i32, _: anytype) shift.ResetError(NoError)![]const u8 {
+                        pub fn apply(value: i32, _: anytype) ![]const u8 {
                             if (value != 41) unreachable;
                             transcript.note("body-after-request\n");
                             return "answer=42";
@@ -184,10 +184,10 @@ test "shift.with matches the exception fixture transcript through lexical handle
 
             try writer.writeAll("branch=pass\n");
             const ok = try shift.with(&runtime, .{
-                .exception = shift.effect.exception.use([]const u8, NoError, catch_policy),
+                .exception = shift.effect.exception.use([]const u8, catch_policy),
             }, struct {
                 /// Return normally through the lexical exception scope.
-                pub fn body(_: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn body(_: anytype) ![]const u8 {
                     return "result=ok";
                 }
             });
@@ -196,10 +196,10 @@ test "shift.with matches the exception fixture transcript through lexical handle
 
             try writer.writeAll("branch=throw\n");
             const thrown = try shift.with(&runtime, .{
-                .exception = shift.effect.exception.use([]const u8, NoError, catch_policy),
+                .exception = shift.effect.exception.use([]const u8, catch_policy),
             }, struct {
                 /// Throw once through the lexical exception scope.
-                pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn body(eff: anytype) ![]const u8 {
                     transcript.note("body-before-throw\n");
                     try eff.exception.throw("result=boom");
                 }
@@ -247,10 +247,10 @@ test "shift.with matches the resource fixture transcript through lexical handles
             resource_manager.next_index = 0;
 
             const result = try shift.with(&runtime, .{
-                .resource = shift.effect.resource.use([]const u8, NoError, resource_manager),
+                .resource = shift.effect.resource.use([]const u8, resource_manager),
             }, struct {
                 /// Acquire and use two resources through the lexical scope.
-                pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn body(eff: anytype) ![]const u8 {
                     const first = try eff.resource.acquire();
                     transcript.note("use=");
                     transcript.note(first);
@@ -277,10 +277,10 @@ test "shift.with matches the writer fixture transcript through lexical handles" 
             defer runtime.deinit();
 
             const result = try shift.with(&runtime, .{
-                .writer = shift.effect.writer.use([]const u8, NoError, std.testing.allocator),
+                .writer = shift.effect.writer.use([]const u8, std.testing.allocator),
             }, struct {
                 /// Append two items and return the canonical writer answer.
-                pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn body(eff: anytype) ![]const u8 {
                     try eff.writer.tell("a");
                     try eff.writer.tell("b");
                     return "done";
@@ -299,7 +299,6 @@ test "shift.with matches the writer fixture transcript through lexical handles" 
 test "generated choice families use the lexical choice form" {
     const Picker = shift.effect.Define(.{
         .state_type = struct {},
-        .error_set_type = NoError,
         .ops = .{
             shift.effect.ops.Choice("pick", i32, i32),
         },
@@ -354,10 +353,10 @@ test "generated choice families use the lexical choice form" {
                 .picker = Picker.use(.{ .handler = return_now_handler{} }),
             }, struct {
                 /// Trigger the generated lexical choice point and prove the continuation is skipped.
-                pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn body(eff: anytype) ![]const u8 {
                     return try eff.picker.pick.perform(41, struct {
                         /// This generated continuation must never run in the return-now branch.
-                        pub fn apply(_: i32, _: anytype) shift.ResetError(NoError)![]const u8 {
+                        pub fn apply(_: i32, _: anytype) ![]const u8 {
                             unreachable;
                         }
                     });
@@ -370,10 +369,10 @@ test "generated choice families use the lexical choice form" {
                 .picker = Picker.use(.{ .handler = resume_handler{} }),
             }, struct {
                 /// Trigger the generated lexical choice point and complete the explicit continuation.
-                pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn body(eff: anytype) ![]const u8 {
                     return try eff.picker.pick.perform(41, struct {
                         /// Resume the generated lexical choice continuation with the canonical final answer.
-                        pub fn apply(value: i32, _: anytype) shift.ResetError(NoError)![]const u8 {
+                        pub fn apply(value: i32, _: anytype) ![]const u8 {
                             if (value != 41) unreachable;
                             transcript.note("body-after-request\n");
                             return "answer=42";
@@ -389,7 +388,6 @@ test "generated choice families use the lexical choice form" {
 test "generated abort families use the lexical abort form" {
     const Guard = shift.effect.Define(.{
         .state_type = struct {},
-        .error_set_type = NoError,
         .ops = .{
             shift.effect.ops.Abort("fail", []const u8),
         },
@@ -425,7 +423,7 @@ test "generated abort families use the lexical abort form" {
                 .guard = Guard.use(.{ .handler = guard_handler{} }),
             }, struct {
                 /// Trigger the generated lexical abort point directly.
-                pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn body(eff: anytype) ![]const u8 {
                     try eff.guard.fail.abort("missing-name");
                 }
             });
@@ -437,7 +435,6 @@ test "generated abort families use the lexical abort form" {
 test "generated zero-payload choice fields stay ergonomic" {
     const Ask = shift.effect.Define(.{
         .state_type = struct {},
-        .error_set_type = NoError,
         .ops = .{
             shift.effect.ops.Choice("ask", void, i32),
         },
@@ -460,10 +457,10 @@ test "generated zero-payload choice fields stay ergonomic" {
         }{} }),
     }, struct {
         /// Trigger a zero-payload generated lexical choice op with no payload argument.
-        pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+        pub fn body(eff: anytype) ![]const u8 {
             return try eff.asker.ask.perform(struct {
                 /// Convert the resumed generated answer into the final lexical result.
-                pub fn apply(value: i32, _: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn apply(value: i32, _: anytype) ![]const u8 {
                     if (value != 7) unreachable;
                     return "answer=7";
                 }

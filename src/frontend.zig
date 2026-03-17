@@ -58,6 +58,23 @@ fn expectDeclTypeOneOf(comptime Owner: type, comptime name: []const u8, comptime
     }
 }
 
+fn FnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
+    const ReturnType = @typeInfo(FnType).@"fn".return_type.?;
+    return switch (@typeInfo(ReturnType)) {
+        .error_union => |err_union| err_union.payload == ExpectedType,
+        else => ReturnType == ExpectedType,
+    };
+}
+
+fn FnParamsMatch(comptime FnType: type, comptime params: []const type) bool {
+    const actual = @typeInfo(FnType).@"fn".params;
+    if (actual.len != params.len) return false;
+    inline for (params, 0..) |ParamType, index| {
+        if (actual[index].type == null or actual[index].type.? != ParamType) return false;
+    }
+    return true;
+}
+
 fn ResumeOrReturnType(comptime Resume: type, comptime PromptType: type) type {
     return prompt_contract.ResumeOrReturn(Resume, PromptType.OutAnswer);
 }
@@ -65,40 +82,30 @@ fn ResumeOrReturnType(comptime Resume: type, comptime PromptType: type) type {
 fn assertHandlerProtocol(comptime Resume: type, comptime PromptType: type, comptime Handler: type) void {
     switch (PromptType.mode) {
         .resume_or_return => {
-            expectDeclTypeOneOf(
-                Handler,
-                "resumeOrReturn",
-                fn () ResumeOrReturnType(Resume, PromptType),
-                fn () lowered_machine.ResetError(PromptType.ErrorSet)!ResumeOrReturnType(Resume, PromptType),
-            );
-            expectDeclTypeOneOf(
-                Handler,
-                "afterResume",
-                fn (PromptType.InAnswer) PromptType.OutAnswer,
-                fn (PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer,
-            );
+            if (!hasDeclSafe(Handler, "resumeOrReturn")) @compileError(@typeName(Handler) ++ " must declare resumeOrReturn");
+            if (!FnParamsMatch(@TypeOf(Handler.resumeOrReturn), &.{}) or !FnReturnMatches(@TypeOf(Handler.resumeOrReturn), ResumeOrReturnType(Resume, PromptType))) {
+                @compileError(@typeName(Handler) ++ ".resumeOrReturn must have type fn () ResumeOrReturn or fn () ResetError(ErrorSet)!ResumeOrReturn");
+            }
+            if (!hasDeclSafe(Handler, "afterResume")) @compileError(@typeName(Handler) ++ " must declare afterResume");
+            if (!FnParamsMatch(@TypeOf(Handler.afterResume), &.{PromptType.InAnswer}) or !FnReturnMatches(@TypeOf(Handler.afterResume), PromptType.OutAnswer)) {
+                @compileError(@typeName(Handler) ++ ".afterResume must have type fn (InAnswer) OutAnswer or fn (InAnswer) ResetError(ErrorSet)!OutAnswer");
+            }
         },
         .resume_then_transform => {
-            expectDeclTypeOneOf(
-                Handler,
-                "resumeValue",
-                fn () Resume,
-                fn () lowered_machine.ResetError(PromptType.ErrorSet)!Resume,
-            );
-            expectDeclTypeOneOf(
-                Handler,
-                "afterResume",
-                fn (PromptType.InAnswer) PromptType.OutAnswer,
-                fn (PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer,
-            );
+            if (!hasDeclSafe(Handler, "resumeValue")) @compileError(@typeName(Handler) ++ " must declare resumeValue");
+            if (!FnParamsMatch(@TypeOf(Handler.resumeValue), &.{}) or !FnReturnMatches(@TypeOf(Handler.resumeValue), Resume)) {
+                @compileError(@typeName(Handler) ++ ".resumeValue must have type fn () Resume or fn () ResetError(ErrorSet)!Resume");
+            }
+            if (!hasDeclSafe(Handler, "afterResume")) @compileError(@typeName(Handler) ++ " must declare afterResume");
+            if (!FnParamsMatch(@TypeOf(Handler.afterResume), &.{PromptType.InAnswer}) or !FnReturnMatches(@TypeOf(Handler.afterResume), PromptType.OutAnswer)) {
+                @compileError(@typeName(Handler) ++ ".afterResume must have type fn (InAnswer) OutAnswer or fn (InAnswer) ResetError(ErrorSet)!OutAnswer");
+            }
         },
         .direct_return => {
-            expectDeclTypeOneOf(
-                Handler,
-                "directReturn",
-                fn () PromptType.OutAnswer,
-                fn () lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer,
-            );
+            if (!hasDeclSafe(Handler, "directReturn")) @compileError(@typeName(Handler) ++ " must declare directReturn");
+            if (!FnParamsMatch(@TypeOf(Handler.directReturn), &.{}) or !FnReturnMatches(@TypeOf(Handler.directReturn), PromptType.OutAnswer)) {
+                @compileError(@typeName(Handler) ++ ".directReturn must have type fn () OutAnswer or fn () ResetError(ErrorSet)!OutAnswer");
+            }
         },
     }
 }
@@ -136,12 +143,12 @@ fn assertContinuationType(
     comptime PromptType: type,
     comptime Continuation: type,
 ) void {
-    expectDeclTypeOneOf(
-        Continuation,
-        "apply",
-        fn (Input) PromptType.InAnswer,
-        fn (Input) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
-    );
+    if (!hasDeclSafe(Continuation, "apply")) {
+        @compileError(@typeName(Continuation) ++ " must declare apply");
+    }
+    if (!FnParamsMatch(@TypeOf(Continuation.apply), &.{Input}) or !FnReturnMatches(@TypeOf(Continuation.apply), PromptType.InAnswer)) {
+        @compileError(@typeName(Continuation) ++ ".apply must have type fn (Input) InAnswer or fn (Input) ResetError(ErrorSet)!InAnswer");
+    }
 }
 
 fn callContinuation(

@@ -37,20 +37,6 @@ pub const entries = [_]Entry{
         .note = "The top-level zero-or-one-resume decision type is removed from the public root. Public choice code uses `shift.effect.choice.Decision`; repo-owned prompt-protocol proofs use direct imports of `src/internal/prompt_support.zig:ResumeOrReturn`.",
     },
     .{
-        .symbol = "ControlError",
-        .current_path = "shift.ControlError",
-        .target_path = "shift.ControlError",
-        .status = .retained_public,
-        .note = "ControlError remains part of the public lowered-first root surface.",
-    },
-    .{
-        .symbol = "ResetError",
-        .current_path = "shift.ResetError",
-        .target_path = "shift.ResetError",
-        .status = .retained_public,
-        .note = "ResetError remains part of the public lowered-first root surface.",
-    },
-    .{
         .symbol = "Runtime",
         .current_path = "shift.Runtime",
         .target_path = "shift.Runtime",
@@ -58,11 +44,11 @@ pub const entries = [_]Entry{
         .note = "Runtime remains the public lowered-first runtime handle.",
     },
     .{
-        .symbol = "Error",
-        .current_path = "shift.Error",
-        .target_path = "shift.Error",
+        .symbol = "RuntimeError",
+        .current_path = "shift.RuntimeError",
+        .target_path = "shift.RuntimeError",
         .status = .retained_public,
-        .note = "Error remains the public lowered-first runtime error surface.",
+        .note = "RuntimeError remains the public lowered-first runtime misuse and semantic-contract surface.",
     },
     .{
         .symbol = "ordinary",

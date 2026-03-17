@@ -1,4 +1,5 @@
 const lowered_machine = @import("lowered_machine");
+const error_witness = @import("error_witness");
 const ordinary = @import("ordinary_zig_registry");
 const parity_scenarios = @import("parity_scenarios");
 const std = @import("std");
@@ -54,6 +55,7 @@ pub const GeneratedProgram = struct {
     steps: []const lowered_machine.Step,
     feature_flags: []const []const u8,
     diagnostics: []const Diagnostic,
+    error_witness: error_witness.ErrorWitnessV1,
 
     /// Release dynamically allocated slices owned by this generated program.
     pub fn deinit(self: *GeneratedProgram, allocator: std.mem.Allocator) void {
@@ -194,7 +196,7 @@ const errdefer_match = Match{
 
 const early_exit_match = Match{
     .required_snippets = &.{
-        "shift.effect.exception.use([]const u8, NoError, catch_policy)",
+        "shift.effect.exception.use([]const u8, catch_policy)",
         "try eff.exception.throw(\"result=early\");",
         "transcript.handler_line = \"handler-direct-return\";",
     },
@@ -236,7 +238,7 @@ const nested_workflow_match = Match{
 
 const state_example_match = Match{
     .required_snippets = &.{
-        "shift.effect.state.use(NoError, @as(i32, 5))",
+        "shift.effect.state.use(@as(i32, 5))",
         "const before = try eff.state.get();",
         "try eff.state.set(before + 1);",
     },
@@ -249,7 +251,7 @@ const state_example_match = Match{
 
 const reader_example_match = Match{
     .required_snippets = &.{
-        "shift.effect.reader.use(NoError, @as(i32, 21))",
+        "shift.effect.reader.use(@as(i32, 21))",
         "const env = try eff.reader.ask();",
         "return env * 2;",
     },
@@ -265,7 +267,7 @@ const optional_example_match = Match{
         "policy-return-now",
         "policy-resume",
         "body-after-request",
-        "shift.effect.optional.use(i32, NoError, resume_policy)",
+        "shift.effect.optional.use(i32, resume_policy)",
     },
     .entry_required_snippets = &.{
         "transcript.note(\"policy-after-resume\");",
@@ -331,7 +333,7 @@ const define_abort_match = Match{
 
 const resource_example_match = Match{
     .required_snippets = &.{
-        "shift.effect.resource.use([]const u8, NoError, resource_manager)",
+        "shift.effect.resource.use([]const u8, resource_manager)",
         "const first = try eff.resource.acquire();",
         "const second = try eff.resource.acquire();",
         "release=a",
@@ -345,7 +347,7 @@ const resource_example_match = Match{
 
 const writer_example_match = Match{
     .required_snippets = &.{
-        "shift.effect.writer.use([]const u8, NoError, output_fba.allocator())",
+        "shift.effect.writer.use([]const u8, output_fba.allocator())",
         "try eff.writer.tell(\"a\")",
         "try eff.writer.tell(\"b\")",
         "value={s}",
@@ -360,7 +362,7 @@ const writer_example_match = Match{
 const algebraic_abort_match = Match{
     .required_snippets = &.{
         "const fail = shift.algebraic.AbortOp(\"fail\", []const u8);",
-        "const Validation = shift.algebraic.Program([]const u8, NoError, .{fail});",
+        "const Validation = shift.algebraic.Program([]const u8, .{fail});",
         "ctx.performProgram(fail, \"missing-name\"",
         "abort={s}",
     },
@@ -374,7 +376,7 @@ const algebraic_abort_match = Match{
 const algebraic_artifact_match = Match{
     .required_snippets = &.{
         "const search = shift.algebraic.TransformOp(\"search\", []const u8, i32);",
-        "const ArtifactSearch = shift.algebraic.Program(i32, NoError, .{search});",
+        "const ArtifactSearch = shift.algebraic.Program(i32, .{search});",
         "ctx.performProgram(search, \"artifact-search\"",
         "opencode_source=jsonl",
     },
@@ -1083,6 +1085,15 @@ fn acceptedProgram(
         .steps = steps,
         .feature_flags = feature_flags,
         .diagnostics = diagnostics,
+        .error_witness = .{
+            .surface = .ordinary,
+            .support_status = .supported,
+            .public_runtime_errors = error_witness.runtimeErrorTags(),
+            .setup_error_names = error_witness.setupErrorNames(false),
+            .semantic_error_names = error_witness.no_error_names[0..],
+            .contributors = error_witness.no_contributors[0..],
+            .diagnostics = error_witness.no_diagnostics[0..],
+        },
     };
 }
 
@@ -1113,6 +1124,15 @@ fn rejectedProgram(
         .steps = steps,
         .feature_flags = feature_flags,
         .diagnostics = owned_diagnostics,
+        .error_witness = .{
+            .surface = .ordinary,
+            .support_status = .unsupported,
+            .public_runtime_errors = error_witness.runtimeErrorTags(),
+            .setup_error_names = error_witness.setupErrorNames(false),
+            .semantic_error_names = error_witness.no_error_names[0..],
+            .contributors = error_witness.no_contributors[0..],
+            .diagnostics = error_witness.no_diagnostics[0..],
+        },
     };
 }
 

@@ -2,7 +2,7 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
-const ExceptionInstance = shift.effect.exception.Instance(i32, NoError);
+const ExceptionInstance = shift.effect.exception.Instance(i32);
 const bad_catch = struct {};
 
 /// Attempt to handle an exception effect with a malformed catch policy.

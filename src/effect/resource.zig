@@ -1,13 +1,26 @@
 const algebraic = @import("algebraic.zig");
 const family = @import("family.zig");
 const lexical_with = @import("../with_api.zig");
+const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
 const shift = @import("../root.zig");
 const std = @import("std");
 
+fn ReturnTypeErrorSet(comptime ReturnType: type) type {
+    return switch (@typeInfo(ReturnType)) {
+        .error_union => |err_union| err_union.error_set,
+        else => error{},
+    };
+}
+
+fn ManagerErrorSet(comptime Manager: type) type {
+    return ReturnTypeErrorSet(@typeInfo(@TypeOf(Manager.acquire)).@"fn".return_type.?) ||
+        ReturnTypeErrorSet(@typeInfo(@TypeOf(Manager.release)).@"fn".return_type.?);
+}
+
 /// Prompt-backed effect instance for a bracketed resource family.
-pub fn Instance(comptime ResourceType: type, comptime ErrorSetType: type) type {
-    return family.InstanceWithMode(.resume_then_transform, ResourceType, ErrorSetType);
+pub fn Instance(comptime ResourceType: type) type {
+    return family.InstanceWithMode(.resume_then_transform, ResourceType, error{});
 }
 
 /// Lexical resource handle used by `shift.with(...)`.
@@ -16,7 +29,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
         ctx: ?ContextPtrType,
 
         /// Acquire one resource through the lexical handle.
-        pub fn acquire(self: @This()) shift.ResetError(family.ContextErrorSetType(ContextPtrType))!family.ContextStateType(ContextPtrType) {
+        pub fn acquire(self: @This()) lowered_machine.ResetError(family.ContextErrorSetType(ContextPtrType))!family.ContextStateType(ContextPtrType) {
             return try algebraic.acquireResource(Cap, self.ctx.?);
         }
     };
@@ -42,9 +55,9 @@ pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: typ
         }
 
         /// Run one lexical resource descriptor through the existing resource family.
-        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
-            var instance = Instance(ResourceType, ErrorSetType).init();
+            var instance = family.InstanceWithMode(.resume_then_transform, ResourceType, ErrorSetType).init();
             const result = try handle(AnswerType, runtime, &instance, Manager, Body);
             return .{
                 .output = {},
@@ -55,7 +68,7 @@ pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: typ
 }
 
 /// Create one lexical resource descriptor for `shift.with(...)`.
-pub fn use(comptime ResourceType: type, comptime ErrorSetType: type, comptime Manager: type) LexicalDescriptor(ResourceType, ErrorSetType, Manager) {
+pub fn use(comptime ResourceType: type, comptime Manager: type) LexicalDescriptor(ResourceType, ManagerErrorSet(Manager), Manager) {
     return .{};
 }
 
@@ -63,7 +76,7 @@ pub fn use(comptime ResourceType: type, comptime ErrorSetType: type, comptime Ma
 pub inline fn acquire(
     comptime Cap: type,
     ctx: anytype,
-) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
+) lowered_machine.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
     return try algebraic.acquireResource(Cap, ctx);
 }
 
@@ -83,19 +96,18 @@ pub fn handle(
     instance: anytype,
     comptime Manager: type,
     comptime Body: type,
-) shift.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
     return try algebraic.handleResource(AnswerType, runtime, instance, Manager, Body);
 }
 
 test "resource instance shell stays prompt-sized" {
-    const NoError = error{};
-    const ResourceInstance = Instance(i32, NoError);
+    const ResourceInstance = Instance(i32);
     try std.testing.expectEqual(@sizeOf(usize), @sizeOf(ResourceInstance));
 }
 
 test "resource handle releases in LIFO order after normal completion" {
     const NoError = error{};
-    const ResourceInstance = Instance([]const u8, NoError);
+    const ResourceInstance = Instance([]const u8);
     const manager = struct {
         var next_index: usize = 0;
         var transcript = [_][]const u8{ "", "", "", "", "", "" };
@@ -124,7 +136,7 @@ test "resource handle releases in LIFO order after normal completion" {
         /// Acquire two resources in order and return normally.
         pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(computeProgram(Cap, ctx, struct {
             /// Acquire two resources in order and return normally.
-            pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)![]const u8 {
+            pub fn run(comptime ProgramCap: type, program_ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
                 const first = try acquire(ProgramCap, program_ctx);
                 manager.note(first);
                 const second = try acquire(ProgramCap, program_ctx);
@@ -134,7 +146,7 @@ test "resource handle releases in LIFO order after normal completion" {
         })) {
             return computeProgram(Cap, ctx, struct {
                 /// Acquire two resources in order and return normally.
-                pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn run(comptime ProgramCap: type, program_ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
                     const first = try acquire(ProgramCap, program_ctx);
                     manager.note(first);
                     const second = try acquire(ProgramCap, program_ctx);
@@ -162,8 +174,8 @@ test "resource handle releases in LIFO order after normal completion" {
 
 test "resource handle releases before outer exception catch returns" {
     const NoError = error{};
-    const ResourceInstance = Instance([]const u8, NoError);
-    const ExceptionInstance = @import("exception.zig").Instance([]const u8, NoError);
+    const ResourceInstance = Instance([]const u8);
+    const ExceptionInstance = @import("exception.zig").Instance([]const u8);
 
     const manager = struct {
         var transcript = [_][]const u8{ "", "", "", "", "" };
@@ -202,7 +214,7 @@ test "resource handle releases before outer exception catch returns" {
         threadlocal var outer_exception_ctx: ?*const anyopaque = null;
 
         /// Open a resource handle and throw through the outer exception capability.
-        pub fn outer(comptime ExceptionCap: type, exception_ctx: anytype) shift.ResetError(NoError)![]const u8 {
+        pub fn outer(comptime ExceptionCap: type, exception_ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             const ExceptionCtxType = @TypeOf(exception_ctx);
             const inner = struct {
                 threadlocal var active_exception_ctx: ?ExceptionCtxType = null;
@@ -210,7 +222,7 @@ test "resource handle releases before outer exception catch returns" {
                 /// Acquire once, then abort through the outer exception handler.
                 pub fn program(comptime ResourceCap: type, resource_ctx: anytype) @TypeOf(computeProgram(ResourceCap, resource_ctx, struct {
                     /// Acquire once, then abort through the outer exception handler.
-                    pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)![]const u8 {
+                    pub fn run(comptime ProgramCap: type, program_ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
                         const resource = try acquire(ProgramCap, program_ctx);
                         _ = resource;
                         manager.note("use=r");
@@ -219,7 +231,7 @@ test "resource handle releases before outer exception catch returns" {
                 })) {
                     return computeProgram(ResourceCap, resource_ctx, struct {
                         /// Acquire once, then abort through the outer exception handler.
-                        pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)![]const u8 {
+                        pub fn run(comptime ProgramCap: type, program_ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
                             const resource = try acquire(ProgramCap, program_ctx);
                             _ = resource;
                             manager.note("use=r");
@@ -247,7 +259,7 @@ test "resource handle releases before outer exception catch returns" {
         /// Enter the outer exception handle and hand its capability to the inner resource scope.
         pub fn program(comptime ExceptionCap: type, exception_ctx: anytype) @TypeOf(@import("exception.zig").computeProgram(ExceptionCap, exception_ctx, struct {
             /// Re-enter the resource witness through the outer exception capability.
-            pub fn run() shift.ResetError(NoError)![]const u8 {
+            pub fn run() lowered_machine.ResetError(NoError)![]const u8 {
                 const ExceptionCtxType = @TypeOf(exception_ctx);
                 const ctx: ExceptionCtxType = @constCast(@ptrCast(@alignCast(scenario.outer_exception_ctx.?)));
                 scenario.outer_exception_ctx = null;
@@ -257,7 +269,7 @@ test "resource handle releases before outer exception catch returns" {
             scenario.outer_exception_ctx = @ptrCast(exception_ctx);
             return @import("exception.zig").computeProgram(ExceptionCap, exception_ctx, struct {
                 /// Re-enter the resource witness through the outer exception capability.
-                pub fn run() shift.ResetError(NoError)![]const u8 {
+                pub fn run() lowered_machine.ResetError(NoError)![]const u8 {
                     const ExceptionCtxType = @TypeOf(exception_ctx);
                     const ctx: ExceptionCtxType = @constCast(@ptrCast(@alignCast(scenario.outer_exception_ctx.?)));
                     scenario.outer_exception_ctx = null;
@@ -275,8 +287,8 @@ test "resource handle releases before outer exception catch returns" {
 
 test "resource handle releases before outer optional return-now completes" {
     const NoError = error{};
-    const ResourceInstance = Instance([]const u8, NoError);
-    const OptionalInstance = @import("optional.zig").Instance([]const u8, NoError);
+    const ResourceInstance = Instance([]const u8);
+    const OptionalInstance = @import("optional.zig").Instance([]const u8);
 
     const manager = struct {
         var transcript = [_][]const u8{ "", "", "", "", "" };
@@ -319,7 +331,7 @@ test "resource handle releases before outer optional return-now completes" {
         threadlocal var outer_optional_ctx: ?*const anyopaque = null;
 
         /// Open a resource handle and trigger the outer optional return-now branch.
-        pub fn outer(comptime OptionalCap: type, optional_ctx: anytype) shift.ResetError(NoError)![]const u8 {
+        pub fn outer(comptime OptionalCap: type, optional_ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             const OptionalCtxType = @TypeOf(optional_ctx);
             const inner = struct {
                 threadlocal var active_optional_ctx: ?OptionalCtxType = null;
@@ -327,7 +339,7 @@ test "resource handle releases before outer optional return-now completes" {
                 /// Acquire once, then early-return through the outer optional handler.
                 pub fn program(comptime ResourceCap: type, resource_ctx: anytype) @TypeOf(computeProgram(ResourceCap, resource_ctx, struct {
                     /// Acquire once, then early-return through the outer optional handler.
-                    pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)![]const u8 {
+                    pub fn run(comptime ProgramCap: type, program_ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
                         const resource = try acquire(ProgramCap, program_ctx);
                         _ = resource;
                         manager.note("use=r");
@@ -337,7 +349,7 @@ test "resource handle releases before outer optional return-now completes" {
                 })) {
                     return computeProgram(ResourceCap, resource_ctx, struct {
                         /// Acquire once, then early-return through the outer optional handler.
-                        pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)![]const u8 {
+                        pub fn run(comptime ProgramCap: type, program_ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
                             const resource = try acquire(ProgramCap, program_ctx);
                             _ = resource;
                             manager.note("use=r");
@@ -366,7 +378,7 @@ test "resource handle releases before outer optional return-now completes" {
         /// Enter the outer optional handle and hand its capability to the inner resource scope.
         pub fn program(comptime OptionalCap: type, optional_ctx: anytype) @TypeOf(@import("optional.zig").computeProgram(OptionalCap, optional_ctx, struct {
             /// Re-enter the resource witness through the outer optional capability.
-            pub fn run() shift.ResetError(NoError)![]const u8 {
+            pub fn run() lowered_machine.ResetError(NoError)![]const u8 {
                 const OptionalCtxType = @TypeOf(optional_ctx);
                 const ctx: OptionalCtxType = @constCast(@ptrCast(@alignCast(scenario.outer_optional_ctx.?)));
                 scenario.outer_optional_ctx = null;
@@ -376,7 +388,7 @@ test "resource handle releases before outer optional return-now completes" {
             scenario.outer_optional_ctx = @ptrCast(optional_ctx);
             return @import("optional.zig").computeProgram(OptionalCap, optional_ctx, struct {
                 /// Re-enter the resource witness through the outer optional capability.
-                pub fn run() shift.ResetError(NoError)![]const u8 {
+                pub fn run() lowered_machine.ResetError(NoError)![]const u8 {
                     const OptionalCtxType = @TypeOf(optional_ctx);
                     const ctx: OptionalCtxType = @constCast(@ptrCast(@alignCast(scenario.outer_optional_ctx.?)));
                     scenario.outer_optional_ctx = null;
@@ -403,7 +415,7 @@ test "resource release error wins after a successful body" {
         }
 
         /// Fail release to prove cleanup errors become the public result after success.
-        pub fn release(_: i32) shift.ResetError(DemoError)!void {
+        pub fn release(_: i32) lowered_machine.ResetError(DemoError)!void {
             return error.ReleaseFailed;
         }
     };
@@ -412,14 +424,14 @@ test "resource release error wins after a successful body" {
         /// Acquire one resource and otherwise complete successfully.
         pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(computeProgram(Cap, ctx, struct {
             /// Acquire one resource and otherwise complete successfully.
-            pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(DemoError)![]const u8 {
+            pub fn run(comptime ProgramCap: type, program_ctx: anytype) lowered_machine.ResetError(DemoError)![]const u8 {
                 _ = try acquire(ProgramCap, program_ctx);
                 return "done";
             }
         })) {
             return computeProgram(Cap, ctx, struct {
                 /// Acquire one resource and otherwise complete successfully.
-                pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(DemoError)![]const u8 {
+                pub fn run(comptime ProgramCap: type, program_ctx: anytype) lowered_machine.ResetError(DemoError)![]const u8 {
                     _ = try acquire(ProgramCap, program_ctx);
                     return "done";
                 }
@@ -444,7 +456,7 @@ test "resource body error wins over release error" {
         }
 
         /// Also fail release, but the body error must remain public.
-        pub fn release(_: i32) shift.ResetError(DemoError)!void {
+        pub fn release(_: i32) lowered_machine.ResetError(DemoError)!void {
             return error.ReleaseFailed;
         }
     };
@@ -453,14 +465,14 @@ test "resource body error wins over release error" {
         /// Acquire one resource and then fail the body.
         pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(computeProgram(Cap, ctx, struct {
             /// Acquire one resource and then fail the body.
-            pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(DemoError)![]const u8 {
+            pub fn run(comptime ProgramCap: type, program_ctx: anytype) lowered_machine.ResetError(DemoError)![]const u8 {
                 _ = try acquire(ProgramCap, program_ctx);
                 return error.BodyFailed;
             }
         })) {
             return computeProgram(Cap, ctx, struct {
                 /// Acquire one resource and then fail the body.
-                pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(DemoError)![]const u8 {
+                pub fn run(comptime ProgramCap: type, program_ctx: anytype) lowered_machine.ResetError(DemoError)![]const u8 {
                     _ = try acquire(ProgramCap, program_ctx);
                     return error.BodyFailed;
                 }
@@ -476,7 +488,7 @@ test "resource body error wins over release error" {
 
 test "nested same-shaped resource handles get distinct capability types" {
     const NoError = error{};
-    const ResourceInstance = Instance(i32, NoError);
+    const ResourceInstance = Instance(i32);
     const manager = struct {
         /// Acquire one dummy resource for the nested resource test.
         pub fn acquire() i32 {
@@ -493,7 +505,7 @@ test "nested same-shaped resource handles get distinct capability types" {
         var inner_ptr: ?*const ResourceInstance = null;
 
         /// Open an inner resource handle and prove its capability differs from the outer one.
-        pub fn outer(comptime OuterCap: type, _: anytype) shift.ResetError(NoError)!i32 {
+        pub fn outer(comptime OuterCap: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
             return try handle(i32, runtime_ptr.?, inner_ptr.?, manager, struct {
                 /// Reject capability-type collapse inside the nested resource handle.
                 pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(computeProgram(InnerCap, inner_ctx, struct {
@@ -526,13 +538,13 @@ test "nested same-shaped resource handles get distinct capability types" {
         /// Enter the outer resource handle and hand its capability inward.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested resource witness through the outer capability.
-            pub fn run(_: type, _: anytype) shift.ResetError(NoError)!i32 {
+            pub fn run(_: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
                 return try demo.outer(OuterCap, {});
             }
         })) {
             return computeProgram(OuterCap, ctx, struct {
                 /// Re-enter the nested resource witness through the outer capability.
-                pub fn run(_: type, _: anytype) shift.ResetError(NoError)!i32 {
+                pub fn run(_: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
                     return try demo.outer(OuterCap, {});
                 }
             });

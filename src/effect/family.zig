@@ -176,7 +176,7 @@ pub fn withCapability(
     comptime capability_decls: type,
     comptime ResultType: type,
     comptime Runner: type,
-) shift.ResetError(context_spec.error_set_type)!ResultType {
+) lowered_machine.ResetError(context_spec.error_set_type)!ResultType {
     const seal = struct {};
     const Cap = struct {
         _seal: seal,

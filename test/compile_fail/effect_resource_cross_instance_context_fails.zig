@@ -2,7 +2,7 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
-const ResourceInstance = shift.effect.resource.Instance(i32, NoError);
+const ResourceInstance = shift.effect.resource.Instance(i32);
 const manager = struct {
     /// Acquire one dummy resource for the cross-instance resource fixture.
     pub fn acquire() i32 {
@@ -20,19 +20,19 @@ const demo = struct {
     var inner_ptr: ?*const ResourceInstance = null;
 
     /// Start a nested handle and try to treat its context as the outer one.
-    pub fn outer(comptime OuterCap: type, _: anytype) shift.ResetError(NoError)!i32 {
+    pub fn outer(comptime OuterCap: type, _: anytype) !i32 {
         return try shift.effect.resource.handle(i32, runtime_ptr.?, inner_ptr.?, manager, struct {
             /// Attempt to acquire with the wrong capability type.
             pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(shift.effect.resource.computeProgram(InnerCap, inner_ctx, struct {
                 /// Attempt to acquire with the wrong capability type.
-                pub fn run(_: type, program_ctx: anytype) shift.ResetError(NoError)!i32 {
+                pub fn run(_: type, program_ctx: anytype) !i32 {
                     _ = try shift.effect.resource.acquire(OuterCap, program_ctx);
                     return 0;
                 }
             })) {
                 return shift.effect.resource.computeProgram(InnerCap, inner_ctx, struct {
                     /// Attempt to acquire with the wrong capability type.
-                    pub fn run(_: type, program_ctx: anytype) shift.ResetError(NoError)!i32 {
+                    pub fn run(_: type, program_ctx: anytype) !i32 {
                         _ = try shift.effect.resource.acquire(OuterCap, program_ctx);
                         return 0;
                     }
@@ -54,13 +54,13 @@ pub fn main() anyerror!void {
         /// Invoke the outer body with the fresh outer capability.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(shift.effect.resource.computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested resource compile-fail witness.
-            pub fn run(_: type, _: anytype) shift.ResetError(NoError)!i32 {
+            pub fn run(_: type, _: anytype) !i32 {
                 return try demo.outer(OuterCap, {});
             }
         })) {
             return shift.effect.resource.computeProgram(OuterCap, ctx, struct {
                 /// Re-enter the nested resource compile-fail witness.
-                pub fn run(_: type, _: anytype) shift.ResetError(NoError)!i32 {
+                pub fn run(_: type, _: anytype) !i32 {
                     return try demo.outer(OuterCap, {});
                 }
             });

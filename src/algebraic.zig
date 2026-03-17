@@ -17,10 +17,9 @@ pub const handleTransform = engine.handleTransform;
 /// Build a closed-world algebraic program over the existing one-shot prompt runtime.
 pub fn Program(
     comptime Answer: type,
-    comptime ErrorSet: type,
     comptime ops: anytype,
 ) type {
-    return engine.Program(Answer, Answer, ErrorSet, ops);
+    return engine.Program(Answer, Answer, error{}, ops);
 }
 
 test {

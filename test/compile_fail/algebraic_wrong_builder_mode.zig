@@ -7,7 +7,7 @@ const ping = shift.algebraic.TransformOp("ping", void, i32);
 
 const no_state = struct {};
 
-const configured = shift.algebraic.Program(i32, NoError, .{ping}).handlers(.{
+const configured = shift.algebraic.Program(i32, .{ping}).handlers(.{
     shift.algebraic.handleChoice(ping, no_state{}, struct {
         /// Trigger the wrong-builder-mode compile failure.
         pub fn resumeOrReturn(_: no_state, _: void) prompt_support.ResumeOrReturn(i32, i32) {

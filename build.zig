@@ -156,6 +156,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const error_witness_mod = b.createModule(.{
+        .root_source_file = b.path("src/error_witness.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const prompt_contract_support_mod = b.createModule(.{
         .root_source_file = b.path("src/prompt_contract.zig"),
         .target = target,
@@ -169,6 +174,7 @@ pub fn build(b: *std.Build) void {
     frontend_support_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
     shift_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
     shift_mod.addImport("frontend_support", frontend_support_mod);
+    shift_mod.addImport("error_witness", error_witness_mod);
     const witnesses_mod = b.createModule(.{
         .root_source_file = b.path("src/witnesses.zig"),
         .target = target,
@@ -270,6 +276,7 @@ pub fn build(b: *std.Build) void {
     ordinary_lowering_mod.addImport("ordinary_zig_registry", ordinary_registry_mod);
     ordinary_lowering_mod.addImport("parity_scenarios", parity_scenarios_mod);
     ordinary_lowering_mod.addImport("lowered_machine", lowered_machine_mod);
+    ordinary_lowering_mod.addImport("error_witness", error_witness_mod);
     shift_mod.addImport("ordinary_zig_lowering", ordinary_lowering_mod);
     const surface_repl_registry_mod = b.createModule(.{
         .root_source_file = b.path("src/surface_replacement_registry.zig"),
@@ -744,6 +751,21 @@ pub fn build(b: *std.Build) void {
     ordinary_tool_contract_cmd.step.dependOn(&ordinary_tool_install.step);
     const ordinary_tool_contract_step = b.step("ordinary-tool-contract", "Check ordinary tool rejected/accepted Zig emission contracts.");
     ordinary_tool_contract_step.dependOn(&ordinary_tool_contract_cmd.step);
+    const ordinary_error_witness_cmd = b.addSystemCommand(&.{ "sh", "test/ordinary_error_witness/run.sh" });
+    ordinary_error_witness_cmd.step.dependOn(&ordinary_tool_install.step);
+    const ordinary_error_witness_step = b.step("ordinary-error-witness-check", "Check that the ordinary tool emits the public error witness surface.");
+    ordinary_error_witness_step.dependOn(&ordinary_error_witness_cmd.step);
+    const public_error_api_ban_cmd = b.addSystemCommand(&.{ "sh", "test/public_error_api_ban/run.sh" });
+    const public_error_api_ban_step = b.step("public-error-api-ban", "Fail closed if banned legacy public error spellings survive.");
+    public_error_api_ban_step.dependOn(&public_error_api_ban_cmd.step);
+    const error_witness_equivalence_cmd = b.addSystemCommand(&.{ "sh", "test/error_witness_equivalence/run.sh" });
+    error_witness_equivalence_cmd.step.dependOn(&ordinary_tool_install.step);
+    const error_witness_equivalence_step = b.step("error-witness-equivalence-check", "Check that canonical ordinary witnesses expose an equivalent public runtime/setup witness surface across example cases.");
+    error_witness_equivalence_step.dependOn(&error_witness_equivalence_cmd.step);
+
+    test_step.dependOn(ordinary_error_witness_step);
+    test_step.dependOn(public_error_api_ban_step);
+    test_step.dependOn(error_witness_equivalence_step);
 
     const surface_repl_mod = b.createModule(.{
         .root_source_file = b.path("tools/render_surface_replacement_matrix.zig"),
@@ -874,6 +896,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    error_surface_registry_mod.addImport("error_witness", error_witness_mod);
     const error_surface_mod = b.createModule(.{
         .root_source_file = b.path("tools/render_runtime_error_surface_matrix.zig"),
         .target = target,
@@ -1114,14 +1137,14 @@ pub fn build(b: *std.Build) void {
         .{ .name = "cf-effect-define-choice-tag-removed", .path = "test/compile_fail/effect_define_lexical_choice_tag_dispatch_removed.zig", .expected = "test/compile_fail/effect_define_lexical_choice_tag_dispatch_removed.zig:33:34: error: no field or member function named 'perform' in '/?/" },
         .{ .name = "cf-effect-define-abort-tag-removed", .path = "test/compile_fail/effect_define_lexical_abort_tag_dispatch_removed.zig", .expected = "test/compile_fail/effect_define_lexical_abort_tag_dispatch_removed.zig:28:26: error: no field or member function named 'abort' in '/?/" },
         .{ .name = "cf-effect-define-mixed-mode", .path = "test/compile_fail/effect_define_mixed_mode_fails.zig", .expected = "generated effect families support one prompt mode per family" },
-        .{ .name = "cf-root-reset-requires-program", .path = "test/compile_fail/root_reset_requires_program.zig", .expected = "test/compile_fail/root_reset_requires_program.zig:16:15: error: expected type 'frontend.Program(prompt_contract.Prompt(.resume_then_transform,usize,usize,error{}))', found 'fn () error{CrossThread,FrontendSuspend,MissingPrompt,NonDiagonalComplete,OutOfMemory,ProgramContractViolation,RuntimeBusy,RuntimeDestroyed}!usize'" },
+        .{ .name = "cf-root-reset-requires-program", .path = "test/compile_fail/root_reset_requires_program.zig", .expected = "parameter type declared here" },
         .{ .name = "cf-no-shift-guard-removed", .path = "test/compile_fail/no_shift_guard_removed.zig", .expected = "has no member named 'NoShiftGuard'" },
-        .{ .name = "cf-resume-value-mismatch", .path = "test/compile_fail/resume_value_mismatch.zig", .expected = "resumeValue must have type fn () i32 or fn () error{CrossThread,FrontendSuspend,MissingPrompt,NonDiagonalComplete,OutOfMemory,ProgramContractViolation,RuntimeBusy,RuntimeDestroyed}!i32" },
+        .{ .name = "cf-resume-value-mismatch", .path = "test/compile_fail/resume_value_mismatch.zig", .expected = ".resumeValue must have type fn () Resume or fn () ResetError(ErrorSet)!Resume" },
         .{ .name = "cf-one-shot-missing-after-resume", .path = "test/one_shot_survey/missing_after_resume_fails.zig", .expected = "must declare afterResume" },
         .{ .name = "cf-one-shot-missing-resume-or-return", .path = "test/one_shot_survey/missing_resume_or_return_fails.zig", .expected = "must declare resumeOrReturn" },
-        .{ .name = "cf-one-shot-wrong-after-resume", .path = "test/one_shot_survey/wrong_after_resume_type_fails.zig", .expected = "afterResume must have type fn (i32) i32 or fn (i32) error{CrossThread,FrontendSuspend,MissingPrompt,NonDiagonalComplete,OutOfMemory,ProgramContractViolation,RuntimeBusy,RuntimeDestroyed}!i32" },
-        .{ .name = "cf-one-shot-wrong-ror-type", .path = "test/one_shot_survey/wrong_resume_or_return_type_fails.zig", .expected = "resumeOrReturn must have type fn () prompt_contract.ResumeOrReturn(i32,i32) or fn () error{CrossThread,FrontendSuspend,MissingPrompt,NonDiagonalComplete,OutOfMemory,ProgramContractViolation,RuntimeBusy,RuntimeDestroyed}!prompt_contract.ResumeOrReturn(i32,i32)" },
-        .{ .name = "cf-one-shot-wrong-ror-after", .path = "test/one_shot_survey/wrong_resume_or_return_after_resume_fails.zig", .expected = "afterResume must have type fn (i32) i32 or fn (i32) error{CrossThread,FrontendSuspend,MissingPrompt,NonDiagonalComplete,OutOfMemory,ProgramContractViolation,RuntimeBusy,RuntimeDestroyed}!i32" },
+        .{ .name = "cf-one-shot-wrong-after-resume", .path = "test/one_shot_survey/wrong_after_resume_type_fails.zig", .expected = ".afterResume must have type fn (InAnswer) OutAnswer or fn (InAnswer) ResetError(ErrorSet)!OutAnswer" },
+        .{ .name = "cf-one-shot-wrong-ror-type", .path = "test/one_shot_survey/wrong_resume_or_return_type_fails.zig", .expected = ".resumeOrReturn must have type fn () ResumeOrReturn or fn () ResetError(ErrorSet)!ResumeOrReturn" },
+        .{ .name = "cf-one-shot-wrong-ror-after", .path = "test/one_shot_survey/wrong_resume_or_return_after_resume_fails.zig", .expected = ".afterResume must have type fn (InAnswer) OutAnswer or fn (InAnswer) ResetError(ErrorSet)!OutAnswer" },
         .{ .name = "cf-one-shot-direct-return-mode-mismatch", .path = "test/one_shot_survey/direct_return_mode_mismatch_fails.zig", .expected = "must declare directReturn" },
         .{ .name = "cf-one-shot-legacy-alias", .path = "test/one_shot_survey/legacy_continuation_alias_recheck_fails.zig", .expected = "has no member named 'Continuation'" },
         .{ .name = "cf-one-shot-legacy-store", .path = "test/one_shot_survey/legacy_continuation_store_recheck_fails.zig", .expected = "has no member named 'Continuation'" },

@@ -13,8 +13,21 @@ fn usage() noreturn {
 fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, "{\n");
     try list.appendSlice(allocator, "  \"error_variants\": [\n");
-    for (surface.variants, 0..) |variant, idx| {
+    var idx: usize = 0;
+    for (surface.retained_variants) |variant| {
         if (idx != 0) try list.appendSlice(allocator, ",\n");
+        idx += 1;
+        const line = try std.fmt.allocPrint(
+            allocator,
+            "    {{\"name\":\"{s}\",\"status\":\"{s}\",\"rationale\":\"{s}\"}}",
+            .{ variant.name, @tagName(variant.status), variant.rationale },
+        );
+        defer allocator.free(line);
+        try list.appendSlice(allocator, line);
+    }
+    for (surface.retired_variants) |variant| {
+        if (idx != 0) try list.appendSlice(allocator, ",\n");
+        idx += 1;
         const line = try std.fmt.allocPrint(
             allocator,
             "    {{\"name\":\"{s}\",\"status\":\"{s}\",\"rationale\":\"{s}\"}}",

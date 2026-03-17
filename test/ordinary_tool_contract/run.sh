@@ -92,3 +92,5 @@ grep -F -q 'pub fn initGeneratedProgram(allocator: std.mem.Allocator) !shift.ord
 grep -F -q 'var generated_program = try initGeneratedProgram(allocator);' "$accepted_out"
 grep -F -q '.steps = try allocator.dupe(shift.ordinary.Step, &generated_program_steps),' "$accepted_out"
 grep -F -q '.diagnostics = try allocator.dupe(shift.ordinary.Diagnostic, &generated_program_diagnostics),' "$accepted_out"
+
+zig run tools/check_public_api_ban.zig >/dev/null

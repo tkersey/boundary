@@ -5,7 +5,7 @@ comptime {
     const DemoPrompt = prompt_support.Prompt(.resume_then_transform, usize, usize, NoError);
 
     const legacy = struct {
-        fn body() shift.ResetError(NoError)!usize {
+        fn body() !usize {
             return 7;
         }
     };

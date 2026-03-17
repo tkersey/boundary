@@ -2,7 +2,7 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
-const ExceptionInstance = shift.effect.exception.Instance(i32, NoError);
+const ExceptionInstance = shift.effect.exception.Instance(i32);
 const bad_catch = struct {
     /// Deliberately use the wrong payload type for the catch policy.
     pub fn directReturn(_: []const u8) i32 {

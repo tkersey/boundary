@@ -2,7 +2,7 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
-const ExceptionInstance = shift.effect.exception.Instance(i32, NoError);
+const ExceptionInstance = shift.effect.exception.Instance(i32);
 const catcher = struct {
     /// Preserve the thrown payload for the cross-instance exception fixture.
     pub fn directReturn(payload: i32) i32 {
@@ -15,7 +15,7 @@ const demo = struct {
     var inner_ptr: ?*const ExceptionInstance = null;
 
     /// Start a nested handle and try to treat its context as the outer one.
-    pub fn outer(comptime OuterCap: type, _: anytype) shift.ResetError(NoError)!i32 {
+    pub fn outer(comptime OuterCap: type, _: anytype) !i32 {
         return try shift.effect.exception.handle(i32, runtime_ptr.?, inner_ptr.?, catcher, struct {
             /// Attempt to throw with the wrong capability type.
             pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(shift.effect.exception.throwProgram(OuterCap, inner_ctx, 1)) {
@@ -38,13 +38,13 @@ pub fn main() anyerror!void {
         /// Invoke the outer body with the fresh outer capability.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(shift.effect.exception.computeProgram(OuterCap, ctx, struct {
             /// Re-enter the compile-fail exception witness through the outer capability.
-            pub fn run() shift.ResetError(NoError)!i32 {
+            pub fn run() !i32 {
                 return try demo.outer(OuterCap, {});
             }
         }.run)) {
             return shift.effect.exception.computeProgram(OuterCap, ctx, struct {
                 /// Re-enter the compile-fail exception witness through the outer capability.
-                pub fn run() shift.ResetError(NoError)!i32 {
+                pub fn run() !i32 {
                     return try demo.outer(OuterCap, {});
                 }
             }.run);

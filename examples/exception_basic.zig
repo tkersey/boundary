@@ -23,10 +23,10 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=pass\n");
     const ok = try shift.with(&runtime, .{
-        .exception = shift.effect.exception.use([]const u8, NoError, catch_policy),
+        .exception = shift.effect.exception.use([]const u8, catch_policy),
     }, struct {
         /// Return normally through the lexical exception scope.
-        pub fn body(_: anytype) shift.ResetError(NoError)![]const u8 {
+        pub fn body(_: anytype) ![]const u8 {
             return "result=ok";
         }
     });
@@ -37,10 +37,10 @@ pub fn run(writer: anytype) anyerror!void {
     transcript.body_before_throw = false;
     transcript.caught_payload = "";
     const thrown = try shift.with(&runtime, .{
-        .exception = shift.effect.exception.use([]const u8, NoError, catch_policy),
+        .exception = shift.effect.exception.use([]const u8, catch_policy),
     }, struct {
         /// Throw once through the lexical exception scope.
-        pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+        pub fn body(eff: anytype) ![]const u8 {
             transcript.body_before_throw = true;
             try eff.exception.throw("result=boom");
         }

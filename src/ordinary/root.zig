@@ -1,7 +1,10 @@
 const lowering = @import("ordinary_zig_lowering");
+const error_witness = @import("error_witness");
 
 /// Canonical source-backed lowering surface for the repo-owned ordinary corpus.
 pub const GeneratedProgram = lowering.GeneratedProgram;
+/// Stable public error-witness schema used by ordinary lowering results.
+pub const ErrorWitnessV1 = error_witness.ErrorWitnessV1;
 /// Status for one source-backed ordinary lowering attempt.
 pub const LowerStatus = lowering.LowerStatus;
 /// Source classification for one ordinary lowering request.

@@ -11,11 +11,11 @@ pub fn run(writer: anytype) anyerror!void {
     var output_fba = std.heap.FixedBufferAllocator.init(&output_buffer);
 
     const result = try shift.with(&runtime, .{
-        .writer = shift.effect.writer.use([]const u8, NoError, output_fba.allocator()),
-        .state = shift.effect.state.use(NoError, @as(i32, 0)),
+        .writer = shift.effect.writer.use([]const u8, output_fba.allocator()),
+        .state = shift.effect.state.use(@as(i32, 0)),
     }, struct {
         /// Emit three yielded values and return the final counter.
-        pub fn body(eff: anytype) shift.ResetError(NoError)!i32 {
+        pub fn body(eff: anytype) !i32 {
             while (true) {
                 const current = try eff.state.get();
                 if (current == 3) return current;

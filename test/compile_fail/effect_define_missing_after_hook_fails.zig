@@ -28,7 +28,7 @@ pub fn main() anyerror!void {
     var instance = Counter.Instance.init();
     _ = try Counter.handle(i32, &runtime, &instance, BadHandler{ .state = 0 }, struct {
         /// Attempt to use the generated transform family without an after hook.
-        pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!i32 {
+        pub fn body(comptime Cap: type, ctx: anytype) !i32 {
             return try Counter.Op(.get).perform(Cap, ctx);
         }
     });

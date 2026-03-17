@@ -1,10 +1,9 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const NoError = error{};
 const no_state = struct {};
 const fail = shift.algebraic.AbortOp("fail", []const u8);
-const Validation = shift.algebraic.Program([]const u8, NoError, .{fail});
+const Validation = shift.algebraic.Program([]const u8, .{fail});
 
 /// Write the algebraic abortive-validation transcript through the public builder surface.
 pub fn run(writer: anytype) anyerror!void {

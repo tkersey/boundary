@@ -1,11 +1,14 @@
 const algebraic = @import("algebraic.zig");
 const family = @import("family.zig");
 const lexical_with = @import("../with_api.zig");
+const lowered_machine = @import("lowered_machine");
 const shift = @import("../root.zig");
 const std = @import("std");
 
 /// Prompt-backed effect instance for a reader family.
-pub const Instance = family.Instance;
+pub fn Instance(comptime StateType: type) type {
+    return family.Instance(StateType, error{});
+}
 
 /// Lexical reader handle used by `shift.with(...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
@@ -13,7 +16,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
         ctx: ?ContextPtrType,
 
         /// Read the current environment through the lexical handle.
-        pub fn ask(self: @This()) shift.ResetError(family.ContextErrorSetType(ContextPtrType))!family.ContextStateType(ContextPtrType) {
+        pub fn ask(self: @This()) lowered_machine.ResetError(family.ContextErrorSetType(ContextPtrType))!family.ContextStateType(ContextPtrType) {
             return try algebraic.readerAsk(Cap, self.ctx.?);
         }
     };
@@ -41,8 +44,8 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
         }
 
         /// Run one lexical reader descriptor through the existing reader family.
-        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
-            var instance = Instance(StateType, ErrorSetType).init();
+        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+            var instance = family.Instance(StateType, ErrorSetType).init();
             const result = try handle(AnswerType, runtime, &instance, self.environment, Body);
             return .{
                 .output = {},
@@ -53,7 +56,7 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
 }
 
 /// Create one lexical reader descriptor for `shift.with(...)`.
-pub fn use(comptime ErrorSetType: type, environment: anytype) LexicalDescriptor(@TypeOf(environment), ErrorSetType) {
+pub fn use(environment: anytype) LexicalDescriptor(@TypeOf(environment), error{}) {
     return .{ .environment = environment };
 }
 
@@ -61,7 +64,7 @@ pub fn use(comptime ErrorSetType: type, environment: anytype) LexicalDescriptor(
 pub inline fn ask(
     comptime Cap: type,
     ctx: anytype,
-) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
+) lowered_machine.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
     return try algebraic.readerAsk(Cap, ctx);
 }
 
@@ -81,30 +84,29 @@ pub fn handle(
     instance: anytype,
     environment: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
-) shift.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
     return try algebraic.handleReader(AnswerType, runtime, instance, environment, Body);
 }
 
 test "reader instance shell stays prompt-sized" {
-    const NoError = error{};
-    const ReaderInstance = Instance(i32, NoError);
+    const ReaderInstance = Instance(i32);
     try std.testing.expectEqual(@sizeOf(usize), @sizeOf(ReaderInstance));
 }
 
 test "reader handle threads environment into the body" {
     const NoError = error{};
-    const ReaderInstance = Instance(i32, NoError);
+    const ReaderInstance = Instance(i32);
     const demo = struct {
         /// Execute the reader body by asking for the environment once.
         pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(family.computeProgram(Cap, ctx, struct {
             /// Read the active reader environment once.
-            pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)!i32 {
+            pub fn run(comptime ProgramCap: type, program_ctx: anytype) lowered_machine.ResetError(NoError)!i32 {
                 return try ask(ProgramCap, program_ctx);
             }
         })) {
             return family.computeProgram(Cap, ctx, struct {
                 /// Read the active reader environment once.
-                pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)!i32 {
+                pub fn run(comptime ProgramCap: type, program_ctx: anytype) lowered_machine.ResetError(NoError)!i32 {
                     return try ask(ProgramCap, program_ctx);
                 }
             });
@@ -120,13 +122,13 @@ test "reader handle threads environment into the body" {
 
 test "nested same-shaped reader handles get distinct capability types" {
     const NoError = error{};
-    const ReaderInstance = Instance(i32, NoError);
+    const ReaderInstance = Instance(i32);
     const demo = struct {
         var runtime_ptr: ?*shift.Runtime = null;
         var inner_ptr: ?*const ReaderInstance = null;
 
         /// Open an inner reader handle and prove its capability type differs from the outer one.
-        pub fn outer(comptime OuterCap: type, _: anytype) shift.ResetError(NoError)!i32 {
+        pub fn outer(comptime OuterCap: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
             return try handle(i32, runtime_ptr.?, inner_ptr.?, 0, struct {
                 /// Reject capability-type collapse inside the nested reader handle.
                 pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(family.computeProgram(InnerCap, inner_ctx, struct {
@@ -159,13 +161,13 @@ test "nested same-shaped reader handles get distinct capability types" {
         /// Enter the outer reader handle and hand its capability to the nested check.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(family.computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested reader witness through the outer capability.
-            pub fn run(_: type, _: anytype) shift.ResetError(NoError)!i32 {
+            pub fn run(_: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
                 return try demo.outer(OuterCap, {});
             }
         })) {
             return family.computeProgram(OuterCap, ctx, struct {
                 /// Re-enter the nested reader witness through the outer capability.
-                pub fn run(_: type, _: anytype) shift.ResetError(NoError)!i32 {
+                pub fn run(_: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
                     return try demo.outer(OuterCap, {});
                 }
             });

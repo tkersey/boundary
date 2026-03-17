@@ -9,10 +9,10 @@ pub fn run(writer: anytype) anyerror!void {
     defer runtime.deinit();
 
     const result = try shift.with(&runtime, .{
-        .state = shift.effect.state.use(NoError, @as(i32, 5)),
+        .state = shift.effect.state.use(@as(i32, 5)),
     }, struct {
         /// Increment the lexical state once and return the canonical value witness.
-        pub fn body(eff: anytype) shift.ResetError(NoError)!i32 {
+        pub fn body(eff: anytype) !i32 {
             const before = try eff.state.get();
             try eff.state.set(before + 1);
             return before + (try eff.state.get());

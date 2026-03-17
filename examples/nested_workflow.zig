@@ -4,7 +4,6 @@ const std = @import("std");
 const NoError = error{};
 const Approval = shift.effect.Define(.{
     .state_type = struct {},
-    .error_set_type = NoError,
     .ops = .{
         shift.effect.ops.Choice("publish", void, []const u8),
     },
@@ -43,13 +42,13 @@ pub fn run(writer: anytype) anyerror!void {
         .approval = Approval.use(.{ .handler = approval_handler{} }),
     }, struct {
         /// Queue the workflow, request approval, and finish on the resumed branch.
-        pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+        pub fn body(eff: anytype) ![]const u8 {
             transcript.note("workflow=queued");
             transcript.note("audit=entered");
             transcript.note("audit=after");
             const approved = try eff.approval.publish.perform(struct {
                 /// This continuation must never run in the return-now approval branch.
-                pub fn apply(_: []const u8, _: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn apply(_: []const u8, _: anytype) ![]const u8 {
                     unreachable;
                 }
             });

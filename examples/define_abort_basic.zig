@@ -4,7 +4,6 @@ const std = @import("std");
 const NoError = error{};
 const Guard = shift.effect.Define(.{
     .state_type = struct {},
-    .error_set_type = NoError,
     .ops = .{
         shift.effect.ops.Abort("fail", []const u8),
     },
@@ -18,7 +17,7 @@ pub fn run(writer: anytype) anyerror!void {
 
     const guard_handler = struct {
         /// Validate one missing name and return the canonical generated abort answer.
-        pub fn fail(_: *@This(), payload: []const u8) shift.ResetError(NoError)![]const u8 {
+        pub fn fail(_: *@This(), payload: []const u8) ![]const u8 {
             transcript.abort_line = payload;
             return "error=missing-name";
         }
@@ -34,7 +33,7 @@ pub fn run(writer: anytype) anyerror!void {
         .guard = Guard.use(.{ .handler = guard_handler{} }),
     }, struct {
         /// Trigger the generated lexical abort point directly.
-        pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+        pub fn body(eff: anytype) ![]const u8 {
             try eff.guard.fail.abort("missing-name");
         }
     });

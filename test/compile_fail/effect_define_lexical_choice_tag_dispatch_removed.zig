@@ -29,10 +29,10 @@ pub fn main() anyerror!void {
         }{} }),
     }, struct {
         /// Attempt to use the removed generated lexical tag-dispatch choice surface.
-        pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+        pub fn body(eff: anytype) ![]const u8 {
             return try eff.picker.perform(.pick, 41, struct {
                 /// Provide the continuation for the removed lexical tag-dispatch choice surface.
-                pub fn apply(_: i32, _: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn apply(_: i32, _: anytype) ![]const u8 {
                     return "answer";
                 }
             });

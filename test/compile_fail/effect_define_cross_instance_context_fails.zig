@@ -31,18 +31,18 @@ const demo = struct {
     var inner_ptr: ?*const Counter.Instance = null;
 
     /// Open a nested generated-family handle and intentionally reuse the outer capability.
-    pub fn outer(comptime OuterCap: type, _: anytype) shift.ResetError(NoError)!i32 {
+    pub fn outer(comptime OuterCap: type, _: anytype) !i32 {
         const result = try Counter.handle(i32, runtime_ptr.?, inner_ptr.?, Handler{ .state = 0 }, struct {
             /// Attempt to call the generated family with the wrong capability.
             pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(Counter.computeProgram(InnerCap, inner_ctx, struct {
                 /// Attempt to read generated state through the wrong capability.
-                pub fn run(_: type, program_ctx: anytype) shift.ResetError(NoError)!i32 {
+                pub fn run(_: type, program_ctx: anytype) !i32 {
                     return try Counter.Op(.get).perform(OuterCap, program_ctx);
                 }
             })) {
                 return Counter.computeProgram(InnerCap, inner_ctx, struct {
                     /// Attempt to read generated state through the wrong capability.
-                    pub fn run(_: type, program_ctx: anytype) shift.ResetError(NoError)!i32 {
+                    pub fn run(_: type, program_ctx: anytype) !i32 {
                         return try Counter.Op(.get).perform(OuterCap, program_ctx);
                     }
                 });
@@ -64,13 +64,13 @@ pub fn main() anyerror!void {
         /// Re-enter the nested generated-family misuse probe.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(Counter.computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested generated-family misuse probe.
-            pub fn run(_: type, _: anytype) shift.ResetError(NoError)!i32 {
+            pub fn run(_: type, _: anytype) !i32 {
                 return try demo.outer(OuterCap, {});
             }
         })) {
             return Counter.computeProgram(OuterCap, ctx, struct {
                 /// Re-enter the nested generated-family misuse probe.
-                pub fn run(_: type, _: anytype) shift.ResetError(NoError)!i32 {
+                pub fn run(_: type, _: anytype) !i32 {
                     return try demo.outer(OuterCap, {});
                 }
             });

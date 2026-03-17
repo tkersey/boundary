@@ -135,23 +135,40 @@ fn assertBodyType(comptime Body: type, comptime ContextType: type, comptime Erro
     if (!@hasDecl(Body, "program") and !@hasDecl(Body, "body")) @compileError("algebraic body must declare program or body");
 }
 
+fn FnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
+    const ReturnType = @typeInfo(FnType).@"fn".return_type.?;
+    return switch (@typeInfo(ReturnType)) {
+        .error_union => |err_union| err_union.payload == ExpectedType,
+        else => ReturnType == ExpectedType,
+    };
+}
+
+fn FnParamsMatch(comptime FnType: type, comptime params: []const type) bool {
+    const actual = @typeInfo(FnType).@"fn".params;
+    if (actual.len != params.len) return false;
+    inline for (params, 0..) |ParamType, index| {
+        if (actual[index].type == null or actual[index].type.? != ParamType) return false;
+    }
+    return true;
+}
+
 fn assertTransformImplType(comptime TransformContract: type) void {
     const StateType = TransformContract.state_type;
     const Op = TransformContract.op_type;
     const Impl = TransformContract.impl_type;
     const ContinueAnswer = TransformContract.continue_answer_type;
-    const ErrorSet = TransformContract.error_set_type;
+    _ = TransformContract.error_set_type;
     const Answer = TransformContract.answer_type;
     if (!@hasDecl(Impl, "resumeValue")) @compileError("transform handler must declare resumeValue");
     if (!@hasDecl(Impl, "afterResume")) @compileError("transform handler must declare afterResume");
 
     const ResumeFn = @TypeOf(Impl.resumeValue);
-    if (ResumeFn != fn (StateType, Op.Payload) Op.Resume and ResumeFn != fn (StateType, Op.Payload) lowered_machine.ResetError(ErrorSet)!Op.Resume) {
+    if (!FnParamsMatch(ResumeFn, &.{ StateType, Op.Payload }) or !FnReturnMatches(ResumeFn, Op.Resume)) {
         @compileError("transform handler resumeValue must have type fn (State, Payload) Resume or fn (State, Payload) ResetError(ErrorSet)!Resume");
     }
 
     const AfterFn = @TypeOf(Impl.afterResume);
-    if (AfterFn != fn (StateType, ContinueAnswer) Answer and AfterFn != fn (StateType, ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer) {
+    if (!FnParamsMatch(AfterFn, &.{ StateType, ContinueAnswer }) or !FnReturnMatches(AfterFn, Answer)) {
         @compileError("transform handler afterResume must have type fn (State, ContinueAnswer) Answer or fn (State, ContinueAnswer) ResetError(ErrorSet)!Answer");
     }
 }
@@ -161,19 +178,19 @@ fn assertChoiceImplType(comptime ChoiceContract: type) void {
     const Op = ChoiceContract.op_type;
     const Impl = ChoiceContract.impl_type;
     const ContinueAnswer = ChoiceContract.continue_answer_type;
-    const ErrorSet = ChoiceContract.error_set_type;
+    _ = ChoiceContract.error_set_type;
     const Answer = ChoiceContract.answer_type;
     if (!@hasDecl(Impl, "resumeOrReturn")) @compileError("choice handler must declare resumeOrReturn");
     if (!@hasDecl(Impl, "afterResume")) @compileError("choice handler must declare afterResume");
 
     const DecisionType = prompt_contract.ResumeOrReturn(Op.Resume, Answer);
     const DecideFn = @TypeOf(Impl.resumeOrReturn);
-    if (DecideFn != fn (StateType, Op.Payload) DecisionType and DecideFn != fn (StateType, Op.Payload) lowered_machine.ResetError(ErrorSet)!DecisionType) {
+    if (!FnParamsMatch(DecideFn, &.{ StateType, Op.Payload }) or !FnReturnMatches(DecideFn, DecisionType)) {
         @compileError("choice handler resumeOrReturn must have type fn (State, Payload) ResumeOrReturn or fn (State, Payload) ResetError(ErrorSet)!ResumeOrReturn");
     }
 
     const AfterFn = @TypeOf(Impl.afterResume);
-    if (AfterFn != fn (StateType, ContinueAnswer) Answer and AfterFn != fn (StateType, ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer) {
+    if (!FnParamsMatch(AfterFn, &.{ StateType, ContinueAnswer }) or !FnReturnMatches(AfterFn, Answer)) {
         @compileError("choice handler afterResume must have type fn (State, ContinueAnswer) Answer or fn (State, ContinueAnswer) ResetError(ErrorSet)!Answer");
     }
 }
@@ -185,9 +202,10 @@ fn assertAbortImplType(
     comptime ErrorSet: type,
     comptime Answer: type,
 ) void {
+    _ = ErrorSet;
     if (!@hasDecl(Impl, "directReturn")) @compileError("abort handler must declare directReturn");
     const DirectFn = @TypeOf(Impl.directReturn);
-    if (DirectFn != fn (StateType, Op.Payload) Answer and DirectFn != fn (StateType, Op.Payload) lowered_machine.ResetError(ErrorSet)!Answer) {
+    if (!FnParamsMatch(DirectFn, &.{ StateType, Op.Payload }) or !FnReturnMatches(DirectFn, Answer)) {
         @compileError("abort handler directReturn must have type fn (State, Payload) Answer or fn (State, Payload) ResetError(ErrorSet)!Answer");
     }
 }

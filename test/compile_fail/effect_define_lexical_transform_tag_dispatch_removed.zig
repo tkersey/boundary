@@ -42,7 +42,7 @@ pub fn main() anyerror!void {
         }{} }),
     }, struct {
         /// Attempt to use the removed generated lexical tag-dispatch transform surface.
-        pub fn body(eff: anytype) shift.ResetError(NoError)!i32 {
+        pub fn body(eff: anytype) !i32 {
             return try eff.counter.perform(.get);
         }
     });
