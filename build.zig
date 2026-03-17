@@ -662,6 +662,10 @@ pub fn build(b: *std.Build) void {
     const ordinary_tool_step = b.step("ordinary-lower", "Build the public experimental ordinary-Zig lowering tool.");
     ordinary_tool_step.dependOn(&ordinary_tool_exe.step);
     ordinary_tool_step.dependOn(&ordinary_tool_install.step);
+    const ordinary_tool_contract_cmd = b.addSystemCommand(&.{ "sh", "test/ordinary_tool_contract/run.sh" });
+    ordinary_tool_contract_cmd.step.dependOn(&ordinary_tool_install.step);
+    const ordinary_tool_contract_step = b.step("ordinary-tool-contract", "Check ordinary tool rejected/accepted Zig emission contracts.");
+    ordinary_tool_contract_step.dependOn(&ordinary_tool_contract_cmd.step);
 
     const surface_repl_mod = b.createModule(.{
         .root_source_file = b.path("tools/render_surface_replacement_matrix.zig"),
@@ -717,6 +721,7 @@ pub fn build(b: *std.Build) void {
     ordinary_gauntlet_step.dependOn(&run_lexical_with_tests.step);
     ordinary_gauntlet_step.dependOn(&ordinary_contract_cmd.step);
     ordinary_gauntlet_step.dependOn(&ordinary_matrix_check_cmd.step);
+    ordinary_gauntlet_step.dependOn(&ordinary_tool_contract_cmd.step);
     test_step.dependOn(ordinary_gauntlet_step);
     test_step.dependOn(&surface_repl_check_cmd.step);
     test_step.dependOn(&witness_admission_check_cmd.step);

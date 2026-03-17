@@ -150,7 +150,18 @@ fn writeZig(program: ordinary.GeneratedProgram, writer: anytype) !void {
         try writeZigStringLiteral(writer, flag);
     }
     try writer.writeAll("},\n");
-    try writer.writeAll("    .diagnostics = &.{},\n");
+    try writer.writeAll("    .diagnostics = &.{");
+    for (program.diagnostics, 0..) |diag, idx| {
+        if (idx != 0) try writer.writeAll(", ");
+        try writer.writeAll(".{ .code = ");
+        try writeZigStringLiteral(writer, diag.code);
+        try writer.writeAll(", .message = ");
+        try writeZigStringLiteral(writer, diag.message);
+        try writer.writeAll(", .path = ");
+        try writeZigStringLiteral(writer, diag.path);
+        try writer.print(", .line = {d}, .column = {d} }}", .{ diag.line, diag.column });
+    }
+    try writer.writeAll("},\n");
     try writer.writeAll("};\n\n");
     try writer.writeAll(
         "pub fn runLowered(writer: anytype) !void {\n" ++

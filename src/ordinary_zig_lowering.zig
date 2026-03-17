@@ -710,6 +710,31 @@ fn shapeDiagnostic(
     return diags;
 }
 
+fn sourcePathDiagnostic(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    message: []const u8,
+) std.mem.Allocator.Error![]const Diagnostic {
+    const diags = try allocator.alloc(Diagnostic, 1);
+    diags[0] = .{
+        .code = "non_canonical_source_path",
+        .message = message,
+        .path = path,
+        .line = 1,
+        .column = 1,
+    };
+    return diags;
+}
+
+fn sourcePathMatchesExpected(allocator: std.mem.Allocator, actual_path: []const u8, expected_path: []const u8) bool {
+    const cwd = std.fs.cwd();
+    const actual_realpath = cwd.realpathAlloc(allocator, actual_path) catch return false;
+    defer allocator.free(actual_realpath);
+    const expected_realpath = cwd.realpathAlloc(allocator, expected_path) catch return false;
+    defer allocator.free(expected_realpath);
+    return std.mem.eql(u8, actual_realpath, expected_realpath);
+}
+
 fn hasTopLevelFunctionNamed(tree: std.zig.Ast, name: []const u8) bool {
     var container_buffer: [2]std.zig.Ast.Node.Index = undefined;
     const root = tree.fullContainerDecl(&container_buffer, .root) orelse return false;
@@ -889,6 +914,14 @@ pub fn inspectSource(allocator: std.mem.Allocator, spec: Spec) LowerError!Genera
         );
     };
     defer allocator.free(source);
+    if (!sourcePathMatchesExpected(allocator, spec.source_path, case.source_path)) {
+        return rejectedProgram(
+            allocator,
+            spec,
+            case,
+            try sourcePathDiagnostic(allocator, spec.source_path, "source path does not match the canonical repo-owned path for this case"),
+        );
+    }
     return inspectSourceText(allocator, spec, case, source);
 }
 
