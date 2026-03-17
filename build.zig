@@ -98,9 +98,51 @@ fn canonicalSourceHash(b: *std.Build, path: []const u8) [32]u8 {
         @panic("unable to read canonical ordinary source");
     defer b.allocator.free(bytes);
 
+    const normalized = normalizeSourceForHashAlloc(b.allocator, bytes) catch
+        @panic("unable to normalize canonical ordinary source");
+    defer b.allocator.free(normalized);
+
     var digest: [32]u8 = undefined;
-    std.crypto.hash.Blake3.hash(bytes, &digest, .{});
+    std.crypto.hash.Blake3.hash(normalized, &digest, .{});
     return digest;
+}
+
+fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
+    var out = std.ArrayList(u8).empty;
+    defer out.deinit(allocator);
+
+    var in_string = false;
+    var escaped = false;
+    var idx: usize = 0;
+    while (idx < source.len) : (idx += 1) {
+        const byte = source[idx];
+        if (in_string) {
+            try out.append(allocator, byte);
+            if (escaped) {
+                escaped = false;
+            } else if (byte == '\\') {
+                escaped = true;
+            } else if (byte == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if (byte == '"') {
+            in_string = true;
+            try out.append(allocator, byte);
+            continue;
+        }
+        if (byte == '/' and idx + 1 < source.len and source[idx + 1] == '/') {
+            idx += 2;
+            while (idx < source.len and source[idx] != '\n') : (idx += 1) {}
+            continue;
+        }
+        if (std.ascii.isWhitespace(byte)) continue;
+        try out.append(allocator, byte);
+    }
+
+    return try out.toOwnedSlice(allocator);
 }
 
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.

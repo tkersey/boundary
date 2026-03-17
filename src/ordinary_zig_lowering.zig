@@ -57,6 +57,7 @@ pub const GeneratedProgram = struct {
 
     /// Release dynamically allocated slices owned by this generated program.
     pub fn deinit(self: *GeneratedProgram, allocator: std.mem.Allocator) void {
+        allocator.free(self.source_path);
         allocator.free(self.steps);
         allocator.free(self.feature_flags);
         allocator.free(self.diagnostics);
@@ -784,6 +785,10 @@ fn duplicateSteps(
     return try allocator.dupe(lowered_machine.Step, steps);
 }
 
+fn duplicateSourcePath(allocator: std.mem.Allocator, path: []const u8) std.mem.Allocator.Error![]const u8 {
+    return try allocator.dupe(u8, path);
+}
+
 fn parseFailureDiagnostic(
     allocator: std.mem.Allocator,
     path: []const u8,
@@ -980,11 +985,50 @@ fn canonicalSourceHash(expected_path: []const u8) ?[32]u8 {
 
 fn sourceTextMatchesCanonical(allocator: std.mem.Allocator, expected_path: []const u8, source_text: []const u8) bool {
     const expected_hash = canonicalSourceHash(expected_path) orelse return false;
-    _ = allocator;
+    const normalized = normalizeSourceForHashAlloc(allocator, source_text) catch return false;
+    defer allocator.free(normalized);
 
     var actual_hash: [32]u8 = undefined;
-    std.crypto.hash.Blake3.hash(source_text, &actual_hash, .{});
+    std.crypto.hash.Blake3.hash(normalized, &actual_hash, .{});
     return std.mem.eql(u8, &actual_hash, &expected_hash);
+}
+
+fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8) std.mem.Allocator.Error![]u8 {
+    var out = std.ArrayList(u8).empty;
+    defer out.deinit(allocator);
+
+    var in_string = false;
+    var escaped = false;
+    var idx: usize = 0;
+    while (idx < source.len) : (idx += 1) {
+        const byte = source[idx];
+        if (in_string) {
+            try out.append(allocator, byte);
+            if (escaped) {
+                escaped = false;
+            } else if (byte == '\\') {
+                escaped = true;
+            } else if (byte == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if (byte == '"') {
+            in_string = true;
+            try out.append(allocator, byte);
+            continue;
+        }
+        if (byte == '/' and idx + 1 < source.len and source[idx + 1] == '/') {
+            idx += 2;
+            while (idx < source.len and source[idx] != '\n') : (idx += 1) {}
+            continue;
+        }
+        if (std.ascii.isWhitespace(byte)) continue;
+        try out.append(allocator, byte);
+    }
+
+    return try out.toOwnedSlice(allocator);
 }
 
 fn containsAllInScopes(
@@ -1016,17 +1060,25 @@ fn acceptedProgram(
     case: SupportedCase,
 ) std.mem.Allocator.Error!GeneratedProgram {
     const scenario = parity_scenarios.byId(case.scenario_id);
+    const source_path = try duplicateSourcePath(allocator, case.source_path);
+    errdefer allocator.free(source_path);
+    const steps = try duplicateSteps(allocator, scenario.steps);
+    errdefer allocator.free(steps);
+    const feature_flags = try duplicateFeatureFlags(allocator, case.match.feature_flags);
+    errdefer allocator.free(feature_flags);
+    const diagnostics = try emptyDiagnostics(allocator);
+    errdefer allocator.free(diagnostics);
     return .{
         .case_id = case.case_id,
         .label = case.label,
-        .source_path = case.source_path,
+        .source_path = source_path,
         .surface_kind = spec.surface_kind,
         .status = case.status,
         .canonical_scenario_id = case.scenario_id,
         .expected_transcript = scenario.expected_transcript,
-        .steps = try duplicateSteps(allocator, scenario.steps),
-        .feature_flags = try duplicateFeatureFlags(allocator, case.match.feature_flags),
-        .diagnostics = try emptyDiagnostics(allocator),
+        .steps = steps,
+        .feature_flags = feature_flags,
+        .diagnostics = diagnostics,
     };
 }
 
@@ -1037,17 +1089,26 @@ fn rejectedProgram(
     diagnostics: []const Diagnostic,
 ) std.mem.Allocator.Error!GeneratedProgram {
     const steps = try allocator.alloc(lowered_machine.Step, 0);
+    errdefer allocator.free(steps);
+    const source_path = try duplicateSourcePath(allocator, spec.source_path);
+    errdefer allocator.free(source_path);
+    const owned_diagnostics = try allocator.dupe(Diagnostic, diagnostics);
+    errdefer allocator.free(owned_diagnostics);
+    allocator.free(diagnostics);
+    for (owned_diagnostics) |*diag| diag.path = source_path;
+    const feature_flags = try duplicateFeatureFlags(allocator, case.match.feature_flags);
+    errdefer allocator.free(feature_flags);
     return .{
         .case_id = case.case_id,
         .label = case.label,
-        .source_path = spec.source_path,
+        .source_path = source_path,
         .surface_kind = spec.surface_kind,
         .status = .rejected,
         .canonical_scenario_id = case.scenario_id,
         .expected_transcript = "",
         .steps = steps,
-        .feature_flags = try duplicateFeatureFlags(allocator, case.match.feature_flags),
-        .diagnostics = diagnostics,
+        .feature_flags = feature_flags,
+        .diagnostics = owned_diagnostics,
     };
 }
 

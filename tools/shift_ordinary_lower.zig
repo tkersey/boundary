@@ -172,9 +172,9 @@ fn writeZig(program: ordinary.GeneratedProgram, writer: anytype) !void {
     try writer.writeAll("        .label = ");
     try writeZigStringLiteral(writer, program.label);
     try writer.writeAll(",\n");
-    try writer.writeAll("        .source_path = ");
+    try writer.writeAll("        .source_path = try allocator.dupe(u8, ");
     try writeZigStringLiteral(writer, program.source_path);
-    try writer.writeAll(",\n");
+    try writer.writeAll("),\n");
     try writer.print("        .surface_kind = .{s},\n", .{@tagName(program.surface_kind)});
     try writer.print("        .status = .{s},\n", .{@tagName(program.status)});
     if (program.canonical_scenario_id) |id| {
