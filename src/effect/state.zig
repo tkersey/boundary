@@ -52,9 +52,9 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
         }
 
         /// Run one lexical state descriptor through the existing state family.
-        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             var instance = family.Instance(StateType, ErrorSetType).init();
-            const result = try handle(AnswerType, runtime, &instance, self.initial_state, Body);
+            const result = try handleWithErrorSet(AnswerType, RunErrorSetType, runtime, &instance, self.initial_state, Body);
             return .{
                 .output = result.state,
                 .value = result.value,
@@ -106,6 +106,20 @@ pub fn handle(
     AnswerType,
 ) {
     return try algebraic.handleState(AnswerType, runtime, instance, initial_state, Body);
+}
+
+pub fn handleWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    initial_state: family.InstanceStateType(@TypeOf(instance)),
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!HandleResult(
+    family.InstanceStateType(@TypeOf(instance)),
+    AnswerType,
+) {
+    return try algebraic.handleStateWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, initial_state, Body);
 }
 
 test "state instance shell stays prompt-sized" {

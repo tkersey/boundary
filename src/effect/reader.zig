@@ -44,9 +44,9 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
         }
 
         /// Run one lexical reader descriptor through the existing reader family.
-        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             var instance = family.Instance(StateType, ErrorSetType).init();
-            const result = try handle(AnswerType, runtime, &instance, self.environment, Body);
+            const result = try handleWithErrorSet(AnswerType, RunErrorSetType, runtime, &instance, self.environment, Body);
             return .{
                 .output = {},
                 .value = result,
@@ -86,6 +86,17 @@ pub fn handle(
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
     return try algebraic.handleReader(AnswerType, runtime, instance, environment, Body);
+}
+
+pub fn handleWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    environment: family.InstanceStateType(@TypeOf(instance)),
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    return try algebraic.handleReaderWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, environment, Body);
 }
 
 test "reader instance shell stays prompt-sized" {

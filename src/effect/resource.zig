@@ -55,10 +55,10 @@ pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: typ
         }
 
         /// Run one lexical resource descriptor through the existing resource family.
-        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
             var instance = family.InstanceWithMode(.resume_then_transform, ResourceType, ErrorSetType).init();
-            const result = try handle(AnswerType, runtime, &instance, Manager, Body);
+            const result = try handleWithErrorSet(AnswerType, RunErrorSetType, runtime, &instance, Manager, Body);
             return .{
                 .output = {},
                 .value = result,
@@ -98,6 +98,17 @@ pub fn handle(
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
     return try algebraic.handleResource(AnswerType, runtime, instance, Manager, Body);
+}
+
+pub fn handleWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Manager: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    return try algebraic.handleResourceWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, Manager, Body);
 }
 
 test "resource instance shell stays prompt-sized" {
@@ -261,7 +272,7 @@ test "resource handle releases before outer exception catch returns" {
             /// Re-enter the resource witness through the outer exception capability.
             pub fn run() lowered_machine.ResetError(NoError)![]const u8 {
                 const ExceptionCtxType = @TypeOf(exception_ctx);
-                const ctx: ExceptionCtxType = @constCast(@ptrCast(@alignCast(scenario.outer_exception_ctx.?)));
+                const ctx: ExceptionCtxType = @ptrCast(@alignCast(@constCast(scenario.outer_exception_ctx.?)));
                 scenario.outer_exception_ctx = null;
                 return try scenario.outer(ExceptionCap, ctx);
             }
@@ -271,7 +282,7 @@ test "resource handle releases before outer exception catch returns" {
                 /// Re-enter the resource witness through the outer exception capability.
                 pub fn run() lowered_machine.ResetError(NoError)![]const u8 {
                     const ExceptionCtxType = @TypeOf(exception_ctx);
-                    const ctx: ExceptionCtxType = @constCast(@ptrCast(@alignCast(scenario.outer_exception_ctx.?)));
+                    const ctx: ExceptionCtxType = @ptrCast(@alignCast(@constCast(scenario.outer_exception_ctx.?)));
                     scenario.outer_exception_ctx = null;
                     return try scenario.outer(ExceptionCap, ctx);
                 }
@@ -380,7 +391,7 @@ test "resource handle releases before outer optional return-now completes" {
             /// Re-enter the resource witness through the outer optional capability.
             pub fn run() lowered_machine.ResetError(NoError)![]const u8 {
                 const OptionalCtxType = @TypeOf(optional_ctx);
-                const ctx: OptionalCtxType = @constCast(@ptrCast(@alignCast(scenario.outer_optional_ctx.?)));
+                const ctx: OptionalCtxType = @ptrCast(@alignCast(@constCast(scenario.outer_optional_ctx.?)));
                 scenario.outer_optional_ctx = null;
                 return try scenario.outer(OptionalCap, ctx);
             }
@@ -390,7 +401,7 @@ test "resource handle releases before outer optional return-now completes" {
                 /// Re-enter the resource witness through the outer optional capability.
                 pub fn run() lowered_machine.ResetError(NoError)![]const u8 {
                     const OptionalCtxType = @TypeOf(optional_ctx);
-                    const ctx: OptionalCtxType = @constCast(@ptrCast(@alignCast(scenario.outer_optional_ctx.?)));
+                    const ctx: OptionalCtxType = @ptrCast(@alignCast(@constCast(scenario.outer_optional_ctx.?)));
                     scenario.outer_optional_ctx = null;
                     return try scenario.outer(OptionalCap, ctx);
                 }
@@ -446,7 +457,7 @@ test "resource release error wins after a successful body" {
 }
 
 test "resource body error wins over release error" {
-    const DemoError = error{BodyFailed, ReleaseFailed};
+    const DemoError = error{ BodyFailed, ReleaseFailed };
     const ResourceInstance = family.InstanceWithMode(.resume_then_transform, i32, DemoError);
 
     const manager = struct {

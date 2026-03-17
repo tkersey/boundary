@@ -53,7 +53,12 @@ pub fn WithResult(comptime HandlersType: type, comptime Answer: type) type {
 
 fn ReturnTypeErrorSet(comptime ReturnType: type) type {
     return switch (@typeInfo(ReturnType)) {
-        .error_union => |err_union| err_union.error_set,
+        .error_union => |err_union| blk: {
+            const error_set_name = @typeName(err_union.error_set);
+            if (err_union.error_set == anyerror) break :blk error{};
+            if (std.mem.startsWith(u8, error_set_name, "@typeInfo(")) break :blk error{};
+            break :blk err_union.error_set;
+        },
         else => error{},
     };
 }
@@ -167,9 +172,7 @@ fn BodyErrorSet(comptime Body: type, comptime EffType: type) type {
         .@"fn" => BodyFn,
         else => unreachable,
     };
-    const fn_info = @typeInfo(FnType).@"fn";
-    if (fn_info.is_generic) return error{};
-    return ReturnTypeErrorSet(fn_info.return_type.?);
+    return ReturnTypeErrorSet(@typeInfo(FnType).@"fn".return_type.?);
 }
 
 fn callBody(
@@ -220,14 +223,11 @@ pub fn ChoiceAnswerType(comptime Continuation: type) type {
 
 fn ChoiceErrorSet(comptime Continuation: type) type {
     const ResumeFn = ContinuationFnType(Continuation);
-    const fn_info = @typeInfo(ResumeFn).@"fn";
-    if (fn_info.is_generic) return error{};
-    return ReturnTypeErrorSet(fn_info.return_type.?);
+    return ReturnTypeErrorSet(@typeInfo(ResumeFn).@"fn".return_type.?);
 }
 
 fn WithSemanticErrorSet(comptime HandlersType: type, comptime Body: type) type {
-    _ = Body;
-    return HandlerErrorSet(HandlersType);
+    return HandlerErrorSet(HandlersType) || BodyErrorSet(Body, struct {});
 }
 
 pub fn With(comptime HandlersType: type, comptime Body: type) type {
@@ -285,8 +285,8 @@ fn runChainCollected(
     comptime index: usize,
     comptime EffType: type,
     state: CollectedRunState(HandlersType, EffType),
-) lowered_machine.ResetError(HandlerErrorSet(HandlersType))!BodyAnswerType(Body, EffType) {
-    const ErrorSet = HandlerErrorSet(HandlersType);
+) lowered_machine.ResetError(WithSemanticErrorSet(HandlersType, Body))!BodyAnswerType(Body, EffType) {
+    const ErrorSet = WithSemanticErrorSet(HandlersType, Body);
     const Answer = BodyAnswerType(Body, EffType);
     const fields = @typeInfo(HandlersType).@"struct".fields;
 
@@ -339,7 +339,7 @@ fn runChainCollected(
     defer step_ctx.previous_eff = previous_eff;
     defer step_ctx.outputs_ptr = previous_outputs;
 
-    const result = desc_value.run(Answer, state.runtime, step_ctx) catch |err| return @errorCast(err);
+    const result = desc_value.run(Answer, ErrorSet, state.runtime, step_ctx) catch |err| return @errorCast(err);
     if (DescriptorType.Output != void) {
         @field(state.outputs_ptr.*, field.name) = result.output;
     }
@@ -406,7 +406,7 @@ fn runChoiceChain(
     defer step_ctx.previous_eff = previous_eff;
     defer step_ctx.outputs_ptr = previous_outputs;
 
-    const result = desc_value.run(ChoiceAnswerType(Continuation), state.runtime, step_ctx) catch |err| return @errorCast(err);
+    const result = desc_value.run(ChoiceAnswerType(Continuation), ErrorSet, state.runtime, step_ctx) catch |err| return @errorCast(err);
     if (DescriptorType.Output != void) {
         @field(state.outputs_ptr.*, field.name) = result.output;
     }

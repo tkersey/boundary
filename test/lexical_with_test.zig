@@ -2,12 +2,161 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
+const LexicalRuntimeError = shift.RuntimeError || error{ FrontendSuspend, ProgramContractViolation, OutOfMemory };
+
+fn hasErrorName(comptime ErrorSet: type, comptime wanted: []const u8) bool {
+    inline for (@typeInfo(ErrorSet).error_set.?) |field| {
+        if (comptime std.mem.eql(u8, field.name, wanted)) return true;
+    }
+    return false;
+}
 
 fn expectFixtureTranscript(comptime fixture_path: []const u8, writer_fn: anytype) !void {
     var buffer: std.io.Writer.Allocating = .init(std.testing.allocator);
     defer buffer.deinit();
     try writer_fn(&buffer.writer);
     try std.testing.expectEqualStrings(@embedFile(fixture_path), buffer.written());
+}
+
+test "shift.with retains explicit body errors in ExecutionError" {
+    const BodyError = error{BodyOops};
+    const BodyExecutionError = LexicalRuntimeError || BodyError;
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const CallType = @TypeOf(shift.with(&runtime, .{
+        .state = shift.effect.state.use(@as(i32, 7)),
+    }, struct {
+        pub fn body(eff: anytype) BodyExecutionError!i32 {
+            _ = try eff.state.get();
+            return error.BodyOops;
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "BodyOops"));
+
+    _ = shift.with(&runtime, .{
+        .state = shift.effect.state.use(@as(i32, 7)),
+    }, struct {
+        pub fn body(eff: anytype) BodyExecutionError!i32 {
+            _ = try eff.state.get();
+            return error.BodyOops;
+        }
+    }) catch |err| {
+        try std.testing.expectEqual(error.BodyOops, err);
+        return;
+    };
+    return error.TestExpectedError;
+}
+
+test "lexical optional request retains explicit continuation errors" {
+    const ContinuationError = error{ContinueOops};
+    const ContinuationExecutionError = LexicalRuntimeError || ContinuationError;
+
+    const policy = struct {
+        pub fn resumeOrReturn() shift.effect.choice.Decision(i32, i32) {
+            return shift.effect.choice.Decision(i32, i32).resumeWith(41);
+        }
+
+        pub fn afterResume(answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const CallType = @TypeOf(shift.with(&runtime, .{
+        .optional = shift.effect.optional.use(i32, policy),
+    }, struct {
+        pub fn body(eff: anytype) ContinuationExecutionError!i32 {
+            return try eff.optional.request(struct {
+                pub fn apply(value: i32, _: anytype) ContinuationExecutionError!i32 {
+                    _ = value;
+                    return error.ContinueOops;
+                }
+            });
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "ContinueOops"));
+
+    _ = shift.with(&runtime, .{
+        .optional = shift.effect.optional.use(i32, policy),
+    }, struct {
+        pub fn body(eff: anytype) ContinuationExecutionError!i32 {
+            return try eff.optional.request(struct {
+                pub fn apply(value: i32, _: anytype) ContinuationExecutionError!i32 {
+                    _ = value;
+                    return error.ContinueOops;
+                }
+            });
+        }
+    }) catch |err| {
+        try std.testing.expectEqual(error.ContinueOops, err);
+        return;
+    };
+    return error.TestExpectedError;
+}
+
+test "generated lexical choice retains explicit continuation errors" {
+    const ContinuationError = error{ContinueOops};
+    const ContinuationExecutionError = LexicalRuntimeError || ContinuationError;
+    const Picker = shift.effect.Define(.{
+        .state_type = struct {},
+        .ops = .{
+            shift.effect.ops.Choice("pick", i32, i32),
+        },
+    });
+
+    const handler = struct {
+        pub fn pick(_: *@This(), value: i32) shift.effect.choice.Decision(i32, i32) {
+            return shift.effect.choice.Decision(i32, i32).resumeWith(value);
+        }
+
+        pub fn afterPick(_: *@This(), answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const CallType = @TypeOf(shift.with(&runtime, .{
+        .picker = Picker.use(.{ .handler = handler{} }),
+    }, struct {
+        pub fn body(eff: anytype) ContinuationExecutionError!i32 {
+            return try eff.picker.pick.perform(41, struct {
+                pub fn apply(value: i32, _: anytype) ContinuationExecutionError!i32 {
+                    _ = value;
+                    return error.ContinueOops;
+                }
+            });
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "ContinueOops"));
+
+    _ = shift.with(&runtime, .{
+        .picker = Picker.use(.{ .handler = handler{} }),
+    }, struct {
+        pub fn body(eff: anytype) ContinuationExecutionError!i32 {
+            return try eff.picker.pick.perform(41, struct {
+                pub fn apply(value: i32, _: anytype) ContinuationExecutionError!i32 {
+                    _ = value;
+                    return error.ContinueOops;
+                }
+            });
+        }
+    }) catch |err| {
+        try std.testing.expectEqual(error.ContinueOops, err);
+        return;
+    };
+    return error.TestExpectedError;
 }
 
 test "shift.with composes state and reader through lexical handles" {

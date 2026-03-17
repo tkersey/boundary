@@ -53,10 +53,10 @@ pub fn LexicalDescriptor(comptime PayloadType: type, comptime ErrorSetType: type
         }
 
         /// Run one lexical exception descriptor through the existing exception family.
-        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
             var instance = family.InstanceWithMode(.direct_return, PayloadType, ErrorSetType).init();
-            const result = try handle(AnswerType, runtime, &instance, Catch, Body);
+            const result = try handleWithErrorSet(AnswerType, RunErrorSetType, runtime, &instance, Catch, Body);
             return .{
                 .output = {},
                 .value = result,
@@ -106,6 +106,17 @@ pub fn handle(
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
     return try algebraic.handleException(AnswerType, runtime, instance, Catch, Body);
+}
+
+pub fn handleWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Catch: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    return try algebraic.handleExceptionWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, Catch, Body);
 }
 
 test "exception instance shell stays prompt-sized" {

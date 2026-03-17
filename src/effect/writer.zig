@@ -100,9 +100,9 @@ pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) t
         }
 
         /// Run one lexical writer descriptor through the existing writer family.
-        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             var instance = family.Instance(WriterState(ItemType), ErrorSetType).init();
-            const result = try handle(ItemType, AnswerType, runtime, &instance, self.allocator, Body);
+            const result = try handleWithErrorSet(ItemType, AnswerType, RunErrorSetType, runtime, &instance, self.allocator, Body);
             return .{
                 .output = result.items,
                 .value = result.value,
@@ -153,6 +153,28 @@ pub fn handle(
         /// Exact writer state type used by the shared writer engine adapter.
         pub const WriterStateType = WriterState(item_type);
     }, runtime, instance, allocator, Body);
+    return .{
+        .items = result.items,
+        .value = result.value,
+    };
+}
+
+pub fn handleWithErrorSet(
+    comptime ItemType: type,
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    allocator: std.mem.Allocator,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!HandleResult(ItemType, AnswerType) {
+    const item_type = ItemType;
+    const answer_type = AnswerType;
+    const result = try algebraic.handleWriterWithErrorSet(struct {
+        pub const Item = item_type;
+        pub const Answer = answer_type;
+        pub const WriterStateType = WriterState(item_type);
+    }, RunErrorSetType, runtime, instance, allocator, Body);
     return .{
         .items = result.items,
         .value = result.value,
