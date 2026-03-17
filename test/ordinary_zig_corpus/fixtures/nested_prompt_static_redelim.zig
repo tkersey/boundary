@@ -1,5 +1,7 @@
 /// Stable ordinary-Zig case id.
 pub const ordinary_case_id = "ordinary.nested_prompt_static_redelim";
+/// Embedded source text consumed by the source-validated ordinary lowerer.
+pub const source = @embedFile("nested_prompt_static_redelim.zig");
 
 fn inner(writer: anytype) anyerror!i32 {
     try writer.writeAll("inner=enter\n");

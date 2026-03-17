@@ -7,6 +7,7 @@
     {"symbol":"ResetError","current_path":"shift.ResetError","target_path":"shift.ResetError","status":"retained_public","note":"ResetError remains part of the public lowered-first root surface."},
     {"symbol":"Runtime","current_path":"shift.Runtime","target_path":"shift.Runtime","status":"retained_public","note":"Runtime remains the public lowered-first runtime handle."},
     {"symbol":"Error","current_path":"shift.Error","target_path":"shift.Error","status":"retained_public","note":"Error remains the public lowered-first runtime error surface."},
+    {"symbol":"ordinary","current_path":"shift.ordinary","target_path":"shift.ordinary","status":"retained_public","note":"ordinary is the canonical source-backed lowering surface for repo-owned ordinary, witness, generated, algebraic, and built-in effect authoring paths."},
     {"symbol":"frontend","current_path":"shift.frontend","target_path":"src/internal/prompt_support.zig:frontend","status":"removed_from_public_root","note":"The explicit program frontend is removed from the public root. Repo-owned proof surfaces now reach it through direct imports of `src/internal/prompt_support.zig:frontend` only."},
     {"symbol":"reset","current_path":"shift.reset","target_path":"src/internal/prompt_support.zig:run","status":"removed_from_public_root","note":"The top-level reset helper is removed from the public root. Repo-owned prompt-protocol proofs now use direct imports of `src/internal/prompt_support.zig:run` instead."}
   ]

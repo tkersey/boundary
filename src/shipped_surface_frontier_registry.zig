@@ -3,6 +3,7 @@ pub const Frontier = enum {
     compile_boundary,
     legacy_compat_only,
     lowered_bridge,
+    lowered_source_validated,
     lowered_structured,
 };
 
@@ -44,6 +45,13 @@ pub const surfaces = [_]Surface{
         .frontier = .lowered_bridge,
         .source = "src/private_lowered_runtime.zig",
         .note = "The supported bridge corpus already executes through the lowered machine seam.",
+    },
+    .{
+        .surface_id = "ordinary.experimental_surface",
+        .surface = "ordinary_canonical",
+        .frontier = .lowered_source_validated,
+        .source = "src/ordinary_zig_lowering.zig",
+        .note = "The canonical ordinary surface now validates the repo-owned source corpus before projecting it onto canonical lowered scenarios.",
     },
     .{
         .surface_id = "compile_fail.public_misuse",

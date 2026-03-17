@@ -1,5 +1,7 @@
 /// Stable ordinary-Zig case id.
 pub const ordinary_case_id = "ordinary.helper_call_resume";
+/// Embedded source text consumed by the source-validated ordinary lowerer.
+pub const source = @embedFile("helper_call_resume.zig");
 
 fn helper(writer: anytype) anyerror!i32 {
     try writer.writeAll("helper=enter\n");

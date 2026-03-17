@@ -9,6 +9,8 @@ pub const Error = lowered_machine.Error;
 pub const algebraic = @import("algebraic.zig");
 /// Additive algebraic-effect families built on top of the core shift/reset runtime.
 pub const effect = @import("effect/root.zig");
+/// Canonical source-backed lowering surface for the repo-owned ordinary corpus.
+pub const ordinary = @import("ordinary/root.zig");
 
 /// Runtime error union for a user-provided error set.
 pub fn ControlError(comptime ErrorSet: type) type {
@@ -39,5 +41,6 @@ test {
     _ = WithResult;
     _ = effect;
     _ = algebraic;
+    _ = ordinary;
     _ = with;
 }

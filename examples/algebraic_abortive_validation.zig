@@ -2,25 +2,42 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
-const Guard = shift.effect.Define(.{
-    .state_type = struct {},
-    .error_set_type = NoError,
-    .ops = .{
-        shift.effect.ops.Abort("fail", []const u8),
-    },
-});
+const no_state = struct {};
+const fail = shift.algebraic.AbortOp("fail", []const u8);
+const Validation = shift.algebraic.Program([]const u8, NoError, .{fail});
 
-/// Write the algebraic abortive-validation transcript through the lexical front door.
+/// Write the algebraic abortive-validation transcript through the public builder surface.
 pub fn run(writer: anytype) anyerror!void {
     const transcript = struct {
         threadlocal var abort_line: []const u8 = "";
     };
 
-    const guard_handler = struct {
-        /// Validate one missing name and return the canonical generated abort answer.
-        pub fn fail(_: *@This(), payload: []const u8) shift.ResetError(NoError)![]const u8 {
+    const abort_handler = struct {
+        /// Validate one missing name and return the canonical algebraic abort answer.
+        pub fn directReturn(_: no_state, payload: []const u8) []const u8 {
             transcript.abort_line = payload;
             return "error=missing-name";
+        }
+    };
+
+    const configured = Validation.handlers(.{
+        shift.algebraic.handleAbort(fail, no_state{}, abort_handler),
+    });
+
+    const body = struct {
+        /// Trigger the algebraic abortive operation directly.
+        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(fail, "missing-name", struct {
+            /// This algebraic abort continuation must never run.
+            pub fn apply(_: noreturn) []const u8 {
+                unreachable;
+            }
+        })) {
+            return ctx.performProgram(fail, "missing-name", struct {
+                /// This algebraic abort continuation must never run.
+                pub fn apply(_: noreturn) []const u8 {
+                    unreachable;
+                }
+            });
         }
     };
 
@@ -29,16 +46,9 @@ pub fn run(writer: anytype) anyerror!void {
 
     transcript.abort_line = "";
     try writer.writeAll("validate=name\n");
-    const result = try shift.with(&runtime, .{
-        .guard = Guard.use(.{ .handler = guard_handler{} }),
-    }, struct {
-        /// Trigger the generated lexical abort point directly.
-        pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
-            try eff.guard.fail.abort("missing-name");
-        }
-    });
+    const result = try configured.run(&runtime, body);
     try writer.print("abort={s}\n", .{transcript.abort_line});
-    try writer.print("final={s}\n", .{result.value});
+    try writer.print("final={s}\n", .{result});
 }
 
 /// Run the algebraic abortive-validation example.

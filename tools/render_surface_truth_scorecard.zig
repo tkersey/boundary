@@ -1,5 +1,7 @@
 const bridge_manifest = @import("direct_style_bridge_manifest");
+const ordinary = @import("ordinary_zig_registry");
 const program_frontend = @import("program_frontend");
+const replacements = @import("surface_replacement_registry");
 const std = @import("std");
 
 fn scorecardPath() []const u8 {
@@ -40,11 +42,21 @@ fn appendCaseIdsByStatus(
     try list.appendSlice(allocator, "]");
 }
 
+fn ordinaryStatus() []const u8 {
+    for (ordinary.cases) |case| {
+        if (case.status != .canonical) return "partial";
+    }
+    for (replacements.rows) |row| {
+        if (row.status != .canonical) return "partial";
+    }
+    return "canonical";
+}
+
 fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     const has_blocked_cases = bridge_manifest.blockedCount() != 0;
     try list.appendSlice(allocator, "{\n");
     try list.appendSlice(allocator, "  \"public_surface\": {\n");
-    try list.appendSlice(allocator, "    \"contract\": \"lexical effect/algebraic shift.with(...) surface\",\n");
+    try list.appendSlice(allocator, "    \"contract\": \"ordinary-first source-validated lowering surface with lexical effect/algebraic compatibility entrypoints\",\n");
     try list.appendSlice(allocator, "    \"status\": \"canonical\"\n");
     try list.appendSlice(allocator, "  },\n");
     try list.appendSlice(allocator, "  \"benchmark_stability\": {\n");
@@ -54,7 +66,7 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, "  },\n");
     try list.appendSlice(allocator, "  \"lowered_engine\": {\n");
     try list.appendSlice(allocator, "    \"surface\": \"parity_scenarios + parity_kernel\",\n");
-    try list.appendSlice(allocator, "    \"status\": \"candidate_backed\"\n");
+    try list.appendSlice(allocator, "    \"status\": \"canonical_backed\"\n");
     try list.appendSlice(allocator, "  },\n");
     try list.appendSlice(allocator, "  \"structured_programs\": {\n");
     try list.appendSlice(allocator, "    \"role\": \"internal_scaffolding\",\n");
@@ -65,6 +77,12 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try appendStringList(list, allocator, labels.items);
     try list.appendSlice(allocator, ",\n");
     try list.appendSlice(allocator, "    \"status\": \"implemented\"\n");
+    try list.appendSlice(allocator, "  },\n");
+    try list.appendSlice(allocator, "  \"ordinary_canonical_surface\": {\n");
+    try list.appendSlice(allocator, "    \"contract\": \"canonical source-validated lowering for the ordinary corpus, witness set, generated/user-defined examples, algebraic examples, and remaining built-in effect rows\",\n");
+    try list.appendSlice(allocator, "    \"status\": \"");
+    try list.appendSlice(allocator, ordinaryStatus());
+    try list.appendSlice(allocator, "\"\n");
     try list.appendSlice(allocator, "  },\n");
     try list.appendSlice(allocator, "  \"direct_style_bridge\": {\n");
     try list.appendSlice(allocator, "    \"supported_cases\": ");

@@ -1,13 +1,14 @@
 {
-  "wave": "ordinary_zig_v1",
+  "wave": "ordinary_zig_canonical",
+  "lowering_surface": "canonical_source_validated",
   "cases": [
-    {"case_id":"ordinary.local_mutation_resume","status":"green","source":"test/ordinary_zig_corpus/fixtures/local_mutation_resume.zig","note":"Local mutation around a resumed value remains green."},
-    {"case_id":"ordinary.branch_resume","status":"green","source":"test/ordinary_zig_corpus/fixtures/branch_resume.zig","note":"Branching around a resumed value remains green."},
-    {"case_id":"ordinary.loop_resume","status":"green","source":"test/ordinary_zig_corpus/fixtures/loop_resume.zig","note":"A simple while loop around a resumed value remains green."},
-    {"case_id":"ordinary.helper_call_resume","status":"green","source":"test/ordinary_zig_corpus/fixtures/helper_call_resume.zig","note":"A same-module helper call remains green."},
-    {"case_id":"ordinary.nested_prompt_static_redelim","status":"green","source":"test/ordinary_zig_corpus/fixtures/nested_prompt_static_redelim.zig","note":"Nested prompt ordering keeps static re-delimitation visible."},
-    {"case_id":"ordinary.typed_error_try","status":"green","source":"test/ordinary_zig_corpus/fixtures/typed_error_try.zig","note":"Typed error propagation through try/catch remains green."},
-    {"case_id":"ordinary.defer_resume","status":"green","source":"test/ordinary_zig_corpus/fixtures/defer_resume.zig","note":"Defer cleanup runs before the caller observes completion."},
-    {"case_id":"ordinary.errdefer_error","status":"green","source":"test/ordinary_zig_corpus/fixtures/errdefer_error.zig","note":"Errdefer cleanup runs before the caller observes an error."}
+    {"case_id":"ordinary.local_mutation_resume","status":"canonical","source":"test/ordinary_zig_corpus/fixtures/local_mutation_resume.zig","note":"Local mutation around a resumed value now stays green through direct source execution and source-validated lowered generation."},
+    {"case_id":"ordinary.branch_resume","status":"canonical","source":"test/ordinary_zig_corpus/fixtures/branch_resume.zig","note":"Branching around a resumed value now stays green through direct source execution and source-validated lowered generation."},
+    {"case_id":"ordinary.loop_resume","status":"canonical","source":"test/ordinary_zig_corpus/fixtures/loop_resume.zig","note":"A simple while loop around a resumed value now stays green through direct source execution and source-validated lowered generation."},
+    {"case_id":"ordinary.helper_call_resume","status":"canonical","source":"test/ordinary_zig_corpus/fixtures/helper_call_resume.zig","note":"A same-module helper call now stays green through direct source execution and source-validated lowered generation."},
+    {"case_id":"ordinary.nested_prompt_static_redelim","status":"canonical","source":"test/ordinary_zig_corpus/fixtures/nested_prompt_static_redelim.zig","note":"Nested prompt ordering now stays green through direct source execution and source-validated lowered generation."},
+    {"case_id":"ordinary.typed_error_try","status":"canonical","source":"test/ordinary_zig_corpus/fixtures/typed_error_try.zig","note":"Typed error propagation through try/catch now stays green through direct source execution and source-validated lowered generation."},
+    {"case_id":"ordinary.defer_resume","status":"canonical","source":"test/ordinary_zig_corpus/fixtures/defer_resume.zig","note":"Defer cleanup now stays green through direct source execution and source-validated lowered generation."},
+    {"case_id":"ordinary.errdefer_error","status":"canonical","source":"test/ordinary_zig_corpus/fixtures/errdefer_error.zig","note":"Errdefer cleanup now stays green through direct source execution and source-validated lowered generation."}
   ]
 }

@@ -93,6 +93,58 @@ fn createPlainModule(
     });
 }
 
+fn canonicalSourceHash(b: *std.Build, path: []const u8) [32]u8 {
+    const bytes = std.fs.cwd().readFileAlloc(b.allocator, b.pathFromRoot(path), 1 << 20) catch
+        @panic("unable to read canonical ordinary source");
+    defer b.allocator.free(bytes);
+
+    const normalized = normalizeSourceForHashAlloc(b.allocator, bytes) catch
+        @panic("unable to normalize canonical ordinary source");
+    defer b.allocator.free(normalized);
+
+    var digest: [32]u8 = undefined;
+    std.crypto.hash.Blake3.hash(normalized, &digest, .{});
+    return digest;
+}
+
+fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
+    var out = std.ArrayList(u8).empty;
+    defer out.deinit(allocator);
+
+    var in_string = false;
+    var escaped = false;
+    var idx: usize = 0;
+    while (idx < source.len) : (idx += 1) {
+        const byte = source[idx];
+        if (in_string) {
+            try out.append(allocator, byte);
+            if (escaped) {
+                escaped = false;
+            } else if (byte == '\\') {
+                escaped = true;
+            } else if (byte == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if (byte == '"') {
+            in_string = true;
+            try out.append(allocator, byte);
+            continue;
+        }
+        if (byte == '/' and idx + 1 < source.len and source[idx + 1] == '/') {
+            idx += 2;
+            while (idx < source.len and source[idx] != '\n') : (idx += 1) {}
+            continue;
+        }
+        if (std.ascii.isWhitespace(byte)) continue;
+        try out.append(allocator, byte);
+    }
+
+    return try out.toOwnedSlice(allocator);
+}
+
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -189,9 +241,36 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const ordinary_lowering_options = b.addOptions();
+    ordinary_lowering_options.addOption([]const u8, "package_root", b.pathFromRoot("."));
+    ordinary_lowering_options.addOption([32]u8, "hash_local_mutation_resume", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/local_mutation_resume.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_branch_resume", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/branch_resume.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_loop_resume", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/loop_resume.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_helper_call_resume", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/helper_call_resume.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_nested_prompt_static_redelim", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/nested_prompt_static_redelim.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_typed_error_try", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/typed_error_try.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_defer_resume", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/defer_resume.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_errdefer_error", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/errdefer_error.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_define_basic", canonicalSourceHash(b, "examples/define_basic.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_define_choice_basic", canonicalSourceHash(b, "examples/define_choice_basic.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_define_abort_basic", canonicalSourceHash(b, "examples/define_abort_basic.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_early_exit", canonicalSourceHash(b, "examples/early_exit.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_resume_or_return", canonicalSourceHash(b, "examples/resume_or_return.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_nested_workflow", canonicalSourceHash(b, "examples/nested_workflow.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_state_basic", canonicalSourceHash(b, "examples/state_basic.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_reader_basic", canonicalSourceHash(b, "examples/reader_basic.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_optional_basic", canonicalSourceHash(b, "examples/optional_basic.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_exception_basic", canonicalSourceHash(b, "examples/exception_basic.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_resource_basic", canonicalSourceHash(b, "examples/resource_basic.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_writer_basic", canonicalSourceHash(b, "examples/writer_basic.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_algebraic_abortive_validation", canonicalSourceHash(b, "examples/algebraic_abortive_validation.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_algebraic_artifact_search", canonicalSourceHash(b, "examples/algebraic_artifact_search.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_witness_sources", canonicalSourceHash(b, "src/witness_sources.zig"));
+    ordinary_lowering_mod.addOptions("build_options", ordinary_lowering_options);
     ordinary_lowering_mod.addImport("ordinary_zig_registry", ordinary_registry_mod);
     ordinary_lowering_mod.addImport("parity_scenarios", parity_scenarios_mod);
-    ordinary_lowering_mod.addImport("program_frontend", program_frontend_mod);
+    ordinary_lowering_mod.addImport("lowered_machine", lowered_machine_mod);
+    shift_mod.addImport("ordinary_zig_lowering", ordinary_lowering_mod);
     const surface_repl_registry_mod = b.createModule(.{
         .root_source_file = b.path("src/surface_replacement_registry.zig"),
         .target = target,
@@ -232,6 +311,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     lib_check.root_module.addImport("lowered_machine", lowered_machine_mod);
+    lib_check.root_module.addImport("ordinary_zig_lowering", ordinary_lowering_mod);
     check_step.dependOn(&lib_check.step);
 
     const root_tests = b.addTest(.{
@@ -242,6 +322,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     root_tests.root_module.addImport("lowered_machine", lowered_machine_mod);
+    root_tests.root_module.addImport("ordinary_zig_lowering", ordinary_lowering_mod);
     root_tests.root_module.addImport("prompt_contract_support", prompt_contract_support_mod);
     root_tests.root_module.addImport("frontend_support", frontend_support_mod);
     const run_root_tests = b.addRunArtifact(root_tests);
@@ -557,6 +638,7 @@ pub fn build(b: *std.Build) void {
     ordinary_corpus_mod.addImport("ordinary_zig_registry", ordinary_registry_mod);
     ordinary_corpus_mod.addImport("ordinary_zig_lowering", ordinary_lowering_mod);
     ordinary_corpus_mod.addImport("lowered_machine", lowered_machine_mod);
+    ordinary_corpus_mod.addImport("parity_scenarios", parity_scenarios_mod);
     ordinary_corpus_mod.addImport("ordinary_fixture_branch_resume", createPlainModule(b, "test/ordinary_zig_corpus/fixtures/branch_resume.zig", target, optimize));
     ordinary_corpus_mod.addImport("ordinary_fixture_defer_resume", createPlainModule(b, "test/ordinary_zig_corpus/fixtures/defer_resume.zig", target, optimize));
     ordinary_corpus_mod.addImport("ordinary_fixture_errdefer_error", createPlainModule(b, "test/ordinary_zig_corpus/fixtures/errdefer_error.zig", target, optimize));
@@ -577,10 +659,50 @@ pub fn build(b: *std.Build) void {
     });
     ordinary_boundary_mod.addImport("ordinary_zig_registry", ordinary_registry_mod);
     ordinary_boundary_mod.addImport("ordinary_zig_lowering", ordinary_lowering_mod);
+    ordinary_boundary_mod.addImport("shift", shift_mod);
     const ordinary_boundary_tests = b.addTest(.{
         .root_module = ordinary_boundary_mod,
     });
     const run_ordinary_boundary_tests = b.addRunArtifact(ordinary_boundary_tests);
+
+    const ordinary_promoted_mod = b.createModule(.{
+        .root_source_file = b.path("test/ordinary_promoted_cohort_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ordinary_promoted_mod.addImport("ordinary_zig_lowering", ordinary_lowering_mod);
+    ordinary_promoted_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    ordinary_promoted_mod.addImport("promoted_example_early_exit", createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_promoted_mod.addImport("promoted_example_resume_or_return", createShiftConsumerModule(b, "examples/resume_or_return.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_promoted_mod.addImport("promoted_example_nested_workflow", createShiftConsumerModule(b, "examples/nested_workflow.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_promoted_mod.addImport("promoted_example_state_basic", createShiftConsumerModule(b, "examples/state_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_promoted_mod.addImport("promoted_example_reader_basic", createShiftConsumerModule(b, "examples/reader_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_promoted_mod.addImport("promoted_example_optional_basic", createShiftConsumerModule(b, "examples/optional_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_promoted_mod.addImport("promoted_example_exception_basic", createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    const ordinary_promoted_tests = b.addTest(.{
+        .root_module = ordinary_promoted_mod,
+    });
+    const run_ordinary_promoted_tests = b.addRunArtifact(ordinary_promoted_tests);
+
+    const ordinary_completion_mod = b.createModule(.{
+        .root_source_file = b.path("test/ordinary_completion_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ordinary_completion_mod.addImport("ordinary_zig_lowering", ordinary_lowering_mod);
+    ordinary_completion_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    ordinary_completion_mod.addImport("witness_sources", createShiftConsumerModule(b, "src/witness_sources.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_completion_mod.addImport("example_define_basic", createShiftConsumerModule(b, "examples/define_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_completion_mod.addImport("example_define_choice_basic", createShiftConsumerModule(b, "examples/define_choice_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_completion_mod.addImport("example_define_abort_basic", createShiftConsumerModule(b, "examples/define_abort_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_completion_mod.addImport("example_algebraic_abortive_validation", createShiftConsumerModule(b, "examples/algebraic_abortive_validation.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_completion_mod.addImport("example_algebraic_artifact_search", createShiftConsumerModule(b, "examples/algebraic_artifact_search.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_completion_mod.addImport("example_resource_basic", createShiftConsumerModule(b, "examples/resource_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_completion_mod.addImport("example_writer_basic", createShiftConsumerModule(b, "examples/writer_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    const ordinary_completion_tests = b.addTest(.{
+        .root_module = ordinary_completion_mod,
+    });
+    const run_ordinary_completion_tests = b.addRunArtifact(ordinary_completion_tests);
 
     const ordinary_contract_cmd = b.addSystemCommand(&.{ "sh", "test/ordinary_zig_contract/run.sh" });
 
@@ -602,6 +724,26 @@ pub fn build(b: *std.Build) void {
     ordinary_matrix_write_cmd.addArg("write");
     const ordinary_matrix_write_step = b.step("ordinary-zig-matrix-write", "Refresh the ordinary-Zig experimental matrix artifact.");
     ordinary_matrix_write_step.dependOn(&ordinary_matrix_write_cmd.step);
+
+    const ordinary_tool_mod = b.createModule(.{
+        .root_source_file = b.path("tools/shift_ordinary_lower.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ordinary_tool_mod.addImport("ordinary_zig_lowering", ordinary_lowering_mod);
+    ordinary_tool_mod.addImport("lowered_machine", lowered_machine_mod);
+    const ordinary_tool_exe = b.addExecutable(.{
+        .name = "shift-ordinary-lower",
+        .root_module = ordinary_tool_mod,
+    });
+    const ordinary_tool_install = b.addInstallArtifact(ordinary_tool_exe, .{});
+    const ordinary_tool_step = b.step("ordinary-lower", "Build the public experimental ordinary-Zig lowering tool.");
+    ordinary_tool_step.dependOn(&ordinary_tool_exe.step);
+    ordinary_tool_step.dependOn(&ordinary_tool_install.step);
+    const ordinary_tool_contract_cmd = b.addSystemCommand(&.{ "sh", "test/ordinary_tool_contract/run.sh" });
+    ordinary_tool_contract_cmd.step.dependOn(&ordinary_tool_install.step);
+    const ordinary_tool_contract_step = b.step("ordinary-tool-contract", "Check ordinary tool rejected/accepted Zig emission contracts.");
+    ordinary_tool_contract_step.dependOn(&ordinary_tool_contract_cmd.step);
 
     const surface_repl_mod = b.createModule(.{
         .root_source_file = b.path("tools/render_surface_replacement_matrix.zig"),
@@ -652,9 +794,12 @@ pub fn build(b: *std.Build) void {
     const ordinary_gauntlet_step = b.step("ordinary-zig-gauntlet", "Run the ordinary-Zig experimental proof surface.");
     ordinary_gauntlet_step.dependOn(&run_ordinary_corpus_tests.step);
     ordinary_gauntlet_step.dependOn(&run_ordinary_boundary_tests.step);
+    ordinary_gauntlet_step.dependOn(&run_ordinary_promoted_tests.step);
+    ordinary_gauntlet_step.dependOn(&run_ordinary_completion_tests.step);
     ordinary_gauntlet_step.dependOn(&run_lexical_with_tests.step);
     ordinary_gauntlet_step.dependOn(&ordinary_contract_cmd.step);
     ordinary_gauntlet_step.dependOn(&ordinary_matrix_check_cmd.step);
+    ordinary_gauntlet_step.dependOn(&ordinary_tool_contract_cmd.step);
     test_step.dependOn(ordinary_gauntlet_step);
     test_step.dependOn(&surface_repl_check_cmd.step);
     test_step.dependOn(&witness_admission_check_cmd.step);
@@ -666,6 +811,8 @@ pub fn build(b: *std.Build) void {
     });
     scorecard_mod.addImport("program_frontend", program_frontend_mod);
     scorecard_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
+    scorecard_mod.addImport("ordinary_zig_registry", ordinary_registry_mod);
+    scorecard_mod.addImport("surface_replacement_registry", surface_repl_registry_mod);
     const scorecard_exe = b.addExecutable(.{
         .name = "shift-surface-truth-scorecard",
         .root_module = scorecard_mod,

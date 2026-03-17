@@ -2,6 +2,8 @@ const std = @import("std");
 
 /// Stable ordinary-Zig case id.
 pub const ordinary_case_id = "ordinary.defer_resume";
+/// Embedded source text consumed by the source-validated ordinary lowerer.
+pub const source = @embedFile("defer_resume.zig");
 
 fn writeCleanup(writer: anytype, line: []const u8) void {
     writer.writeAll(line) catch |err| std.debug.panic("cleanup write failed: {s}", .{@errorName(err)});

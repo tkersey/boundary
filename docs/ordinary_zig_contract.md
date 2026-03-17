@@ -2,13 +2,10 @@
 
 ## Status
 
-This track is **public experimental** and additive. It does not replace the
-current canonical `shift` product story, and it does not expose a public
-ordinary-Zig lowering surface yet.
-
-Wave one adds an **internal-only restricted lowering path** plus a checked
-ordinary-Zig corpus. The purpose of the wave is to make a small, exact, all-green
-subset true without broadening the public API.
+This track is now **canonical** for the repo-owned authored-body surfaces covered
+by `docs/surface_replacement_matrix.json`. It exposes a source-validated lowering
+surface through `shift.ordinary` and the `shift-ordinary-lower` tool, while the
+lexical `shift.with(...)` family remains a public compatibility/runtime surface.
 
 ## Long-Term Canonical Target
 
@@ -33,9 +30,9 @@ explicitly reopened:
 - internal typed prompt discipline
 - current answer-type discipline
 
-## Wave-One Supported Subset
+## Canonical Corpus
 
-Wave one supports exactly these ordinary-Zig case ids:
+The canonical ordinary corpus includes these former wave-one ordinary-Zig case ids:
 
 - `ordinary.local_mutation_resume`
 - `ordinary.branch_resume`
@@ -46,7 +43,7 @@ Wave one supports exactly these ordinary-Zig case ids:
 - `ordinary.defer_resume`
 - `ordinary.errdefer_error`
 
-These cases cover the wave-one subset:
+These cases still define the structural core of the ordinary lowering subset:
 
 - local variables and mutation
 - `if` / `else`
@@ -57,37 +54,63 @@ These cases cover the wave-one subset:
 - `defer`
 - `errdefer`
 
-## Wave-One Exclusions
+## Structural Exclusions
 
 - No public continuation handle
 - No runtime2
 - No recursion
 - No dynamic callee lowering
 - No arbitrary cross-module lowering
-- No user-invocable lowering entrypoint
+- No reflective raw-body lowering API
+- No stable non-experimental runtime-call lowering API
 - No performance contract
 
-Anything outside the exact wave-one subset is out of scope for this contract and
-must not appear as a partial, skipped, or unsupported row in the wave-one
-matrix.
+Anything outside the restricted structural subset remains out of scope for this
+contract, even though every current replacement-ledger row now maps onto it.
+
+## Canonical Replacement Rows
+
+The canonical ordinary surface now covers these repo-owned authored-body rows:
+
+- `example.define_basic`
+- `example.define_choice_basic`
+- `example.define_abort_basic`
+- `example.early_exit`
+- `example.resume_or_return`
+- `example.nested_workflow`
+- `example.state_basic`
+- `example.reader_basic`
+- `example.optional_basic`
+- `example.exception_basic`
+- `effect.state_basic`
+- `effect.reader_basic`
+- `effect.optional_basic`
+- `effect.exception_basic`
+- `example.resource_basic`
+- `example.writer_basic`
+- `example.algebraic_abortive_validation`
+- `example.algebraic_artifact_search`
+- `user_defined.*`
+- witness rows
+
+The canonical replacement ledger is only honest when every row remains backed by:
+
+1. direct source execution
+2. source-validated lowering through `shift.ordinary` / `shift-ordinary-lower`
+3. canonical scenario transcript parity
+4. witness rows also preserve evaluator/reference-machine/runtime agreement
 
 ## Surface Replacement Matrix
 
-Wave one also adds a second checked artifact:
+The checked artifact is:
 
 ```text
 docs/surface_replacement_matrix.json
 ```
 
-Unlike `docs/ordinary_zig_matrix.json`, which tracks the currently promised
-green-only ordinary-Zig wave, the replacement matrix tracks the **long-horizon
-cutover bar**. It records every current witness, example, built-in effect
-family, and user-defined effect capability class that must eventually be
-replaced by the canonical ordinary-body path.
-
-The replacement matrix does **not** mean those rows are already green. It is a
-coverage ledger and cutover gate, not a promised-wave success surface.
-Its row statuses are expected to progress through:
+It records every current witness, example, built-in effect family, and
+user-defined effect capability class that has been replaced by the canonical
+ordinary-body path. Historical row states progressed through:
 
 - `planned`
 - `candidate_green`
@@ -96,7 +119,7 @@ Its row statuses are expected to progress through:
 
 ## Proof Surface
 
-Wave one is only considered complete when both of these remain green:
+The ordinary-canonical state is only considered maintained when all of these remain green:
 
 ```text
 zig build ordinary-zig-gauntlet
