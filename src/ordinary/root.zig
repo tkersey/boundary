@@ -1,6 +1,6 @@
 const lowering = @import("ordinary_zig_lowering");
 
-/// Public experimental source-backed lowering surface for restricted ordinary Zig.
+/// Canonical source-backed lowering surface for the repo-owned ordinary corpus.
 pub const GeneratedProgram = lowering.GeneratedProgram;
 /// Status for one source-backed ordinary lowering attempt.
 pub const LowerStatus = lowering.LowerStatus;

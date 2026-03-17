@@ -1,4 +1,4 @@
-const compat = @import("internal/compat_witness_runners.zig");
+const sources = @import("witness_sources.zig");
 const std = @import("std");
 
 /// Stable witness metadata for the tests-only corpus.
@@ -37,12 +37,12 @@ pub fn runWitness(writer: anytype, id: []const u8) anyerror!void {
 
 /// Run the ATM resume-then-transform witness.
 pub fn runAtmResumeTransform(writer: anytype) anyerror!void {
-    try compat.runAtmResumeTransform(writer);
+    try sources.runAtmResumeTransform(writer);
 }
 
 /// Run the generator witness.
 pub fn runGenerator(writer: anytype) anyerror!void {
-    try compat.runGenerator(writer);
+    try sources.runGenerator(writer);
 }
 
 /// Run the early-exit practical witness.
@@ -64,25 +64,25 @@ pub fn runNestedWorkflow(writer: anytype) anyerror!void {
 
 /// Run the direct-return witness.
 pub fn runDirectReturn(writer: anytype) anyerror!void {
-    try compat.runDirectReturn(writer);
+    try sources.runDirectReturn(writer);
 }
 
 /// Run the return-now witness for resume-or-return prompts.
 pub fn runResumeOrReturnReturnNow(writer: anytype) anyerror!void {
-    try compat.runResumeOrReturnReturnNow(writer);
+    try sources.runResumeOrReturnReturnNow(writer);
 }
 
 /// Run the single-resume witness for resume-or-return prompts.
 pub fn runResumeOrReturnResume(writer: anytype) anyerror!void {
-    try compat.runResumeOrReturnResume(writer);
+    try sources.runResumeOrReturnResume(writer);
 }
 
 /// Run the static re-delimitation witness.
 pub fn runStaticRedelim(writer: anytype) anyerror!void {
-    try compat.runStaticRedelim(writer);
+    try sources.runStaticRedelim(writer);
 }
 
 /// Run the prompt-separation witness.
 pub fn runMultiPrompt(writer: anytype) anyerror!void {
-    try compat.runMultiPrompt(writer);
+    try sources.runMultiPrompt(writer);
 }

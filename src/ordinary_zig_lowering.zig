@@ -8,6 +8,8 @@ pub const SurfaceKind = enum {
     effect,
     example,
     ordinary_case,
+    user_defined_effect,
+    witness,
 };
 
 /// Progress state for one ordinary-Zig lowering result.
@@ -217,6 +219,144 @@ const exception_example_match = Match{
     .feature_flags = &.{ "exception_effect", "lexical_effect", "promoted_cohort_a" },
 };
 
+const define_basic_match = Match{
+    .required_snippets = &.{
+        "const Counter = shift.effect.Define",
+        "eff.counter.get.perform()",
+        "eff.counter.set.perform(before + 1)",
+        "counter={d}",
+    },
+    .feature_flags = &.{ "generated_transform", "user_defined_effect", "ordinary_canonical" },
+};
+
+const define_choice_match = Match{
+    .required_snippets = &.{
+        "const Picker = shift.effect.Define",
+        "eff.picker.pick.perform(41",
+        "body-after-pick",
+        "policy-after-resume",
+    },
+    .feature_flags = &.{ "generated_choice", "user_defined_effect", "ordinary_canonical" },
+};
+
+const define_abort_match = Match{
+    .required_snippets = &.{
+        "const Guard = shift.effect.Define",
+        "eff.guard.fail.abort(\"missing-name\")",
+        "abort={s}",
+    },
+    .feature_flags = &.{ "generated_abort", "user_defined_effect", "ordinary_canonical" },
+};
+
+const resource_example_match = Match{
+    .required_snippets = &.{
+        "shift.effect.resource.use([]const u8, NoError, resource_manager)",
+        "const first = try eff.resource.acquire();",
+        "const second = try eff.resource.acquire();",
+        "release=a",
+    },
+    .feature_flags = &.{ "resource_effect", "lexical_effect", "ordinary_canonical" },
+};
+
+const writer_example_match = Match{
+    .required_snippets = &.{
+        "shift.effect.writer.use([]const u8, NoError, output_fba.allocator())",
+        "try eff.writer.tell(\"a\")",
+        "try eff.writer.tell(\"b\")",
+        "value={s}",
+    },
+    .feature_flags = &.{ "writer_effect", "lexical_effect", "ordinary_canonical" },
+};
+
+const algebraic_abort_match = Match{
+    .required_snippets = &.{
+        "const fail = shift.algebraic.AbortOp(\"fail\", []const u8);",
+        "const Validation = shift.algebraic.Program([]const u8, NoError, .{fail});",
+        "ctx.performProgram(fail, \"missing-name\"",
+        "abort={s}",
+    },
+    .feature_flags = &.{ "algebraic_abort", "ordinary_canonical" },
+};
+
+const algebraic_artifact_match = Match{
+    .required_snippets = &.{
+        "const search = shift.algebraic.TransformOp(\"search\", []const u8, i32);",
+        "const ArtifactSearch = shift.algebraic.Program(i32, NoError, .{search});",
+        "ctx.performProgram(search, \"artifact-search\"",
+        "opencode_source=jsonl",
+    },
+    .feature_flags = &.{ "algebraic_transform", "ordinary_canonical" },
+};
+
+const witness_atm_match = Match{
+    .required_snippets = &.{
+        "pub fn runAtmResumeTransform(writer: anytype)",
+        "transcript.note(\"handler-enter\")",
+        "transcript.note(\"body-after-shift\")",
+        "return \"answer=42\";",
+    },
+    .feature_flags = &.{ "witness", "transform", "ordinary_canonical" },
+};
+
+const witness_direct_match = Match{
+    .required_snippets = &.{
+        "pub fn runDirectReturn(writer: anytype)",
+        "transcript.handler_line = \"handler-direct-return\"",
+        "try eff.exception.throw(\"result=early\")",
+    },
+    .feature_flags = &.{ "witness", "abort", "ordinary_canonical" },
+};
+
+const witness_ror_return_match = Match{
+    .required_snippets = &.{
+        "pub fn runResumeOrReturnReturnNow(writer: anytype)",
+        "transcript.note(\"handler-return-now\")",
+        "return try eff.optional.request",
+    },
+    .feature_flags = &.{ "witness", "choice_return_now", "ordinary_canonical" },
+};
+
+const witness_ror_resume_match = Match{
+    .required_snippets = &.{
+        "pub fn runResumeOrReturnResume(writer: anytype)",
+        "transcript.note(\"handler-decide-resume\")",
+        "transcript.note(\"body-after-shift\")",
+        "return \"answer=42\";",
+    },
+    .feature_flags = &.{ "witness", "choice_resume", "ordinary_canonical" },
+};
+
+const witness_static_redelim_match = Match{
+    .required_snippets = &.{
+        "pub fn runStaticRedelim(writer: anytype)",
+        "transcript.note(\"outer-handler-enter\")",
+        "transcript.note(\"inner-handler-enter\")",
+        "return inner_value + 9 + transcript.outer_value;",
+    },
+    .feature_flags = &.{ "witness", "static_redelim", "ordinary_canonical" },
+};
+
+const witness_multi_prompt_match = Match{
+    .required_snippets = &.{
+        "pub fn runMultiPrompt(writer: anytype)",
+        "transcript.note(\"outer-before-inner\")",
+        "_ = eff.inner;",
+        "_ = try eff.outer.step.perform();",
+        "return 42;",
+    },
+    .feature_flags = &.{ "witness", "multi_prompt", "ordinary_canonical" },
+};
+
+const witness_generator_match = Match{
+    .required_snippets = &.{
+        "pub fn runGenerator(writer: anytype)",
+        "try eff.writer.tell(switch (next)",
+        "\"yield=3\"",
+        "done={d}",
+    },
+    .feature_flags = &.{ "witness", "generator", "ordinary_canonical" },
+};
+
 const SupportedCase = struct {
     case_id: []const u8,
     label: []const u8,
@@ -255,12 +395,36 @@ fn ordinarySupportedCase(case: *const ordinary.Case) SupportedCase {
 
 fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?SupportedCase {
     if (surface_kind == .example) {
+        if (std.mem.eql(u8, case_id, "example.define_basic")) return .{
+            .case_id = case_id,
+            .label = "ordinary.example.define_basic",
+            .source_path = "examples/define_basic.zig",
+            .scenario_id = .define_basic,
+            .status = .canonical,
+            .match = define_basic_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.define_choice_basic")) return .{
+            .case_id = case_id,
+            .label = "ordinary.example.define_choice_basic",
+            .source_path = "examples/define_choice_basic.zig",
+            .scenario_id = .define_choice_basic,
+            .status = .canonical,
+            .match = define_choice_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.define_abort_basic")) return .{
+            .case_id = case_id,
+            .label = "ordinary.example.define_abort_basic",
+            .source_path = "examples/define_abort_basic.zig",
+            .scenario_id = .define_abort_basic,
+            .status = .canonical,
+            .match = define_abort_match,
+        };
         if (std.mem.eql(u8, case_id, "example.early_exit")) return .{
             .case_id = case_id,
             .label = "ordinary.example.early_exit",
             .source_path = "examples/early_exit.zig",
             .scenario_id = .early_exit,
-            .status = .parity_green,
+            .status = .canonical,
             .match = early_exit_match,
         };
         if (std.mem.eql(u8, case_id, "example.resume_or_return")) return .{
@@ -268,7 +432,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .label = "ordinary.example.resume_or_return",
             .source_path = "examples/resume_or_return.zig",
             .scenario_id = .resume_or_return,
-            .status = .parity_green,
+            .status = .canonical,
             .match = resume_or_return_example_match,
         };
         if (std.mem.eql(u8, case_id, "example.nested_workflow")) return .{
@@ -276,7 +440,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .label = "ordinary.example.nested_workflow",
             .source_path = "examples/nested_workflow.zig",
             .scenario_id = .nested_workflow_publish,
-            .status = .parity_green,
+            .status = .canonical,
             .match = nested_workflow_match,
         };
         if (std.mem.eql(u8, case_id, "example.state_basic")) return .{
@@ -284,7 +448,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .label = "ordinary.example.state_basic",
             .source_path = "examples/state_basic.zig",
             .scenario_id = .state_basic,
-            .status = .parity_green,
+            .status = .canonical,
             .match = state_example_match,
         };
         if (std.mem.eql(u8, case_id, "example.reader_basic")) return .{
@@ -292,7 +456,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .label = "ordinary.example.reader_basic",
             .source_path = "examples/reader_basic.zig",
             .scenario_id = .reader_basic,
-            .status = .parity_green,
+            .status = .canonical,
             .match = reader_example_match,
         };
         if (std.mem.eql(u8, case_id, "example.optional_basic")) return .{
@@ -300,7 +464,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .label = "ordinary.example.optional_basic",
             .source_path = "examples/optional_basic.zig",
             .scenario_id = .optional_basic,
-            .status = .parity_green,
+            .status = .canonical,
             .match = optional_example_match,
         };
         if (std.mem.eql(u8, case_id, "example.exception_basic")) return .{
@@ -308,8 +472,40 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .label = "ordinary.example.exception_basic",
             .source_path = "examples/exception_basic.zig",
             .scenario_id = .exception_basic,
-            .status = .parity_green,
+            .status = .canonical,
             .match = exception_example_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.resource_basic")) return .{
+            .case_id = case_id,
+            .label = "ordinary.example.resource_basic",
+            .source_path = "examples/resource_basic.zig",
+            .scenario_id = .resource_basic,
+            .status = .canonical,
+            .match = resource_example_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.writer_basic")) return .{
+            .case_id = case_id,
+            .label = "ordinary.example.writer_basic",
+            .source_path = "examples/writer_basic.zig",
+            .scenario_id = .writer_basic,
+            .status = .canonical,
+            .match = writer_example_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.algebraic_abortive_validation")) return .{
+            .case_id = case_id,
+            .label = "ordinary.example.algebraic_abortive_validation",
+            .source_path = "examples/algebraic_abortive_validation.zig",
+            .scenario_id = .algebraic_abortive_validation,
+            .status = .canonical,
+            .match = algebraic_abort_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.algebraic_artifact_search")) return .{
+            .case_id = case_id,
+            .label = "ordinary.example.algebraic_artifact_search",
+            .source_path = "examples/algebraic_artifact_search.zig",
+            .scenario_id = .algebraic_artifact_search,
+            .status = .canonical,
+            .match = algebraic_artifact_match,
         };
     }
     if (surface_kind == .effect) {
@@ -318,7 +514,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .label = "ordinary.effect.state_basic",
             .source_path = "examples/state_basic.zig",
             .scenario_id = .state_basic,
-            .status = .parity_green,
+            .status = .canonical,
             .match = state_example_match,
         };
         if (std.mem.eql(u8, case_id, "effect.reader_basic")) return .{
@@ -326,7 +522,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .label = "ordinary.effect.reader_basic",
             .source_path = "examples/reader_basic.zig",
             .scenario_id = .reader_basic,
-            .status = .parity_green,
+            .status = .canonical,
             .match = reader_example_match,
         };
         if (std.mem.eql(u8, case_id, "effect.optional_basic")) return .{
@@ -334,7 +530,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .label = "ordinary.effect.optional_basic",
             .source_path = "examples/optional_basic.zig",
             .scenario_id = .optional_basic,
-            .status = .parity_green,
+            .status = .canonical,
             .match = optional_example_match,
         };
         if (std.mem.eql(u8, case_id, "effect.exception_basic")) return .{
@@ -342,8 +538,108 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .label = "ordinary.effect.exception_basic",
             .source_path = "examples/exception_basic.zig",
             .scenario_id = .exception_basic,
-            .status = .parity_green,
+            .status = .canonical,
             .match = exception_example_match,
+        };
+        if (std.mem.eql(u8, case_id, "effect.resource_basic")) return .{
+            .case_id = case_id,
+            .label = "ordinary.effect.resource_basic",
+            .source_path = "examples/resource_basic.zig",
+            .scenario_id = .resource_basic,
+            .status = .canonical,
+            .match = resource_example_match,
+        };
+        if (std.mem.eql(u8, case_id, "effect.writer_basic")) return .{
+            .case_id = case_id,
+            .label = "ordinary.effect.writer_basic",
+            .source_path = "examples/writer_basic.zig",
+            .scenario_id = .writer_basic,
+            .status = .canonical,
+            .match = writer_example_match,
+        };
+    }
+    if (surface_kind == .user_defined_effect) {
+        if (std.mem.eql(u8, case_id, "user_defined.transform")) return .{
+            .case_id = case_id,
+            .label = "ordinary.user_defined.transform",
+            .source_path = "examples/define_basic.zig",
+            .scenario_id = .define_basic,
+            .status = .canonical,
+            .match = define_basic_match,
+        };
+        if (std.mem.eql(u8, case_id, "user_defined.choice")) return .{
+            .case_id = case_id,
+            .label = "ordinary.user_defined.choice",
+            .source_path = "examples/define_choice_basic.zig",
+            .scenario_id = .define_choice_basic,
+            .status = .canonical,
+            .match = define_choice_match,
+        };
+        if (std.mem.eql(u8, case_id, "user_defined.abort")) return .{
+            .case_id = case_id,
+            .label = "ordinary.user_defined.abort",
+            .source_path = "examples/define_abort_basic.zig",
+            .scenario_id = .define_abort_basic,
+            .status = .canonical,
+            .match = define_abort_match,
+        };
+    }
+    if (surface_kind == .witness) {
+        if (std.mem.eql(u8, case_id, "witness.atm_resume_transform")) return .{
+            .case_id = case_id,
+            .label = "ordinary.witness.atm_resume_transform",
+            .source_path = "src/witness_sources.zig",
+            .scenario_id = .atm_resume_transform,
+            .status = .canonical,
+            .match = witness_atm_match,
+        };
+        if (std.mem.eql(u8, case_id, "witness.direct_return")) return .{
+            .case_id = case_id,
+            .label = "ordinary.witness.direct_return",
+            .source_path = "src/witness_sources.zig",
+            .scenario_id = .direct_return,
+            .status = .canonical,
+            .match = witness_direct_match,
+        };
+        if (std.mem.eql(u8, case_id, "witness.resume_or_return_return_now")) return .{
+            .case_id = case_id,
+            .label = "ordinary.witness.resume_or_return_return_now",
+            .source_path = "src/witness_sources.zig",
+            .scenario_id = .resume_or_return_return_now,
+            .status = .canonical,
+            .match = witness_ror_return_match,
+        };
+        if (std.mem.eql(u8, case_id, "witness.resume_or_return_resume")) return .{
+            .case_id = case_id,
+            .label = "ordinary.witness.resume_or_return_resume",
+            .source_path = "src/witness_sources.zig",
+            .scenario_id = .resume_or_return_resume,
+            .status = .canonical,
+            .match = witness_ror_resume_match,
+        };
+        if (std.mem.eql(u8, case_id, "witness.static_redelim")) return .{
+            .case_id = case_id,
+            .label = "ordinary.witness.static_redelim",
+            .source_path = "src/witness_sources.zig",
+            .scenario_id = .static_redelim,
+            .status = .canonical,
+            .match = witness_static_redelim_match,
+        };
+        if (std.mem.eql(u8, case_id, "witness.multi_prompt")) return .{
+            .case_id = case_id,
+            .label = "ordinary.witness.multi_prompt",
+            .source_path = "src/witness_sources.zig",
+            .scenario_id = .multi_prompt,
+            .status = .canonical,
+            .match = witness_multi_prompt_match,
+        };
+        if (std.mem.eql(u8, case_id, "witness.generator")) return .{
+            .case_id = case_id,
+            .label = "ordinary.witness.generator",
+            .source_path = "src/witness_sources.zig",
+            .scenario_id = .generator,
+            .status = .canonical,
+            .match = witness_generator_match,
         };
     }
     return null;
@@ -518,7 +814,7 @@ fn inspectSourceText(
 pub fn inspectSource(allocator: std.mem.Allocator, spec: Spec) LowerError!GeneratedProgram {
     const case = switch (spec.surface_kind) {
         .ordinary_case => ordinarySupportedCase(ordinary.find(spec.case_id) orelse return error.UnsupportedOrdinaryCase),
-        .example, .effect => promotedSupportedCase(spec.case_id, spec.surface_kind) orelse return error.UnsupportedOrdinaryCase,
+        .example, .effect, .user_defined_effect, .witness => promotedSupportedCase(spec.case_id, spec.surface_kind) orelse return error.UnsupportedOrdinaryCase,
     };
     const source = std.fs.cwd().readFileAlloc(allocator, spec.source_path, 1 << 20) catch {
         return rejectedProgram(

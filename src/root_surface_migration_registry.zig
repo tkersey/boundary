@@ -69,7 +69,7 @@ pub const entries = [_]Entry{
         .current_path = "shift.ordinary",
         .target_path = "shift.ordinary",
         .status = .retained_public,
-        .note = "ordinary is the public experimental source-backed lowering surface for the restricted ordinary-Zig wave-one subset.",
+        .note = "ordinary is the canonical source-backed lowering surface for repo-owned ordinary, witness, generated, algebraic, and built-in effect authoring paths.",
     },
     .{
         .symbol = "frontend",

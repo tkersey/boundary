@@ -4,7 +4,7 @@ const root = @import("root.zig");
 pub const algebraic = root.algebraic;
 /// Additive algebraic-effect families over the canonical shift root.
 pub const effect = root.effect;
-/// Public experimental ordinary-Zig lowering metadata and execution helpers.
+/// Canonical ordinary-Zig lowering metadata and execution helpers.
 pub const ordinary = root.ordinary;
 /// Canonical runtime handle.
 pub const Runtime = root.Runtime;

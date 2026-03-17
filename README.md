@@ -7,17 +7,18 @@
 
 In the repo's current state, that means two things:
 
-- the canonical public surface is lexical, effect-oriented, and rooted in
-  `shift.with(...)`
-- the public API preserves direct-style ordinary Zig without exposing a public
-  continuation handle
+- the canonical authored-body surface is source-validated and rooted in
+  `shift.ordinary` / `shift-ordinary-lower`
+- the public API still preserves direct-style ordinary Zig without exposing a
+  public continuation handle
 
-The repo also exposes one public experimental ordinary-Zig lowering surface for
-the exact wave-one subset plus the promoted Cohort A examples/effects:
+The lexical runtime surfaces remain public, but they now serve as
+compatibility/runtime entrypoints beneath the canonical ordinary story:
 
-- `shift.ordinary` for metadata and generated-program handling
-- `zig build ordinary-lower` / `zig-out/bin/shift-ordinary-lower` for restricted
-  source-backed lowering
+- `shift.with(...)`
+- `shift.effect.*`
+- `shift.effect.Define(.{ ... })`
+- `shift.algebraic`
 
 The repo therefore treats runtime code as the last rung of a semantics ladder,
 not as the source of truth:
@@ -32,8 +33,12 @@ The shipped runtime backend is the canonical authored-body lowered runtime.
 
 The current public product claim is:
 
-- `shift.with(&runtime, handlers, Body)` is the canonical public entrypoint
-- built-in families install lexical handlers through `shift.effect.state`,
+- `shift.ordinary` and `shift-ordinary-lower` are the canonical source-backed
+  authoring entrypoints for the repo-owned ordinary, witness, generated,
+  algebraic, and built-in effect corpus
+- `shift.with(&runtime, handlers, Body)` remains the explicit compatibility
+  runtime entrypoint
+- built-in families still install lexical handlers through `shift.effect.state`,
   `shift.effect.reader`, `shift.effect.optional`, `shift.effect.exception`,
   `shift.effect.resource`, and `shift.effect.writer`
 - `shift.effect.Define(.{ ... })` and `shift.algebraic` add user-defined and
@@ -49,7 +54,7 @@ The current public product claim is:
 ## Semantic Commitments
 
 - static `shift/reset`, not `control/prompt`
-- lexical effect/algebraic handlers as the public story
+- ordinary-first source-backed authoring with lexical/algebraic compatibility surfaces
 - internal typed prompt discipline beneath that story
 - one-shot continuation use
 - honest answer-type pressure if the kernel requires it
@@ -151,12 +156,9 @@ one of these proof surfaces:
   the supported direct-style bridge corpus
 - `zig build direct-style-boundary` for explicit boundary checks around
   unsupported unchanged direct-style shapes
-- `zig build ordinary-zig-gauntlet` for the current promised-wave ordinary-Zig
-  contract over direct source fixtures plus the internal restricted-lowering
-  path
-- `zig build surface-replacement-check` for the checked long-horizon replacement
-  ledger that blocks the eventual canonical ordinary-body cutover until every
-  current witness/example/effect target has parity coverage
+- `zig build ordinary-zig-gauntlet` for the canonical ordinary-backed corpus
+- `zig build surface-replacement-check` for the checked canonical replacement
+  ledger that proves every current witness/example/effect target is ordinary-backed
 - `zig build runtime-route-matrix-check` for the checked execution-route matrix
   that records whether supported cases are still replayed or now run through
   the shared lowered machine

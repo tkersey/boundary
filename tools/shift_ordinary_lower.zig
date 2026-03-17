@@ -9,7 +9,7 @@ const EmitMode = enum {
 
 fn usage() noreturn {
     std.debug.print(
-        "usage: shift-ordinary-lower --id <ordinary.case> --source <path> --entry <symbol> --surface <ordinary_case|example|effect> --emit <json|zig> --out <path>\n",
+        "usage: shift-ordinary-lower --id <ordinary.case> --source <path> --entry <symbol> --surface <ordinary_case|example|effect|user_defined_effect|witness> --emit <json|zig> --out <path>\n",
         .{},
     );
     std.process.exit(1);
@@ -19,6 +19,8 @@ fn parseSurface(value: []const u8) ?ordinary.SurfaceKind {
     if (std.mem.eql(u8, value, "ordinary_case")) return .ordinary_case;
     if (std.mem.eql(u8, value, "example")) return .example;
     if (std.mem.eql(u8, value, "effect")) return .effect;
+    if (std.mem.eql(u8, value, "user_defined_effect")) return .user_defined_effect;
+    if (std.mem.eql(u8, value, "witness")) return .witness;
     return null;
 }
 

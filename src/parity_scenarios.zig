@@ -15,6 +15,9 @@ pub const ScenarioId = enum {
     algebraic_abortive_validation,
     algebraic_artifact_search,
     atm_resume_transform,
+    define_abort_basic,
+    define_basic,
+    define_choice_basic,
     direct_return,
     early_exit,
     exception_basic,
@@ -466,6 +469,30 @@ const early_exit_steps = [_]Step{
     .{ .emit = .{ .final_string = "result=early" } },
 };
 
+const define_basic_steps = [_]Step{
+    .{ .set_final = .{ .i32 = 6 } },
+    .{ .emit = .{ .note = "counter=6" } },
+};
+
+const define_choice_steps = [_]Step{
+    .{ .emit = .{ .note = "branch=return_now" } },
+    .{ .emit = .{ .note = "policy-return-now" } },
+    .{ .emit = .{ .note = "final=result=early" } },
+    .{ .emit = .{ .note = "branch=resume_with" } },
+    .{ .emit = .{ .note = "policy-resume" } },
+    .{ .emit = .{ .note = "body-after-pick" } },
+    .{ .emit = .{ .note = "policy-after-resume" } },
+    .{ .set_final = .{ .string = "answer=42" } },
+    .{ .emit = .{ .note = "final=answer=42" } },
+};
+
+const define_abort_steps = [_]Step{
+    .{ .emit = .{ .note = "validate=name" } },
+    .{ .emit = .{ .note = "abort=missing-name" } },
+    .{ .set_final = .{ .string = "error=missing-name" } },
+    .{ .emit = .{ .note = "final=error=missing-name" } },
+};
+
 const resume_or_return_steps = [_]Step{
     .{ .emit = .{ .note = "branch=return_now" } },
     .{ .emit = .{ .note = "handler-return-now" } },
@@ -731,6 +758,30 @@ pub const scenarios = [_]Scenario{
             .title = "Generator",
             .witness_id = "generator",
         },
+    },
+    .{
+        .case_id = "define_basic",
+        .expected_transcript = "counter=6\n",
+        .fixture_name = "define_basic.txt",
+        .scenario_id = .define_basic,
+        .surface = .example,
+        .steps = &define_basic_steps,
+    },
+    .{
+        .case_id = "define_choice_basic",
+        .expected_transcript = "branch=return_now\npolicy-return-now\nfinal=result=early\nbranch=resume_with\npolicy-resume\nbody-after-pick\npolicy-after-resume\nfinal=answer=42\n",
+        .fixture_name = "define_choice_basic.txt",
+        .scenario_id = .define_choice_basic,
+        .surface = .example,
+        .steps = &define_choice_steps,
+    },
+    .{
+        .case_id = "define_abort_basic",
+        .expected_transcript = "validate=name\nabort=missing-name\nfinal=error=missing-name\n",
+        .fixture_name = "define_abort_basic.txt",
+        .scenario_id = .define_abort_basic,
+        .surface = .example,
+        .steps = &define_abort_steps,
     },
     .{
         .case_id = "early_exit",

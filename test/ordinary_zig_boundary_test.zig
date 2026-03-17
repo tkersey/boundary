@@ -5,7 +5,7 @@ const std = @import("std");
 test "ordinary Zig registry keeps the exact wave-one case count" {
     try std.testing.expectEqual(@as(usize, 8), ordinary.cases.len);
     for (ordinary.cases) |case| {
-        try std.testing.expect(case.status == .parity_green);
+        try std.testing.expect(case.status == .canonical);
     }
 }
 

@@ -48,10 +48,10 @@ pub const surfaces = [_]Surface{
     },
     .{
         .surface_id = "ordinary.experimental_surface",
-        .surface = "ordinary_experimental",
+        .surface = "ordinary_canonical",
         .frontier = .lowered_source_validated,
         .source = "src/ordinary_zig_lowering.zig",
-        .note = "The public experimental ordinary-Zig wave-one surface now validates restricted source files before projecting them onto canonical lowered scenarios.",
+        .note = "The canonical ordinary surface now validates the repo-owned source corpus before projecting it onto canonical lowered scenarios.",
     },
     .{
         .surface_id = "compile_fail.public_misuse",

@@ -44,37 +44,19 @@ fn appendCaseIdsByStatus(
 
 fn ordinaryStatus() []const u8 {
     for (ordinary.cases) |case| {
-        if (case.status != .parity_green and case.status != .canonical) return "partial";
+        if (case.status != .canonical) return "partial";
     }
-    const promoted_ids = [_][]const u8{
-        "example.early_exit",
-        "example.resume_or_return",
-        "example.nested_workflow",
-        "example.state_basic",
-        "example.reader_basic",
-        "example.optional_basic",
-        "example.exception_basic",
-        "built_in.state",
-        "built_in.reader",
-        "built_in.optional",
-        "built_in.exception",
-    };
-    outer: for (promoted_ids) |id| {
-        for (replacements.rows) |row| {
-            if (!std.mem.eql(u8, row.replacement_id, id)) continue;
-            if (row.status != .parity_green and row.status != .canonical) return "parity_backed_wave_one";
-            continue :outer;
-        }
-        return "parity_backed_wave_one";
+    for (replacements.rows) |row| {
+        if (row.status != .canonical) return "partial";
     }
-    return "promoted_cohort_a";
+    return "canonical";
 }
 
 fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     const has_blocked_cases = bridge_manifest.blockedCount() != 0;
     try list.appendSlice(allocator, "{\n");
     try list.appendSlice(allocator, "  \"public_surface\": {\n");
-    try list.appendSlice(allocator, "    \"contract\": \"lexical effect/algebraic shift.with(...) surface\",\n");
+    try list.appendSlice(allocator, "    \"contract\": \"ordinary-first source-validated lowering surface with lexical effect/algebraic compatibility entrypoints\",\n");
     try list.appendSlice(allocator, "    \"status\": \"canonical\"\n");
     try list.appendSlice(allocator, "  },\n");
     try list.appendSlice(allocator, "  \"benchmark_stability\": {\n");
@@ -84,7 +66,7 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, "  },\n");
     try list.appendSlice(allocator, "  \"lowered_engine\": {\n");
     try list.appendSlice(allocator, "    \"surface\": \"parity_scenarios + parity_kernel\",\n");
-    try list.appendSlice(allocator, "    \"status\": \"candidate_backed\"\n");
+    try list.appendSlice(allocator, "    \"status\": \"canonical_backed\"\n");
     try list.appendSlice(allocator, "  },\n");
     try list.appendSlice(allocator, "  \"structured_programs\": {\n");
     try list.appendSlice(allocator, "    \"role\": \"internal_scaffolding\",\n");
@@ -96,8 +78,8 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, ",\n");
     try list.appendSlice(allocator, "    \"status\": \"implemented\"\n");
     try list.appendSlice(allocator, "  },\n");
-    try list.appendSlice(allocator, "  \"ordinary_experimental_surface\": {\n");
-    try list.appendSlice(allocator, "    \"contract\": \"public experimental source-validated lowering for the wave-one ordinary-Zig subset plus the promoted Cohort A example/effect rows\",\n");
+    try list.appendSlice(allocator, "  \"ordinary_canonical_surface\": {\n");
+    try list.appendSlice(allocator, "    \"contract\": \"canonical source-validated lowering for the ordinary corpus, witness set, generated/user-defined examples, algebraic examples, and remaining built-in effect rows\",\n");
     try list.appendSlice(allocator, "    \"status\": \"");
     try list.appendSlice(allocator, ordinaryStatus());
     try list.appendSlice(allocator, "\"\n");

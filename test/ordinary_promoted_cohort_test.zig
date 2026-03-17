@@ -33,7 +33,7 @@ fn expectPromotedCase(comptime promoted: PromotedCase) !void {
     defer lowered.deinit(std.testing.allocator);
 
     try std.testing.expect(lowered.isAccepted());
-    try std.testing.expect(lowered.status == .parity_green);
+    try std.testing.expect(lowered.status == .canonical);
     try std.testing.expectEqual(promoted.scenario_id, lowered.canonical_scenario_id.?);
 
     var lowered_buffer: [2048]u8 = undefined;
@@ -45,7 +45,7 @@ fn expectPromotedCase(comptime promoted: PromotedCase) !void {
     try std.testing.expectEqualStrings(scenario.expected_transcript, lowered_writer.buffered());
 }
 
-test "promoted ordinary example and effect cohort stays source-backed and parity green" {
+test "promoted ordinary example and effect cohort stays source-backed and canonical" {
     try expectPromotedCase(.{
         .case_id = "example.early_exit",
         .source_path = "examples/early_exit.zig",

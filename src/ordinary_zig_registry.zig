@@ -16,7 +16,7 @@ pub const Case = struct {
     fixture_path: []const u8,
     forbidden_transcript: ?[]const u8,
     note: []const u8,
-    status: Status = .parity_green,
+    status: Status = .canonical,
 };
 
 /// Locked wave-one ordinary-Zig cases.

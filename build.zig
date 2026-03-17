@@ -606,6 +606,26 @@ pub fn build(b: *std.Build) void {
     });
     const run_ordinary_promoted_tests = b.addRunArtifact(ordinary_promoted_tests);
 
+    const ordinary_completion_mod = b.createModule(.{
+        .root_source_file = b.path("test/ordinary_completion_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ordinary_completion_mod.addImport("ordinary_zig_lowering", ordinary_lowering_mod);
+    ordinary_completion_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    ordinary_completion_mod.addImport("witness_sources", createShiftConsumerModule(b, "src/witness_sources.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_completion_mod.addImport("example_define_basic", createShiftConsumerModule(b, "examples/define_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_completion_mod.addImport("example_define_choice_basic", createShiftConsumerModule(b, "examples/define_choice_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_completion_mod.addImport("example_define_abort_basic", createShiftConsumerModule(b, "examples/define_abort_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_completion_mod.addImport("example_algebraic_abortive_validation", createShiftConsumerModule(b, "examples/algebraic_abortive_validation.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_completion_mod.addImport("example_algebraic_artifact_search", createShiftConsumerModule(b, "examples/algebraic_artifact_search.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_completion_mod.addImport("example_resource_basic", createShiftConsumerModule(b, "examples/resource_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    ordinary_completion_mod.addImport("example_writer_basic", createShiftConsumerModule(b, "examples/writer_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    const ordinary_completion_tests = b.addTest(.{
+        .root_module = ordinary_completion_mod,
+    });
+    const run_ordinary_completion_tests = b.addRunArtifact(ordinary_completion_tests);
+
     const ordinary_contract_cmd = b.addSystemCommand(&.{ "sh", "test/ordinary_zig_contract/run.sh" });
 
     const ordinary_matrix_mod = b.createModule(.{
@@ -693,6 +713,7 @@ pub fn build(b: *std.Build) void {
     ordinary_gauntlet_step.dependOn(&run_ordinary_corpus_tests.step);
     ordinary_gauntlet_step.dependOn(&run_ordinary_boundary_tests.step);
     ordinary_gauntlet_step.dependOn(&run_ordinary_promoted_tests.step);
+    ordinary_gauntlet_step.dependOn(&run_ordinary_completion_tests.step);
     ordinary_gauntlet_step.dependOn(&run_lexical_with_tests.step);
     ordinary_gauntlet_step.dependOn(&ordinary_contract_cmd.step);
     ordinary_gauntlet_step.dependOn(&ordinary_matrix_check_cmd.step);

@@ -31,7 +31,7 @@ fn expectCase(comptime Fixture: type) !void {
     try std.testing.expectEqualStrings(scenario.expected_transcript, lowered_writer.buffered());
     try std.testing.expectEqual(case.scenario_id, lowered.canonical_scenario_id.?);
     try std.testing.expectEqual(@as(usize, scenario.steps.len), lowered.steps.len);
-    try std.testing.expect(lowered.status == .parity_green);
+    try std.testing.expect(lowered.status == .canonical);
 
     if (case.forbidden_transcript) |forbidden| {
         try std.testing.expect(!std.mem.eql(u8, forbidden, source_writer.buffered()));
