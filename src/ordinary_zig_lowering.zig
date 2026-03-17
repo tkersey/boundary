@@ -2,6 +2,7 @@ const lowered_machine = @import("lowered_machine");
 const ordinary = @import("ordinary_zig_registry");
 const parity_scenarios = @import("parity_scenarios");
 const std = @import("std");
+const build_options = @import("build_options");
 
 /// Source classification for one restricted ordinary-Zig lowering request.
 pub const SurfaceKind = enum {
@@ -28,6 +29,9 @@ pub const Diagnostic = struct {
     line: usize,
     column: usize,
 };
+
+/// One lowered-machine step emitted through the public ordinary surface.
+pub const Step = lowered_machine.Step;
 
 /// Input specification for one restricted ordinary-Zig lowering request.
 pub const Spec = struct {
@@ -859,7 +863,16 @@ fn sourcePathMatchesExpected(allocator: std.mem.Allocator, actual_path: []const 
 
     if (!std.mem.endsWith(u8, actual_realpath, normalized_expected)) return false;
     if (actual_realpath.len == normalized_expected.len) return true;
-    return actual_realpath[actual_realpath.len - normalized_expected.len - 1] == std.fs.path.sep;
+    if (actual_realpath[actual_realpath.len - normalized_expected.len - 1] != std.fs.path.sep) return false;
+
+    const repo_root = actual_realpath[0 .. actual_realpath.len - normalized_expected.len - 1];
+    if (repo_root.len == 0) return false;
+
+    var repo_dir = std.fs.openDirAbsolute(repo_root, .{}) catch return false;
+    defer repo_dir.close();
+    repo_dir.access("build.zig", .{}) catch return false;
+    repo_dir.access("src/root.zig", .{}) catch return false;
+    return true;
 }
 
 fn hasTopLevelFunctionNamed(tree: std.zig.Ast, name: []const u8) bool {
@@ -926,6 +939,42 @@ fn entryFunctionSourceSlice(tree: std.zig.Ast, source: []const u8, name: []const
         return source[start..end];
     }
     return null;
+}
+
+fn canonicalSourceHash(expected_path: []const u8) ?[32]u8 {
+    if (std.mem.eql(u8, expected_path, "test/ordinary_zig_corpus/fixtures/local_mutation_resume.zig")) return build_options.hash_local_mutation_resume;
+    if (std.mem.eql(u8, expected_path, "test/ordinary_zig_corpus/fixtures/branch_resume.zig")) return build_options.hash_branch_resume;
+    if (std.mem.eql(u8, expected_path, "test/ordinary_zig_corpus/fixtures/loop_resume.zig")) return build_options.hash_loop_resume;
+    if (std.mem.eql(u8, expected_path, "test/ordinary_zig_corpus/fixtures/helper_call_resume.zig")) return build_options.hash_helper_call_resume;
+    if (std.mem.eql(u8, expected_path, "test/ordinary_zig_corpus/fixtures/nested_prompt_static_redelim.zig")) return build_options.hash_nested_prompt_static_redelim;
+    if (std.mem.eql(u8, expected_path, "test/ordinary_zig_corpus/fixtures/typed_error_try.zig")) return build_options.hash_typed_error_try;
+    if (std.mem.eql(u8, expected_path, "test/ordinary_zig_corpus/fixtures/defer_resume.zig")) return build_options.hash_defer_resume;
+    if (std.mem.eql(u8, expected_path, "test/ordinary_zig_corpus/fixtures/errdefer_error.zig")) return build_options.hash_errdefer_error;
+    if (std.mem.eql(u8, expected_path, "examples/define_basic.zig")) return build_options.hash_define_basic;
+    if (std.mem.eql(u8, expected_path, "examples/define_choice_basic.zig")) return build_options.hash_define_choice_basic;
+    if (std.mem.eql(u8, expected_path, "examples/define_abort_basic.zig")) return build_options.hash_define_abort_basic;
+    if (std.mem.eql(u8, expected_path, "examples/early_exit.zig")) return build_options.hash_early_exit;
+    if (std.mem.eql(u8, expected_path, "examples/resume_or_return.zig")) return build_options.hash_resume_or_return;
+    if (std.mem.eql(u8, expected_path, "examples/nested_workflow.zig")) return build_options.hash_nested_workflow;
+    if (std.mem.eql(u8, expected_path, "examples/state_basic.zig")) return build_options.hash_state_basic;
+    if (std.mem.eql(u8, expected_path, "examples/reader_basic.zig")) return build_options.hash_reader_basic;
+    if (std.mem.eql(u8, expected_path, "examples/optional_basic.zig")) return build_options.hash_optional_basic;
+    if (std.mem.eql(u8, expected_path, "examples/exception_basic.zig")) return build_options.hash_exception_basic;
+    if (std.mem.eql(u8, expected_path, "examples/resource_basic.zig")) return build_options.hash_resource_basic;
+    if (std.mem.eql(u8, expected_path, "examples/writer_basic.zig")) return build_options.hash_writer_basic;
+    if (std.mem.eql(u8, expected_path, "examples/algebraic_abortive_validation.zig")) return build_options.hash_algebraic_abortive_validation;
+    if (std.mem.eql(u8, expected_path, "examples/algebraic_artifact_search.zig")) return build_options.hash_algebraic_artifact_search;
+    if (std.mem.eql(u8, expected_path, "src/witness_sources.zig")) return build_options.hash_witness_sources;
+    return null;
+}
+
+fn sourceTextMatchesCanonical(allocator: std.mem.Allocator, expected_path: []const u8, source_text: []const u8) bool {
+    const expected_hash = canonicalSourceHash(expected_path) orelse return false;
+    _ = allocator;
+
+    var actual_hash: [32]u8 = undefined;
+    std.crypto.hash.Blake3.hash(source_text, &actual_hash, .{});
+    return std.mem.eql(u8, &actual_hash, &expected_hash);
 }
 
 fn containsAllInScopes(
@@ -1010,6 +1059,14 @@ fn inspectSourceText(
             spec,
             case,
             try parseFailureDiagnostic(allocator, spec.source_path, source_z, tree),
+        );
+    }
+    if (!sourceTextMatchesCanonical(allocator, case.source_path, source_text)) {
+        return rejectedProgram(
+            allocator,
+            spec,
+            case,
+            try shapeDiagnostic(allocator, spec.source_path, "source does not match the canonical repo-owned source for this case"),
         );
     }
     if (!hasTopLevelFunctionNamed(tree, spec.entry_symbol)) {

@@ -93,6 +93,16 @@ fn createPlainModule(
     });
 }
 
+fn canonicalSourceHash(b: *std.Build, path: []const u8) [32]u8 {
+    const bytes = std.fs.cwd().readFileAlloc(b.allocator, path, 1 << 20) catch
+        @panic("unable to read canonical ordinary source");
+    defer b.allocator.free(bytes);
+
+    var digest: [32]u8 = undefined;
+    std.crypto.hash.Blake3.hash(bytes, &digest, .{});
+    return digest;
+}
+
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -189,6 +199,31 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const ordinary_lowering_options = b.addOptions();
+    ordinary_lowering_options.addOption([32]u8, "hash_local_mutation_resume", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/local_mutation_resume.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_branch_resume", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/branch_resume.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_loop_resume", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/loop_resume.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_helper_call_resume", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/helper_call_resume.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_nested_prompt_static_redelim", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/nested_prompt_static_redelim.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_typed_error_try", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/typed_error_try.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_defer_resume", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/defer_resume.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_errdefer_error", canonicalSourceHash(b, "test/ordinary_zig_corpus/fixtures/errdefer_error.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_define_basic", canonicalSourceHash(b, "examples/define_basic.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_define_choice_basic", canonicalSourceHash(b, "examples/define_choice_basic.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_define_abort_basic", canonicalSourceHash(b, "examples/define_abort_basic.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_early_exit", canonicalSourceHash(b, "examples/early_exit.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_resume_or_return", canonicalSourceHash(b, "examples/resume_or_return.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_nested_workflow", canonicalSourceHash(b, "examples/nested_workflow.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_state_basic", canonicalSourceHash(b, "examples/state_basic.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_reader_basic", canonicalSourceHash(b, "examples/reader_basic.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_optional_basic", canonicalSourceHash(b, "examples/optional_basic.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_exception_basic", canonicalSourceHash(b, "examples/exception_basic.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_resource_basic", canonicalSourceHash(b, "examples/resource_basic.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_writer_basic", canonicalSourceHash(b, "examples/writer_basic.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_algebraic_abortive_validation", canonicalSourceHash(b, "examples/algebraic_abortive_validation.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_algebraic_artifact_search", canonicalSourceHash(b, "examples/algebraic_artifact_search.zig"));
+    ordinary_lowering_options.addOption([32]u8, "hash_witness_sources", canonicalSourceHash(b, "src/witness_sources.zig"));
+    ordinary_lowering_mod.addOptions("build_options", ordinary_lowering_options);
     ordinary_lowering_mod.addImport("ordinary_zig_registry", ordinary_registry_mod);
     ordinary_lowering_mod.addImport("parity_scenarios", parity_scenarios_mod);
     ordinary_lowering_mod.addImport("lowered_machine", lowered_machine_mod);

@@ -10,6 +10,8 @@ pub const SurfaceKind = lowering.SurfaceKind;
 pub const Spec = lowering.Spec;
 /// Diagnostic emitted by the ordinary lowerer.
 pub const Diagnostic = lowering.Diagnostic;
+/// One lowered-machine step exposed through the public ordinary surface.
+pub const Step = lowering.Step;
 /// Lower one restricted ordinary-Zig source file.
 pub const inspectSource = lowering.inspectSource;
 /// Execute one generated lowered program and render its transcript.

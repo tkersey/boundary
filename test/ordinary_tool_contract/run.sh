@@ -63,7 +63,13 @@ jq -e . "$json_out" >/dev/null
 )
 
 grep -F -q 'expected_transcript = "validate=name\nabort=missing-name\nfinal=error=missing-name\n"' "$accepted_out"
-grep -F -q 'pub fn initGeneratedProgram(allocator: std.mem.Allocator) !ordinary.GeneratedProgram {' "$accepted_out"
+zig fmt "$accepted_out" >/dev/null
+grep -F -q 'const shift = @import("shift");' "$accepted_out"
+if rg -q 'ordinary_zig_lowering|lowered_machine' "$accepted_out"; then
+  echo "expected emitted Zig to depend only on the public shift module" >&2
+  exit 1
+fi
+grep -F -q 'pub fn initGeneratedProgram(allocator: std.mem.Allocator) !shift.ordinary.GeneratedProgram {' "$accepted_out"
 grep -F -q 'var generated_program = try initGeneratedProgram(allocator);' "$accepted_out"
-grep -F -q '.steps = try allocator.dupe(lowered_machine.Step, &generated_program_steps),' "$accepted_out"
-grep -F -q '.diagnostics = try allocator.dupe(ordinary.Diagnostic, &generated_program_diagnostics),' "$accepted_out"
+grep -F -q '.steps = try allocator.dupe(shift.ordinary.Step, &generated_program_steps),' "$accepted_out"
+grep -F -q '.diagnostics = try allocator.dupe(shift.ordinary.Diagnostic, &generated_program_diagnostics),' "$accepted_out"

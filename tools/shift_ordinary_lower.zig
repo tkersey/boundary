@@ -140,20 +140,19 @@ fn writeStepLiteral(writer: anytype, step: lowered_machine.Step) !void {
 
 fn writeZig(program: ordinary.GeneratedProgram, writer: anytype) !void {
     try writer.writeAll(
-        "const ordinary = @import(\"ordinary_zig_lowering\");\n" ++
-            "const lowered_machine = @import(\"lowered_machine\");\n" ++
+        "const shift = @import(\"shift\");\n" ++
             "const std = @import(\"std\");\n\n",
     );
-    try writer.writeAll("const generated_program_steps = [_]lowered_machine.Step{\n");
+    try writer.writeAll("const generated_program_steps = [_]shift.ordinary.Step{\n");
     for (program.steps) |step| try writeStepLiteral(writer, step);
-    try writer.writeAll("    },\n");
+    try writer.writeAll("};\n");
     try writer.writeAll("\nconst generated_program_feature_flags = [_][]const u8{");
     for (program.feature_flags, 0..) |flag, idx| {
         if (idx != 0) try writer.writeAll(", ");
         try writeZigStringLiteral(writer, flag);
     }
-    try writer.writeAll("},\n");
-    try writer.writeAll("\nconst generated_program_diagnostics = [_]ordinary.Diagnostic{");
+    try writer.writeAll("};\n");
+    try writer.writeAll("\nconst generated_program_diagnostics = [_]shift.ordinary.Diagnostic{");
     for (program.diagnostics, 0..) |diag, idx| {
         if (idx != 0) try writer.writeAll(", ");
         try writer.writeAll(".{ .code = ");
@@ -165,7 +164,7 @@ fn writeZig(program: ordinary.GeneratedProgram, writer: anytype) !void {
         try writer.print(", .line = {d}, .column = {d} }}", .{ diag.line, diag.column });
     }
     try writer.writeAll("};\n\n");
-    try writer.writeAll("pub fn initGeneratedProgram(allocator: std.mem.Allocator) !ordinary.GeneratedProgram {\n");
+    try writer.writeAll("pub fn initGeneratedProgram(allocator: std.mem.Allocator) !shift.ordinary.GeneratedProgram {\n");
     try writer.writeAll("    return .{\n");
     try writer.writeAll("        .case_id = ");
     try writeZigStringLiteral(writer, program.case_id);
@@ -186,9 +185,9 @@ fn writeZig(program: ordinary.GeneratedProgram, writer: anytype) !void {
     try writer.writeAll("        .expected_transcript = ");
     try writeZigStringLiteral(writer, program.expected_transcript);
     try writer.writeAll(",\n");
-    try writer.writeAll("        .steps = try allocator.dupe(lowered_machine.Step, &generated_program_steps),\n");
+    try writer.writeAll("        .steps = try allocator.dupe(shift.ordinary.Step, &generated_program_steps),\n");
     try writer.writeAll("        .feature_flags = try allocator.dupe([]const u8, &generated_program_feature_flags),\n");
-    try writer.writeAll("        .diagnostics = try allocator.dupe(ordinary.Diagnostic, &generated_program_diagnostics),\n");
+    try writer.writeAll("        .diagnostics = try allocator.dupe(shift.ordinary.Diagnostic, &generated_program_diagnostics),\n");
     try writer.writeAll("    };\n");
     try writer.writeAll("}\n\n");
     try writer.writeAll(
@@ -196,7 +195,7 @@ fn writeZig(program: ordinary.GeneratedProgram, writer: anytype) !void {
             "    const allocator = std.heap.page_allocator;\n" ++
             "    var generated_program = try initGeneratedProgram(allocator);\n" ++
             "    defer generated_program.deinit(allocator);\n" ++
-            "    try ordinary.runLowered(writer, &generated_program);\n" ++
+            "    try shift.ordinary.runLowered(writer, &generated_program);\n" ++
             "}\n",
     );
 }

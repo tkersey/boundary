@@ -57,16 +57,11 @@ test "ordinary Zig lowering rejects the wrong witness entry in shared witness so
     try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
 }
 
-test "ordinary Zig lowering rejects altered entry bodies even when the canonical file suffix matches" {
+test "ordinary Zig lowering rejects altered fixture sources with dead-code canonical snippets" {
     const modified_source =
-        \\/// Stable ordinary-Zig case id.
-        \\pub const ordinary_case_id = "ordinary.branch_resume";
-        \\/// Embedded source text consumed by the source-validated ordinary lowerer.
-        \\pub const source = @embedFile("branch_resume.zig");
-        \\
-        \\/// Run the branch case with ordinary Zig control flow.
         \\pub fn run(writer: anytype) anyerror!void {
         \\    try writer.writeAll("branch=before\n");
+        \\    return;
         \\    var answer: i32 = 0;
         \\    const take_branch = true;
         \\    if (take_branch) {
@@ -76,33 +71,16 @@ test "ordinary Zig lowering rejects altered entry bodies even when the canonical
         \\        answer = resumed + 1;
         \\    }
         \\    try writer.writeAll("branch=after\n");
-        \\    try writer.print("final={d}\n", .{999});
+        \\    try writer.print("final={d}\n", .{answer});
         \\}
     ;
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    try tmp.dir.makePath("test/ordinary_zig_corpus/fixtures");
-    try tmp.dir.writeFile(.{
-        .sub_path = "test/ordinary_zig_corpus/fixtures/branch_resume.zig",
-        .data = modified_source,
-    });
+    const modified_fixture = struct {
+        pub const ordinary_case_id = "ordinary.branch_resume";
+        pub const source = modified_source;
+    };
 
-    const relative_path = try std.fmt.allocPrint(
-        std.testing.allocator,
-        ".zig-cache/tmp/{s}/test/ordinary_zig_corpus/fixtures/branch_resume.zig",
-        .{tmp.sub_path},
-    );
-    defer std.testing.allocator.free(relative_path);
-    const absolute_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, relative_path);
-    defer std.testing.allocator.free(absolute_path);
-
-    var lowered = try ordinary_zig_lowering.inspectSource(std.testing.allocator, .{
-        .case_id = "ordinary.branch_resume",
-        .source_path = absolute_path,
-        .entry_symbol = "run",
-        .surface_kind = .ordinary_case,
-    });
+    var lowered = try ordinary_zig_lowering.lowerFixture(std.testing.allocator, modified_fixture);
     defer lowered.deinit(std.testing.allocator);
 
     try std.testing.expect(!lowered.isAccepted());
