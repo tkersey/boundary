@@ -84,6 +84,10 @@ const local_mutation_match = Match{
         "const resumed: i32 = 41;",
         "local += resumed;",
     },
+    .entry_required_snippets = &.{
+        "local += resumed;",
+        "try writer.print(\"final={d}\\n\", .{local});",
+    },
     .feature_flags = &.{ "locals", "mutation", "resume_value" },
 };
 
@@ -94,6 +98,10 @@ const branch_match = Match{
         "if (take_branch) {",
         "answer = resumed + 1;",
     },
+    .entry_required_snippets = &.{
+        "answer = resumed + 1;",
+        "try writer.print(\"final={d}\\n\", .{answer});",
+    },
     .feature_flags = &.{ "if_else", "locals", "resume_value" },
 };
 
@@ -103,6 +111,10 @@ const loop_match = Match{
         "while (i < 2) : (i += 1) {",
         "const resumed: i32 = 41;",
         "try writer.writeAll(\"loop=done\\n\");",
+    },
+    .entry_required_snippets = &.{
+        "try writer.writeAll(\"loop=done\\n\");",
+        "try writer.print(\"final={d}\\n\", .{resumed + 1});",
     },
     .feature_flags = &.{ "while_loop", "locals", "resume_value" },
 };
@@ -142,6 +154,10 @@ const typed_error_match = Match{
         "_ = fail() catch |err| switch (err) {",
         "error.Boom => {",
     },
+    .entry_required_snippets = &.{
+        "const value = try succeed();",
+        "try writer.writeAll(\"final=error=boom\\n\");",
+    },
     .feature_flags = &.{ "typed_error", "try", "catch" },
 };
 
@@ -177,6 +193,10 @@ const early_exit_match = Match{
         "try eff.exception.throw(\"result=early\");",
         "transcript.handler_line = \"handler-direct-return\";",
     },
+    .entry_required_snippets = &.{
+        "try eff.exception.throw(\"result=early\");",
+        "try writer.print(\"final={s}\\n\", .{result.value});",
+    },
     .feature_flags = &.{ "lexical_exception", "direct_return", "promoted_example" },
 };
 
@@ -187,6 +207,11 @@ const resume_or_return_example_match = Match{
         "handler-decide-resume",
         "body-after-shift",
     },
+    .entry_required_snippets = &.{
+        "try writer.writeAll(\"branch=return_now\\n\");",
+        "transcript.note(\"body-after-shift\");",
+        "try writer.print(\"final={s}\\n\", .{resumed.value});",
+    },
     .feature_flags = &.{ "lexical_optional", "return_now", "resume_with", "promoted_example" },
 };
 
@@ -195,6 +220,11 @@ const nested_workflow_match = Match{
         "const Approval = shift.effect.Define",
         "eff.approval.publish.perform",
         "approval=publish",
+    },
+    .entry_required_snippets = &.{
+        "const result = try shift.with(&runtime, .{",
+        "transcript.note(\"workflow=done\");",
+        "try writer.print(\"result={s}\\n\", .{result.value});",
     },
     .feature_flags = &.{ "generated_choice", "nested_workflow", "promoted_example" },
 };
@@ -205,6 +235,10 @@ const state_example_match = Match{
         "const before = try eff.state.get();",
         "try eff.state.set(before + 1);",
     },
+    .entry_required_snippets = &.{
+        "try eff.state.set(before + 1);",
+        "try writer.print(\"before=5\\nafter=6\\nfinal_state={d}\\nvalue={d}\\n\", .{ result.outputs.state, result.value });",
+    },
     .feature_flags = &.{ "state_effect", "lexical_effect", "promoted_cohort_a" },
 };
 
@@ -213,6 +247,10 @@ const reader_example_match = Match{
         "shift.effect.reader.use(NoError, @as(i32, 21))",
         "const env = try eff.reader.ask();",
         "return env * 2;",
+    },
+    .entry_required_snippets = &.{
+        "const env = try eff.reader.ask();",
+        "try writer.print(\"env=21\\nvalue={d}\\n\", .{result.value});",
     },
     .feature_flags = &.{ "reader_effect", "lexical_effect", "promoted_cohort_a" },
 };
@@ -224,6 +262,11 @@ const optional_example_match = Match{
         "body-after-request",
         "shift.effect.optional.use(i32, NoError, resume_policy)",
     },
+    .entry_required_snippets = &.{
+        "transcript.note(\"policy-after-resume\");",
+        "transcript.note(\"body-after-request\");",
+        "try writer.print(\"final={s}\\n\", .{resumed.value});",
+    },
     .feature_flags = &.{ "optional_effect", "lexical_effect", "promoted_cohort_a" },
 };
 
@@ -232,6 +275,11 @@ const exception_example_match = Match{
         "branch=throw",
         "try eff.exception.throw(\"result=boom\");",
         "catch={s}",
+    },
+    .entry_required_snippets = &.{
+        "try eff.exception.throw(\"result=boom\");",
+        "try writer.print(\"catch={s}\\n\", .{transcript.caught_payload});",
+        "try writer.print(\"final={s}\\n\", .{thrown.value});",
     },
     .feature_flags = &.{ "exception_effect", "lexical_effect", "promoted_cohort_a" },
 };
@@ -800,9 +848,18 @@ fn sourcePathMatchesExpected(allocator: std.mem.Allocator, actual_path: []const 
     const cwd = std.fs.cwd();
     const actual_realpath = cwd.realpathAlloc(allocator, actual_path) catch return false;
     defer allocator.free(actual_realpath);
-    const expected_realpath = cwd.realpathAlloc(allocator, expected_path) catch return false;
-    defer allocator.free(expected_realpath);
-    return std.mem.eql(u8, actual_realpath, expected_realpath);
+
+    const normalized_expected = allocator.dupe(u8, expected_path) catch return false;
+    defer allocator.free(normalized_expected);
+    if (std.fs.path.sep != '/') {
+        for (normalized_expected) |*byte| {
+            if (byte.* == '/') byte.* = std.fs.path.sep;
+        }
+    }
+
+    if (!std.mem.endsWith(u8, actual_realpath, normalized_expected)) return false;
+    if (actual_realpath.len == normalized_expected.len) return true;
+    return actual_realpath[actual_realpath.len - normalized_expected.len - 1] == std.fs.path.sep;
 }
 
 fn hasTopLevelFunctionNamed(tree: std.zig.Ast, name: []const u8) bool {
@@ -883,9 +940,9 @@ fn containsAllInScopes(
 
     if (entry_required_snippets.len == 0) {
         for (required_snippets) |snippet| {
-            if (std.mem.indexOf(u8, entry_source, snippet) != null) return true;
+            if (std.mem.indexOf(u8, entry_source, snippet) == null) return false;
         }
-        return false;
+        return true;
     }
 
     for (entry_required_snippets) |snippet| {

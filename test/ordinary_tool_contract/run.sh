@@ -13,8 +13,8 @@ rejected_out="$(mktemp "${TMPDIR:-/tmp}/shift-ordinary-tool-rejected.XXXXXX")"
 accepted_out="$(mktemp "${TMPDIR:-/tmp}/shift-ordinary-tool-accepted.XXXXXX")"
 json_out="$(mktemp "${TMPDIR:-/tmp}/shift-ordinary-tool-json.XXXXXX")"
 quoted_alias="$(mktemp "${TMPDIR:-/tmp}/tmp-bad-quoted.XXXXXX")\"bad\""
-portable_root="$(mktemp -d "${TMPDIR:-/tmp}/shift-ordinary-tool-portable.XXXXXX")"
-trap 'rm -f "$rejected_out" "$accepted_out" "$json_out" "$quoted_alias"; rm -rf "$portable_root"' EXIT INT TERM
+external_cwd="$(mktemp -d "${TMPDIR:-/tmp}/shift-ordinary-tool-cwd.XXXXXX")"
+trap 'rm -f "$rejected_out" "$accepted_out" "$json_out" "$quoted_alias"; rm -rf "$external_cwd"' EXIT INT TERM
 
 if "$tool" \
   --id ordinary.branch_resume \
@@ -52,12 +52,10 @@ grep -q '\\\"bad\\\"' "$json_out"
 jq -e . "$json_out" >/dev/null
 
 (
-  mkdir -p "$portable_root/examples"
-  cp "$repo_root/examples/algebraic_abortive_validation.zig" "$portable_root/examples/algebraic_abortive_validation.zig"
-  cd "$portable_root"
+  cd "$external_cwd"
   "$tool" \
     --id example.algebraic_abortive_validation \
-    --source examples/algebraic_abortive_validation.zig \
+    --source "$repo_root/examples/algebraic_abortive_validation.zig" \
     --entry run \
     --surface example \
     --emit zig \
