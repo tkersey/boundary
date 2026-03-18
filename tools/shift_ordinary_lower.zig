@@ -265,6 +265,19 @@ fn writeZig(program: ordinary.GeneratedProgram, writer: anytype) !void {
         try writer.print(", .line = {d}, .column = {d} }}", .{ diag.line, diag.column });
     }
     try writer.writeAll("};\n\n");
+    try writer.writeAll("const WitnessDiagnostic = @typeInfo(@TypeOf((@as(shift.ordinary.GeneratedProgram, undefined)).error_witness.diagnostics)).pointer.child;\n");
+    try writer.writeAll("const generated_program_witness_diagnostics = [_]WitnessDiagnostic{");
+    for (program.error_witness.diagnostics, 0..) |diag, idx| {
+        if (idx != 0) try writer.writeAll(", ");
+        try writer.writeAll(".{ .code = ");
+        try writeZigStringLiteral(writer, diag.code);
+        try writer.writeAll(", .message = ");
+        try writeZigStringLiteral(writer, diag.message);
+        try writer.writeAll(", .path = ");
+        try writeZigStringLiteral(writer, diag.path);
+        try writer.print(", .line = {d}, .column = {d} }}", .{ diag.line, diag.column });
+    }
+    try writer.writeAll("};\n\n");
     try writer.writeAll("pub fn initGeneratedProgram(allocator: std.mem.Allocator) !shift.ordinary.GeneratedProgram {\n");
     try writer.writeAll("    return .{\n");
     try writer.writeAll("        .case_id = ");
@@ -303,8 +316,11 @@ fn writeZig(program: ordinary.GeneratedProgram, writer: anytype) !void {
     try writeZigStringArray(writer, program.error_witness.semantic_error_names);
     try writer.writeAll(", .contributors = ");
     try writeZigContributors(writer, program.error_witness.contributors);
-    try writer.writeAll(", .diagnostics = ");
-    try writeZigWitnessDiagnostics(writer, program.error_witness.diagnostics);
+    if (program.error_witness.diagnostics.len == 0) {
+        try writer.writeAll(", .diagnostics = &.{}");
+    } else {
+        try writer.writeAll(", .diagnostics = try allocator.dupe(WitnessDiagnostic, &generated_program_witness_diagnostics)");
+    }
     try writer.writeAll(" },\n");
     try writer.writeAll("    };\n");
     try writer.writeAll("}\n\n");

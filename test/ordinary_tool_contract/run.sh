@@ -9,12 +9,13 @@ tool="$repo_root/zig-out/bin/shift-ordinary-lower"
   exit 1
 }
 
-rejected_out="$(mktemp "${TMPDIR:-/tmp}/shift-ordinary-tool-rejected.XXXXXX")"
+rejected_dir="$(mktemp -d "${TMPDIR:-/tmp}/shift-ordinary-tool-rejected.XXXXXX")"
+rejected_out="$rejected_dir/rejected_out.zig"
 accepted_out="$(mktemp "${TMPDIR:-/tmp}/shift-ordinary-tool-accepted.XXXXXX")"
 json_out="$(mktemp "${TMPDIR:-/tmp}/shift-ordinary-tool-json.XXXXXX")"
 quoted_alias="$(mktemp "${TMPDIR:-/tmp}/tmp-bad-quoted.XXXXXX")\"bad\""
 external_cwd="$(mktemp -d "${TMPDIR:-/tmp}/shift-ordinary-tool-cwd.XXXXXX")"
-trap 'rm -f "$rejected_out" "$accepted_out" "$json_out" "$quoted_alias"; rm -rf "$external_cwd"' EXIT INT TERM
+trap 'rm -f "$accepted_out" "$json_out" "$quoted_alias"; rm -rf "$rejected_dir" "$external_cwd"' EXIT INT TERM
 
 if "$tool" \
   --id ordinary.branch_resume \
@@ -64,6 +65,9 @@ assert len(ew["diagnostics"]) == 1
 assert ew["diagnostics"][0]["code"] == "non_canonical_source_path"
 assert ew["diagnostics"][0]["path"] == doc["diagnostics"][0]["path"]
 PY
+
+grep -F -q 'const generated_program_witness_diagnostics = [_]WitnessDiagnostic{' "$rejected_out"
+grep -F -q '.diagnostics = try allocator.dupe(WitnessDiagnostic, &generated_program_witness_diagnostics)' "$rejected_out"
 
 (
   cd "$external_cwd"

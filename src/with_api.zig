@@ -660,28 +660,6 @@ fn WithSemanticErrorSet(comptime HandlersType: type, comptime Body: type) type {
     if (BodyDeclSemanticErrorSet(Body)) |BodySet| return HandlerSet || BodySet;
     const PreviewEff = PreviewBodyEffType(HandlersType);
     const BodySet = BodyErrorSet(Body, PreviewEff);
-    const fields = @typeInfo(BodySet).error_set.?;
-    comptime var infra_count: usize = 0;
-    inline for (fields) |field| {
-        inline for (@typeInfo(lowered_machine.Error).error_set.?) |infra| {
-            if (comptime std.mem.eql(u8, field.name, infra.name)) {
-                infra_count += 1;
-                break;
-            }
-        }
-        inline for (@typeInfo(lowered_machine.SetupError).error_set.?) |infra| {
-            if (comptime std.mem.eql(u8, field.name, infra.name)) {
-                infra_count += 1;
-                break;
-            }
-        }
-    }
-    comptime var total_infra_names: usize = 0;
-    inline for (@typeInfo(lowered_machine.Error).error_set.?) |_| total_infra_names += 1;
-    inline for (@typeInfo(lowered_machine.SetupError).error_set.?) |_| total_infra_names += 1;
-    if (infra_count == total_infra_names) {
-        @compileError("ambiguous shift.With(...).SemanticErrorSet: declare `pub const SemanticErrorSet = error{...};` on the body type to preserve semantic-only errors when the body also uses effectful operations");
-    }
     return HandlerSet || BodySet;
 }
 

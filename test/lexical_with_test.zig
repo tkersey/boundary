@@ -106,6 +106,24 @@ test "shift.With preserves mixed collided body errors in SemanticErrorSet" {
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "MissingPrompt"));
 }
 
+test "shift.With instantiates for effect-only bodies without SemanticErrorSet metadata" {
+    const Handlers = @TypeOf(.{
+        .state = shift.effect.state.use(@as(i32, 7)),
+    });
+    const Body = struct {
+        pub fn body(eff: anytype) !i32 {
+            _ = try eff.state.get();
+            return 0;
+        }
+    };
+    const Meta = shift.With(Handlers, Body);
+
+    try std.testing.expect(@sizeOf(Meta.Result) > 0);
+    try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "MissingPrompt"));
+    try std.testing.expect(hasErrorName(Meta.ExecutionError, "MissingPrompt"));
+    try std.testing.expect(hasErrorName(Meta.ExecutionError, "OutOfMemory"));
+}
+
 test "shift.With preview includes continuation errors from lexical explicit programs" {
     const ProbeDescriptor = struct {
         pub const ErrorSet = error{};
