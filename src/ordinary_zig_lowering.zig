@@ -63,6 +63,7 @@ pub const GeneratedProgram = struct {
         allocator.free(self.steps);
         allocator.free(self.feature_flags);
         allocator.free(self.diagnostics);
+        if (self.error_witness.diagnostics.len != 0) allocator.free(self.error_witness.diagnostics);
         self.* = undefined;
     }
 
@@ -500,6 +501,31 @@ const SupportedCase = struct {
     match: Match,
 };
 
+const boom_error_names = [_][]const u8{"Boom"};
+const typed_error_contributors = [_]error_witness.Contributor{
+    .{
+        .kind = .body,
+        .surface = .ordinary,
+        .symbol = "fail",
+        .error_names = boom_error_names[0..],
+    },
+};
+
+const errdefer_error_contributors = [_]error_witness.Contributor{
+    .{
+        .kind = .body,
+        .surface = .ordinary,
+        .symbol = "body",
+        .error_names = boom_error_names[0..],
+    },
+};
+
+const WitnessTemplate = struct {
+    setup_error_names: []const []const u8,
+    semantic_error_names: []const []const u8,
+    contributors: []const error_witness.Contributor,
+};
+
 fn matchForCaseId(case_id: []const u8) Match {
     if (std.mem.eql(u8, case_id, "ordinary.local_mutation_resume")) return local_mutation_match;
     if (std.mem.eql(u8, case_id, "ordinary.branch_resume")) return branch_match;
@@ -524,6 +550,31 @@ fn ordinarySupportedCase(case: *const ordinary.Case) SupportedCase {
             .canonical => .canonical,
         },
         .match = matchForCaseId(case.case_id),
+    };
+}
+
+fn setupHasOutOfMemory(surface_kind: SurfaceKind) bool {
+    return switch (surface_kind) {
+        .ordinary_case => false,
+        .example, .effect, .user_defined_effect, .witness => true,
+    };
+}
+
+fn witnessTemplate(spec: Spec, case: SupportedCase) WitnessTemplate {
+    if (std.mem.eql(u8, case.case_id, "ordinary.typed_error_try")) return .{
+        .setup_error_names = error_witness.setupErrorNames(setupHasOutOfMemory(spec.surface_kind)),
+        .semantic_error_names = boom_error_names[0..],
+        .contributors = typed_error_contributors[0..],
+    };
+    if (std.mem.eql(u8, case.case_id, "ordinary.errdefer_error")) return .{
+        .setup_error_names = error_witness.setupErrorNames(setupHasOutOfMemory(spec.surface_kind)),
+        .semantic_error_names = boom_error_names[0..],
+        .contributors = errdefer_error_contributors[0..],
+    };
+    return .{
+        .setup_error_names = error_witness.setupErrorNames(setupHasOutOfMemory(spec.surface_kind)),
+        .semantic_error_names = error_witness.no_error_names[0..],
+        .contributors = error_witness.no_contributors[0..],
     };
 }
 
@@ -787,6 +838,23 @@ fn duplicateFeatureFlags(allocator: std.mem.Allocator, flags: []const []const u8
 
 fn emptyDiagnostics(allocator: std.mem.Allocator) std.mem.Allocator.Error![]const Diagnostic {
     return try allocator.alloc(Diagnostic, 0);
+}
+
+fn duplicateWitnessDiagnostics(
+    allocator: std.mem.Allocator,
+    diagnostics: []const Diagnostic,
+) std.mem.Allocator.Error![]const error_witness.WitnessDiagnostic {
+    const duped = try allocator.alloc(error_witness.WitnessDiagnostic, diagnostics.len);
+    for (diagnostics, 0..) |diag, idx| {
+        duped[idx] = .{
+            .code = diag.code,
+            .message = diag.message,
+            .path = diag.path,
+            .line = diag.line,
+            .column = diag.column,
+        };
+    }
+    return duped;
 }
 
 fn duplicateSteps(
@@ -1074,6 +1142,18 @@ fn acceptedProgram(
     errdefer allocator.free(feature_flags);
     const diagnostics = try emptyDiagnostics(allocator);
     errdefer allocator.free(diagnostics);
+    const witness = blk: {
+        const template = witnessTemplate(spec, case);
+        break :blk error_witness.ErrorWitnessV1{
+            .surface = .ordinary,
+            .support_status = .supported,
+            .public_runtime_errors = error_witness.runtimeErrorTags(),
+            .setup_error_names = template.setup_error_names,
+            .semantic_error_names = template.semantic_error_names,
+            .contributors = template.contributors,
+            .diagnostics = error_witness.no_diagnostics[0..],
+        };
+    };
     return .{
         .case_id = case.case_id,
         .label = case.label,
@@ -1085,15 +1165,7 @@ fn acceptedProgram(
         .steps = steps,
         .feature_flags = feature_flags,
         .diagnostics = diagnostics,
-        .error_witness = .{
-            .surface = .ordinary,
-            .support_status = .supported,
-            .public_runtime_errors = error_witness.runtimeErrorTags(),
-            .setup_error_names = error_witness.setupErrorNames(false),
-            .semantic_error_names = error_witness.no_error_names[0..],
-            .contributors = error_witness.no_contributors[0..],
-            .diagnostics = error_witness.no_diagnostics[0..],
-        },
+        .error_witness = witness,
     };
 }
 
@@ -1113,6 +1185,20 @@ fn rejectedProgram(
     for (owned_diagnostics) |*diag| diag.path = source_path;
     const feature_flags = try duplicateFeatureFlags(allocator, case.match.feature_flags);
     errdefer allocator.free(feature_flags);
+    const witness = blk: {
+        const template = witnessTemplate(spec, case);
+        const witness_diagnostics = try duplicateWitnessDiagnostics(allocator, owned_diagnostics);
+        errdefer allocator.free(witness_diagnostics);
+        break :blk error_witness.ErrorWitnessV1{
+            .surface = .ordinary,
+            .support_status = .unsupported,
+            .public_runtime_errors = error_witness.runtimeErrorTags(),
+            .setup_error_names = template.setup_error_names,
+            .semantic_error_names = template.semantic_error_names,
+            .contributors = template.contributors,
+            .diagnostics = witness_diagnostics,
+        };
+    };
     return .{
         .case_id = case.case_id,
         .label = case.label,
@@ -1124,15 +1210,7 @@ fn rejectedProgram(
         .steps = steps,
         .feature_flags = feature_flags,
         .diagnostics = owned_diagnostics,
-        .error_witness = .{
-            .surface = .ordinary,
-            .support_status = .unsupported,
-            .public_runtime_errors = error_witness.runtimeErrorTags(),
-            .setup_error_names = error_witness.setupErrorNames(false),
-            .semantic_error_names = error_witness.no_error_names[0..],
-            .contributors = error_witness.no_contributors[0..],
-            .diagnostics = error_witness.no_diagnostics[0..],
-        },
+        .error_witness = witness,
     };
 }
 

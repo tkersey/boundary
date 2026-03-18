@@ -42,4 +42,7 @@ for doc in (one, two):
     assert ew["support_status"] == "supported"
 assert one["error_witness"]["public_runtime_errors"] == two["error_witness"]["public_runtime_errors"]
 assert one["error_witness"]["setup_error_names"] == two["error_witness"]["setup_error_names"]
+assert one["error_witness"]["setup_error_names"] == ["OutOfMemory"]
+assert one["error_witness"]["semantic_error_names"] == []
+assert two["error_witness"]["semantic_error_names"] == []
 PY

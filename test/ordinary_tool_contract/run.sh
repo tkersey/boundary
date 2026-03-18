@@ -48,12 +48,22 @@ then
   exit 1
 fi
 
-grep -q '\\\"bad\\\"' "$json_out"
-grep -F -q '"case_id":"ordinary.branch_resume"' "$json_out"
-grep -F -q '"surface_kind":"ordinary_case"' "$json_out"
-grep -F -q '"status":"rejected"' "$json_out"
-grep -F -q '"diagnostics":[{"code":"non_canonical_source_path"' "$json_out"
-grep -F -q '"path":"' "$json_out"
+uv run python - <<'PY' "$json_out"
+import json, sys
+
+doc = json.load(open(sys.argv[1]))
+assert doc["case_id"] == "ordinary.branch_resume"
+assert doc["surface_kind"] == "ordinary_case"
+assert doc["status"] == "rejected"
+assert len(doc["diagnostics"]) == 1
+assert doc["diagnostics"][0]["code"] == "non_canonical_source_path"
+assert '"bad"' in doc["diagnostics"][0]["path"]
+ew = doc["error_witness"]
+assert ew["support_status"] == "unsupported"
+assert len(ew["diagnostics"]) == 1
+assert ew["diagnostics"][0]["code"] == "non_canonical_source_path"
+assert ew["diagnostics"][0]["path"] == doc["diagnostics"][0]["path"]
+PY
 
 (
   cd "$external_cwd"
@@ -79,9 +89,18 @@ grep -F -q 'expected_transcript = "validate=name\nabort=missing-name\nfinal=erro
     --out "$json_out"
 )
 
-grep -F -q '"case_id":"example.define_basic"' "$json_out"
-grep -F -q '"status":"canonical"' "$json_out"
-grep -F -q '"semantic_error_names":[],"contributors":[],"diagnostics":[]}' "$json_out"
+uv run python - <<'PY' "$json_out"
+import json, sys
+
+doc = json.load(open(sys.argv[1]))
+assert doc["case_id"] == "example.define_basic"
+assert doc["status"] == "canonical"
+ew = doc["error_witness"]
+assert ew["setup_error_names"] == ["OutOfMemory"]
+assert ew["semantic_error_names"] == []
+assert ew["contributors"] == []
+assert ew["diagnostics"] == []
+PY
 
 zig fmt "$accepted_out" >/dev/null
 grep -F -q 'const shift = @import("shift");' "$accepted_out"
@@ -93,6 +112,7 @@ grep -F -q 'pub fn initGeneratedProgram(allocator: std.mem.Allocator) !shift.ord
 grep -F -q 'var generated_program = try initGeneratedProgram(allocator);' "$accepted_out"
 grep -F -q '.steps = try allocator.dupe(shift.ordinary.Step, &generated_program_steps),' "$accepted_out"
 grep -F -q '.diagnostics = try allocator.dupe(shift.ordinary.Diagnostic, &generated_program_diagnostics),' "$accepted_out"
-grep -F -q '.contributors = &.{}, .diagnostics = &.{} },' "$accepted_out"
+grep -F -q '.setup_error_names = &.{"OutOfMemory"}' "$accepted_out"
+grep -F -q '.semantic_error_names = &.{}, .contributors = &.{}, .diagnostics = &.{} },' "$accepted_out"
 
 zig run tools/check_public_api_ban.zig >/dev/null
