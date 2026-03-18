@@ -10,7 +10,7 @@ pub const RuntimeError = error{
     NonDiagonalComplete,
 };
 
-/// Internal protocol/runtime errors that must not leak through the public root surface.
+/// Internal protocol/runtime errors used beneath the public root surface.
 pub const ProtocolError = error{
     FrontendSuspend,
     ProgramContractViolation,

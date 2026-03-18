@@ -204,6 +204,41 @@ test "generated family infers handler errors when error_set_type is omitted" {
     return error.TestExpectedError;
 }
 
+test "generated lexical handlers infer after-hook errors when error_set_type is omitted" {
+    const Counter = shift.effect.Define(.{
+        .state_type = i32,
+        .ops = .{
+            shift.effect.ops.Transform("get", void, i32),
+        },
+    });
+
+    const handler = struct {
+        state: i32 = 7,
+
+        pub fn get(self: *@This()) i32 {
+            return self.state;
+        }
+
+        pub fn afterGet(_: *@This(), _: i32) !i32 {
+            return error.AfterOops;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const CallType = @TypeOf(shift.with(&runtime, .{
+        .counter = Counter.use(.{ .handler = handler{} }),
+    }, struct {
+        pub fn body(eff: anytype) !i32 {
+            return try eff.counter.get.perform();
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "AfterOops"));
+}
+
 test "shift.with composes state and reader through lexical handles" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();

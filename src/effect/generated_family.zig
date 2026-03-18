@@ -392,6 +392,13 @@ fn inferHandlerOperationErrorSet(
                 )),
         };
         ErrorSet = ErrorSet || ReturnTypeErrorSet(operation_return_type);
+        switch (mode) {
+            .resume_then_transform, .resume_or_return => {
+                const after_return_type = @typeInfo(@TypeOf(@field(HandlerType, afterMethodName(opName(Op))))).@"fn".return_type.?;
+                ErrorSet = ErrorSet || ReturnTypeErrorSet(after_return_type);
+            },
+            .direct_return => {},
+        }
     }
     return ErrorSet;
 }
@@ -758,20 +765,7 @@ pub fn Build(comptime spec: anytype) type {
             const RunErrorSetType = family.ContextErrorSetType(Config.ContextPtr);
             const CurrentDescriptorType = @typeInfo(Config.Handlers).@"struct".fields[Config.binder_index].type;
             const CurrentHandlerType = @FieldType(CurrentDescriptorType, "handler");
-            const HandlerMethod = @field(CurrentHandlerType, opName(OpTypeValue));
-            const HandlerOpErrorSet = switch (mode) {
-                .resume_then_transform, .resume_or_return, .direct_return => if (comptime OpPayloadType(OpTypeValue) == void)
-                    ReturnTypeErrorSet(@TypeOf(HandlerMethod(@as(*CurrentHandlerType, undefined))))
-                else
-                    ReturnTypeErrorSet(@TypeOf(HandlerMethod(
-                        @as(*CurrentHandlerType, undefined),
-                        @as(OpPayloadType(OpTypeValue), undefined),
-                    ))),
-            };
-            const EffectiveErrorSet = switch (mode) {
-                .resume_or_return => RunErrorSetType || HandlerOpErrorSet,
-                else => RunErrorSetType || HandlerOpErrorSet,
-            };
+            const EffectiveErrorSet = RunErrorSetType || inferHandlerOperationErrorSet(mode, op_specs, CurrentHandlerType);
             return switch (mode) {
                 .resume_then_transform => if (OpPayloadType(OpTypeValue) == void) struct {
                     ctx: ?Config.ContextPtr,
