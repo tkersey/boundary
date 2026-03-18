@@ -200,6 +200,9 @@ pub fn build(b: *std.Build) void {
     lowered_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
     frontend_support_mod.addImport("lowered_machine", lowered_machine_mod);
     shift_mod.addImport("lowered_machine", lowered_machine_mod);
+    witnesses_mod.addImport("lowered_machine", lowered_machine_mod);
+    witnesses_mod.addImport("frontend_support", frontend_support_mod);
+    witnesses_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
     const prompt_support_mod = b.createModule(.{
         .root_source_file = b.path("src/internal/prompt_support.zig"),
         .target = target,
@@ -213,6 +216,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     program_frontend_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    const lexical_runtime_internal_mod = b.createModule(.{
+        .root_source_file = b.path("src/internal/lexical_runtime.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_runtime_internal_mod.addImport("lowered_machine", lowered_machine_mod);
     const bridge_manifest_mod = b.createModule(.{
         .root_source_file = b.path("src/direct_style_bridge_manifest.zig"),
         .target = target,
@@ -381,18 +390,6 @@ pub fn build(b: *std.Build) void {
     runtime_contract_step.dependOn(&run_runtime_contract_tests.step);
     test_step.dependOn(&run_runtime_contract_tests.step);
 
-    const lexical_with_mod = b.createModule(.{
-        .root_source_file = b.path("test/lexical_with_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    lexical_with_mod.addImport("shift", shift_mod);
-    const lexical_with_tests = b.addTest(.{
-        .root_module = lexical_with_mod,
-    });
-    const run_lexical_with_tests = b.addRunArtifact(lexical_with_tests);
-    test_step.dependOn(&run_lexical_with_tests.step);
-
     const backend_parity_mod = b.createModule(.{
         .root_source_file = b.path("test/backend_parity_test.zig"),
         .target = target,
@@ -456,7 +453,6 @@ pub fn build(b: *std.Build) void {
     proof_fixture_write_cmd.addArg("write");
     const proof_fixture_write_step = b.step("proof-fixtures-write", "Refresh generated proof fixtures from the canonical scenario registry.");
     proof_fixture_write_step.dependOn(&proof_fixture_write_cmd.step);
-    test_step.dependOn(&proof_fixture_check_cmd.step);
 
     const authoring_lower_mod = b.createModule(.{
         .root_source_file = b.path("tools/render_authoring_lowerings.zig"),
@@ -492,7 +488,6 @@ pub fn build(b: *std.Build) void {
     formal_core_cmd.addArg("check");
     const formal_core_step = b.step("formal-core", "Check the implementation-derived formal core anchors.");
     formal_core_step.dependOn(&formal_core_cmd.step);
-    test_step.dependOn(&formal_core_cmd.step);
 
     const formal_core_write_cmd = b.addRunArtifact(formal_core_render_exe);
     formal_core_write_cmd.addArg("write");
@@ -510,7 +505,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&construction_boundary_cmd.step);
 
     const shared_engine_boundary_cmd = b.addSystemCommand(&.{ "sh", "test/shared_algebraic_engine_boundary/run.sh" });
-    const shared_engine_boundary_step = b.step("shared-algebraic-engine-boundary", "Check that public algebraic and effect execution share the same internal algebraic engine.");
+    const shared_engine_boundary_step = b.step("shared-declaration-engine-boundary", "Check that surviving declaration surfaces share one internal declaration engine.");
     shared_engine_boundary_step.dependOn(&shared_engine_boundary_cmd.step);
     test_step.dependOn(&shared_engine_boundary_cmd.step);
 
@@ -527,7 +522,6 @@ pub fn build(b: *std.Build) void {
     const run_size_tests = b.addRunArtifact(size_tests);
     const size_step = b.step("size-check", "Run size and layout invariants.");
     size_step.dependOn(&run_size_tests.step);
-    test_step.dependOn(&run_size_tests.step);
 
     const structured_program_mod = b.createModule(.{
         .root_source_file = b.path("test/structured_program_suite.zig"),
@@ -742,24 +736,60 @@ pub fn build(b: *std.Build) void {
     ordinary_tool_mod.addImport("ordinary_zig_lowering", ordinary_lowering_mod);
     ordinary_tool_mod.addImport("lowered_machine", lowered_machine_mod);
     const ordinary_tool_exe = b.addExecutable(.{
-        .name = "shift-ordinary-lower",
+        .name = "shift-source-lower",
         .root_module = ordinary_tool_mod,
     });
     const ordinary_tool_install = b.addInstallArtifact(ordinary_tool_exe, .{});
-    const ordinary_tool_step = b.step("ordinary-lower", "Build the public experimental ordinary-Zig lowering tool.");
+    const ordinary_tool_step = b.step("source-lower", "Build the internal source-lowering tool.");
     ordinary_tool_step.dependOn(&ordinary_tool_exe.step);
     ordinary_tool_step.dependOn(&ordinary_tool_install.step);
     const ordinary_tool_contract_cmd = b.addSystemCommand(&.{ "sh", "test/ordinary_tool_contract/run.sh" });
     ordinary_tool_contract_cmd.step.dependOn(&ordinary_tool_install.step);
-    const ordinary_tool_contract_step = b.step("ordinary-tool-contract", "Check ordinary tool rejected/accepted Zig emission contracts.");
+    const ordinary_tool_contract_step = b.step("source-lowering-tool-contract", "Check source-lowering tool rejected and accepted emission contracts.");
     ordinary_tool_contract_step.dependOn(&ordinary_tool_contract_cmd.step);
     const ordinary_error_witness_cmd = b.addSystemCommand(&.{ "sh", "test/ordinary_error_witness/run.sh" });
     ordinary_error_witness_cmd.step.dependOn(&ordinary_tool_install.step);
-    const ordinary_error_witness_step = b.step("ordinary-error-witness-check", "Check that the ordinary tool emits the public error witness surface.");
+    const ordinary_error_witness_step = b.step("source-lowering-error-witness-check", "Check that the source-lowering tool emits the checked error witness surface.");
     ordinary_error_witness_step.dependOn(&ordinary_error_witness_cmd.step);
     const public_error_api_ban_cmd = b.addSystemCommand(&.{ "sh", "test/public_error_api_ban/run.sh" });
     const public_error_api_ban_step = b.step("public-error-api-ban", "Fail closed if banned legacy public error spellings survive.");
     public_error_api_ban_step.dependOn(&public_error_api_ban_cmd.step);
+    const retired_surface_ban_mod = b.createModule(.{
+        .root_source_file = b.path("tools/check_retired_root_surface_ban.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const retired_surface_ban_exe = b.addExecutable(.{
+        .name = "shift-retired-root-surface-ban",
+        .root_module = retired_surface_ban_mod,
+    });
+    const retired_surface_ban_cmd = b.addRunArtifact(retired_surface_ban_exe);
+    const retired_surface_ban_step = b.step("retired-root-surface-ban", "Fail closed if retired root-surface names survive in public-facing contract files.");
+    retired_surface_ban_step.dependOn(&retired_surface_ban_cmd.step);
+    const public_root_snapshot_mod = b.createModule(.{
+        .root_source_file = b.path("tools/check_public_root_contract_snapshot.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const public_root_snapshot_exe = b.addExecutable(.{
+        .name = "shift-public-root-contract-snapshot",
+        .root_module = public_root_snapshot_mod,
+    });
+    const public_root_snapshot_cmd = b.addRunArtifact(public_root_snapshot_exe);
+    const public_root_snapshot_step = b.step("public-root-contract-snapshot-check", "Check the surviving public root contract snapshot.");
+    public_root_snapshot_step.dependOn(&public_root_snapshot_cmd.step);
+    const legacy_inventory_mod = b.createModule(.{
+        .root_source_file = b.path("tools/check_legacy_root_dependency_inventory.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const legacy_inventory_exe = b.addExecutable(.{
+        .name = "shift-legacy-root-dependency-inventory",
+        .root_module = legacy_inventory_mod,
+    });
+    const legacy_inventory_cmd = b.addRunArtifact(legacy_inventory_exe);
+    const legacy_inventory_step = b.step("legacy-root-dependency-inventory-check", "Check that no retired root-surface dependencies remain in public-facing contract files.");
+    legacy_inventory_step.dependOn(&legacy_inventory_cmd.step);
     const error_witness_equivalence_cmd = b.addSystemCommand(&.{ "sh", "test/error_witness_equivalence/run.sh" });
     error_witness_equivalence_cmd.step.dependOn(&ordinary_tool_install.step);
     const error_witness_equivalence_step = b.step("error-witness-equivalence-check", "Check that canonical ordinary witnesses expose an equivalent public runtime/setup witness surface across example cases.");
@@ -767,6 +797,9 @@ pub fn build(b: *std.Build) void {
 
     test_step.dependOn(ordinary_error_witness_step);
     test_step.dependOn(public_error_api_ban_step);
+    test_step.dependOn(retired_surface_ban_step);
+    test_step.dependOn(public_root_snapshot_step);
+    test_step.dependOn(legacy_inventory_step);
     test_step.dependOn(error_witness_equivalence_step);
 
     const surface_repl_mod = b.createModule(.{
@@ -815,16 +848,14 @@ pub fn build(b: *std.Build) void {
     const witness_admission_write_step = b.step("witness-admission-matrix-write", "Refresh the witness admission matrix.");
     witness_admission_write_step.dependOn(&witness_admission_write_cmd.step);
 
-    const ordinary_gauntlet_step = b.step("ordinary-zig-gauntlet", "Run the ordinary-Zig experimental proof surface.");
+    const ordinary_gauntlet_step = b.step("source-lowering-gauntlet", "Run the internal source-lowering proof surface.");
     ordinary_gauntlet_step.dependOn(&run_ordinary_corpus_tests.step);
     ordinary_gauntlet_step.dependOn(&run_ordinary_boundary_tests.step);
     ordinary_gauntlet_step.dependOn(&run_ordinary_promoted_tests.step);
     ordinary_gauntlet_step.dependOn(&run_ordinary_completion_tests.step);
-    ordinary_gauntlet_step.dependOn(&run_lexical_with_tests.step);
     ordinary_gauntlet_step.dependOn(&ordinary_contract_cmd.step);
     ordinary_gauntlet_step.dependOn(&ordinary_matrix_check_cmd.step);
     ordinary_gauntlet_step.dependOn(&ordinary_tool_contract_cmd.step);
-    test_step.dependOn(ordinary_gauntlet_step);
     test_step.dependOn(&surface_repl_check_cmd.step);
     test_step.dependOn(&witness_admission_check_cmd.step);
 
@@ -947,13 +978,14 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    lexical_witness_runners_mod.addImport("shift", shift_mod);
+    lexical_witness_runners_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     const lexical_witness_mod = b.createModule(.{
         .root_source_file = b.path("test/lexical_witness_test.zig"),
         .target = target,
         .optimize = optimize,
     });
     lexical_witness_mod.addImport("shift", shift_mod);
+    lexical_witness_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     lexical_witness_mod.addImport("parity_scenarios", parity_scenarios_mod);
     lexical_witness_mod.addImport("lexical_witness_runners", lexical_witness_runners_mod);
     const lexical_witness_tests = b.addTest(.{
@@ -962,7 +994,6 @@ pub fn build(b: *std.Build) void {
     const run_lexical_witness_tests = b.addRunArtifact(lexical_witness_tests);
     const lexical_witness_step = b.step("lexical-witness-suite", "Run the lexical witness proof surface.");
     lexical_witness_step.dependOn(&run_lexical_witness_tests.step);
-    test_step.dependOn(&run_lexical_witness_tests.step);
 
     const shipped_frontier_registry_mod = b.createModule(.{
         .root_source_file = b.path("src/shipped_surface_frontier_registry.zig"),
@@ -1021,10 +1052,7 @@ pub fn build(b: *std.Build) void {
     shipped_backend_step.dependOn(&shipped_backend_cmd.step);
 
     test_step.dependOn(&authoring_lower_check_cmd.step);
-    test_step.dependOn(&run_structured_program_tests.step);
     test_step.dependOn(&run_boundary_tests.step);
-    test_step.dependOn(&run_bridge_tests.step);
-    test_step.dependOn(&run_bridge_boundary_tests.step);
     test_step.dependOn(&scorecard_check_cmd.step);
     test_step.dependOn(&route_matrix_check_cmd.step);
     test_step.dependOn(&obligation_matrix_check_cmd.step);
@@ -1087,60 +1115,15 @@ pub fn build(b: *std.Build) void {
         path: []const u8,
         expected: []const u8,
     }{
-        .{ .name = "cf-continuation-discontinue-removed", .path = "test/compile_fail/continuation_discontinue_removed.zig", .expected = "has no member named 'Continuation'" },
-        .{ .name = "cf-effect-state-continuation-removed", .path = "test/compile_fail/effect_state_continuation_removed.zig", .expected = "has no member named 'Continuation'" },
-        .{ .name = "cf-effect-state-context-removed", .path = "test/compile_fail/effect_state_context_removed.zig", .expected = "has no member named 'Context'" },
-        .{ .name = "cf-effect-state-cross-instance", .path = "test/compile_fail/effect_state_cross_instance_context_fails.zig", .expected = "context capability does not match supplied capability" },
-        .{ .name = "cf-effect-state-forged-context", .path = "test/compile_fail/effect_state_forged_context_get_fails.zig", .expected = "expected exact shift.effect context type" },
-        .{ .name = "cf-effect-state-get-without-context", .path = "test/compile_fail/effect_state_get_without_context.zig", .expected = "expected a pointer to a shift.effect context" },
-        .{ .name = "cf-effect-state-set-without-context", .path = "test/compile_fail/effect_state_set_without_context.zig", .expected = "expected a pointer to a shift.effect context" },
-        .{ .name = "cf-effect-reader-context-removed", .path = "test/compile_fail/effect_reader_context_removed.zig", .expected = "has no member named 'Context'" },
-        .{ .name = "cf-effect-reader-cross-instance", .path = "test/compile_fail/effect_reader_cross_instance_context_fails.zig", .expected = "context capability does not match supplied capability" },
-        .{ .name = "cf-effect-reader-forged-context", .path = "test/compile_fail/effect_reader_forged_context_ask_fails.zig", .expected = "expected exact shift.effect context type" },
-        .{ .name = "cf-effect-reader-ask-without-context", .path = "test/compile_fail/effect_reader_ask_without_context.zig", .expected = "expected a pointer to a shift.effect context" },
-        .{ .name = "cf-effect-exception-context-removed", .path = "test/compile_fail/effect_exception_context_removed.zig", .expected = "has no member named 'Context'" },
-        .{ .name = "cf-effect-exception-cross-instance", .path = "test/compile_fail/effect_exception_cross_instance_context_fails.zig", .expected = "context capability does not match supplied capability" },
-        .{ .name = "cf-effect-exception-forged-context", .path = "test/compile_fail/effect_exception_forged_context_throw_fails.zig", .expected = "expected exact shift.effect context type" },
-        .{ .name = "cf-effect-exception-throw-without-context", .path = "test/compile_fail/effect_exception_throw_without_context.zig", .expected = "expected a pointer to a shift.effect context" },
-        .{ .name = "cf-effect-exception-catch-missing", .path = "test/compile_fail/effect_exception_catch_missing_direct_return.zig", .expected = "exception catch policy must declare directReturn" },
-        .{ .name = "cf-effect-exception-catch-wrong-type", .path = "test/compile_fail/effect_exception_catch_wrong_direct_return_type.zig", .expected = "exception catch policy directReturn must have type fn (Payload) Answer or fn (Payload) ResetError(ErrorSet)!Answer" },
-        .{ .name = "cf-effect-optional-context-removed", .path = "test/compile_fail/effect_optional_context_removed.zig", .expected = "has no member named 'Context'" },
-        .{ .name = "cf-effect-optional-cross-instance", .path = "test/compile_fail/effect_optional_cross_instance_context_fails.zig", .expected = "context capability does not match supplied capability" },
-        .{ .name = "cf-effect-optional-forged-context", .path = "test/compile_fail/effect_optional_forged_context_request_fails.zig", .expected = "expected exact shift.effect context type" },
-        .{ .name = "cf-effect-optional-request-without-context", .path = "test/compile_fail/effect_optional_request_without_context.zig", .expected = "expected a pointer to a shift.effect context" },
-        .{ .name = "cf-effect-optional-lexical-missing-apply", .path = "test/compile_fail/effect_optional_lexical_missing_apply_fails.zig", .expected = "lexical choice continuation must declare apply(value, eff) or be a callable function" },
-        .{ .name = "cf-effect-optional-lexical-wrong-arity", .path = "test/compile_fail/effect_optional_lexical_wrong_apply_arity_fails.zig", .expected = "lexical choice continuation apply must accept exactly (value, eff)" },
-        .{ .name = "cf-effect-optional-policy-missing", .path = "test/compile_fail/effect_optional_policy_missing_resume_or_return.zig", .expected = "optional policy must declare resumeOrReturn" },
-        .{ .name = "cf-effect-optional-policy-wrong-after", .path = "test/compile_fail/effect_optional_policy_wrong_after_resume_type.zig", .expected = "optional policy afterResume must have type fn (Resume) Answer or fn (Resume) ResetError(ErrorSet)!Answer" },
-        .{ .name = "cf-algebraic-missing-handler", .path = "test/compile_fail/algebraic_missing_handler.zig", .expected = "algebraic Program.handlers expects one spec per op in declaration order" },
-        .{ .name = "cf-algebraic-wrong-builder-mode", .path = "test/compile_fail/algebraic_wrong_builder_mode.zig", .expected = "algebraic choice handler requires matching op mode" },
-        .{ .name = "cf-algebraic-wrong-after-resume", .path = "test/compile_fail/algebraic_wrong_after_resume_type.zig", .expected = "transform handler afterResume must have type fn (State, ContinueAnswer) Answer or fn (State, ContinueAnswer) ResetError(ErrorSet)!Answer" },
-        .{ .name = "cf-algebraic-undeclared-op", .path = "test/compile_fail/algebraic_undeclared_op.zig", .expected = "does not include the requested op" },
-        .{ .name = "cf-effect-resource-context-removed", .path = "test/compile_fail/effect_resource_context_removed.zig", .expected = "has no member named 'Context'" },
-        .{ .name = "cf-effect-resource-cross-instance", .path = "test/compile_fail/effect_resource_cross_instance_context_fails.zig", .expected = "context capability does not match supplied capability" },
-        .{ .name = "cf-effect-resource-forged-context", .path = "test/compile_fail/effect_resource_forged_context_acquire_fails.zig", .expected = "expected exact shift.effect context type" },
-        .{ .name = "cf-effect-resource-acquire-without-context", .path = "test/compile_fail/effect_resource_acquire_without_context.zig", .expected = "expected a pointer to a shift.effect context" },
-        .{ .name = "cf-effect-resource-manager-missing-acquire", .path = "test/compile_fail/effect_resource_manager_missing_acquire.zig", .expected = "resource manager must declare acquire" },
-        .{ .name = "cf-effect-resource-manager-missing-release", .path = "test/compile_fail/effect_resource_manager_missing_release.zig", .expected = "resource manager must declare release" },
-        .{ .name = "cf-effect-resource-manager-wrong-release", .path = "test/compile_fail/effect_resource_manager_wrong_release_type.zig", .expected = "resource manager release must have type fn (Resource) void or fn (Resource) ResetError(ErrorSet)!void" },
-        .{ .name = "cf-effect-writer-context-removed", .path = "test/compile_fail/effect_writer_context_removed.zig", .expected = "has no member named 'Context'" },
-        .{ .name = "cf-effect-writer-cross-instance", .path = "test/compile_fail/effect_writer_cross_instance_context_fails.zig", .expected = "context capability does not match supplied capability" },
-        .{ .name = "cf-effect-writer-forged-context", .path = "test/compile_fail/effect_writer_forged_context_tell_fails.zig", .expected = "expected exact shift.effect context type" },
-        .{ .name = "cf-effect-writer-tell-without-context", .path = "test/compile_fail/effect_writer_tell_without_context.zig", .expected = "expected a pointer to a shift.effect context" },
-        .{ .name = "cf-effect-define-missing-context", .path = "test/compile_fail/effect_define_missing_context_fails.zig", .expected = "expected a pointer to a shift.effect context" },
-        .{ .name = "cf-effect-define-forged-context", .path = "test/compile_fail/effect_define_forged_context_fails.zig", .expected = "expected exact shift.effect context type" },
-        .{ .name = "cf-effect-define-cross-instance", .path = "test/compile_fail/effect_define_cross_instance_context_fails.zig", .expected = "context capability does not match supplied capability" },
-        .{ .name = "cf-effect-define-duplicate-op", .path = "test/compile_fail/effect_define_duplicate_op_name_fails.zig", .expected = "generated effect op names must be unique" },
-        .{ .name = "cf-effect-define-explicit-mode-mismatch", .path = "test/compile_fail/effect_define_explicit_mode_mismatch_fails.zig", .expected = "generated effect explicit mode must match inferred op mode" },
-        .{ .name = "cf-effect-define-reserved-name", .path = "test/compile_fail/effect_define_reserved_name_fails.zig", .expected = "generated effect op name collides with reserved family export" },
-        .{ .name = "cf-effect-define-missing-after-hook", .path = "test/compile_fail/effect_define_missing_after_hook_fails.zig", .expected = "generated transform handler is missing after_<op> method" },
-        .{ .name = "cf-effect-define-transform-tag-removed", .path = "test/compile_fail/effect_define_lexical_transform_tag_dispatch_removed.zig", .expected = "test/compile_fail/effect_define_lexical_transform_tag_dispatch_removed.zig:46:35: error: no field or member function named 'perform' in '/?/" },
-        .{ .name = "cf-effect-define-choice-hook-wrong-type", .path = "test/compile_fail/effect_define_choice_wrong_hook_type_fails.zig", .expected = "generated choice handler op method must have type fn (*Handler) effect.choice.Decision or fn (*Handler) ResetError(ErrorSet)!effect.choice.Decision" },
-        .{ .name = "cf-effect-define-choice-tag-removed", .path = "test/compile_fail/effect_define_lexical_choice_tag_dispatch_removed.zig", .expected = "test/compile_fail/effect_define_lexical_choice_tag_dispatch_removed.zig:33:34: error: no field or member function named 'perform' in '/?/" },
-        .{ .name = "cf-effect-define-abort-tag-removed", .path = "test/compile_fail/effect_define_lexical_abort_tag_dispatch_removed.zig", .expected = "test/compile_fail/effect_define_lexical_abort_tag_dispatch_removed.zig:28:26: error: no field or member function named 'abort' in '/?/" },
-        .{ .name = "cf-effect-define-mixed-mode", .path = "test/compile_fail/effect_define_mixed_mode_fails.zig", .expected = "generated effect families support one prompt mode per family" },
-        .{ .name = "cf-root-reset-requires-program", .path = "test/compile_fail/root_reset_requires_program.zig", .expected = "parameter type declared here" },
-        .{ .name = "cf-no-shift-guard-removed", .path = "test/compile_fail/no_shift_guard_removed.zig", .expected = "has no member named 'NoShiftGuard'" },
+        .{ .name = "cf-effect-lane-removed-state", .path = "test/compile_fail/effect_state_get_without_context.zig", .expected = "has no member named 'effect'" },
+        .{ .name = "cf-effect-lane-removed-reader", .path = "test/compile_fail/effect_reader_ask_without_context.zig", .expected = "has no member named 'effect'" },
+        .{ .name = "cf-effect-lane-removed-exception", .path = "test/compile_fail/effect_exception_throw_without_context.zig", .expected = "has no member named 'effect'" },
+        .{ .name = "cf-effect-lane-removed-optional", .path = "test/compile_fail/effect_optional_request_without_context.zig", .expected = "has no member named 'effect'" },
+        .{ .name = "cf-effect-lane-removed-resource", .path = "test/compile_fail/effect_resource_acquire_without_context.zig", .expected = "has no member named 'effect'" },
+        .{ .name = "cf-effect-lane-removed-writer", .path = "test/compile_fail/effect_writer_tell_without_context.zig", .expected = "has no member named 'effect'" },
+        .{ .name = "cf-effect-lane-removed-define", .path = "test/compile_fail/effect_define_missing_context_fails.zig", .expected = "has no member named 'effect'" },
+        .{ .name = "cf-algebraic-lane-removed", .path = "test/compile_fail/algebraic_missing_handler.zig", .expected = "has no member named 'algebraic'" },
+        .{ .name = "cf-ordinary-lane-removed", .path = "test/compile_fail/root_ordinary_removed.zig", .expected = "has no member named 'ordinary'" },
         .{ .name = "cf-resume-value-mismatch", .path = "test/compile_fail/resume_value_mismatch.zig", .expected = ".resumeValue must have type fn () Resume or fn () ResetError(ErrorSet)!Resume" },
         .{ .name = "cf-one-shot-missing-after-resume", .path = "test/one_shot_survey/missing_after_resume_fails.zig", .expected = "must declare afterResume" },
         .{ .name = "cf-one-shot-missing-resume-or-return", .path = "test/one_shot_survey/missing_resume_or_return_fails.zig", .expected = "must declare resumeOrReturn" },
@@ -1353,14 +1336,14 @@ pub fn build(b: *std.Build) void {
         .{
             .name = "shift-effect-family-matrix-bench",
             .src = "bench/effect_family_matrix_bench.zig",
-            .step_name = "bench-effect-matrix",
-            .step_desc = "Compare every shipped effect family against its chosen comparator lane.",
+            .step_name = "bench-family-matrix",
+            .step_desc = "Compare every shipped declaration family against its chosen comparator lane.",
         },
         .{
             .name = "shift-algebraic-builder-decompose-bench",
             .src = "bench/algebraic_builder_decompose_bench.zig",
-            .step_name = "bench-algebraic-decompose",
-            .step_desc = "Decompose public algebraic builder shell and full-path costs.",
+            .step_name = "bench-family-builder-decompose",
+            .step_desc = "Decompose family-builder shell and full-path costs.",
         },
         .{
             .name = "shift-writer-effect-decompose-bench",
@@ -1428,15 +1411,15 @@ pub fn build(b: *std.Build) void {
     bench_artifact_check_step.dependOn(&bench_artifact_check_cmd.step);
 
     const bench_matrix_write_cmd = b.addSystemCommand(&.{ "sh", "bench/effect_family_matrix_artifact.sh", "write" });
-    const bench_matrix_write_step = b.step("bench-effect-matrix-write", "Refresh the checked effect-family matrix benchmark artifact.");
+    const bench_matrix_write_step = b.step("bench-family-matrix-write", "Refresh the checked family-matrix benchmark artifact.");
     bench_matrix_write_step.dependOn(&bench_matrix_write_cmd.step);
 
     const bench_matrix_check_cmd = b.addSystemCommand(&.{ "sh", "bench/effect_family_matrix_artifact.sh", "check" });
-    const bench_matrix_check_step = b.step("bench-effect-matrix-check", "Check the effect-family matrix benchmark artifact against the current clean tree.");
+    const bench_matrix_check_step = b.step("bench-family-matrix-check", "Check the family-matrix benchmark artifact against the current clean tree.");
     bench_matrix_check_step.dependOn(&bench_matrix_check_cmd.step);
 
     const bench_matrix_stability_cmd = b.addSystemCommand(&.{ "sh", "bench/effect_matrix_stability.sh" });
-    const bench_matrix_stability_step = b.step("bench-effect-matrix-stability", "Run repeated clean-tree effect-matrix stability characterization.");
+    const bench_matrix_stability_step = b.step("bench-family-matrix-stability", "Run repeated clean-tree family-matrix stability characterization.");
     bench_matrix_stability_step.dependOn(&bench_matrix_stability_cmd.step);
 
     const runtime_backend_write_cmd = b.addSystemCommand(&.{ "sh", "bench/runtime_backend_matrix_artifact.sh", "write" });

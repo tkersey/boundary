@@ -2,10 +2,10 @@
 
 ## Status
 
-This track is now **canonical** for the repo-owned authored-body surfaces covered
-by `docs/surface_replacement_matrix.json`. It exposes a source-validated lowering
-surface through `shift.ordinary` and the `shift-ordinary-lower` tool, while the
-lexical `shift.with(...)` family remains a public compatibility/runtime surface.
+This track is now an internal source-lowering contract for the repo-owned
+authored-body surfaces covered by `docs/surface_replacement_matrix.json`. It is
+maintained through the internal `shift-source-lower` toolchain rather than as a
+public root API lane.
 
 ## Long-Term Canonical Target
 
@@ -96,7 +96,7 @@ The canonical ordinary surface now covers these repo-owned authored-body rows:
 The canonical replacement ledger is only honest when every row remains backed by:
 
 1. direct source execution
-2. source-validated lowering through `shift.ordinary` / `shift-ordinary-lower`
+2. source-validated lowering through the internal source-lowering toolchain
 3. canonical scenario transcript parity
 4. witness rows also preserve evaluator/reference-machine/runtime agreement
 
@@ -122,7 +122,7 @@ ordinary-body path. Historical row states progressed through:
 The ordinary-canonical state is only considered maintained when all of these remain green:
 
 ```text
-zig build ordinary-zig-gauntlet
+zig build source-lowering-gauntlet
 zig build surface-replacement-check
 zig build test
 ```

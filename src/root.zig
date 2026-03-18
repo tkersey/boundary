@@ -1,7 +1,6 @@
 const lowered_machine = @import("lowered_machine");
 const error_witness = @import("error_witness");
 const program_api = @import("program_api.zig");
-const with_api = @import("with_api.zig");
 
 /// Canonical lowered-first runtime handle.
 pub const Runtime = lowered_machine.Runtime;
@@ -17,26 +16,6 @@ pub const Decl = program_api.Decl;
 pub const Op = program_api.Op;
 /// Root-first authored program surface.
 pub const Program = program_api.Program;
-/// Generalized algebraic-effect builders over the core shift/reset runtime.
-pub const algebraic = @import("algebraic.zig");
-/// Additive algebraic-effect families built on top of the core shift/reset runtime.
-pub const effect = @import("effect/root.zig");
-/// Canonical source-backed lowering surface for the repo-owned ordinary corpus.
-pub const ordinary = @import("ordinary/root.zig");
-
-/// Canonical lexical product returned from `shift.with(...)`.
-pub fn With(comptime HandlersType: type, comptime Body: type) type {
-    return with_api.With(HandlersType, Body);
-}
-
-/// Run one ordinary Zig body against a lexical effect-handle bundle.
-pub fn with(
-    runtime: *Runtime,
-    handlers: anytype,
-    comptime Body: type,
-) with_api.WithFnReturnType(@TypeOf(handlers), Body) {
-    return with_api.with(runtime, handlers, Body);
-}
 
 /// Run one front-door authored program with explicit runtime ownership.
 pub fn run(runtime: *Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) program_api.RunReturnType(ProgramType) {
@@ -51,10 +30,5 @@ test {
     _ = Program;
     _ = Runtime;
     _ = RuntimeError;
-    _ = With;
-    _ = effect;
-    _ = algebraic;
-    _ = ordinary;
     _ = run;
-    _ = with;
 }

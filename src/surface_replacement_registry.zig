@@ -1,7 +1,7 @@
 const formal_core = @import("formal_core_registry");
 
-const canonical_note = "Canonical through the ordinary-first source-validated lowering surface with direct-source and canonical-scenario parity proof.";
-const witness_canonical_note = "Canonical through the ordinary-first witness source with direct-source, canonical-scenario, evaluator, reference-machine, and runtime parity proof.";
+const canonical_note = "Canonical through the internal source-lowering toolchain with direct-source and canonical-scenario parity proof.";
+const witness_canonical_note = "Canonical through the internal source-lowering witness source with direct-source, canonical-scenario, evaluator, reference-machine, and runtime parity proof.";
 
 /// Replacement-row category for the long-horizon canonical ordinary-body campaign.
 pub const Category = enum {
@@ -246,7 +246,7 @@ pub const rows = [_]Row{
     .{
         .replacement_id = "built_in.state",
         .category = .built_in_effect,
-        .current_surface = "shift.effect.state",
+        .current_surface = "shift.Decl.state",
         .current_signal = "example_proof:state_basic.txt",
         .law_anchor = formal_core.anchorPath(.strict_effect_capabilities),
         .ordinary_target = "ordinary.effect.state",
@@ -256,7 +256,7 @@ pub const rows = [_]Row{
     .{
         .replacement_id = "built_in.reader",
         .category = .built_in_effect,
-        .current_surface = "shift.effect.reader",
+        .current_surface = "shift.Decl.reader",
         .current_signal = "example_proof:reader_basic.txt",
         .law_anchor = formal_core.anchorPath(.strict_effect_capabilities),
         .ordinary_target = "ordinary.effect.reader",
@@ -266,7 +266,7 @@ pub const rows = [_]Row{
     .{
         .replacement_id = "built_in.optional",
         .category = .built_in_effect,
-        .current_surface = "shift.effect.optional",
+        .current_surface = "shift.Decl.optional",
         .current_signal = "example_proof:optional_basic.txt",
         .law_anchor = formal_core.anchorPath(.optional_resumption),
         .ordinary_target = "ordinary.effect.optional",
@@ -276,7 +276,7 @@ pub const rows = [_]Row{
     .{
         .replacement_id = "built_in.exception",
         .category = .built_in_effect,
-        .current_surface = "shift.effect.exception",
+        .current_surface = "shift.Decl.exception",
         .current_signal = "example_proof:exception_basic.txt",
         .law_anchor = formal_core.anchorPath(.exception_effect),
         .ordinary_target = "ordinary.effect.exception",
@@ -286,7 +286,7 @@ pub const rows = [_]Row{
     .{
         .replacement_id = "built_in.resource",
         .category = .built_in_effect,
-        .current_surface = "shift.effect.resource",
+        .current_surface = "shift.Decl.resource",
         .current_signal = "example_proof:resource_basic.txt",
         .law_anchor = formal_core.anchorPath(.resource_bracketing),
         .ordinary_target = "ordinary.effect.resource",
@@ -296,7 +296,7 @@ pub const rows = [_]Row{
     .{
         .replacement_id = "built_in.writer",
         .category = .built_in_effect,
-        .current_surface = "shift.effect.writer",
+        .current_surface = "shift.Decl.writer",
         .current_signal = "example_proof:writer_basic.txt",
         .law_anchor = formal_core.anchorPath(.construction_coverage),
         .ordinary_target = "ordinary.effect.writer",
@@ -306,7 +306,7 @@ pub const rows = [_]Row{
     .{
         .replacement_id = "user_defined.transform",
         .category = .user_defined_effect,
-        .current_surface = "shift.effect.Define.transform",
+        .current_surface = "shift.Decl.family.transform",
         .current_signal = "example_proof:define_basic.txt",
         .law_anchor = formal_core.anchorPath(.strict_effect_capabilities),
         .ordinary_target = "ordinary.user_defined.transform",
@@ -316,7 +316,7 @@ pub const rows = [_]Row{
     .{
         .replacement_id = "user_defined.choice",
         .category = .user_defined_effect,
-        .current_surface = "shift.effect.Define.choice",
+        .current_surface = "shift.Decl.family.choice",
         .current_signal = "example_proof:define_choice_basic.txt",
         .law_anchor = formal_core.anchorPath(.strict_effect_capabilities),
         .ordinary_target = "ordinary.user_defined.choice",
@@ -326,7 +326,7 @@ pub const rows = [_]Row{
     .{
         .replacement_id = "user_defined.abort",
         .category = .user_defined_effect,
-        .current_surface = "shift.effect.Define.abort",
+        .current_surface = "shift.Decl.family.abort",
         .current_signal = "example_proof:define_abort_basic.txt",
         .law_anchor = formal_core.anchorPath(.strict_effect_capabilities),
         .ordinary_target = "ordinary.user_defined.abort",

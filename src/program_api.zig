@@ -1,8 +1,10 @@
-const effect = @import("effect/root.zig");
+const decision_api = @import("decision_api.zig");
 const lowered_machine = @import("lowered_machine");
-const prompt_contract = @import("prompt_contract_support");
+const family_builder = @import("internal/family_builder.zig");
+const manifest_api = @import("internal/program_manifest.zig");
+const op_api = @import("op_api.zig");
+const program_runtime = @import("internal/program_runtime.zig");
 const std = @import("std");
-const with_api = @import("with_api.zig");
 
 pub const DeclarationKind = enum {
     state,
@@ -22,13 +24,9 @@ pub const DeclarationMeta = struct {
     op_count: usize,
 };
 
-pub const Decision = effect.choice.Decision;
+pub const Decision = decision_api.Decision;
 
-pub const Op = struct {
-    pub const transform = effect.ops.Transform;
-    pub const choice = effect.ops.Choice;
-    pub const abort = effect.ops.Abort;
-};
+pub const Op = op_api;
 
 fn StateDecl(comptime StateType: type) type {
     return struct {
@@ -76,7 +74,7 @@ fn WriterDecl(comptime ItemType: type) type {
 }
 
 fn FamilyDecl(comptime spec: anytype, comptime HandlerType: type) type {
-    const GeneratedFamily = effect.Define(spec);
+    const GeneratedFamily = family_builder.build(spec);
     return struct {
         pub const kind = DeclarationKind.family;
         pub const Generated = GeneratedFamily;
@@ -139,12 +137,12 @@ fn bindingFieldType(comptime DeclType: type) type {
 
 fn handlerFieldType(comptime DeclType: type) type {
     return switch (DeclType.kind) {
-        .state => effect.state.LexicalDescriptor(DeclType.Value, error{}),
-        .reader => effect.reader.LexicalDescriptor(DeclType.Value, error{}),
-        .optional => @TypeOf(effect.optional.use(DeclType.Resume, DeclType.Policy)),
-        .exception => @TypeOf(effect.exception.use(DeclType.Payload, DeclType.Catch)),
-        .resource => @TypeOf(effect.resource.use(DeclType.Resource, DeclType.Manager)),
-        .writer => effect.writer.LexicalDescriptor(DeclType.Item, error{}),
+        .state => @import("effect/state.zig").LexicalDescriptor(DeclType.Value, error{}),
+        .reader => @import("effect/reader.zig").LexicalDescriptor(DeclType.Value, error{}),
+        .optional => @TypeOf(@import("effect/optional.zig").use(DeclType.Resume, DeclType.Policy)),
+        .exception => @TypeOf(@import("effect/exception.zig").use(DeclType.Payload, DeclType.Catch)),
+        .resource => @TypeOf(@import("effect/resource.zig").use(DeclType.Resource, DeclType.Manager)),
+        .writer => @import("effect/writer.zig").LexicalDescriptor(DeclType.Item, error{}),
         .family => @TypeOf(DeclType.Generated.use(.{ .handler = @as(DeclType.Handler, undefined) })),
     };
 }
@@ -225,63 +223,18 @@ fn buildHandlers(
     inline for (fields) |field| {
         const DeclType = field.type;
         const value = switch (DeclType.kind) {
-            .state => effect.state.use(@field(bindings, field.name)),
-            .reader => effect.reader.use(@field(bindings, field.name)),
-            .optional => effect.optional.use(DeclType.Resume, DeclType.Policy),
-            .exception => effect.exception.use(DeclType.Payload, DeclType.Catch),
-            .resource => effect.resource.use(DeclType.Resource, DeclType.Manager),
-            .writer => effect.writer.use(DeclType.Item, runtime.allocator),
+            .state => @import("effect/state.zig").use(@field(bindings, field.name)),
+            .reader => @import("effect/reader.zig").use(@field(bindings, field.name)),
+            .optional => @import("effect/optional.zig").use(DeclType.Resume, DeclType.Policy),
+            .exception => @import("effect/exception.zig").use(DeclType.Payload, DeclType.Catch),
+            .resource => @import("effect/resource.zig").use(DeclType.Resource, DeclType.Manager),
+            .writer => @import("effect/writer.zig").use(DeclType.Item, runtime.allocator),
             .family => DeclType.Generated.use(.{ .handler = @field(bindings, field.name) }),
         };
         @field(bundle, field.name) = value;
     }
 
     return bundle;
-}
-
-fn buildManifest(comptime declaration_values: anytype) type {
-    const fields = @typeInfo(@TypeOf(declaration_values)).@"struct".fields;
-    comptime var metas = [_]DeclarationMeta{.{
-        .name = "",
-        .kind = .state,
-        .has_binding = false,
-        .has_output = false,
-        .op_count = 0,
-    }} ** fields.len;
-    comptime var output_names = [_][]const u8{""} ** fields.len;
-    comptime var output_count: usize = 0;
-
-    inline for (fields, 0..) |field, index| {
-        metas[index] = .{
-            .name = field.name,
-            .kind = field.type.kind,
-            .has_binding = hasBinding(field.type),
-            .has_output = hasOutput(field.type),
-            .op_count = switch (field.type.kind) {
-                .family => field.type.Generated.definition.op_count,
-                else => 0,
-            },
-        };
-        if (hasOutput(field.type)) {
-            output_names[output_count] = field.name;
-            output_count += 1;
-        }
-    }
-
-    const manifest_entries = metas;
-    const manifest_outputs = blk: {
-        comptime var compact = [_][]const u8{""} ** output_count;
-        inline for (0..output_count) |index| {
-            compact[index] = output_names[index];
-        }
-        break :blk compact;
-    };
-
-    return struct {
-        pub const declaration_count = fields.len;
-        pub const entries = manifest_entries;
-        pub const outputs = manifest_outputs[0..];
-    };
 }
 
 fn assertDeclarations(comptime DeclarationsType: type) void {
@@ -299,7 +252,7 @@ pub fn Program(comptime declaration_values: anytype, comptime BodyType: type) ty
     return struct {
         pub const Body = BodyType;
         pub const Bindings = bindingsType(DeclarationsType);
-        pub const Manifest = buildManifest(declaration_values);
+        pub const InternalManifest = manifest_api.build(DeclarationKind, declaration_values, hasBinding, hasOutput);
         pub const declarations = declaration_values;
 
         pub fn run(runtime: *lowered_machine.Runtime, bindings: Bindings) RunReturnType(@This()) {
@@ -309,12 +262,12 @@ pub fn Program(comptime declaration_values: anytype, comptime BodyType: type) ty
 }
 
 pub fn RunReturnType(comptime ProgramType: type) type {
-    return with_api.WithFnReturnType(handlerBundleType(@TypeOf(ProgramType.declarations)), ProgramType.Body);
+    return program_runtime.RunReturnType(handlerBundleType(@TypeOf(ProgramType.declarations)), ProgramType.Body);
 }
 
 fn program_run(runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) RunReturnType(ProgramType) {
     const handlers = buildHandlers(ProgramType, runtime, bindings);
-    return with_api.with(runtime, handlers, ProgramType.Body);
+    return program_runtime.run(runtime, handlers, ProgramType.Body);
 }
 
 pub fn run(runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) RunReturnType(ProgramType) {
@@ -359,14 +312,16 @@ test "program manifest records declaration metadata and outputs" {
         }
     });
 
-    try std.testing.expectEqual(@as(usize, 4), Demo.Manifest.declaration_count);
-    try std.testing.expectEqualStrings("state", Demo.Manifest.entries[0].name);
-    try std.testing.expect(Demo.Manifest.entries[0].has_binding);
-    try std.testing.expect(Demo.Manifest.entries[0].has_output);
-    try std.testing.expectEqual(DeclarationKind.family, Demo.Manifest.entries[2].kind);
-    try std.testing.expectEqual(@as(usize, 2), Demo.Manifest.entries[2].op_count);
-    try std.testing.expectEqual(@as(usize, 3), Demo.Manifest.outputs.len);
-    try std.testing.expectEqualStrings("counter", Demo.Manifest.outputs[1]);
+    const Manifest = manifest_api.of(Demo);
+    try std.testing.expectEqual(@as(usize, 4), Manifest.declaration_count);
+    try std.testing.expectEqualStrings("state", Manifest.entries[0].name);
+    try std.testing.expectEqualStrings("state", Manifest.entries[0].kind);
+    try std.testing.expect(Manifest.entries[0].has_binding);
+    try std.testing.expect(Manifest.entries[0].has_output);
+    try std.testing.expectEqualStrings("family", Manifest.entries[2].kind);
+    try std.testing.expectEqual(@as(usize, 2), Manifest.entries[2].op_count);
+    try std.testing.expectEqual(@as(usize, 3), Manifest.outputs.len);
+    try std.testing.expectEqualStrings("counter", Manifest.outputs[1]);
 }
 
 test "program run executes through the new front door" {

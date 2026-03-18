@@ -182,8 +182,8 @@ test "ordinary Zig lowering rejects mismatched expected_status values" {
     try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
 }
 
-test "ordinary Zig lowering exposes a public experimental root surface" {
+test "ordinary Zig lowering no longer exposes a public root surface" {
     const shift = @import("shift");
 
-    try std.testing.expect(@hasDecl(shift, "ordinary"));
+    try std.testing.expect(!@hasDecl(shift, "ordinary"));
 }

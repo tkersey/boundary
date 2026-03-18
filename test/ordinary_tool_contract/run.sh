@@ -2,10 +2,10 @@
 set -eu
 
 repo_root="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
-tool="$repo_root/zig-out/bin/shift-ordinary-lower"
+tool="$repo_root/zig-out/bin/shift-source-lower"
 
 [ -x "$tool" ] || {
-  echo "missing shift-ordinary-lower tool" >&2
+  echo "missing shift-source-lower tool" >&2
   exit 1
 }
 

@@ -1,11 +1,8 @@
 # Direct-Style Boundary
 
-`shift` now treats the ordinary source-validated lowering surface through
-`shift.ordinary` and the `shift-ordinary-lower` tool as the canonical authored-body
-story. The lexical `shift.with(...)`, `shift.effect.*`, `shift.effect.Define(.{ ... })`,
-and `shift.algebraic` surfaces remain public compatibility/runtime entrypoints.
-The older root prompt surface remains retained compat/internal scaffolding
-beneath that canonical story.
+`shift` now treats the root `Program/run` front door as the only supported
+public authored-body story. The source-lowering toolchain remains internal
+scaffolding beneath that public story.
 
 The lowered path is only acceptable as hidden support infrastructure beneath
 that surface. Today, that support comes in two internal forms:
