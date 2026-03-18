@@ -1,4 +1,5 @@
 const engine = @import("internal/algebraic_engine.zig");
+const lowered_machine = @import("lowered_machine");
 
 fn ReturnTypeErrorSet(comptime ReturnType: type) type {
     return switch (@typeInfo(ReturnType)) {
@@ -25,6 +26,11 @@ fn SpecsErrorSet(comptime SpecsType: type) type {
         ErrorSet = ErrorSet || SpecErrorSet(field.type);
     }
     return ErrorSet;
+}
+
+fn ConfiguredBodyErrorSet(comptime ContextType: type, comptime Body: type) type {
+    if (!@hasDecl(Body, "body")) return error{};
+    return ReturnTypeErrorSet(@TypeOf(Body.body(@as(*ContextType, undefined))));
 }
 
 /// Define one closed-world abortive operation.
@@ -56,9 +62,27 @@ pub fn Program(
     comptime ops: anytype,
 ) type {
     return struct {
+        fn HandlersReturnType(comptime SpecsType: type) type {
+            const InferredSpecErrorSet = SpecsErrorSet(SpecsType);
+            const dummy_specs: SpecsType = undefined;
+            const BaseConfigured = @TypeOf(ProgramWithErrorSet(Answer, InferredSpecErrorSet, ops).handlers(dummy_specs));
+            return struct {
+                specs: SpecsType,
+
+                /// Context type exported by the public inferred-error wrapper.
+                pub const Context = BaseConfigured.Context;
+
+                /// Run the configured program while widening to inferred body errors when needed.
+                pub fn run(self: @This(), runtime: anytype, comptime Body: type) lowered_machine.ResetError(InferredSpecErrorSet || ConfiguredBodyErrorSet(Context, Body))!Answer {
+                    const RunErrorSet = InferredSpecErrorSet || ConfiguredBodyErrorSet(Context, Body);
+                    return ProgramWithErrorSet(Answer, RunErrorSet, ops).handlers(self.specs).run(runtime, Body);
+                }
+            };
+        }
+
         /// Bind one handler specification per declared operation in declaration order.
-        pub fn handlers(specs: anytype) @TypeOf(ProgramWithErrorSet(Answer, SpecsErrorSet(@TypeOf(specs)), ops).handlers(specs)) {
-            return ProgramWithErrorSet(Answer, SpecsErrorSet(@TypeOf(specs)), ops).handlers(specs);
+        pub fn handlers(specs: anytype) HandlersReturnType(@TypeOf(specs)) {
+            return .{ .specs = specs };
         }
     };
 }

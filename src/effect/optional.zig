@@ -41,11 +41,12 @@ pub fn LexicalHandle(
         outputs_ptr: ?*lexical_with.OutputBundleType(HandlersType),
 
         /// Request the optional policy decision through the lexical handle and resume through an explicit lexical continuation.
-        pub fn request(self: @This(), comptime Continuation: type) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(family.ContextErrorSetType(ContextPtrType), Continuation, family.ContextStateType(ContextPtrType), @This()))!lexical_with.ChoiceAnswerType(Continuation) {
+        pub fn request(self: @This(), comptime Continuation: type) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(family.ContextErrorSetType(ContextPtrType), Continuation, family.ContextStateType(ContextPtrType), lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, @This())))!lexical_with.ChoiceAnswerTypeFor(Continuation, family.ContextStateType(ContextPtrType), lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, @This())) {
             const Handle = @This();
             const ResumeType = family.ContextStateType(ContextPtrType);
-            const AnswerType = lexical_with.ChoiceAnswerType(Continuation);
-            const ExecutionError = lexical_with.ChoiceExecutionErrorSet(family.ContextErrorSetType(ContextPtrType), Continuation, ResumeType, Handle);
+            const ContinuationEff = lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, Handle);
+            const AnswerType = lexical_with.ChoiceAnswerTypeFor(Continuation, ResumeType, ContinuationEff);
+            const ExecutionError = lexical_with.ChoiceExecutionErrorSet(family.ContextErrorSetType(ContextPtrType), Continuation, ResumeType, ContinuationEff);
 
             const request_state = struct {
                 threadlocal var active_handle: ?Handle = null;

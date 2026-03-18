@@ -278,6 +278,17 @@ fn PreviewBodyEffType(comptime HandlersType: type) type {
     return PreviewEffType(HandlersType, 0, struct {}, ErrorSet);
 }
 
+pub fn ContinuationEffType(
+    comptime HandlersType: type,
+    comptime index: usize,
+    comptime PreviousEffType: type,
+    comptime CurrentHandleType: type,
+) type {
+    const field = @typeInfo(HandlersType).@"struct".fields[index];
+    const current_eff = ExtendBundleType(PreviousEffType, field.name, CurrentHandleType);
+    return PreviewEffType(HandlersType, index + 1, current_eff, HandlerErrorSet(HandlersType));
+}
+
 fn BodyFunctionType(comptime Body: type) type {
     if (switch (@typeInfo(Body)) {
         .pointer => |pointer| @typeInfo(pointer.child) == .@"fn",
@@ -371,6 +382,18 @@ pub fn ChoiceAnswerType(comptime Continuation: type) type {
     };
 }
 
+pub fn ChoiceAnswerTypeFor(
+    comptime Continuation: type,
+    comptime ResumeType: type,
+    comptime EffType: type,
+) type {
+    const ReturnType = ContinuationReturnType(Continuation, ResumeType, EffType);
+    return switch (@typeInfo(ReturnType)) {
+        .error_union => |err_union| err_union.payload,
+        else => ReturnType,
+    };
+}
+
 fn ChoiceErrorSet(
     comptime Continuation: type,
     comptime ResumeType: type,
@@ -393,7 +416,7 @@ fn callChoiceContinuation(
     resume_value: anytype,
     eff: anytype,
     comptime ErrorSet: type,
-) lowered_machine.ResetError(ErrorSet)!ChoiceAnswerType(Continuation) {
+) lowered_machine.ResetError(ErrorSet)!ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), @TypeOf(eff)) {
     const ResumeFn = ContinuationFnType(Continuation);
     const params = @typeInfo(ResumeFn).@"fn".params;
     if (params.len != 2) @compileError("lexical choice continuation apply must accept exactly (value, eff)");
@@ -503,7 +526,7 @@ fn runChoiceChain(
     state: ChoiceRunState(HandlersType, EffType),
     comptime Continuation: type,
     resume_value: anytype,
-) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation, @TypeOf(resume_value), EffType))!ChoiceAnswerType(Continuation) {
+) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation, @TypeOf(resume_value), EffType))!ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), EffType) {
     const ErrorSet = HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation, @TypeOf(resume_value), EffType);
     const fields = @typeInfo(HandlersType).@"struct".fields;
 
@@ -522,7 +545,7 @@ fn runChoiceChain(
         threadlocal var outputs_ptr: ?*OutputBundleType(HandlersType) = null;
 
         /// Extend the lexical bundle during choice continuation re-entry and continue inward.
-        pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSet)!ChoiceAnswerType(Continuation) {
+        pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSet)!ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), EffType) {
             const current_desc: DescriptorType = @field(active_handlers.?.*, field.name);
             const handle = blk: {
                 const BindFn = @TypeOf(DescriptorType.bindLexical);
@@ -556,7 +579,7 @@ fn runChoiceChain(
     defer step_ctx.previous_eff = previous_eff;
     defer step_ctx.outputs_ptr = previous_outputs;
 
-    const result = desc_value.run(ChoiceAnswerType(Continuation), ErrorSet, state.runtime, step_ctx) catch |err| return @errorCast(err);
+    const result = desc_value.run(ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), EffType), ErrorSet, state.runtime, step_ctx) catch |err| return @errorCast(err);
     if (DescriptorType.Output != void) {
         @field(state.outputs_ptr.*, field.name) = result.output;
     }
@@ -570,7 +593,7 @@ pub fn continueChoice(
     frame: anytype,
     comptime Continuation: type,
     resume_value: anytype,
-) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation, @TypeOf(resume_value), @TypeOf(frame.previous_eff)))!ChoiceAnswerType(Continuation) {
+) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation, @TypeOf(resume_value), ContinuationEffType(HandlersType, index, @TypeOf(frame.previous_eff), @TypeOf(frame.current_handle))))!ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), ContinuationEffType(HandlersType, index, @TypeOf(frame.previous_eff), @TypeOf(frame.current_handle))) {
     const field = @typeInfo(HandlersType).@"struct".fields[index];
     const current_eff = extendBundle(@TypeOf(frame.previous_eff), frame.previous_eff, field.name, frame.current_handle);
     return try runChoiceChain(HandlersType, index + 1, @TypeOf(current_eff), .{

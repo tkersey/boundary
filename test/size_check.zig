@@ -84,7 +84,7 @@ test "algebraic Program infers handler errors on the public wrapper" {
     defer runtime.deinit();
 
     const CallType = @TypeOf(configured.run(&runtime, struct {
-        pub fn body(ctx: *@TypeOf(configured).Context) !i32 {
+        pub fn body(ctx: anytype) !i32 {
             return try ctx.perform(ping, {});
         }
     }));
@@ -92,8 +92,41 @@ test "algebraic Program infers handler errors on the public wrapper" {
 
     try std.testing.expect(hasErrorName(ErrorSet, "HandlerOops"));
     try std.testing.expectError(error.HandlerOops, configured.run(&runtime, struct {
-        pub fn body(ctx: *@TypeOf(configured).Context) !i32 {
+        pub fn body(ctx: anytype) !i32 {
             return try ctx.perform(ping, {});
+        }
+    }));
+}
+
+test "algebraic Program retains generic body errors on the public wrapper" {
+    const no_state = struct {};
+    const ping = shift.algebraic.TransformOp("ping", void, i32);
+    const program = shift.algebraic.Program(i32, .{ping});
+    const configured = program.handlers(.{
+        shift.algebraic.handleTransform(ping, no_state{}, struct {
+            pub fn resumeValue(_: no_state, _: void) i32 {
+                return 7;
+            }
+            pub fn afterResume(_: no_state, answer: i32) i32 {
+                return answer;
+            }
+        }),
+    });
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const CallType = @TypeOf(configured.run(&runtime, struct {
+        pub fn body(_: anytype) !i32 {
+            return error.BodyOops;
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "BodyOops"));
+    try std.testing.expectError(error.BodyOops, configured.run(&runtime, struct {
+        pub fn body(_: anytype) !i32 {
+            return error.BodyOops;
         }
     }));
 }
@@ -111,4 +144,45 @@ test "generated effect family shell stays compact and hides context" {
     try std.testing.expect(!@hasDecl(Counter, "Context"));
     try std.testing.expect(@hasDecl(Counter, "definition"));
     try std.testing.expect(@hasDecl(Counter, "OpTag"));
+}
+
+test "generated family handle retains generic body errors when error_set_type is omitted" {
+    const Counter = shift.effect.Define(.{
+        .state_type = i32,
+        .ops = .{
+            shift.effect.ops.Transform("get", void, i32),
+        },
+    });
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = Counter.Instance.init();
+
+    const handler = struct {
+        state: i32 = 7,
+
+        pub fn get(self: *@This()) i32 {
+            return self.state;
+        }
+
+        pub fn afterGet(_: *@This(), answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    const CallType = @TypeOf(Counter.handle(i32, &runtime, &instance, handler{}, struct {
+        pub fn body(comptime Cap: type, ctx: anytype) !i32 {
+            _ = try Counter.Op(.get).perform(Cap, ctx);
+            return error.BodyOops;
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "BodyOops"));
+    try std.testing.expectError(error.BodyOops, Counter.handle(i32, &runtime, &instance, handler{}, struct {
+        pub fn body(comptime Cap: type, ctx: anytype) !i32 {
+            _ = try Counter.Op(.get).perform(Cap, ctx);
+            return error.BodyOops;
+        }
+    }));
 }

@@ -396,6 +396,41 @@ fn inferHandlerOperationErrorSet(
     return ErrorSet;
 }
 
+fn PreviewBodyErrorSet(
+    comptime StateType: type,
+    comptime AnswerType: type,
+    comptime BaseErrorSet: type,
+    comptime mode: prompt_contract.PromptMode,
+    comptime Body: type,
+) type {
+    if (!family.hasDeclSafe(Body, "body")) return error{};
+
+    const PreviewEngine = struct {
+        pub fn perform(_: *@This(), comptime Op: type, _: Op.Payload) lowered_machine.ResetError(BaseErrorSet)!Op.Resume {
+            unreachable;
+        }
+
+        pub fn performProgram(
+            _: *@This(),
+            comptime Op: type,
+            _: Op.Payload,
+            comptime Continuation: type,
+        ) frontend.BoundProgram(prompt_contract.Prompt(Op.mode, Op.Resume, lexical_with.ChoiceAnswerType(Continuation), BaseErrorSet)) {
+            unreachable;
+        }
+    };
+
+    const PreviewCapability = struct {
+        pub fn EngineContextType() type {
+            return PreviewEngine;
+        }
+    };
+
+    const PreviewContext = *family.Context(PreviewCapability, StateType, AnswerType, BaseErrorSet);
+    _ = mode;
+    return ReturnTypeErrorSet(@TypeOf(Body.body(PreviewCapability, @as(PreviewContext, undefined))));
+}
+
 fn computeProgramForPrompt(
     comptime Cap: type,
     ctx: anytype,
@@ -672,9 +707,10 @@ pub fn Build(comptime spec: anytype) type {
             };
         }
 
-        fn HandleErrorSet(comptime AnswerType: type, comptime HandlerType: type) type {
+        fn HandleErrorSet(comptime AnswerType: type, comptime HandlerType: type, comptime Body: type) type {
             comptime assertHandlerBundle(mode, StateType, AnswerType, ErrorSetType, op_specs, HandlerType);
-            return ErrorSetType || inferHandlerErrorSet(mode, AnswerType, op_specs, HandlerType);
+            const BaseErrorSet = ErrorSetType || inferHandlerErrorSet(mode, AnswerType, op_specs, HandlerType);
+            return BaseErrorSet || PreviewBodyErrorSet(StateType, AnswerType, BaseErrorSet, mode, Body);
         }
 
         fn activeEngineContext(comptime Cap: type, ctx: anytype) *Cap.EngineContextType() {
@@ -742,6 +778,7 @@ pub fn Build(comptime spec: anytype) type {
                 },
                 .resume_or_return => if (OpPayloadType(OpTypeValue) == void) struct {
                     const Handle = @This();
+                    const ContinuationEff = lexical_with.ContinuationEffType(Config.Handlers, Config.binder_index, Config.PreviousEff, Handle);
 
                     ctx: ?Config.ContextPtr,
                     runtime: ?*shift.Runtime,
@@ -750,12 +787,12 @@ pub fn Build(comptime spec: anytype) type {
                     outputs_ptr: ?*lexical_with.OutputBundleType(Config.Handlers),
 
                     /// Perform one zero-payload generated lexical choice op.
-                    pub fn perform(self: Handle, comptime Continuation: type) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), Handle))!lexical_with.ChoiceAnswerType(Continuation) {
+                    pub fn perform(self: Handle, comptime Continuation: type) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
                         const request_state = struct {
                             threadlocal var active_handle: ?Handle = null;
 
                             /// Re-enter the lexical continuation after one generated choice resume.
-                            pub fn apply(value: OpResumeType(OpTypeValue)) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), Handle))!lexical_with.ChoiceAnswerType(Continuation) {
+                            pub fn apply(value: OpResumeType(OpTypeValue)) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
                                 const current_handle = active_handle.?;
                                 return try lexical_with.continueChoice(
                                     Config.Handlers,
@@ -784,6 +821,7 @@ pub fn Build(comptime spec: anytype) type {
                     }
                 } else struct {
                     const Handle = @This();
+                    const ContinuationEff = lexical_with.ContinuationEffType(Config.Handlers, Config.binder_index, Config.PreviousEff, Handle);
 
                     ctx: ?Config.ContextPtr,
                     runtime: ?*shift.Runtime,
@@ -792,12 +830,12 @@ pub fn Build(comptime spec: anytype) type {
                     outputs_ptr: ?*lexical_with.OutputBundleType(Config.Handlers),
 
                     /// Perform one payload-carrying generated lexical choice op.
-                    pub fn perform(self: Handle, payload: OpPayloadType(OpTypeValue), comptime Continuation: type) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), Handle))!lexical_with.ChoiceAnswerType(Continuation) {
+                    pub fn perform(self: Handle, payload: OpPayloadType(OpTypeValue), comptime Continuation: type) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
                         const request_state = struct {
                             threadlocal var active_handle: ?Handle = null;
 
                             /// Re-enter the lexical continuation after one generated choice resume.
-                            pub fn apply(value: OpResumeType(OpTypeValue)) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), Handle))!lexical_with.ChoiceAnswerType(Continuation) {
+                            pub fn apply(value: OpResumeType(OpTypeValue)) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
                                 const current_handle = active_handle.?;
                                 return try lexical_with.continueChoice(
                                     Config.Handlers,
@@ -973,9 +1011,9 @@ pub fn Build(comptime spec: anytype) type {
         }
 
         /// Run one generated family body under a fresh exact context and hidden engine bindings.
-        pub fn handle(comptime AnswerType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler)))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+        pub fn handle(comptime AnswerType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler), Body))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
             const HandlerType = @TypeOf(handler);
-            const RunErrorSetType = HandleErrorSet(AnswerType, HandlerType);
+            const RunErrorSetType = HandleErrorSet(AnswerType, HandlerType, Body);
             return self_type.handleWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, handler, Body);
         }
 
