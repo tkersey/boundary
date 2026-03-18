@@ -9,36 +9,36 @@ cannot drift independently from the witness and contract registries.
 <a id="atm-resume-transform"></a>
 ## ATM Resume Transform
 
-`atm_resume_transform` is the single-resume semantic witness behind the transform-style branch of the public lexical `shift.with(...)` story. The corresponding prompt protocol still exists in `src/frontend.zig` and `src/lowered_machine.zig`, but canonical docs now treat it as hidden implementation scaffolding rather than the root API.
+`atm_resume_transform` is the single-resume semantic witness behind the transform-style branch of the current root `shift.Program` / `shift.run` story. The corresponding prompt protocol still exists in `src/frontend.zig` and `src/lowered_machine.zig`, but canonical docs now treat it as hidden implementation scaffolding rather than a public root API.
 
 <a id="construction-coverage"></a>
 ## Construction Coverage
 
-The public effect families are now expected to route through one shared internal construction substrate instead of embedding bespoke prompt-mode runner logic. `zig build effect-construction-boundary` is the explicit proof gate for that claim, and `shift.effect.writer` is the first proof family added entirely through the generalized path.
+The surviving declaration families are now expected to route through one shared internal construction substrate instead of embedding bespoke prompt-mode runner logic. `zig build effect-construction-boundary` is the explicit proof gate for that claim, and `shift.Decl.writer` is the first shipped declaration family added entirely through the generalized path.
 
 <a id="direct-return"></a>
 ## Direct Return
 
-`direct_return` is the abortive semantic witness behind lexical exception handling and abortive algebraic operations on `shift.with(...)`. The corresponding direct-return prompt protocol remains hidden implementation scaffolding in `src/frontend.zig` and `src/lowered_machine.zig`, not the canonical public story.
+`direct_return` is the abortive semantic witness behind the current root-front-door exception and abortive control behavior. The corresponding direct-return prompt protocol remains hidden implementation scaffolding in `src/frontend.zig` and `src/lowered_machine.zig`, not a public root API.
 
 <a id="effect-mode-coverage"></a>
 ## Effect Mode Coverage
 
-The shipped lexical/effect layer now covers each hidden internal control class explicitly:
+The shipped declaration layer now covers each hidden internal control class explicitly beneath the root front door:
 
-- transform-style (`.resume_then_transform` internally): `shift.effect.state`, `shift.effect.reader`, `shift.effect.resource`, `shift.effect.writer`
-- choice-style (`.resume_or_return` internally): `shift.effect.optional`
-- abortive (`.direct_return` internally): `shift.effect.exception`
+- transform-style (`.resume_then_transform` internally): `shift.Decl.state`, `shift.Decl.reader`, `shift.Decl.resource`, `shift.Decl.writer`
+- choice-style (`.resume_or_return` internally): `shift.Decl.optional`
+- abortive (`.direct_return` internally): `shift.Decl.exception`
 
 <a id="exception-effect"></a>
 ## Exception Effect
 
-`shift.effect.exception.throw(Cap, ctx, payload)` gives the direct-return prompt mode a strict capability-checked family surface. The body tail does not resume after `throw`, and the catch policy converts the payload into the enclosing answer through `directReturn(payload)`.
+`shift.Decl.exception(Payload, CatchPolicy)` gives the direct-return prompt mode a strict declaration-family surface, and the resulting `eff.exception.throw(payload)` body operation does not resume after `throw`. The catch policy converts the payload into the enclosing answer through `directReturn(payload)`.
 
 <a id="optional-resumption"></a>
 ## Optional Resumption
 
-`resume_or_return_return_now` and `resume_or_return_resume` are the zero-or-one-resume witnesses behind lexical optional handling and generated choice ops on `shift.with(...)`. Canonical docs now explain that behavior through `shift.effect.optional.request(Cap, ctx)`, generated choice handlers, and `shift.effect.choice.Decision`, while root `ResumeOrReturn` stays hidden helper machinery.
+`resume_or_return_return_now` and `resume_or_return_resume` are the zero-or-one-resume witnesses behind root-front-door optional handling and generated choice ops. Canonical docs now explain that behavior through `shift.Decl.optional(...)`, `eff.optional.request(...)`, generated choice handlers, and `shift.Decision`, while raw resume-or-return helper machinery stays hidden.
 
 <a id="performance-coverage"></a>
 ## Performance Coverage
@@ -55,9 +55,9 @@ The current execution classes are `direct_frame` for `state`/`reader`, `abortive
 <a id="public-algebraic-builders"></a>
 ## Public Algebraic Builders
 
-`shift.algebraic` is the additive public builder surface for closed-world algebraic operations over the existing one-shot prompt runtime. It exposes `TransformOp`, `ChoiceOp`, `AbortOp`, `Program`, and the `handleTransform` / `handleChoice` / `handleAbort` builders without exporting a public continuation handle.
+The old algebraic root-builder story is no longer a public root API. Its semantics remain represented through the canonical algebraic examples and the shared internal declaration engine, with no public continuation handle exposed from `@import("shift")`.
 
-The builder surface is currently proven by `zig build size-check`, `zig build compile-fail`, and exact-output examples instead of a separate benchmark artifact. The shipped witness examples are `examples/algebraic_artifact_search.zig` and `examples/algebraic_abortive_validation.zig`, and the compile-fail misuse fixtures cover duplicate op names, mixed or explicit mode mismatches, reserved generated names, and missing generated after-hooks.
+The algebraic example surface is currently proven by `zig build size-check`, `zig build compile-fail`, and exact-output examples instead of a separate benchmark artifact. The shipped witness examples are `examples/algebraic_artifact_search.zig` and `examples/algebraic_abortive_validation.zig`, and the compile-fail misuse fixtures cover duplicate op names, mixed or explicit mode mismatches, reserved generated names, and missing generated after-hooks.
 
 <a id="static-redelim"></a>
 ## Static Redelim
@@ -79,21 +79,14 @@ The lowered proof engine is checked by `zig build backend-parity`. `src/parity_s
 <a id="resource-bracketing"></a>
 ## Bracketed Resource Cleanup
 
-`shift.effect.resource.acquire(Cap, ctx)` records acquired resources under a bracketed manager and guarantees LIFO cleanup after normal completion, outer `exception` abort, and outer `optional` return-now exits. Release errors are attempted for all acquired resources; the first release error becomes public only when no earlier body/reset error already won.
+`shift.Decl.resource(Resource, Manager)` records acquired resources under a bracketed manager, and the resulting `eff.resource.acquire()` body operation guarantees LIFO cleanup after normal completion, outer exception abort, and outer optional return-now exits. Release errors are attempted for all acquired resources; the first release error becomes public only when no earlier body/reset error already won.
 
 <a id="strict-effect-capabilities"></a>
 ## Strict Effect Capabilities
 
-The shipped additive families are `shift.effect.state`, `shift.effect.reader`, `shift.effect.optional`, `shift.effect.exception`, `shift.effect.resource`, and `shift.effect.writer`. They all rely on an exact private context type plus a fresh capability witness minted inside the family handler. Public operations are helper-based:
+The shipped declaration families are `shift.Decl.state`, `shift.Decl.reader`, `shift.Decl.optional`, `shift.Decl.exception`, `shift.Decl.resource`, and `shift.Decl.writer`. They all rely on exact private context types plus fresh capability witnesses minted inside the family handler, but the public caller surface is the root program body: `eff.state.get()` / `eff.state.set(value)`, `eff.reader.ask()`, `eff.optional.request(...)`, `eff.exception.throw(payload)`, `eff.resource.acquire()`, and `eff.writer.tell(item)`.
 
-- `shift.effect.state.get(Cap, ctx)` / `shift.effect.state.set(Cap, ctx, value)`
-- `shift.effect.reader.ask(Cap, ctx)`
-- `shift.effect.optional.request(Cap, ctx)`
-- `shift.effect.exception.throw(Cap, ctx, payload)`
-- `shift.effect.resource.acquire(Cap, ctx)`
-- `shift.effect.writer.tell(Cap, ctx, item)`
-
-`shift.effect.Define(.{ ... })` now lets users mint their own sealed transform, choice, and abort families on top of the same shared engine and exact-context boundary. Generated families export `Instance`, `computeProgram`, `handle`, `OpTag`, `definition`, `proof`, and `Op(.tag).perform(...)` / `Op(.tag).program(...)` helper surfaces without exposing raw contexts or public continuations. When installed through `shift.with(...)`, generated transform, choice, and abort families are projected as named lexical op fields such as `eff.<binding>.<op>.perform(...)` and `eff.<binding>.<op>.abort(...)`.
+`shift.Decl.family(.{ ... })` now lets users mint their own sealed transform, choice, and abort families on top of the same shared engine and exact-context boundary. Generated families still expose internal proof helpers and named body ops such as `eff.<binding>.<op>.perform(...)` / `eff.<binding>.<op>.abort(...)`, but they are installed through `shift.Program(.{ ... }, Body)` rather than exported as separate public root namespaces.
 
 Compile-fail fixtures under `test/compile_fail/` prove declaration-family mode/name invariants, optional and exception policy signatures, and resource manager shape checks.
 

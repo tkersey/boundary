@@ -201,14 +201,14 @@ The surviving declaration-family contract is now:
   `eff.counter.get.perform(...)`, `eff.picker.pick.perform(...)`, and
   `eff.guard.fail.abort(...)`
 - forged or cross-instance contexts still fail at compile time; see:
-  - `effect_exception_forged_context_throw_fails.zig`
-  - `effect_state_forged_context_get_fails.zig`
-  - `effect_reader_forged_context_ask_fails.zig`
-  - `effect_optional_forged_context_request_fails.zig`
-  - `effect_resource_forged_context_acquire_fails.zig`
-  - `effect_writer_forged_context_tell_fails.zig`
-  - `effect_define_forged_context_fails.zig`
-  - `effect_define_cross_instance_context_fails.zig`
+  - `decl_family_duplicate_op_name_fails.zig`
+  - `decl_family_explicit_mode_mismatch_fails.zig`
+  - `decl_family_missing_after_hook_fails.zig`
+  - `decl_family_mixed_mode_fails.zig`
+  - `decl_family_reserved_name_fails.zig`
+  - `exception_policy_missing_direct_return.zig`
+  - `optional_policy_missing_resume_or_return.zig`
+  - `resource_manager_missing_acquire.zig`
 
 The root front door absorbs the old algebraic and effect-oriented public stories.
 Only `shift.Program`, `shift.run`, `shift.Decl`, `shift.Op`, and `shift.Decision`
