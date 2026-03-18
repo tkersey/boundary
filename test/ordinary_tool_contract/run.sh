@@ -61,6 +61,10 @@ assert doc["diagnostics"][0]["code"] == "non_canonical_source_path"
 assert '"bad"' in doc["diagnostics"][0]["path"]
 ew = doc["error_witness"]
 assert ew["support_status"] == "unsupported"
+assert ew["public_runtime_errors"] == []
+assert ew["setup_error_names"] == []
+assert ew["semantic_error_names"] == []
+assert ew["contributors"] == []
 assert len(ew["diagnostics"]) == 1
 assert ew["diagnostics"][0]["code"] == "non_canonical_source_path"
 assert ew["diagnostics"][0]["path"] == doc["diagnostics"][0]["path"]
@@ -100,6 +104,7 @@ doc = json.load(open(sys.argv[1]))
 assert doc["case_id"] == "example.define_basic"
 assert doc["status"] == "canonical"
 ew = doc["error_witness"]
+assert ew["public_runtime_errors"] == []
 assert ew["setup_error_names"] == ["OutOfMemory"]
 assert ew["semantic_error_names"] == []
 assert ew["contributors"] == []

@@ -66,15 +66,7 @@ program_doc = json.load(open(sys.argv[4]))
 typed_ew = typed["error_witness"]
 assert typed_ew["surface"] == "ordinary"
 assert typed_ew["support_status"] == "supported"
-assert typed_ew["public_runtime_errors"] == [
-    "MissingPrompt",
-    "CrossThread",
-    "RuntimeBusy",
-    "RuntimeDestroyed",
-    "NonDiagonalComplete",
-    "FrontendSuspend",
-    "ProgramContractViolation",
-]
+assert typed_ew["public_runtime_errors"] == []
 assert typed_ew["setup_error_names"] == []
 assert typed_ew["semantic_error_names"] == ["Boom"]
 assert typed_ew["contributors"] == [
@@ -99,10 +91,12 @@ assert errdefer_ew["contributors"] == [
 ]
 
 with_ew = with_doc["error_witness"]
+assert with_ew["public_runtime_errors"] == []
 assert with_ew["setup_error_names"] == ["OutOfMemory"]
 assert with_ew["semantic_error_names"] == []
 
 program_ew = program_doc["error_witness"]
+assert program_ew["public_runtime_errors"] == []
 assert program_ew["setup_error_names"] == ["OutOfMemory"]
 assert program_ew["semantic_error_names"] == []
 PY

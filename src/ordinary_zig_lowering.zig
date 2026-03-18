@@ -578,6 +578,15 @@ fn witnessTemplate(spec: Spec, case: SupportedCase) WitnessTemplate {
     };
 }
 
+fn rejectedWitnessTemplate(spec: Spec) WitnessTemplate {
+    _ = spec;
+    return .{
+        .setup_error_names = error_witness.no_error_names[0..],
+        .semantic_error_names = error_witness.no_error_names[0..],
+        .contributors = error_witness.no_contributors[0..],
+    };
+}
+
 fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?SupportedCase {
     if (surface_kind == .example) {
         if (std.mem.eql(u8, case_id, "example.define_basic")) return .{
@@ -1147,7 +1156,7 @@ fn acceptedProgram(
         break :blk error_witness.ErrorWitnessV1{
             .surface = .ordinary,
             .support_status = .supported,
-            .public_runtime_errors = error_witness.runtimeErrorTags(),
+            .public_runtime_errors = error_witness.no_runtime_error_tags[0..],
             .setup_error_names = template.setup_error_names,
             .semantic_error_names = template.semantic_error_names,
             .contributors = template.contributors,
@@ -1186,13 +1195,13 @@ fn rejectedProgram(
     const feature_flags = try duplicateFeatureFlags(allocator, case.match.feature_flags);
     errdefer allocator.free(feature_flags);
     const witness = blk: {
-        const template = witnessTemplate(spec, case);
+        const template = rejectedWitnessTemplate(spec);
         const witness_diagnostics = try duplicateWitnessDiagnostics(allocator, owned_diagnostics);
         errdefer allocator.free(witness_diagnostics);
         break :blk error_witness.ErrorWitnessV1{
             .surface = .ordinary,
             .support_status = .unsupported,
-            .public_runtime_errors = error_witness.runtimeErrorTags(),
+            .public_runtime_errors = error_witness.no_runtime_error_tags[0..],
             .setup_error_names = template.setup_error_names,
             .semantic_error_names = template.semantic_error_names,
             .contributors = template.contributors,

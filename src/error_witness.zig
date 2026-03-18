@@ -72,6 +72,7 @@ pub const ErrorWitnessV1 = struct {
 };
 
 pub const no_error_names = [_][]const u8{};
+pub const no_runtime_error_tags = [_]RuntimeErrorTag{};
 pub const no_contributors = [_]Contributor{};
 pub const no_diagnostics = [_]WitnessDiagnostic{};
 
