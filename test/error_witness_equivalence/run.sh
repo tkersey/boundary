@@ -38,7 +38,7 @@ two = json.load(open(sys.argv[2]))
 for doc in (one, two):
     ew = doc["error_witness"]
     assert ew["schema_version"] == 1
-    assert ew["surface"] == "source_lowering"
+    assert ew["surface"] == "ordinary"
     assert ew["support_status"] == "supported"
 assert one["error_witness"]["public_runtime_errors"] == two["error_witness"]["public_runtime_errors"]
 assert one["error_witness"]["public_runtime_errors"] == []

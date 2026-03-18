@@ -1,4 +1,4 @@
-const lexical_runtime = @import("internal/lexical_runtime.zig");
+const lexical_runtime = @import("lexical_runtime_internal");
 const std = @import("std");
 
 const NoError = error{};

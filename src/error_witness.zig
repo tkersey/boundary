@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub const Surface = enum {
-    source_lowering,
+    ordinary,
     lexical,
     algebraic,
     generated_family,

@@ -172,6 +172,16 @@ pub const rows = [_]Row{
         .note = canonical_note,
     },
     .{
+        .coverage_id = "example.front_door_workflow",
+        .category = .example,
+        .current_surface = "examples.front_door_workflow",
+        .current_signal = "example_proof:front_door_workflow.txt",
+        .law_anchor = formal_core.anchorPath(.practical_witnesses),
+        .source_label = "source.example.front_door_workflow",
+        .coverage_status = .covered,
+        .note = canonical_note,
+    },
+    .{
         .coverage_id = "example.optional_basic",
         .category = .example,
         .current_surface = "examples.optional_basic",

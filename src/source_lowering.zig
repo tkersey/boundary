@@ -237,6 +237,21 @@ const nested_workflow_match = Match{
     .feature_flags = &.{ "generated_choice", "nested_workflow", "promoted_example" },
 };
 
+const front_door_workflow_match = Match{
+    .required_snippets = &.{
+        "shift.Op.transform(\"search\", []const u8, i32)",
+        "const total = try eff.search.search.perform(\"artifact-search\");",
+        "try eff.writer.tell(\"workflow=queued\");",
+        "return try eff.approval.publish.perform(struct {",
+    },
+    .entry_required_snippets = &.{
+        "const result = try shift.run(&runtime, Workflow, .{",
+        "try writer.print(\"final_state={d}\\n\", .{result.outputs.state});",
+        "try writer.print(\"result={s}\\n\", .{result.value});",
+    },
+    .feature_flags = &.{ "generated_transform", "generated_choice", "promoted_example" },
+};
+
 const state_example_match = Match{
     .required_snippets = &.{
         "const StateProgram = shift.Program(.{",
@@ -518,7 +533,7 @@ const boom_error_names = [_][]const u8{"Boom"};
 const typed_error_contributors = [_]error_witness.Contributor{
     .{
         .kind = .body,
-        .surface = .source_lowering,
+        .surface = .ordinary,
         .symbol = "fail",
         .error_names = boom_error_names[0..],
     },
@@ -527,7 +542,7 @@ const typed_error_contributors = [_]error_witness.Contributor{
 const errdefer_error_contributors = [_]error_witness.Contributor{
     .{
         .kind = .body,
-        .surface = .source_lowering,
+        .surface = .ordinary,
         .symbol = "body",
         .error_names = boom_error_names[0..],
     },
@@ -641,6 +656,14 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .scenario_id = .resume_or_return,
             .status = .canonical,
             .match = resume_or_return_example_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.front_door_workflow")) return .{
+            .case_id = case_id,
+            .label = "source.example.front_door_workflow",
+            .source_path = "examples/front_door_workflow.zig",
+            .scenario_id = .front_door_workflow,
+            .status = .canonical,
+            .match = front_door_workflow_match,
         };
         if (std.mem.eql(u8, case_id, "example.nested_workflow")) return .{
             .case_id = case_id,
@@ -959,6 +982,9 @@ fn sourcePathMatchesExpected(allocator: std.mem.Allocator, actual_path: []const 
     const actual_realpath = cwd.realpathAlloc(allocator, actual_path) catch return false;
     defer allocator.free(actual_realpath);
 
+    var repo_dir = std.fs.openDirAbsolute(build_options.package_root, .{}) catch return false;
+    defer repo_dir.close();
+
     const normalized_expected = allocator.dupe(u8, expected_path) catch return false;
     defer allocator.free(normalized_expected);
     if (std.fs.path.sep != '/') {
@@ -967,18 +993,9 @@ fn sourcePathMatchesExpected(allocator: std.mem.Allocator, actual_path: []const 
         }
     }
 
-    if (!std.mem.endsWith(u8, actual_realpath, normalized_expected)) return false;
-    if (actual_realpath.len == normalized_expected.len) return true;
-    if (actual_realpath[actual_realpath.len - normalized_expected.len - 1] != std.fs.path.sep) return false;
-
-    const repo_root = actual_realpath[0 .. actual_realpath.len - normalized_expected.len - 1];
-    if (repo_root.len == 0) return false;
-
-    var repo_dir = std.fs.openDirAbsolute(repo_root, .{}) catch return false;
-    defer repo_dir.close();
-    repo_dir.access("build.zig", .{}) catch return false;
-    repo_dir.access("src/root.zig", .{}) catch return false;
-    return true;
+    const expected_realpath = repo_dir.realpathAlloc(allocator, normalized_expected) catch return false;
+    defer allocator.free(expected_realpath);
+    return std.mem.eql(u8, actual_realpath, expected_realpath);
 }
 
 fn resolvedSourcePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
@@ -1066,6 +1083,7 @@ fn canonicalSourceHash(expected_path: []const u8) ?[32]u8 {
     if (std.mem.eql(u8, expected_path, "examples/define_abort_basic.zig")) return build_options.hash_define_abort_basic;
     if (std.mem.eql(u8, expected_path, "examples/early_exit.zig")) return build_options.hash_early_exit;
     if (std.mem.eql(u8, expected_path, "examples/resume_or_return.zig")) return build_options.hash_resume_or_return;
+    if (std.mem.eql(u8, expected_path, "examples/front_door_workflow.zig")) return build_options.hash_front_door_workflow;
     if (std.mem.eql(u8, expected_path, "examples/nested_workflow.zig")) return build_options.hash_nested_workflow;
     if (std.mem.eql(u8, expected_path, "examples/state_basic.zig")) return build_options.hash_state_basic;
     if (std.mem.eql(u8, expected_path, "examples/reader_basic.zig")) return build_options.hash_reader_basic;
@@ -1167,7 +1185,7 @@ fn acceptedProgram(
     const witness = blk: {
         const template = witnessTemplate(spec, case);
         break :blk error_witness.ErrorWitnessV1{
-            .surface = .source_lowering,
+            .surface = .ordinary,
             .support_status = .supported,
             .public_runtime_errors = error_witness.no_runtime_error_tags[0..],
             .setup_error_names = template.setup_error_names,
@@ -1212,7 +1230,7 @@ fn rejectedProgram(
         const witness_diagnostics = try duplicateWitnessDiagnostics(allocator, owned_diagnostics);
         errdefer allocator.free(witness_diagnostics);
         break :blk error_witness.ErrorWitnessV1{
-            .surface = .source_lowering,
+            .surface = .ordinary,
             .support_status = .unsupported,
             .public_runtime_errors = error_witness.no_runtime_error_tags[0..],
             .setup_error_names = template.setup_error_names,

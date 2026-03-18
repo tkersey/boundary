@@ -70,6 +70,7 @@ rows:
 - `example.define_abort_basic`
 - `example.early_exit`
 - `example.resume_or_return`
+- `example.front_door_workflow`
 - `example.nested_workflow`
 - `example.state_basic`
 - `example.reader_basic`

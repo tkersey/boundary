@@ -21,6 +21,7 @@ pub const ScenarioId = enum {
     direct_return,
     early_exit,
     exception_basic,
+    front_door_workflow,
     generator,
     multi_prompt,
     nested_workflow_publish,
@@ -505,6 +506,17 @@ const resume_or_return_steps = [_]Step{
     .{ .emit = .{ .final_string = "answer=42" } },
 };
 
+const front_door_workflow_steps = [_]Step{
+    .{ .emit = .{ .note = "search=artifact-search" } },
+    .{ .emit = .{ .note = "approval=publish" } },
+    .{ .emit = .{ .note = "item=query=artifact-search" } },
+    .{ .emit = .{ .note = "item=workflow=queued" } },
+    .{ .emit = .{ .note = "final_state=3" } },
+    .{ .emit = .{ .note = "total=3" } },
+    .{ .set_final = .{ .string = "completed" } },
+    .{ .emit = .{ .note = "result=completed" } },
+};
+
 const reader_basic_steps = [_]Step{
     .{ .emit = .{ .note = "env=21" } },
     .{ .set_final = .{ .i32 = 42 } },
@@ -798,6 +810,14 @@ pub const scenarios = [_]Scenario{
         .scenario_id = .resume_or_return,
         .surface = .example,
         .steps = &resume_or_return_steps,
+    },
+    .{
+        .case_id = "front_door_workflow",
+        .expected_transcript = "search=artifact-search\napproval=publish\nitem=query=artifact-search\nitem=workflow=queued\nfinal_state=3\ntotal=3\nresult=completed\n",
+        .fixture_name = "front_door_workflow.txt",
+        .scenario_id = .front_door_workflow,
+        .surface = .example,
+        .steps = &front_door_workflow_steps,
     },
     .{
         .case_id = "nested_workflow",

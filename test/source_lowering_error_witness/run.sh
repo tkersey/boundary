@@ -64,7 +64,7 @@ with_doc = json.load(open(sys.argv[3]))
 program_doc = json.load(open(sys.argv[4]))
 
 typed_ew = typed["error_witness"]
-assert typed_ew["surface"] == "source_lowering"
+assert typed_ew["surface"] == "ordinary"
 assert typed_ew["support_status"] == "supported"
 assert typed_ew["public_runtime_errors"] == []
 assert typed_ew["setup_error_names"] == []
@@ -72,7 +72,7 @@ assert typed_ew["semantic_error_names"] == ["Boom"]
 assert typed_ew["contributors"] == [
     {
         "kind": "body",
-        "surface": "source_lowering",
+        "surface": "ordinary",
         "symbol": "fail",
         "error_names": ["Boom"],
     }
@@ -84,7 +84,7 @@ assert errdefer_ew["semantic_error_names"] == ["Boom"]
 assert errdefer_ew["contributors"] == [
     {
         "kind": "body",
-        "surface": "source_lowering",
+        "surface": "ordinary",
         "symbol": "body",
         "error_names": ["Boom"],
     }

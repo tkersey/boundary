@@ -4,6 +4,7 @@ const std = @import("std");
 
 const example_early_exit = @import("promoted_example_early_exit");
 const example_exception_basic = @import("promoted_example_exception_basic");
+const example_front_door_workflow = @import("promoted_example_front_door_workflow");
 const example_nested_workflow = @import("promoted_example_nested_workflow");
 const example_optional_basic = @import("promoted_example_optional_basic");
 const example_reader_basic = @import("promoted_example_reader_basic");
@@ -59,6 +60,13 @@ test "promoted source-lowering example and effect cohort stays source-backed and
         .surface_kind = .example,
         .scenario_id = .resume_or_return,
         .Runner = example_resume_or_return,
+    });
+    try expectPromotedCase(.{
+        .case_id = "example.front_door_workflow",
+        .source_path = "examples/front_door_workflow.zig",
+        .surface_kind = .example,
+        .scenario_id = .front_door_workflow,
+        .Runner = example_front_door_workflow,
     });
     try expectPromotedCase(.{
         .case_id = "example.nested_workflow",

@@ -50,14 +50,14 @@ fn createBridgeWitnessModule(
     path: []const u8,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-    witnesses_mod: *std.Build.Module,
+    parity_scenarios_mod: *std.Build.Module,
 ) *std.Build.Module {
     const mod = b.createModule(.{
         .root_source_file = b.path(path),
         .target = target,
         .optimize = optimize,
     });
-    mod.addImport("witnesses_src", witnesses_mod);
+    mod.addImport("parity_scenarios", parity_scenarios_mod);
     return mod;
 }
 
@@ -239,11 +239,13 @@ pub fn build(b: *std.Build) void {
     });
     program_frontend_mod.addImport("parity_scenarios", parity_scenarios_mod);
     const lexical_runtime_internal_mod = b.createModule(.{
-        .root_source_file = b.path("src/internal/lexical_runtime.zig"),
+        .root_source_file = b.path("src/lexical_runtime_internal.zig"),
         .target = target,
         .optimize = optimize,
     });
+    lexical_runtime_internal_mod.addImport("frontend_support", frontend_support_mod);
     lexical_runtime_internal_mod.addImport("lowered_machine", lowered_machine_mod);
+    lexical_runtime_internal_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
     const bridge_manifest_mod = b.createModule(.{
         .root_source_file = b.path("src/direct_style_bridge_manifest.zig"),
         .target = target,
@@ -293,6 +295,7 @@ pub fn build(b: *std.Build) void {
     source_lowering_options.addOption([32]u8, "hash_define_abort_basic", canonicalSourceHash(b, "examples/define_abort_basic.zig"));
     source_lowering_options.addOption([32]u8, "hash_early_exit", canonicalSourceHash(b, "examples/early_exit.zig"));
     source_lowering_options.addOption([32]u8, "hash_resume_or_return", canonicalSourceHash(b, "examples/resume_or_return.zig"));
+    source_lowering_options.addOption([32]u8, "hash_front_door_workflow", canonicalSourceHash(b, "examples/front_door_workflow.zig"));
     source_lowering_options.addOption([32]u8, "hash_nested_workflow", canonicalSourceHash(b, "examples/nested_workflow.zig"));
     source_lowering_options.addOption([32]u8, "hash_state_basic", canonicalSourceHash(b, "examples/state_basic.zig"));
     source_lowering_options.addOption([32]u8, "hash_reader_basic", canonicalSourceHash(b, "examples/reader_basic.zig"));
@@ -510,6 +513,7 @@ pub fn build(b: *std.Build) void {
     formal_core_cmd.addArg("check");
     const formal_core_step = b.step("formal-core", "Check the implementation-derived formal core anchors.");
     formal_core_step.dependOn(&formal_core_cmd.step);
+    test_step.dependOn(&formal_core_cmd.step);
 
     const formal_core_write_cmd = b.addRunArtifact(formal_core_render_exe);
     formal_core_write_cmd.addArg("write");
@@ -544,6 +548,7 @@ pub fn build(b: *std.Build) void {
     const run_size_tests = b.addRunArtifact(size_tests);
     const size_step = b.step("size-check", "Run size and layout invariants.");
     size_step.dependOn(&run_size_tests.step);
+    test_step.dependOn(&run_size_tests.step);
 
     const structured_program_mod = b.createModule(.{
         .root_source_file = b.path("test/structured_program_suite.zig"),
@@ -553,7 +558,7 @@ pub fn build(b: *std.Build) void {
     structured_program_mod.addImport("shift", shift_mod);
     structured_program_mod.addImport("program_frontend", program_frontend_mod);
     structured_program_mod.addImport("parity_kernel", parity_kernel_mod);
-    structured_program_mod.addImport("witnesses_src", witnesses_mod);
+    structured_program_mod.addImport("parity_scenarios", parity_scenarios_mod);
     structured_program_mod.addImport("example_early_exit", createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     structured_program_mod.addImport("example_exception_basic", createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     structured_program_mod.addImport("example_nested_workflow", createShiftConsumerModule(b, "examples/nested_workflow.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
@@ -609,12 +614,12 @@ pub fn build(b: *std.Build) void {
     bridge_mod.addImport("program_bridge", program_bridge_mod);
     bridge_mod.addImport("direct_style_bridge_algebraic_abortive_validation", createBridgeExampleModule(b, "test/direct_style_bridge/algebraic_abortive_validation.zig", target, optimize, .{ .name = "example_algebraic_abortive_validation", .mod = createShiftConsumerModule(b, "examples/algebraic_abortive_validation.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }) }));
     bridge_mod.addImport("direct_style_bridge_algebraic_artifact_search", createBridgeExampleModule(b, "test/direct_style_bridge/algebraic_artifact_search.zig", target, optimize, .{ .name = "example_algebraic_artifact_search", .mod = createShiftConsumerModule(b, "examples/algebraic_artifact_search.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }) }));
-    bridge_mod.addImport("direct_style_bridge_atm", createBridgeWitnessModule(b, "test/direct_style_bridge/atm_resume_transform.zig", target, optimize, witnesses_mod));
-    bridge_mod.addImport("direct_style_bridge_direct_return", createBridgeWitnessModule(b, "test/direct_style_bridge/direct_return.zig", target, optimize, witnesses_mod));
-    bridge_mod.addImport("direct_style_bridge_multi_prompt", createBridgeWitnessModule(b, "test/direct_style_bridge/multi_prompt.zig", target, optimize, witnesses_mod));
-    bridge_mod.addImport("direct_style_bridge_resume_or_return_resume", createBridgeWitnessModule(b, "test/direct_style_bridge/resume_or_return_resume.zig", target, optimize, witnesses_mod));
-    bridge_mod.addImport("direct_style_bridge_resume_or_return_return_now", createBridgeWitnessModule(b, "test/direct_style_bridge/resume_or_return_return_now.zig", target, optimize, witnesses_mod));
-    bridge_mod.addImport("direct_style_bridge_static_redelim", createBridgeWitnessModule(b, "test/direct_style_bridge/static_redelim.zig", target, optimize, witnesses_mod));
+    bridge_mod.addImport("direct_style_bridge_atm", createBridgeWitnessModule(b, "test/direct_style_bridge/atm_resume_transform.zig", target, optimize, parity_scenarios_mod));
+    bridge_mod.addImport("direct_style_bridge_direct_return", createBridgeWitnessModule(b, "test/direct_style_bridge/direct_return.zig", target, optimize, parity_scenarios_mod));
+    bridge_mod.addImport("direct_style_bridge_multi_prompt", createBridgeWitnessModule(b, "test/direct_style_bridge/multi_prompt.zig", target, optimize, parity_scenarios_mod));
+    bridge_mod.addImport("direct_style_bridge_resume_or_return_resume", createBridgeWitnessModule(b, "test/direct_style_bridge/resume_or_return_resume.zig", target, optimize, parity_scenarios_mod));
+    bridge_mod.addImport("direct_style_bridge_resume_or_return_return_now", createBridgeWitnessModule(b, "test/direct_style_bridge/resume_or_return_return_now.zig", target, optimize, parity_scenarios_mod));
+    bridge_mod.addImport("direct_style_bridge_static_redelim", createBridgeWitnessModule(b, "test/direct_style_bridge/static_redelim.zig", target, optimize, parity_scenarios_mod));
     bridge_mod.addImport("direct_style_bridge_early_exit", createBridgeExampleModule(b, "test/direct_style_bridge/early_exit.zig", target, optimize, .{ .name = "example_early_exit", .mod = createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }) }));
     bridge_mod.addImport("direct_style_bridge_generator", createBridgeExampleModule(b, "test/direct_style_bridge/generator.zig", target, optimize, .{ .name = "example_generator", .mod = createShiftConsumerModule(b, "examples/generator.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }) }));
     bridge_mod.addImport("direct_style_bridge_nested_workflow", createBridgeExampleModule(b, "test/direct_style_bridge/nested_workflow.zig", target, optimize, .{ .name = "example_nested_workflow", .mod = createShiftConsumerModule(b, "examples/nested_workflow.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }) }));
@@ -634,9 +639,9 @@ pub fn build(b: *std.Build) void {
     bridge_boundary_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
     bridge_boundary_mod.addImport("program_bridge", program_bridge_mod);
     bridge_boundary_mod.addImport("private_lowered_runtime", private_lowered_runtime_mod);
-    bridge_boundary_mod.addImport("direct_style_bridge_atm", createBridgeWitnessModule(b, "test/direct_style_bridge/atm_resume_transform.zig", target, optimize, witnesses_mod));
-    bridge_boundary_mod.addImport("direct_style_bridge_multi_prompt", createBridgeWitnessModule(b, "test/direct_style_bridge/multi_prompt.zig", target, optimize, witnesses_mod));
-    bridge_boundary_mod.addImport("direct_style_bridge_static_redelim", createBridgeWitnessModule(b, "test/direct_style_bridge/static_redelim.zig", target, optimize, witnesses_mod));
+    bridge_boundary_mod.addImport("direct_style_bridge_atm", createBridgeWitnessModule(b, "test/direct_style_bridge/atm_resume_transform.zig", target, optimize, parity_scenarios_mod));
+    bridge_boundary_mod.addImport("direct_style_bridge_multi_prompt", createBridgeWitnessModule(b, "test/direct_style_bridge/multi_prompt.zig", target, optimize, parity_scenarios_mod));
+    bridge_boundary_mod.addImport("direct_style_bridge_static_redelim", createBridgeWitnessModule(b, "test/direct_style_bridge/static_redelim.zig", target, optimize, parity_scenarios_mod));
     const boundary_tests = b.addTest(.{
         .root_module = boundary_mod,
     });
@@ -699,6 +704,7 @@ pub fn build(b: *std.Build) void {
     source_lowering_promoted_mod.addImport("parity_scenarios", parity_scenarios_mod);
     source_lowering_promoted_mod.addImport("promoted_example_early_exit", createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
     source_lowering_promoted_mod.addImport("promoted_example_resume_or_return", createShiftConsumerModule(b, "examples/resume_or_return.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
+    source_lowering_promoted_mod.addImport("promoted_example_front_door_workflow", createShiftConsumerModule(b, "examples/front_door_workflow.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
     source_lowering_promoted_mod.addImport("promoted_example_nested_workflow", createShiftConsumerModule(b, "examples/nested_workflow.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
     source_lowering_promoted_mod.addImport("promoted_example_state_basic", createShiftConsumerModule(b, "examples/state_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
     source_lowering_promoted_mod.addImport("promoted_example_reader_basic", createShiftConsumerModule(b, "examples/reader_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = null }));
@@ -741,6 +747,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     source_lowering_witness_sources_mod.addImport("lowered_machine", lowered_machine_mod);
+    source_lowering_witness_sources_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     source_lowering_witness_sources_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
     source_lowering_witness_sources_mod.addImport("frontend_support", frontend_support_mod);
     source_lowering_witness_completion_mod.addImport("witness_sources", source_lowering_witness_sources_mod);
@@ -886,6 +893,7 @@ pub fn build(b: *std.Build) void {
     source_lowering_gauntlet_step.dependOn(&source_lowering_contract_cmd.step);
     source_lowering_gauntlet_step.dependOn(&source_lowering_matrix_check_cmd.step);
     source_lowering_gauntlet_step.dependOn(&source_lowering_tool_contract_cmd.step);
+    test_step.dependOn(source_lowering_gauntlet_step);
     test_step.dependOn(&source_lowering_coverage_check_cmd.step);
     test_step.dependOn(&witness_admission_check_cmd.step);
 
@@ -985,6 +993,35 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     lexical_witness_runners_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    witnesses_mod.addImport("lexical_witness_runners", lexical_witness_runners_mod);
+    const structured_witness_runner_mod = b.createModule(.{
+        .root_source_file = b.path("test/structured_witness_runner_suite.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    structured_witness_runner_mod.addImport("lexical_witness_runners", lexical_witness_runners_mod);
+    structured_witness_runner_mod.addImport("parity_kernel", parity_kernel_mod);
+    structured_witness_runner_mod.addImport("program_frontend", program_frontend_mod);
+    const structured_witness_runner_tests = b.addTest(.{
+        .root_module = structured_witness_runner_mod,
+    });
+    const run_structured_witness_runner_tests = b.addRunArtifact(structured_witness_runner_tests);
+    structured_program_step.dependOn(&run_structured_witness_runner_tests.step);
+
+    const bridge_witness_runner_mod = b.createModule(.{
+        .root_source_file = b.path("test/direct_style_bridge_witness_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    bridge_witness_runner_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
+    bridge_witness_runner_mod.addImport("lexical_witness_runners", lexical_witness_runners_mod);
+    bridge_witness_runner_mod.addImport("private_lowered_runtime", private_lowered_runtime_mod);
+    const bridge_witness_runner_tests = b.addTest(.{
+        .root_module = bridge_witness_runner_mod,
+    });
+    const run_bridge_witness_runner_tests = b.addRunArtifact(bridge_witness_runner_tests);
+    bridge_parity_step.dependOn(&run_bridge_witness_runner_tests.step);
+
     const lexical_witness_mod = b.createModule(.{
         .root_source_file = b.path("test/lexical_witness_test.zig"),
         .target = target,
@@ -1000,6 +1037,7 @@ pub fn build(b: *std.Build) void {
     const run_lexical_witness_tests = b.addRunArtifact(lexical_witness_tests);
     const lexical_witness_step = b.step("lexical-witness-suite", "Run the lexical witness proof surface.");
     lexical_witness_step.dependOn(&run_lexical_witness_tests.step);
+    test_step.dependOn(&run_lexical_witness_tests.step);
 
     const shipped_frontier_registry_mod = b.createModule(.{
         .root_source_file = b.path("src/shipped_surface_frontier_registry.zig"),
@@ -1188,6 +1226,7 @@ pub fn build(b: *std.Build) void {
     const example_proof_step = b.step("example-proof", "Run exact-output proof for all examples.");
     example_proof_step.dependOn(&proof_fixture_check_cmd.step);
     example_proof_step.dependOn(&run_example_proof_tests.step);
+    test_step.dependOn(&proof_fixture_check_cmd.step);
     test_step.dependOn(&run_example_proof_tests.step);
 
     const examples = [_]struct {
