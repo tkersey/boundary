@@ -566,20 +566,20 @@ pub fn assertOptionalPolicyType(comptime ResumeType: type, comptime AnswerType: 
 pub fn assertOptionalLexicalPolicyType(comptime ResumeType: type, comptime AnswerType: type, comptime ErrorSetType: type, comptime PolicyType: type) void {
     const DecisionType = choice.Decision(ResumeType, AnswerType);
     if (!family.hasDeclSafe(PolicyType, "resumeOrReturn")) {
-        @compileError("lexical optional policy must declare resumeOrReturn");
+        @compileError("optional request policy must declare resumeOrReturn");
     }
     if (!family.hasDeclSafe(PolicyType, "afterResume")) {
-        @compileError("lexical optional policy must declare afterResume");
+        @compileError("optional request policy must declare afterResume");
     }
 
     const ResumeOrReturnFn = @TypeOf(PolicyType.resumeOrReturn);
     if (ResumeOrReturnFn != fn () DecisionType and ResumeOrReturnFn != fn () lowered_machine.ResetError(ErrorSetType)!DecisionType) {
-        @compileError("lexical optional policy resumeOrReturn must have type fn () effect.choice.Decision or fn () ResetError(ErrorSet)!effect.choice.Decision");
+        @compileError("optional request policy resumeOrReturn must have type fn () shift.Decision or fn () ResetError(ErrorSet)!shift.Decision");
     }
 
     const AfterFn = @TypeOf(PolicyType.afterResume);
     if (AfterFn != fn (AnswerType) AnswerType and AfterFn != fn (AnswerType) lowered_machine.ResetError(ErrorSetType)!AnswerType) {
-        @compileError("lexical optional policy afterResume must have type fn (Answer) Answer or fn (Answer) ResetError(ErrorSet)!Answer");
+        @compileError("optional request policy afterResume must have type fn (Answer) Answer or fn (Answer) ResetError(ErrorSet)!Answer");
     }
 }
 

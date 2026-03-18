@@ -7,14 +7,8 @@ const allowedExports = &[_][]const u8{
     "Decision",
     "Decl",
     "Op",
-    "compat",
     "Program",
-    "algebraic",
-    "effect",
-    "ordinary",
-    "With",
     "run",
-    "with",
 };
 
 const BanError = error{ PublicApiBanViolation };

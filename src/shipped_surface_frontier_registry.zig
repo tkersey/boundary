@@ -1,7 +1,7 @@
 /// Current execution frontier for one public or proof-facing surface.
 pub const Frontier = enum {
     compile_boundary,
-    legacy_compat_only,
+    reference_only,
     lowered_bridge,
     lowered_source_validated,
     lowered_structured,
@@ -50,7 +50,7 @@ pub const surfaces = [_]Surface{
         .surface_id = "source_lowering.internal_surface",
         .surface = "source_lowering_internal",
         .frontier = .lowered_source_validated,
-        .source = "src/ordinary_zig_lowering.zig",
+        .source = "src/source_lowering.zig",
         .note = "The internal source-lowering surface validates the repo-owned source corpus before projecting it onto canonical lowered scenarios.",
     },
     .{
@@ -77,7 +77,7 @@ pub const surfaces = [_]Surface{
     .{
         .surface_id = "runtime.stack_baseline",
         .surface = "reference_runtime",
-        .frontier = .legacy_compat_only,
+        .frontier = .reference_only,
         .source = "src/runtime_stack_baseline.zig",
         .note = "The stack runtime baseline is reference-only and should never be part of the shipped path.",
     },

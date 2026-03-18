@@ -1,0 +1,14 @@
+{
+  "wave": "source_lowering_canonical",
+  "lowering_surface": "canonical_source_validated",
+  "cases": [
+    {"case_id":"source.local_mutation_resume","status":"canonical","source":"test/source_lowering_corpus/fixtures/local_mutation_resume.zig","note":"Local mutation around a resumed value now stays green through direct source execution and source-validated lowered generation."},
+    {"case_id":"source.branch_resume","status":"canonical","source":"test/source_lowering_corpus/fixtures/branch_resume.zig","note":"Branching around a resumed value now stays green through direct source execution and source-validated lowered generation."},
+    {"case_id":"source.loop_resume","status":"canonical","source":"test/source_lowering_corpus/fixtures/loop_resume.zig","note":"A simple while loop around a resumed value now stays green through direct source execution and source-validated lowered generation."},
+    {"case_id":"source.helper_call_resume","status":"canonical","source":"test/source_lowering_corpus/fixtures/helper_call_resume.zig","note":"A same-module helper call now stays green through direct source execution and source-validated lowered generation."},
+    {"case_id":"source.nested_prompt_static_redelim","status":"canonical","source":"test/source_lowering_corpus/fixtures/nested_prompt_static_redelim.zig","note":"Nested prompt ordering now stays green through direct source execution and source-validated lowered generation."},
+    {"case_id":"source.typed_error_try","status":"canonical","source":"test/source_lowering_corpus/fixtures/typed_error_try.zig","note":"Typed error propagation through try/catch now stays green through direct source execution and source-validated lowered generation."},
+    {"case_id":"source.defer_resume","status":"canonical","source":"test/source_lowering_corpus/fixtures/defer_resume.zig","note":"Defer cleanup now stays green through direct source execution and source-validated lowered generation."},
+    {"case_id":"source.errdefer_error","status":"canonical","source":"test/source_lowering_corpus/fixtures/errdefer_error.zig","note":"Errdefer cleanup now stays green through direct source execution and source-validated lowered generation."}
+  ]
+}

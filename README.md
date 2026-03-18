@@ -83,8 +83,8 @@ zig build direct-style-boundary
 zig build source-lowering-gauntlet
 zig build source-lower
 zig build source-lowering-error-witness-check
-zig build surface-replacement-matrix-write
-zig build surface-replacement-check
+zig build source-lowering-coverage-matrix-write
+zig build source-lowering-coverage-check
 zig build witness-admission-matrix-write
 zig build witness-admission-matrix-check
 zig build runtime-route-matrix-write
@@ -93,10 +93,9 @@ zig build runtime-obligation-matrix-write
 zig build runtime-obligation-matrix-check
 zig build runtime-contract-suite
 zig build public-error-api-ban
+zig build retired-lane-inventory-check
 zig build runtime-error-surface-matrix-write
 zig build runtime-error-surface-matrix-check
-zig build root-surface-migration-matrix-write
-zig build root-surface-migration-matrix-check
 zig build error-witness-equivalence-check
 zig build shipped-surface-frontier-matrix-write
 zig build shipped-surface-frontier-matrix-check
@@ -152,8 +151,9 @@ one of these proof surfaces:
 - `zig build direct-style-boundary` for explicit boundary checks around
   unsupported unchanged direct-style shapes
 - `zig build source-lowering-gauntlet` for the internal source-lowering corpus
-- `zig build surface-replacement-check` for the checked canonical replacement
-  ledger that proves every current witness/example/effect target is ordinary-backed
+- `zig build source-lowering-coverage-check` for the checked source-lowering
+  coverage matrix that proves every current witness/example/declaration target
+  is covered by the internal source-lowering track
 - `zig build runtime-route-matrix-check` for the checked execution-route matrix
   that records whether supported cases are still replayed or now run through
   the shared lowered machine
@@ -166,12 +166,10 @@ one of these proof surfaces:
   public error spellings are gone from shipped docs/examples/root surfaces
 - `zig build runtime-error-surface-matrix-check` for the checked retained-vs-retired
   public runtime error surface
-- `zig build root-surface-migration-matrix-check` for the checked canonical-root
-  migration map during the lowered-first runtime cut
 - `zig build source-lowering-error-witness-check` for the checked source-lowering-tool witness
   JSON surface over the canonical example corpus
 - `zig build error-witness-equivalence-check` for the checked witness equivalence
-  of the exported public runtime/setup witness surface across canonical ordinary
+  of the exported public runtime/setup witness surface across canonical source-lowering
   example cases
 - `zig build shipped-surface-frontier-matrix-check` for the checked shipped-vs-lowered
   routing truth surface
@@ -588,13 +586,13 @@ corpus lowers into canonical scenarios and executes correctly. The current raw
 direct-style boundary is documented in `docs/direct_style_boundary.md` and
 checked by `zig build direct-style-boundary`.
 
-`docs/ordinary_zig_contract.md` is the versioned contract for the internal
+`docs/source_lowering_contract.md` is the versioned contract for the internal
 source-lowering track. `zig build source-lowering-gauntlet` is the
 green-only gate for the currently promised source-lowering wave, and
-`tools/render_surface_replacement_matrix.zig` renders the checked
-`docs/surface_replacement_matrix.json` ledger that tracks the long-horizon
-ordinary-body replacement bar for current witnesses, examples, and effect
-surfaces.
+`tools/render_source_lowering_coverage_matrix.zig` renders the checked
+`docs/source_lowering_coverage_matrix.json` matrix that records the current
+source-lowering coverage for witnesses, examples, built-in declarations, and
+user-defined effect rows.
 
 `tools/render_witness_admission_matrix.zig` renders the checked
 `docs/witness_admission_matrix.json` ledger that separates lexical witness proof
@@ -639,11 +637,8 @@ runtime error surface policy, which lives at
 frontend capability matrix, which lives at
 `docs/frontend_feature_matrix.json`.
 
-`tools/render_root_surface_migration_matrix.zig` renders the checked canonical
-root migration map, which lives at `docs/root_surface_migration_matrix.json`.
-
 `tools/render_shipped_surface_frontier_matrix.zig` renders the checked
-shipped-vs-compat routing map, which lives at
+shipped-vs-reference routing map, which lives at
 `docs/shipped_surface_frontier_matrix.json`.
 
 `tools/render_surface_truth_scorecard.zig` renders the machine-readable
