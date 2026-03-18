@@ -15,8 +15,6 @@ pub const Decision = program_api.Decision;
 pub const Decl = program_api.Decl;
 /// Unified op-descriptor namespace for the front-door API.
 pub const Op = program_api.Op;
-/// Compatibility namespace for legacy root lanes.
-pub const compat = @import("compat/root.zig");
 /// Root-first authored program surface.
 pub const Program = program_api.Program;
 /// Generalized algebraic-effect builders over the core shift/reset runtime.
@@ -56,7 +54,6 @@ test {
     _ = With;
     _ = effect;
     _ = algebraic;
-    _ = compat;
     _ = ordinary;
     _ = run;
     _ = with;

@@ -1,7 +1,5 @@
 const root = @import("root.zig");
 
-/// Compatibility namespace for legacy root lanes.
-pub const compat = root.compat;
 /// Root-level choice decision helper.
 pub const Decision = root.Decision;
 /// Unified declaration namespace.

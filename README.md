@@ -12,14 +12,9 @@ In the repo's current state, that means two things:
 - the runtime remains explicit, thread-affine, and user-owned, without exposing
   a public continuation handle
 
-The legacy lanes remain available, but they now serve as compatibility/runtime
-entrypoints beneath the root front door:
-
-- `shift.compat.with(...)`
-- `shift.compat.effect.*`
-- `shift.compat.effect.Define(.{ ... })`
-- `shift.compat.algebraic`
-- `shift.compat.ordinary`
+The legacy compatibility window is now closed. The root front door is the only
+supported public authoring surface, and the older lanes are no longer part of
+the public API contract.
 
 The repo therefore treats runtime code as the last rung of a semantics ladder,
 not as the source of truth:
@@ -53,7 +48,7 @@ The current public product claim is:
 ## Semantic Commitments
 
 - static `shift/reset`, not `control/prompt`
-- one root-front-door authoring story with compatibility lanes preserved under `shift.compat.*`
+- one root-front-door authoring story with the migration window closed
 - internal typed prompt discipline beneath that story
 - one-shot continuation use
 - honest answer-type pressure if the kernel requires it
