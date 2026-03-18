@@ -179,6 +179,17 @@ pub fn handle(
     return try algebraic.handleOptional(AnswerType, runtime, instance, Policy, Body);
 }
 
+pub fn handleWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Policy: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    return try algebraic.handleOptionalWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, Policy, Body);
+}
+
 test "optional instance shell stays prompt-sized" {
     const OptionalInstance = Instance(i32, error{});
     try std.testing.expectEqual(@sizeOf(usize), @sizeOf(OptionalInstance));

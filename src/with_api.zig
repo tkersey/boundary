@@ -61,6 +61,30 @@ fn ReturnTypeErrorSet(comptime ReturnType: type) type {
     };
 }
 
+fn isLoweredInfrastructureError(comptime error_name: []const u8) bool {
+    inline for (@typeInfo(lowered_machine.Error).error_set.?) |field| {
+        if (comptime std.mem.eql(u8, field.name, error_name)) return true;
+    }
+    inline for (@typeInfo(lowered_machine.SetupError).error_set.?) |field| {
+        if (comptime std.mem.eql(u8, field.name, error_name)) return true;
+    }
+    return false;
+}
+
+fn SemanticOnlyErrorSet(comptime ErrorSet: type) type {
+    const fields = @typeInfo(ErrorSet).error_set.?;
+    comptime var kept_count: usize = 0;
+    comptime var kept_fields: [fields.len]std.builtin.Type.Error = undefined;
+    inline for (fields) |field| {
+        if (comptime isLoweredInfrastructureError(field.name)) continue;
+        kept_fields[kept_count] = field;
+        kept_count += 1;
+    }
+    return @Type(.{
+        .error_set = kept_fields[0..kept_count],
+    });
+}
+
 fn assertHandlerBundleShape(comptime HandlersType: type) void {
     const info = @typeInfo(HandlersType);
     if (info != .@"struct") @compileError("shift.with handlers must be a struct literal or struct value");
@@ -611,6 +635,12 @@ pub fn WithFnReturnType(comptime HandlersType: type, comptime Body: type) type {
     return lowered_machine.ResetError(HandlerSet || BodyErrorSet(Body, PreviewEff))!WithResult(HandlersType, BodyAnswerType(Body, PreviewEff));
 }
 
+fn WithSemanticErrorSet(comptime HandlersType: type, comptime Body: type) type {
+    const HandlerSet = HandlerErrorSet(HandlersType);
+    const PreviewEff = PreviewBodyEffType(HandlersType);
+    return SemanticOnlyErrorSet(HandlerSet || BodyErrorSet(Body, PreviewEff));
+}
+
 pub fn With(comptime HandlersType: type, comptime Body: type) type {
     const ReturnType = WithFnReturnType(HandlersType, Body);
     return struct {
@@ -618,10 +648,7 @@ pub fn With(comptime HandlersType: type, comptime Body: type) type {
             .error_union => |err_union| err_union.payload,
             else => ReturnType,
         };
-        pub const SemanticErrorSet = switch (@typeInfo(ReturnType)) {
-            .error_union => |err_union| err_union.error_set,
-            else => error{},
-        };
+        pub const SemanticErrorSet = WithSemanticErrorSet(HandlersType, Body);
         pub const ExecutionError = switch (@typeInfo(ReturnType)) {
             .error_union => |err_union| err_union.error_set,
             else => error{},

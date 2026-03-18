@@ -705,6 +705,73 @@ pub fn handleOptional(
     return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
 }
 
+pub fn handleOptionalWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Policy: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    const ResumeType = family.InstanceStateType(@TypeOf(instance));
+    const ErrorSetType = family.InstanceErrorSetType(@TypeOf(instance));
+    comptime assertOptionalPolicyType(ResumeType, AnswerType, ErrorSetType, Policy);
+
+    const optional_request_op = internal.ChoiceOp("__effect_optional_request", void, ResumeType);
+    const hidden_program = internal.Program(ResumeType, AnswerType, RunErrorSetType, .{optional_request_op});
+    const OptionalState = struct {
+        cleanup_marker: ?*cleanup.Frame,
+    };
+    const cleanup_marker = cleanup.checkpoint();
+    const specs = .{
+        internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker }, struct {
+            pub fn resumeOrReturn(_: OptionalState, _: void) lowered_machine.ResetError(RunErrorSetType)!choice.Decision(ResumeType, AnswerType) {
+                const DecisionFn = @TypeOf(Policy.resumeOrReturn);
+                if (DecisionFn == fn () choice.Decision(ResumeType, AnswerType)) return Policy.resumeOrReturn();
+                return try Policy.resumeOrReturn();
+            }
+            pub fn afterResume(state: OptionalState, value: ResumeType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+                if (cleanup.checkpoint() != state.cleanup_marker) {
+                    cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
+                }
+                const AfterFn = @TypeOf(Policy.afterResume);
+                if (AfterFn == fn (ResumeType) AnswerType) return Policy.afterResume(value);
+                return try Policy.afterResume(value);
+            }
+        }),
+    };
+    const configured = hidden_program.handlers(specs);
+    const GeneratedEngineContextType = @TypeOf(configured).Context;
+    const BindingsType = internal.BindingChainFor(@TypeOf(specs), ResumeType, AnswerType, RunErrorSetType);
+    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
+
+    const capability_meta = struct {
+        const body_tag = Body;
+
+        pub fn PolicyType() type {
+            return Policy;
+        }
+
+        pub fn EngineContextType() type {
+            return GeneratedEngineContextType;
+        }
+
+        pub fn RequestOp() type {
+            return optional_request_op;
+        }
+    };
+
+    const contract = struct {
+        const PromptTypeV = prompt_contract.Prompt(.resume_or_return, ResumeType, AnswerType, RunErrorSetType);
+        const StateTypeV = ResumeType;
+        const AnswerTypeV = AnswerType;
+        const ErrorSetTypeV = RunErrorSetType;
+        const capability_decls = capability_meta;
+    };
+    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+}
+
 /// Run a continuation-taking lexical optional family through the shared algebraic engine.
 pub fn handleOptionalLexical(
     comptime AnswerType: type,

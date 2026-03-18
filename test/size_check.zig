@@ -375,6 +375,82 @@ test "optional Instance plus handle preserves custom body errors" {
     }));
 }
 
+test "optional handleWithErrorSet widens explicit continuation errors for empty instances" {
+    const policy = struct {
+        pub fn resumeOrReturn() shift.effect.choice.Decision(i32, i32) {
+            return shift.effect.choice.Decision(i32, i32).resumeWith(41);
+        }
+
+        pub fn afterResume(answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = shift.effect.optional.Instance(i32, error{}).init();
+
+    const CallType = @TypeOf(shift.effect.optional.handleWithErrorSet(i32, error{ContinueOops}, &runtime, &instance, policy, struct {
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.optional.requestProgram(Cap, ctx, struct {
+            pub fn apply(_: i32) !i32 {
+                return error.ContinueOops;
+            }
+        })) {
+            return shift.effect.optional.requestProgram(Cap, ctx, struct {
+                pub fn apply(_: i32) !i32 {
+                    return error.ContinueOops;
+                }
+            });
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "ContinueOops"));
+    try std.testing.expectError(error.ContinueOops, shift.effect.optional.handleWithErrorSet(i32, error{ContinueOops}, &runtime, &instance, policy, struct {
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.optional.requestProgram(Cap, ctx, struct {
+            pub fn apply(_: i32) !i32 {
+                return error.ContinueOops;
+            }
+        })) {
+            return shift.effect.optional.requestProgram(Cap, ctx, struct {
+                pub fn apply(_: i32) !i32 {
+                    return error.ContinueOops;
+                }
+            });
+        }
+    }));
+}
+
+test "optional handleWithErrorSet widens explicit body errors for empty instances" {
+    const policy = struct {
+        pub fn resumeOrReturn() shift.effect.choice.Decision(i32, i32) {
+            return shift.effect.choice.Decision(i32, i32).resumeWith(1);
+        }
+
+        pub fn afterResume(answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = shift.effect.optional.Instance(i32, error{}).init();
+
+    const CallType = @TypeOf(shift.effect.optional.handleWithErrorSet(i32, error{BodyOops}, &runtime, &instance, policy, struct {
+        pub fn body(_: type, _: anytype) !i32 {
+            return error.BodyOops;
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "BodyOops"));
+    try std.testing.expectError(error.BodyOops, shift.effect.optional.handleWithErrorSet(i32, error{BodyOops}, &runtime, &instance, policy, struct {
+        pub fn body(_: type, _: anytype) !i32 {
+            return error.BodyOops;
+        }
+    }));
+}
+
 test "exception Instance plus handle preserves custom body errors" {
     const DemoError = error{BodyOops};
     const catcher = struct {
