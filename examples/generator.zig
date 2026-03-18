@@ -31,6 +31,7 @@ pub fn run(writer: anytype) anyerror!void {
     const result = try shift.run(&runtime, GeneratorProgram, .{
         .state = @as(i32, 0),
     });
+    defer std.heap.page_allocator.free(result.outputs.writer);
 
     for (result.outputs.writer) |item| {
         try writer.print("{s}\n", .{item});

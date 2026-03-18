@@ -158,6 +158,7 @@ pub fn runGenerator(writer: anytype) anyerror!void {
             }
         }
     });
+    defer output_fba.allocator().free(result.outputs.writer);
     for (result.outputs.writer) |item| try writer.print("{s}\n", .{item});
     try writer.print("done={d}\n", .{result.value});
 }

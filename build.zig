@@ -1097,6 +1097,9 @@ pub fn build(b: *std.Build) void {
 
     test_step.dependOn(&authoring_lower_check_cmd.step);
     test_step.dependOn(&run_boundary_tests.step);
+    test_step.dependOn(&run_structured_program_tests.step);
+    test_step.dependOn(&run_bridge_tests.step);
+    test_step.dependOn(&run_bridge_boundary_tests.step);
     test_step.dependOn(&scorecard_check_cmd.step);
     test_step.dependOn(&route_matrix_check_cmd.step);
     test_step.dependOn(&obligation_matrix_check_cmd.step);

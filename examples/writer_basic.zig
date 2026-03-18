@@ -18,6 +18,7 @@ pub fn run(writer: anytype) anyerror!void {
     defer runtime.deinit();
 
     const result = try shift.run(&runtime, WriterProgram, .{});
+    defer std.heap.page_allocator.free(result.outputs.writer);
 
     for (result.outputs.writer) |item| {
         try writer.print("item={s}\n", .{item});

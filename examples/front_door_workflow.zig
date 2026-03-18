@@ -81,6 +81,7 @@ pub fn run(writer: anytype) anyerror!void {
         .search = SearchHandler{},
         .approval = ApprovalHandler{},
     });
+    defer std.heap.page_allocator.free(result.outputs.writer);
 
     try writer.print("{s}\n", .{transcript.search_line});
     try writer.print("{s}\n", .{transcript.approval_line});
