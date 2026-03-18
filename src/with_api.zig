@@ -71,8 +71,14 @@ fn isLoweredInfrastructureError(comptime error_name: []const u8) bool {
     return false;
 }
 
-fn SemanticOnlyErrorSet(comptime ErrorSet: type) type {
+fn SemanticBodyErrorSet(comptime ErrorSet: type) type {
     const fields = @typeInfo(ErrorSet).error_set.?;
+    comptime var non_infra_count: usize = 0;
+    inline for (fields) |field| {
+        if (!comptime isLoweredInfrastructureError(field.name)) non_infra_count += 1;
+    }
+    if (non_infra_count == 0) return ErrorSet;
+
     comptime var kept_count: usize = 0;
     comptime var kept_fields: [fields.len]std.builtin.Type.Error = undefined;
     inline for (fields) |field| {
@@ -638,7 +644,7 @@ pub fn WithFnReturnType(comptime HandlersType: type, comptime Body: type) type {
 fn WithSemanticErrorSet(comptime HandlersType: type, comptime Body: type) type {
     const HandlerSet = HandlerErrorSet(HandlersType);
     const PreviewEff = PreviewBodyEffType(HandlersType);
-    return SemanticOnlyErrorSet(HandlerSet || BodyErrorSet(Body, PreviewEff));
+    return HandlerSet || SemanticBodyErrorSet(BodyErrorSet(Body, PreviewEff));
 }
 
 pub fn With(comptime HandlersType: type, comptime Body: type) type {

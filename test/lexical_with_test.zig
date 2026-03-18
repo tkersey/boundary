@@ -68,6 +68,21 @@ test "shift.With distinguishes semantic from execution error metadata" {
     try std.testing.expect(hasErrorName(Meta.ExecutionError, "OutOfMemory"));
 }
 
+test "shift.With preserves semantic body errors that collide with setup names" {
+    const Handlers = @TypeOf(.{
+        .state = shift.effect.state.use(@as(i32, 7)),
+    });
+    const Body = struct {
+        pub fn body(_: anytype) !i32 {
+            return error.OutOfMemory;
+        }
+    };
+    const Meta = shift.With(Handlers, Body);
+
+    try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "OutOfMemory"));
+    try std.testing.expect(hasErrorName(Meta.ExecutionError, "OutOfMemory"));
+}
+
 test "lexical optional request retains explicit continuation errors" {
     const policy = struct {
         pub fn resumeOrReturn() shift.effect.choice.Decision(i32, i32) {
