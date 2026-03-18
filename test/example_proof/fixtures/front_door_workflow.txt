@@ -1,0 +1,7 @@
+search=artifact-search
+approval=publish
+item=query=artifact-search
+item=workflow=queued
+final_state=3
+total=3
+result=completed

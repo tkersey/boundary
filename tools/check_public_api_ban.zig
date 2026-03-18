@@ -4,10 +4,16 @@ const allowedExports = &[_][]const u8{
     "Runtime",
     "RuntimeError",
     "ErrorWitnessV1",
+    "Decision",
+    "Decl",
+    "Op",
+    "compat",
+    "Program",
     "algebraic",
     "effect",
     "ordinary",
     "With",
+    "run",
     "with",
 };
 

@@ -7,18 +7,19 @@
 
 In the repo's current state, that means two things:
 
-- the canonical authored-body surface is source-validated and rooted in
-  `shift.ordinary` / `shift-ordinary-lower`
-- the public API still preserves direct-style ordinary Zig without exposing a
-  public continuation handle
+- the public front door is rooted in `shift.Program(.{ ... }, Body)` and
+  `shift.run(&runtime, Program, bindings)`
+- the runtime remains explicit, thread-affine, and user-owned, without exposing
+  a public continuation handle
 
-The lexical runtime surfaces remain public, but they now serve as
-compatibility/runtime entrypoints beneath the canonical ordinary story:
+The legacy lanes remain available, but they now serve as compatibility/runtime
+entrypoints beneath the root front door:
 
-- `shift.with(...)`
-- `shift.effect.*`
-- `shift.effect.Define(.{ ... })`
-- `shift.algebraic`
+- `shift.compat.with(...)`
+- `shift.compat.effect.*`
+- `shift.compat.effect.Define(.{ ... })`
+- `shift.compat.algebraic`
+- `shift.compat.ordinary`
 
 The repo therefore treats runtime code as the last rung of a semantics ladder,
 not as the source of truth:
@@ -33,19 +34,17 @@ The shipped runtime backend is the canonical authored-body lowered runtime.
 
 The current public product claim is:
 
-- `shift.ordinary` and `shift-ordinary-lower` are the canonical source-backed
-  authoring entrypoints for the repo-owned ordinary, witness, generated,
-  algebraic, and built-in effect corpus
-- `shift.with(&runtime, handlers, Body)` remains the explicit compatibility
-  runtime entrypoint
-- built-in families still install lexical handlers through `shift.effect.state`,
-  `shift.effect.reader`, `shift.effect.optional`, `shift.effect.exception`,
-  `shift.effect.resource`, and `shift.effect.writer`
-- `shift.effect.Define(.{ ... })` and `shift.algebraic` add user-defined and
-  closed-world operation surfaces over the same lowered runtime
-- `shift.With(...).Result` returns the body answer plus family outputs
-- `shift.effect.choice.Decision(...)` is the public choice-decision type for
-  lexical optional and generated choice handlers
+- `shift.Program(.{ ... }, Body)` is the reusable authored-body surface
+- `shift.run(&runtime, Program, bindings)` is the explicit root execution entrypoint
+- built-in declarations are installed through `shift.Decl.state`,
+  `shift.Decl.reader`, `shift.Decl.optional`, `shift.Decl.exception`,
+  `shift.Decl.resource`, and `shift.Decl.writer`
+- custom closed-world families are declared through `shift.Decl.family(.{ ... })`
+  and `shift.Op.transform` / `shift.Op.choice` / `shift.Op.abort`
+- `shift.Decision(...)` is the public choice-decision type for front-door
+  optional and generated choice handlers
+- `Program.Manifest` exposes comptime declaration and output metadata for proof
+  and documentation tooling
 - prompt descriptors, `PromptMode`, `ResumeOrReturn`, `reset`, and `frontend`
   no longer live at the top level; repo-owned proof surfaces now reach them
   only through direct imports of `src/internal/prompt_support.zig`
@@ -54,7 +53,7 @@ The current public product claim is:
 ## Semantic Commitments
 
 - static `shift/reset`, not `control/prompt`
-- ordinary-first source-backed authoring with lexical/algebraic compatibility surfaces
+- one root-front-door authoring story with compatibility lanes preserved under `shift.compat.*`
 - internal typed prompt discipline beneath that story
 - one-shot continuation use
 - honest answer-type pressure if the kernel requires it

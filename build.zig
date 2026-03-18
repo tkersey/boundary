@@ -1177,6 +1177,7 @@ pub fn build(b: *std.Build) void {
     example_proof_mod.addImport("example_define_choice_basic", createShiftConsumerModule(b, "examples/define_choice_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     example_proof_mod.addImport("example_early_exit", createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     example_proof_mod.addImport("example_exception_basic", createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    example_proof_mod.addImport("example_front_door_workflow", createShiftConsumerModule(b, "examples/front_door_workflow.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     example_proof_mod.addImport("example_generator", createShiftConsumerModule(b, "examples/generator.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     example_proof_mod.addImport("example_nested_workflow", createShiftConsumerModule(b, "examples/nested_workflow.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     example_proof_mod.addImport("example_optional_basic", createShiftConsumerModule(b, "examples/optional_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
@@ -1241,6 +1242,12 @@ pub fn build(b: *std.Build) void {
             .src = "examples/exception_basic.zig",
             .step_name = "run-exception-basic",
             .step_desc = "Run the direct-return exception effect example.",
+        },
+        .{
+            .name = "front_door_workflow",
+            .src = "examples/front_door_workflow.zig",
+            .step_name = "run-front-door-workflow",
+            .step_desc = "Run the composite root front-door workflow example.",
         },
         .{
             .name = "generator",
@@ -1309,7 +1316,6 @@ pub fn build(b: *std.Build) void {
         check_step.dependOn(&exe.step);
 
         const run = b.addRunArtifact(exe);
-        run.step.dependOn(b.getInstallStep());
         const run_step = b.step(example.step_name, example.step_desc);
         run_step.dependOn(&run.step);
     }

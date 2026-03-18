@@ -1,41 +1,44 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const NoError = error{};
-const Guard = shift.effect.Define(.{
+const transcript = struct {
+    threadlocal var abort_line: []const u8 = "";
+};
+
+const GuardHandler = struct {
+    /// Validate one missing name and return the canonical generated abort answer.
+    pub fn fail(_: *@This(), payload: []const u8) ![]const u8 {
+        transcript.abort_line = payload;
+        return "error=missing-name";
+    }
+};
+
+const Guard = shift.Decl.family(.{
     .state_type = struct {},
     .ops = .{
-        shift.effect.ops.Abort("fail", []const u8),
+        shift.Op.abort("fail", []const u8),
     },
+}, GuardHandler);
+
+const GuardProgram = shift.Program(.{
+    .guard = Guard,
+}, struct {
+    /// Trigger the generated front-door abort point directly.
+    pub fn body(eff: anytype) ![]const u8 {
+        try eff.guard.fail.abort("missing-name");
+    }
 });
 
-/// Render the generated lexical abort-family example transcript.
+/// Render the generated lexical abort-family example transcript through the root front door.
 pub fn run(writer: anytype) anyerror!void {
-    const transcript = struct {
-        threadlocal var abort_line: []const u8 = "";
-    };
-
-    const guard_handler = struct {
-        /// Validate one missing name and return the canonical generated abort answer.
-        pub fn fail(_: *@This(), payload: []const u8) ![]const u8 {
-            transcript.abort_line = payload;
-            return "error=missing-name";
-        }
-    };
-
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
     transcript.abort_line = "";
 
     try writer.writeAll("validate=name\n");
-    const result = try shift.with(&runtime, .{
-        .guard = Guard.use(.{ .handler = guard_handler{} }),
-    }, struct {
-        /// Trigger the generated lexical abort point directly.
-        pub fn body(eff: anytype) ![]const u8 {
-            try eff.guard.fail.abort("missing-name");
-        }
+    const result = try shift.run(&runtime, GuardProgram, .{
+        .guard = GuardHandler{},
     });
     try writer.print("abort={s}\n", .{transcript.abort_line});
     try writer.print("final={s}\n", .{result.value});

@@ -1,5 +1,15 @@
 const root = @import("root.zig");
 
+/// Compatibility namespace for legacy root lanes.
+pub const compat = root.compat;
+/// Root-level choice decision helper.
+pub const Decision = root.Decision;
+/// Unified declaration namespace.
+pub const Decl = root.Decl;
+/// Unified op descriptor namespace.
+pub const Op = root.Op;
+/// Root-first authored program surface.
+pub const Program = root.Program;
 /// Generalized algebraic-effect builders over the canonical shift root.
 pub const algebraic = root.algebraic;
 /// Additive algebraic-effect families over the canonical shift root.
@@ -14,6 +24,8 @@ pub const RuntimeError = root.RuntimeError;
 pub const ErrorWitnessV1 = root.ErrorWitnessV1;
 /// Canonical lexical companion type returned from `shift.with(...)`.
 pub const With = root.With;
+/// Canonical lexical execution entrypoint.
+pub const run = root.run;
 /// Canonical lexical execution entrypoint.
 pub const with = root.with;
 

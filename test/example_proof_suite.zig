@@ -5,6 +5,7 @@ const define_basic = @import("example_define_basic");
 const define_choice_basic = @import("example_define_choice_basic");
 const early_exit = @import("example_early_exit");
 const exception_basic = @import("example_exception_basic");
+const front_door_workflow = @import("example_front_door_workflow");
 const generator = @import("example_generator");
 const nested_workflow = @import("example_nested_workflow");
 const optional_basic = @import("example_optional_basic");
@@ -30,6 +31,7 @@ test "example proof fixtures stay exact" {
     try expectExample(define_choice_basic, "example_proof/fixtures/define_choice_basic.txt");
     try expectExample(early_exit, "example_proof/fixtures/early_exit.txt");
     try expectExample(exception_basic, "example_proof/fixtures/exception_basic.txt");
+    try expectExample(front_door_workflow, "example_proof/fixtures/front_door_workflow.txt");
     try expectExample(generator, "example_proof/fixtures/generator.txt");
     try expectExample(nested_workflow, "example_proof/fixtures/nested_workflow.txt");
     try expectExample(optional_basic, "example_proof/fixtures/optional_basic.txt");

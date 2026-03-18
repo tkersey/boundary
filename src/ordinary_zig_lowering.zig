@@ -197,12 +197,13 @@ const errdefer_match = Match{
 
 const early_exit_match = Match{
     .required_snippets = &.{
-        "shift.effect.exception.use([]const u8, catch_policy)",
+        "const EarlyExitProgram = shift.Program(.{",
+        "shift.Decl.exception([]const u8, catch_policy)",
         "try eff.exception.throw(\"result=early\");",
         "transcript.handler_line = \"handler-direct-return\";",
     },
     .entry_required_snippets = &.{
-        "try eff.exception.throw(\"result=early\");",
+        "const result = try shift.run(&runtime, EarlyExitProgram, .{});",
         "try writer.print(\"final={s}\\n\", .{result.value});",
     },
     .feature_flags = &.{ "lexical_exception", "direct_return", "promoted_example" },
@@ -217,21 +218,20 @@ const resume_or_return_example_match = Match{
     },
     .entry_required_snippets = &.{
         "try writer.writeAll(\"branch=return_now\\n\");",
-        "transcript.note(\"body-after-shift\");",
-        "try writer.print(\"final={s}\\n\", .{resumed.value});",
+        "const early = try shift.run(&runtime, ReturnNowProgram, .{});",
+        "const resumed = try shift.run(&runtime, ResumeProgram, .{});",
     },
     .feature_flags = &.{ "lexical_optional", "return_now", "resume_with", "promoted_example" },
 };
 
 const nested_workflow_match = Match{
     .required_snippets = &.{
-        "const Approval = shift.effect.Define",
+        "const Approval = shift.Decl.family",
         "eff.approval.publish.perform",
         "approval=publish",
     },
     .entry_required_snippets = &.{
-        "const result = try shift.with(&runtime, .{",
-        "transcript.note(\"workflow=done\");",
+        "const result = try shift.run(&runtime, WorkflowProgram, .{",
         "try writer.print(\"result={s}\\n\", .{result.value});",
     },
     .feature_flags = &.{ "generated_choice", "nested_workflow", "promoted_example" },
@@ -239,12 +239,13 @@ const nested_workflow_match = Match{
 
 const state_example_match = Match{
     .required_snippets = &.{
-        "shift.effect.state.use(@as(i32, 5))",
+        "const StateProgram = shift.Program(.{",
+        "shift.Decl.state(i32)",
         "const before = try eff.state.get();",
         "try eff.state.set(before + 1);",
     },
     .entry_required_snippets = &.{
-        "try eff.state.set(before + 1);",
+        "const result = try shift.run(&runtime, StateProgram, .{",
         "try writer.print(\"before=5\\nafter=6\\nfinal_state={d}\\nvalue={d}\\n\", .{ result.outputs.state, result.value });",
     },
     .feature_flags = &.{ "state_effect", "lexical_effect", "promoted_cohort_a" },
@@ -252,12 +253,13 @@ const state_example_match = Match{
 
 const reader_example_match = Match{
     .required_snippets = &.{
-        "shift.effect.reader.use(@as(i32, 21))",
+        "const ReaderProgram = shift.Program(.{",
+        "shift.Decl.reader(i32)",
         "const env = try eff.reader.ask();",
         "return env * 2;",
     },
     .entry_required_snippets = &.{
-        "const env = try eff.reader.ask();",
+        "const result = try shift.run(&runtime, ReaderProgram, .{",
         "try writer.print(\"env=21\\nvalue={d}\\n\", .{result.value});",
     },
     .feature_flags = &.{ "reader_effect", "lexical_effect", "promoted_cohort_a" },
@@ -268,12 +270,11 @@ const optional_example_match = Match{
         "policy-return-now",
         "policy-resume",
         "body-after-request",
-        "shift.effect.optional.use(i32, resume_policy)",
+        "shift.Decl.optional(i32, resume_policy)",
     },
     .entry_required_snippets = &.{
-        "transcript.note(\"policy-after-resume\");",
-        "transcript.note(\"body-after-request\");",
-        "try writer.print(\"final={s}\\n\", .{resumed.value});",
+        "const early_result = try shift.run(&runtime, ReturnNowProgram, .{});",
+        "const resumed = try shift.run(&runtime, ResumeProgram, .{});",
     },
     .feature_flags = &.{ "optional_effect", "lexical_effect", "promoted_cohort_a" },
 };
@@ -281,11 +282,13 @@ const optional_example_match = Match{
 const exception_example_match = Match{
     .required_snippets = &.{
         "branch=throw",
+        "shift.Decl.exception([]const u8, catch_policy)",
         "try eff.exception.throw(\"result=boom\");",
         "catch={s}",
     },
     .entry_required_snippets = &.{
-        "try eff.exception.throw(\"result=boom\");",
+        "const ok = try shift.run(&runtime, ExceptionPassProgram, .{});",
+        "const thrown = try shift.run(&runtime, ExceptionProgram, .{});",
         "try writer.print(\"catch={s}\\n\", .{transcript.caught_payload});",
         "try writer.print(\"final={s}\\n\", .{thrown.value});",
     },
@@ -294,7 +297,8 @@ const exception_example_match = Match{
 
 const define_basic_match = Match{
     .required_snippets = &.{
-        "const Counter = shift.effect.Define",
+        "const Counter = shift.Decl.family",
+        "shift.Op.transform(\"get\", void, i32)",
         "eff.counter.get.perform()",
         "eff.counter.set.perform(before + 1)",
         "counter={d}",
@@ -307,12 +311,15 @@ const define_basic_match = Match{
 
 const define_choice_match = Match{
     .required_snippets = &.{
-        "const Picker = shift.effect.Define",
+        "const Picker = shift.Decl.family",
+        "shift.Op.choice(\"pick\", i32, i32)",
         "eff.picker.pick.perform(41",
         "body-after-pick",
         "policy-after-resume",
     },
     .entry_required_snippets = &.{
+        "const early = try shift.run(&runtime, PickerProgram, .{",
+        "const resumed = try shift.run(&runtime, PickerProgram, .{",
         "try writer.writeAll(\"branch=return_now\\n\");",
         "try writer.writeAll(\"branch=resume_with\\n\");",
     },
@@ -321,11 +328,13 @@ const define_choice_match = Match{
 
 const define_abort_match = Match{
     .required_snippets = &.{
-        "const Guard = shift.effect.Define",
+        "const Guard = shift.Decl.family",
+        "shift.Op.abort(\"fail\", []const u8)",
         "eff.guard.fail.abort(\"missing-name\")",
         "abort={s}",
     },
     .entry_required_snippets = &.{
+        "const result = try shift.run(&runtime, GuardProgram, .{",
         "try writer.writeAll(\"validate=name\\n\");",
         "try writer.print(\"abort={s}\\n\", .{transcript.abort_line});",
     },
@@ -334,13 +343,13 @@ const define_abort_match = Match{
 
 const resource_example_match = Match{
     .required_snippets = &.{
-        "shift.effect.resource.use([]const u8, resource_manager)",
+        "shift.Decl.resource([]const u8, resource_manager)",
         "const first = try eff.resource.acquire();",
         "const second = try eff.resource.acquire();",
         "release=a",
     },
     .entry_required_snippets = &.{
-        "const result = try shift.with(&runtime, .{",
+        "const result = try shift.run(&runtime, ResourceProgram, .{});",
         "try writer.print(\"final={s}\\n\", .{result.value});",
     },
     .feature_flags = &.{ "resource_effect", "lexical_effect", "ordinary_canonical" },
@@ -348,13 +357,14 @@ const resource_example_match = Match{
 
 const writer_example_match = Match{
     .required_snippets = &.{
-        "shift.effect.writer.use([]const u8, output_fba.allocator())",
+        "const WriterProgram = shift.Program(.{",
+        "shift.Decl.writer([]const u8)",
         "try eff.writer.tell(\"a\")",
         "try eff.writer.tell(\"b\")",
         "value={s}",
     },
     .entry_required_snippets = &.{
-        "const result = try shift.with(&runtime, .{",
+        "const result = try shift.run(&runtime, WriterProgram, .{});",
         "try writer.print(\"value={s}\\n\", .{result.value});",
     },
     .feature_flags = &.{ "writer_effect", "lexical_effect", "ordinary_canonical" },
@@ -362,12 +372,13 @@ const writer_example_match = Match{
 
 const algebraic_abort_match = Match{
     .required_snippets = &.{
-        "const fail = shift.algebraic.AbortOp(\"fail\", []const u8);",
-        "const Validation = shift.algebraic.Program([]const u8, .{fail});",
-        "ctx.performProgram(fail, \"missing-name\"",
+        "shift.Decl.family(.{",
+        "shift.Op.abort(\"fail\", []const u8)",
+        "try eff.guard.fail.abort(\"missing-name\")",
         "abort={s}",
     },
     .entry_required_snippets = &.{
+        "const result = try shift.run(&runtime, Validation, .{",
         "try writer.writeAll(\"validate=name\\n\");",
         "try writer.print(\"abort={s}\\n\", .{transcript.abort_line});",
     },
@@ -376,14 +387,14 @@ const algebraic_abort_match = Match{
 
 const algebraic_artifact_match = Match{
     .required_snippets = &.{
-        "const search = shift.algebraic.TransformOp(\"search\", []const u8, i32);",
-        "const ArtifactSearch = shift.algebraic.Program(i32, .{search});",
-        "ctx.performProgram(search, \"artifact-search\"",
+        "const Search = shift.Decl.family(.{",
+        "shift.Op.transform(\"search\", []const u8, i32)",
+        "const total = try eff.search.search.perform(\"artifact-search\");",
         "opencode_source=jsonl",
     },
     .entry_required_snippets = &.{
-        "const result = try configured.run(&runtime, body);",
-        "try writer.print(\"total={d}\\n\", .{result});",
+        "const result = try shift.run(&runtime, ArtifactSearch, .{",
+        "try writer.print(\"total={d}\\n\", .{result.value});",
     },
     .feature_flags = &.{ "algebraic_transform", "ordinary_canonical" },
 };
@@ -480,12 +491,14 @@ const witness_multi_prompt_match = Match{
 const witness_generator_match = Match{
     .required_snippets = &.{
         "pub fn runGenerator(writer: anytype)",
+        "shift.with(&runtime, .{",
         "try eff.writer.tell(switch (next)",
         "\"yield=3\"",
         "done={d}",
     },
     .entry_required_snippets = &.{
         "pub fn runGenerator(writer: anytype)",
+        "const result = try shift.with(&runtime, .{",
         "while (true) {",
         "return current;",
     },
