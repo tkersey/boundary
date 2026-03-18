@@ -120,6 +120,40 @@ fn ReturnTypeErrorSet(comptime ReturnType: type) type {
     };
 }
 
+fn ExplicitContinuationFnType(comptime Continuation: type) type {
+    if (family.hasDeclSafe(Continuation, "apply")) return @TypeOf(@field(Continuation, "apply"));
+    return switch (@typeInfo(Continuation)) {
+        .@"fn" => Continuation,
+        .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn")
+            Continuation
+        else
+            @compileError("generated explicit program continuation must declare apply(value) or be a callable function"),
+        else => @compileError("generated explicit program continuation must declare apply(value) or be a callable function"),
+    };
+}
+
+fn ExplicitContinuationReturnType(comptime Continuation: type, comptime ResumeType: type) type {
+    const ContinuationFn = ExplicitContinuationFnType(Continuation);
+    const params = @typeInfo(ContinuationFn).@"fn".params;
+    if (params.len != 1) @compileError("generated explicit program continuation must accept exactly one resumed value");
+    if (comptime family.hasDeclSafe(Continuation, "apply")) {
+        return @TypeOf(@field(Continuation, "apply")(@as(ResumeType, undefined)));
+    }
+    return @TypeOf(Continuation(@as(ResumeType, undefined)));
+}
+
+fn ExplicitContinuationAnswerType(comptime Continuation: type, comptime ResumeType: type) type {
+    const ReturnType = ExplicitContinuationReturnType(Continuation, ResumeType);
+    return switch (@typeInfo(ReturnType)) {
+        .error_union => |err_union| err_union.payload,
+        else => ReturnType,
+    };
+}
+
+fn ExplicitContinuationErrorSet(comptime Continuation: type, comptime ResumeType: type) type {
+    return ReturnTypeErrorSet(ExplicitContinuationReturnType(Continuation, ResumeType));
+}
+
 fn FnParamsMatch(comptime FnType: type, comptime params: []const type) bool {
     const actual = @typeInfo(FnType).@"fn".params;
     if (actual.len != params.len) return false;
@@ -420,7 +454,12 @@ fn PreviewBodyErrorSet(
             comptime Op: type,
             _: Op.Payload,
             comptime Continuation: type,
-        ) frontend.BoundProgram(prompt_contract.Prompt(Op.mode, Op.Resume, lexical_with.ChoiceAnswerType(Continuation), BaseErrorSet)) {
+        ) frontend.BoundProgram(prompt_contract.Prompt(
+            Op.mode,
+            Op.Resume,
+            ExplicitContinuationAnswerType(Continuation, Op.Resume),
+            BaseErrorSet || ExplicitContinuationErrorSet(Continuation, Op.Resume),
+        )) {
             unreachable;
         }
     };

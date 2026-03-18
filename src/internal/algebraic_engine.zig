@@ -152,6 +152,46 @@ fn FnParamsMatch(comptime FnType: type, comptime params: []const type) bool {
     return true;
 }
 
+fn ReturnTypeErrorSet(comptime ReturnType: type) type {
+    return switch (@typeInfo(ReturnType)) {
+        .error_union => |err_union| err_union.error_set,
+        else => error{},
+    };
+}
+
+fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
+    return switch (@typeInfo(T)) {
+        .@"struct", .@"union", .@"enum", .@"opaque" => @hasDecl(T, name),
+        else => false,
+    };
+}
+
+fn ExplicitContinuationFnType(comptime Continuation: type) type {
+    if (hasDeclSafe(Continuation, "apply")) return @TypeOf(@field(Continuation, "apply"));
+    return switch (@typeInfo(Continuation)) {
+        .@"fn" => Continuation,
+        .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn")
+            Continuation
+        else
+            @compileError("explicit program continuation must declare apply(value) or be a callable function"),
+        else => @compileError("explicit program continuation must declare apply(value) or be a callable function"),
+    };
+}
+
+fn ExplicitContinuationReturnType(comptime Continuation: type, comptime ResumeType: type) type {
+    const ContinuationFn = ExplicitContinuationFnType(Continuation);
+    const params = @typeInfo(ContinuationFn).@"fn".params;
+    if (params.len != 1) @compileError("explicit program continuation must accept exactly one resumed value");
+    if (comptime hasDeclSafe(Continuation, "apply")) {
+        return @TypeOf(@field(Continuation, "apply")(@as(ResumeType, undefined)));
+    }
+    return @TypeOf(Continuation(@as(ResumeType, undefined)));
+}
+
+fn ExplicitContinuationErrorSet(comptime Continuation: type, comptime ResumeType: type) type {
+    return ReturnTypeErrorSet(ExplicitContinuationReturnType(Continuation, ResumeType));
+}
+
 fn assertTransformImplType(comptime TransformContract: type) void {
     const StateType = TransformContract.state_type;
     const Op = TransformContract.op_type;
@@ -294,6 +334,22 @@ fn Binding(
         spec: SpecType,
         prompt: PromptType,
 
+        fn ProgramErrorSet(comptime Continuation: type) type {
+            return switch (SpecType.builder_kind) {
+                .transform, .choice => ErrorSet || ExplicitContinuationErrorSet(Continuation, Op.Resume),
+                .direct_transform, .abort => ErrorSet,
+            };
+        }
+
+        fn ProgramPromptType(comptime Continuation: type) type {
+            return PromptTypeForOp(Op, ContinueAnswer, Answer, ProgramErrorSet(Continuation));
+        }
+
+        fn promptRef(self: *@This(), comptime Continuation: type) *const ProgramPromptType(Continuation) {
+            // Prompt layout is token-only, so reusing the active delimiter identity across widened error sets is safe.
+            return @ptrCast(&self.prompt);
+        }
+
         /// Build one binding with a fresh prompt token.
         pub fn init(spec: SpecType) @This() {
             return .{
@@ -426,11 +482,12 @@ fn Binding(
         }
 
         /// Build one explicit frontend program for the bound operation and continuation.
-        pub fn program(self: *@This(), payload: Op.Payload, comptime Continuation: type) frontend.Program(PromptType) {
+        pub fn program(self: *@This(), payload: Op.Payload, comptime Continuation: type) frontend.Program(ProgramPromptType(Continuation)) {
             const BindingType = @This();
             return switch (SpecType.builder_kind) {
                 .direct_transform => @compileError("direct transform bindings do not support explicit program construction"),
                 .transform => blk: {
+                    const ProgramPrompt = ProgramPromptType(Continuation);
                     const handler = struct {
                         /// Supply the resumptive value for one explicit transform op.
                         pub fn resumeValue() lowered_machine.ResetError(ErrorSet)!Op.Resume {
@@ -445,9 +502,10 @@ fn Binding(
 
                     BindingType.pending_binding = self;
                     BindingType.pending_payload = payload;
-                    break :blk frontend.transformProgram(PromptType, Op.Resume, handler, Continuation);
+                    break :blk frontend.transformProgram(ProgramPrompt, Op.Resume, handler, Continuation);
                 },
                 .choice => blk: {
+                    const ProgramPrompt = ProgramPromptType(Continuation);
                     const handler = struct {
                         /// Decide whether one explicit choice op resumes or returns now.
                         pub fn resumeOrReturn() lowered_machine.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
@@ -462,7 +520,7 @@ fn Binding(
 
                     BindingType.pending_binding = self;
                     BindingType.pending_payload = payload;
-                    break :blk frontend.choiceProgram(PromptType, Op.Resume, handler, Continuation);
+                    break :blk frontend.choiceProgram(ProgramPrompt, Op.Resume, handler, Continuation);
                 },
                 .abort => blk: {
                     const handler = struct {
@@ -480,13 +538,14 @@ fn Binding(
         }
 
         /// Build one explicit frontend program that closes over this binding directly.
-        pub fn directProgram(self: *@This(), payload: Op.Payload, comptime Continuation: type) frontend.Program(PromptType) {
+        pub fn directProgram(self: *@This(), payload: Op.Payload, comptime Continuation: type) frontend.Program(ProgramPromptType(Continuation)) {
             const BindingType = @This();
             BindingType.direct_binding = self;
             BindingType.direct_payload = payload;
             return switch (SpecType.builder_kind) {
                 .direct_transform => @compileError("direct transform bindings do not support explicit program construction"),
                 .transform => blk: {
+                    const ProgramPrompt = ProgramPromptType(Continuation);
                     const handler = struct {
                         /// Supply the resumptive value for one direct explicit transform op.
                         pub fn resumeValue() lowered_machine.ResetError(ErrorSet)!Op.Resume {
@@ -499,9 +558,10 @@ fn Binding(
                         }
                     };
 
-                    break :blk frontend.transformProgram(PromptType, Op.Resume, handler, Continuation);
+                    break :blk frontend.transformProgram(ProgramPrompt, Op.Resume, handler, Continuation);
                 },
                 .choice => blk: {
+                    const ProgramPrompt = ProgramPromptType(Continuation);
                     const handler = struct {
                         /// Decide whether one direct explicit choice op resumes or returns now.
                         pub fn resumeOrReturn() lowered_machine.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
@@ -514,7 +574,7 @@ fn Binding(
                         }
                     };
 
-                    break :blk frontend.choiceProgram(PromptType, Op.Resume, handler, Continuation);
+                    break :blk frontend.choiceProgram(ProgramPrompt, Op.Resume, handler, Continuation);
                 },
                 .abort => blk: {
                     const handler = struct {
@@ -680,11 +740,11 @@ pub fn Program(
                         comptime Op: type,
                         payload: Op.Payload,
                         comptime Continuation: type,
-                    ) frontend.BoundProgram(BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, findOpIndex(Op)).Prompt) {
+                    ) frontend.BoundProgram(BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, findOpIndex(Op)).ProgramPromptType(Continuation)) {
                         const index = comptime findOpIndex(Op);
                         const binding = self.bindings.bindingPtr(index);
                         return .{
-                            .prompt = &binding.prompt,
+                            .prompt = binding.promptRef(Continuation),
                             .program = binding.program(payload, Continuation),
                             .activateFn = BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, index).activatePending,
                             .deactivateFn = BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, index).deactivatePending,

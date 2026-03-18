@@ -468,6 +468,45 @@ test "algebraic Program infers authored program errors on the public wrapper" {
     try std.testing.expectError(error.ProgramOops, configured.run(&runtime, Body));
 }
 
+test "algebraic Program infers continuation errors in explicit program bodies" {
+    const no_state = struct {};
+    const ping = shift.algebraic.TransformOp("ping", void, i32);
+    const algebraic_builder = shift.algebraic.Program(i32, .{ping});
+    const configured = algebraic_builder.handlers(.{
+        shift.algebraic.handleTransform(ping, no_state{}, struct {
+            pub fn resumeValue(_: no_state, _: void) i32 {
+                return 7;
+            }
+            pub fn afterResume(_: no_state, answer: i32) i32 {
+                return answer;
+            }
+        }),
+    });
+
+    const Body = struct {
+        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(ping, {}, struct {
+            pub fn apply(_: i32) !i32 {
+                return error.ContinueOops;
+            }
+        })) {
+            return ctx.performProgram(ping, {}, struct {
+                pub fn apply(_: i32) !i32 {
+                    return error.ContinueOops;
+                }
+            });
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const CallType = @TypeOf(configured.run(&runtime, Body));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "ContinueOops"));
+    try std.testing.expectError(error.ContinueOops, configured.run(&runtime, Body));
+}
+
 test "generated family handle infers authored program errors" {
     const Counter = shift.effect.Define(.{
         .state_type = i32,
@@ -566,4 +605,90 @@ test "generated family proof helper infers authored program errors" {
 
     try std.testing.expect(hasErrorName(ErrorSet, "ProgramOops"));
     try std.testing.expectError(error.ProgramOops, Counter.proof.exampleHarness(i32, &runtime, &instance, handler{}, Body));
+}
+
+test "generated family handle infers explicit program continuation errors" {
+    const Picker = shift.effect.Define(.{
+        .state_type = struct {},
+        .ops = .{
+            shift.effect.ops.Choice("pick", i32, i32),
+        },
+    });
+
+    const handler = struct {
+        pub fn pick(_: *@This(), payload: i32) shift.effect.choice.Decision(i32, i32) {
+            return shift.effect.choice.Decision(i32, i32).resumeWith(payload);
+        }
+
+        pub fn afterPick(_: *@This(), answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    const Body = struct {
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(Picker.Op(.pick).program(Cap, ctx, 41, struct {
+            pub fn apply(_: i32) !i32 {
+                return error.ContinueOops;
+            }
+        })) {
+            return Picker.Op(.pick).program(Cap, ctx, 41, struct {
+                pub fn apply(_: i32) !i32 {
+                    return error.ContinueOops;
+                }
+            });
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = Picker.Instance.init();
+
+    const CallType = @TypeOf(Picker.handle(i32, &runtime, &instance, handler{}, Body));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "ContinueOops"));
+    try std.testing.expectError(error.ContinueOops, Picker.handle(i32, &runtime, &instance, handler{}, Body));
+}
+
+test "generated family proof helper infers explicit program continuation errors" {
+    const Picker = shift.effect.Define(.{
+        .state_type = struct {},
+        .ops = .{
+            shift.effect.ops.Choice("pick", i32, i32),
+        },
+    });
+
+    const handler = struct {
+        pub fn pick(_: *@This(), payload: i32) shift.effect.choice.Decision(i32, i32) {
+            return shift.effect.choice.Decision(i32, i32).resumeWith(payload);
+        }
+
+        pub fn afterPick(_: *@This(), answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    const Body = struct {
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(Picker.Op(.pick).program(Cap, ctx, 41, struct {
+            pub fn apply(_: i32) !i32 {
+                return error.ContinueOops;
+            }
+        })) {
+            return Picker.Op(.pick).program(Cap, ctx, 41, struct {
+                pub fn apply(_: i32) !i32 {
+                    return error.ContinueOops;
+                }
+            });
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = Picker.Instance.init();
+
+    const CallType = @TypeOf(Picker.proof.exampleHarness(i32, &runtime, &instance, handler{}, Body));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "ContinueOops"));
+    try std.testing.expectError(error.ContinueOops, Picker.proof.exampleHarness(i32, &runtime, &instance, handler{}, Body));
 }

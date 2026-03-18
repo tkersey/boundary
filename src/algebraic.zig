@@ -88,7 +88,25 @@ pub fn Program(
                 /// Run the configured program while widening to inferred body errors when needed.
                 pub fn run(self: @This(), runtime: anytype, comptime Body: type) lowered_machine.ResetError(InferredSpecErrorSet || ConfiguredBodyErrorSet(Context, Body))!Answer {
                     const RunErrorSet = InferredSpecErrorSet || ConfiguredBodyErrorSet(Context, Body);
-                    return ProgramWithErrorSet(Answer, RunErrorSet, ops).handlers(self.specs).run(runtime, Body);
+                    const ConfiguredWithErrorSet = ProgramWithErrorSet(Answer, RunErrorSet, ops).handlers(self.specs);
+                    if (@hasDecl(Body, "program")) {
+                        const AdaptedBody = struct {
+                            pub fn program(ctx: *@TypeOf(ConfiguredWithErrorSet).Context) @TypeOf(Body.program(@as(*Context, undefined))) {
+                                // The public wrapper keeps its documented Context shape while the widened runner carries a larger inferred error set.
+                                return Body.program(@as(*Context, @ptrCast(ctx)));
+                            }
+                        };
+                        return ConfiguredWithErrorSet.run(runtime, AdaptedBody);
+                    }
+                    if (@hasDecl(Body, "body")) {
+                        const AdaptedBody = struct {
+                            pub fn body(ctx: *@TypeOf(ConfiguredWithErrorSet).Context) @TypeOf(Body.body(@as(*Context, undefined))) {
+                                return Body.body(@as(*Context, @ptrCast(ctx)));
+                            }
+                        };
+                        return ConfiguredWithErrorSet.run(runtime, AdaptedBody);
+                    }
+                    @compileError("algebraic body must declare program or body");
                 }
             };
         }
