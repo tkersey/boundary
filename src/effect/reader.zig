@@ -27,6 +27,8 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
     return struct {
         /// Shared error set carried by the lexical reader descriptor.
         pub const ErrorSet = ErrorSetType;
+        /// Environment type threaded through the lexical reader context.
+        pub const State = StateType;
         /// Reader lexical descriptors do not surface an extra output value.
         pub const Output = void;
 

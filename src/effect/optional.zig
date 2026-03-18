@@ -41,16 +41,17 @@ pub fn LexicalHandle(
         outputs_ptr: ?*lexical_with.OutputBundleType(HandlersType),
 
         /// Request the optional policy decision through the lexical handle and resume through an explicit lexical continuation.
-        pub fn request(self: @This(), comptime Continuation: type) lowered_machine.ResetError(family.ContextErrorSetType(ContextPtrType))!lexical_with.ChoiceAnswerType(Continuation) {
+        pub fn request(self: @This(), comptime Continuation: type) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(family.ContextErrorSetType(ContextPtrType), Continuation, family.ContextStateType(ContextPtrType), @This()))!lexical_with.ChoiceAnswerType(Continuation) {
             const Handle = @This();
             const ResumeType = family.ContextStateType(ContextPtrType);
             const AnswerType = lexical_with.ChoiceAnswerType(Continuation);
+            const ExecutionError = lexical_with.ChoiceExecutionErrorSet(family.ContextErrorSetType(ContextPtrType), Continuation, ResumeType, Handle);
 
             const request_state = struct {
                 threadlocal var active_handle: ?Handle = null;
 
                 /// Re-enter the lexical continuation after one optional resume.
-                pub fn apply(value: ResumeType) lowered_machine.ResetError(family.ContextErrorSetType(ContextPtrType))!AnswerType {
+                pub fn apply(value: ResumeType) lowered_machine.ResetError(ExecutionError)!AnswerType {
                     const current_handle = active_handle.?;
                     return try lexical_with.continueChoice(
                         HandlersType,
@@ -85,6 +86,8 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
     return struct {
         /// Shared error set carried by the lexical optional descriptor.
         pub const ErrorSet = ErrorSetType;
+        /// Resume value threaded through the lexical optional context.
+        pub const State = ResumeType;
         /// Optional lexical descriptors do not surface an extra output value.
         pub const Output = void;
 

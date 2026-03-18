@@ -40,6 +40,8 @@ pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: typ
     return struct {
         /// Shared error set carried by the lexical resource descriptor.
         pub const ErrorSet = ErrorSetType;
+        /// Resource type threaded through the lexical resource context.
+        pub const State = ResourceType;
         /// Resource lexical descriptors do not surface an extra output value.
         pub const Output = void;
 

@@ -35,6 +35,8 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
     return struct {
         /// Shared error set carried by the lexical state descriptor.
         pub const ErrorSet = ErrorSetType;
+        /// State type threaded through the lexical state context.
+        pub const State = StateType;
         /// Final state output produced by the lexical state descriptor.
         pub const Output = StateType;
 

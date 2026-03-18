@@ -83,6 +83,8 @@ pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) t
     return struct {
         /// Shared error set carried by the lexical writer descriptor.
         pub const ErrorSet = ErrorSetType;
+        /// Preview-only state placeholder for lexical writer contexts.
+        pub const State = void;
         /// Final writer log output produced by the lexical writer descriptor.
         pub const Output = []ItemType;
 

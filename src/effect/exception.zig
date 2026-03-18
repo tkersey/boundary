@@ -38,6 +38,8 @@ pub fn LexicalDescriptor(comptime PayloadType: type, comptime ErrorSetType: type
     return struct {
         /// Shared error set carried by the lexical exception descriptor.
         pub const ErrorSet = ErrorSetType;
+        /// Payload type threaded through the lexical exception context.
+        pub const State = PayloadType;
         /// Exception lexical descriptors do not surface an extra output value.
         pub const Output = void;
 

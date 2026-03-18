@@ -1,4 +1,7 @@
+const family = @import("effect/family.zig");
+const frontend = @import("frontend_support");
 const lowered_machine = @import("lowered_machine");
+const prompt_contract = @import("prompt_contract_support");
 const std = @import("std");
 
 /// One descriptor result: final descriptor output plus body answer.
@@ -53,12 +56,7 @@ pub fn WithResult(comptime HandlersType: type, comptime Answer: type) type {
 
 fn ReturnTypeErrorSet(comptime ReturnType: type) type {
     return switch (@typeInfo(ReturnType)) {
-        .error_union => |err_union| blk: {
-            const error_set_name = @typeName(err_union.error_set);
-            if (err_union.error_set == anyerror) break :blk error{};
-            if (std.mem.startsWith(u8, error_set_name, "@typeInfo(")) break :blk error{};
-            break :blk err_union.error_set;
-        },
+        .error_union => |err_union| err_union.error_set,
         else => error{},
     };
 }
@@ -139,6 +137,147 @@ fn extendBundle(comptime Base: type, base: Base, comptime field_name: [:0]const 
     return result;
 }
 
+fn PreviewEngineContext(comptime ErrorSet: type) type {
+    return struct {
+        pub fn perform(_: *@This(), comptime Op: type, _: Op.Payload) lowered_machine.ResetError(ErrorSet)!Op.Resume {
+            unreachable;
+        }
+
+        pub fn performProgram(
+            _: *@This(),
+            comptime Op: type,
+            _: Op.Payload,
+            comptime Continuation: type,
+        ) frontend.BoundProgram(prompt_contract.Prompt(Op.mode, Op.Resume, ChoiceAnswerType(Continuation), ErrorSet)) {
+            unreachable;
+        }
+    };
+}
+
+fn PreviewWriterItemType(comptime DescriptorType: type) type {
+    return switch (@typeInfo(DescriptorType.Output)) {
+        .pointer => |pointer| if (pointer.size == .slice) pointer.child else void,
+        else => void,
+    };
+}
+
+fn PreviewCapabilityType(comptime DescriptorType: type, comptime ErrorSet: type) type {
+    const StateType = DescriptorType.State;
+    const WriterItemType = PreviewWriterItemType(DescriptorType);
+    return struct {
+        pub fn EngineContextType() type {
+            return PreviewEngineContext(ErrorSet);
+        }
+
+        pub fn GetOp() type {
+            return struct {
+                pub const mode = prompt_contract.PromptMode.resume_then_transform;
+                pub const Payload = void;
+                pub const Resume = StateType;
+            };
+        }
+
+        pub fn SetOp() type {
+            return struct {
+                pub const mode = prompt_contract.PromptMode.resume_then_transform;
+                pub const Payload = StateType;
+                pub const Resume = void;
+            };
+        }
+
+        pub fn AskOp() type {
+            return struct {
+                pub const mode = prompt_contract.PromptMode.resume_then_transform;
+                pub const Payload = void;
+                pub const Resume = StateType;
+            };
+        }
+
+        pub fn TellOp() type {
+            return struct {
+                pub const mode = prompt_contract.PromptMode.resume_then_transform;
+                pub const Payload = WriterItemType;
+                pub const Resume = void;
+            };
+        }
+
+        pub fn ThrowOp() type {
+            return struct {
+                pub const mode = prompt_contract.PromptMode.direct_return;
+                pub const Payload = StateType;
+                pub const Resume = noreturn;
+            };
+        }
+
+        pub fn RequestOp() type {
+            return struct {
+                pub const mode = prompt_contract.PromptMode.resume_or_return;
+                pub const Payload = void;
+                pub const Resume = StateType;
+            };
+        }
+
+        pub fn AcquireOp() type {
+            return struct {
+                pub const mode = prompt_contract.PromptMode.resume_then_transform;
+                pub const Payload = void;
+                pub const Resume = StateType;
+            };
+        }
+    };
+}
+
+fn PreviewContextPtrType(comptime DescriptorType: type, comptime ErrorSet: type) type {
+    const PreviewCapability = PreviewCapabilityType(DescriptorType, ErrorSet);
+    return *family.Context(PreviewCapability, DescriptorType.State, void, ErrorSet);
+}
+
+fn PreviewHandleType(
+    comptime DescriptorType: type,
+    comptime HandlersType: type,
+    comptime PreviousEffType: type,
+    comptime index: usize,
+    comptime ErrorSet: type,
+) type {
+    const HandleFn = @TypeOf(DescriptorType.HandleType);
+    const params = @typeInfo(HandleFn).@"fn".params;
+    const PreviewCapability = PreviewCapabilityType(DescriptorType, ErrorSet);
+    return switch (params.len) {
+        2 => DescriptorType.HandleType(
+            PreviewCapability,
+            PreviewContextPtrType(DescriptorType, ErrorSet),
+        ),
+        5 => DescriptorType.HandleType(
+            PreviewCapability,
+            PreviewContextPtrType(DescriptorType, ErrorSet),
+            HandlersType,
+            PreviousEffType,
+            index,
+        ),
+        else => @compileError("shift.with descriptor HandleType must accept either (Cap, ContextPtrType) or (Cap, ContextPtrType, HandlersType, PreviousEffType, index)"),
+    };
+}
+
+fn PreviewEffType(
+    comptime HandlersType: type,
+    comptime index: usize,
+    comptime EffType: type,
+    comptime ErrorSet: type,
+) type {
+    const fields = @typeInfo(HandlersType).@"struct".fields;
+    if (index == fields.len) return EffType;
+
+    const field = fields[index];
+    const HandleType = PreviewHandleType(field.type, HandlersType, EffType, index, ErrorSet);
+    const NextEffType = ExtendBundleType(EffType, field.name, HandleType);
+    return PreviewEffType(HandlersType, index + 1, NextEffType, ErrorSet);
+}
+
+fn PreviewBodyEffType(comptime HandlersType: type) type {
+    const ErrorSet = HandlerErrorSet(HandlersType);
+    return PreviewEffType(HandlersType, 0, struct {}, ErrorSet);
+}
+
 fn BodyFunctionType(comptime Body: type) type {
     if (switch (@typeInfo(Body)) {
         .pointer => |pointer| @typeInfo(pointer.child) == .@"fn",
@@ -149,15 +288,13 @@ fn BodyFunctionType(comptime Body: type) type {
     @compileError("shift.with body must be a function or a type declaring body(eff)");
 }
 
+fn BodyReturnType(comptime Body: type, comptime EffType: type) type {
+    if (@hasDecl(Body, "body")) return @TypeOf(Body.body(@as(EffType, undefined)));
+    return @TypeOf(Body(@as(EffType, undefined)));
+}
+
 fn BodyAnswerType(comptime Body: type, comptime EffType: type) type {
-    _ = EffType;
-    const BodyFn = BodyFunctionType(Body);
-    const FnType = switch (@typeInfo(BodyFn)) {
-        .pointer => |pointer| pointer.child,
-        .@"fn" => BodyFn,
-        else => unreachable,
-    };
-    const ReturnType = @typeInfo(FnType).@"fn".return_type.?;
+    const ReturnType = BodyReturnType(Body, EffType);
     return switch (@typeInfo(ReturnType)) {
         .error_union => |err_union| err_union.payload,
         else => ReturnType,
@@ -165,14 +302,7 @@ fn BodyAnswerType(comptime Body: type, comptime EffType: type) type {
 }
 
 fn BodyErrorSet(comptime Body: type, comptime EffType: type) type {
-    _ = EffType;
-    const BodyFn = BodyFunctionType(Body);
-    const FnType = switch (@typeInfo(BodyFn)) {
-        .pointer => |pointer| pointer.child,
-        .@"fn" => BodyFn,
-        else => unreachable,
-    };
-    return ReturnTypeErrorSet(@typeInfo(FnType).@"fn".return_type.?);
+    return ReturnTypeErrorSet(BodyReturnType(Body, EffType));
 }
 
 fn callBody(
@@ -211,6 +341,26 @@ fn ContinuationFnType(comptime Continuation: type) type {
     };
 }
 
+fn ContinuationReturnType(
+    comptime Continuation: type,
+    comptime ResumeType: type,
+    comptime EffType: type,
+) type {
+    const ResumeFn = ContinuationFnType(Continuation);
+    const params = @typeInfo(ResumeFn).@"fn".params;
+    if (params.len != 2) @compileError("lexical choice continuation apply must accept exactly (value, eff)");
+    if (comptime hasDeclSafe(Continuation, "apply")) {
+        return @TypeOf(@field(Continuation, "apply")(
+            @as(ResumeType, undefined),
+            @as(EffType, undefined),
+        ));
+    }
+    return @TypeOf(Continuation(
+        @as(ResumeType, undefined),
+        @as(EffType, undefined),
+    ));
+}
+
 /// Resolve the final answer type produced by one lexical choice continuation.
 pub fn ChoiceAnswerType(comptime Continuation: type) type {
     const ResumeFn = ContinuationFnType(Continuation);
@@ -221,21 +371,21 @@ pub fn ChoiceAnswerType(comptime Continuation: type) type {
     };
 }
 
-fn ChoiceErrorSet(comptime Continuation: type) type {
-    const ResumeFn = ContinuationFnType(Continuation);
-    return ReturnTypeErrorSet(@typeInfo(ResumeFn).@"fn".return_type.?);
+fn ChoiceErrorSet(
+    comptime Continuation: type,
+    comptime ResumeType: type,
+    comptime EffType: type,
+) type {
+    return ReturnTypeErrorSet(ContinuationReturnType(Continuation, ResumeType, EffType));
 }
 
-fn WithSemanticErrorSet(comptime HandlersType: type, comptime Body: type) type {
-    return HandlerErrorSet(HandlersType) || BodyErrorSet(Body, struct {});
-}
-
-pub fn With(comptime HandlersType: type, comptime Body: type) type {
-    return struct {
-        pub const Result = WithResult(HandlersType, BodyAnswerType(Body, struct {}));
-        pub const SemanticErrorSet = WithSemanticErrorSet(HandlersType, Body);
-        pub const ExecutionError = lowered_machine.ResetError(SemanticErrorSet);
-    };
+pub fn ChoiceExecutionErrorSet(
+    comptime BaseErrorSet: type,
+    comptime Continuation: type,
+    comptime ResumeType: type,
+    comptime EffType: type,
+) type {
+    return BaseErrorSet || ChoiceErrorSet(Continuation, ResumeType, EffType);
 }
 
 fn callChoiceContinuation(
@@ -285,9 +435,9 @@ fn runChainCollected(
     comptime index: usize,
     comptime EffType: type,
     state: CollectedRunState(HandlersType, EffType),
-) lowered_machine.ResetError(WithSemanticErrorSet(HandlersType, Body))!BodyAnswerType(Body, EffType) {
-    const ErrorSet = WithSemanticErrorSet(HandlersType, Body);
-    const Answer = BodyAnswerType(Body, EffType);
+) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
+    const ErrorSet = HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType));
+    const Answer = BodyAnswerType(Body, PreviewBodyEffType(HandlersType));
     const fields = @typeInfo(HandlersType).@"struct".fields;
 
     if (index == fields.len) {
@@ -353,8 +503,8 @@ fn runChoiceChain(
     state: ChoiceRunState(HandlersType, EffType),
     comptime Continuation: type,
     resume_value: anytype,
-) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation))!ChoiceAnswerType(Continuation) {
-    const ErrorSet = HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation);
+) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation, @TypeOf(resume_value), EffType))!ChoiceAnswerType(Continuation) {
+    const ErrorSet = HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation, @TypeOf(resume_value), EffType);
     const fields = @typeInfo(HandlersType).@"struct".fields;
 
     if (index == fields.len) {
@@ -420,7 +570,7 @@ pub fn continueChoice(
     frame: anytype,
     comptime Continuation: type,
     resume_value: anytype,
-) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation))!ChoiceAnswerType(Continuation) {
+) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation, @TypeOf(resume_value), @TypeOf(frame.previous_eff)))!ChoiceAnswerType(Continuation) {
     const field = @typeInfo(HandlersType).@"struct".fields[index];
     const current_eff = extendBundle(@TypeOf(frame.previous_eff), frame.previous_eff, field.name, frame.current_handle);
     return try runChoiceChain(HandlersType, index + 1, @TypeOf(current_eff), .{
@@ -433,7 +583,27 @@ pub fn continueChoice(
 
 /// Return type for one lexical `shift.with(...)` instantiation.
 pub fn WithFnReturnType(comptime HandlersType: type, comptime Body: type) type {
-    return With(HandlersType, Body).ExecutionError!With(HandlersType, Body).Result;
+    const HandlerSet = HandlerErrorSet(HandlersType);
+    const PreviewEff = PreviewBodyEffType(HandlersType);
+    return lowered_machine.ResetError(HandlerSet || BodyErrorSet(Body, PreviewEff))!WithResult(HandlersType, BodyAnswerType(Body, PreviewEff));
+}
+
+pub fn With(comptime HandlersType: type, comptime Body: type) type {
+    const ReturnType = WithFnReturnType(HandlersType, Body);
+    return struct {
+        pub const Result = switch (@typeInfo(ReturnType)) {
+            .error_union => |err_union| err_union.payload,
+            else => ReturnType,
+        };
+        pub const SemanticErrorSet = switch (@typeInfo(ReturnType)) {
+            .error_union => |err_union| err_union.error_set,
+            else => error{},
+        };
+        pub const ExecutionError = switch (@typeInfo(ReturnType)) {
+            .error_union => |err_union| err_union.error_set,
+            else => error{},
+        };
+    };
 }
 
 /// Run one lexical effect bundle and return descriptor outputs alongside the body answer.

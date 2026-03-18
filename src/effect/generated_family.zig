@@ -113,6 +113,13 @@ fn FnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
     };
 }
 
+fn ReturnTypeErrorSet(comptime ReturnType: type) type {
+    return switch (@typeInfo(ReturnType)) {
+        .error_union => |err_union| err_union.error_set,
+        else => error{},
+    };
+}
+
 fn FnParamsMatch(comptime FnType: type, comptime params: []const type) bool {
     const actual = @typeInfo(FnType).@"fn".params;
     if (actual.len != params.len) return false;
@@ -308,6 +315,85 @@ fn assertHandlerBundle(comptime mode: prompt_contract.PromptMode, comptime State
             .direct_return => assertAbortHandlerBundle(HandlerType, AnswerType, ErrorSetType, Op),
         }
     }
+}
+
+fn inferHandlerErrorSet(
+    comptime mode: prompt_contract.PromptMode,
+    comptime AnswerType: type,
+    comptime op_specs: anytype,
+    comptime HandlerType: type,
+) type {
+    var ErrorSet = error{};
+    inline for (op_specs) |Op| {
+        const handler_method = @field(HandlerType, opName(Op));
+        switch (mode) {
+            .resume_then_transform => {
+                const resume_return_type = if (comptime OpPayloadType(Op) == void)
+                    @TypeOf(handler_method(@as(*HandlerType, undefined)))
+                else
+                    @TypeOf(handler_method(
+                        @as(*HandlerType, undefined),
+                        @as(OpPayloadType(Op), undefined),
+                    ));
+                const after_return_type = @TypeOf(@field(HandlerType, afterMethodName(opName(Op)))(
+                    @as(*HandlerType, undefined),
+                    @as(AnswerType, undefined),
+                ));
+                ErrorSet = ErrorSet ||
+                    ReturnTypeErrorSet(resume_return_type) ||
+                    ReturnTypeErrorSet(after_return_type);
+            },
+            .resume_or_return => {
+                const decide_return_type = if (comptime OpPayloadType(Op) == void)
+                    @TypeOf(handler_method(@as(*HandlerType, undefined)))
+                else
+                    @TypeOf(handler_method(
+                        @as(*HandlerType, undefined),
+                        @as(OpPayloadType(Op), undefined),
+                    ));
+                const after_return_type = @TypeOf(@field(HandlerType, afterMethodName(opName(Op)))(
+                    @as(*HandlerType, undefined),
+                    @as(AnswerType, undefined),
+                ));
+                ErrorSet = ErrorSet ||
+                    ReturnTypeErrorSet(decide_return_type) ||
+                    ReturnTypeErrorSet(after_return_type);
+            },
+            .direct_return => {
+                const direct_return_type = if (comptime OpPayloadType(Op) == void)
+                    @TypeOf(handler_method(@as(*HandlerType, undefined)))
+                else
+                    @TypeOf(handler_method(
+                        @as(*HandlerType, undefined),
+                        @as(OpPayloadType(Op), undefined),
+                    ));
+                ErrorSet = ErrorSet || ReturnTypeErrorSet(direct_return_type);
+            },
+        }
+    }
+    return ErrorSet;
+}
+
+fn inferHandlerOperationErrorSet(
+    comptime mode: prompt_contract.PromptMode,
+    comptime op_specs: anytype,
+    comptime HandlerType: type,
+) type {
+    var ErrorSet = error{};
+    inline for (op_specs) |Op| {
+        const handler_method = @field(HandlerType, opName(Op));
+        const operation_return_type = switch (mode) {
+            .resume_then_transform, .resume_or_return, .direct_return => if (comptime OpPayloadType(Op) == void)
+                @TypeOf(handler_method(@as(*HandlerType, undefined)))
+            else
+                @TypeOf(handler_method(
+                    @as(*HandlerType, undefined),
+                    @as(OpPayloadType(Op), undefined),
+                )),
+        };
+        ErrorSet = ErrorSet || ReturnTypeErrorSet(operation_return_type);
+    }
+    return ErrorSet;
 }
 
 fn computeProgramForPrompt(
@@ -586,6 +672,11 @@ pub fn Build(comptime spec: anytype) type {
             };
         }
 
+        fn HandleErrorSet(comptime AnswerType: type, comptime HandlerType: type) type {
+            comptime assertHandlerBundle(mode, StateType, AnswerType, ErrorSetType, op_specs, HandlerType);
+            return ErrorSetType || inferHandlerErrorSet(mode, AnswerType, op_specs, HandlerType);
+        }
+
         fn activeEngineContext(comptime Cap: type, ctx: anytype) *Cap.EngineContextType() {
             comptime family.assertContextType(Cap, @TypeOf(ctx));
             const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
@@ -617,19 +708,35 @@ pub fn Build(comptime spec: anytype) type {
         ) type {
             const OpTypeValue = OpType(op_specs, tag);
             const RunErrorSetType = family.ContextErrorSetType(Config.ContextPtr);
+            const CurrentDescriptorType = @typeInfo(Config.Handlers).@"struct".fields[Config.binder_index].type;
+            const CurrentHandlerType = @FieldType(CurrentDescriptorType, "handler");
+            const HandlerMethod = @field(CurrentHandlerType, opName(OpTypeValue));
+            const HandlerOpErrorSet = switch (mode) {
+                .resume_then_transform, .resume_or_return, .direct_return => if (comptime OpPayloadType(OpTypeValue) == void)
+                    ReturnTypeErrorSet(@TypeOf(HandlerMethod(@as(*CurrentHandlerType, undefined))))
+                else
+                    ReturnTypeErrorSet(@TypeOf(HandlerMethod(
+                        @as(*CurrentHandlerType, undefined),
+                        @as(OpPayloadType(OpTypeValue), undefined),
+                    ))),
+            };
+            const EffectiveErrorSet = switch (mode) {
+                .resume_or_return => RunErrorSetType || HandlerOpErrorSet,
+                else => RunErrorSetType || HandlerOpErrorSet,
+            };
             return switch (mode) {
                 .resume_then_transform => if (OpPayloadType(OpTypeValue) == void) struct {
                     ctx: ?Config.ContextPtr,
 
                     /// Perform one zero-payload generated lexical transform op.
-                    pub fn perform(self: @This()) lowered_machine.ResetError(RunErrorSetType)!OpResumeType(OpTypeValue) {
+                    pub fn perform(self: @This()) lowered_machine.ResetError(EffectiveErrorSet)!OpResumeType(OpTypeValue) {
                         return try Op(tag).perform(Config.Capability, self.ctx.?);
                     }
                 } else struct {
                     ctx: ?Config.ContextPtr,
 
                     /// Perform one payload-carrying generated lexical transform op.
-                    pub fn perform(self: @This(), payload: OpPayloadType(OpTypeValue)) lowered_machine.ResetError(RunErrorSetType)!OpResumeType(OpTypeValue) {
+                    pub fn perform(self: @This(), payload: OpPayloadType(OpTypeValue)) lowered_machine.ResetError(EffectiveErrorSet)!OpResumeType(OpTypeValue) {
                         return try Op(tag).perform(Config.Capability, self.ctx.?, payload);
                     }
                 },
@@ -643,12 +750,12 @@ pub fn Build(comptime spec: anytype) type {
                     outputs_ptr: ?*lexical_with.OutputBundleType(Config.Handlers),
 
                     /// Perform one zero-payload generated lexical choice op.
-                    pub fn perform(self: Handle, comptime Continuation: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.ChoiceAnswerType(Continuation) {
+                    pub fn perform(self: Handle, comptime Continuation: type) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), Handle))!lexical_with.ChoiceAnswerType(Continuation) {
                         const request_state = struct {
                             threadlocal var active_handle: ?Handle = null;
 
                             /// Re-enter the lexical continuation after one generated choice resume.
-                            pub fn apply(value: OpResumeType(OpTypeValue)) lowered_machine.ResetError(RunErrorSetType)!lexical_with.ChoiceAnswerType(Continuation) {
+                            pub fn apply(value: OpResumeType(OpTypeValue)) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), Handle))!lexical_with.ChoiceAnswerType(Continuation) {
                                 const current_handle = active_handle.?;
                                 return try lexical_with.continueChoice(
                                     Config.Handlers,
@@ -685,12 +792,12 @@ pub fn Build(comptime spec: anytype) type {
                     outputs_ptr: ?*lexical_with.OutputBundleType(Config.Handlers),
 
                     /// Perform one payload-carrying generated lexical choice op.
-                    pub fn perform(self: Handle, payload: OpPayloadType(OpTypeValue), comptime Continuation: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.ChoiceAnswerType(Continuation) {
+                    pub fn perform(self: Handle, payload: OpPayloadType(OpTypeValue), comptime Continuation: type) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), Handle))!lexical_with.ChoiceAnswerType(Continuation) {
                         const request_state = struct {
                             threadlocal var active_handle: ?Handle = null;
 
                             /// Re-enter the lexical continuation after one generated choice resume.
-                            pub fn apply(value: OpResumeType(OpTypeValue)) lowered_machine.ResetError(RunErrorSetType)!lexical_with.ChoiceAnswerType(Continuation) {
+                            pub fn apply(value: OpResumeType(OpTypeValue)) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), Handle))!lexical_with.ChoiceAnswerType(Continuation) {
                                 const current_handle = active_handle.?;
                                 return try lexical_with.continueChoice(
                                     Config.Handlers,
@@ -722,14 +829,14 @@ pub fn Build(comptime spec: anytype) type {
                     ctx: ?Config.ContextPtr,
 
                     /// Perform one zero-payload generated lexical abort op.
-                    pub fn abort(self: @This()) lowered_machine.ResetError(RunErrorSetType)!noreturn {
+                    pub fn abort(self: @This()) lowered_machine.ResetError(EffectiveErrorSet)!noreturn {
                         return try Op(tag).perform(Config.Capability, self.ctx.?);
                     }
                 } else struct {
                     ctx: ?Config.ContextPtr,
 
                     /// Perform one payload-carrying generated lexical abort op.
-                    pub fn abort(self: @This(), payload: OpPayloadType(OpTypeValue)) lowered_machine.ResetError(RunErrorSetType)!noreturn {
+                    pub fn abort(self: @This(), payload: OpPayloadType(OpTypeValue)) lowered_machine.ResetError(EffectiveErrorSet)!noreturn {
                         return try Op(tag).perform(Config.Capability, self.ctx.?, payload);
                     }
                 },
@@ -789,6 +896,8 @@ pub fn Build(comptime spec: anytype) type {
             return struct {
                 /// Shared error set carried by the generated lexical descriptor.
                 pub const ErrorSet = ErrorSetType;
+                /// State type threaded through the generated lexical context.
+                pub const State = StateType;
                 /// Final generated descriptor output; transform families emit final state and control families emit no extra output.
                 pub const Output = if (mode == .resume_then_transform) StateType else void;
 
@@ -840,9 +949,10 @@ pub fn Build(comptime spec: anytype) type {
                 }
 
                 /// Run one generated lexical descriptor through the existing generated-family handler path.
-                pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+                pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(RunErrorSetType || inferHandlerOperationErrorSet(mode, op_specs, HandlerType))!lexical_with.DescriptorResult(Output, AnswerType) {
                     var instance = Instance.init();
-                    const result = try self_type.handleWithErrorSet(AnswerType, RunErrorSetType, runtime, &instance, self.handler, Body);
+                    const ActualRunErrorSet = RunErrorSetType || inferHandlerOperationErrorSet(mode, op_specs, HandlerType);
+                    const result = try self_type.handleWithErrorSet(AnswerType, ActualRunErrorSet, runtime, &instance, self.handler, Body);
                     if (mode == .resume_then_transform) {
                         return .{
                             .output = result.state,
@@ -863,43 +973,10 @@ pub fn Build(comptime spec: anytype) type {
         }
 
         /// Run one generated family body under a fresh exact context and hidden engine bindings.
-        pub fn handle(comptime AnswerType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(ErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
-            var handler_value = handler;
-            const handler_ptr = &handler_value;
-            const HandlerType = @TypeOf(handler_value);
-            comptime assertHandlerBundle(mode, StateType, AnswerType, ErrorSetType, op_specs, HandlerType);
-
-            const specs = buildSpecs(AnswerType, ErrorSetType, handler_ptr);
-            const Configured = @TypeOf(internal.Program(AnswerType, AnswerType, ErrorSetType, op_specs).handlers(specs));
-            const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, ErrorSetType);
-            var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
-            var engine_ctx = Configured.Context{ .bindings = &bindings };
-
-            const capability_meta = struct {
-                const body_tag = Body;
-
-                /// Shared engine context type for the active generated family run.
-                pub fn EngineContextType() type {
-                    return Configured.Context;
-                }
-            };
-
-            const sealed_contract = struct {
-                const PromptTypeG = prompt_contract.Prompt(mode, AnswerType, AnswerType, ErrorSetType);
-                const StateTypeG = StateType;
-                const AnswerTypeG = AnswerType;
-                const ErrorSetTypeG = ErrorSetType;
-                const capability_decls = capability_meta;
-            };
-            const value = try runWithSealedEngine(
-                sealed_contract,
-                .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx },
-                Body,
-            );
-            if (mode == .resume_then_transform) {
-                return .{ .state = handler_value.state, .value = value };
-            }
-            return value;
+        pub fn handle(comptime AnswerType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler)))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+            const HandlerType = @TypeOf(handler);
+            const RunErrorSetType = HandleErrorSet(AnswerType, HandlerType);
+            return self_type.handleWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, handler, Body);
         }
 
         pub fn handleWithErrorSet(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {

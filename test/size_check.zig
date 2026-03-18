@@ -65,6 +65,39 @@ test "algebraic descriptor and context shells stay compact" {
     try std.testing.expectEqual(@sizeOf(usize), @sizeOf(Configured.Context));
 }
 
+test "algebraic Program infers handler errors on the public wrapper" {
+    const no_state = struct {};
+    const ping = shift.algebraic.TransformOp("ping", void, i32);
+    const program = shift.algebraic.Program(i32, .{ping});
+    const configured = program.handlers(.{
+        shift.algebraic.handleTransform(ping, no_state{}, struct {
+            pub fn resumeValue(_: no_state, _: void) !i32 {
+                return error.HandlerOops;
+            }
+            pub fn afterResume(_: no_state, answer: i32) i32 {
+                return answer;
+            }
+        }),
+    });
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const CallType = @TypeOf(configured.run(&runtime, struct {
+        pub fn body(ctx: *@TypeOf(configured).Context) !i32 {
+            return try ctx.perform(ping, {});
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "HandlerOops"));
+    try std.testing.expectError(error.HandlerOops, configured.run(&runtime, struct {
+        pub fn body(ctx: *@TypeOf(configured).Context) !i32 {
+            return try ctx.perform(ping, {});
+        }
+    }));
+}
+
 test "generated effect family shell stays compact and hides context" {
     const Counter = shift.effect.Define(.{
         .state_type = i32,
