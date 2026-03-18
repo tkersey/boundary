@@ -52,6 +52,8 @@ test "shift.With distinguishes semantic from execution error metadata" {
         .state = shift.effect.state.use(@as(i32, 7)),
     });
     const Body = struct {
+        pub const SemanticErrorSet = error{BodyOops};
+
         pub fn body(eff: anytype) !i32 {
             _ = try eff.state.get();
             return error.BodyOops;
@@ -73,6 +75,8 @@ test "shift.With preserves semantic body errors that collide with setup names" {
         .state = shift.effect.state.use(@as(i32, 7)),
     });
     const Body = struct {
+        pub const SemanticErrorSet = error{OutOfMemory};
+
         pub fn body(_: anytype) !i32 {
             return error.OutOfMemory;
         }
@@ -88,7 +92,10 @@ test "shift.With preserves mixed collided body errors in SemanticErrorSet" {
         .state = shift.effect.state.use(@as(i32, 7)),
     });
     const Body = struct {
-        pub fn body(_: anytype) error{ BodyOops, OutOfMemory, MissingPrompt }!i32 {
+        pub const SemanticErrorSet = error{ BodyOops, OutOfMemory, MissingPrompt };
+
+        pub fn body(eff: anytype) !i32 {
+            _ = try eff.state.get();
             return error.OutOfMemory;
         }
     };
@@ -97,6 +104,73 @@ test "shift.With preserves mixed collided body errors in SemanticErrorSet" {
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "BodyOops"));
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "OutOfMemory"));
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "MissingPrompt"));
+}
+
+test "shift.With preview includes continuation errors from lexical explicit programs" {
+    const ProbeDescriptor = struct {
+        pub const ErrorSet = error{};
+        pub const State = i32;
+        pub const Output = void;
+        const ProbeOp = shift.effect.ops.Choice("probe", void, i32);
+
+        pub fn HandleType(comptime Cap: type, comptime ContextPtrType: type) type {
+            _ = ContextPtrType;
+            return struct {
+                fn BoundProgramType(comptime Continuation: type) type {
+                    return @TypeOf((@as(*Cap.EngineContextType(), undefined)).performProgram(ProbeOp, {}, Continuation));
+                }
+
+                fn PromptType(comptime Continuation: type) type {
+                    return @typeInfo(@FieldType(BoundProgramType(Continuation), "prompt")).pointer.child;
+                }
+
+                fn ExecutionErrorSet(comptime Continuation: type) type {
+                    return shift.RuntimeError || error{OutOfMemory} || PromptType(Continuation).ErrorSet;
+                }
+
+                pub fn perform(_: @This(), comptime Continuation: type) ExecutionErrorSet(Continuation)!PromptType(Continuation).OutAnswer {
+                    unreachable;
+                }
+            };
+        }
+
+        pub fn bindLexical(self: @This(), comptime Cap: type, ctx: anytype) HandleType(Cap, @TypeOf(ctx)) {
+            _ = self;
+            return .{};
+        }
+
+        pub fn run(
+            self: @This(),
+            comptime AnswerType: type,
+            comptime RunErrorSetType: type,
+            runtime: *shift.Runtime,
+            comptime Body: type,
+        ) (shift.RuntimeError || error{OutOfMemory} || RunErrorSetType)!struct { output: void, value: AnswerType } {
+            _ = self;
+            _ = runtime;
+            _ = Body;
+            unreachable;
+        }
+    };
+
+    const Handlers = @TypeOf(.{
+        .probe = ProbeDescriptor{},
+    });
+    const Body = struct {
+        pub const SemanticErrorSet = error{ContinueOops};
+
+        pub fn body(eff: anytype) !i32 {
+            return try eff.probe.perform(struct {
+                pub fn apply(_: i32) !i32 {
+                    return error.ContinueOops;
+                }
+            });
+        }
+    };
+    const Meta = shift.With(Handlers, Body);
+
+    try std.testing.expect(hasErrorName(Meta.ExecutionError, "ContinueOops"));
+    try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "ContinueOops"));
 }
 
 test "lexical optional request retains explicit continuation errors" {

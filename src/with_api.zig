@@ -61,39 +61,6 @@ fn ReturnTypeErrorSet(comptime ReturnType: type) type {
     };
 }
 
-fn isLoweredInfrastructureError(comptime error_name: []const u8) bool {
-    inline for (@typeInfo(lowered_machine.Error).error_set.?) |field| {
-        if (comptime std.mem.eql(u8, field.name, error_name)) return true;
-    }
-    inline for (@typeInfo(lowered_machine.SetupError).error_set.?) |field| {
-        if (comptime std.mem.eql(u8, field.name, error_name)) return true;
-    }
-    return false;
-}
-
-fn SemanticBodyErrorSet(comptime ErrorSet: type) type {
-    const fields = @typeInfo(ErrorSet).error_set.?;
-    comptime var infra_count: usize = 0;
-    inline for (fields) |field| {
-        if (comptime isLoweredInfrastructureError(field.name)) infra_count += 1;
-    }
-    comptime var total_infra_names: usize = 0;
-    inline for (@typeInfo(lowered_machine.Error).error_set.?) |_| total_infra_names += 1;
-    inline for (@typeInfo(lowered_machine.SetupError).error_set.?) |_| total_infra_names += 1;
-    if (infra_count != total_infra_names) return ErrorSet;
-
-    comptime var kept_count: usize = 0;
-    comptime var kept_fields: [fields.len]std.builtin.Type.Error = undefined;
-    inline for (fields) |field| {
-        if (comptime isLoweredInfrastructureError(field.name)) continue;
-        kept_fields[kept_count] = field;
-        kept_count += 1;
-    }
-    return @Type(.{
-        .error_set = kept_fields[0..kept_count],
-    });
-}
-
 fn assertHandlerBundleShape(comptime HandlersType: type) void {
     const info = @typeInfo(HandlersType);
     if (info != .@"struct") @compileError("shift.with handlers must be a struct literal or struct value");
@@ -170,6 +137,40 @@ fn extendBundle(comptime Base: type, base: Base, comptime field_name: [:0]const 
     return result;
 }
 
+fn ExplicitProgramContinuationFnType(comptime Continuation: type) type {
+    if (hasDeclSafe(Continuation, "apply")) return @TypeOf(@field(Continuation, "apply"));
+    return switch (@typeInfo(Continuation)) {
+        .@"fn" => Continuation,
+        .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn")
+            Continuation
+        else
+            @compileError("lexical explicit-program continuation must declare apply(value) or be a callable function"),
+        else => @compileError("lexical explicit-program continuation must declare apply(value) or be a callable function"),
+    };
+}
+
+fn ExplicitProgramContinuationReturnType(comptime Continuation: type, comptime ResumeType: type) type {
+    const ContinuationFn = ExplicitProgramContinuationFnType(Continuation);
+    const params = @typeInfo(ContinuationFn).@"fn".params;
+    if (params.len != 1) @compileError("lexical explicit-program continuation must accept exactly one resumed value");
+    if (comptime hasDeclSafe(Continuation, "apply")) {
+        return @TypeOf(@field(Continuation, "apply")(@as(ResumeType, undefined)));
+    }
+    return @TypeOf(Continuation(@as(ResumeType, undefined)));
+}
+
+fn ExplicitProgramContinuationAnswerType(comptime Continuation: type, comptime ResumeType: type) type {
+    const ReturnType = ExplicitProgramContinuationReturnType(Continuation, ResumeType);
+    return switch (@typeInfo(ReturnType)) {
+        .error_union => |err_union| err_union.payload,
+        else => ReturnType,
+    };
+}
+
+fn ExplicitProgramContinuationErrorSet(comptime Continuation: type, comptime ResumeType: type) type {
+    return ReturnTypeErrorSet(ExplicitProgramContinuationReturnType(Continuation, ResumeType));
+}
+
 fn PreviewEngineContext(comptime ErrorSet: type) type {
     return struct {
         pub fn perform(_: *@This(), comptime Op: type, _: Op.Payload) lowered_machine.ResetError(ErrorSet)!Op.Resume {
@@ -181,7 +182,12 @@ fn PreviewEngineContext(comptime ErrorSet: type) type {
             comptime Op: type,
             _: Op.Payload,
             comptime Continuation: type,
-        ) frontend.BoundProgram(prompt_contract.Prompt(Op.mode, Op.Resume, ChoiceAnswerType(Continuation), ErrorSet)) {
+        ) frontend.BoundProgram(prompt_contract.Prompt(
+            Op.mode,
+            Op.Resume,
+            ExplicitProgramContinuationAnswerType(Continuation, Op.Resume),
+            ErrorSet || ExplicitProgramContinuationErrorSet(Continuation, Op.Resume),
+        )) {
             unreachable;
         }
     };
@@ -309,6 +315,11 @@ fn PreviewEffType(
 fn PreviewBodyEffType(comptime HandlersType: type) type {
     const ErrorSet = HandlerErrorSet(HandlersType);
     return PreviewEffType(HandlersType, 0, struct {}, ErrorSet);
+}
+
+fn BodyDeclSemanticErrorSet(comptime Body: type) ?type {
+    if (hasDeclSafe(Body, "SemanticErrorSet")) return Body.SemanticErrorSet;
+    return null;
 }
 
 pub fn ContinuationEffType(
@@ -646,8 +657,32 @@ pub fn WithFnReturnType(comptime HandlersType: type, comptime Body: type) type {
 
 fn WithSemanticErrorSet(comptime HandlersType: type, comptime Body: type) type {
     const HandlerSet = HandlerErrorSet(HandlersType);
+    if (BodyDeclSemanticErrorSet(Body)) |BodySet| return HandlerSet || BodySet;
     const PreviewEff = PreviewBodyEffType(HandlersType);
-    return HandlerSet || SemanticBodyErrorSet(BodyErrorSet(Body, PreviewEff));
+    const BodySet = BodyErrorSet(Body, PreviewEff);
+    const fields = @typeInfo(BodySet).error_set.?;
+    comptime var infra_count: usize = 0;
+    inline for (fields) |field| {
+        inline for (@typeInfo(lowered_machine.Error).error_set.?) |infra| {
+            if (comptime std.mem.eql(u8, field.name, infra.name)) {
+                infra_count += 1;
+                break;
+            }
+        }
+        inline for (@typeInfo(lowered_machine.SetupError).error_set.?) |infra| {
+            if (comptime std.mem.eql(u8, field.name, infra.name)) {
+                infra_count += 1;
+                break;
+            }
+        }
+    }
+    comptime var total_infra_names: usize = 0;
+    inline for (@typeInfo(lowered_machine.Error).error_set.?) |_| total_infra_names += 1;
+    inline for (@typeInfo(lowered_machine.SetupError).error_set.?) |_| total_infra_names += 1;
+    if (infra_count == total_infra_names) {
+        @compileError("ambiguous shift.With(...).SemanticErrorSet: declare `pub const SemanticErrorSet = error{...};` on the body type to preserve semantic-only errors when the body also uses effectful operations");
+    }
+    return HandlerSet || BodySet;
 }
 
 pub fn With(comptime HandlersType: type, comptime Body: type) type {
