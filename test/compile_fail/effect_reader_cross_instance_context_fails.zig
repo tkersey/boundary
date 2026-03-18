@@ -2,7 +2,7 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
-const ReaderInstance = shift.effect.reader.Instance(i32);
+const ReaderInstance = shift.effect.reader.Instance(i32, error{});
 
 const demo = struct {
     var runtime_ptr: ?*shift.Runtime = null;

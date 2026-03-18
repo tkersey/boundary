@@ -17,8 +17,8 @@ fn CatchErrorSet(comptime Catch: type) type {
 }
 
 /// Prompt-backed effect instance for an exception family.
-pub fn Instance(comptime PayloadType: type) type {
-    return family.InstanceWithMode(.direct_return, PayloadType, error{});
+pub fn Instance(comptime PayloadType: type, comptime ErrorSetType: type) type {
+    return family.InstanceWithMode(.direct_return, PayloadType, ErrorSetType);
 }
 
 /// Lexical exception handle used by `shift.with(...)`.
@@ -122,12 +122,12 @@ pub fn handleWithErrorSet(
 }
 
 test "exception instance shell stays prompt-sized" {
-    const ExceptionInstance = Instance(i32);
+    const ExceptionInstance = Instance(i32, error{});
     try std.testing.expectEqual(@sizeOf(usize), @sizeOf(ExceptionInstance));
 }
 
 test "exception handle can throw directly to the catch policy" {
-    const ExceptionInstance = Instance([]const u8);
+    const ExceptionInstance = Instance([]const u8, error{});
     const catcher = struct {
         /// Recover the thrown payload into the final answer.
         pub fn directReturn(payload: []const u8) []const u8 {
@@ -154,7 +154,7 @@ test "exception handle can throw directly to the catch policy" {
 
 test "nested same-shaped exception handles get distinct capability types" {
     const NoError = error{};
-    const ExceptionInstance = Instance(i32);
+    const ExceptionInstance = Instance(i32, NoError);
     const catcher = struct {
         /// Preserve the thrown payload unchanged for the nested exception test.
         pub fn directReturn(payload: i32) i32 {

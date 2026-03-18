@@ -54,8 +54,8 @@ fn WriterState(comptime ItemType: type) type {
 }
 
 /// Prompt-backed effect instance for an append-only writer family.
-pub fn Instance(comptime ItemType: type) type {
-    return family.Instance(WriterState(ItemType), error{});
+pub fn Instance(comptime ItemType: type, comptime ErrorSetType: type) type {
+    return family.Instance(WriterState(ItemType), ErrorSetType);
 }
 
 /// Final writer log plus body answer returned from a handled writer program.
@@ -184,13 +184,13 @@ pub fn handleWithErrorSet(
 }
 
 test "writer instance shell stays prompt-sized" {
-    const WriterInstance = Instance([]const u8);
+    const WriterInstance = Instance([]const u8, error{});
     try std.testing.expectEqual(@sizeOf(usize), @sizeOf(WriterInstance));
 }
 
 test "writer handle accumulates items in order" {
     const NoError = error{};
-    const WriterInstance = Instance([]const u8);
+    const WriterInstance = Instance([]const u8, NoError);
     const demo = struct {
         /// Append two items and then return normally.
         pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(family.computeProgram(Cap, ctx, struct {
@@ -225,7 +225,7 @@ test "writer handle accumulates items in order" {
 
 test "nested same-shaped writer handles get distinct capability types" {
     const NoError = error{};
-    const WriterInstance = Instance([]const u8);
+    const WriterInstance = Instance([]const u8, NoError);
     const demo = struct {
         var runtime_ptr: ?*shift.Runtime = null;
         var inner_ptr: ?*const WriterInstance = null;

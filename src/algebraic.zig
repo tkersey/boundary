@@ -29,6 +29,19 @@ fn SpecsErrorSet(comptime SpecsType: type) type {
 }
 
 fn ConfiguredBodyErrorSet(comptime ContextType: type, comptime Body: type) type {
+    if (@hasDecl(Body, "program")) {
+        const AuthoredType = @TypeOf(Body.program(@as(*ContextType, undefined)));
+        switch (@typeInfo(AuthoredType)) {
+            .@"struct" => if (@hasField(AuthoredType, "prompt")) {
+                return switch (@typeInfo(@FieldType(AuthoredType, "prompt"))) {
+                    .pointer => |pointer| if (@hasDecl(pointer.child, "ErrorSet")) pointer.child.ErrorSet else error{},
+                    else => error{},
+                };
+            },
+            else => {},
+        }
+        return error{};
+    }
     if (!@hasDecl(Body, "body")) return error{};
     return ReturnTypeErrorSet(@TypeOf(Body.body(@as(*ContextType, undefined))));
 }

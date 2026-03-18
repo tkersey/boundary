@@ -2,7 +2,7 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
-const ExceptionInstance = shift.effect.exception.Instance(i32);
+const ExceptionInstance = shift.effect.exception.Instance(i32, error{});
 const catcher = struct {
     /// Preserve the thrown payload for the cross-instance exception fixture.
     pub fn directReturn(payload: i32) i32 {

@@ -2,7 +2,7 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
-const WriterInstance = shift.effect.writer.Instance([]const u8);
+const WriterInstance = shift.effect.writer.Instance([]const u8, error{});
 
 const demo = struct {
     var runtime_ptr: ?*shift.Runtime = null;

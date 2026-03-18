@@ -2,7 +2,7 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
-const ResourceInstance = shift.effect.resource.Instance(i32);
+const ResourceInstance = shift.effect.resource.Instance(i32, error{});
 const manager = struct {
     /// Acquire one dummy resource for the cross-instance resource fixture.
     pub fn acquire() i32 {

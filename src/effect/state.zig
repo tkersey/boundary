@@ -6,9 +6,7 @@ const shift = @import("../root.zig");
 const std = @import("std");
 
 /// Prompt-backed effect instance for a state family.
-pub fn Instance(comptime StateType: type) type {
-    return family.Instance(StateType, error{});
-}
+pub const Instance = family.Instance;
 
 /// Final state plus body answer returned from a handled state program.
 pub const HandleResult = family.HandleResult;
@@ -125,7 +123,7 @@ pub fn handleWithErrorSet(
 }
 
 test "state instance shell stays prompt-sized" {
-    const StateInstance = Instance(i32);
+    const StateInstance = Instance(i32, error{});
     try std.testing.expectEqual(@sizeOf(usize), @sizeOf(StateInstance));
 }
 
@@ -137,7 +135,7 @@ test "state private context stays pointer-sized" {
 
 test "state handle threads value and final state" {
     const NoError = error{};
-    const StateInstance = Instance(i32);
+    const StateInstance = Instance(i32, NoError);
 
     const demo = struct {
         /// Execute the strict-affinity state-effect test body.
@@ -170,7 +168,7 @@ test "state handle threads value and final state" {
 
 test "nested same-shaped state handles get distinct capability types" {
     const NoError = error{};
-    const StateInstance = Instance(i32);
+    const StateInstance = Instance(i32, NoError);
     const demo = struct {
         var runtime_ptr: ?*shift.Runtime = null;
         var inner_ptr: ?*const StateInstance = null;

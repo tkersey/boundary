@@ -403,8 +403,6 @@ fn PreviewBodyErrorSet(
     comptime mode: prompt_contract.PromptMode,
     comptime Body: type,
 ) type {
-    if (!family.hasDeclSafe(Body, "body")) return error{};
-
     const PreviewEngine = struct {
         pub fn perform(_: *@This(), comptime Op: type, _: Op.Payload) lowered_machine.ResetError(BaseErrorSet)!Op.Resume {
             unreachable;
@@ -428,6 +426,20 @@ fn PreviewBodyErrorSet(
 
     const PreviewContext = *family.Context(PreviewCapability, StateType, AnswerType, BaseErrorSet);
     _ = mode;
+    if (family.hasDeclSafe(Body, "program")) {
+        const AuthoredType = @TypeOf(Body.program(PreviewCapability, @as(PreviewContext, undefined)));
+        switch (@typeInfo(AuthoredType)) {
+            .@"struct" => if (@hasField(AuthoredType, "prompt")) {
+                return switch (@typeInfo(@FieldType(AuthoredType, "prompt"))) {
+                    .pointer => |pointer| if (@hasDecl(pointer.child, "ErrorSet")) pointer.child.ErrorSet else error{},
+                    else => error{},
+                };
+            },
+            else => {},
+        }
+        return error{};
+    }
+    if (!family.hasDeclSafe(Body, "body")) return error{};
     return ReturnTypeErrorSet(@TypeOf(Body.body(PreviewCapability, @as(PreviewContext, undefined))));
 }
 
@@ -1138,7 +1150,7 @@ pub fn Build(comptime spec: anytype) type {
             pub const expected_cross_instance = "context capability does not match supplied capability";
 
             /// Run one generated-family example harness through the public handle surface.
-            pub fn exampleHarness(comptime AnswerType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(ErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+            pub fn exampleHarness(comptime AnswerType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler), Body))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
                 return self_type.handle(AnswerType, runtime, instance, handler, Body);
             }
         };

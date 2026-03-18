@@ -19,8 +19,8 @@ fn ManagerErrorSet(comptime Manager: type) type {
 }
 
 /// Prompt-backed effect instance for a bracketed resource family.
-pub fn Instance(comptime ResourceType: type) type {
-    return family.InstanceWithMode(.resume_then_transform, ResourceType, error{});
+pub fn Instance(comptime ResourceType: type, comptime ErrorSetType: type) type {
+    return family.InstanceWithMode(.resume_then_transform, ResourceType, ErrorSetType);
 }
 
 /// Lexical resource handle used by `shift.with(...)`.
@@ -114,13 +114,13 @@ pub fn handleWithErrorSet(
 }
 
 test "resource instance shell stays prompt-sized" {
-    const ResourceInstance = Instance(i32);
+    const ResourceInstance = Instance(i32, error{});
     try std.testing.expectEqual(@sizeOf(usize), @sizeOf(ResourceInstance));
 }
 
 test "resource handle releases in LIFO order after normal completion" {
     const NoError = error{};
-    const ResourceInstance = Instance([]const u8);
+    const ResourceInstance = Instance([]const u8, NoError);
     const manager = struct {
         var next_index: usize = 0;
         var transcript = [_][]const u8{ "", "", "", "", "", "" };
@@ -187,8 +187,8 @@ test "resource handle releases in LIFO order after normal completion" {
 
 test "resource handle releases before outer exception catch returns" {
     const NoError = error{};
-    const ResourceInstance = Instance([]const u8);
-    const ExceptionInstance = @import("exception.zig").Instance([]const u8);
+    const ResourceInstance = Instance([]const u8, NoError);
+    const ExceptionInstance = @import("exception.zig").Instance([]const u8, NoError);
 
     const manager = struct {
         var transcript = [_][]const u8{ "", "", "", "", "" };
@@ -300,8 +300,8 @@ test "resource handle releases before outer exception catch returns" {
 
 test "resource handle releases before outer optional return-now completes" {
     const NoError = error{};
-    const ResourceInstance = Instance([]const u8);
-    const OptionalInstance = @import("optional.zig").Instance([]const u8);
+    const ResourceInstance = Instance([]const u8, NoError);
+    const OptionalInstance = @import("optional.zig").Instance([]const u8, NoError);
 
     const manager = struct {
         var transcript = [_][]const u8{ "", "", "", "", "" };
@@ -419,7 +419,7 @@ test "resource handle releases before outer optional return-now completes" {
 
 test "resource release error wins after a successful body" {
     const DemoError = error{ReleaseFailed};
-    const ResourceInstance = family.InstanceWithMode(.resume_then_transform, i32, DemoError);
+    const ResourceInstance = Instance(i32, DemoError);
 
     const manager = struct {
         /// Hand out one resource for the release-error precedence test.
@@ -460,7 +460,7 @@ test "resource release error wins after a successful body" {
 
 test "resource body error wins over release error" {
     const DemoError = error{ BodyFailed, ReleaseFailed };
-    const ResourceInstance = family.InstanceWithMode(.resume_then_transform, i32, DemoError);
+    const ResourceInstance = Instance(i32, DemoError);
 
     const manager = struct {
         /// Hand out one resource for the body-error precedence test.
@@ -501,7 +501,7 @@ test "resource body error wins over release error" {
 
 test "nested same-shaped resource handles get distinct capability types" {
     const NoError = error{};
-    const ResourceInstance = Instance(i32);
+    const ResourceInstance = Instance(i32, NoError);
     const manager = struct {
         /// Acquire one dummy resource for the nested resource test.
         pub fn acquire() i32 {

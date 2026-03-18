@@ -3,7 +3,7 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
-const OptionalInstance = shift.effect.optional.Instance(i32);
+const OptionalInstance = shift.effect.optional.Instance(i32, error{});
 const bad_policy = struct {
     /// Deliberately pick the resumptive optional branch.
     pub fn resumeOrReturn() prompt_support.ResumeOrReturn(i32, i32) {

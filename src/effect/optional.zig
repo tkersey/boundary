@@ -20,8 +20,8 @@ fn PolicyErrorSet(comptime Policy: type) type {
 }
 
 /// Prompt-backed effect instance for an optional-resumption family.
-pub fn Instance(comptime ResumeType: type) type {
-    return family.InstanceWithMode(.resume_or_return, ResumeType, error{});
+pub fn Instance(comptime ResumeType: type, comptime ErrorSetType: type) type {
+    return family.InstanceWithMode(.resume_or_return, ResumeType, ErrorSetType);
 }
 
 /// Lexical optional handle used by `shift.with(...)`.
@@ -180,12 +180,12 @@ pub fn handle(
 }
 
 test "optional instance shell stays prompt-sized" {
-    const OptionalInstance = Instance(i32);
+    const OptionalInstance = Instance(i32, error{});
     try std.testing.expectEqual(@sizeOf(usize), @sizeOf(OptionalInstance));
 }
 
 test "optional handle can return now without resuming the body tail" {
-    const OptionalInstance = Instance(i32);
+    const OptionalInstance = Instance(i32, error{});
     const policy = struct {
         /// Choose the direct-return branch for this optional-family test.
         pub fn resumeOrReturn() prompt_contract.ResumeOrReturn(i32, []const u8) {
@@ -228,7 +228,7 @@ test "optional handle can return now without resuming the body tail" {
 }
 
 test "optional handle can resume and transform the resumed answer" {
-    const OptionalInstance = Instance(i32);
+    const OptionalInstance = Instance(i32, error{});
     const policy = struct {
         /// Resume the optional request with a known value.
         pub fn resumeOrReturn() prompt_contract.ResumeOrReturn(i32, []const u8) {
@@ -267,7 +267,7 @@ test "optional handle can resume and transform the resumed answer" {
 
 test "nested same-shaped optional handles get distinct capability types" {
     const NoError = error{};
-    const OptionalInstance = Instance(i32);
+    const OptionalInstance = Instance(i32, NoError);
     const policy = struct {
         /// Resume the nested optional test with a neutral value.
         pub fn resumeOrReturn() prompt_contract.ResumeOrReturn(i32, i32) {

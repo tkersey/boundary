@@ -6,9 +6,7 @@ const shift = @import("../root.zig");
 const std = @import("std");
 
 /// Prompt-backed effect instance for a reader family.
-pub fn Instance(comptime StateType: type) type {
-    return family.Instance(StateType, error{});
-}
+pub const Instance = family.Instance;
 
 /// Lexical reader handle used by `shift.with(...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
@@ -102,13 +100,13 @@ pub fn handleWithErrorSet(
 }
 
 test "reader instance shell stays prompt-sized" {
-    const ReaderInstance = Instance(i32);
+    const ReaderInstance = Instance(i32, error{});
     try std.testing.expectEqual(@sizeOf(usize), @sizeOf(ReaderInstance));
 }
 
 test "reader handle threads environment into the body" {
     const NoError = error{};
-    const ReaderInstance = Instance(i32);
+    const ReaderInstance = Instance(i32, NoError);
     const demo = struct {
         /// Execute the reader body by asking for the environment once.
         pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(family.computeProgram(Cap, ctx, struct {
@@ -135,7 +133,7 @@ test "reader handle threads environment into the body" {
 
 test "nested same-shaped reader handles get distinct capability types" {
     const NoError = error{};
-    const ReaderInstance = Instance(i32);
+    const ReaderInstance = Instance(i32, NoError);
     const demo = struct {
         var runtime_ptr: ?*shift.Runtime = null;
         var inner_ptr: ?*const ReaderInstance = null;

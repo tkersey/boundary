@@ -2,7 +2,7 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
-const ResourceInstance = shift.effect.resource.Instance(i32);
+const ResourceInstance = shift.effect.resource.Instance(i32, error{});
 const bad_manager = struct {
     /// Deliberately acquire the correct resource type.
     pub fn acquire() i32 {

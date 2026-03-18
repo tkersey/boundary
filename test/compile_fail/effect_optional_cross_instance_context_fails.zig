@@ -3,7 +3,7 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
-const OptionalInstance = shift.effect.optional.Instance(i32);
+const OptionalInstance = shift.effect.optional.Instance(i32, error{});
 const policy = struct {
     /// Resume the optional request with a neutral value.
     pub fn resumeOrReturn() prompt_support.ResumeOrReturn(i32, i32) {

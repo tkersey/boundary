@@ -186,3 +186,384 @@ test "generated family handle retains generic body errors when error_set_type is
         }
     }));
 }
+
+test "generated family proof helper retains generic body errors when error_set_type is omitted" {
+    const Counter = shift.effect.Define(.{
+        .state_type = i32,
+        .ops = .{
+            shift.effect.ops.Transform("get", void, i32),
+        },
+    });
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = Counter.Instance.init();
+
+    const handler = struct {
+        state: i32 = 7,
+
+        pub fn get(self: *@This()) i32 {
+            return self.state;
+        }
+
+        pub fn afterGet(_: *@This(), answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    const CallType = @TypeOf(Counter.proof.exampleHarness(i32, &runtime, &instance, handler{}, struct {
+        pub fn body(comptime Cap: type, ctx: anytype) !i32 {
+            _ = try Counter.Op(.get).perform(Cap, ctx);
+            return error.BodyOops;
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "BodyOops"));
+    try std.testing.expectError(error.BodyOops, Counter.proof.exampleHarness(i32, &runtime, &instance, handler{}, struct {
+        pub fn body(comptime Cap: type, ctx: anytype) !i32 {
+            _ = try Counter.Op(.get).perform(Cap, ctx);
+            return error.BodyOops;
+        }
+    }));
+}
+
+test "generated family proof helper retains handler errors when error_set_type is omitted" {
+    const Counter = shift.effect.Define(.{
+        .state_type = i32,
+        .ops = .{
+            shift.effect.ops.Transform("get", void, i32),
+        },
+    });
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = Counter.Instance.init();
+
+    const handler = struct {
+        state: i32 = 0,
+
+        pub fn get(_: *@This()) !i32 {
+            return error.HandlerOops;
+        }
+
+        pub fn afterGet(_: *@This(), answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    const CallType = @TypeOf(Counter.proof.exampleHarness(i32, &runtime, &instance, handler{}, struct {
+        pub fn body(comptime Cap: type, ctx: anytype) !i32 {
+            return try Counter.Op(.get).perform(Cap, ctx);
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "HandlerOops"));
+    try std.testing.expectError(error.HandlerOops, Counter.proof.exampleHarness(i32, &runtime, &instance, handler{}, struct {
+        pub fn body(comptime Cap: type, ctx: anytype) !i32 {
+            return try Counter.Op(.get).perform(Cap, ctx);
+        }
+    }));
+}
+
+test "generated abort proof helper retains handler errors when error_set_type is omitted" {
+    const Guard = shift.effect.Define(.{
+        .state_type = struct {},
+        .ops = .{
+            shift.effect.ops.Abort("fail", []const u8),
+        },
+    });
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = Guard.Instance.init();
+
+    const handler = struct {
+        pub fn fail(_: *@This(), _: []const u8) !i32 {
+            return error.HandlerOops;
+        }
+    };
+
+    const CallType = @TypeOf(Guard.proof.exampleHarness(i32, &runtime, &instance, handler{}, struct {
+        pub fn body(comptime Cap: type, ctx: anytype) !i32 {
+            try Guard.Op(.fail).perform(Cap, ctx, "boom");
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "HandlerOops"));
+    try std.testing.expectError(error.HandlerOops, Guard.proof.exampleHarness(i32, &runtime, &instance, handler{}, struct {
+        pub fn body(comptime Cap: type, ctx: anytype) !i32 {
+            try Guard.Op(.fail).perform(Cap, ctx, "boom");
+        }
+    }));
+}
+
+test "state Instance plus handle preserves custom body errors" {
+    const DemoError = error{BodyOops};
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = shift.effect.state.Instance(i32, DemoError).init();
+
+    const CallType = @TypeOf(shift.effect.state.handle(i32, &runtime, &instance, 0, struct {
+        pub fn body(_: type, _: anytype) DemoError!i32 {
+            return error.BodyOops;
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "BodyOops"));
+    try std.testing.expectError(error.BodyOops, shift.effect.state.handle(i32, &runtime, &instance, 0, struct {
+        pub fn body(_: type, _: anytype) DemoError!i32 {
+            return error.BodyOops;
+        }
+    }));
+}
+
+test "reader Instance plus handle preserves custom body errors" {
+    const DemoError = error{BodyOops};
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = shift.effect.reader.Instance(i32, DemoError).init();
+
+    const CallType = @TypeOf(shift.effect.reader.handle(i32, &runtime, &instance, 7, struct {
+        pub fn body(_: type, _: anytype) DemoError!i32 {
+            return error.BodyOops;
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "BodyOops"));
+    try std.testing.expectError(error.BodyOops, shift.effect.reader.handle(i32, &runtime, &instance, 7, struct {
+        pub fn body(_: type, _: anytype) DemoError!i32 {
+            return error.BodyOops;
+        }
+    }));
+}
+
+test "optional Instance plus handle preserves custom body errors" {
+    const DemoError = error{BodyOops};
+    const policy = struct {
+        pub fn resumeOrReturn() shift.effect.choice.Decision(i32, i32) {
+            return shift.effect.choice.Decision(i32, i32).resumeWith(1);
+        }
+
+        pub fn afterResume(answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = shift.effect.optional.Instance(i32, DemoError).init();
+
+    const CallType = @TypeOf(shift.effect.optional.handle(i32, &runtime, &instance, policy, struct {
+        pub fn body(_: type, _: anytype) DemoError!i32 {
+            return error.BodyOops;
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "BodyOops"));
+    try std.testing.expectError(error.BodyOops, shift.effect.optional.handle(i32, &runtime, &instance, policy, struct {
+        pub fn body(_: type, _: anytype) DemoError!i32 {
+            return error.BodyOops;
+        }
+    }));
+}
+
+test "exception Instance plus handle preserves custom body errors" {
+    const DemoError = error{BodyOops};
+    const catcher = struct {
+        pub fn directReturn(_: i32) i32 {
+            return 0;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = shift.effect.exception.Instance(i32, DemoError).init();
+
+    const CallType = @TypeOf(shift.effect.exception.handle(i32, &runtime, &instance, catcher, struct {
+        pub fn body(_: type, _: anytype) DemoError!i32 {
+            return error.BodyOops;
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "BodyOops"));
+    try std.testing.expectError(error.BodyOops, shift.effect.exception.handle(i32, &runtime, &instance, catcher, struct {
+        pub fn body(_: type, _: anytype) DemoError!i32 {
+            return error.BodyOops;
+        }
+    }));
+}
+
+test "writer Instance plus handle preserves custom body errors" {
+    const DemoError = error{BodyOops};
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = shift.effect.writer.Instance([]const u8, DemoError).init();
+
+    const CallType = @TypeOf(shift.effect.writer.handle([]const u8, i32, &runtime, &instance, std.testing.allocator, struct {
+        pub fn body(_: type, _: anytype) DemoError!i32 {
+            return error.BodyOops;
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "BodyOops"));
+    try std.testing.expectError(error.BodyOops, shift.effect.writer.handle([]const u8, i32, &runtime, &instance, std.testing.allocator, struct {
+        pub fn body(_: type, _: anytype) DemoError!i32 {
+            return error.BodyOops;
+        }
+    }));
+}
+
+test "algebraic Program infers authored program errors on the public wrapper" {
+    const no_state = struct {};
+    const ping = shift.algebraic.TransformOp("ping", void, i32);
+    const algebraic_builder = shift.algebraic.Program(i32, .{ping});
+    const configured = algebraic_builder.handlers(.{
+        shift.algebraic.handleTransform(ping, no_state{}, struct {
+            pub fn resumeValue(_: no_state, _: void) i32 {
+                return 7;
+            }
+            pub fn afterResume(_: no_state, answer: i32) i32 {
+                return answer;
+            }
+        }),
+    });
+
+    const Body = struct {
+        const PromptType = prompt_support.Prompt(.resume_then_transform, i32, i32, error{ProgramOops});
+        const ProgramType = prompt_support.frontend.Program(PromptType);
+        const ComputeReturn = @typeInfo(@typeInfo(@FieldType(ProgramType, "compute")).pointer.child).@"fn".return_type.?;
+        threadlocal var prompt: PromptType = undefined;
+
+        pub fn program(_: anytype) prompt_support.frontend.BoundProgram(PromptType) {
+            prompt = PromptType.init();
+            return .{
+                .prompt = &prompt,
+                .program = ProgramType{ .compute = struct {
+                    pub fn invoke() ComputeReturn {
+                        return error.ProgramOops;
+                    }
+                }.invoke },
+            };
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const CallType = @TypeOf(configured.run(&runtime, Body));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "ProgramOops"));
+    try std.testing.expectError(error.ProgramOops, configured.run(&runtime, Body));
+}
+
+test "generated family handle infers authored program errors" {
+    const Counter = shift.effect.Define(.{
+        .state_type = i32,
+        .ops = .{
+            shift.effect.ops.Transform("get", void, i32),
+        },
+    });
+
+    const handler = struct {
+        state: i32 = 7,
+
+        pub fn get(self: *@This()) i32 {
+            return self.state;
+        }
+
+        pub fn afterGet(_: *@This(), answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    const Body = struct {
+        const PromptType = prompt_support.Prompt(.resume_then_transform, i32, i32, error{ProgramOops});
+        const ProgramType = prompt_support.frontend.Program(PromptType);
+        const ComputeReturn = @typeInfo(@typeInfo(@FieldType(ProgramType, "compute")).pointer.child).@"fn".return_type.?;
+        threadlocal var prompt: PromptType = undefined;
+
+        pub fn program(_: type, _: anytype) prompt_support.frontend.BoundProgram(PromptType) {
+            prompt = PromptType.init();
+            return .{
+                .prompt = &prompt,
+                .program = ProgramType{ .compute = struct {
+                    pub fn invoke() ComputeReturn {
+                        return error.ProgramOops;
+                    }
+                }.invoke },
+            };
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = Counter.Instance.init();
+
+    const CallType = @TypeOf(Counter.handle(i32, &runtime, &instance, handler{}, Body));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "ProgramOops"));
+    try std.testing.expectError(error.ProgramOops, Counter.handle(i32, &runtime, &instance, handler{}, Body));
+}
+
+test "generated family proof helper infers authored program errors" {
+    const Counter = shift.effect.Define(.{
+        .state_type = i32,
+        .ops = .{
+            shift.effect.ops.Transform("get", void, i32),
+        },
+    });
+
+    const handler = struct {
+        state: i32 = 7,
+
+        pub fn get(self: *@This()) i32 {
+            return self.state;
+        }
+
+        pub fn afterGet(_: *@This(), answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    const Body = struct {
+        const PromptType = prompt_support.Prompt(.resume_then_transform, i32, i32, error{ProgramOops});
+        const ProgramType = prompt_support.frontend.Program(PromptType);
+        const ComputeReturn = @typeInfo(@typeInfo(@FieldType(ProgramType, "compute")).pointer.child).@"fn".return_type.?;
+        threadlocal var prompt: PromptType = undefined;
+
+        pub fn program(_: type, _: anytype) prompt_support.frontend.BoundProgram(PromptType) {
+            prompt = PromptType.init();
+            return .{
+                .prompt = &prompt,
+                .program = ProgramType{ .compute = struct {
+                    pub fn invoke() ComputeReturn {
+                        return error.ProgramOops;
+                    }
+                }.invoke },
+            };
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = Counter.Instance.init();
+
+    const CallType = @TypeOf(Counter.proof.exampleHarness(i32, &runtime, &instance, handler{}, Body));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "ProgramOops"));
+    try std.testing.expectError(error.ProgramOops, Counter.proof.exampleHarness(i32, &runtime, &instance, handler{}, Body));
+}
