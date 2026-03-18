@@ -230,6 +230,7 @@ pub fn build(b: *std.Build) void {
     lexical_runtime_internal_mod.addImport("frontend_support", frontend_support_mod);
     lexical_runtime_internal_mod.addImport("lowered_machine", lowered_machine_mod);
     lexical_runtime_internal_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
+    witnesses_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     const bridge_manifest_mod = b.createModule(.{
         .root_source_file = b.path("src/direct_style_bridge_manifest.zig"),
         .target = target,
@@ -968,7 +969,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     lexical_witness_runners_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
-    witnesses_mod.addImport("lexical_witness_runners", lexical_witness_runners_mod);
     const structured_witness_runner_mod = b.createModule(.{
         .root_source_file = b.path("test/structured_witness_runner_suite.zig"),
         .target = target,
