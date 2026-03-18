@@ -18,6 +18,8 @@ pub const RuntimeErrorTag = enum {
     RuntimeBusy,
     RuntimeDestroyed,
     NonDiagonalComplete,
+    FrontendSuspend,
+    ProgramContractViolation,
 };
 
 pub const ContributorKind = enum {
@@ -80,6 +82,8 @@ pub fn runtimeErrorTags() []const RuntimeErrorTag {
         .RuntimeBusy,
         .RuntimeDestroyed,
         .NonDiagonalComplete,
+        .FrontendSuspend,
+        .ProgramContractViolation,
     };
 }
 

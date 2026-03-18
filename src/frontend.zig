@@ -524,7 +524,6 @@ pub fn run(
                 },
                 else => return @errorCast(err),
             };
-
             return try finalizeAnswer(PromptType, &frame, value);
         },
         .pure => |value| return lowered_machine.runExplicitPure(PromptType, value) catch |err| return @errorCast(err),
@@ -538,7 +537,7 @@ pub fn perform(
     comptime Resume: type,
     prompt: anytype,
     comptime Handler: type,
-) lowered_machine.ControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
+) lowered_machine.InternalControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
     const PromptType = PromptTypeFromPtr(@TypeOf(prompt));
     comptime assertHandlerProtocol(Resume, PromptType, Handler);
 
@@ -603,7 +602,7 @@ pub fn transform(
     comptime Resume: type,
     prompt: anytype,
     comptime Handler: type,
-) lowered_machine.ControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
+) lowered_machine.InternalControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
     comptime assertPromptMode(@TypeOf(prompt), .resume_then_transform, "transform");
     return perform(Resume, prompt, Handler);
 }
@@ -613,7 +612,7 @@ pub fn choice(
     comptime Resume: type,
     prompt: anytype,
     comptime Handler: type,
-) lowered_machine.ControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
+) lowered_machine.InternalControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
     comptime assertPromptMode(@TypeOf(prompt), .resume_or_return, "choice");
     return perform(Resume, prompt, Handler);
 }
@@ -622,7 +621,7 @@ pub fn choice(
 pub fn abort(
     prompt: anytype,
     comptime Handler: type,
-) lowered_machine.ControlError(PromptErrorSetType(@TypeOf(prompt)))!noreturn {
+) lowered_machine.InternalControlError(PromptErrorSetType(@TypeOf(prompt)))!noreturn {
     comptime assertPromptMode(@TypeOf(prompt), .direct_return, "abort");
     _ = try perform(void, prompt, Handler);
     unreachable;

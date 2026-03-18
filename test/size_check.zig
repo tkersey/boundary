@@ -32,6 +32,8 @@ test "public runtime error surface still exposes the current raw contract" {
     try std.testing.expect(hasErrorName(shift.RuntimeError, "RuntimeBusy"));
     try std.testing.expect(hasErrorName(shift.RuntimeError, "RuntimeDestroyed"));
     try std.testing.expect(hasErrorName(shift.RuntimeError, "NonDiagonalComplete"));
+    try std.testing.expect(hasErrorName(shift.RuntimeError, "FrontendSuspend"));
+    try std.testing.expect(hasErrorName(shift.RuntimeError, "ProgramContractViolation"));
     try std.testing.expect(!hasErrorName(shift.RuntimeError, "AlreadyResolved"));
     try std.testing.expect(!hasErrorName(shift.RuntimeError, "NestedNonDiagonalCapture"));
 }
@@ -91,6 +93,8 @@ test "algebraic Program infers handler errors on the public wrapper" {
     const ErrorSet = @typeInfo(CallType).error_union.error_set;
 
     try std.testing.expect(hasErrorName(ErrorSet, "HandlerOops"));
+    try std.testing.expect(hasErrorName(ErrorSet, "FrontendSuspend"));
+    try std.testing.expect(hasErrorName(ErrorSet, "ProgramContractViolation"));
     try std.testing.expectError(error.HandlerOops, configured.run(&runtime, struct {
         pub fn body(ctx: anytype) !i32 {
             return try ctx.perform(ping, {});

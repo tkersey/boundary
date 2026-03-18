@@ -23,6 +23,8 @@ fn retainedVariant(comptime tag: error_witness.RuntimeErrorTag) ErrorVariant {
             .RuntimeBusy => "Active-runtime teardown misuse remains a public runtime concern.",
             .RuntimeDestroyed => "Destroyed-runtime misuse remains a public runtime concern.",
             .NonDiagonalComplete => "Non-diagonal completion is still part of the public shift/reset semantic contract.",
+            .FrontendSuspend => "Replay-driven explicit frontend operations still use suspend as part of the lowered public execution contract.",
+            .ProgramContractViolation => "Explicit frontend program-shape violations still remain observable through the lowered public execution contract.",
         },
     };
 }
@@ -33,6 +35,8 @@ pub const retained_variants = [_]ErrorVariant{
     retainedVariant(.RuntimeBusy),
     retainedVariant(.RuntimeDestroyed),
     retainedVariant(.NonDiagonalComplete),
+    retainedVariant(.FrontendSuspend),
+    retainedVariant(.ProgramContractViolation),
 };
 
 pub const retired_variants = [_]ErrorVariant{

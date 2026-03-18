@@ -83,6 +83,22 @@ test "shift.With preserves semantic body errors that collide with setup names" {
     try std.testing.expect(hasErrorName(Meta.ExecutionError, "OutOfMemory"));
 }
 
+test "shift.With preserves mixed collided body errors in SemanticErrorSet" {
+    const Handlers = @TypeOf(.{
+        .state = shift.effect.state.use(@as(i32, 7)),
+    });
+    const Body = struct {
+        pub fn body(_: anytype) error{ BodyOops, OutOfMemory, MissingPrompt }!i32 {
+            return error.OutOfMemory;
+        }
+    };
+    const Meta = shift.With(Handlers, Body);
+
+    try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "BodyOops"));
+    try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "OutOfMemory"));
+    try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "MissingPrompt"));
+}
+
 test "lexical optional request retains explicit continuation errors" {
     const policy = struct {
         pub fn resumeOrReturn() shift.effect.choice.Decision(i32, i32) {

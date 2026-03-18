@@ -8,6 +8,8 @@ pub const RuntimeError = error{
     RuntimeBusy,
     RuntimeDestroyed,
     NonDiagonalComplete,
+    FrontendSuspend,
+    ProgramContractViolation,
 };
 
 /// Internal protocol/runtime errors used beneath the public root surface.
@@ -17,7 +19,17 @@ pub const ProtocolError = error{
 };
 
 /// Internal runtime-visible error union used beneath the public root surface.
-pub const Error = RuntimeError || ProtocolError;
+pub const Error = RuntimeError;
+
+/// Internal runtime-visible error union for user-provided errors.
+pub fn InternalControlError(comptime ErrorSet: type) type {
+    return Error || ErrorSet;
+}
+
+/// Internal reset-time error union for user-provided errors on the lowered runtime path.
+pub fn InternalResetError(comptime ErrorSet: type) type {
+    return InternalControlError(ErrorSet) || SetupError;
+}
 
 /// Runtime-visible error union for user-provided errors.
 pub fn ControlError(comptime ErrorSet: type) type {

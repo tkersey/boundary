@@ -73,11 +73,14 @@ fn isLoweredInfrastructureError(comptime error_name: []const u8) bool {
 
 fn SemanticBodyErrorSet(comptime ErrorSet: type) type {
     const fields = @typeInfo(ErrorSet).error_set.?;
-    comptime var non_infra_count: usize = 0;
+    comptime var infra_count: usize = 0;
     inline for (fields) |field| {
-        if (!comptime isLoweredInfrastructureError(field.name)) non_infra_count += 1;
+        if (comptime isLoweredInfrastructureError(field.name)) infra_count += 1;
     }
-    if (non_infra_count == 0) return ErrorSet;
+    comptime var total_infra_names: usize = 0;
+    inline for (@typeInfo(lowered_machine.Error).error_set.?) |_| total_infra_names += 1;
+    inline for (@typeInfo(lowered_machine.SetupError).error_set.?) |_| total_infra_names += 1;
+    if (infra_count != total_infra_names) return ErrorSet;
 
     comptime var kept_count: usize = 0;
     comptime var kept_fields: [fields.len]std.builtin.Type.Error = undefined;

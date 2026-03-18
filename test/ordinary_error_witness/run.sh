@@ -72,6 +72,8 @@ assert typed_ew["public_runtime_errors"] == [
     "RuntimeBusy",
     "RuntimeDestroyed",
     "NonDiagonalComplete",
+    "FrontendSuspend",
+    "ProgramContractViolation",
 ]
 assert typed_ew["setup_error_names"] == []
 assert typed_ew["semantic_error_names"] == ["Boom"]
