@@ -3,7 +3,7 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
-const OptionalInstance = shift.effect.optional.Instance(i32, NoError);
+const OptionalInstance = shift.effect.optional.Instance(i32, error{});
 const policy = struct {
     /// Resume the optional request with a neutral value.
     pub fn resumeOrReturn() prompt_support.ResumeOrReturn(i32, i32) {
@@ -21,7 +21,7 @@ const demo = struct {
     var inner_ptr: ?*const OptionalInstance = null;
 
     /// Start a nested handle and try to treat its context as the outer one.
-    pub fn outer(comptime OuterCap: type, _: anytype) shift.ResetError(NoError)!i32 {
+    pub fn outer(comptime OuterCap: type, _: anytype) !i32 {
         return try shift.effect.optional.handle(i32, runtime_ptr.?, inner_ptr.?, policy, struct {
             /// Attempt to request with the wrong capability type.
             pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(shift.effect.optional.requestProgram(OuterCap, inner_ctx, struct {
@@ -54,13 +54,13 @@ pub fn main() anyerror!void {
         /// Invoke the outer body with the fresh outer capability.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(shift.effect.optional.computeProgram(OuterCap, ctx, struct {
             /// Re-enter the compile-fail optional witness through the outer capability.
-            pub fn run() shift.ResetError(NoError)!i32 {
+            pub fn run() !i32 {
                 return try demo.outer(OuterCap, {});
             }
         }.run)) {
             return shift.effect.optional.computeProgram(OuterCap, ctx, struct {
                 /// Re-enter the compile-fail optional witness through the outer capability.
-                pub fn run() shift.ResetError(NoError)!i32 {
+                pub fn run() !i32 {
                     return try demo.outer(OuterCap, {});
                 }
             }.run);

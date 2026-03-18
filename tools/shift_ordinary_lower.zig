@@ -52,6 +52,88 @@ fn writeJsonStringLiteral(writer: anytype, value: []const u8) !void {
     try writer.writeByte('"');
 }
 
+fn writeJsonStringArray(writer: anytype, values: []const []const u8) !void {
+    try writer.writeByte('[');
+    for (values, 0..) |value, idx| {
+        if (idx != 0) try writer.writeAll(",");
+        try writeJsonStringLiteral(writer, value);
+    }
+    try writer.writeByte(']');
+}
+
+fn writeJsonWitnessDiagnostics(writer: anytype, diagnostics: anytype) !void {
+    try writer.writeByte('[');
+    for (diagnostics, 0..) |diag, idx| {
+        if (idx != 0) try writer.writeAll(",");
+        try writer.writeAll("{\"code\":");
+        try writeJsonStringLiteral(writer, diag.code);
+        try writer.writeAll(",\"message\":");
+        try writeJsonStringLiteral(writer, diag.message);
+        try writer.writeAll(",\"path\":");
+        try writeJsonStringLiteral(writer, diag.path);
+        try writer.print(",\"line\":{d},\"column\":{d}}}", .{ diag.line, diag.column });
+    }
+    try writer.writeByte(']');
+}
+
+fn writeJsonContributors(writer: anytype, contributors: anytype) !void {
+    try writer.writeByte('[');
+    for (contributors, 0..) |contributor, idx| {
+        if (idx != 0) try writer.writeAll(",");
+        try writer.writeAll("{\"kind\":");
+        try writeJsonStringLiteral(writer, @tagName(contributor.kind));
+        try writer.writeAll(",\"surface\":");
+        try writeJsonStringLiteral(writer, @tagName(contributor.surface));
+        try writer.writeAll(",\"symbol\":");
+        try writeJsonStringLiteral(writer, contributor.symbol);
+        try writer.writeAll(",\"error_names\":");
+        try writeJsonStringArray(writer, contributor.error_names);
+        try writer.writeByte('}');
+    }
+    try writer.writeByte(']');
+}
+
+fn writeZigStringArray(writer: anytype, values: []const []const u8) !void {
+    try writer.writeAll("&.{");
+    for (values, 0..) |value, idx| {
+        if (idx != 0) try writer.writeAll(", ");
+        try writeZigStringLiteral(writer, value);
+    }
+    try writer.writeByte('}');
+}
+
+fn writeZigWitnessDiagnostics(writer: anytype, diagnostics: anytype) !void {
+    try writer.writeAll("&.{");
+    for (diagnostics, 0..) |diag, idx| {
+        if (idx != 0) try writer.writeAll(", ");
+        try writer.writeAll(".{ .code = ");
+        try writeZigStringLiteral(writer, diag.code);
+        try writer.writeAll(", .message = ");
+        try writeZigStringLiteral(writer, diag.message);
+        try writer.writeAll(", .path = ");
+        try writeZigStringLiteral(writer, diag.path);
+        try writer.print(", .line = {d}, .column = {d} }}", .{ diag.line, diag.column });
+    }
+    try writer.writeByte('}');
+}
+
+fn writeZigContributors(writer: anytype, contributors: anytype) !void {
+    try writer.writeAll("&.{");
+    for (contributors, 0..) |contributor, idx| {
+        if (idx != 0) try writer.writeAll(", ");
+        try writer.writeAll(".{ .kind = .");
+        try writer.writeAll(@tagName(contributor.kind));
+        try writer.writeAll(", .surface = .");
+        try writer.writeAll(@tagName(contributor.surface));
+        try writer.writeAll(", .symbol = ");
+        try writeZigStringLiteral(writer, contributor.symbol);
+        try writer.writeAll(", .error_names = ");
+        try writeZigStringArray(writer, contributor.error_names);
+        try writer.writeByte('}');
+    }
+    try writer.writeByte('}');
+}
+
 fn writeJson(program: ordinary.GeneratedProgram, writer: anytype) !void {
     try writer.writeAll("{\"case_id\":");
     try writeJsonStringLiteral(writer, program.case_id);
@@ -70,7 +152,26 @@ fn writeJson(program: ordinary.GeneratedProgram, writer: anytype) !void {
         if (idx != 0) try writer.writeAll(",");
         try writer.print("\"{s}\"", .{flag});
     }
-    try writer.writeAll("],\"diagnostics\":[");
+    try writer.writeAll("],\"error_witness\":{");
+    try writer.print("\"schema_version\":{d},\"surface\":\"{s}\",\"support_status\":\"{s}\",", .{
+        program.error_witness.schema_version,
+        @tagName(program.error_witness.surface),
+        @tagName(program.error_witness.support_status),
+    });
+    try writer.writeAll("\"public_runtime_errors\":[");
+    for (program.error_witness.public_runtime_errors, 0..) |tag, idx| {
+        if (idx != 0) try writer.writeAll(",");
+        try writeJsonStringLiteral(writer, @tagName(tag));
+    }
+    try writer.writeAll("],\"setup_error_names\":");
+    try writeJsonStringArray(writer, program.error_witness.setup_error_names);
+    try writer.writeAll(",\"semantic_error_names\":");
+    try writeJsonStringArray(writer, program.error_witness.semantic_error_names);
+    try writer.writeAll(",\"contributors\":");
+    try writeJsonContributors(writer, program.error_witness.contributors);
+    try writer.writeAll(",\"diagnostics\":");
+    try writeJsonWitnessDiagnostics(writer, program.error_witness.diagnostics);
+    try writer.writeAll("},\"diagnostics\":[");
     for (program.diagnostics, 0..) |diag, idx| {
         if (idx != 0) try writer.writeAll(",");
         try writer.writeAll("{\"code\":");
@@ -164,6 +265,19 @@ fn writeZig(program: ordinary.GeneratedProgram, writer: anytype) !void {
         try writer.print(", .line = {d}, .column = {d} }}", .{ diag.line, diag.column });
     }
     try writer.writeAll("};\n\n");
+    try writer.writeAll("const WitnessDiagnostic = @typeInfo(@TypeOf((@as(shift.ordinary.GeneratedProgram, undefined)).error_witness.diagnostics)).pointer.child;\n");
+    try writer.writeAll("const generated_program_witness_diagnostics = [_]WitnessDiagnostic{");
+    for (program.error_witness.diagnostics, 0..) |diag, idx| {
+        if (idx != 0) try writer.writeAll(", ");
+        try writer.writeAll(".{ .code = ");
+        try writeZigStringLiteral(writer, diag.code);
+        try writer.writeAll(", .message = ");
+        try writeZigStringLiteral(writer, diag.message);
+        try writer.writeAll(", .path = ");
+        try writeZigStringLiteral(writer, diag.path);
+        try writer.print(", .line = {d}, .column = {d} }}", .{ diag.line, diag.column });
+    }
+    try writer.writeAll("};\n\n");
     try writer.writeAll("pub fn initGeneratedProgram(allocator: std.mem.Allocator) !shift.ordinary.GeneratedProgram {\n");
     try writer.writeAll("    return .{\n");
     try writer.writeAll("        .case_id = ");
@@ -188,6 +302,26 @@ fn writeZig(program: ordinary.GeneratedProgram, writer: anytype) !void {
     try writer.writeAll("        .steps = try allocator.dupe(shift.ordinary.Step, &generated_program_steps),\n");
     try writer.writeAll("        .feature_flags = try allocator.dupe([]const u8, &generated_program_feature_flags),\n");
     try writer.writeAll("        .diagnostics = try allocator.dupe(shift.ordinary.Diagnostic, &generated_program_diagnostics),\n");
+    try writer.print("        .error_witness = .{{ .schema_version = {d}, .surface = .{s}, .support_status = .{s}, .public_runtime_errors = &.{{", .{
+        program.error_witness.schema_version,
+        @tagName(program.error_witness.surface),
+        @tagName(program.error_witness.support_status),
+    });
+    for (program.error_witness.public_runtime_errors) |tag| {
+        try writer.print(".{s},", .{@tagName(tag)});
+    }
+    try writer.writeAll("}, .setup_error_names = ");
+    try writeZigStringArray(writer, program.error_witness.setup_error_names);
+    try writer.writeAll(", .semantic_error_names = ");
+    try writeZigStringArray(writer, program.error_witness.semantic_error_names);
+    try writer.writeAll(", .contributors = ");
+    try writeZigContributors(writer, program.error_witness.contributors);
+    if (program.error_witness.diagnostics.len == 0) {
+        try writer.writeAll(", .diagnostics = &.{}");
+    } else {
+        try writer.writeAll(", .diagnostics = try allocator.dupe(WitnessDiagnostic, &generated_program_witness_diagnostics)");
+    }
+    try writer.writeAll(" },\n");
     try writer.writeAll("    };\n");
     try writer.writeAll("}\n\n");
     try writer.writeAll(

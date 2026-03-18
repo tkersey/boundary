@@ -2,7 +2,7 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
-const OptionalInstance = shift.effect.optional.Instance(i32, NoError);
+const OptionalInstance = shift.effect.optional.Instance(i32, error{});
 const bad_policy = struct {
     /// Deliberately provide only the completion half of the optional policy.
     pub fn afterResume(value: i32) i32 {

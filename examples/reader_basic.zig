@@ -9,10 +9,10 @@ pub fn run(writer: anytype) anyerror!void {
     defer runtime.deinit();
 
     const result = try shift.with(&runtime, .{
-        .reader = shift.effect.reader.use(NoError, @as(i32, 21)),
+        .reader = shift.effect.reader.use(@as(i32, 21)),
     }, struct {
         /// Read the lexical reader environment once and double it.
-        pub fn body(eff: anytype) shift.ResetError(NoError)!i32 {
+        pub fn body(eff: anytype) !i32 {
             const env = try eff.reader.ask();
             return env * 2;
         }

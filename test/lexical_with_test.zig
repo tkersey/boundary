@@ -3,6 +3,13 @@ const std = @import("std");
 
 const NoError = error{};
 
+fn hasErrorName(comptime ErrorSet: type, comptime wanted: []const u8) bool {
+    inline for (@typeInfo(ErrorSet).error_set.?) |field| {
+        if (comptime std.mem.eql(u8, field.name, wanted)) return true;
+    }
+    return false;
+}
+
 fn expectFixtureTranscript(comptime fixture_path: []const u8, writer_fn: anytype) !void {
     var buffer: std.io.Writer.Allocating = .init(std.testing.allocator);
     defer buffer.deinit();
@@ -10,16 +17,382 @@ fn expectFixtureTranscript(comptime fixture_path: []const u8, writer_fn: anytype
     try std.testing.expectEqualStrings(@embedFile(fixture_path), buffer.written());
 }
 
+test "shift.with retains explicit body errors in ExecutionError" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const CallType = @TypeOf(shift.with(&runtime, .{
+        .state = shift.effect.state.use(@as(i32, 7)),
+    }, struct {
+        pub fn body(eff: anytype) !i32 {
+            _ = try eff.state.get();
+            return error.BodyOops;
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "BodyOops"));
+
+    _ = shift.with(&runtime, .{
+        .state = shift.effect.state.use(@as(i32, 7)),
+    }, struct {
+        pub fn body(eff: anytype) !i32 {
+            _ = try eff.state.get();
+            return error.BodyOops;
+        }
+    }) catch |err| {
+        try std.testing.expectEqual(error.BodyOops, err);
+        return;
+    };
+    return error.TestExpectedError;
+}
+
+test "shift.With distinguishes semantic from execution error metadata" {
+    const Handlers = @TypeOf(.{
+        .state = shift.effect.state.use(@as(i32, 7)),
+    });
+    const Body = struct {
+        pub const SemanticErrorSet = error{BodyOops};
+
+        pub fn body(eff: anytype) !i32 {
+            _ = try eff.state.get();
+            return error.BodyOops;
+        }
+    };
+    const Meta = shift.With(Handlers, Body);
+
+    try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "BodyOops"));
+    try std.testing.expect(!hasErrorName(Meta.SemanticErrorSet, "MissingPrompt"));
+    try std.testing.expect(!hasErrorName(Meta.SemanticErrorSet, "OutOfMemory"));
+
+    try std.testing.expect(hasErrorName(Meta.ExecutionError, "BodyOops"));
+    try std.testing.expect(hasErrorName(Meta.ExecutionError, "MissingPrompt"));
+    try std.testing.expect(hasErrorName(Meta.ExecutionError, "OutOfMemory"));
+}
+
+test "shift.With preserves semantic body errors that collide with setup names" {
+    const Handlers = @TypeOf(.{
+        .state = shift.effect.state.use(@as(i32, 7)),
+    });
+    const Body = struct {
+        pub const SemanticErrorSet = error{OutOfMemory};
+
+        pub fn body(_: anytype) !i32 {
+            return error.OutOfMemory;
+        }
+    };
+    const Meta = shift.With(Handlers, Body);
+
+    try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "OutOfMemory"));
+    try std.testing.expect(hasErrorName(Meta.ExecutionError, "OutOfMemory"));
+}
+
+test "shift.With preserves mixed collided body errors in SemanticErrorSet" {
+    const Handlers = @TypeOf(.{
+        .state = shift.effect.state.use(@as(i32, 7)),
+    });
+    const Body = struct {
+        pub const SemanticErrorSet = error{ BodyOops, OutOfMemory, MissingPrompt };
+
+        pub fn body(eff: anytype) !i32 {
+            _ = try eff.state.get();
+            return error.OutOfMemory;
+        }
+    };
+    const Meta = shift.With(Handlers, Body);
+
+    try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "BodyOops"));
+    try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "OutOfMemory"));
+    try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "MissingPrompt"));
+}
+
+test "shift.With instantiates for effect-only bodies without SemanticErrorSet metadata" {
+    const Handlers = @TypeOf(.{
+        .state = shift.effect.state.use(@as(i32, 7)),
+    });
+    const Body = struct {
+        pub fn body(eff: anytype) !i32 {
+            _ = try eff.state.get();
+            return 0;
+        }
+    };
+    const Meta = shift.With(Handlers, Body);
+
+    try std.testing.expect(@sizeOf(Meta.Result) > 0);
+    try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "MissingPrompt"));
+    try std.testing.expect(hasErrorName(Meta.ExecutionError, "MissingPrompt"));
+    try std.testing.expect(hasErrorName(Meta.ExecutionError, "OutOfMemory"));
+}
+
+test "shift.With preview includes continuation errors from lexical explicit programs" {
+    const ProbeDescriptor = struct {
+        pub const ErrorSet = error{};
+        pub const State = i32;
+        pub const Output = void;
+        const ProbeOp = shift.effect.ops.Choice("probe", void, i32);
+
+        pub fn HandleType(comptime Cap: type, comptime ContextPtrType: type) type {
+            _ = ContextPtrType;
+            return struct {
+                fn BoundProgramType(comptime Continuation: type) type {
+                    return @TypeOf((@as(*Cap.EngineContextType(), undefined)).performProgram(ProbeOp, {}, Continuation));
+                }
+
+                fn PromptType(comptime Continuation: type) type {
+                    return @typeInfo(@FieldType(BoundProgramType(Continuation), "prompt")).pointer.child;
+                }
+
+                fn ExecutionErrorSet(comptime Continuation: type) type {
+                    return shift.RuntimeError || error{OutOfMemory} || PromptType(Continuation).ErrorSet;
+                }
+
+                pub fn perform(_: @This(), comptime Continuation: type) ExecutionErrorSet(Continuation)!PromptType(Continuation).OutAnswer {
+                    unreachable;
+                }
+            };
+        }
+
+        pub fn bindLexical(self: @This(), comptime Cap: type, ctx: anytype) HandleType(Cap, @TypeOf(ctx)) {
+            _ = self;
+            return .{};
+        }
+
+        pub fn run(
+            self: @This(),
+            comptime AnswerType: type,
+            comptime RunErrorSetType: type,
+            runtime: *shift.Runtime,
+            comptime Body: type,
+        ) (shift.RuntimeError || error{OutOfMemory} || RunErrorSetType)!struct { output: void, value: AnswerType } {
+            _ = self;
+            _ = runtime;
+            _ = Body;
+            unreachable;
+        }
+    };
+
+    const Handlers = @TypeOf(.{
+        .probe = ProbeDescriptor{},
+    });
+    const Body = struct {
+        pub const SemanticErrorSet = error{ContinueOops};
+
+        pub fn body(eff: anytype) !i32 {
+            return try eff.probe.perform(struct {
+                pub fn apply(_: i32) !i32 {
+                    return error.ContinueOops;
+                }
+            });
+        }
+    };
+    const Meta = shift.With(Handlers, Body);
+
+    try std.testing.expect(hasErrorName(Meta.ExecutionError, "ContinueOops"));
+    try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "ContinueOops"));
+}
+
+test "lexical optional request retains explicit continuation errors" {
+    const policy = struct {
+        pub fn resumeOrReturn() shift.effect.choice.Decision(i32, i32) {
+            return shift.effect.choice.Decision(i32, i32).resumeWith(41);
+        }
+
+        pub fn afterResume(answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const CallType = @TypeOf(shift.with(&runtime, .{
+        .optional = shift.effect.optional.use(i32, policy),
+    }, struct {
+        pub fn body(eff: anytype) !i32 {
+            return try eff.optional.request(struct {
+                pub fn apply(value: i32, _: anytype) !i32 {
+                    _ = value;
+                    return error.ContinueOops;
+                }
+            });
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "ContinueOops"));
+
+    _ = shift.with(&runtime, .{
+        .optional = shift.effect.optional.use(i32, policy),
+    }, struct {
+        pub fn body(eff: anytype) !i32 {
+            return try eff.optional.request(struct {
+                pub fn apply(value: i32, _: anytype) !i32 {
+                    _ = value;
+                    return error.ContinueOops;
+                }
+            });
+        }
+    }) catch |err| {
+        try std.testing.expectEqual(error.ContinueOops, err);
+        return;
+    };
+    return error.TestExpectedError;
+}
+
+test "generated lexical choice retains explicit continuation errors" {
+    const Picker = shift.effect.Define(.{
+        .state_type = struct {},
+        .ops = .{
+            shift.effect.ops.Choice("pick", i32, i32),
+        },
+    });
+
+    const handler = struct {
+        pub fn pick(_: *@This(), value: i32) shift.effect.choice.Decision(i32, i32) {
+            return shift.effect.choice.Decision(i32, i32).resumeWith(value);
+        }
+
+        pub fn afterPick(_: *@This(), answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const CallType = @TypeOf(shift.with(&runtime, .{
+        .picker = Picker.use(.{ .handler = handler{} }),
+    }, struct {
+        pub fn body(eff: anytype) !i32 {
+            return try eff.picker.pick.perform(41, struct {
+                pub fn apply(value: i32, _: anytype) !i32 {
+                    _ = value;
+                    return error.ContinueOops;
+                }
+            });
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "ContinueOops"));
+
+    _ = shift.with(&runtime, .{
+        .picker = Picker.use(.{ .handler = handler{} }),
+    }, struct {
+        pub fn body(eff: anytype) !i32 {
+            return try eff.picker.pick.perform(41, struct {
+                pub fn apply(value: i32, _: anytype) !i32 {
+                    _ = value;
+                    return error.ContinueOops;
+                }
+            });
+        }
+    }) catch |err| {
+        try std.testing.expectEqual(error.ContinueOops, err);
+        return;
+    };
+    return error.TestExpectedError;
+}
+
+test "generated family infers handler errors when error_set_type is omitted" {
+    const Picker = shift.effect.Define(.{
+        .state_type = struct {},
+        .ops = .{
+            shift.effect.ops.Choice("pick", i32, i32),
+        },
+    });
+
+    const handler = struct {
+        pub fn pick(_: *@This(), value: i32) !shift.effect.choice.Decision(i32, i32) {
+            _ = value;
+            return error.HandlerOops;
+        }
+
+        pub fn afterPick(_: *@This(), answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const CallType = @TypeOf(shift.with(&runtime, .{
+        .picker = Picker.use(.{ .handler = handler{} }),
+    }, struct {
+        pub fn body(eff: anytype) !i32 {
+            return try eff.picker.pick.perform(41, struct {
+                pub fn apply(value: i32, _: anytype) i32 {
+                    return value;
+                }
+            });
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "HandlerOops"));
+
+    _ = shift.with(&runtime, .{
+        .picker = Picker.use(.{ .handler = handler{} }),
+    }, struct {
+        pub fn body(eff: anytype) !i32 {
+            return try eff.picker.pick.perform(41, struct {
+                pub fn apply(value: i32, _: anytype) i32 {
+                    return value;
+                }
+            });
+        }
+    }) catch |err| {
+        try std.testing.expectEqual(error.HandlerOops, err);
+        return;
+    };
+    return error.TestExpectedError;
+}
+
+test "generated lexical handlers infer after-hook errors when error_set_type is omitted" {
+    const Counter = shift.effect.Define(.{
+        .state_type = i32,
+        .ops = .{
+            shift.effect.ops.Transform("get", void, i32),
+        },
+    });
+
+    const handler = struct {
+        state: i32 = 7,
+
+        pub fn get(self: *@This()) i32 {
+            return self.state;
+        }
+
+        pub fn afterGet(_: *@This(), _: i32) !i32 {
+            return error.AfterOops;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const CallType = @TypeOf(shift.with(&runtime, .{
+        .counter = Counter.use(.{ .handler = handler{} }),
+    }, struct {
+        pub fn body(eff: anytype) !i32 {
+            return try eff.counter.get.perform();
+        }
+    }));
+    const ErrorSet = @typeInfo(CallType).error_union.error_set;
+
+    try std.testing.expect(hasErrorName(ErrorSet, "AfterOops"));
+}
+
 test "shift.with composes state and reader through lexical handles" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const result = try shift.with(&runtime, .{
-        .state = shift.effect.state.use(NoError, @as(i32, 5)),
-        .reader = shift.effect.reader.use(NoError, @as(i32, 21)),
+        .state = shift.effect.state.use(@as(i32, 5)),
+        .reader = shift.effect.reader.use(@as(i32, 21)),
     }, struct {
         /// Read from the lexical reader, update lexical state, and return the new state.
-        pub fn body(eff: anytype) shift.ResetError(NoError)!i32 {
+        pub fn body(eff: anytype) !i32 {
             const env = try eff.reader.ask();
             const before = try eff.state.get();
             try eff.state.set(before + env);
@@ -38,10 +411,10 @@ test "shift.with matches the state fixture transcript through lexical handles" {
             defer runtime.deinit();
 
             const result = try shift.with(&runtime, .{
-                .state = shift.effect.state.use(NoError, @as(i32, 5)),
+                .state = shift.effect.state.use(@as(i32, 5)),
             }, struct {
                 /// Match the public state example transcript through lexical handles.
-                pub fn body(eff: anytype) shift.ResetError(NoError)!i32 {
+                pub fn body(eff: anytype) !i32 {
                     const before = try eff.state.get();
                     try eff.state.set(before + 1);
                     return before + (try eff.state.get());
@@ -60,10 +433,10 @@ test "shift.with matches the reader fixture transcript through lexical handles" 
             defer runtime.deinit();
 
             const result = try shift.with(&runtime, .{
-                .reader = shift.effect.reader.use(NoError, @as(i32, 21)),
+                .reader = shift.effect.reader.use(@as(i32, 21)),
             }, struct {
                 /// Match the public reader example transcript through lexical handles.
-                pub fn body(eff: anytype) shift.ResetError(NoError)!i32 {
+                pub fn body(eff: anytype) !i32 {
                     const env = try eff.reader.ask();
                     return env * 2;
                 }
@@ -121,13 +494,13 @@ test "shift.with matches the optional fixture transcript through lexical handles
 
             try writer.writeAll("branch=return_now\n");
             const early = try shift.with(&runtime, .{
-                .optional = shift.effect.optional.use(i32, NoError, return_now_policy),
+                .optional = shift.effect.optional.use(i32, return_now_policy),
             }, struct {
                 /// Trigger the lexical optional choice point and prove the resume continuation is skipped.
-                pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn body(eff: anytype) ![]const u8 {
                     return try eff.optional.request(struct {
                         /// This continuation must never run in the return-now branch.
-                        pub fn apply(_: i32, _: anytype) shift.ResetError(NoError)![]const u8 {
+                        pub fn apply(_: i32, _: anytype) ![]const u8 {
                             unreachable;
                         }
                     });
@@ -137,13 +510,13 @@ test "shift.with matches the optional fixture transcript through lexical handles
 
             try writer.writeAll("branch=resume_with\n");
             const resumed = try shift.with(&runtime, .{
-                .optional = shift.effect.optional.use(i32, NoError, resume_policy),
+                .optional = shift.effect.optional.use(i32, resume_policy),
             }, struct {
                 /// Trigger the lexical optional choice point and complete the resumed continuation explicitly.
-                pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn body(eff: anytype) ![]const u8 {
                     return try eff.optional.request(struct {
                         /// Resume the lexical optional continuation with the canonical final answer.
-                        pub fn apply(value: i32, _: anytype) shift.ResetError(NoError)![]const u8 {
+                        pub fn apply(value: i32, _: anytype) ![]const u8 {
                             if (value != 41) unreachable;
                             transcript.note("body-after-request\n");
                             return "answer=42";
@@ -184,10 +557,10 @@ test "shift.with matches the exception fixture transcript through lexical handle
 
             try writer.writeAll("branch=pass\n");
             const ok = try shift.with(&runtime, .{
-                .exception = shift.effect.exception.use([]const u8, NoError, catch_policy),
+                .exception = shift.effect.exception.use([]const u8, catch_policy),
             }, struct {
                 /// Return normally through the lexical exception scope.
-                pub fn body(_: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn body(_: anytype) ![]const u8 {
                     return "result=ok";
                 }
             });
@@ -196,10 +569,10 @@ test "shift.with matches the exception fixture transcript through lexical handle
 
             try writer.writeAll("branch=throw\n");
             const thrown = try shift.with(&runtime, .{
-                .exception = shift.effect.exception.use([]const u8, NoError, catch_policy),
+                .exception = shift.effect.exception.use([]const u8, catch_policy),
             }, struct {
                 /// Throw once through the lexical exception scope.
-                pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn body(eff: anytype) ![]const u8 {
                     transcript.note("body-before-throw\n");
                     try eff.exception.throw("result=boom");
                 }
@@ -247,10 +620,10 @@ test "shift.with matches the resource fixture transcript through lexical handles
             resource_manager.next_index = 0;
 
             const result = try shift.with(&runtime, .{
-                .resource = shift.effect.resource.use([]const u8, NoError, resource_manager),
+                .resource = shift.effect.resource.use([]const u8, resource_manager),
             }, struct {
                 /// Acquire and use two resources through the lexical scope.
-                pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn body(eff: anytype) ![]const u8 {
                     const first = try eff.resource.acquire();
                     transcript.note("use=");
                     transcript.note(first);
@@ -277,10 +650,10 @@ test "shift.with matches the writer fixture transcript through lexical handles" 
             defer runtime.deinit();
 
             const result = try shift.with(&runtime, .{
-                .writer = shift.effect.writer.use([]const u8, NoError, std.testing.allocator),
+                .writer = shift.effect.writer.use([]const u8, std.testing.allocator),
             }, struct {
                 /// Append two items and return the canonical writer answer.
-                pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn body(eff: anytype) ![]const u8 {
                     try eff.writer.tell("a");
                     try eff.writer.tell("b");
                     return "done";
@@ -299,7 +672,6 @@ test "shift.with matches the writer fixture transcript through lexical handles" 
 test "generated choice families use the lexical choice form" {
     const Picker = shift.effect.Define(.{
         .state_type = struct {},
-        .error_set_type = NoError,
         .ops = .{
             shift.effect.ops.Choice("pick", i32, i32),
         },
@@ -354,10 +726,10 @@ test "generated choice families use the lexical choice form" {
                 .picker = Picker.use(.{ .handler = return_now_handler{} }),
             }, struct {
                 /// Trigger the generated lexical choice point and prove the continuation is skipped.
-                pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn body(eff: anytype) ![]const u8 {
                     return try eff.picker.pick.perform(41, struct {
                         /// This generated continuation must never run in the return-now branch.
-                        pub fn apply(_: i32, _: anytype) shift.ResetError(NoError)![]const u8 {
+                        pub fn apply(_: i32, _: anytype) ![]const u8 {
                             unreachable;
                         }
                     });
@@ -370,10 +742,10 @@ test "generated choice families use the lexical choice form" {
                 .picker = Picker.use(.{ .handler = resume_handler{} }),
             }, struct {
                 /// Trigger the generated lexical choice point and complete the explicit continuation.
-                pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn body(eff: anytype) ![]const u8 {
                     return try eff.picker.pick.perform(41, struct {
                         /// Resume the generated lexical choice continuation with the canonical final answer.
-                        pub fn apply(value: i32, _: anytype) shift.ResetError(NoError)![]const u8 {
+                        pub fn apply(value: i32, _: anytype) ![]const u8 {
                             if (value != 41) unreachable;
                             transcript.note("body-after-request\n");
                             return "answer=42";
@@ -389,7 +761,6 @@ test "generated choice families use the lexical choice form" {
 test "generated abort families use the lexical abort form" {
     const Guard = shift.effect.Define(.{
         .state_type = struct {},
-        .error_set_type = NoError,
         .ops = .{
             shift.effect.ops.Abort("fail", []const u8),
         },
@@ -425,7 +796,7 @@ test "generated abort families use the lexical abort form" {
                 .guard = Guard.use(.{ .handler = guard_handler{} }),
             }, struct {
                 /// Trigger the generated lexical abort point directly.
-                pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn body(eff: anytype) ![]const u8 {
                     try eff.guard.fail.abort("missing-name");
                 }
             });
@@ -437,7 +808,6 @@ test "generated abort families use the lexical abort form" {
 test "generated zero-payload choice fields stay ergonomic" {
     const Ask = shift.effect.Define(.{
         .state_type = struct {},
-        .error_set_type = NoError,
         .ops = .{
             shift.effect.ops.Choice("ask", void, i32),
         },
@@ -460,10 +830,10 @@ test "generated zero-payload choice fields stay ergonomic" {
         }{} }),
     }, struct {
         /// Trigger a zero-payload generated lexical choice op with no payload argument.
-        pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+        pub fn body(eff: anytype) ![]const u8 {
             return try eff.asker.ask.perform(struct {
                 /// Convert the resumed generated answer into the final lexical result.
-                pub fn apply(value: i32, _: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn apply(value: i32, _: anytype) ![]const u8 {
                     if (value != 7) unreachable;
                     return "answer=7";
                 }

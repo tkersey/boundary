@@ -4,7 +4,6 @@ const std = @import("std");
 const NoError = error{};
 const Picker = shift.effect.Define(.{
     .state_type = struct {},
-    .error_set_type = NoError,
     .ops = .{
         shift.effect.ops.Choice("pick", i32, i32),
     },
@@ -24,7 +23,7 @@ pub fn run(writer: anytype) anyerror!void {
 
     const return_now_handler = struct {
         /// Return now for the generated lexical choice example.
-        pub fn pick(_: *@This(), _: i32) shift.ResetError(NoError)!shift.effect.choice.Decision(i32, []const u8) {
+        pub fn pick(_: *@This(), _: i32) !shift.effect.choice.Decision(i32, []const u8) {
             transcript.note("policy-return-now");
             return shift.effect.choice.Decision(i32, []const u8).returnNow("result=early");
         }
@@ -37,13 +36,13 @@ pub fn run(writer: anytype) anyerror!void {
 
     const resume_handler = struct {
         /// Resume with the canonical generated choice value.
-        pub fn pick(_: *@This(), payload: i32) shift.ResetError(NoError)!shift.effect.choice.Decision(i32, []const u8) {
+        pub fn pick(_: *@This(), payload: i32) !shift.effect.choice.Decision(i32, []const u8) {
             transcript.note("policy-resume");
             return shift.effect.choice.Decision(i32, []const u8).resumeWith(payload);
         }
 
         /// Finalize the resumed generated choice answer.
-        pub fn afterPick(_: *@This(), answer: []const u8) shift.ResetError(NoError)![]const u8 {
+        pub fn afterPick(_: *@This(), answer: []const u8) ![]const u8 {
             transcript.note("policy-after-resume");
             return answer;
         }
@@ -58,10 +57,10 @@ pub fn run(writer: anytype) anyerror!void {
         .picker = Picker.use(.{ .handler = return_now_handler{} }),
     }, struct {
         /// Trigger the generated lexical choice point and prove the continuation is skipped.
-        pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+        pub fn body(eff: anytype) ![]const u8 {
             return try eff.picker.pick.perform(41, struct {
                 /// This generated continuation must never run in the return-now branch.
-                pub fn apply(_: i32, _: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn apply(_: i32, _: anytype) ![]const u8 {
                     unreachable;
                 }
             });
@@ -78,10 +77,10 @@ pub fn run(writer: anytype) anyerror!void {
         .picker = Picker.use(.{ .handler = resume_handler{} }),
     }, struct {
         /// Trigger the generated lexical choice point and complete the explicit continuation.
-        pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+        pub fn body(eff: anytype) ![]const u8 {
             return try eff.picker.pick.perform(41, struct {
                 /// Resume the generated lexical choice continuation with the canonical final answer.
-                pub fn apply(value: i32, _: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn apply(value: i32, _: anytype) ![]const u8 {
                     if (value != 41) unreachable;
                     transcript.note("body-after-pick");
                     return "answer=42";

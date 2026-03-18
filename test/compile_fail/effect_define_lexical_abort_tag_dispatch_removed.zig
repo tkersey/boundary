@@ -24,7 +24,7 @@ pub fn main() anyerror!void {
         }{} }),
     }, struct {
         /// Attempt to use the removed generated lexical tag-dispatch abort surface.
-        pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+        pub fn body(eff: anytype) ![]const u8 {
             try eff.guard.abort(.fail, "boom");
         }
     });

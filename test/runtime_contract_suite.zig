@@ -32,7 +32,7 @@ test "cross-thread runtime misuse still fails closed" {
     defer runtime.deinit();
 
     const Result = struct {
-        err: ?shift.Error = null,
+        err: ?shift.RuntimeError = null,
     };
     var result = Result{};
 
@@ -73,7 +73,7 @@ test "runtime deinit rejects active reset" {
         var runtime_ptr: *shift.Runtime = undefined;
 
         /// Probe the runtime-busy contract from the resumed continuation.
-        pub fn apply(_: usize) shift.ResetError(NoError)!usize {
+        pub fn apply(_: usize) !usize {
             runtime_ptr.deinitChecked() catch |err| {
                 if (err != error.RuntimeBusy) unreachable;
                 return 7;

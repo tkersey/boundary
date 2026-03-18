@@ -1,10 +1,9 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const NoError = error{};
 const no_state = struct {};
 const search = shift.algebraic.TransformOp("search", []const u8, i32);
-const ArtifactSearch = shift.algebraic.Program(i32, NoError, .{search});
+const ArtifactSearch = shift.algebraic.Program(i32, .{search});
 
 /// Write the algebraic artifact-search transcript through the public builder surface.
 pub fn run(writer: anytype) anyerror!void {

@@ -41,10 +41,10 @@ pub fn run(writer: anytype) anyerror!void {
     transcript.len = 0;
 
     const result = try shift.with(&runtime, .{
-        .resource = shift.effect.resource.use([]const u8, NoError, resource_manager),
+        .resource = shift.effect.resource.use([]const u8, resource_manager),
     }, struct {
         /// Acquire and use two resources through the lexical scope.
-        pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+        pub fn body(eff: anytype) ![]const u8 {
             const first = try eff.resource.acquire();
             transcript.note(if (std.mem.eql(u8, first, "a")) "use=a" else "use=b");
 

@@ -1,8 +1,20 @@
 const algebraic = @import("algebraic.zig");
 const family = @import("family.zig");
 const lexical_with = @import("../with_api.zig");
+const lowered_machine = @import("lowered_machine");
 const shift = @import("../root.zig");
 const std = @import("std");
+
+fn ReturnTypeErrorSet(comptime ReturnType: type) type {
+    return switch (@typeInfo(ReturnType)) {
+        .error_union => |err_union| err_union.error_set,
+        else => error{},
+    };
+}
+
+fn CatchErrorSet(comptime Catch: type) type {
+    return ReturnTypeErrorSet(@typeInfo(@TypeOf(Catch.directReturn)).@"fn".return_type.?);
+}
 
 /// Prompt-backed effect instance for an exception family.
 pub fn Instance(comptime PayloadType: type, comptime ErrorSetType: type) type {
@@ -15,7 +27,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
         ctx: ?ContextPtrType,
 
         /// Throw one payload through the lexical exception handle.
-        pub fn throw(self: @This(), payload: family.ContextStateType(ContextPtrType)) shift.ResetError(family.ContextErrorSetType(ContextPtrType))!noreturn {
+        pub fn throw(self: @This(), payload: family.ContextStateType(ContextPtrType)) lowered_machine.ResetError(family.ContextErrorSetType(ContextPtrType))!noreturn {
             return try algebraic.throwException(Cap, self.ctx.?, payload);
         }
     };
@@ -26,6 +38,8 @@ pub fn LexicalDescriptor(comptime PayloadType: type, comptime ErrorSetType: type
     return struct {
         /// Shared error set carried by the lexical exception descriptor.
         pub const ErrorSet = ErrorSetType;
+        /// Payload type threaded through the lexical exception context.
+        pub const State = PayloadType;
         /// Exception lexical descriptors do not surface an extra output value.
         pub const Output = void;
 
@@ -41,10 +55,10 @@ pub fn LexicalDescriptor(comptime PayloadType: type, comptime ErrorSetType: type
         }
 
         /// Run one lexical exception descriptor through the existing exception family.
-        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
-            var instance = Instance(PayloadType, ErrorSetType).init();
-            const result = try handle(AnswerType, runtime, &instance, Catch, Body);
+            var instance = family.InstanceWithMode(.direct_return, PayloadType, ErrorSetType).init();
+            const result = try handleWithErrorSet(AnswerType, RunErrorSetType, runtime, &instance, Catch, Body);
             return .{
                 .output = {},
                 .value = result,
@@ -54,7 +68,7 @@ pub fn LexicalDescriptor(comptime PayloadType: type, comptime ErrorSetType: type
 }
 
 /// Create one lexical exception descriptor for `shift.with(...)`.
-pub fn use(comptime PayloadType: type, comptime ErrorSetType: type, comptime Catch: type) LexicalDescriptor(PayloadType, ErrorSetType, Catch) {
+pub fn use(comptime PayloadType: type, comptime Catch: type) LexicalDescriptor(PayloadType, CatchErrorSet(Catch), Catch) {
     return .{};
 }
 
@@ -63,7 +77,7 @@ pub inline fn throw(
     comptime Cap: type,
     ctx: anytype,
     payload: family.ContextStateType(@TypeOf(ctx)),
-) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!noreturn {
+) lowered_machine.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!noreturn {
     return try algebraic.throwException(Cap, ctx, payload);
 }
 
@@ -92,19 +106,28 @@ pub fn handle(
     instance: anytype,
     comptime Catch: type,
     comptime Body: type,
-) shift.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
     return try algebraic.handleException(AnswerType, runtime, instance, Catch, Body);
 }
 
+pub fn handleWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Catch: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    return try algebraic.handleExceptionWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, Catch, Body);
+}
+
 test "exception instance shell stays prompt-sized" {
-    const NoError = error{};
-    const ExceptionInstance = Instance(i32, NoError);
+    const ExceptionInstance = Instance(i32, error{});
     try std.testing.expectEqual(@sizeOf(usize), @sizeOf(ExceptionInstance));
 }
 
 test "exception handle can throw directly to the catch policy" {
-    const NoError = error{};
-    const ExceptionInstance = Instance([]const u8, NoError);
+    const ExceptionInstance = Instance([]const u8, error{});
     const catcher = struct {
         /// Recover the thrown payload into the final answer.
         pub fn directReturn(payload: []const u8) []const u8 {
@@ -143,7 +166,7 @@ test "nested same-shaped exception handles get distinct capability types" {
         var inner_ptr: ?*const ExceptionInstance = null;
 
         /// Open an inner exception handle and prove its capability differs from the outer one.
-        pub fn outer(comptime OuterCap: type, _: anytype) shift.ResetError(NoError)!i32 {
+        pub fn outer(comptime OuterCap: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
             return try handle(i32, runtime_ptr.?, inner_ptr.?, catcher, struct {
                 /// Reject capability-type collapse inside the nested exception handle.
                 pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(computeProgram(InnerCap, inner_ctx, struct {
@@ -176,13 +199,13 @@ test "nested same-shaped exception handles get distinct capability types" {
         /// Enter the outer exception handle and hand its capability inward.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested exception witness through the outer capability.
-            pub fn run() shift.ResetError(NoError)!i32 {
+            pub fn run() lowered_machine.ResetError(NoError)!i32 {
                 return try demo.outer(OuterCap, {});
             }
         }.run)) {
             return computeProgram(OuterCap, ctx, struct {
                 /// Re-enter the nested exception witness through the outer capability.
-                pub fn run() shift.ResetError(NoError)!i32 {
+                pub fn run() lowered_machine.ResetError(NoError)!i32 {
                     return try demo.outer(OuterCap, {});
                 }
             }.run);

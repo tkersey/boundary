@@ -3,6 +3,7 @@ const cleanup = @import("cleanup.zig");
 const family = @import("family.zig");
 const frontend = @import("frontend_support");
 const internal = @import("../internal/algebraic_engine.zig");
+const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
 const shift = @import("../root.zig");
 const std = @import("std");
@@ -28,7 +29,7 @@ fn computeProgramForPrompt(
     const ThunkType = @TypeOf(thunk);
     _ = ctx._cap;
     return frontend.computeProgram(PromptType, struct {
-        fn invoke() shift.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
+        fn invoke() lowered_machine.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
             switch (@typeInfo(ThunkType)) {
                 .@"fn" => {
                     const params = @typeInfo(ThunkType).@"fn".params;
@@ -72,7 +73,7 @@ fn runWithSealedEngine(
     comptime EngineContract: type,
     config: anytype,
     comptime Body: type,
-) shift.ResetError(EngineContract.ErrorSetTypeV)!EngineContract.AnswerTypeV {
+) lowered_machine.ResetError(EngineContract.ErrorSetTypeV)!EngineContract.AnswerTypeV {
     const PromptType = EngineContract.PromptTypeV;
     const StateType = EngineContract.StateTypeV;
     const AnswerType = EngineContract.AnswerTypeV;
@@ -90,7 +91,7 @@ fn runWithSealedEngine(
         threadlocal var active_engine_ctx: ?*EngineContextType = null;
 
         /// Run one sealed effect body with both exact context and shared engine context installed.
-        pub fn run(comptime Cap: type, ctx: anytype) shift.ResetError(ErrorSetType)!AnswerType {
+        pub fn run(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSetType)!AnswerType {
             const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
             const context_shim = family.ProgramShimFor(ContextType);
             const engine_shim = family.EngineShim(ContextType, EngineContextType);
@@ -132,7 +133,7 @@ fn runWithSealedEngine(
 pub inline fn stateGet(
     comptime Cap: type,
     ctx: anytype,
-) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
+) lowered_machine.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
     comptime family.assertContextType(Cap, @TypeOf(ctx));
     return try activeEngineContext(Cap, ctx).perform(Cap.GetOp(), {});
 }
@@ -142,7 +143,7 @@ pub inline fn stateSet(
     comptime Cap: type,
     ctx: anytype,
     value: family.ContextStateType(@TypeOf(ctx)),
-) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!void {
+) lowered_machine.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!void {
     comptime family.assertContextType(Cap, @TypeOf(ctx));
     return try activeEngineContext(Cap, ctx).perform(Cap.SetOp(), value);
 }
@@ -154,7 +155,7 @@ pub fn handleState(
     instance: anytype,
     initial_state: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
-) shift.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!family.HandleResult(
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!family.HandleResult(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
@@ -171,7 +172,6 @@ pub fn handleState(
             pub fn resumeValue(state_ptr: *StateType, _: void) StateType {
                 return state_ptr.*;
             }
-
             /// Preserve the enclosing answer unchanged after a state read.
             pub fn afterResume(_: *StateType, answer: AnswerType) AnswerType {
                 return answer;
@@ -182,7 +182,6 @@ pub fn handleState(
             pub fn resumeValue(state_ptr: *StateType, payload: StateType) void {
                 state_ptr.* = payload;
             }
-
             /// Preserve the enclosing answer unchanged after a state write.
             pub fn afterResume(_: *StateType, answer: AnswerType) AnswerType {
                 return answer;
@@ -225,11 +224,79 @@ pub fn handleState(
     return .{ .state = state_cell, .value = value };
 }
 
+pub fn handleStateWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    initial_state: family.InstanceStateType(@TypeOf(instance)),
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!family.HandleResult(
+    family.InstanceStateType(@TypeOf(instance)),
+    AnswerType,
+) {
+    const StateType = family.InstanceStateType(@TypeOf(instance));
+    const get_state_op = internal.TransformOp("__effect_state_get", void, StateType);
+    const set_state_op = internal.TransformOp("__effect_state_set", StateType, void);
+    const hidden_program = internal.Program(AnswerType, AnswerType, RunErrorSetType, .{ get_state_op, set_state_op });
+
+    var state_cell = initial_state;
+    const specs = .{
+        internal.handleDirectTransform(get_state_op, &state_cell, struct {
+            pub fn resumeValue(state_ptr: *StateType, _: void) StateType {
+                return state_ptr.*;
+            }
+            pub fn afterResume(_: *StateType, answer: AnswerType) AnswerType {
+                return answer;
+            }
+        }),
+        internal.handleDirectTransform(set_state_op, &state_cell, struct {
+            pub fn resumeValue(state_ptr: *StateType, payload: StateType) void {
+                state_ptr.* = payload;
+            }
+            pub fn afterResume(_: *StateType, answer: AnswerType) AnswerType {
+                return answer;
+            }
+        }),
+    };
+    const configured = hidden_program.handlers(specs);
+    const GeneratedEngineContextType = @TypeOf(configured).Context;
+    const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
+    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
+
+    const capability_meta = struct {
+        const body_tag = Body;
+
+        pub fn EngineContextType() type {
+            return GeneratedEngineContextType;
+        }
+
+        pub fn GetOp() type {
+            return get_state_op;
+        }
+
+        pub fn SetOp() type {
+            return set_state_op;
+        }
+    };
+
+    const contract = struct {
+        const PromptTypeV = prompt_contract.Prompt(.resume_then_transform, AnswerType, AnswerType, RunErrorSetType);
+        const StateTypeV = StateType;
+        const AnswerTypeV = AnswerType;
+        const ErrorSetTypeV = RunErrorSetType;
+        const capability_decls = capability_meta;
+    };
+    const value = try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    return .{ .state = state_cell, .value = value };
+}
+
 /// Read the current environment value through the shared algebraic engine.
 pub inline fn readerAsk(
     comptime Cap: type,
     ctx: anytype,
-) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
+) lowered_machine.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
     comptime family.assertContextType(Cap, @TypeOf(ctx));
     return try activeEngineContext(Cap, ctx).perform(Cap.AskOp(), {});
 }
@@ -241,7 +308,7 @@ pub fn handleReader(
     instance: anytype,
     environment: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
-) shift.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
     const StateType = family.InstanceStateType(@TypeOf(instance));
     const ErrorSetType = family.InstanceErrorSetType(@TypeOf(instance));
     const reader_ask_op = internal.TransformOp("__effect_reader_ask", void, StateType);
@@ -254,7 +321,6 @@ pub fn handleReader(
             pub fn resumeValue(env_ptr: *StateType, _: void) StateType {
                 return env_ptr.*;
             }
-
             /// Preserve the enclosing answer unchanged after a reader ask.
             pub fn afterResume(_: *StateType, answer: AnswerType) AnswerType {
                 return answer;
@@ -291,12 +357,63 @@ pub fn handleReader(
     return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
 }
 
+pub fn handleReaderWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    environment: family.InstanceStateType(@TypeOf(instance)),
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    const StateType = family.InstanceStateType(@TypeOf(instance));
+    const reader_ask_op = internal.TransformOp("__effect_reader_ask", void, StateType);
+    const hidden_program = internal.Program(AnswerType, AnswerType, RunErrorSetType, .{reader_ask_op});
+
+    var env_value = environment;
+    const specs = .{
+        internal.handleDirectTransform(reader_ask_op, &env_value, struct {
+            pub fn resumeValue(env_ptr: *StateType, _: void) StateType {
+                return env_ptr.*;
+            }
+            pub fn afterResume(_: *StateType, answer: AnswerType) AnswerType {
+                return answer;
+            }
+        }),
+    };
+    const configured = hidden_program.handlers(specs);
+    const GeneratedEngineContextType = @TypeOf(configured).Context;
+    const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
+    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
+
+    const capability_meta = struct {
+        const body_tag = Body;
+
+        pub fn EngineContextType() type {
+            return GeneratedEngineContextType;
+        }
+
+        pub fn AskOp() type {
+            return reader_ask_op;
+        }
+    };
+
+    const contract = struct {
+        const PromptTypeV = prompt_contract.Prompt(.resume_then_transform, AnswerType, AnswerType, RunErrorSetType);
+        const StateTypeV = StateType;
+        const AnswerTypeV = AnswerType;
+        const ErrorSetTypeV = RunErrorSetType;
+        const capability_decls = capability_meta;
+    };
+    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+}
+
 /// Append one item through the shared algebraic engine.
 pub inline fn writerTell(
     comptime Cap: type,
     ctx: anytype,
     item: anytype,
-) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!void {
+) lowered_machine.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!void {
     comptime family.assertContextType(Cap, @TypeOf(ctx));
     return try activeEngineContext(Cap, ctx).perform(Cap.TellOp(), item);
 }
@@ -308,7 +425,7 @@ pub fn handleWriter(
     instance: anytype,
     allocator: std.mem.Allocator,
     comptime Body: type,
-) shift.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!struct {
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!struct {
     items: []WriterContract.Item,
     value: WriterContract.Answer,
 } {
@@ -324,10 +441,9 @@ pub fn handleWriter(
     const specs = .{
         internal.handleDirectTransform(writer_tell_op, &writer_state, struct {
             /// Append one writer item into the active writer state.
-            pub fn resumeValue(state_ptr: *WriterStateType, payload: ItemType) shift.ResetError(ErrorSetType)!void {
+            pub fn resumeValue(state_ptr: *WriterStateType, payload: ItemType) lowered_machine.ResetError(ErrorSetType)!void {
                 try state_ptr.append(payload);
             }
-
             /// Preserve the enclosing answer unchanged after a writer append.
             pub fn afterResume(_: *WriterStateType, answer: AnswerType) AnswerType {
                 return answer;
@@ -366,6 +482,65 @@ pub fn handleWriter(
     return .{ .items = items, .value = value };
 }
 
+pub fn handleWriterWithErrorSet(
+    comptime WriterContract: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    allocator: std.mem.Allocator,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!struct {
+    items: []WriterContract.Item,
+    value: WriterContract.Answer,
+} {
+    const ItemType = WriterContract.Item;
+    const AnswerType = WriterContract.Answer;
+    const WriterStateType = WriterContract.WriterStateType;
+    const writer_tell_op = internal.TransformOp("__effect_writer_tell", ItemType, void);
+    const hidden_program = internal.Program(AnswerType, AnswerType, RunErrorSetType, .{writer_tell_op});
+
+    var writer_state = WriterStateType.init(allocator);
+    errdefer writer_state.deinit();
+    const specs = .{
+        internal.handleDirectTransform(writer_tell_op, &writer_state, struct {
+            pub fn resumeValue(state_ptr: *WriterStateType, payload: ItemType) lowered_machine.ResetError(RunErrorSetType)!void {
+                try state_ptr.append(payload);
+            }
+            pub fn afterResume(_: *WriterStateType, answer: AnswerType) AnswerType {
+                return answer;
+            }
+        }),
+    };
+    const configured = hidden_program.handlers(specs);
+    const GeneratedEngineContextType = @TypeOf(configured).Context;
+    const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
+    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
+
+    const capability_meta = struct {
+        const body_tag = Body;
+
+        pub fn EngineContextType() type {
+            return GeneratedEngineContextType;
+        }
+
+        pub fn TellOp() type {
+            return writer_tell_op;
+        }
+    };
+
+    const contract = struct {
+        const PromptTypeV = prompt_contract.Prompt(.resume_then_transform, AnswerType, AnswerType, RunErrorSetType);
+        const StateTypeV = WriterStateType;
+        const AnswerTypeV = AnswerType;
+        const ErrorSetTypeV = RunErrorSetType;
+        const capability_decls = capability_meta;
+    };
+    const value = try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    const items = try writer_state.intoOwnedSlice();
+    return .{ .items = items, .value = value };
+}
+
 /// Assert the handler policy shape required by an optional family.
 pub fn assertOptionalPolicyType(comptime ResumeType: type, comptime AnswerType: type, comptime ErrorSetType: type, comptime PolicyType: type) void {
     const DecisionType = choice.Decision(ResumeType, AnswerType);
@@ -377,12 +552,12 @@ pub fn assertOptionalPolicyType(comptime ResumeType: type, comptime AnswerType: 
     }
 
     const ResumeOrReturnFn = @TypeOf(PolicyType.resumeOrReturn);
-    if (ResumeOrReturnFn != fn () DecisionType and ResumeOrReturnFn != fn () shift.ResetError(ErrorSetType)!DecisionType) {
+    if (ResumeOrReturnFn != fn () DecisionType and ResumeOrReturnFn != fn () lowered_machine.ResetError(ErrorSetType)!DecisionType) {
         @compileError("optional policy resumeOrReturn must have type fn () effect.choice.Decision or fn () ResetError(ErrorSet)!effect.choice.Decision");
     }
 
     const AfterResumeFn = @TypeOf(PolicyType.afterResume);
-    if (AfterResumeFn != fn (ResumeType) AnswerType and AfterResumeFn != fn (ResumeType) shift.ResetError(ErrorSetType)!AnswerType) {
+    if (AfterResumeFn != fn (ResumeType) AnswerType and AfterResumeFn != fn (ResumeType) lowered_machine.ResetError(ErrorSetType)!AnswerType) {
         @compileError("optional policy afterResume must have type fn (Resume) Answer or fn (Resume) ResetError(ErrorSet)!Answer");
     }
 }
@@ -398,12 +573,12 @@ pub fn assertOptionalLexicalPolicyType(comptime ResumeType: type, comptime Answe
     }
 
     const ResumeOrReturnFn = @TypeOf(PolicyType.resumeOrReturn);
-    if (ResumeOrReturnFn != fn () DecisionType and ResumeOrReturnFn != fn () shift.ResetError(ErrorSetType)!DecisionType) {
+    if (ResumeOrReturnFn != fn () DecisionType and ResumeOrReturnFn != fn () lowered_machine.ResetError(ErrorSetType)!DecisionType) {
         @compileError("lexical optional policy resumeOrReturn must have type fn () effect.choice.Decision or fn () ResetError(ErrorSet)!effect.choice.Decision");
     }
 
     const AfterFn = @TypeOf(PolicyType.afterResume);
-    if (AfterFn != fn (AnswerType) AnswerType and AfterFn != fn (AnswerType) shift.ResetError(ErrorSetType)!AnswerType) {
+    if (AfterFn != fn (AnswerType) AnswerType and AfterFn != fn (AnswerType) lowered_machine.ResetError(ErrorSetType)!AnswerType) {
         @compileError("lexical optional policy afterResume must have type fn (Answer) Answer or fn (Answer) ResetError(ErrorSet)!Answer");
     }
 }
@@ -412,7 +587,7 @@ pub fn assertOptionalLexicalPolicyType(comptime ResumeType: type, comptime Answe
 pub inline fn optionalRequest(
     comptime Cap: type,
     ctx: anytype,
-) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
+) lowered_machine.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
     comptime family.assertContextType(Cap, @TypeOf(ctx));
     return try activeEngineContext(Cap, ctx).perform(Cap.RequestOp(), {});
 }
@@ -465,7 +640,7 @@ pub fn handleOptional(
     instance: anytype,
     comptime Policy: type,
     comptime Body: type,
-) shift.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
     const ResumeType = family.InstanceStateType(@TypeOf(instance));
     const ErrorSetType = family.InstanceErrorSetType(@TypeOf(instance));
     comptime assertOptionalPolicyType(ResumeType, AnswerType, ErrorSetType, Policy);
@@ -479,14 +654,13 @@ pub fn handleOptional(
     const specs = .{
         internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker }, struct {
             /// Choose whether the optional request resumes or returns now.
-            pub fn resumeOrReturn(_: OptionalState, _: void) shift.ResetError(ErrorSetType)!choice.Decision(ResumeType, AnswerType) {
+            pub fn resumeOrReturn(_: OptionalState, _: void) lowered_machine.ResetError(ErrorSetType)!choice.Decision(ResumeType, AnswerType) {
                 const DecisionFn = @TypeOf(Policy.resumeOrReturn);
                 if (DecisionFn == fn () choice.Decision(ResumeType, AnswerType)) return Policy.resumeOrReturn();
                 return try Policy.resumeOrReturn();
             }
-
             /// Finish the optional request by applying cleanup and the policy's after-resume path.
-            pub fn afterResume(state: OptionalState, value: ResumeType) shift.ResetError(ErrorSetType)!AnswerType {
+            pub fn afterResume(state: OptionalState, value: ResumeType) lowered_machine.ResetError(ErrorSetType)!AnswerType {
                 if (cleanup.checkpoint() != state.cleanup_marker) {
                     cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
                 }
@@ -531,6 +705,73 @@ pub fn handleOptional(
     return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
 }
 
+pub fn handleOptionalWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Policy: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    const ResumeType = family.InstanceStateType(@TypeOf(instance));
+    const ErrorSetType = family.InstanceErrorSetType(@TypeOf(instance));
+    comptime assertOptionalPolicyType(ResumeType, AnswerType, ErrorSetType, Policy);
+
+    const optional_request_op = internal.ChoiceOp("__effect_optional_request", void, ResumeType);
+    const hidden_program = internal.Program(ResumeType, AnswerType, RunErrorSetType, .{optional_request_op});
+    const OptionalState = struct {
+        cleanup_marker: ?*cleanup.Frame,
+    };
+    const cleanup_marker = cleanup.checkpoint();
+    const specs = .{
+        internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker }, struct {
+            pub fn resumeOrReturn(_: OptionalState, _: void) lowered_machine.ResetError(RunErrorSetType)!choice.Decision(ResumeType, AnswerType) {
+                const DecisionFn = @TypeOf(Policy.resumeOrReturn);
+                if (DecisionFn == fn () choice.Decision(ResumeType, AnswerType)) return Policy.resumeOrReturn();
+                return try Policy.resumeOrReturn();
+            }
+            pub fn afterResume(state: OptionalState, value: ResumeType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+                if (cleanup.checkpoint() != state.cleanup_marker) {
+                    cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
+                }
+                const AfterFn = @TypeOf(Policy.afterResume);
+                if (AfterFn == fn (ResumeType) AnswerType) return Policy.afterResume(value);
+                return try Policy.afterResume(value);
+            }
+        }),
+    };
+    const configured = hidden_program.handlers(specs);
+    const GeneratedEngineContextType = @TypeOf(configured).Context;
+    const BindingsType = internal.BindingChainFor(@TypeOf(specs), ResumeType, AnswerType, RunErrorSetType);
+    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
+
+    const capability_meta = struct {
+        const body_tag = Body;
+
+        pub fn PolicyType() type {
+            return Policy;
+        }
+
+        pub fn EngineContextType() type {
+            return GeneratedEngineContextType;
+        }
+
+        pub fn RequestOp() type {
+            return optional_request_op;
+        }
+    };
+
+    const contract = struct {
+        const PromptTypeV = prompt_contract.Prompt(.resume_or_return, ResumeType, AnswerType, RunErrorSetType);
+        const StateTypeV = ResumeType;
+        const AnswerTypeV = AnswerType;
+        const ErrorSetTypeV = RunErrorSetType;
+        const capability_decls = capability_meta;
+    };
+    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+}
+
 /// Run a continuation-taking lexical optional family through the shared algebraic engine.
 pub fn handleOptionalLexical(
     comptime AnswerType: type,
@@ -538,7 +779,7 @@ pub fn handleOptionalLexical(
     instance: anytype,
     comptime Policy: type,
     comptime Body: type,
-) shift.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
     const ResumeType = family.InstanceStateType(@TypeOf(instance));
     const ErrorSetType = family.InstanceErrorSetType(@TypeOf(instance));
     comptime assertOptionalLexicalPolicyType(ResumeType, AnswerType, ErrorSetType, Policy);
@@ -552,14 +793,13 @@ pub fn handleOptionalLexical(
     const specs = .{
         internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker }, struct {
             /// Choose whether the lexical optional request resumes or returns now.
-            pub fn resumeOrReturn(_: OptionalState, _: void) shift.ResetError(ErrorSetType)!choice.Decision(ResumeType, AnswerType) {
+            pub fn resumeOrReturn(_: OptionalState, _: void) lowered_machine.ResetError(ErrorSetType)!choice.Decision(ResumeType, AnswerType) {
                 const DecisionFn = @TypeOf(Policy.resumeOrReturn);
                 if (DecisionFn == fn () choice.Decision(ResumeType, AnswerType)) return Policy.resumeOrReturn();
                 return try Policy.resumeOrReturn();
             }
-
             /// Finish one resumed lexical optional answer by applying cleanup and the policy's final answer transform.
-            pub fn afterResume(state: OptionalState, answer: AnswerType) shift.ResetError(ErrorSetType)!AnswerType {
+            pub fn afterResume(state: OptionalState, answer: AnswerType) lowered_machine.ResetError(ErrorSetType)!AnswerType {
                 if (cleanup.checkpoint() != state.cleanup_marker) {
                     cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
                 }
@@ -604,13 +844,80 @@ pub fn handleOptionalLexical(
     return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
 }
 
+pub fn handleOptionalLexicalWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Policy: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    const ResumeType = family.InstanceStateType(@TypeOf(instance));
+    const ErrorSetType = family.InstanceErrorSetType(@TypeOf(instance));
+    comptime assertOptionalLexicalPolicyType(ResumeType, AnswerType, ErrorSetType, Policy);
+
+    const optional_request_op = internal.ChoiceOp("__effect_optional_request", void, ResumeType);
+    const hidden_program = internal.Program(AnswerType, AnswerType, RunErrorSetType, .{optional_request_op});
+    const OptionalState = struct {
+        cleanup_marker: ?*cleanup.Frame,
+    };
+    const cleanup_marker = cleanup.checkpoint();
+    const specs = .{
+        internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker }, struct {
+            pub fn resumeOrReturn(_: OptionalState, _: void) lowered_machine.ResetError(RunErrorSetType)!choice.Decision(ResumeType, AnswerType) {
+                const DecisionFn = @TypeOf(Policy.resumeOrReturn);
+                if (DecisionFn == fn () choice.Decision(ResumeType, AnswerType)) return Policy.resumeOrReturn();
+                return try Policy.resumeOrReturn();
+            }
+            pub fn afterResume(state: OptionalState, answer: AnswerType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+                if (cleanup.checkpoint() != state.cleanup_marker) {
+                    cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
+                }
+                const AfterFn = @TypeOf(Policy.afterResume);
+                if (AfterFn == fn (AnswerType) AnswerType) return Policy.afterResume(answer);
+                return try Policy.afterResume(answer);
+            }
+        }),
+    };
+    const configured = hidden_program.handlers(specs);
+    const GeneratedEngineContextType = @TypeOf(configured).Context;
+    const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
+    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
+
+    const capability_meta = struct {
+        const body_tag = Body;
+
+        pub fn PolicyType() type {
+            return Policy;
+        }
+
+        pub fn EngineContextType() type {
+            return GeneratedEngineContextType;
+        }
+
+        pub fn RequestOp() type {
+            return optional_request_op;
+        }
+    };
+
+    const contract = struct {
+        const PromptTypeV = prompt_contract.Prompt(.resume_or_return, AnswerType, AnswerType, RunErrorSetType);
+        const StateTypeV = ResumeType;
+        const AnswerTypeV = AnswerType;
+        const ErrorSetTypeV = RunErrorSetType;
+        const capability_decls = capability_meta;
+    };
+    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+}
+
 /// Assert the catch policy shape required by an exception family.
 pub fn assertCatchType(comptime PayloadType: type, comptime AnswerType: type, comptime ErrorSetType: type, comptime CatchType: type) void {
     if (!family.hasDeclSafe(CatchType, "directReturn")) {
         @compileError("exception catch policy must declare directReturn");
     }
     const DirectReturnFn = @TypeOf(CatchType.directReturn);
-    if (DirectReturnFn != fn (PayloadType) AnswerType and DirectReturnFn != fn (PayloadType) shift.ResetError(ErrorSetType)!AnswerType) {
+    if (DirectReturnFn != fn (PayloadType) AnswerType and DirectReturnFn != fn (PayloadType) lowered_machine.ResetError(ErrorSetType)!AnswerType) {
         @compileError("exception catch policy directReturn must have type fn (Payload) Answer or fn (Payload) ResetError(ErrorSet)!Answer");
     }
 }
@@ -620,7 +927,7 @@ pub inline fn throwException(
     comptime Cap: type,
     ctx: anytype,
     payload: family.ContextStateType(@TypeOf(ctx)),
-) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!noreturn {
+) lowered_machine.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!noreturn {
     comptime family.assertContextType(Cap, @TypeOf(ctx));
     return try activeEngineContext(Cap, ctx).perform(Cap.ThrowOp(), payload);
 }
@@ -669,7 +976,7 @@ pub fn handleException(
     instance: anytype,
     comptime Catch: type,
     comptime Body: type,
-) shift.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
     const PayloadType = family.InstanceStateType(@TypeOf(instance));
     const ErrorSetType = family.InstanceErrorSetType(@TypeOf(instance));
     comptime assertCatchType(PayloadType, AnswerType, ErrorSetType, Catch);
@@ -683,7 +990,7 @@ pub fn handleException(
     const specs = .{
         internal.handleAbort(exception_throw_op, ExceptionState{ .cleanup_marker = cleanup_marker }, struct {
             /// Convert one thrown payload into the caught answer while unwinding cleanup.
-            pub fn directReturn(state: ExceptionState, payload: PayloadType) shift.ResetError(ErrorSetType)!AnswerType {
+            pub fn directReturn(state: ExceptionState, payload: PayloadType) lowered_machine.ResetError(ErrorSetType)!AnswerType {
                 cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
                 const DirectFn = @TypeOf(Catch.directReturn);
                 if (DirectFn == fn (PayloadType) AnswerType) return Catch.directReturn(payload);
@@ -726,6 +1033,66 @@ pub fn handleException(
     return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
 }
 
+pub fn handleExceptionWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Catch: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    const PayloadType = family.InstanceStateType(@TypeOf(instance));
+    const ErrorSetType = family.InstanceErrorSetType(@TypeOf(instance));
+    comptime assertCatchType(PayloadType, AnswerType, ErrorSetType, Catch);
+
+    const exception_throw_op = internal.AbortOp("__effect_exception_throw", PayloadType);
+    const hidden_program = internal.Program(AnswerType, AnswerType, RunErrorSetType, .{exception_throw_op});
+    const ExceptionState = struct {
+        cleanup_marker: ?*cleanup.Frame,
+    };
+    const cleanup_marker = cleanup.checkpoint();
+    const specs = .{
+        internal.handleAbort(exception_throw_op, ExceptionState{ .cleanup_marker = cleanup_marker }, struct {
+            pub fn directReturn(state: ExceptionState, payload: PayloadType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+                cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
+                const DirectFn = @TypeOf(Catch.directReturn);
+                if (DirectFn == fn (PayloadType) AnswerType) return Catch.directReturn(payload);
+                return try Catch.directReturn(payload);
+            }
+        }),
+    };
+    const configured = hidden_program.handlers(specs);
+    const GeneratedEngineContextType = @TypeOf(configured).Context;
+    const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
+    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
+
+    const capability_meta = struct {
+        const body_tag = Body;
+
+        pub fn CatchType() type {
+            return Catch;
+        }
+
+        pub fn EngineContextType() type {
+            return GeneratedEngineContextType;
+        }
+
+        pub fn ThrowOp() type {
+            return exception_throw_op;
+        }
+    };
+
+    const contract = struct {
+        const PromptTypeV = prompt_contract.Prompt(.direct_return, AnswerType, AnswerType, RunErrorSetType);
+        const StateTypeV = PayloadType;
+        const AnswerTypeV = AnswerType;
+        const ErrorSetTypeV = RunErrorSetType;
+        const capability_decls = capability_meta;
+    };
+    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+}
+
 /// Assert the manager shape required by a bracketed resource family.
 pub fn assertManagerType(comptime ResourceType: type, comptime ErrorSetType: type, comptime ManagerType: type) void {
     if (!family.hasDeclSafe(ManagerType, "acquire")) {
@@ -736,12 +1103,12 @@ pub fn assertManagerType(comptime ResourceType: type, comptime ErrorSetType: typ
     }
 
     const AcquireFn = @TypeOf(ManagerType.acquire);
-    if (AcquireFn != fn () ResourceType and AcquireFn != fn () shift.ResetError(ErrorSetType)!ResourceType) {
+    if (AcquireFn != fn () ResourceType and AcquireFn != fn () lowered_machine.ResetError(ErrorSetType)!ResourceType) {
         @compileError("resource manager acquire must have type fn () Resource or fn () ResetError(ErrorSet)!Resource");
     }
 
     const ReleaseFn = @TypeOf(ManagerType.release);
-    if (ReleaseFn != fn (ResourceType) void and ReleaseFn != fn (ResourceType) shift.ResetError(ErrorSetType)!void) {
+    if (ReleaseFn != fn (ResourceType) void and ReleaseFn != fn (ResourceType) lowered_machine.ResetError(ErrorSetType)!void) {
         @compileError("resource manager release must have type fn (Resource) void or fn (Resource) ResetError(ErrorSet)!void");
     }
 }
@@ -750,7 +1117,7 @@ pub fn assertManagerType(comptime ResourceType: type, comptime ErrorSetType: typ
 pub inline fn acquireResource(
     comptime Cap: type,
     ctx: anytype,
-) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
+) lowered_machine.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
     comptime family.assertContextType(Cap, @TypeOf(ctx));
     return try activeEngineContext(Cap, ctx).perform(Cap.AcquireOp(), {});
 }
@@ -778,7 +1145,7 @@ pub fn handleResource(
     instance: anytype,
     comptime Manager: type,
     comptime Body: type,
-) shift.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
     const ResourceType = family.InstanceStateType(@TypeOf(instance));
     const ErrorSetType = family.InstanceErrorSetType(@TypeOf(instance));
     comptime assertManagerType(ResourceType, ErrorSetType, Manager);
@@ -793,7 +1160,7 @@ pub fn handleResource(
 
         fn cleanupResources(base: *cleanup.Frame) anyerror!void {
             const self: *@This() = @fieldParentPtr("cleanup_frame", base);
-            var first_error: ?shift.ResetError(ErrorSetType) = null;
+            var first_error: ?lowered_machine.ResetError(ErrorSetType) = null;
             while (self.resources.items.len != 0) {
                 const resource = self.resources.items[self.resources.items.len - 1];
                 self.resources.items.len -= 1;
@@ -822,13 +1189,12 @@ pub fn handleResource(
     const specs = .{
         internal.handleDirectTransform(resource_acquire_op, &frame, struct {
             /// Acquire one resource and record it for later cleanup.
-            pub fn resumeValue(frame_ptr: *Frame, _: void) shift.ResetError(ErrorSetType)!ResourceType {
+            pub fn resumeValue(frame_ptr: *Frame, _: void) lowered_machine.ResetError(ErrorSetType)!ResourceType {
                 const AcquireFn = @TypeOf(Manager.acquire);
                 const resource = if (AcquireFn == fn () ResourceType) Manager.acquire() else try Manager.acquire();
                 try frame_ptr.resources.append(frame_ptr.allocator, resource);
                 return resource;
             }
-
             /// Preserve the enclosing answer unchanged after a resource acquire.
             pub fn afterResume(_: *Frame, answer: AnswerType) AnswerType {
                 return answer;
@@ -861,7 +1227,7 @@ pub fn handleResource(
     };
 
     cleanup.push(&frame.cleanup_frame);
-    var body_error: ?shift.ResetError(ErrorSetType) = null;
+    var body_error: ?lowered_machine.ResetError(ErrorSetType) = null;
     const contract = struct {
         const PromptTypeV = prompt_contract.Prompt(.resume_then_transform, AnswerType, AnswerType, ErrorSetType);
         const StateTypeV = ResourceType;
@@ -875,7 +1241,115 @@ pub fn handleResource(
     };
 
     const cleanup_marker = frame.cleanup_frame.previous;
-    var cleanup_error: ?shift.ResetError(ErrorSetType) = null;
+    var cleanup_error: ?lowered_machine.ResetError(ErrorSetType) = null;
+    cleanup.unwindTo(cleanup_marker) catch |err| {
+        cleanup_error = @errorCast(err);
+    };
+
+    if (body_error) |err| return err;
+    if (cleanup_error) |err| return err;
+    return answer.?;
+}
+
+pub fn handleResourceWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Manager: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    const ResourceType = family.InstanceStateType(@TypeOf(instance));
+    const ErrorSetType = family.InstanceErrorSetType(@TypeOf(instance));
+    comptime assertManagerType(ResourceType, ErrorSetType, Manager);
+
+    const resource_acquire_op = internal.TransformOp("__effect_resource_acquire", void, ResourceType);
+    const hidden_program = internal.Program(AnswerType, AnswerType, RunErrorSetType, .{resource_acquire_op});
+    const Frame = struct {
+        allocator: std.mem.Allocator,
+        resources: std.ArrayList(ResourceType) = .empty,
+        cleanup_frame: cleanup.Frame = .{ .cleanupFn = cleanupResources },
+        cleaned: bool = false,
+
+        fn cleanupResources(base: *cleanup.Frame) anyerror!void {
+            const self: *@This() = @fieldParentPtr("cleanup_frame", base);
+            var first_error: ?lowered_machine.ResetError(RunErrorSetType) = null;
+            while (self.resources.items.len != 0) {
+                const resource = self.resources.items[self.resources.items.len - 1];
+                self.resources.items.len -= 1;
+                const ReleaseFn = @TypeOf(Manager.release);
+                if (ReleaseFn == fn (ResourceType) void) {
+                    Manager.release(resource);
+                } else {
+                    Manager.release(resource) catch |err| {
+                        if (first_error == null) first_error = err;
+                    };
+                }
+            }
+            self.deinit();
+            if (first_error) |err| return err;
+        }
+
+        fn deinit(self: *@This()) void {
+            if (self.cleaned) return;
+            self.cleaned = true;
+            self.resources.deinit(self.allocator);
+        }
+    };
+
+    var frame = Frame{ .allocator = runtime.allocator };
+    defer frame.deinit();
+    const specs = .{
+        internal.handleDirectTransform(resource_acquire_op, &frame, struct {
+            pub fn resumeValue(frame_ptr: *Frame, _: void) lowered_machine.ResetError(RunErrorSetType)!ResourceType {
+                const AcquireFn = @TypeOf(Manager.acquire);
+                const resource = if (AcquireFn == fn () ResourceType) Manager.acquire() else try Manager.acquire();
+                try frame_ptr.resources.append(frame_ptr.allocator, resource);
+                return resource;
+            }
+            pub fn afterResume(_: *Frame, answer: AnswerType) AnswerType {
+                return answer;
+            }
+        }),
+    };
+    const configured = hidden_program.handlers(specs);
+    const GeneratedEngineContextType = @TypeOf(configured).Context;
+    const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
+    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
+
+    const capability_meta = struct {
+        const body_tag = Body;
+
+        pub fn ManagerType() type {
+            return Manager;
+        }
+
+        pub fn EngineContextType() type {
+            return GeneratedEngineContextType;
+        }
+
+        pub fn AcquireOp() type {
+            return resource_acquire_op;
+        }
+    };
+
+    cleanup.push(&frame.cleanup_frame);
+    var body_error: ?lowered_machine.ResetError(RunErrorSetType) = null;
+    const contract = struct {
+        const PromptTypeV = prompt_contract.Prompt(.resume_then_transform, AnswerType, AnswerType, RunErrorSetType);
+        const StateTypeV = ResourceType;
+        const AnswerTypeV = AnswerType;
+        const ErrorSetTypeV = RunErrorSetType;
+        const capability_decls = capability_meta;
+    };
+    const answer = runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body) catch |err| blk: {
+        body_error = err;
+        break :blk null;
+    };
+
+    const cleanup_marker = frame.cleanup_frame.previous;
+    var cleanup_error: ?lowered_machine.ResetError(RunErrorSetType) = null;
     cleanup.unwindTo(cleanup_marker) catch |err| {
         cleanup_error = @errorCast(err);
     };

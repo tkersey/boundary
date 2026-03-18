@@ -1,16 +1,35 @@
 const scenarios = @import("parity_scenarios");
 const std = @import("std");
 
-/// Runtime errors surfaced by the lowered-machine-backed canonical runtime.
-pub const Error = error{
-    CrossThread,
-    FrontendSuspend,
+/// Public runtime misuse and semantic-contract errors surfaced by `shift`.
+pub const RuntimeError = error{
     MissingPrompt,
-    NonDiagonalComplete,
-    ProgramContractViolation,
+    CrossThread,
     RuntimeBusy,
     RuntimeDestroyed,
+    NonDiagonalComplete,
+    FrontendSuspend,
+    ProgramContractViolation,
 };
+
+/// Internal protocol/runtime errors used beneath the public root surface.
+pub const ProtocolError = error{
+    FrontendSuspend,
+    ProgramContractViolation,
+};
+
+/// Internal runtime-visible error union used beneath the public root surface.
+pub const Error = RuntimeError;
+
+/// Internal runtime-visible error union for user-provided errors.
+pub fn InternalControlError(comptime ErrorSet: type) type {
+    return Error || ErrorSet;
+}
+
+/// Internal reset-time error union for user-provided errors on the lowered runtime path.
+pub fn InternalResetError(comptime ErrorSet: type) type {
+    return InternalControlError(ErrorSet) || SetupError;
+}
 
 /// Runtime-visible error union for user-provided errors.
 pub fn ControlError(comptime ErrorSet: type) type {
@@ -52,14 +71,14 @@ pub const Runtime = struct {
     }
 
     /// Release runtime resources, returning an error on misuse.
-    pub fn deinitChecked(self: *Runtime) Error!void {
+    pub fn deinitChecked(self: *Runtime) RuntimeError!void {
         try self.ensureThread();
         if (self.active_reset_count != 0) return error.RuntimeBusy;
         self.state = .destroyed;
     }
 
     /// Confirm the runtime is live and accessed from the owning thread.
-    pub fn ensureThread(self: *Runtime) Error!void {
+    pub fn ensureThread(self: *Runtime) RuntimeError!void {
         if (self.thread_id != std.Thread.getCurrentId()) return error.CrossThread;
         if (self.state == .destroyed) return error.RuntimeDestroyed;
     }

@@ -77,10 +77,10 @@ pub fn handleAbort(comptime Op: type, state: anytype, comptime Impl: type) Abort
 
 fn TransformSpec(comptime Op: type, comptime StateType: type, comptime Impl: type) type {
     return struct {
-        const Operation = Op;
-        const builder_kind = BuilderKind.transform;
-        const State = StateType;
-        const ImplType = Impl;
+        pub const Operation = Op;
+        pub const builder_kind = BuilderKind.transform;
+        pub const State = StateType;
+        pub const ImplType = Impl;
 
         state: StateType,
     };
@@ -88,10 +88,10 @@ fn TransformSpec(comptime Op: type, comptime StateType: type, comptime Impl: typ
 
 fn DirectTransformSpec(comptime Op: type, comptime StateType: type, comptime Impl: type) type {
     return struct {
-        const Operation = Op;
-        const builder_kind = BuilderKind.direct_transform;
-        const State = StateType;
-        const ImplType = Impl;
+        pub const Operation = Op;
+        pub const builder_kind = BuilderKind.direct_transform;
+        pub const State = StateType;
+        pub const ImplType = Impl;
 
         state: StateType,
     };
@@ -99,10 +99,10 @@ fn DirectTransformSpec(comptime Op: type, comptime StateType: type, comptime Imp
 
 fn ChoiceSpec(comptime Op: type, comptime StateType: type, comptime Impl: type) type {
     return struct {
-        const Operation = Op;
-        const builder_kind = BuilderKind.choice;
-        const State = StateType;
-        const ImplType = Impl;
+        pub const Operation = Op;
+        pub const builder_kind = BuilderKind.choice;
+        pub const State = StateType;
+        pub const ImplType = Impl;
 
         state: StateType,
     };
@@ -110,10 +110,10 @@ fn ChoiceSpec(comptime Op: type, comptime StateType: type, comptime Impl: type) 
 
 fn AbortSpec(comptime Op: type, comptime StateType: type, comptime Impl: type) type {
     return struct {
-        const Operation = Op;
-        const builder_kind = BuilderKind.abort;
-        const State = StateType;
-        const ImplType = Impl;
+        pub const Operation = Op;
+        pub const builder_kind = BuilderKind.abort;
+        pub const State = StateType;
+        pub const ImplType = Impl;
 
         state: StateType,
     };
@@ -135,23 +135,80 @@ fn assertBodyType(comptime Body: type, comptime ContextType: type, comptime Erro
     if (!@hasDecl(Body, "program") and !@hasDecl(Body, "body")) @compileError("algebraic body must declare program or body");
 }
 
+fn FnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
+    const ReturnType = @typeInfo(FnType).@"fn".return_type.?;
+    return switch (@typeInfo(ReturnType)) {
+        .error_union => |err_union| err_union.payload == ExpectedType,
+        else => ReturnType == ExpectedType,
+    };
+}
+
+fn FnParamsMatch(comptime FnType: type, comptime params: []const type) bool {
+    const actual = @typeInfo(FnType).@"fn".params;
+    if (actual.len != params.len) return false;
+    inline for (params, 0..) |ParamType, index| {
+        if (actual[index].type == null or actual[index].type.? != ParamType) return false;
+    }
+    return true;
+}
+
+fn ReturnTypeErrorSet(comptime ReturnType: type) type {
+    return switch (@typeInfo(ReturnType)) {
+        .error_union => |err_union| err_union.error_set,
+        else => error{},
+    };
+}
+
+fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
+    return switch (@typeInfo(T)) {
+        .@"struct", .@"union", .@"enum", .@"opaque" => @hasDecl(T, name),
+        else => false,
+    };
+}
+
+fn ExplicitContinuationFnType(comptime Continuation: type) type {
+    if (hasDeclSafe(Continuation, "apply")) return @TypeOf(@field(Continuation, "apply"));
+    return switch (@typeInfo(Continuation)) {
+        .@"fn" => Continuation,
+        .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn")
+            Continuation
+        else
+            @compileError("explicit program continuation must declare apply(value) or be a callable function"),
+        else => @compileError("explicit program continuation must declare apply(value) or be a callable function"),
+    };
+}
+
+fn ExplicitContinuationReturnType(comptime Continuation: type, comptime ResumeType: type) type {
+    const ContinuationFn = ExplicitContinuationFnType(Continuation);
+    const params = @typeInfo(ContinuationFn).@"fn".params;
+    if (params.len != 1) @compileError("explicit program continuation must accept exactly one resumed value");
+    if (comptime hasDeclSafe(Continuation, "apply")) {
+        return @TypeOf(@field(Continuation, "apply")(@as(ResumeType, undefined)));
+    }
+    return @TypeOf(Continuation(@as(ResumeType, undefined)));
+}
+
+fn ExplicitContinuationErrorSet(comptime Continuation: type, comptime ResumeType: type) type {
+    return ReturnTypeErrorSet(ExplicitContinuationReturnType(Continuation, ResumeType));
+}
+
 fn assertTransformImplType(comptime TransformContract: type) void {
     const StateType = TransformContract.state_type;
     const Op = TransformContract.op_type;
     const Impl = TransformContract.impl_type;
     const ContinueAnswer = TransformContract.continue_answer_type;
-    const ErrorSet = TransformContract.error_set_type;
+    _ = TransformContract.error_set_type;
     const Answer = TransformContract.answer_type;
     if (!@hasDecl(Impl, "resumeValue")) @compileError("transform handler must declare resumeValue");
     if (!@hasDecl(Impl, "afterResume")) @compileError("transform handler must declare afterResume");
 
     const ResumeFn = @TypeOf(Impl.resumeValue);
-    if (ResumeFn != fn (StateType, Op.Payload) Op.Resume and ResumeFn != fn (StateType, Op.Payload) lowered_machine.ResetError(ErrorSet)!Op.Resume) {
+    if (!FnParamsMatch(ResumeFn, &.{ StateType, Op.Payload }) or !FnReturnMatches(ResumeFn, Op.Resume)) {
         @compileError("transform handler resumeValue must have type fn (State, Payload) Resume or fn (State, Payload) ResetError(ErrorSet)!Resume");
     }
 
     const AfterFn = @TypeOf(Impl.afterResume);
-    if (AfterFn != fn (StateType, ContinueAnswer) Answer and AfterFn != fn (StateType, ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer) {
+    if (!FnParamsMatch(AfterFn, &.{ StateType, ContinueAnswer }) or !FnReturnMatches(AfterFn, Answer)) {
         @compileError("transform handler afterResume must have type fn (State, ContinueAnswer) Answer or fn (State, ContinueAnswer) ResetError(ErrorSet)!Answer");
     }
 }
@@ -161,19 +218,19 @@ fn assertChoiceImplType(comptime ChoiceContract: type) void {
     const Op = ChoiceContract.op_type;
     const Impl = ChoiceContract.impl_type;
     const ContinueAnswer = ChoiceContract.continue_answer_type;
-    const ErrorSet = ChoiceContract.error_set_type;
+    _ = ChoiceContract.error_set_type;
     const Answer = ChoiceContract.answer_type;
     if (!@hasDecl(Impl, "resumeOrReturn")) @compileError("choice handler must declare resumeOrReturn");
     if (!@hasDecl(Impl, "afterResume")) @compileError("choice handler must declare afterResume");
 
     const DecisionType = prompt_contract.ResumeOrReturn(Op.Resume, Answer);
     const DecideFn = @TypeOf(Impl.resumeOrReturn);
-    if (DecideFn != fn (StateType, Op.Payload) DecisionType and DecideFn != fn (StateType, Op.Payload) lowered_machine.ResetError(ErrorSet)!DecisionType) {
+    if (!FnParamsMatch(DecideFn, &.{ StateType, Op.Payload }) or !FnReturnMatches(DecideFn, DecisionType)) {
         @compileError("choice handler resumeOrReturn must have type fn (State, Payload) ResumeOrReturn or fn (State, Payload) ResetError(ErrorSet)!ResumeOrReturn");
     }
 
     const AfterFn = @TypeOf(Impl.afterResume);
-    if (AfterFn != fn (StateType, ContinueAnswer) Answer and AfterFn != fn (StateType, ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer) {
+    if (!FnParamsMatch(AfterFn, &.{ StateType, ContinueAnswer }) or !FnReturnMatches(AfterFn, Answer)) {
         @compileError("choice handler afterResume must have type fn (State, ContinueAnswer) Answer or fn (State, ContinueAnswer) ResetError(ErrorSet)!Answer");
     }
 }
@@ -185,9 +242,10 @@ fn assertAbortImplType(
     comptime ErrorSet: type,
     comptime Answer: type,
 ) void {
+    _ = ErrorSet;
     if (!@hasDecl(Impl, "directReturn")) @compileError("abort handler must declare directReturn");
     const DirectFn = @TypeOf(Impl.directReturn);
-    if (DirectFn != fn (StateType, Op.Payload) Answer and DirectFn != fn (StateType, Op.Payload) lowered_machine.ResetError(ErrorSet)!Answer) {
+    if (!FnParamsMatch(DirectFn, &.{ StateType, Op.Payload }) or !FnReturnMatches(DirectFn, Answer)) {
         @compileError("abort handler directReturn must have type fn (State, Payload) Answer or fn (State, Payload) ResetError(ErrorSet)!Answer");
     }
 }
@@ -275,6 +333,22 @@ fn Binding(
 
         spec: SpecType,
         prompt: PromptType,
+
+        fn ProgramErrorSet(comptime Continuation: type) type {
+            return switch (SpecType.builder_kind) {
+                .transform, .choice => ErrorSet || ExplicitContinuationErrorSet(Continuation, Op.Resume),
+                .direct_transform, .abort => ErrorSet,
+            };
+        }
+
+        fn ProgramPromptType(comptime Continuation: type) type {
+            return PromptTypeForOp(Op, ContinueAnswer, Answer, ProgramErrorSet(Continuation));
+        }
+
+        fn promptRef(self: *@This(), comptime Continuation: type) *const ProgramPromptType(Continuation) {
+            // Prompt layout is token-only, so reusing the active delimiter identity across widened error sets is safe.
+            return @ptrCast(&self.prompt);
+        }
 
         /// Build one binding with a fresh prompt token.
         pub fn init(spec: SpecType) @This() {
@@ -408,11 +482,12 @@ fn Binding(
         }
 
         /// Build one explicit frontend program for the bound operation and continuation.
-        pub fn program(self: *@This(), payload: Op.Payload, comptime Continuation: type) frontend.Program(PromptType) {
+        pub fn program(self: *@This(), payload: Op.Payload, comptime Continuation: type) frontend.Program(ProgramPromptType(Continuation)) {
             const BindingType = @This();
             return switch (SpecType.builder_kind) {
                 .direct_transform => @compileError("direct transform bindings do not support explicit program construction"),
                 .transform => blk: {
+                    const ProgramPrompt = ProgramPromptType(Continuation);
                     const handler = struct {
                         /// Supply the resumptive value for one explicit transform op.
                         pub fn resumeValue() lowered_machine.ResetError(ErrorSet)!Op.Resume {
@@ -427,9 +502,10 @@ fn Binding(
 
                     BindingType.pending_binding = self;
                     BindingType.pending_payload = payload;
-                    break :blk frontend.transformProgram(PromptType, Op.Resume, handler, Continuation);
+                    break :blk frontend.transformProgram(ProgramPrompt, Op.Resume, handler, Continuation);
                 },
                 .choice => blk: {
+                    const ProgramPrompt = ProgramPromptType(Continuation);
                     const handler = struct {
                         /// Decide whether one explicit choice op resumes or returns now.
                         pub fn resumeOrReturn() lowered_machine.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
@@ -444,7 +520,7 @@ fn Binding(
 
                     BindingType.pending_binding = self;
                     BindingType.pending_payload = payload;
-                    break :blk frontend.choiceProgram(PromptType, Op.Resume, handler, Continuation);
+                    break :blk frontend.choiceProgram(ProgramPrompt, Op.Resume, handler, Continuation);
                 },
                 .abort => blk: {
                     const handler = struct {
@@ -462,13 +538,14 @@ fn Binding(
         }
 
         /// Build one explicit frontend program that closes over this binding directly.
-        pub fn directProgram(self: *@This(), payload: Op.Payload, comptime Continuation: type) frontend.Program(PromptType) {
+        pub fn directProgram(self: *@This(), payload: Op.Payload, comptime Continuation: type) frontend.Program(ProgramPromptType(Continuation)) {
             const BindingType = @This();
             BindingType.direct_binding = self;
             BindingType.direct_payload = payload;
             return switch (SpecType.builder_kind) {
                 .direct_transform => @compileError("direct transform bindings do not support explicit program construction"),
                 .transform => blk: {
+                    const ProgramPrompt = ProgramPromptType(Continuation);
                     const handler = struct {
                         /// Supply the resumptive value for one direct explicit transform op.
                         pub fn resumeValue() lowered_machine.ResetError(ErrorSet)!Op.Resume {
@@ -481,9 +558,10 @@ fn Binding(
                         }
                     };
 
-                    break :blk frontend.transformProgram(PromptType, Op.Resume, handler, Continuation);
+                    break :blk frontend.transformProgram(ProgramPrompt, Op.Resume, handler, Continuation);
                 },
                 .choice => blk: {
+                    const ProgramPrompt = ProgramPromptType(Continuation);
                     const handler = struct {
                         /// Decide whether one direct explicit choice op resumes or returns now.
                         pub fn resumeOrReturn() lowered_machine.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
@@ -496,7 +574,7 @@ fn Binding(
                         }
                     };
 
-                    break :blk frontend.choiceProgram(PromptType, Op.Resume, handler, Continuation);
+                    break :blk frontend.choiceProgram(ProgramPrompt, Op.Resume, handler, Continuation);
                 },
                 .abort => blk: {
                     const handler = struct {
@@ -662,11 +740,11 @@ pub fn Program(
                         comptime Op: type,
                         payload: Op.Payload,
                         comptime Continuation: type,
-                    ) frontend.BoundProgram(BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, findOpIndex(Op)).Prompt) {
+                    ) frontend.BoundProgram(BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, findOpIndex(Op)).ProgramPromptType(Continuation)) {
                         const index = comptime findOpIndex(Op);
                         const binding = self.bindings.bindingPtr(index);
                         return .{
-                            .prompt = &binding.prompt,
+                            .prompt = binding.promptRef(Continuation),
                             .program = binding.program(payload, Continuation),
                             .activateFn = BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, index).activatePending,
                             .deactivateFn = BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, index).deactivatePending,
@@ -757,7 +835,6 @@ test "generated context stays pointer-sized" {
             pub fn resumeValue(_: no_state, _: void) i32 {
                 return 0;
             }
-
             /// Preserve the resumed answer unchanged.
             pub fn afterResume(_: no_state, answer: i32) i32 {
                 return answer;
@@ -777,7 +854,6 @@ test "configured binding chain stores direct bindings" {
             pub fn resumeValue(_: no_state, _: void) i32 {
                 return 0;
             }
-
             /// Preserve the resumed answer unchanged.
             pub fn afterResume(_: no_state, answer: i32) i32 {
                 return answer;

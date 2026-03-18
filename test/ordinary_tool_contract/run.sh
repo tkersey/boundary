@@ -9,12 +9,13 @@ tool="$repo_root/zig-out/bin/shift-ordinary-lower"
   exit 1
 }
 
-rejected_out="$(mktemp "${TMPDIR:-/tmp}/shift-ordinary-tool-rejected.XXXXXX")"
+rejected_dir="$(mktemp -d "${TMPDIR:-/tmp}/shift-ordinary-tool-rejected.XXXXXX")"
+rejected_out="$rejected_dir/rejected_out.zig"
 accepted_out="$(mktemp "${TMPDIR:-/tmp}/shift-ordinary-tool-accepted.XXXXXX")"
 json_out="$(mktemp "${TMPDIR:-/tmp}/shift-ordinary-tool-json.XXXXXX")"
 quoted_alias="$(mktemp "${TMPDIR:-/tmp}/tmp-bad-quoted.XXXXXX")\"bad\""
 external_cwd="$(mktemp -d "${TMPDIR:-/tmp}/shift-ordinary-tool-cwd.XXXXXX")"
-trap 'rm -f "$rejected_out" "$accepted_out" "$json_out" "$quoted_alias"; rm -rf "$external_cwd"' EXIT INT TERM
+trap 'rm -f "$accepted_out" "$json_out" "$quoted_alias"; rm -rf "$rejected_dir" "$external_cwd"' EXIT INT TERM
 
 if "$tool" \
   --id ordinary.branch_resume \
@@ -48,12 +49,29 @@ then
   exit 1
 fi
 
-grep -q '\\\"bad\\\"' "$json_out"
-grep -F -q '"case_id":"ordinary.branch_resume"' "$json_out"
-grep -F -q '"surface_kind":"ordinary_case"' "$json_out"
-grep -F -q '"status":"rejected"' "$json_out"
-grep -F -q '"diagnostics":[{"code":"non_canonical_source_path"' "$json_out"
-grep -F -q '"path":"' "$json_out"
+uv run python - <<'PY' "$json_out"
+import json, sys
+
+doc = json.load(open(sys.argv[1]))
+assert doc["case_id"] == "ordinary.branch_resume"
+assert doc["surface_kind"] == "ordinary_case"
+assert doc["status"] == "rejected"
+assert len(doc["diagnostics"]) == 1
+assert doc["diagnostics"][0]["code"] == "non_canonical_source_path"
+assert '"bad"' in doc["diagnostics"][0]["path"]
+ew = doc["error_witness"]
+assert ew["support_status"] == "unsupported"
+assert ew["public_runtime_errors"] == []
+assert ew["setup_error_names"] == []
+assert ew["semantic_error_names"] == []
+assert ew["contributors"] == []
+assert len(ew["diagnostics"]) == 1
+assert ew["diagnostics"][0]["code"] == "non_canonical_source_path"
+assert ew["diagnostics"][0]["path"] == doc["diagnostics"][0]["path"]
+PY
+
+grep -F -q 'const generated_program_witness_diagnostics = [_]WitnessDiagnostic{' "$rejected_out"
+grep -F -q '.diagnostics = try allocator.dupe(WitnessDiagnostic, &generated_program_witness_diagnostics)' "$rejected_out"
 
 (
   cd "$external_cwd"
@@ -79,8 +97,19 @@ grep -F -q 'expected_transcript = "validate=name\nabort=missing-name\nfinal=erro
     --out "$json_out"
 )
 
-grep -F -q '"case_id":"example.define_basic"' "$json_out"
-grep -F -q '"status":"canonical"' "$json_out"
+uv run python - <<'PY' "$json_out"
+import json, sys
+
+doc = json.load(open(sys.argv[1]))
+assert doc["case_id"] == "example.define_basic"
+assert doc["status"] == "canonical"
+ew = doc["error_witness"]
+assert ew["public_runtime_errors"] == []
+assert ew["setup_error_names"] == ["OutOfMemory"]
+assert ew["semantic_error_names"] == []
+assert ew["contributors"] == []
+assert ew["diagnostics"] == []
+PY
 
 zig fmt "$accepted_out" >/dev/null
 grep -F -q 'const shift = @import("shift");' "$accepted_out"
@@ -92,3 +121,7 @@ grep -F -q 'pub fn initGeneratedProgram(allocator: std.mem.Allocator) !shift.ord
 grep -F -q 'var generated_program = try initGeneratedProgram(allocator);' "$accepted_out"
 grep -F -q '.steps = try allocator.dupe(shift.ordinary.Step, &generated_program_steps),' "$accepted_out"
 grep -F -q '.diagnostics = try allocator.dupe(shift.ordinary.Diagnostic, &generated_program_diagnostics),' "$accepted_out"
+grep -F -q '.setup_error_names = &.{"OutOfMemory"}' "$accepted_out"
+grep -F -q '.semantic_error_names = &.{}, .contributors = &.{}, .diagnostics = &.{} },' "$accepted_out"
+
+zig run tools/check_public_api_ban.zig >/dev/null

@@ -1,3 +1,5 @@
+const error_witness = @import("error_witness");
+
 /// Current public runtime error-surface status.
 pub const Status = enum {
     retained,
@@ -11,33 +13,33 @@ pub const ErrorVariant = struct {
     rationale: []const u8,
 };
 
-/// Generator-owned truth surface for the current public runtime error surface.
-pub const variants = [_]ErrorVariant{
-    .{
-        .name = "MissingPrompt",
+fn retainedVariant(comptime tag: error_witness.RuntimeErrorTag) ErrorVariant {
+    return .{
+        .name = @tagName(tag),
         .status = .retained,
-        .rationale = "The lowered-only public runtime still needs a missing-delimiter failure.",
-    },
-    .{
-        .name = "CrossThread",
-        .status = .retained,
-        .rationale = "Runtime ownership remains thread-affine even after the stackful backend is gone.",
-    },
-    .{
-        .name = "RuntimeBusy",
-        .status = .retained,
-        .rationale = "Active-runtime teardown misuse remains a public runtime concern.",
-    },
-    .{
-        .name = "RuntimeDestroyed",
-        .status = .retained,
-        .rationale = "Destroyed-runtime misuse remains a public runtime concern.",
-    },
-    .{
-        .name = "NonDiagonalComplete",
-        .status = .retained,
-        .rationale = "Non-diagonal completion is still part of the public shift/reset semantic contract.",
-    },
+        .rationale = switch (tag) {
+            .MissingPrompt => "The lowered-only public runtime still needs a missing-delimiter failure.",
+            .CrossThread => "Runtime ownership remains thread-affine even after the stackful backend is gone.",
+            .RuntimeBusy => "Active-runtime teardown misuse remains a public runtime concern.",
+            .RuntimeDestroyed => "Destroyed-runtime misuse remains a public runtime concern.",
+            .NonDiagonalComplete => "Non-diagonal completion is still part of the public shift/reset semantic contract.",
+            .FrontendSuspend => "Replay-driven explicit frontend operations still use suspend as part of the lowered public execution contract.",
+            .ProgramContractViolation => "Explicit frontend program-shape violations still remain observable through the lowered public execution contract.",
+        },
+    };
+}
+
+pub const retained_variants = [_]ErrorVariant{
+    retainedVariant(.MissingPrompt),
+    retainedVariant(.CrossThread),
+    retainedVariant(.RuntimeBusy),
+    retainedVariant(.RuntimeDestroyed),
+    retainedVariant(.NonDiagonalComplete),
+    retainedVariant(.FrontendSuspend),
+    retainedVariant(.ProgramContractViolation),
+};
+
+pub const retired_variants = [_]ErrorVariant{
     .{
         .name = "AlreadyResolved",
         .status = .retired,

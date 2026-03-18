@@ -1,9 +1,8 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const NoError = error{};
 const ping = shift.algebraic.TransformOp("ping", void, i32);
-const demo = shift.algebraic.Program(i32, NoError, .{ping});
+const demo = shift.algebraic.Program(i32, .{ping});
 
 const no_state = struct {};
 

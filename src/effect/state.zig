@@ -1,6 +1,7 @@
 const algebraic = @import("algebraic.zig");
 const family = @import("family.zig");
 const lexical_with = @import("../with_api.zig");
+const lowered_machine = @import("lowered_machine");
 const shift = @import("../root.zig");
 const std = @import("std");
 
@@ -16,12 +17,12 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
         ctx: ?ContextPtrType,
 
         /// Read the current state value through the lexical handle.
-        pub fn get(self: @This()) shift.ResetError(family.ContextErrorSetType(ContextPtrType))!family.ContextStateType(ContextPtrType) {
+        pub fn get(self: @This()) lowered_machine.ResetError(family.ContextErrorSetType(ContextPtrType))!family.ContextStateType(ContextPtrType) {
             return try algebraic.stateGet(Cap, self.ctx.?);
         }
 
         /// Replace the current state value through the lexical handle.
-        pub fn set(self: @This(), value: family.ContextStateType(ContextPtrType)) shift.ResetError(family.ContextErrorSetType(ContextPtrType))!void {
+        pub fn set(self: @This(), value: family.ContextStateType(ContextPtrType)) lowered_machine.ResetError(family.ContextErrorSetType(ContextPtrType))!void {
             try algebraic.stateSet(Cap, self.ctx.?, value);
         }
     };
@@ -32,6 +33,8 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
     return struct {
         /// Shared error set carried by the lexical state descriptor.
         pub const ErrorSet = ErrorSetType;
+        /// State type threaded through the lexical state context.
+        pub const State = StateType;
         /// Final state output produced by the lexical state descriptor.
         pub const Output = StateType;
 
@@ -49,9 +52,9 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
         }
 
         /// Run one lexical state descriptor through the existing state family.
-        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
-            var instance = Instance(StateType, ErrorSetType).init();
-            const result = try handle(AnswerType, runtime, &instance, self.initial_state, Body);
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+            var instance = family.Instance(StateType, ErrorSetType).init();
+            const result = try handleWithErrorSet(AnswerType, RunErrorSetType, runtime, &instance, self.initial_state, Body);
             return .{
                 .output = result.state,
                 .value = result.value,
@@ -61,7 +64,7 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
 }
 
 /// Create one lexical state descriptor for `shift.with(...)`.
-pub fn use(comptime ErrorSetType: type, initial_state: anytype) LexicalDescriptor(@TypeOf(initial_state), ErrorSetType) {
+pub fn use(initial_state: anytype) LexicalDescriptor(@TypeOf(initial_state), error{}) {
     return .{ .initial_state = initial_state };
 }
 
@@ -69,7 +72,7 @@ pub fn use(comptime ErrorSetType: type, initial_state: anytype) LexicalDescripto
 pub inline fn get(
     comptime Cap: type,
     ctx: anytype,
-) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
+) lowered_machine.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
     return try algebraic.stateGet(Cap, ctx);
 }
 
@@ -78,7 +81,7 @@ pub inline fn set(
     comptime Cap: type,
     ctx: anytype,
     value: family.ContextStateType(@TypeOf(ctx)),
-) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!void {
+) lowered_machine.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!void {
     return try algebraic.stateSet(Cap, ctx, value);
 }
 
@@ -98,16 +101,29 @@ pub fn handle(
     instance: anytype,
     initial_state: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
-) shift.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!HandleResult(
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!HandleResult(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
     return try algebraic.handleState(AnswerType, runtime, instance, initial_state, Body);
 }
 
+pub fn handleWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    initial_state: family.InstanceStateType(@TypeOf(instance)),
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!HandleResult(
+    family.InstanceStateType(@TypeOf(instance)),
+    AnswerType,
+) {
+    return try algebraic.handleStateWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, initial_state, Body);
+}
+
 test "state instance shell stays prompt-sized" {
-    const NoError = error{};
-    const StateInstance = Instance(i32, NoError);
+    const StateInstance = Instance(i32, error{});
     try std.testing.expectEqual(@sizeOf(usize), @sizeOf(StateInstance));
 }
 
@@ -125,7 +141,7 @@ test "state handle threads value and final state" {
         /// Execute the strict-affinity state-effect test body.
         pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(family.computeProgram(Cap, ctx, struct {
             /// Read, update, and read the state cell once.
-            pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)!i32 {
+            pub fn run(comptime ProgramCap: type, program_ctx: anytype) lowered_machine.ResetError(NoError)!i32 {
                 const before = try get(ProgramCap, program_ctx);
                 try set(ProgramCap, program_ctx, before + 1);
                 return try get(ProgramCap, program_ctx);
@@ -133,7 +149,7 @@ test "state handle threads value and final state" {
         })) {
             return family.computeProgram(Cap, ctx, struct {
                 /// Read, update, and read the state cell once.
-                pub fn run(comptime ProgramCap: type, program_ctx: anytype) shift.ResetError(NoError)!i32 {
+                pub fn run(comptime ProgramCap: type, program_ctx: anytype) lowered_machine.ResetError(NoError)!i32 {
                     const before = try get(ProgramCap, program_ctx);
                     try set(ProgramCap, program_ctx, before + 1);
                     return try get(ProgramCap, program_ctx);
@@ -158,7 +174,7 @@ test "nested same-shaped state handles get distinct capability types" {
         var inner_ptr: ?*const StateInstance = null;
 
         /// Open an inner handle and prove its capability type differs from the outer one.
-        pub fn outer(comptime OuterCap: type, _: anytype) shift.ResetError(NoError)!i32 {
+        pub fn outer(comptime OuterCap: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
             const result = try handle(i32, runtime_ptr.?, inner_ptr.?, 0, struct {
                 /// Reject capability-type collapse inside the nested handle.
                 pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(family.computeProgram(InnerCap, inner_ctx, struct {
@@ -192,13 +208,13 @@ test "nested same-shaped state handles get distinct capability types" {
         /// Enter the outer handle and hand its capability to the nested check.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(family.computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested state witness through the outer capability.
-            pub fn run(_: type, _: anytype) shift.ResetError(NoError)!i32 {
+            pub fn run(_: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
                 return try demo.outer(OuterCap, {});
             }
         })) {
             return family.computeProgram(OuterCap, ctx, struct {
                 /// Re-enter the nested state witness through the outer capability.
-                pub fn run(_: type, _: anytype) shift.ResetError(NoError)!i32 {
+                pub fn run(_: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
                     return try demo.outer(OuterCap, {});
                 }
             });

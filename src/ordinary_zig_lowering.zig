@@ -1,4 +1,5 @@
 const lowered_machine = @import("lowered_machine");
+const error_witness = @import("error_witness");
 const ordinary = @import("ordinary_zig_registry");
 const parity_scenarios = @import("parity_scenarios");
 const std = @import("std");
@@ -54,6 +55,7 @@ pub const GeneratedProgram = struct {
     steps: []const lowered_machine.Step,
     feature_flags: []const []const u8,
     diagnostics: []const Diagnostic,
+    error_witness: error_witness.ErrorWitnessV1,
 
     /// Release dynamically allocated slices owned by this generated program.
     pub fn deinit(self: *GeneratedProgram, allocator: std.mem.Allocator) void {
@@ -61,6 +63,7 @@ pub const GeneratedProgram = struct {
         allocator.free(self.steps);
         allocator.free(self.feature_flags);
         allocator.free(self.diagnostics);
+        if (self.error_witness.diagnostics.len != 0) allocator.free(self.error_witness.diagnostics);
         self.* = undefined;
     }
 
@@ -194,7 +197,7 @@ const errdefer_match = Match{
 
 const early_exit_match = Match{
     .required_snippets = &.{
-        "shift.effect.exception.use([]const u8, NoError, catch_policy)",
+        "shift.effect.exception.use([]const u8, catch_policy)",
         "try eff.exception.throw(\"result=early\");",
         "transcript.handler_line = \"handler-direct-return\";",
     },
@@ -236,7 +239,7 @@ const nested_workflow_match = Match{
 
 const state_example_match = Match{
     .required_snippets = &.{
-        "shift.effect.state.use(NoError, @as(i32, 5))",
+        "shift.effect.state.use(@as(i32, 5))",
         "const before = try eff.state.get();",
         "try eff.state.set(before + 1);",
     },
@@ -249,7 +252,7 @@ const state_example_match = Match{
 
 const reader_example_match = Match{
     .required_snippets = &.{
-        "shift.effect.reader.use(NoError, @as(i32, 21))",
+        "shift.effect.reader.use(@as(i32, 21))",
         "const env = try eff.reader.ask();",
         "return env * 2;",
     },
@@ -265,7 +268,7 @@ const optional_example_match = Match{
         "policy-return-now",
         "policy-resume",
         "body-after-request",
-        "shift.effect.optional.use(i32, NoError, resume_policy)",
+        "shift.effect.optional.use(i32, resume_policy)",
     },
     .entry_required_snippets = &.{
         "transcript.note(\"policy-after-resume\");",
@@ -331,7 +334,7 @@ const define_abort_match = Match{
 
 const resource_example_match = Match{
     .required_snippets = &.{
-        "shift.effect.resource.use([]const u8, NoError, resource_manager)",
+        "shift.effect.resource.use([]const u8, resource_manager)",
         "const first = try eff.resource.acquire();",
         "const second = try eff.resource.acquire();",
         "release=a",
@@ -345,7 +348,7 @@ const resource_example_match = Match{
 
 const writer_example_match = Match{
     .required_snippets = &.{
-        "shift.effect.writer.use([]const u8, NoError, output_fba.allocator())",
+        "shift.effect.writer.use([]const u8, output_fba.allocator())",
         "try eff.writer.tell(\"a\")",
         "try eff.writer.tell(\"b\")",
         "value={s}",
@@ -360,7 +363,7 @@ const writer_example_match = Match{
 const algebraic_abort_match = Match{
     .required_snippets = &.{
         "const fail = shift.algebraic.AbortOp(\"fail\", []const u8);",
-        "const Validation = shift.algebraic.Program([]const u8, NoError, .{fail});",
+        "const Validation = shift.algebraic.Program([]const u8, .{fail});",
         "ctx.performProgram(fail, \"missing-name\"",
         "abort={s}",
     },
@@ -374,7 +377,7 @@ const algebraic_abort_match = Match{
 const algebraic_artifact_match = Match{
     .required_snippets = &.{
         "const search = shift.algebraic.TransformOp(\"search\", []const u8, i32);",
-        "const ArtifactSearch = shift.algebraic.Program(i32, NoError, .{search});",
+        "const ArtifactSearch = shift.algebraic.Program(i32, .{search});",
         "ctx.performProgram(search, \"artifact-search\"",
         "opencode_source=jsonl",
     },
@@ -498,6 +501,31 @@ const SupportedCase = struct {
     match: Match,
 };
 
+const boom_error_names = [_][]const u8{"Boom"};
+const typed_error_contributors = [_]error_witness.Contributor{
+    .{
+        .kind = .body,
+        .surface = .ordinary,
+        .symbol = "fail",
+        .error_names = boom_error_names[0..],
+    },
+};
+
+const errdefer_error_contributors = [_]error_witness.Contributor{
+    .{
+        .kind = .body,
+        .surface = .ordinary,
+        .symbol = "body",
+        .error_names = boom_error_names[0..],
+    },
+};
+
+const WitnessTemplate = struct {
+    setup_error_names: []const []const u8,
+    semantic_error_names: []const []const u8,
+    contributors: []const error_witness.Contributor,
+};
+
 fn matchForCaseId(case_id: []const u8) Match {
     if (std.mem.eql(u8, case_id, "ordinary.local_mutation_resume")) return local_mutation_match;
     if (std.mem.eql(u8, case_id, "ordinary.branch_resume")) return branch_match;
@@ -522,6 +550,40 @@ fn ordinarySupportedCase(case: *const ordinary.Case) SupportedCase {
             .canonical => .canonical,
         },
         .match = matchForCaseId(case.case_id),
+    };
+}
+
+fn setupHasOutOfMemory(surface_kind: SurfaceKind) bool {
+    return switch (surface_kind) {
+        .ordinary_case => false,
+        .example, .effect, .user_defined_effect, .witness => true,
+    };
+}
+
+fn witnessTemplate(spec: Spec, case: SupportedCase) WitnessTemplate {
+    if (std.mem.eql(u8, case.case_id, "ordinary.typed_error_try")) return .{
+        .setup_error_names = error_witness.setupErrorNames(setupHasOutOfMemory(spec.surface_kind)),
+        .semantic_error_names = boom_error_names[0..],
+        .contributors = typed_error_contributors[0..],
+    };
+    if (std.mem.eql(u8, case.case_id, "ordinary.errdefer_error")) return .{
+        .setup_error_names = error_witness.setupErrorNames(setupHasOutOfMemory(spec.surface_kind)),
+        .semantic_error_names = boom_error_names[0..],
+        .contributors = errdefer_error_contributors[0..],
+    };
+    return .{
+        .setup_error_names = error_witness.setupErrorNames(setupHasOutOfMemory(spec.surface_kind)),
+        .semantic_error_names = error_witness.no_error_names[0..],
+        .contributors = error_witness.no_contributors[0..],
+    };
+}
+
+fn rejectedWitnessTemplate(spec: Spec) WitnessTemplate {
+    _ = spec;
+    return .{
+        .setup_error_names = error_witness.no_error_names[0..],
+        .semantic_error_names = error_witness.no_error_names[0..],
+        .contributors = error_witness.no_contributors[0..],
     };
 }
 
@@ -785,6 +847,23 @@ fn duplicateFeatureFlags(allocator: std.mem.Allocator, flags: []const []const u8
 
 fn emptyDiagnostics(allocator: std.mem.Allocator) std.mem.Allocator.Error![]const Diagnostic {
     return try allocator.alloc(Diagnostic, 0);
+}
+
+fn duplicateWitnessDiagnostics(
+    allocator: std.mem.Allocator,
+    diagnostics: []const Diagnostic,
+) std.mem.Allocator.Error![]const error_witness.WitnessDiagnostic {
+    const duped = try allocator.alloc(error_witness.WitnessDiagnostic, diagnostics.len);
+    for (diagnostics, 0..) |diag, idx| {
+        duped[idx] = .{
+            .code = diag.code,
+            .message = diag.message,
+            .path = diag.path,
+            .line = diag.line,
+            .column = diag.column,
+        };
+    }
+    return duped;
 }
 
 fn duplicateSteps(
@@ -1072,6 +1151,18 @@ fn acceptedProgram(
     errdefer allocator.free(feature_flags);
     const diagnostics = try emptyDiagnostics(allocator);
     errdefer allocator.free(diagnostics);
+    const witness = blk: {
+        const template = witnessTemplate(spec, case);
+        break :blk error_witness.ErrorWitnessV1{
+            .surface = .ordinary,
+            .support_status = .supported,
+            .public_runtime_errors = error_witness.no_runtime_error_tags[0..],
+            .setup_error_names = template.setup_error_names,
+            .semantic_error_names = template.semantic_error_names,
+            .contributors = template.contributors,
+            .diagnostics = error_witness.no_diagnostics[0..],
+        };
+    };
     return .{
         .case_id = case.case_id,
         .label = case.label,
@@ -1083,6 +1174,7 @@ fn acceptedProgram(
         .steps = steps,
         .feature_flags = feature_flags,
         .diagnostics = diagnostics,
+        .error_witness = witness,
     };
 }
 
@@ -1102,6 +1194,20 @@ fn rejectedProgram(
     for (owned_diagnostics) |*diag| diag.path = source_path;
     const feature_flags = try duplicateFeatureFlags(allocator, case.match.feature_flags);
     errdefer allocator.free(feature_flags);
+    const witness = blk: {
+        const template = rejectedWitnessTemplate(spec);
+        const witness_diagnostics = try duplicateWitnessDiagnostics(allocator, owned_diagnostics);
+        errdefer allocator.free(witness_diagnostics);
+        break :blk error_witness.ErrorWitnessV1{
+            .surface = .ordinary,
+            .support_status = .unsupported,
+            .public_runtime_errors = error_witness.no_runtime_error_tags[0..],
+            .setup_error_names = template.setup_error_names,
+            .semantic_error_names = template.semantic_error_names,
+            .contributors = template.contributors,
+            .diagnostics = witness_diagnostics,
+        };
+    };
     return .{
         .case_id = case.case_id,
         .label = case.label,
@@ -1113,6 +1219,7 @@ fn rejectedProgram(
         .steps = steps,
         .feature_flags = feature_flags,
         .diagnostics = owned_diagnostics,
+        .error_witness = witness,
     };
 }
 

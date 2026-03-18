@@ -9,13 +9,11 @@ pub const ordinary = root.ordinary;
 /// Canonical runtime handle.
 pub const Runtime = root.Runtime;
 /// Public runtime error surface.
-pub const Error = root.Error;
-/// Runtime error union for a user-provided error set.
-pub const ControlError = root.ControlError;
-/// Reset-time error union for a user-provided error set.
-pub const ResetError = root.ResetError;
-/// Canonical lexical result type returned from `shift.with(...)`.
-pub const WithResult = root.WithResult;
+pub const RuntimeError = root.RuntimeError;
+/// Stable public error-witness schema.
+pub const ErrorWitnessV1 = root.ErrorWitnessV1;
+/// Canonical lexical companion type returned from `shift.with(...)`.
+pub const With = root.With;
 /// Canonical lexical execution entrypoint.
 pub const with = root.with;
 

@@ -1,10 +1,13 @@
 const lowered_machine = @import("lowered_machine");
+const error_witness = @import("error_witness");
 const with_api = @import("with_api.zig");
 
 /// Canonical lowered-first runtime handle.
 pub const Runtime = lowered_machine.Runtime;
-/// Public runtime errors surfaced by `shift`.
-pub const Error = lowered_machine.Error;
+/// Public runtime misuse and semantic-contract errors surfaced by `shift`.
+pub const RuntimeError = lowered_machine.RuntimeError;
+/// Stable public error-witness schema.
+pub const ErrorWitnessV1 = error_witness.ErrorWitnessV1;
 /// Generalized algebraic-effect builders over the core shift/reset runtime.
 pub const algebraic = @import("algebraic.zig");
 /// Additive algebraic-effect families built on top of the core shift/reset runtime.
@@ -12,19 +15,9 @@ pub const effect = @import("effect/root.zig");
 /// Canonical source-backed lowering surface for the repo-owned ordinary corpus.
 pub const ordinary = @import("ordinary/root.zig");
 
-/// Runtime error union for a user-provided error set.
-pub fn ControlError(comptime ErrorSet: type) type {
-    return lowered_machine.ControlError(ErrorSet);
-}
-
-/// Reset-time error union for a user-provided error set.
-pub fn ResetError(comptime ErrorSet: type) type {
-    return lowered_machine.ResetError(ErrorSet);
-}
-
-/// Canonical lexical result type returned from `shift.with(...)`.
-pub fn WithResult(comptime HandlersType: type, comptime Answer: type) type {
-    return with_api.WithResult(HandlersType, Answer);
+/// Canonical lexical product returned from `shift.with(...)`.
+pub fn With(comptime HandlersType: type, comptime Body: type) type {
+    return with_api.With(HandlersType, Body);
 }
 
 /// Run one ordinary Zig body against a lexical effect-handle bundle.
@@ -37,8 +30,10 @@ pub fn with(
 }
 
 test {
+    _ = ErrorWitnessV1;
     _ = Runtime;
-    _ = WithResult;
+    _ = RuntimeError;
+    _ = With;
     _ = effect;
     _ = algebraic;
     _ = ordinary;

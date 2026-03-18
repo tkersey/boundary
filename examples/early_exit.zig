@@ -22,10 +22,10 @@ pub fn run(writer: anytype) anyerror!void {
     transcript.handler_line = "";
 
     const result = try shift.with(&runtime, .{
-        .exception = shift.effect.exception.use([]const u8, NoError, catch_policy),
+        .exception = shift.effect.exception.use([]const u8, catch_policy),
     }, struct {
         /// Abort immediately through the lexical exception surface.
-        pub fn body(eff: anytype) shift.ResetError(NoError)![]const u8 {
+        pub fn body(eff: anytype) ![]const u8 {
             try eff.exception.throw("result=early");
         }
     });

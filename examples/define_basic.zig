@@ -4,7 +4,6 @@ const std = @import("std");
 const NoError = error{};
 const Counter = shift.effect.Define(.{
     .state_type = i32,
-    .error_set_type = NoError,
     .ops = .{
         shift.effect.ops.Transform("get", void, i32),
         shift.effect.ops.Transform("set", i32, void),
@@ -40,7 +39,7 @@ fn runCounter(runtime: *shift.Runtime) !i32 {
         .counter = Counter.use(.{ .handler = Handler{ .state = 5 } }),
     }, struct {
         /// Increment the generated counter once and return the new value.
-        pub fn body(eff: anytype) shift.ResetError(NoError)!i32 {
+        pub fn body(eff: anytype) !i32 {
             const before = try eff.counter.get.perform();
             try eff.counter.set.perform(before + 1);
             return try eff.counter.get.perform();

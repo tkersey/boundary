@@ -43,7 +43,7 @@ The current public product claim is:
   `shift.effect.resource`, and `shift.effect.writer`
 - `shift.effect.Define(.{ ... })` and `shift.algebraic` add user-defined and
   closed-world operation surfaces over the same lowered runtime
-- `shift.WithResult(...)` returns the body answer plus family outputs
+- `shift.With(...).Result` returns the body answer plus family outputs
 - `shift.effect.choice.Decision(...)` is the public choice-decision type for
   lexical optional and generated choice handlers
 - prompt descriptors, `PromptMode`, `ResumeOrReturn`, `reset`, and `frontend`
@@ -90,6 +90,7 @@ zig build direct-style-bridge-parity
 zig build direct-style-boundary
 zig build ordinary-zig-gauntlet
 zig build ordinary-lower
+zig build ordinary-error-witness-check
 zig build surface-replacement-matrix-write
 zig build surface-replacement-check
 zig build witness-admission-matrix-write
@@ -99,10 +100,12 @@ zig build runtime-route-matrix-check
 zig build runtime-obligation-matrix-write
 zig build runtime-obligation-matrix-check
 zig build runtime-contract-suite
+zig build public-error-api-ban
 zig build runtime-error-surface-matrix-write
 zig build runtime-error-surface-matrix-check
 zig build root-surface-migration-matrix-write
 zig build root-surface-migration-matrix-check
+zig build error-witness-equivalence-check
 zig build shipped-surface-frontier-matrix-write
 zig build shipped-surface-frontier-matrix-check
 zig build frontend-feature-matrix-write
@@ -167,10 +170,17 @@ one of these proof surfaces:
   backend
 - `zig build runtime-contract-suite` for executable public-runtime contract
   cases that still guard the final stackful-backed behaviors
+- `zig build public-error-api-ban` for the fail-closed proof that banned legacy
+  public error spellings are gone from shipped docs/examples/root surfaces
 - `zig build runtime-error-surface-matrix-check` for the checked retained-vs-retired
   public runtime error surface
 - `zig build root-surface-migration-matrix-check` for the checked canonical-root
   migration map during the lowered-first runtime cut
+- `zig build ordinary-error-witness-check` for the checked ordinary-tool witness
+  JSON surface over the canonical example corpus
+- `zig build error-witness-equivalence-check` for the checked witness equivalence
+  of the exported public runtime/setup witness surface across canonical ordinary
+  example cases
 - `zig build shipped-surface-frontier-matrix-check` for the checked shipped-vs-lowered
   routing truth surface
 - `zig build frontend-feature-matrix-check` for the checked matrix that records
@@ -221,7 +231,7 @@ The additive effect-family contract is now:
 The additive public algebraic-builder contract is now:
 
 - `shift.algebraic.TransformOp`, `shift.algebraic.ChoiceOp`, and `shift.algebraic.AbortOp` define closed-world operation descriptors
-- `shift.algebraic.Program(Answer, ErrorSet, .{ ...ops })` generates a typed runner surface
+- `shift.algebraic.Program(Answer, .{ ...ops })` generates a typed runner surface
 - `Program.handlers(.{ ... })` installs handlers in declaration order
 - `Configured.Context.perform(Op, payload)` only accepts declared ops
 - handlers are built with static `Impl` types via `handleTransform` / `handleChoice` / `handleAbort`
@@ -681,10 +691,10 @@ pub fn main() anyerror!void {
     defer runtime.deinit();
 
     const result = try shift.with(&runtime, .{
-        .state = shift.effect.state.use(NoError, @as(i32, 5)),
-        .reader = shift.effect.reader.use(NoError, @as(i32, 21)),
+        .state = shift.effect.state.use(@as(i32, 5)),
+        .reader = shift.effect.reader.use(@as(i32, 21)),
     }, struct {
-        pub fn body(eff: anytype) shift.ResetError(NoError)!i32 {
+        pub fn body(eff: anytype) !i32 {
             const env = try eff.reader.ask();
             const before = try eff.state.get();
             try eff.state.set(before + env);

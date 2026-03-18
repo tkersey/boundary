@@ -2,7 +2,7 @@ const shift = @import("shift");
 const std = @import("std");
 
 const NoError = error{};
-const WriterInstance = shift.effect.writer.Instance([]const u8, NoError);
+const WriterInstance = shift.effect.writer.Instance([]const u8, error{});
 
 const demo = struct {
     var runtime_ptr: ?*shift.Runtime = null;
@@ -10,19 +10,19 @@ const demo = struct {
     var arena_ptr: ?*std.heap.ArenaAllocator = null;
 
     /// Start a nested handle and try to treat its context as the outer one.
-    pub fn outer(comptime OuterCap: type, _: anytype) shift.ResetError(NoError)![]const u8 {
+    pub fn outer(comptime OuterCap: type, _: anytype) ![]const u8 {
         const result = try shift.effect.writer.handle([]const u8, []const u8, runtime_ptr.?, inner_ptr.?, arena_ptr.?.allocator(), struct {
             /// Attempt to append with the wrong capability type.
             pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(shift.effect.writer.computeProgram(InnerCap, inner_ctx, struct {
                 /// Attempt to append with the wrong capability type.
-                pub fn run(_: type, program_ctx: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn run(_: type, program_ctx: anytype) ![]const u8 {
                     try shift.effect.writer.tell(OuterCap, program_ctx, "bad");
                     return "done";
                 }
             })) {
                 return shift.effect.writer.computeProgram(InnerCap, inner_ctx, struct {
                     /// Attempt to append with the wrong capability type.
-                    pub fn run(_: type, program_ctx: anytype) shift.ResetError(NoError)![]const u8 {
+                    pub fn run(_: type, program_ctx: anytype) ![]const u8 {
                         try shift.effect.writer.tell(OuterCap, program_ctx, "bad");
                         return "done";
                     }
@@ -48,13 +48,13 @@ pub fn main() anyerror!void {
         /// Invoke the outer body with the fresh outer capability.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(shift.effect.writer.computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested writer compile-fail witness.
-            pub fn run(_: type, _: anytype) shift.ResetError(NoError)![]const u8 {
+            pub fn run(_: type, _: anytype) ![]const u8 {
                 return try demo.outer(OuterCap, {});
             }
         })) {
             return shift.effect.writer.computeProgram(OuterCap, ctx, struct {
                 /// Re-enter the nested writer compile-fail witness.
-                pub fn run(_: type, _: anytype) shift.ResetError(NoError)![]const u8 {
+                pub fn run(_: type, _: anytype) ![]const u8 {
                     return try demo.outer(OuterCap, {});
                 }
             });

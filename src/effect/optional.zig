@@ -2,9 +2,22 @@ const algebraic = @import("algebraic.zig");
 const family = @import("family.zig");
 const frontend = @import("frontend_support");
 const lexical_with = @import("../with_api.zig");
+const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
 const shift = @import("../root.zig");
 const std = @import("std");
+
+fn ReturnTypeErrorSet(comptime ReturnType: type) type {
+    return switch (@typeInfo(ReturnType)) {
+        .error_union => |err_union| err_union.error_set,
+        else => error{},
+    };
+}
+
+fn PolicyErrorSet(comptime Policy: type) type {
+    return ReturnTypeErrorSet(@typeInfo(@TypeOf(Policy.resumeOrReturn)).@"fn".return_type.?) ||
+        ReturnTypeErrorSet(@typeInfo(@TypeOf(Policy.afterResume)).@"fn".return_type.?);
+}
 
 /// Prompt-backed effect instance for an optional-resumption family.
 pub fn Instance(comptime ResumeType: type, comptime ErrorSetType: type) type {
@@ -28,16 +41,18 @@ pub fn LexicalHandle(
         outputs_ptr: ?*lexical_with.OutputBundleType(HandlersType),
 
         /// Request the optional policy decision through the lexical handle and resume through an explicit lexical continuation.
-        pub fn request(self: @This(), comptime Continuation: type) shift.ResetError(family.ContextErrorSetType(ContextPtrType))!lexical_with.ChoiceAnswerType(Continuation) {
+        pub fn request(self: @This(), comptime Continuation: type) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(family.ContextErrorSetType(ContextPtrType), Continuation, family.ContextStateType(ContextPtrType), lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, @This())))!lexical_with.ChoiceAnswerTypeFor(Continuation, family.ContextStateType(ContextPtrType), lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, @This())) {
             const Handle = @This();
             const ResumeType = family.ContextStateType(ContextPtrType);
-            const AnswerType = lexical_with.ChoiceAnswerType(Continuation);
+            const ContinuationEff = lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, Handle);
+            const AnswerType = lexical_with.ChoiceAnswerTypeFor(Continuation, ResumeType, ContinuationEff);
+            const ExecutionError = lexical_with.ChoiceExecutionErrorSet(family.ContextErrorSetType(ContextPtrType), Continuation, ResumeType, ContinuationEff);
 
             const request_state = struct {
                 threadlocal var active_handle: ?Handle = null;
 
                 /// Re-enter the lexical continuation after one optional resume.
-                pub fn apply(value: ResumeType) shift.ResetError(family.ContextErrorSetType(ContextPtrType))!AnswerType {
+                pub fn apply(value: ResumeType) lowered_machine.ResetError(ExecutionError)!AnswerType {
                     const current_handle = active_handle.?;
                     return try lexical_with.continueChoice(
                         HandlersType,
@@ -72,6 +87,8 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
     return struct {
         /// Shared error set carried by the lexical optional descriptor.
         pub const ErrorSet = ErrorSetType;
+        /// Resume value threaded through the lexical optional context.
+        pub const State = ResumeType;
         /// Optional lexical descriptors do not surface an extra output value.
         pub const Output = void;
 
@@ -108,10 +125,10 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
         }
 
         /// Run one lexical optional descriptor through the continuation-taking lexical optional family.
-        pub fn run(self: @This(), comptime AnswerType: type, runtime: *shift.Runtime, comptime Body: type) shift.ResetError(ErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
-            var instance = Instance(ResumeType, ErrorSetType).init();
-            const result = try algebraic.handleOptionalLexical(AnswerType, runtime, &instance, Policy, Body);
+            var instance = family.InstanceWithMode(.resume_or_return, ResumeType, ErrorSetType).init();
+            const result = try algebraic.handleOptionalLexicalWithErrorSet(AnswerType, RunErrorSetType, runtime, &instance, Policy, Body);
             return .{
                 .output = {},
                 .value = result,
@@ -121,7 +138,7 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
 }
 
 /// Create one lexical optional descriptor for `shift.with(...)`.
-pub fn use(comptime ResumeType: type, comptime ErrorSetType: type, comptime Policy: type) LexicalDescriptor(ResumeType, ErrorSetType, Policy) {
+pub fn use(comptime ResumeType: type, comptime Policy: type) LexicalDescriptor(ResumeType, PolicyErrorSet(Policy), Policy) {
     return .{};
 }
 
@@ -129,7 +146,7 @@ pub fn use(comptime ResumeType: type, comptime ErrorSetType: type, comptime Poli
 pub inline fn request(
     comptime Cap: type,
     ctx: anytype,
-) shift.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
+) lowered_machine.ResetError(family.ContextErrorSetType(@TypeOf(ctx)))!family.ContextStateType(@TypeOf(ctx)) {
     return try algebraic.optionalRequest(Cap, ctx);
 }
 
@@ -158,19 +175,28 @@ pub fn handle(
     instance: anytype,
     comptime Policy: type,
     comptime Body: type,
-) shift.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
     return try algebraic.handleOptional(AnswerType, runtime, instance, Policy, Body);
 }
 
+pub fn handleWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Policy: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    return try algebraic.handleOptionalWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, Policy, Body);
+}
+
 test "optional instance shell stays prompt-sized" {
-    const NoError = error{};
-    const OptionalInstance = Instance(i32, NoError);
+    const OptionalInstance = Instance(i32, error{});
     try std.testing.expectEqual(@sizeOf(usize), @sizeOf(OptionalInstance));
 }
 
 test "optional handle can return now without resuming the body tail" {
-    const NoError = error{};
-    const OptionalInstance = Instance(i32, NoError);
+    const OptionalInstance = Instance(i32, error{});
     const policy = struct {
         /// Choose the direct-return branch for this optional-family test.
         pub fn resumeOrReturn() prompt_contract.ResumeOrReturn(i32, []const u8) {
@@ -213,8 +239,7 @@ test "optional handle can return now without resuming the body tail" {
 }
 
 test "optional handle can resume and transform the resumed answer" {
-    const NoError = error{};
-    const OptionalInstance = Instance(i32, NoError);
+    const OptionalInstance = Instance(i32, error{});
     const policy = struct {
         /// Resume the optional request with a known value.
         pub fn resumeOrReturn() prompt_contract.ResumeOrReturn(i32, []const u8) {
@@ -270,7 +295,7 @@ test "nested same-shaped optional handles get distinct capability types" {
         var inner_ptr: ?*const OptionalInstance = null;
 
         /// Open an inner optional handle and compare its capability type.
-        pub fn outer(comptime OuterCap: type, _: anytype) shift.ResetError(NoError)!i32 {
+        pub fn outer(comptime OuterCap: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
             return try handle(i32, runtime_ptr.?, inner_ptr.?, policy, struct {
                 /// Reject capability-type collapse inside the nested handle.
                 pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(computeProgram(InnerCap, inner_ctx, struct {
@@ -303,13 +328,13 @@ test "nested same-shaped optional handles get distinct capability types" {
         /// Enter the outer optional handle and hand its capability inward.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested optional witness through the outer capability.
-            pub fn run() shift.ResetError(NoError)!i32 {
+            pub fn run() lowered_machine.ResetError(NoError)!i32 {
                 return try demo.outer(OuterCap, {});
             }
         }.run)) {
             return computeProgram(OuterCap, ctx, struct {
                 /// Re-enter the nested optional witness through the outer capability.
-                pub fn run() shift.ResetError(NoError)!i32 {
+                pub fn run() lowered_machine.ResetError(NoError)!i32 {
                     return try demo.outer(OuterCap, {});
                 }
             }.run);
