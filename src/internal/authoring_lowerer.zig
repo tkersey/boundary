@@ -136,7 +136,15 @@ fn sourcePathMatchesExpected(allocator: std.mem.Allocator, actual_path: []const 
     var repo_dir = std.fs.openDirAbsolute(build_options.package_root, .{}) catch return false;
     defer repo_dir.close();
 
-    const expected_realpath = repo_dir.realpathAlloc(allocator, expected_path) catch return false;
+    const normalized_expected = allocator.dupe(u8, expected_path) catch return false;
+    defer allocator.free(normalized_expected);
+    if (std.fs.path.sep != '/') {
+        for (normalized_expected) |*byte| {
+            if (byte.* == '/') byte.* = std.fs.path.sep;
+        }
+    }
+
+    const expected_realpath = repo_dir.realpathAlloc(allocator, normalized_expected) catch return false;
     defer allocator.free(expected_realpath);
     return std.mem.eql(u8, actual_realpath, expected_realpath);
 }
@@ -173,6 +181,58 @@ fn entryFunctionSourceSlice(tree: std.zig.Ast, source: []const u8, name: []const
         return source[start..end];
     }
     return null;
+}
+
+fn appendMemberSource(list: *std.ArrayList(u8), allocator: std.mem.Allocator, source: []const u8, tree: std.zig.Ast, member: std.zig.Ast.Node.Index) !void {
+    const start = tree.tokenStart(tree.firstToken(member));
+    const last = tree.lastToken(member);
+    const end = tree.tokenStart(last) + @as(u32, @intCast(tree.tokenSlice(last).len));
+    try list.appendSlice(allocator, source[start..end]);
+    if (end >= source.len or source[end - 1] != '\n') try list.append(allocator, '\n');
+}
+
+fn isSharedWitnessEntry(tree: std.zig.Ast, member: std.zig.Ast.Node.Index) bool {
+    var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
+    const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse return false;
+    const name_token = fn_proto.name_token orelse return false;
+    return std.mem.startsWith(u8, tree.tokenSlice(name_token), "run");
+}
+
+fn sharedWitnessCompareSourceAlloc(
+    allocator: std.mem.Allocator,
+    source_z: [:0]const u8,
+    tree: std.zig.Ast,
+    entry_symbol: []const u8,
+) ![]u8 {
+    var container_buffer: [2]std.zig.Ast.Node.Index = undefined;
+    const root = tree.fullContainerDecl(&container_buffer, .root) orelse return error.InvalidCanonicalSource;
+    var compare_source = std.ArrayList(u8).empty;
+    defer compare_source.deinit(allocator);
+    var found_entry = false;
+
+    for (root.ast.members) |member| {
+        if (isSharedWitnessEntry(tree, member)) {
+            var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
+            const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse unreachable;
+            const name_token = fn_proto.name_token orelse unreachable;
+            if (!std.mem.eql(u8, tree.tokenSlice(name_token), entry_symbol)) continue;
+            found_entry = true;
+        }
+        if (!isSharedWitnessEntry(tree, member) or found_entry) {
+            try appendMemberSource(&compare_source, allocator, source_z, tree, member);
+            found_entry = false;
+        }
+    }
+    if (compare_source.items.len == 0) return error.InvalidCanonicalSource;
+    return try compare_source.toOwnedSlice(allocator);
+}
+
+fn includeEntryCompareMember(tree: std.zig.Ast, member: std.zig.Ast.Node.Index, entry_symbol: []const u8) bool {
+    if (!isSharedWitnessEntry(tree, member)) return true;
+    var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
+    const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse return false;
+    const name_token = fn_proto.name_token orelse return false;
+    return std.mem.eql(u8, tree.tokenSlice(name_token), entry_symbol);
 }
 
 fn diagnosticAt(
@@ -399,8 +459,9 @@ fn normalizedComparisonSourceAlloc(
             var tree = std.zig.Ast.parse(allocator, source_z, .zig) catch return null;
             defer tree.deinit(allocator);
             if (tree.errors.len != 0) return null;
-            const entry_source = entryFunctionSourceSlice(tree, source_z, case.entry_symbol) orelse return null;
-            return normalizeSourceForHashAlloc(allocator, entry_source) catch null;
+            const compare_source = sharedWitnessCompareSourceAlloc(allocator, source_z, tree, case.entry_symbol) catch return null;
+            defer allocator.free(compare_source);
+            return normalizeSourceForHashAlloc(allocator, compare_source) catch null;
         },
     }
 }
@@ -430,13 +491,34 @@ fn normalizedComparisonTokensAlloc(
     switch (case.compare_scope) {
         .file => return normalizeTokensAlloc(allocator, tree),
         .entry => {
-            const entry_source = entryFunctionSourceSlice(tree.*, source, case.entry_symbol) orelse return error.InvalidCanonicalSource;
-            const entry_z = try allocator.dupeZ(u8, entry_source);
-            defer allocator.free(entry_z);
-            var entry_tree = try std.zig.Ast.parse(allocator, entry_z, .zig);
-            defer entry_tree.deinit(allocator);
-            if (entry_tree.errors.len != 0) return error.InvalidCanonicalSource;
-            return normalizeTokensAlloc(allocator, &entry_tree);
+            _ = source;
+            var container_buffer: [2]std.zig.Ast.Node.Index = undefined;
+            const root = tree.fullContainerDecl(&container_buffer, .root) orelse return error.InvalidCanonicalSource;
+            var out = std.ArrayList(NormalizedToken).empty;
+            errdefer {
+                for (out.items) |item| allocator.free(item.value);
+                out.deinit(allocator);
+            }
+
+            var previous_kept_tag: ?std.zig.Token.Tag = null;
+            for (root.ast.members) |member| {
+                if (!includeEntryCompareMember(tree.*, member, case.entry_symbol)) continue;
+                const first = tree.firstToken(member);
+                const last = tree.lastToken(member);
+                var raw_index: usize = first;
+                while (raw_index <= last) : (raw_index += 1) {
+                    const token_index: std.zig.Ast.TokenIndex = @intCast(raw_index);
+                    const tag = tree.tokenTag(token_index);
+                    if (shouldSkipToken(tag)) continue;
+                    try out.append(allocator, .{
+                        .value = try normalizedTokenValueAlloc(allocator, tree, token_index, previous_kept_tag),
+                        .token_index = token_index,
+                    });
+                    previous_kept_tag = tag;
+                }
+            }
+            if (out.items.len == 0) return error.InvalidCanonicalSource;
+            return try out.toOwnedSlice(allocator);
         },
     }
 }

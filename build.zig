@@ -129,6 +129,24 @@ fn entryFunctionSourceSlice(tree: std.zig.Ast, source: []const u8, name: []const
     return null;
 }
 
+fn appendMemberSource(list: *std.ArrayList(u8), allocator: std.mem.Allocator, source: []const u8, tree: std.zig.Ast, member: std.zig.Ast.Node.Index) void {
+    const start = tree.tokenStart(tree.firstToken(member));
+    const last = tree.lastToken(member);
+    const end = tree.tokenStart(last) + @as(u32, @intCast(tree.tokenSlice(last).len));
+    list.appendSlice(allocator, source[start..end]) catch
+        std.process.fatal("unable to append canonical source-lowering member", .{});
+    if (end >= source.len or source[end - 1] != '\n') {
+        list.append(allocator, '\n') catch std.process.fatal("unable to terminate canonical source-lowering member", .{});
+    }
+}
+
+fn isSharedWitnessEntry(tree: std.zig.Ast, member: std.zig.Ast.Node.Index) bool {
+    var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
+    const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse return false;
+    const name_token = fn_proto.name_token orelse return false;
+    return std.mem.startsWith(u8, tree.tokenSlice(name_token), "run");
+}
+
 fn canonicalEntrySourceHash(b: *std.Build, path: []const u8, entry_symbol: []const u8) [32]u8 {
     const bytes = std.fs.cwd().readFileAlloc(b.allocator, b.pathFromRoot(path), 1 << 20) catch
         std.process.fatal("unable to read canonical source-lowering source", .{});
@@ -143,9 +161,31 @@ fn canonicalEntrySourceHash(b: *std.Build, path: []const u8, entry_symbol: []con
     defer tree.deinit(b.allocator);
     if (tree.errors.len != 0) std.process.fatal("canonical source-lowering source failed to parse", .{});
 
-    const entry_source = entryFunctionSourceSlice(tree, source_z, entry_symbol) orelse
+    var compare_source = std.ArrayList(u8).empty;
+    defer compare_source.deinit(b.allocator);
+
+    var container_buffer: [2]std.zig.Ast.Node.Index = undefined;
+    const root = tree.fullContainerDecl(&container_buffer, .root) orelse
+        std.process.fatal("unable to inspect canonical source-lowering root", .{});
+    var found_entry = false;
+    for (root.ast.members) |member| {
+        if (isSharedWitnessEntry(tree, member)) {
+            var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
+            const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse unreachable;
+            const name_token = fn_proto.name_token orelse unreachable;
+            if (!std.mem.eql(u8, tree.tokenSlice(name_token), entry_symbol)) continue;
+            found_entry = true;
+        }
+        if (!isSharedWitnessEntry(tree, member) or found_entry) {
+            appendMemberSource(&compare_source, b.allocator, source_z, tree, member);
+            found_entry = false;
+        }
+    }
+    if (compare_source.items.len == 0) {
         std.process.fatal("unable to locate canonical source-lowering entry {s} in {s}", .{ entry_symbol, path });
-    const normalized = normalizeSourceForHashAlloc(b.allocator, entry_source) catch
+    }
+
+    const normalized = normalizeSourceForHashAlloc(b.allocator, compare_source.items) catch
         std.process.fatal("unable to normalize canonical source-lowering entry", .{});
     defer b.allocator.free(normalized);
 
