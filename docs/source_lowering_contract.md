@@ -119,8 +119,9 @@ docs/lowering_equivalence_report.json
 ```
 
 It records the current accepted source, promoted, witness, and bridge
-rows together with transcript status and, where a matching source-lowering row
-exists, witness-equivalence status.
+rows together with transcript status and the checked witness status
+(`supported`, `unsupported`, or `not_applicable` when no matching
+source-lowering proof row exists).
 
 The checked rejection artifact is:
 

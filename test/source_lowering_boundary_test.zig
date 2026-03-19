@@ -148,6 +148,26 @@ test "source-lowering accepts comment-only edits to canonical fixtures" {
     try std.testing.expect(lowered.isAccepted());
 }
 
+test "inline source lowering rejects non-canonical source paths even for canonical text" {
+    const canonical_text = try std.fs.cwd().readFileAlloc(
+        std.testing.allocator,
+        "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        1 << 20,
+    );
+    defer std.testing.allocator.free(canonical_text);
+
+    var lowered = try source_lowering.inspectInlineSource(std.testing.allocator, .{
+        .case_id = "source.branch_resume",
+        .source_path = "/tmp/shift-inline-noncanonical.zig",
+        .entry_symbol = "run",
+        .surface_kind = .source_case,
+    }, canonical_text);
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(!lowered.isAccepted());
+    try std.testing.expectEqualStrings("non_canonical_source_path", lowered.diagnostics[0].code);
+}
+
 test "source-lowering rejects drifted canonical files even when the path stays canonical" {
     const fixture_path = "test/source_lowering_corpus/fixtures/helper_call_resume.zig";
 
@@ -182,6 +202,27 @@ test "source-lowering rejects drifted canonical files even when the path stays c
 
     try std.testing.expect(!lowered.isAccepted());
     try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+}
+
+test "file-backed inline source lowering preserves parse-error locations" {
+    const broken =
+        \\pub fn run(writer: anytype) anyerror!void {
+        \\    this is not zig
+        \\}
+    ;
+
+    var lowered = try source_lowering.inspectFileBackedInlineSource(std.testing.allocator, .{
+        .case_id = "source.branch_resume",
+        .source_path = "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        .entry_symbol = "run",
+        .surface_kind = .source_case,
+    }, broken);
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(!lowered.isAccepted());
+    try std.testing.expectEqualStrings("parse_error", lowered.diagnostics[0].code);
+    try std.testing.expectEqual(@as(usize, 2), lowered.diagnostics[0].line);
+    try std.testing.expectEqual(@as(usize, 10), lowered.diagnostics[0].column);
 }
 
 test "shared witness rows ignore unrelated sibling edits in the same source file" {
@@ -251,6 +292,24 @@ test "source-lowering owns rejected source paths" {
     try std.testing.expect(!lowered.isAccepted());
     try std.testing.expectEqualStrings(original_path, lowered.source_path);
     try std.testing.expectEqualStrings(original_path, lowered.diagnostics[0].path);
+}
+
+test "accepted source-lowering rows canonicalize source paths" {
+    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(original_cwd);
+    try std.posix.chdir("examples");
+    defer std.posix.chdir(original_cwd) catch unreachable;
+
+    var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
+        .case_id = "example.define_basic",
+        .source_path = "define_basic.zig",
+        .entry_symbol = "run",
+        .surface_kind = .example,
+    });
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(lowered.isAccepted());
+    try std.testing.expectEqualStrings("examples/define_basic.zig", lowered.source_path);
 }
 
 test "source-lowering rejects mismatched expected_status values" {

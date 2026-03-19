@@ -542,6 +542,13 @@ pub fn lowerFileBackedSourceText(
             1,
         ));
     }
+    const source_z = try allocator.dupeZ(u8, source_text);
+    defer allocator.free(source_z);
+    var tree = try std.zig.Ast.parse(allocator, source_z, .zig);
+    defer tree.deinit(allocator);
+    if (tree.errors.len != 0) {
+        return rejectedResult(allocator, case, display_path, try parseFailureDiagnostic(allocator, display_path, source_z, tree));
+    }
     if (!sourceTextMatchesCanonicalHash(allocator, case, source_text)) {
         return rejectedResult(allocator, case, display_path, try diagnosticAt(
             allocator,
@@ -594,11 +601,12 @@ fn acceptedResult(
     case: CanonicalCase,
     display_path: []const u8,
 ) !LoweredAuthoring {
+    _ = display_path;
     const scenario = parity_scenarios.byId(case.scenario_id);
     return .{
         .case_id = case.case_id,
         .label = case.label,
-        .source_path = try duplicatedSourcePath(allocator, display_path),
+        .source_path = try duplicatedSourcePath(allocator, case.source_path),
         .surface_kind = case.surface_kind,
         .status = case.status,
         .canonical_scenario_id = case.scenario_id,

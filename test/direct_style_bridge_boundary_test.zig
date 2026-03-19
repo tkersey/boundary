@@ -41,3 +41,11 @@ test "bridge fixtures fail closed when the shared lowerer cannot read canonical 
     var writer = std.Io.Writer.fixed(&buffer);
     try std.testing.expectError(error.RejectedBridgeFixture, private_lowered_runtime.runBridgeFixture(early_exit, &writer));
 }
+
+test "bridge case ids still execute through the lowered runtime seam" {
+    var buffer: [128]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    const execution = try private_lowered_runtime.runCaseId(&writer, "early_exit");
+    try std.testing.expectEqualStrings("bridge.early_exit", execution.label);
+    try std.testing.expectEqualStrings("early_exit", execution.scenario.case_id);
+}

@@ -12,6 +12,19 @@ const ReportSpec = struct {
     surface_kind: source_lowering.SurfaceKind,
 };
 
+const WitnessStatus = enum {
+    supported,
+    unsupported,
+    not_applicable,
+};
+
+const ProofSpec = struct {
+    case_id: []const u8,
+    source_path: []const u8,
+    entry_symbol: []const u8,
+    surface_kind: source_lowering.SurfaceKind,
+};
+
 const source_specs = [_]ReportSpec{
     .{ .case_id = "source.local_mutation_resume", .source_path = "test/source_lowering_corpus/fixtures/local_mutation_resume.zig", .surface_kind = .source_case },
     .{ .case_id = "source.branch_resume", .source_path = "test/source_lowering_corpus/fixtures/branch_resume.zig", .surface_kind = .source_case },
@@ -88,39 +101,45 @@ fn writeFeatureFlags(writer: anytype, flags: []const []const u8) !void {
     try writer.writeByte(']');
 }
 
-fn bridgeProofCaseId(allocator: std.mem.Allocator, case: bridge_manifest.Case) !?[]const u8 {
-    var buffer = std.ArrayList(u8).empty;
-    errdefer buffer.deinit(allocator);
+fn bridgeProofSpec(allocator: std.mem.Allocator, case: bridge_manifest.Case) !?ProofSpec {
     switch (case.source_kind) {
-        .witness => {
-            try buffer.appendSlice(allocator, "witness.");
-            try buffer.appendSlice(allocator, case.case_id);
-            return try buffer.toOwnedSlice(allocator);
+        .witness => return .{
+            .case_id = try std.fmt.allocPrint(allocator, "witness.{s}", .{case.case_id}),
+            .source_path = case.source_module,
+            .entry_symbol = case.entry_symbol,
+            .surface_kind = .witness,
         },
         .example => {
             if (std.mem.eql(u8, case.case_id, "generator")) return null;
-            try buffer.appendSlice(allocator, "example.");
-            try buffer.appendSlice(allocator, case.case_id);
-            return try buffer.toOwnedSlice(allocator);
+            return .{
+                .case_id = try std.fmt.allocPrint(allocator, "example.{s}", .{case.case_id}),
+                .source_path = case.source_module,
+                .entry_symbol = case.entry_symbol,
+                .surface_kind = .example,
+            };
         },
     }
 }
 
-fn bridgeWitnessEquivalence(allocator: std.mem.Allocator, case: bridge_manifest.Case) !bool {
-    const proof_case_id = try bridgeProofCaseId(allocator, case) orelse return false;
-    defer allocator.free(proof_case_id);
+fn witnessStatus(lowered: *const source_lowering.GeneratedProgram) WitnessStatus {
+    if (!lowered.isAccepted()) return .unsupported;
+    if (lowered.error_witness.support_status != .supported) return .unsupported;
+    if (lowered.error_witness.diagnostics.len != 0) return .unsupported;
+    return .supported;
+}
+
+fn bridgeWitnessStatus(allocator: std.mem.Allocator, case: bridge_manifest.Case) !WitnessStatus {
+    const proof = try bridgeProofSpec(allocator, case) orelse return .not_applicable;
+    defer allocator.free(proof.case_id);
 
     var lowered = try source_lowering.inspectSource(allocator, .{
-        .case_id = proof_case_id,
-        .source_path = case.source_module,
-        .entry_symbol = case.entry_symbol,
-        .surface_kind = switch (case.source_kind) {
-            .witness => .witness,
-            .example => .example,
-        },
+        .case_id = proof.case_id,
+        .source_path = proof.source_path,
+        .entry_symbol = proof.entry_symbol,
+        .surface_kind = proof.surface_kind,
     });
     defer lowered.deinit(allocator);
-    return lowered.isAccepted() and lowered.error_witness.support_status == .supported and lowered.error_witness.diagnostics.len == 0;
+    return witnessStatus(&lowered);
 }
 
 fn renderSourceRow(list: *std.ArrayList(u8), allocator: std.mem.Allocator, spec: ReportSpec, first: *bool) !void {
@@ -150,10 +169,10 @@ fn renderSourceRow(list: *std.ArrayList(u8), allocator: std.mem.Allocator, spec:
     try writeJsonString(&line.writer, spec.entry_symbol);
     try line.writer.writeAll(",\"canonical_scenario_id\":");
     try writeJsonString(&line.writer, @tagName(lowered.canonical_scenario_id.?));
-    try line.writer.print(",\"lower_status\":\"{s}\",\"transcript_equivalence\":{},\"error_witness_equivalence\":{},\"diagnostic_count\":{},\"feature_flags\":", .{
+    try line.writer.print(",\"lower_status\":\"{s}\",\"transcript_equivalence\":{},\"error_witness_status\":\"{s}\",\"diagnostic_count\":{},\"feature_flags\":", .{
         @tagName(lowered.status),
         std.mem.eql(u8, transcript_writer.buffered(), scenario.expected_transcript),
-        lowered.error_witness.support_status == .supported and lowered.error_witness.diagnostics.len == 0,
+        @tagName(witnessStatus(&lowered)),
         lowered.diagnostics.len,
     });
     try writeFeatureFlags(&line.writer, lowered.feature_flags);
@@ -185,10 +204,10 @@ fn renderBridgeRows(list: *std.ArrayList(u8), allocator: std.mem.Allocator, firs
         try writeJsonString(&line.writer, case.entry_symbol);
         try line.writer.writeAll(",\"canonical_scenario_id\":");
         try writeJsonString(&line.writer, @tagName(lowered.canonical_scenario_id.?));
-        try line.writer.print(",\"lower_status\":\"{s}\",\"transcript_equivalence\":{},\"error_witness_equivalence\":{},\"diagnostic_count\":{},\"feature_flags\":", .{
+        try line.writer.print(",\"lower_status\":\"{s}\",\"transcript_equivalence\":{},\"error_witness_status\":\"{s}\",\"diagnostic_count\":{},\"feature_flags\":", .{
             @tagName(lowered.status),
             std.mem.eql(u8, transcript_writer.buffered(), scenario.expected_transcript),
-            try bridgeWitnessEquivalence(allocator, case),
+            @tagName(try bridgeWitnessStatus(allocator, case)),
             lowered.diagnostics.len,
         });
         try writeFeatureFlags(&line.writer, lowered.feature_flags);

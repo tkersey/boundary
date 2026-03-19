@@ -1064,7 +1064,7 @@ fn inspectSourceText(
         loweringCase(spec, case),
         .{
             .display_path = spec.source_path,
-            .actual_path = case.source_path,
+            .actual_path = spec.source_path,
             .source_text = source_text,
             .expected_status = spec.expected_status,
         },
