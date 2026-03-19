@@ -1648,7 +1648,6 @@ pub fn build(b: *std.Build) void {
         var builder = zlinter.builder(b, .{});
         inline for (@typeInfo(zlinter.BuiltinLintRule).@"enum".fields) |field| {
             const rule: zlinter.BuiltinLintRule = @enumFromInt(field.value);
-            if (rule == .no_undefined) continue;
             builder.addRule(.{ .builtin = rule }, .{});
         }
         break :step builder.build();

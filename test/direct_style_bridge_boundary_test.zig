@@ -25,7 +25,7 @@ test "blocked bridge witness cases fail closed through the lowered seam" {
     }
 }
 
-test "bridge fixtures fail closed when the shared lowerer cannot read canonical sources" {
+test "bridge fixtures still execute when callers chdir outside the repo root" {
     const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(original_cwd);
 
@@ -37,9 +37,11 @@ test "bridge fixtures fail closed when the shared lowerer cannot read canonical 
     try std.posix.chdir(tmp_path);
     defer std.posix.chdir(original_cwd) catch unreachable;
 
-    var buffer: [1]u8 = undefined;
+    var buffer: [128]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buffer);
-    try std.testing.expectError(error.RejectedBridgeFixture, private_lowered_runtime.runBridgeFixture(early_exit, &writer));
+    const execution = try private_lowered_runtime.runBridgeFixture(early_exit, &writer);
+    try std.testing.expectEqualStrings("bridge.early_exit", execution.label);
+    try std.testing.expectEqualStrings("early_exit", execution.scenario.case_id);
 }
 
 test "bridge case ids still execute through the lowered runtime seam" {

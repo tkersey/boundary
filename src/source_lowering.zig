@@ -934,6 +934,16 @@ fn resolvedSourcePathAlloc(allocator: std.mem.Allocator, source_path: []const u8
     return try std.fs.cwd().realpathAlloc(allocator, source_path);
 }
 
+fn resolvedRepoSourcePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
+    if (std.fs.path.isAbsolute(source_path)) {
+        return try std.fs.cwd().realpathAlloc(allocator, source_path);
+    }
+
+    var repo_dir = try std.fs.openDirAbsolute(build_options.package_root, .{});
+    defer repo_dir.close();
+    return try repo_dir.realpathAlloc(allocator, source_path);
+}
+
 fn generatedProgramFromLowered(
     allocator: std.mem.Allocator,
     spec: Spec,
@@ -1059,12 +1069,15 @@ fn inspectSourceText(
         return generatedRejectedProgram(allocator, spec, case, "requested expected_status does not match the supported status for this case");
     }
 
+    const resolved_source_path = resolvedRepoSourcePathAlloc(allocator, spec.source_path) catch try allocator.dupe(u8, spec.source_path);
+    defer allocator.free(resolved_source_path);
+
     const lowered = try authoring_lowerer.lowerSourceText(
         allocator,
         loweringCase(spec, case),
         .{
             .display_path = spec.source_path,
-            .actual_path = spec.source_path,
+            .actual_path = resolved_source_path,
             .source_text = source_text,
             .expected_status = spec.expected_status,
         },

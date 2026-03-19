@@ -168,6 +168,31 @@ test "inline source lowering rejects non-canonical source paths even for canonic
     try std.testing.expectEqualStrings("non_canonical_source_path", lowered.diagnostics[0].code);
 }
 
+test "inline source lowering accepts canonical repo-relative paths from subdirectories" {
+    const canonical_text = try std.fs.cwd().readFileAlloc(
+        std.testing.allocator,
+        "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        1 << 20,
+    );
+    defer std.testing.allocator.free(canonical_text);
+
+    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(original_cwd);
+    try std.posix.chdir("examples");
+    defer std.posix.chdir(original_cwd) catch unreachable;
+
+    var lowered = try source_lowering.inspectInlineSource(std.testing.allocator, .{
+        .case_id = "source.branch_resume",
+        .source_path = "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        .entry_symbol = "run",
+        .surface_kind = .source_case,
+    }, canonical_text);
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(lowered.isAccepted());
+    try std.testing.expectEqualStrings("test/source_lowering_corpus/fixtures/branch_resume.zig", lowered.source_path);
+}
+
 test "source-lowering rejects drifted canonical files even when the path stays canonical" {
     const fixture_path = "test/source_lowering_corpus/fixtures/helper_call_resume.zig";
 

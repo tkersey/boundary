@@ -149,6 +149,16 @@ fn sourcePathMatchesExpected(allocator: std.mem.Allocator, actual_path: []const 
     return std.mem.eql(u8, actual_realpath, expected_realpath);
 }
 
+pub fn resolveRepoSourcePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
+    if (std.fs.path.isAbsolute(source_path)) {
+        return try std.fs.cwd().realpathAlloc(allocator, source_path);
+    }
+
+    var repo_dir = try std.fs.openDirAbsolute(build_options.package_root, .{});
+    defer repo_dir.close();
+    return try repo_dir.realpathAlloc(allocator, source_path);
+}
+
 fn readCanonicalSource(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
     var repo_dir = try std.fs.openDirAbsolute(build_options.package_root, .{});
     defer repo_dir.close();
