@@ -88,6 +88,41 @@ fn writeFeatureFlags(writer: anytype, flags: []const []const u8) !void {
     try writer.writeByte(']');
 }
 
+fn bridgeProofCaseId(allocator: std.mem.Allocator, case: bridge_manifest.Case) !?[]const u8 {
+    var buffer = std.ArrayList(u8).empty;
+    errdefer buffer.deinit(allocator);
+    switch (case.source_kind) {
+        .witness => {
+            try buffer.appendSlice(allocator, "witness.");
+            try buffer.appendSlice(allocator, case.case_id);
+            return try buffer.toOwnedSlice(allocator);
+        },
+        .example => {
+            if (std.mem.eql(u8, case.case_id, "generator")) return null;
+            try buffer.appendSlice(allocator, "example.");
+            try buffer.appendSlice(allocator, case.case_id);
+            return try buffer.toOwnedSlice(allocator);
+        },
+    }
+}
+
+fn bridgeWitnessEquivalence(allocator: std.mem.Allocator, case: bridge_manifest.Case) !bool {
+    const proof_case_id = try bridgeProofCaseId(allocator, case) orelse return false;
+    defer allocator.free(proof_case_id);
+
+    var lowered = try source_lowering.inspectSource(allocator, .{
+        .case_id = proof_case_id,
+        .source_path = case.source_module,
+        .entry_symbol = case.entry_symbol,
+        .surface_kind = switch (case.source_kind) {
+            .witness => .witness,
+            .example => .example,
+        },
+    });
+    defer lowered.deinit(allocator);
+    return lowered.isAccepted() and lowered.error_witness.support_status == .supported and lowered.error_witness.diagnostics.len == 0;
+}
+
 fn renderSourceRow(list: *std.ArrayList(u8), allocator: std.mem.Allocator, spec: ReportSpec, first: *bool) !void {
     var lowered = try source_lowering.inspectSource(allocator, .{
         .case_id = spec.case_id,
@@ -150,9 +185,10 @@ fn renderBridgeRows(list: *std.ArrayList(u8), allocator: std.mem.Allocator, firs
         try writeJsonString(&line.writer, case.entry_symbol);
         try line.writer.writeAll(",\"canonical_scenario_id\":");
         try writeJsonString(&line.writer, @tagName(lowered.canonical_scenario_id.?));
-        try line.writer.print(",\"lower_status\":\"{s}\",\"transcript_equivalence\":{},\"error_witness_equivalence\":true,\"diagnostic_count\":{},\"feature_flags\":", .{
+        try line.writer.print(",\"lower_status\":\"{s}\",\"transcript_equivalence\":{},\"error_witness_equivalence\":{},\"diagnostic_count\":{},\"feature_flags\":", .{
             @tagName(lowered.status),
             std.mem.eql(u8, transcript_writer.buffered(), scenario.expected_transcript),
+            try bridgeWitnessEquivalence(allocator, case),
             lowered.diagnostics.len,
         });
         try writeFeatureFlags(&line.writer, lowered.feature_flags);

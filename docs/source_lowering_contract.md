@@ -119,7 +119,8 @@ docs/lowering_equivalence_report.json
 ```
 
 It records the current accepted source, promoted, witness, and bridge
-rows together with transcript and witness-equivalence status.
+rows together with transcript status and, where a matching source-lowering row
+exists, witness-equivalence status.
 
 The checked rejection artifact is:
 
