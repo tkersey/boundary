@@ -982,6 +982,7 @@ pub fn build(b: *std.Build) void {
     });
     const run_structured_witness_runner_tests = b.addRunArtifact(structured_witness_runner_tests);
     structured_program_step.dependOn(&run_structured_witness_runner_tests.step);
+    test_step.dependOn(&run_structured_witness_runner_tests.step);
 
     const bridge_witness_runner_mod = b.createModule(.{
         .root_source_file = b.path("test/direct_style_bridge_witness_test.zig"),
@@ -996,6 +997,7 @@ pub fn build(b: *std.Build) void {
     });
     const run_bridge_witness_runner_tests = b.addRunArtifact(bridge_witness_runner_tests);
     bridge_parity_step.dependOn(&run_bridge_witness_runner_tests.step);
+    test_step.dependOn(&run_bridge_witness_runner_tests.step);
 
     const lexical_witness_mod = b.createModule(.{
         .root_source_file = b.path("test/lexical_witness_test.zig"),
