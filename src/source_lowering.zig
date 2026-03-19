@@ -899,7 +899,6 @@ fn duplicateFeatureFlags(allocator: std.mem.Allocator, flags: []const []const u8
     return duped;
 }
 
-
 fn duplicateWitnessDiagnostics(
     allocator: std.mem.Allocator,
     diagnostics: []const Diagnostic,
@@ -917,26 +916,14 @@ fn duplicateWitnessDiagnostics(
     return duped;
 }
 
-
 fn duplicateSourcePath(allocator: std.mem.Allocator, path: []const u8) std.mem.Allocator.Error![]const u8 {
     return try allocator.dupe(u8, path);
 }
-
-
-
-
 
 fn resolvedSourcePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
     _ = build_options;
     return try std.fs.cwd().realpathAlloc(allocator, source_path);
 }
-
-
-
-
-
-
-
 
 fn generatedProgramFromLowered(
     allocator: std.mem.Allocator,
@@ -950,6 +937,7 @@ fn generatedProgramFromLowered(
         allocator.free(lowered.diagnostics);
         for (translated) |*diag| {
             if (std.mem.eql(u8, diag.code, "structural_mismatch") or
+                std.mem.eql(u8, diag.code, "canonical_source_drift") or
                 std.mem.eql(u8, diag.code, "expected_status_mismatch") or
                 std.mem.eql(u8, diag.code, "entry_missing"))
             {

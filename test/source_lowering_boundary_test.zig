@@ -148,6 +148,46 @@ test "source-lowering accepts comment-only edits to canonical fixtures" {
     try std.testing.expect(lowered.isAccepted());
 }
 
+test "source-lowering rejects drifted canonical files even when the path stays canonical" {
+    const fixture_path = "test/source_lowering_corpus/fixtures/helper_call_resume.zig";
+    const original = try std.fs.cwd().readFileAlloc(std.testing.allocator, fixture_path, 1 << 20);
+    defer std.testing.allocator.free(original);
+    defer std.fs.cwd().writeFile(.{ .sub_path = fixture_path, .data = original }) catch unreachable;
+
+    const drifted =
+        \\/// Stable source-lowering case id.
+        \\pub const source_case_id = "source.helper_call_resume";
+        \\/// Embedded source text consumed by the source-validated source-lowering checker.
+        \\pub const source = @embedFile("helper_call_resume.zig");
+        \\
+        \\fn helper(writer: anytype) anyerror!i32 {
+        \\    try writer.writeAll("helper=enter\n");
+        \\    const resumed: i32 = 41;
+        \\    try writer.print("resume={d}\n", .{resumed});
+        \\    try writer.writeAll("helper=exit\n");
+        \\    return resumed + 2;
+        \\}
+        \\
+        \\/// Run the helper-call case with source-lowering control flow.
+        \\pub fn run(writer: anytype) anyerror!void {
+        \\    const answer = try helper(writer);
+        \\    try writer.print("final={d}\n", .{answer});
+        \\}
+    ;
+    try std.fs.cwd().writeFile(.{ .sub_path = fixture_path, .data = drifted });
+
+    var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
+        .case_id = "source.helper_call_resume",
+        .source_path = fixture_path,
+        .entry_symbol = "run",
+        .surface_kind = .source_case,
+    });
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(!lowered.isAccepted());
+    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+}
+
 test "source-lowering owns rejected source paths" {
     const original_path = "test/source_lowering_corpus/fixtures/helper_call_resume.zig";
     const mutable_path = try std.testing.allocator.dupe(u8, original_path);

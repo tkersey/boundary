@@ -1,4 +1,4 @@
-const build_options = @import("build_options");
+const build_options = @import("authoring_build_options");
 const lowered_machine = @import("lowered_machine");
 const parity_scenarios = @import("parity_scenarios");
 const std = @import("std");
@@ -220,7 +220,7 @@ fn normalizedTokenValueAlloc(
         if (previous_kept_tag == .period) {
             return try std.fmt.allocPrint(allocator, "member:{s}", .{tree.tokenSlice(token_index)});
         }
-        return try allocator.dupe(u8, "identifier");
+        return try std.fmt.allocPrint(allocator, "identifier:{s}", .{tree.tokenSlice(token_index)});
     }
     if (tokenLiteralKind(tag)) {
         return try std.fmt.allocPrint(allocator, "literal:{s}", .{tree.tokenSlice(token_index)});
@@ -283,6 +283,87 @@ fn findMismatch(actual: []const NormalizedToken, canonical: []const NormalizedTo
 
 fn duplicatedSourcePath(allocator: std.mem.Allocator, display_path: []const u8) ![]const u8 {
     return try allocator.dupe(u8, display_path);
+}
+
+fn canonicalSourceHash(expected_path: []const u8) ?[32]u8 {
+    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/local_mutation_resume.zig")) return build_options.hash_local_mutation_resume;
+    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/branch_resume.zig")) return build_options.hash_branch_resume;
+    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/loop_resume.zig")) return build_options.hash_loop_resume;
+    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/helper_call_resume.zig")) return build_options.hash_helper_call_resume;
+    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/nested_prompt_static_redelim.zig")) return build_options.hash_nested_prompt_static_redelim;
+    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/typed_error_try.zig")) return build_options.hash_typed_error_try;
+    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/defer_resume.zig")) return build_options.hash_defer_resume;
+    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/errdefer_error.zig")) return build_options.hash_errdefer_error;
+    if (std.mem.eql(u8, expected_path, "examples/define_basic.zig")) return build_options.hash_define_basic;
+    if (std.mem.eql(u8, expected_path, "examples/define_choice_basic.zig")) return build_options.hash_define_choice_basic;
+    if (std.mem.eql(u8, expected_path, "examples/define_abort_basic.zig")) return build_options.hash_define_abort_basic;
+    if (std.mem.eql(u8, expected_path, "examples/early_exit.zig")) return build_options.hash_early_exit;
+    if (std.mem.eql(u8, expected_path, "examples/generator.zig")) return build_options.hash_generator;
+    if (std.mem.eql(u8, expected_path, "examples/resume_or_return.zig")) return build_options.hash_resume_or_return;
+    if (std.mem.eql(u8, expected_path, "examples/front_door_workflow.zig")) return build_options.hash_front_door_workflow;
+    if (std.mem.eql(u8, expected_path, "examples/nested_workflow.zig")) return build_options.hash_nested_workflow;
+    if (std.mem.eql(u8, expected_path, "examples/state_basic.zig")) return build_options.hash_state_basic;
+    if (std.mem.eql(u8, expected_path, "examples/reader_basic.zig")) return build_options.hash_reader_basic;
+    if (std.mem.eql(u8, expected_path, "examples/optional_basic.zig")) return build_options.hash_optional_basic;
+    if (std.mem.eql(u8, expected_path, "examples/exception_basic.zig")) return build_options.hash_exception_basic;
+    if (std.mem.eql(u8, expected_path, "examples/resource_basic.zig")) return build_options.hash_resource_basic;
+    if (std.mem.eql(u8, expected_path, "examples/writer_basic.zig")) return build_options.hash_writer_basic;
+    if (std.mem.eql(u8, expected_path, "examples/algebraic_abortive_validation.zig")) return build_options.hash_algebraic_abortive_validation;
+    if (std.mem.eql(u8, expected_path, "examples/algebraic_artifact_search.zig")) return build_options.hash_algebraic_artifact_search;
+    if (std.mem.eql(u8, expected_path, "src/witness_sources.zig")) return build_options.hash_witness_sources;
+    return null;
+}
+
+fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
+    var out = std.ArrayList(u8).empty;
+    defer out.deinit(allocator);
+
+    var in_string = false;
+    var escaped = false;
+    var idx: usize = 0;
+    while (idx < source.len) : (idx += 1) {
+        const byte = source[idx];
+        if (in_string) {
+            try out.append(allocator, byte);
+            if (escaped) {
+                escaped = false;
+            } else if (byte == '\\') {
+                escaped = true;
+            } else if (byte == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if (byte == '"') {
+            in_string = true;
+            try out.append(allocator, byte);
+            continue;
+        }
+        if (byte == '/' and idx + 1 < source.len and source[idx + 1] == '/') {
+            idx += 2;
+            while (idx < source.len and source[idx] != '\n') : (idx += 1) {}
+            continue;
+        }
+        if (std.ascii.isWhitespace(byte)) continue;
+        try out.append(allocator, byte);
+    }
+
+    return try out.toOwnedSlice(allocator);
+}
+
+fn sourceTextMatchesCanonicalHash(
+    allocator: std.mem.Allocator,
+    expected_path: []const u8,
+    source_text: []const u8,
+) bool {
+    const expected_hash = canonicalSourceHash(expected_path) orelse return false;
+    const normalized = normalizeSourceForHashAlloc(allocator, source_text) catch return false;
+    defer allocator.free(normalized);
+
+    var actual_hash: [32]u8 = undefined;
+    std.crypto.hash.Blake3.hash(normalized, &actual_hash, .{});
+    return std.mem.eql(u8, &actual_hash, &expected_hash);
 }
 
 fn rejectedResult(
@@ -432,6 +513,26 @@ pub fn lowerSourceFile(
         ));
     };
     defer allocator.free(source);
+    if (!sourcePathMatchesExpected(allocator, actual_path, case.source_path)) {
+        return rejectedResult(allocator, case, display_path, try diagnosticAt(
+            allocator,
+            display_path,
+            "non_canonical_source_path",
+            "source path does not match the canonical repo-owned path for this case",
+            1,
+            1,
+        ));
+    }
+    if (!sourceTextMatchesCanonicalHash(allocator, case.source_path, source)) {
+        return rejectedResult(allocator, case, display_path, try diagnosticAt(
+            allocator,
+            display_path,
+            "canonical_source_drift",
+            "source no longer matches the canonical repo-owned source for this case",
+            1,
+            1,
+        ));
+    }
     return lowerSourceText(allocator, case, .{
         .display_path = display_path,
         .actual_path = actual_path,
