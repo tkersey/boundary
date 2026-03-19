@@ -12,7 +12,7 @@ The public authored-body surface remains:
 
 - `shift.Program(.{ ... }, Body)`
 - `shift.run(&runtime, Program, bindings)`
-- `shift.decl.*`, `shift.ops.*`, and `shift.Decision(...)`
+- `shift.Decl.*`, `shift.Op.*`, and `shift.Decision(...)`
 
 The source-lowering toolchain exists only as internal proof scaffolding beneath
 that public boundary. Its current implementation now compares covered rows
