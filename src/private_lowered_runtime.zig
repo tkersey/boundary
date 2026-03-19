@@ -1,6 +1,8 @@
 const bridge_manifest = @import("direct_style_bridge_manifest");
 const lowered_machine = @import("lowered_machine");
 const parity_scenarios = @import("parity_scenarios");
+const program_bridge = @import("program_bridge");
+const std = @import("std");
 
 /// One lowered execution routed through the private runtime seam.
 pub const Execution = struct {
@@ -33,5 +35,14 @@ pub fn runBridgeFixture(comptime Fixture: type, writer: anytype) anyerror!Execut
     if (!@hasDecl(Fixture, "bridge_case_id")) {
         @compileError(@typeName(Fixture) ++ " must declare bridge_case_id");
     }
-    return runCaseId(writer, Fixture.bridge_case_id);
+    var lowered = try program_bridge.lowerFixture(Fixture);
+    defer lowered.deinit(std.heap.page_allocator);
+    if (lowered.status == .rejected) return error.RejectedBridgeFixture;
+    const scenario = parity_scenarios.byId(lowered.canonical_scenario_id.?);
+    const state = lowered_machine.runSteps(lowered.steps);
+    try lowered_machine.writeTranscript(writer, &state);
+    return .{
+        .label = lowered.label,
+        .scenario = scenario,
+    };
 }

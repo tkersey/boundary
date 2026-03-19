@@ -8,6 +8,10 @@ fn canonicalBridgeCase(case: *const bridge_manifest.Case) authoring_lowerer.Cano
         .label = case.label,
         .source_path = case.source_module,
         .entry_symbol = case.entry_symbol,
+        .compare_scope = switch (case.source_kind) {
+            .example => .file,
+            .witness => .entry,
+        },
         .surface_kind = .bridge,
         .status = .canonical,
         .scenario_id = case.scenario_id,

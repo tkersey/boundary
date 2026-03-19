@@ -113,6 +113,47 @@ fn canonicalSourceHash(b: *std.Build, path: []const u8) [32]u8 {
     return digest;
 }
 
+fn entryFunctionSourceSlice(tree: std.zig.Ast, source: []const u8, name: []const u8) ?[]const u8 {
+    var container_buffer: [2]std.zig.Ast.Node.Index = undefined;
+    const root = tree.fullContainerDecl(&container_buffer, .root) orelse return null;
+    for (root.ast.members) |member| {
+        var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
+        const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse continue;
+        const name_token = fn_proto.name_token orelse continue;
+        if (!std.mem.eql(u8, tree.tokenSlice(name_token), name)) continue;
+        const start = tree.tokenStart(fn_proto.firstToken());
+        const last = tree.lastToken(member);
+        const end = tree.tokenStart(last) + @as(u32, @intCast(tree.tokenSlice(last).len));
+        return source[start..end];
+    }
+    return null;
+}
+
+fn canonicalEntrySourceHash(b: *std.Build, path: []const u8, entry_symbol: []const u8) [32]u8 {
+    const bytes = std.fs.cwd().readFileAlloc(b.allocator, b.pathFromRoot(path), 1 << 20) catch
+        std.process.fatal("unable to read canonical source-lowering source", .{});
+    defer b.allocator.free(bytes);
+
+    const source_z = b.allocator.dupeZ(u8, bytes) catch
+        std.process.fatal("unable to duplicate canonical source-lowering source", .{});
+    defer b.allocator.free(source_z);
+
+    var tree = std.zig.Ast.parse(b.allocator, source_z, .zig) catch
+        std.process.fatal("unable to parse canonical source-lowering source", .{});
+    defer tree.deinit(b.allocator);
+    if (tree.errors.len != 0) std.process.fatal("canonical source-lowering source failed to parse", .{});
+
+    const entry_source = entryFunctionSourceSlice(tree, source_z, entry_symbol) orelse
+        std.process.fatal("unable to locate canonical source-lowering entry {s} in {s}", .{ entry_symbol, path });
+    const normalized = normalizeSourceForHashAlloc(b.allocator, entry_source) catch
+        std.process.fatal("unable to normalize canonical source-lowering entry", .{});
+    defer b.allocator.free(normalized);
+
+    var digest = std.mem.zeroes([32]u8);
+    std.crypto.hash.Blake3.hash(normalized, &digest, .{});
+    return digest;
+}
+
 fn addCanonicalSourceHashOptions(b: *std.Build, options: *std.Build.Step.Options) void {
     options.addOption([32]u8, "hash_local_mutation_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/local_mutation_resume.zig"));
     options.addOption([32]u8, "hash_branch_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/branch_resume.zig"));
@@ -139,6 +180,13 @@ fn addCanonicalSourceHashOptions(b: *std.Build, options: *std.Build.Step.Options
     options.addOption([32]u8, "hash_algebraic_abortive_validation", canonicalSourceHash(b, "examples/algebraic_abortive_validation.zig"));
     options.addOption([32]u8, "hash_algebraic_artifact_search", canonicalSourceHash(b, "examples/algebraic_artifact_search.zig"));
     options.addOption([32]u8, "hash_witness_sources", canonicalSourceHash(b, "src/witness_sources.zig"));
+    options.addOption([32]u8, "hash_witness_entry_atm_resume_transform", canonicalEntrySourceHash(b, "src/witness_sources.zig", "runAtmResumeTransform"));
+    options.addOption([32]u8, "hash_witness_entry_direct_return", canonicalEntrySourceHash(b, "src/witness_sources.zig", "runDirectReturn"));
+    options.addOption([32]u8, "hash_witness_entry_resume_or_return_return_now", canonicalEntrySourceHash(b, "src/witness_sources.zig", "runResumeOrReturnReturnNow"));
+    options.addOption([32]u8, "hash_witness_entry_resume_or_return_resume", canonicalEntrySourceHash(b, "src/witness_sources.zig", "runResumeOrReturnResume"));
+    options.addOption([32]u8, "hash_witness_entry_static_redelim", canonicalEntrySourceHash(b, "src/witness_sources.zig", "runStaticRedelim"));
+    options.addOption([32]u8, "hash_witness_entry_multi_prompt", canonicalEntrySourceHash(b, "src/witness_sources.zig", "runMultiPrompt"));
+    options.addOption([32]u8, "hash_witness_entry_generator", canonicalEntrySourceHash(b, "src/witness_sources.zig", "runGenerator"));
 }
 
 fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
@@ -635,6 +683,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     bridge_boundary_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
+    bridge_boundary_mod.addImport("direct_style_bridge_early_exit", createBridgeExampleModule(b, "test/direct_style_bridge/early_exit.zig", target, optimize, .{ .name = "example_early_exit", .mod = createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }) }));
     bridge_boundary_mod.addImport("program_bridge", program_bridge_mod);
     bridge_boundary_mod.addImport("private_lowered_runtime", private_lowered_runtime_mod);
     const boundary_tests = b.addTest(.{

@@ -13,6 +13,11 @@ pub const SurfaceKind = enum {
     witness,
 };
 
+pub const CompareScope = enum {
+    file,
+    entry,
+};
+
 /// Progress state for one shared authoring-lowering result.
 pub const LowerStatus = enum {
     candidate_green,
@@ -36,6 +41,7 @@ pub const CanonicalCase = struct {
     label: []const u8,
     source_path: []const u8,
     entry_symbol: []const u8,
+    compare_scope: CompareScope = .file,
     surface_kind: SurfaceKind,
     status: LowerStatus,
     scenario_id: parity_scenarios.ScenarioId,
@@ -151,6 +157,22 @@ fn hasTopLevelFunctionNamed(tree: std.zig.Ast, name: []const u8) bool {
         if (std.mem.eql(u8, tree.tokenSlice(name_token), name)) return true;
     }
     return false;
+}
+
+fn entryFunctionSourceSlice(tree: std.zig.Ast, source: []const u8, name: []const u8) ?[]const u8 {
+    var container_buffer: [2]std.zig.Ast.Node.Index = undefined;
+    const root = tree.fullContainerDecl(&container_buffer, .root) orelse return null;
+    for (root.ast.members) |member| {
+        var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
+        const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse continue;
+        const name_token = fn_proto.name_token orelse continue;
+        if (!std.mem.eql(u8, tree.tokenSlice(name_token), name)) continue;
+        const start = tree.tokenStart(fn_proto.firstToken());
+        const last = tree.lastToken(member);
+        const end = tree.tokenStart(last) + @as(u32, @intCast(tree.tokenSlice(last).len));
+        return source[start..end];
+    }
+    return null;
 }
 
 fn diagnosticAt(
@@ -314,6 +336,18 @@ fn canonicalSourceHash(expected_path: []const u8) ?[32]u8 {
     return null;
 }
 
+fn canonicalEntryHash(case: CanonicalCase) ?[32]u8 {
+    if (!std.mem.eql(u8, case.source_path, "src/witness_sources.zig")) return null;
+    if (std.mem.eql(u8, case.entry_symbol, "runAtmResumeTransform")) return build_options.hash_witness_entry_atm_resume_transform;
+    if (std.mem.eql(u8, case.entry_symbol, "runDirectReturn")) return build_options.hash_witness_entry_direct_return;
+    if (std.mem.eql(u8, case.entry_symbol, "runResumeOrReturnReturnNow")) return build_options.hash_witness_entry_resume_or_return_return_now;
+    if (std.mem.eql(u8, case.entry_symbol, "runResumeOrReturnResume")) return build_options.hash_witness_entry_resume_or_return_resume;
+    if (std.mem.eql(u8, case.entry_symbol, "runStaticRedelim")) return build_options.hash_witness_entry_static_redelim;
+    if (std.mem.eql(u8, case.entry_symbol, "runMultiPrompt")) return build_options.hash_witness_entry_multi_prompt;
+    if (std.mem.eql(u8, case.entry_symbol, "runGenerator")) return build_options.hash_witness_entry_generator;
+    return null;
+}
+
 fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
     var out = std.ArrayList(u8).empty;
     defer out.deinit(allocator);
@@ -352,18 +386,59 @@ fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8)
     return try out.toOwnedSlice(allocator);
 }
 
+fn normalizedComparisonSourceAlloc(
+    allocator: std.mem.Allocator,
+    case: CanonicalCase,
+    source_text: []const u8,
+) ?[]u8 {
+    switch (case.compare_scope) {
+        .file => return normalizeSourceForHashAlloc(allocator, source_text) catch null,
+        .entry => {
+            const source_z = allocator.dupeZ(u8, source_text) catch return null;
+            defer allocator.free(source_z);
+            var tree = std.zig.Ast.parse(allocator, source_z, .zig) catch return null;
+            defer tree.deinit(allocator);
+            if (tree.errors.len != 0) return null;
+            const entry_source = entryFunctionSourceSlice(tree, source_z, case.entry_symbol) orelse return null;
+            return normalizeSourceForHashAlloc(allocator, entry_source) catch null;
+        },
+    }
+}
+
 fn sourceTextMatchesCanonicalHash(
     allocator: std.mem.Allocator,
-    expected_path: []const u8,
+    case: CanonicalCase,
     source_text: []const u8,
 ) bool {
-    const expected_hash = canonicalSourceHash(expected_path) orelse return false;
-    const normalized = normalizeSourceForHashAlloc(allocator, source_text) catch return false;
+    const expected_hash = switch (case.compare_scope) {
+        .file => canonicalSourceHash(case.source_path),
+        .entry => canonicalEntryHash(case),
+    } orelse return false;
+    const normalized = normalizedComparisonSourceAlloc(allocator, case, source_text) orelse return false;
     defer allocator.free(normalized);
-
     var actual_hash: [32]u8 = undefined;
     std.crypto.hash.Blake3.hash(normalized, &actual_hash, .{});
     return std.mem.eql(u8, &actual_hash, &expected_hash);
+}
+
+fn normalizedComparisonTokensAlloc(
+    allocator: std.mem.Allocator,
+    case: CanonicalCase,
+    source: [:0]const u8,
+    tree: *const std.zig.Ast,
+) ![]NormalizedToken {
+    switch (case.compare_scope) {
+        .file => return normalizeTokensAlloc(allocator, tree),
+        .entry => {
+            const entry_source = entryFunctionSourceSlice(tree.*, source, case.entry_symbol) orelse return error.InvalidCanonicalSource;
+            const entry_z = try allocator.dupeZ(u8, entry_source);
+            defer allocator.free(entry_z);
+            var entry_tree = try std.zig.Ast.parse(allocator, entry_z, .zig);
+            defer entry_tree.deinit(allocator);
+            if (entry_tree.errors.len != 0) return error.InvalidCanonicalSource;
+            return normalizeTokensAlloc(allocator, &entry_tree);
+        },
+    }
 }
 
 /// Lower one file-backed source text without rereading the file from disk.
@@ -385,7 +460,7 @@ pub fn lowerFileBackedSourceText(
             1,
         ));
     }
-    if (!sourceTextMatchesCanonicalHash(allocator, case.source_path, source_text)) {
+    if (!sourceTextMatchesCanonicalHash(allocator, case, source_text)) {
         return rejectedResult(allocator, case, display_path, try diagnosticAt(
             allocator,
             display_path,
@@ -508,9 +583,9 @@ pub fn lowerSourceText(
         return error.InvalidCanonicalSource;
     }
 
-    const actual_tokens = try normalizeTokensAlloc(allocator, &tree);
+    const actual_tokens = try normalizedComparisonTokensAlloc(allocator, case, source_z, &tree);
     defer freeNormalizedTokens(allocator, actual_tokens);
-    const canonical_tokens = try normalizeTokensAlloc(allocator, &canonical_tree);
+    const canonical_tokens = try normalizedComparisonTokensAlloc(allocator, case, canonical_z, &canonical_tree);
     defer freeNormalizedTokens(allocator, canonical_tokens);
 
     if (findMismatch(actual_tokens, canonical_tokens)) |mismatch| {

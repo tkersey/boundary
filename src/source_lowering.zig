@@ -514,6 +514,7 @@ const SupportedCase = struct {
     scenario_id: parity_scenarios.ScenarioId,
     status: LowerStatus,
     entry_symbol: []const u8 = "run",
+    compare_scope: authoring_lowerer.CompareScope = .file,
     match: Match,
 };
 
@@ -810,6 +811,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .scenario_id = .atm_resume_transform,
             .status = .canonical,
             .entry_symbol = "runAtmResumeTransform",
+            .compare_scope = .entry,
             .match = witness_atm_match,
         };
         if (std.mem.eql(u8, case_id, "witness.direct_return")) return .{
@@ -819,6 +821,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .scenario_id = .direct_return,
             .status = .canonical,
             .entry_symbol = "runDirectReturn",
+            .compare_scope = .entry,
             .match = witness_direct_match,
         };
         if (std.mem.eql(u8, case_id, "witness.resume_or_return_return_now")) return .{
@@ -828,6 +831,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .scenario_id = .resume_or_return_return_now,
             .status = .canonical,
             .entry_symbol = "runResumeOrReturnReturnNow",
+            .compare_scope = .entry,
             .match = witness_ror_return_match,
         };
         if (std.mem.eql(u8, case_id, "witness.resume_or_return_resume")) return .{
@@ -837,6 +841,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .scenario_id = .resume_or_return_resume,
             .status = .canonical,
             .entry_symbol = "runResumeOrReturnResume",
+            .compare_scope = .entry,
             .match = witness_ror_resume_match,
         };
         if (std.mem.eql(u8, case_id, "witness.static_redelim")) return .{
@@ -846,6 +851,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .scenario_id = .static_redelim,
             .status = .canonical,
             .entry_symbol = "runStaticRedelim",
+            .compare_scope = .entry,
             .match = witness_static_redelim_match,
         };
         if (std.mem.eql(u8, case_id, "witness.multi_prompt")) return .{
@@ -855,6 +861,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .scenario_id = .multi_prompt,
             .status = .canonical,
             .entry_symbol = "runMultiPrompt",
+            .compare_scope = .entry,
             .match = witness_multi_prompt_match,
         };
         if (std.mem.eql(u8, case_id, "witness.generator")) return .{
@@ -864,6 +871,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .scenario_id = .generator,
             .status = .canonical,
             .entry_symbol = "runGenerator",
+            .compare_scope = .entry,
             .match = witness_generator_match,
         };
     }
@@ -886,6 +894,7 @@ fn loweringCase(spec: Spec, case: SupportedCase) authoring_lowerer.CanonicalCase
         .label = case.label,
         .source_path = case.source_path,
         .entry_symbol = case.entry_symbol,
+        .compare_scope = case.compare_scope,
         .surface_kind = loweringSurfaceKind(spec.surface_kind),
         .status = case.status,
         .scenario_id = case.scenario_id,

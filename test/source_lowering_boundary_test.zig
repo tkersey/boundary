@@ -184,6 +184,30 @@ test "source-lowering rejects drifted canonical files even when the path stays c
     try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
 }
 
+test "shared witness rows ignore unrelated sibling edits in the same source file" {
+    const witness_source_text = try std.fs.cwd().readFileAlloc(std.testing.allocator, "src/witness_sources.zig", 1 << 20);
+    defer std.testing.allocator.free(witness_source_text);
+
+    const mutated = try std.mem.replaceOwned(
+        u8,
+        std.testing.allocator,
+        witness_source_text,
+        "return current;",
+        "return current + 1;",
+    );
+    defer std.testing.allocator.free(mutated);
+
+    var lowered = try source_lowering.inspectInlineSource(std.testing.allocator, .{
+        .case_id = "witness.atm_resume_transform",
+        .source_path = "src/witness_sources.zig",
+        .entry_symbol = "runAtmResumeTransform",
+        .surface_kind = .witness,
+    }, mutated);
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(lowered.isAccepted());
+}
+
 test "source-lowering owns rejected source paths" {
     const original_path = "test/source_lowering_corpus/fixtures/helper_call_resume.zig";
     const mutable_path = try std.testing.allocator.dupe(u8, original_path);
