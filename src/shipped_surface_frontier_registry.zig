@@ -1,7 +1,7 @@
 /// Current execution frontier for one public or proof-facing surface.
 pub const Frontier = enum {
     compile_boundary,
-    legacy_compat_only,
+    reference_only,
     lowered_bridge,
     lowered_source_validated,
     lowered_structured,
@@ -26,18 +26,18 @@ pub const surfaces = [_]Surface{
         .note = "The canonical root now executes on the lowered runtime path directly.",
     },
     .{
-        .surface_id = "effect.public_families",
-        .surface = "canonical_effect",
+        .surface_id = "decl.public_families",
+        .surface = "canonical_decl",
         .frontier = .lowered_structured,
-        .source = "src/effect/root.zig",
-        .note = "Public effect families, including `shift.effect.Define(...)` generated sealed families, now execute on top of the lowered runtime surface.",
+        .source = "src/program_api.zig",
+        .note = "Public declaration families, including custom `shift.Decl.family(...)` declarations, now execute on top of the lowered runtime surface.",
     },
     .{
-        .surface_id = "algebraic.public_builders",
-        .surface = "canonical_algebraic",
+        .surface_id = "decl.custom_families",
+        .surface = "canonical_family",
         .frontier = .lowered_structured,
-        .source = "src/algebraic.zig",
-        .note = "Public algebraic builders now execute on top of the lowered runtime surface.",
+        .source = "src/program_api.zig",
+        .note = "Public custom family declarations now execute on top of the lowered runtime surface.",
     },
     .{
         .surface_id = "bridge.supported_corpus",
@@ -47,11 +47,11 @@ pub const surfaces = [_]Surface{
         .note = "The supported bridge corpus already executes through the lowered machine seam.",
     },
     .{
-        .surface_id = "ordinary.experimental_surface",
-        .surface = "ordinary_canonical",
+        .surface_id = "source_lowering.internal_surface",
+        .surface = "source_lowering_internal",
         .frontier = .lowered_source_validated,
-        .source = "src/ordinary_zig_lowering.zig",
-        .note = "The canonical ordinary surface now validates the repo-owned source corpus before projecting it onto canonical lowered scenarios.",
+        .source = "src/source_lowering.zig",
+        .note = "The internal source-lowering surface validates the repo-owned source corpus before projecting it onto canonical lowered scenarios.",
     },
     .{
         .surface_id = "compile_fail.public_misuse",
@@ -77,7 +77,7 @@ pub const surfaces = [_]Surface{
     .{
         .surface_id = "runtime.stack_baseline",
         .surface = "reference_runtime",
-        .frontier = .legacy_compat_only,
+        .frontier = .reference_only,
         .source = "src/runtime_stack_baseline.zig",
         .note = "The stack runtime baseline is reference-only and should never be part of the shipped path.",
     },

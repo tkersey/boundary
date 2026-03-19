@@ -4,11 +4,11 @@ const allowedExports = &[_][]const u8{
     "Runtime",
     "RuntimeError",
     "ErrorWitnessV1",
-    "algebraic",
-    "effect",
-    "ordinary",
-    "With",
-    "with",
+    "Decision",
+    "Decl",
+    "Op",
+    "Program",
+    "run",
 };
 
 const BanError = error{ PublicApiBanViolation };

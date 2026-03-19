@@ -1,54 +1,57 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const NoError = error{};
-const Counter = shift.effect.Define(.{
+const CounterHandler = struct {
+    state: i32,
+
+    /// Read the current generated counter state.
+    pub fn get(self: *@This()) i32 {
+        return self.state;
+    }
+
+    /// Preserve the enclosing answer after a generated counter read.
+    pub fn afterGet(_: *@This(), answer: i32) i32 {
+        return answer;
+    }
+
+    /// Replace the current generated counter state.
+    pub fn set(self: *@This(), value: i32) void {
+        self.state = value;
+    }
+
+    /// Preserve the enclosing answer after a generated counter write.
+    pub fn afterSet(_: *@This(), answer: i32) i32 {
+        return answer;
+    }
+};
+
+const Counter = shift.Decl.family(.{
     .state_type = i32,
     .ops = .{
-        shift.effect.ops.Transform("get", void, i32),
-        shift.effect.ops.Transform("set", i32, void),
+        shift.Op.transform("get", void, i32),
+        shift.Op.transform("set", i32, void),
     },
+}, CounterHandler);
+
+const CounterProgram = shift.Program(.{
+    .counter = Counter,
+}, struct {
+    /// Increment the generated counter once and return the new value.
+    pub fn body(eff: anytype) !i32 {
+        const before = try eff.counter.get.perform();
+        try eff.counter.set.perform(before + 1);
+        return try eff.counter.get.perform();
+    }
 });
 
 fn runCounter(runtime: *shift.Runtime) !i32 {
-    const Handler = struct {
-        state: i32,
-
-        /// Read the current generated counter state.
-        pub fn get(self: *@This()) i32 {
-            return self.state;
-        }
-
-        /// Preserve the enclosing answer after a generated counter read.
-        pub fn afterGet(_: *@This(), answer: i32) i32 {
-            return answer;
-        }
-
-        /// Replace the current generated counter state.
-        pub fn set(self: *@This(), value: i32) void {
-            self.state = value;
-        }
-
-        /// Preserve the enclosing answer after a generated counter write.
-        pub fn afterSet(_: *@This(), answer: i32) i32 {
-            return answer;
-        }
-    };
-
-    const result = try shift.with(runtime, .{
-        .counter = Counter.use(.{ .handler = Handler{ .state = 5 } }),
-    }, struct {
-        /// Increment the generated counter once and return the new value.
-        pub fn body(eff: anytype) !i32 {
-            const before = try eff.counter.get.perform();
-            try eff.counter.set.perform(before + 1);
-            return try eff.counter.get.perform();
-        }
+    const result = try shift.run(runtime, CounterProgram, .{
+        .counter = CounterHandler{ .state = 5 },
     });
     return result.value;
 }
 
-/// Render the generated-family example transcript.
+/// Render the generated-family example transcript through the root front door.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();

@@ -7,18 +7,14 @@
 
 In the repo's current state, that means two things:
 
-- the canonical authored-body surface is source-validated and rooted in
-  `shift.ordinary` / `shift-ordinary-lower`
-- the public API still preserves direct-style ordinary Zig without exposing a
-  public continuation handle
+- the public front door is rooted in `shift.Program(.{ ... }, Body)` and
+  `shift.run(&runtime, Program, bindings)`
+- the runtime remains explicit, thread-affine, and user-owned, without exposing
+  a public continuation handle
 
-The lexical runtime surfaces remain public, but they now serve as
-compatibility/runtime entrypoints beneath the canonical ordinary story:
-
-- `shift.with(...)`
-- `shift.effect.*`
-- `shift.effect.Define(.{ ... })`
-- `shift.algebraic`
+The legacy compatibility window is now closed. The root front door is the only
+supported public authoring surface, and the older lanes are no longer part of
+the public API contract.
 
 The repo therefore treats runtime code as the last rung of a semantics ladder,
 not as the source of truth:
@@ -33,19 +29,15 @@ The shipped runtime backend is the canonical authored-body lowered runtime.
 
 The current public product claim is:
 
-- `shift.ordinary` and `shift-ordinary-lower` are the canonical source-backed
-  authoring entrypoints for the repo-owned ordinary, witness, generated,
-  algebraic, and built-in effect corpus
-- `shift.with(&runtime, handlers, Body)` remains the explicit compatibility
-  runtime entrypoint
-- built-in families still install lexical handlers through `shift.effect.state`,
-  `shift.effect.reader`, `shift.effect.optional`, `shift.effect.exception`,
-  `shift.effect.resource`, and `shift.effect.writer`
-- `shift.effect.Define(.{ ... })` and `shift.algebraic` add user-defined and
-  closed-world operation surfaces over the same lowered runtime
-- `shift.With(...).Result` returns the body answer plus family outputs
-- `shift.effect.choice.Decision(...)` is the public choice-decision type for
-  lexical optional and generated choice handlers
+- `shift.Program(.{ ... }, Body)` is the reusable authored-body surface
+- `shift.run(&runtime, Program, bindings)` is the explicit root execution entrypoint
+- built-in declarations are installed through `shift.Decl.state`,
+  `shift.Decl.reader`, `shift.Decl.optional`, `shift.Decl.exception`,
+  `shift.Decl.resource`, and `shift.Decl.writer`
+- custom closed-world families are declared through `shift.Decl.family(.{ ... })`
+  and `shift.Op.transform` / `shift.Op.choice` / `shift.Op.abort`
+- `shift.Decision(...)` is the public choice-decision type for front-door
+  optional and generated choice handlers
 - prompt descriptors, `PromptMode`, `ResumeOrReturn`, `reset`, and `frontend`
   no longer live at the top level; repo-owned proof surfaces now reach them
   only through direct imports of `src/internal/prompt_support.zig`
@@ -54,7 +46,7 @@ The current public product claim is:
 ## Semantic Commitments
 
 - static `shift/reset`, not `control/prompt`
-- ordinary-first source-backed authoring with lexical/algebraic compatibility surfaces
+- one root-front-door authoring story with the migration window closed
 - internal typed prompt discipline beneath that story
 - one-shot continuation use
 - honest answer-type pressure if the kernel requires it
@@ -88,11 +80,11 @@ zig build authoring-lowering-check
 zig build structured-program-suite
 zig build direct-style-bridge-parity
 zig build direct-style-boundary
-zig build ordinary-zig-gauntlet
-zig build ordinary-lower
-zig build ordinary-error-witness-check
-zig build surface-replacement-matrix-write
-zig build surface-replacement-check
+zig build source-lowering-gauntlet
+zig build source-lower
+zig build source-lowering-error-witness-check
+zig build source-lowering-coverage-matrix-write
+zig build source-lowering-coverage-check
 zig build witness-admission-matrix-write
 zig build witness-admission-matrix-check
 zig build runtime-route-matrix-write
@@ -101,10 +93,9 @@ zig build runtime-obligation-matrix-write
 zig build runtime-obligation-matrix-check
 zig build runtime-contract-suite
 zig build public-error-api-ban
+zig build retired-lane-inventory-check
 zig build runtime-error-surface-matrix-write
 zig build runtime-error-surface-matrix-check
-zig build root-surface-migration-matrix-write
-zig build root-surface-migration-matrix-check
 zig build error-witness-equivalence-check
 zig build shipped-surface-frontier-matrix-write
 zig build shipped-surface-frontier-matrix-check
@@ -120,10 +111,10 @@ zig build formal-core-write
 zig build formal-core
 zig build bench
 zig build bench-first-suspend
-zig build bench-effect-matrix
-zig build bench-effect-matrix-stability
-zig build bench-effect-matrix-write
-zig build bench-effect-matrix-check
+zig build bench-family-matrix
+zig build bench-family-matrix-stability
+zig build bench-family-matrix-write
+zig build bench-family-matrix-check
 zig build bench-runtime-backends
 zig build bench-runtime-backends-stability
 zig build bench-runtime-backends-write
@@ -131,7 +122,7 @@ zig build bench-runtime-backends-check
 zig build bench-state-effect
 zig build bench-state-effect-write
 zig build bench-state-effect-check
-zig build shared-algebraic-engine-boundary
+zig build shared-declaration-engine-boundary
 ```
 
 ## Executable Contract
@@ -142,7 +133,7 @@ one of these proof surfaces:
 - `zig build test` for the combined runtime, witness, compile-fail, README, and
   formal-core gates
 - `zig build effect-construction-boundary` for the generalized construction boundary
-- `zig build shared-algebraic-engine-boundary` for the checked claim that public `shift.algebraic` and `shift.effect.*` now share one internal algebraic engine
+- `zig build shared-declaration-engine-boundary` for the checked claim that the surviving declaration surfaces now share one internal declaration engine
 - `zig build compile-fail` for hidden continuation/context surfaces and forged
   capability misuse
 - `zig build example-proof` for exact-output public example transcripts
@@ -159,9 +150,10 @@ one of these proof surfaces:
   the supported direct-style bridge corpus
 - `zig build direct-style-boundary` for explicit boundary checks around
   unsupported unchanged direct-style shapes
-- `zig build ordinary-zig-gauntlet` for the canonical ordinary-backed corpus
-- `zig build surface-replacement-check` for the checked canonical replacement
-  ledger that proves every current witness/example/effect target is ordinary-backed
+- `zig build source-lowering-gauntlet` for the internal source-lowering corpus
+- `zig build source-lowering-coverage-check` for the checked source-lowering
+  coverage matrix that proves every current witness/example/declaration target
+  is covered by the internal source-lowering track
 - `zig build runtime-route-matrix-check` for the checked execution-route matrix
   that records whether supported cases are still replayed or now run through
   the shared lowered machine
@@ -174,12 +166,10 @@ one of these proof surfaces:
   public error spellings are gone from shipped docs/examples/root surfaces
 - `zig build runtime-error-surface-matrix-check` for the checked retained-vs-retired
   public runtime error surface
-- `zig build root-surface-migration-matrix-check` for the checked canonical-root
-  migration map during the lowered-first runtime cut
-- `zig build ordinary-error-witness-check` for the checked ordinary-tool witness
+- `zig build source-lowering-error-witness-check` for the checked source-lowering-tool witness
   JSON surface over the canonical example corpus
 - `zig build error-witness-equivalence-check` for the checked witness equivalence
-  of the exported public runtime/setup witness surface across canonical ordinary
+  of the exported public runtime/setup witness surface across canonical source-lowering
   example cases
 - `zig build shipped-surface-frontier-matrix-check` for the checked shipped-vs-lowered
   routing truth surface
@@ -195,48 +185,34 @@ one of these proof surfaces:
   stay hidden beneath the canonical public surface
 - `zig build bench-runtime-backends-check` for checked lowered-vs-stack runtime
   backend comparison over the currently supported bridge corpus
-- `zig build bench-effect-matrix-check` for full shipped-family benchmark coverage
+- `zig build bench-family-matrix-check` for full shipped-family benchmark coverage
 - `zig build bench-state-effect-check` for the checked benchmark artifact on a
   clean tree
 
-The additive effect-family contract is now:
+The surviving declaration-family contract is now:
 
-- bodies are helper-shaped: `body(comptime Cap, ctx)`
-- operations are capability-checked helpers:
-  - `shift.effect.state.get(Cap, ctx)` / `shift.effect.state.set(Cap, ctx, value)`
-  - `shift.effect.reader.ask(Cap, ctx)`
-  - `shift.effect.optional.request(Cap, ctx)`
-  - `shift.effect.exception.throw(Cap, ctx, payload)`
-  - `shift.effect.resource.acquire(Cap, ctx)`
-  - `shift.effect.writer.tell(Cap, ctx, item)`
-- user-defined sealed families are available through `shift.effect.Define(.{ ... })`
-  with `shift.effect.ops.Transform(...)`, `shift.effect.ops.Choice(...)`, and
-  `shift.effect.ops.Abort(...)`
-- generated families expose `Instance`, `computeProgram`, `handle`, `OpTag`,
-  `definition`, `proof`, and `Op(.tag).perform(...)` / `Op(.tag).program(...)`.
-  When installed through the lexical front door, generated transform, choice,
-  and abort families also expose named op fields such as
+- programs are authored as `shift.Program(.{ ... }, Body)` and executed with `shift.run(...)`
+- built-in declarations expose named handles such as `eff.state.get()`,
+  `eff.reader.ask()`, `eff.optional.request(...)`,
+  `eff.exception.throw(...)`, `eff.resource.acquire()`, and
+  `eff.writer.tell(...)`
+- custom closed-world families are declared through `shift.Decl.family(.{ ... })`
+  and `shift.Op.*`, then surfaced through named op handles like
   `eff.counter.get.perform(...)`, `eff.picker.pick.perform(...)`, and
   `eff.guard.fail.abort(...)`
-- forged or cross-instance contexts fail at compile time; see:
-  - `effect_exception_forged_context_throw_fails.zig`
-  - `effect_state_forged_context_get_fails.zig`
-  - `effect_reader_forged_context_ask_fails.zig`
-  - `effect_optional_forged_context_request_fails.zig`
-  - `effect_resource_forged_context_acquire_fails.zig`
-  - `effect_writer_forged_context_tell_fails.zig`
-  - `effect_define_forged_context_fails.zig`
-  - `effect_define_cross_instance_context_fails.zig`
+- forged or cross-instance contexts still fail at compile time; see:
+  - `decl_family_duplicate_op_name_fails.zig`
+  - `decl_family_explicit_mode_mismatch_fails.zig`
+  - `decl_family_missing_after_hook_fails.zig`
+  - `decl_family_mixed_mode_fails.zig`
+  - `decl_family_reserved_name_fails.zig`
+  - `exception_policy_missing_direct_return.zig`
+  - `optional_policy_missing_resume_or_return.zig`
+  - `resource_manager_missing_acquire.zig`
 
-The additive public algebraic-builder contract is now:
-
-- `shift.algebraic.TransformOp`, `shift.algebraic.ChoiceOp`, and `shift.algebraic.AbortOp` define closed-world operation descriptors
-- `shift.algebraic.Program(Answer, .{ ...ops })` generates a typed runner surface
-- `Program.handlers(.{ ... })` installs handlers in declaration order
-- `Configured.Context.perform(Op, payload)` only accepts declared ops
-- handlers are built with static `Impl` types via `handleTransform` / `handleChoice` / `handleAbort`
-- the builder surface is currently proven by `zig build size-check`, `zig build compile-fail`, and `zig build example-proof`
-- the public surface still does not export a continuation handle
+The root front door absorbs the old algebraic and effect-oriented public stories.
+Only `shift.Program`, `shift.run`, `shift.Decl`, `shift.Op`, and `shift.Decision`
+remain public.
 
 ## Examples
 
@@ -444,20 +420,14 @@ final_state=6
 value=11
 ```
 
-The strict effect families now use helper-based bodies of the form
-`body(comptime Cap, ctx)` together with family operations such as
-`shift.effect.reader.ask(Cap, ctx)` and
-`shift.effect.state.get(Cap, ctx)` / `shift.effect.state.set(Cap, ctx, value)`
-plus `shift.effect.optional.request(Cap, ctx)`,
-`shift.effect.exception.throw(Cap, ctx, payload)`, and
-`shift.effect.resource.acquire(Cap, ctx)`, plus
-`shift.effect.writer.tell(Cap, ctx, item)`. User-defined sealed families are
-declared with `shift.effect.Define(.{ ... })` and expose
-`Op(.tag).perform(...)` or `Op(.tag).program(...)` over the same exact-context
-boundary, while the lexical front door projects generated choice and abort
-families as named op fields (`eff.<binding>.<op>.perform(...)` /
-`eff.<binding>.<op>.abort(...)`), and generated transform families as named
-op fields like `eff.<binding>.<op>.perform(...)`.
+The surviving declaration families use `shift.Program(.{ ... }, Body)` and
+`shift.run(...)` with named handles such as `eff.reader.ask()`,
+`eff.state.get()` / `eff.state.set(...)`, `eff.optional.request(...)`,
+`eff.exception.throw(...)`, `eff.resource.acquire()`, and
+`eff.writer.tell(...)`. User-defined sealed families are declared through
+`shift.Decl.family(.{ ... })` and expose named op fields such as
+`eff.<binding>.<op>.perform(...)` and `eff.<binding>.<op>.abort(...)` over the
+same exact-context boundary.
 
 The generalized construction boundary is checked by:
 
@@ -471,7 +441,7 @@ The current hidden internal control-class coverage at the effect layer is:
   `resource`, `writer`
 - choice-style (`.resume_or_return` internally): `optional`
 - abortive (`.direct_return` internally): `exception`
-- `shift.effect.Define(.{ ... })`: user-defined sealed families for one chosen
+- `shift.Decl.family(.{ ... })`: user-defined sealed families for one chosen
   non-resource mode per family (`.resume_then_transform`, `.resume_or_return`,
   or `.direct_return`)
 
@@ -480,10 +450,10 @@ The current hidden internal control-class coverage at the effect layer is:
 Family coverage lives at:
 
 ```bash
-zig build bench-effect-matrix
-zig build bench-effect-matrix-stability
-zig build bench-effect-matrix-write
-zig build bench-effect-matrix-check
+zig build bench-family-matrix
+zig build bench-family-matrix-stability
+zig build bench-family-matrix-write
+zig build bench-family-matrix-check
 ```
 
 The checked matrix artifact is:
@@ -528,7 +498,7 @@ The decomposition benches are intentionally separate from the checked artifacts:
 zig build bench-writer-decompose
 zig build bench-resource-decompose
 zig build bench-abortive-decompose
-zig build bench-algebraic-decompose
+zig build bench-family-builder-decompose
 ```
 
 Use them to localize storage/finalization/cleanup or abortive fixed-tax costs before changing code; they are investigative and do not define the checked public benchmark contract.
@@ -552,7 +522,7 @@ the exact `git_rev`, `repo_state`, benchmark command, warmed sample arrays, lane
 The clean-tree stability harness lives at:
 
 ```bash
-zig build bench-effect-matrix-stability
+zig build bench-family-matrix-stability
 ```
 
 It repeats the checked effect matrix on unchanged clean-tree code and reports
@@ -616,13 +586,13 @@ corpus lowers into canonical scenarios and executes correctly. The current raw
 direct-style boundary is documented in `docs/direct_style_boundary.md` and
 checked by `zig build direct-style-boundary`.
 
-`docs/ordinary_zig_contract.md` is the versioned contract for the current
-ordinary-Zig experimental track. `zig build ordinary-zig-gauntlet` is the
-green-only gate for the currently promised ordinary-Zig wave, and
-`tools/render_surface_replacement_matrix.zig` renders the checked
-`docs/surface_replacement_matrix.json` ledger that tracks the long-horizon
-ordinary-body replacement bar for current witnesses, examples, and effect
-surfaces.
+`docs/source_lowering_contract.md` is the versioned contract for the internal
+source-lowering track. `zig build source-lowering-gauntlet` is the
+green-only gate for the currently promised source-lowering wave, and
+`tools/render_source_lowering_coverage_matrix.zig` renders the checked
+`docs/source_lowering_coverage_matrix.json` matrix that records the current
+source-lowering coverage for witnesses, examples, built-in declarations, and
+user-defined effect rows.
 
 `tools/render_witness_admission_matrix.zig` renders the checked
 `docs/witness_admission_matrix.json` ledger that separates lexical witness proof
@@ -642,9 +612,9 @@ The generated artifact lives at `docs/runtime_route_matrix.json`.
 `src/parity_kernel.zig` acts as a proof façade over that core.
 
 `src/internal/algebraic_engine.zig` now owns the shared internal
-operation/binding/prompt machinery used by both `src/algebraic.zig` and
-`src/effect/algebraic.zig`. `zig build shared-algebraic-engine-boundary` is the
-architectural truth gate for that claim.
+operation, binding, and prompt machinery used by the surviving declaration
+surfaces. `zig build shared-declaration-engine-boundary` is the architectural
+truth gate for that claim.
 
 `zig build runtime-route-matrix-check` is the architectural truth gate for that
 claim, and
@@ -667,11 +637,8 @@ runtime error surface policy, which lives at
 frontend capability matrix, which lives at
 `docs/frontend_feature_matrix.json`.
 
-`tools/render_root_surface_migration_matrix.zig` renders the checked canonical
-root migration map, which lives at `docs/root_surface_migration_matrix.json`.
-
 `tools/render_shipped_surface_frontier_matrix.zig` renders the checked
-shipped-vs-compat routing map, which lives at
+shipped-vs-reference routing map, which lives at
 `docs/shipped_surface_frontier_matrix.json`.
 
 `tools/render_surface_truth_scorecard.zig` renders the machine-readable
@@ -690,9 +657,9 @@ pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
-        .state = shift.effect.state.use(@as(i32, 5)),
-        .reader = shift.effect.reader.use(@as(i32, 21)),
+    const Program = shift.Program(.{
+        .state = shift.Decl.state(i32),
+        .reader = shift.Decl.reader(i32),
     }, struct {
         pub fn body(eff: anytype) !i32 {
             const env = try eff.reader.ask();
@@ -700,6 +667,11 @@ pub fn main() anyerror!void {
             try eff.state.set(before + env);
             return try eff.state.get();
         }
+    });
+
+    const result = try shift.run(&runtime, Program, .{
+        .state = @as(i32, 5),
+        .reader = @as(i32, 21),
     });
 
     std.debug.print("value={d} state={d}\n", .{ result.value, result.outputs.state });

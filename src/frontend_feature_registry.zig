@@ -60,16 +60,16 @@ pub const features = [_]Feature{
     },
     .{
         .feature_id = "effect.lowered_authoring",
-        .surface = "canonical_effect",
+        .surface = "canonical_decl",
         .status = .covered,
         .source = "src/effect/algebraic.zig",
-        .note = "Canonical effect families now route their hidden operation programs through the shared internal algebraic engine while preserving exact Cap/ctx sealing.",
+        .note = "Canonical declaration families now route their hidden operation programs through the shared internal declaration engine while preserving exact Cap/ctx sealing.",
     },
     .{
         .feature_id = "algebraic.lowered_authoring",
-        .surface = "canonical_algebraic",
+        .surface = "canonical_family",
         .status = .covered,
         .source = "src/algebraic.zig",
-        .note = "Canonical algebraic builders now wrap the shared internal algebraic engine while preserving the public custom-ops surface.",
+        .note = "Canonical custom family declarations now wrap the shared internal declaration engine while preserving the public custom-ops surface.",
     },
 };

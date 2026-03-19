@@ -113,7 +113,7 @@ cpu_name() {
 }
 
 run_bench() {
-  (cd "$repo_root" && zig build bench-effect-matrix)
+  (cd "$repo_root" && zig build bench-family-matrix)
 }
 
 lane_names="state_micro reader_micro reader_batch8 optional_return_now_micro optional_return_now_prelude8 optional_resume_with_micro optional_resume_with_batch8 exception_throw_micro exception_throw_prelude8 algebraic_transform_micro algebraic_choice_return_now_micro algebraic_abort_micro resource_normal_4 resource_normal_32 writer_micro writer_batch16 writer_batch64"
@@ -197,7 +197,7 @@ write_artifact() {
     printf '    "zig_version": "%s"\n' "$zig_version"
     printf '  },\n'
     printf '  "measurement_contract": {\n'
-    printf '    "command": "zig build bench-effect-matrix",\n'
+    printf '    "command": "zig build bench-family-matrix",\n'
     printf '    "timed_iterations": %s,\n' "$timed_iterations"
     printf '    "warmup_iterations": %s,\n' "$warmup_iterations"
     printf '    "samples_per_run": %s,\n' "$samples_per_run"

@@ -1,25 +1,24 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const NoError = error{};
+const WriterProgram = shift.Program(.{
+    .writer = shift.Decl.writer([]const u8),
+}, struct {
+    /// Append two items and return the canonical writer answer.
+    pub fn body(eff: anytype) ![]const u8 {
+        try eff.writer.tell("a");
+        try eff.writer.tell("b");
+        return "done";
+    }
+});
 
-/// Write the writer-effect transcript through the lexical front door.
+/// Write the writer-effect transcript through the root front door.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
-    var output_buffer: [256]u8 = undefined;
-    var output_fba = std.heap.FixedBufferAllocator.init(&output_buffer);
 
-    const result = try shift.with(&runtime, .{
-        .writer = shift.effect.writer.use([]const u8, output_fba.allocator()),
-    }, struct {
-        /// Append two items and return the canonical writer answer.
-        pub fn body(eff: anytype) ![]const u8 {
-            try eff.writer.tell("a");
-            try eff.writer.tell("b");
-            return "done";
-        }
-    });
+    const result = try shift.run(&runtime, WriterProgram, .{});
+    defer std.heap.page_allocator.free(result.outputs.writer);
 
     for (result.outputs.writer) |item| {
         try writer.print("item={s}\n", .{item});

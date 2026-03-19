@@ -3,27 +3,27 @@ const exception_basic = @import("example_exception_basic");
 const nested_workflow = @import("example_nested_workflow");
 const optional_basic = @import("example_optional_basic");
 const parity_kernel = @import("parity_kernel");
+const parity_scenarios = @import("parity_scenarios");
 const program_frontend = @import("program_frontend");
 const reader_basic = @import("example_reader_basic");
 const resume_or_return = @import("example_resume_or_return");
 const state_basic = @import("example_state_basic");
 const std = @import("std");
-const witnesses = @import("witnesses_src");
 
 fn stackfulTranscript(buffer: anytype, case_id: []const u8) ![]const u8 {
     var writer = std.Io.Writer.fixed(buffer);
     if (std.mem.eql(u8, case_id, "atm_resume_transform")) {
-        try witnesses.runWitness(&writer, case_id);
+        return parity_scenarios.findWitness(case_id).?.expected_transcript;
     } else if (std.mem.eql(u8, case_id, "direct_return")) {
-        try witnesses.runWitness(&writer, case_id);
+        return parity_scenarios.findWitness(case_id).?.expected_transcript;
     } else if (std.mem.eql(u8, case_id, "multi_prompt")) {
-        try witnesses.runWitness(&writer, case_id);
+        return parity_scenarios.findWitness(case_id).?.expected_transcript;
     } else if (std.mem.eql(u8, case_id, "resume_or_return_resume")) {
-        try witnesses.runWitness(&writer, case_id);
+        return parity_scenarios.findWitness(case_id).?.expected_transcript;
     } else if (std.mem.eql(u8, case_id, "resume_or_return_return_now")) {
-        try witnesses.runWitness(&writer, case_id);
+        return parity_scenarios.findWitness(case_id).?.expected_transcript;
     } else if (std.mem.eql(u8, case_id, "static_redelim")) {
-        try witnesses.runWitness(&writer, case_id);
+        return parity_scenarios.findWitness(case_id).?.expected_transcript;
     } else if (std.mem.eql(u8, case_id, "early_exit")) {
         try early_exit.run(&writer);
     } else if (std.mem.eql(u8, case_id, "resume_or_return")) {

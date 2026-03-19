@@ -6,7 +6,7 @@ pub const Surface = enum {
     algebraic,
     effect,
     example,
-    ordinary,
+    source_lowering,
     witness,
 };
 
@@ -21,18 +21,19 @@ pub const ScenarioId = enum {
     direct_return,
     early_exit,
     exception_basic,
+    front_door_workflow,
     generator,
     multi_prompt,
     nested_workflow_publish,
     optional_basic,
-    ordinary_branch_resume,
-    ordinary_defer_resume,
-    ordinary_errdefer_error,
-    ordinary_helper_call_resume,
-    ordinary_local_mutation_resume,
-    ordinary_loop_resume,
-    ordinary_static_redelim,
-    ordinary_typed_error_try,
+    source_branch_resume,
+    source_defer_resume,
+    source_errdefer_error,
+    source_helper_call_resume,
+    source_local_mutation_resume,
+    source_loop_resume,
+    source_static_redelim,
+    source_typed_error_try,
     reader_basic,
     resource_basic,
     resume_or_return,
@@ -505,6 +506,17 @@ const resume_or_return_steps = [_]Step{
     .{ .emit = .{ .final_string = "answer=42" } },
 };
 
+const front_door_workflow_steps = [_]Step{
+    .{ .emit = .{ .note = "search=artifact-search" } },
+    .{ .emit = .{ .note = "approval=publish" } },
+    .{ .emit = .{ .note = "item=query=artifact-search" } },
+    .{ .emit = .{ .note = "item=workflow=queued" } },
+    .{ .emit = .{ .note = "final_state=3" } },
+    .{ .emit = .{ .note = "total=3" } },
+    .{ .set_final = .{ .string = "completed" } },
+    .{ .emit = .{ .note = "result=completed" } },
+};
+
 const reader_basic_steps = [_]Step{
     .{ .emit = .{ .note = "env=21" } },
     .{ .set_final = .{ .i32 = 42 } },
@@ -560,7 +572,7 @@ const state_basic_steps = [_]Step{
     .{ .emit = .{ .note = "value=11" } },
 };
 
-const ordinary_local_mutation_steps = [_]Step{
+const source_local_mutation_steps = [_]Step{
     .{ .emit = .{ .note = "local=1" } },
     .{ .emit = .{ .note = "resume=41" } },
     .{ .emit = .{ .note = "local=42" } },
@@ -568,7 +580,7 @@ const ordinary_local_mutation_steps = [_]Step{
     .{ .emit = .{ .note = "final=42" } },
 };
 
-const ordinary_branch_steps = [_]Step{
+const source_branch_steps = [_]Step{
     .{ .emit = .{ .note = "branch=before" } },
     .{ .emit = .{ .note = "branch=taken" } },
     .{ .emit = .{ .note = "resume=41" } },
@@ -577,7 +589,7 @@ const ordinary_branch_steps = [_]Step{
     .{ .emit = .{ .note = "final=42" } },
 };
 
-const ordinary_loop_steps = [_]Step{
+const source_loop_steps = [_]Step{
     .{ .emit = .{ .note = "loop=0" } },
     .{ .emit = .{ .note = "loop=1" } },
     .{ .emit = .{ .note = "resume=41" } },
@@ -586,7 +598,7 @@ const ordinary_loop_steps = [_]Step{
     .{ .emit = .{ .note = "final=42" } },
 };
 
-const ordinary_helper_steps = [_]Step{
+const source_helper_steps = [_]Step{
     .{ .emit = .{ .note = "helper=enter" } },
     .{ .emit = .{ .note = "resume=41" } },
     .{ .emit = .{ .note = "helper=exit" } },
@@ -594,7 +606,7 @@ const ordinary_helper_steps = [_]Step{
     .{ .emit = .{ .note = "final=42" } },
 };
 
-const ordinary_nested_steps = [_]Step{
+const source_nested_steps = [_]Step{
     .{ .emit = .{ .note = "outer=enter" } },
     .{ .emit = .{ .note = "inner=enter" } },
     .{ .emit = .{ .note = "inner=exit" } },
@@ -603,7 +615,7 @@ const ordinary_nested_steps = [_]Step{
     .{ .emit = .{ .note = "final=12" } },
 };
 
-const ordinary_typed_error_steps = [_]Step{
+const source_typed_error_steps = [_]Step{
     .{ .emit = .{ .note = "branch=ok" } },
     .{ .emit = .{ .note = "value=42" } },
     .{ .emit = .{ .note = "branch=err" } },
@@ -612,7 +624,7 @@ const ordinary_typed_error_steps = [_]Step{
     .{ .emit = .{ .note = "final=error=boom" } },
 };
 
-const ordinary_defer_steps = [_]Step{
+const source_defer_steps = [_]Step{
     .{ .emit = .{ .note = "body=enter" } },
     .{ .emit = .{ .note = "resume=41" } },
     .{ .emit = .{ .note = "defer=cleanup" } },
@@ -620,7 +632,7 @@ const ordinary_defer_steps = [_]Step{
     .{ .emit = .{ .note = "final=42" } },
 };
 
-const ordinary_errdefer_steps = [_]Step{
+const source_errdefer_steps = [_]Step{
     .{ .emit = .{ .note = "body=enter" } },
     .{ .emit = .{ .note = "errdefer=cleanup" } },
     .{ .emit = .{ .note = "error=boom" } },
@@ -800,6 +812,14 @@ pub const scenarios = [_]Scenario{
         .steps = &resume_or_return_steps,
     },
     .{
+        .case_id = "front_door_workflow",
+        .expected_transcript = "search=artifact-search\napproval=publish\nitem=query=artifact-search\nitem=workflow=queued\nfinal_state=3\ntotal=3\nresult=completed\n",
+        .fixture_name = "front_door_workflow.txt",
+        .scenario_id = .front_door_workflow,
+        .surface = .example,
+        .steps = &front_door_workflow_steps,
+    },
+    .{
         .case_id = "nested_workflow",
         .expected_transcript = "workflow=queued\naudit=entered\naudit=after\napproval=publish\nworkflow=done\nresult=completed\n",
         .fixture_name = "nested_workflow.txt",
@@ -857,60 +877,60 @@ pub const scenarios = [_]Scenario{
         .steps = &state_basic_steps,
     },
     .{
-        .case_id = "ordinary.local_mutation_resume",
+        .case_id = "source.local_mutation_resume",
         .expected_transcript = "local=1\nresume=41\nlocal=42\nfinal=42\n",
-        .scenario_id = .ordinary_local_mutation_resume,
-        .surface = .ordinary,
-        .steps = &ordinary_local_mutation_steps,
+        .scenario_id = .source_local_mutation_resume,
+        .surface = .source_lowering,
+        .steps = &source_local_mutation_steps,
     },
     .{
-        .case_id = "ordinary.branch_resume",
+        .case_id = "source.branch_resume",
         .expected_transcript = "branch=before\nbranch=taken\nresume=41\nbranch=after\nfinal=42\n",
-        .scenario_id = .ordinary_branch_resume,
-        .surface = .ordinary,
-        .steps = &ordinary_branch_steps,
+        .scenario_id = .source_branch_resume,
+        .surface = .source_lowering,
+        .steps = &source_branch_steps,
     },
     .{
-        .case_id = "ordinary.loop_resume",
+        .case_id = "source.loop_resume",
         .expected_transcript = "loop=0\nloop=1\nresume=41\nloop=done\nfinal=42\n",
-        .scenario_id = .ordinary_loop_resume,
-        .surface = .ordinary,
-        .steps = &ordinary_loop_steps,
+        .scenario_id = .source_loop_resume,
+        .surface = .source_lowering,
+        .steps = &source_loop_steps,
     },
     .{
-        .case_id = "ordinary.helper_call_resume",
+        .case_id = "source.helper_call_resume",
         .expected_transcript = "helper=enter\nresume=41\nhelper=exit\nfinal=42\n",
-        .scenario_id = .ordinary_helper_call_resume,
-        .surface = .ordinary,
-        .steps = &ordinary_helper_steps,
+        .scenario_id = .source_helper_call_resume,
+        .surface = .source_lowering,
+        .steps = &source_helper_steps,
     },
     .{
-        .case_id = "ordinary.nested_prompt_static_redelim",
+        .case_id = "source.nested_prompt_static_redelim",
         .expected_transcript = "outer=enter\ninner=enter\ninner=exit\nouter=exit\nfinal=12\n",
-        .scenario_id = .ordinary_static_redelim,
-        .surface = .ordinary,
-        .steps = &ordinary_nested_steps,
+        .scenario_id = .source_static_redelim,
+        .surface = .source_lowering,
+        .steps = &source_nested_steps,
     },
     .{
-        .case_id = "ordinary.typed_error_try",
+        .case_id = "source.typed_error_try",
         .expected_transcript = "branch=ok\nvalue=42\nbranch=err\nerror=boom\nfinal=error=boom\n",
-        .scenario_id = .ordinary_typed_error_try,
-        .surface = .ordinary,
-        .steps = &ordinary_typed_error_steps,
+        .scenario_id = .source_typed_error_try,
+        .surface = .source_lowering,
+        .steps = &source_typed_error_steps,
     },
     .{
-        .case_id = "ordinary.defer_resume",
+        .case_id = "source.defer_resume",
         .expected_transcript = "body=enter\nresume=41\ndefer=cleanup\nfinal=42\n",
-        .scenario_id = .ordinary_defer_resume,
-        .surface = .ordinary,
-        .steps = &ordinary_defer_steps,
+        .scenario_id = .source_defer_resume,
+        .surface = .source_lowering,
+        .steps = &source_defer_steps,
     },
     .{
-        .case_id = "ordinary.errdefer_error",
+        .case_id = "source.errdefer_error",
         .expected_transcript = "body=enter\nerrdefer=cleanup\nerror=boom\nfinal=error=boom\n",
-        .scenario_id = .ordinary_errdefer_error,
-        .surface = .ordinary,
-        .steps = &ordinary_errdefer_steps,
+        .scenario_id = .source_errdefer_error,
+        .surface = .source_lowering,
+        .steps = &source_errdefer_steps,
     },
     .{
         .case_id = "algebraic_abortive_validation",

@@ -1,6 +1,6 @@
 {
   "public_surface": {
-    "contract": "ordinary-first source-validated lowering surface with lexical effect/algebraic compatibility entrypoints",
+    "contract": "shift.Program and shift.run are the only public authored-body surface, with internal source-lowering scaffolding beneath them",
     "status": "canonical"
   },
   "benchmark_stability": {
@@ -17,8 +17,8 @@
     "labels": ["witness.atm_resume_transform","witness.direct_return","witness.multi_prompt","witness.resume_or_return_resume","witness.resume_or_return_return_now","witness.static_redelim","example.early_exit","example.resume_or_return","example.nested_workflow_publish","effect.state_basic","effect.reader_basic","effect.optional_basic","effect.exception_basic"],
     "status": "implemented"
   },
-  "ordinary_canonical_surface": {
-    "contract": "canonical source-validated lowering for the ordinary corpus, witness set, generated/user-defined examples, algebraic examples, and remaining built-in effect rows",
+  "source_lowering_surface": {
+    "contract": "canonical source-validated lowering for the source corpus, witness set, generated/user-defined examples, algebraic examples, and remaining built-in declaration rows",
     "status": "canonical"
   },
   "direct_style_bridge": {

@@ -36,7 +36,7 @@ trap 'rm -rf "$tmpdir"' EXIT INT TERM
 
 run_idx=1
 while [ "$run_idx" -le "$runs" ]; do
-  (cd "$repo_root" && zig build bench-effect-matrix) >"$tmpdir/run-$run_idx.txt"
+  (cd "$repo_root" && zig build bench-family-matrix) >"$tmpdir/run-$run_idx.txt"
   run_idx=$((run_idx + 1))
 done
 
