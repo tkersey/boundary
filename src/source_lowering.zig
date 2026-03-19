@@ -1,9 +1,10 @@
-const lowered_machine = @import("lowered_machine");
-const error_witness = @import("error_witness");
-const source_registry = @import("source_lowering_registry");
-const parity_scenarios = @import("parity_scenarios");
-const std = @import("std");
+const authoring_lowerer = @import("authoring_lowerer");
 const build_options = @import("build_options");
+const error_witness = @import("error_witness");
+const lowered_machine = @import("lowered_machine");
+const parity_scenarios = @import("parity_scenarios");
+const source_registry = @import("source_lowering_registry");
+const std = @import("std");
 
 /// Source classification for one restricted source-lowering request.
 pub const SurfaceKind = enum {
@@ -15,21 +16,10 @@ pub const SurfaceKind = enum {
 };
 
 /// Progress state for one source-lowering result.
-pub const LowerStatus = enum {
-    candidate_green,
-    canonical,
-    parity_green,
-    rejected,
-};
+pub const LowerStatus = authoring_lowerer.LowerStatus;
 
 /// One source-lowering diagnostic with source location.
-pub const Diagnostic = struct {
-    code: []const u8,
-    message: []const u8,
-    path: []const u8,
-    line: usize,
-    column: usize,
-};
+pub const Diagnostic = authoring_lowerer.Diagnostic;
 
 /// One lowered-machine step emitted through the source-lowering surface.
 pub const Step = lowered_machine.Step;
@@ -74,10 +64,7 @@ pub const GeneratedProgram = struct {
 };
 
 /// Error surface for source-lowering entrypoints.
-pub const LowerError = std.mem.Allocator.Error || error{
-    UnsupportedSourceCase,
-    UnsupportedSurfaceKind,
-};
+pub const LowerError = anyerror;
 
 const Match = struct {
     required_snippets: []const []const u8,
@@ -198,7 +185,7 @@ const errdefer_match = Match{
 const early_exit_match = Match{
     .required_snippets = &.{
         "const EarlyExitProgram = shift.Program(.{",
-        "shift.Decl.exception([]const u8, catch_policy)",
+        "shift.decl.exception([]const u8, catch_policy)",
         "try eff.exception.throw(\"result=early\");",
         "transcript.handler_line = \"handler-direct-return\";",
     },
@@ -226,7 +213,7 @@ const resume_or_return_example_match = Match{
 
 const nested_workflow_match = Match{
     .required_snippets = &.{
-        "const Approval = shift.Decl.family",
+        "const Approval = shift.decl.family",
         "eff.approval.publish.perform",
         "approval=publish",
     },
@@ -239,7 +226,7 @@ const nested_workflow_match = Match{
 
 const front_door_workflow_match = Match{
     .required_snippets = &.{
-        "shift.Op.transform(\"search\", []const u8, i32)",
+        "shift.ops.Transform(\"search\", []const u8, i32)",
         "const total = try eff.search.search.perform(\"artifact-search\");",
         "try eff.writer.tell(\"workflow=queued\");",
         "return try eff.approval.publish.perform(struct {",
@@ -255,7 +242,7 @@ const front_door_workflow_match = Match{
 const state_example_match = Match{
     .required_snippets = &.{
         "const StateProgram = shift.Program(.{",
-        "shift.Decl.state(i32)",
+        "shift.decl.state(i32)",
         "const before = try eff.state.get();",
         "try eff.state.set(before + 1);",
     },
@@ -269,7 +256,7 @@ const state_example_match = Match{
 const reader_example_match = Match{
     .required_snippets = &.{
         "const ReaderProgram = shift.Program(.{",
-        "shift.Decl.reader(i32)",
+        "shift.decl.reader(i32)",
         "const env = try eff.reader.ask();",
         "return env * 2;",
     },
@@ -285,7 +272,7 @@ const optional_example_match = Match{
         "policy-return-now",
         "policy-resume",
         "body-after-request",
-        "shift.Decl.optional(i32, resume_policy)",
+        "shift.decl.optional(i32, resume_policy)",
     },
     .entry_required_snippets = &.{
         "const early_result = try shift.run(&runtime, ReturnNowProgram, .{});",
@@ -297,7 +284,7 @@ const optional_example_match = Match{
 const exception_example_match = Match{
     .required_snippets = &.{
         "branch=throw",
-        "shift.Decl.exception([]const u8, catch_policy)",
+        "shift.decl.exception([]const u8, catch_policy)",
         "try eff.exception.throw(\"result=boom\");",
         "catch={s}",
     },
@@ -312,8 +299,8 @@ const exception_example_match = Match{
 
 const define_basic_match = Match{
     .required_snippets = &.{
-        "const Counter = shift.Decl.family",
-        "shift.Op.transform(\"get\", void, i32)",
+        "const Counter = shift.decl.family",
+        "shift.ops.Transform(\"get\", void, i32)",
         "eff.counter.get.perform()",
         "eff.counter.set.perform(before + 1)",
         "counter={d}",
@@ -326,8 +313,8 @@ const define_basic_match = Match{
 
 const define_choice_match = Match{
     .required_snippets = &.{
-        "const Picker = shift.Decl.family",
-        "shift.Op.choice(\"pick\", i32, i32)",
+        "const Picker = shift.decl.family",
+        "shift.ops.Choice(\"pick\", i32, i32)",
         "eff.picker.pick.perform(41",
         "body-after-pick",
         "policy-after-resume",
@@ -343,8 +330,8 @@ const define_choice_match = Match{
 
 const define_abort_match = Match{
     .required_snippets = &.{
-        "const Guard = shift.Decl.family",
-        "shift.Op.abort(\"fail\", []const u8)",
+        "const Guard = shift.decl.family",
+        "shift.ops.Abort(\"fail\", []const u8)",
         "eff.guard.fail.abort(\"missing-name\")",
         "abort={s}",
     },
@@ -358,7 +345,7 @@ const define_abort_match = Match{
 
 const resource_example_match = Match{
     .required_snippets = &.{
-        "shift.Decl.resource([]const u8, resource_manager)",
+        "shift.decl.resource([]const u8, resource_manager)",
         "const first = try eff.resource.acquire();",
         "const second = try eff.resource.acquire();",
         "release=a",
@@ -373,7 +360,7 @@ const resource_example_match = Match{
 const writer_example_match = Match{
     .required_snippets = &.{
         "const WriterProgram = shift.Program(.{",
-        "shift.Decl.writer([]const u8)",
+        "shift.decl.writer([]const u8)",
         "try eff.writer.tell(\"a\")",
         "try eff.writer.tell(\"b\")",
         "value={s}",
@@ -387,8 +374,8 @@ const writer_example_match = Match{
 
 const algebraic_abort_match = Match{
     .required_snippets = &.{
-        "shift.Decl.family(.{",
-        "shift.Op.abort(\"fail\", []const u8)",
+        "shift.decl.family(.{",
+        "shift.ops.Abort(\"fail\", []const u8)",
         "try eff.guard.fail.abort(\"missing-name\")",
         "abort={s}",
     },
@@ -402,8 +389,8 @@ const algebraic_abort_match = Match{
 
 const algebraic_artifact_match = Match{
     .required_snippets = &.{
-        "const Search = shift.Decl.family(.{",
-        "shift.Op.transform(\"search\", []const u8, i32)",
+        "const Search = shift.decl.family(.{",
+        "shift.ops.Transform(\"search\", []const u8, i32)",
         "const total = try eff.search.search.perform(\"artifact-search\");",
         "opencode_source=jsonl",
     },
@@ -526,6 +513,7 @@ const SupportedCase = struct {
     source_path: []const u8,
     scenario_id: parity_scenarios.ScenarioId,
     status: LowerStatus,
+    entry_symbol: []const u8 = "run",
     match: Match,
 };
 
@@ -821,6 +809,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .source_path = "src/witness_sources.zig",
             .scenario_id = .atm_resume_transform,
             .status = .canonical,
+            .entry_symbol = "runAtmResumeTransform",
             .match = witness_atm_match,
         };
         if (std.mem.eql(u8, case_id, "witness.direct_return")) return .{
@@ -829,6 +818,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .source_path = "src/witness_sources.zig",
             .scenario_id = .direct_return,
             .status = .canonical,
+            .entry_symbol = "runDirectReturn",
             .match = witness_direct_match,
         };
         if (std.mem.eql(u8, case_id, "witness.resume_or_return_return_now")) return .{
@@ -837,6 +827,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .source_path = "src/witness_sources.zig",
             .scenario_id = .resume_or_return_return_now,
             .status = .canonical,
+            .entry_symbol = "runResumeOrReturnReturnNow",
             .match = witness_ror_return_match,
         };
         if (std.mem.eql(u8, case_id, "witness.resume_or_return_resume")) return .{
@@ -845,6 +836,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .source_path = "src/witness_sources.zig",
             .scenario_id = .resume_or_return_resume,
             .status = .canonical,
+            .entry_symbol = "runResumeOrReturnResume",
             .match = witness_ror_resume_match,
         };
         if (std.mem.eql(u8, case_id, "witness.static_redelim")) return .{
@@ -853,6 +845,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .source_path = "src/witness_sources.zig",
             .scenario_id = .static_redelim,
             .status = .canonical,
+            .entry_symbol = "runStaticRedelim",
             .match = witness_static_redelim_match,
         };
         if (std.mem.eql(u8, case_id, "witness.multi_prompt")) return .{
@@ -861,6 +854,7 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .source_path = "src/witness_sources.zig",
             .scenario_id = .multi_prompt,
             .status = .canonical,
+            .entry_symbol = "runMultiPrompt",
             .match = witness_multi_prompt_match,
         };
         if (std.mem.eql(u8, case_id, "witness.generator")) return .{
@@ -869,10 +863,34 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .source_path = "src/witness_sources.zig",
             .scenario_id = .generator,
             .status = .canonical,
+            .entry_symbol = "runGenerator",
             .match = witness_generator_match,
         };
     }
     return null;
+}
+
+fn loweringSurfaceKind(surface_kind: SurfaceKind) authoring_lowerer.SurfaceKind {
+    return switch (surface_kind) {
+        .effect => .effect,
+        .example => .example,
+        .source_case => .source_case,
+        .user_defined_effect => .user_defined_effect,
+        .witness => .witness,
+    };
+}
+
+fn loweringCase(spec: Spec, case: SupportedCase) authoring_lowerer.CanonicalCase {
+    return .{
+        .case_id = case.case_id,
+        .label = case.label,
+        .source_path = case.source_path,
+        .entry_symbol = case.entry_symbol,
+        .surface_kind = loweringSurfaceKind(spec.surface_kind),
+        .status = case.status,
+        .scenario_id = case.scenario_id,
+        .feature_flags = case.match.feature_flags,
+    };
 }
 
 fn duplicateFeatureFlags(allocator: std.mem.Allocator, flags: []const []const u8) std.mem.Allocator.Error![]const []const u8 {
@@ -881,9 +899,6 @@ fn duplicateFeatureFlags(allocator: std.mem.Allocator, flags: []const []const u8
     return duped;
 }
 
-fn emptyDiagnostics(allocator: std.mem.Allocator) std.mem.Allocator.Error![]const Diagnostic {
-    return try allocator.alloc(Diagnostic, 0);
-}
 
 fn duplicateWitnessDiagnostics(
     allocator: std.mem.Allocator,
@@ -902,287 +917,64 @@ fn duplicateWitnessDiagnostics(
     return duped;
 }
 
-fn duplicateSteps(
-    allocator: std.mem.Allocator,
-    steps: []const lowered_machine.Step,
-) std.mem.Allocator.Error![]const lowered_machine.Step {
-    return try allocator.dupe(lowered_machine.Step, steps);
-}
 
 fn duplicateSourcePath(allocator: std.mem.Allocator, path: []const u8) std.mem.Allocator.Error![]const u8 {
     return try allocator.dupe(u8, path);
 }
 
-fn parseFailureDiagnostic(
-    allocator: std.mem.Allocator,
-    path: []const u8,
-    source: [:0]const u8,
-    tree: std.zig.Ast,
-) std.mem.Allocator.Error![]const Diagnostic {
-    if (tree.errors.len == 0) {
-        const diags = try allocator.alloc(Diagnostic, 1);
-        diags[0] = .{
-            .code = "invalid_source",
-            .message = "source-lowering checker rejected the source before building a generated program",
-            .path = path,
-            .line = 1,
-            .column = 1,
-        };
-        return diags;
-    }
 
-    const parse_error = tree.errors[0];
-    const loc = tree.tokenLocation(0, parse_error.token);
-    const diags = try allocator.alloc(Diagnostic, 1);
-    diags[0] = .{
-        .code = "parse_error",
-        .message = @tagName(parse_error.tag),
-        .path = path,
-        .line = loc.line + 1,
-        .column = loc.column + 1,
-    };
-    _ = source;
-    return diags;
-}
 
-fn shapeDiagnostic(
-    allocator: std.mem.Allocator,
-    path: []const u8,
-    message: []const u8,
-) std.mem.Allocator.Error![]const Diagnostic {
-    const diags = try allocator.alloc(Diagnostic, 1);
-    diags[0] = .{
-        .code = "unsupported_shape",
-        .message = message,
-        .path = path,
-        .line = 1,
-        .column = 1,
-    };
-    return diags;
-}
 
-fn sourcePathDiagnostic(
-    allocator: std.mem.Allocator,
-    path: []const u8,
-    message: []const u8,
-) std.mem.Allocator.Error![]const Diagnostic {
-    const diags = try allocator.alloc(Diagnostic, 1);
-    diags[0] = .{
-        .code = "non_canonical_source_path",
-        .message = message,
-        .path = path,
-        .line = 1,
-        .column = 1,
-    };
-    return diags;
-}
-
-fn sourcePathMatchesExpected(allocator: std.mem.Allocator, actual_path: []const u8, expected_path: []const u8) bool {
-    const cwd = std.fs.cwd();
-    const actual_realpath = cwd.realpathAlloc(allocator, actual_path) catch return false;
-    defer allocator.free(actual_realpath);
-
-    var repo_dir = std.fs.openDirAbsolute(build_options.package_root, .{}) catch return false;
-    defer repo_dir.close();
-
-    const normalized_expected = allocator.dupe(u8, expected_path) catch return false;
-    defer allocator.free(normalized_expected);
-    if (std.fs.path.sep != '/') {
-        for (normalized_expected) |*byte| {
-            if (byte.* == '/') byte.* = std.fs.path.sep;
-        }
-    }
-
-    const expected_realpath = repo_dir.realpathAlloc(allocator, normalized_expected) catch return false;
-    defer allocator.free(expected_realpath);
-    return std.mem.eql(u8, actual_realpath, expected_realpath);
-}
 
 fn resolvedSourcePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
     _ = build_options;
     return try std.fs.cwd().realpathAlloc(allocator, source_path);
 }
 
-fn hasTopLevelFunctionNamed(tree: std.zig.Ast, name: []const u8) bool {
-    var container_buffer: [2]std.zig.Ast.Node.Index = undefined;
-    const root = tree.fullContainerDecl(&container_buffer, .root) orelse return false;
-    for (root.ast.members) |member| {
-        var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
-        const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse continue;
-        const name_token = fn_proto.name_token orelse continue;
-        if (std.mem.eql(u8, tree.tokenSlice(name_token), name)) return true;
-    }
-    return false;
-}
 
-fn stripLineCommentsAlloc(allocator: std.mem.Allocator, source: []const u8) std.mem.Allocator.Error![]u8 {
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(allocator);
 
-    var in_string = false;
-    var escaped = false;
-    var idx: usize = 0;
-    while (idx < source.len) : (idx += 1) {
-        const byte = source[idx];
-        if (in_string) {
-            try out.append(allocator, byte);
-            if (escaped) {
-                escaped = false;
-            } else if (byte == '\\') {
-                escaped = true;
-            } else if (byte == '"') {
-                in_string = false;
-            }
-            continue;
-        }
 
-        if (byte == '"') {
-            in_string = true;
-            try out.append(allocator, byte);
-            continue;
-        }
-        if (byte == '/' and idx + 1 < source.len and source[idx + 1] == '/') {
-            idx += 2;
-            while (idx < source.len and source[idx] != '\n') : (idx += 1) {}
-            if (idx < source.len and source[idx] == '\n') try out.append(allocator, '\n');
-            continue;
-        }
-        try out.append(allocator, byte);
-    }
 
-    return try out.toOwnedSlice(allocator);
-}
 
-fn entryFunctionSourceSlice(tree: std.zig.Ast, source: []const u8, name: []const u8) ?[]const u8 {
-    var container_buffer: [2]std.zig.Ast.Node.Index = undefined;
-    const root = tree.fullContainerDecl(&container_buffer, .root) orelse return null;
-    for (root.ast.members) |member| {
-        var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
-        const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse continue;
-        const name_token = fn_proto.name_token orelse continue;
-        if (!std.mem.eql(u8, tree.tokenSlice(name_token), name)) continue;
-        const start = tree.tokenStart(fn_proto.firstToken());
-        const last = tree.lastToken(member);
-        const end = tree.tokenStart(last) + @as(u32, @intCast(tree.tokenSlice(last).len));
-        return source[start..end];
-    }
-    return null;
-}
 
-fn canonicalSourceHash(expected_path: []const u8) ?[32]u8 {
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/local_mutation_resume.zig")) return build_options.hash_local_mutation_resume;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/branch_resume.zig")) return build_options.hash_branch_resume;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/loop_resume.zig")) return build_options.hash_loop_resume;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/helper_call_resume.zig")) return build_options.hash_helper_call_resume;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/nested_prompt_static_redelim.zig")) return build_options.hash_nested_prompt_static_redelim;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/typed_error_try.zig")) return build_options.hash_typed_error_try;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/defer_resume.zig")) return build_options.hash_defer_resume;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/errdefer_error.zig")) return build_options.hash_errdefer_error;
-    if (std.mem.eql(u8, expected_path, "examples/define_basic.zig")) return build_options.hash_define_basic;
-    if (std.mem.eql(u8, expected_path, "examples/define_choice_basic.zig")) return build_options.hash_define_choice_basic;
-    if (std.mem.eql(u8, expected_path, "examples/define_abort_basic.zig")) return build_options.hash_define_abort_basic;
-    if (std.mem.eql(u8, expected_path, "examples/early_exit.zig")) return build_options.hash_early_exit;
-    if (std.mem.eql(u8, expected_path, "examples/resume_or_return.zig")) return build_options.hash_resume_or_return;
-    if (std.mem.eql(u8, expected_path, "examples/front_door_workflow.zig")) return build_options.hash_front_door_workflow;
-    if (std.mem.eql(u8, expected_path, "examples/nested_workflow.zig")) return build_options.hash_nested_workflow;
-    if (std.mem.eql(u8, expected_path, "examples/state_basic.zig")) return build_options.hash_state_basic;
-    if (std.mem.eql(u8, expected_path, "examples/reader_basic.zig")) return build_options.hash_reader_basic;
-    if (std.mem.eql(u8, expected_path, "examples/optional_basic.zig")) return build_options.hash_optional_basic;
-    if (std.mem.eql(u8, expected_path, "examples/exception_basic.zig")) return build_options.hash_exception_basic;
-    if (std.mem.eql(u8, expected_path, "examples/resource_basic.zig")) return build_options.hash_resource_basic;
-    if (std.mem.eql(u8, expected_path, "examples/writer_basic.zig")) return build_options.hash_writer_basic;
-    if (std.mem.eql(u8, expected_path, "examples/algebraic_abortive_validation.zig")) return build_options.hash_algebraic_abortive_validation;
-    if (std.mem.eql(u8, expected_path, "examples/algebraic_artifact_search.zig")) return build_options.hash_algebraic_artifact_search;
-    if (std.mem.eql(u8, expected_path, "src/witness_sources.zig")) return build_options.hash_witness_sources;
-    return null;
-}
 
-fn sourceTextMatchesCanonical(allocator: std.mem.Allocator, expected_path: []const u8, source_text: []const u8) bool {
-    const expected_hash = canonicalSourceHash(expected_path) orelse return false;
-    const normalized = normalizeSourceForHashAlloc(allocator, source_text) catch return false;
-    defer allocator.free(normalized);
-
-    var actual_hash: [32]u8 = undefined;
-    std.crypto.hash.Blake3.hash(normalized, &actual_hash, .{});
-    return std.mem.eql(u8, &actual_hash, &expected_hash);
-}
-
-fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8) std.mem.Allocator.Error![]u8 {
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(allocator);
-
-    var in_string = false;
-    var escaped = false;
-    var idx: usize = 0;
-    while (idx < source.len) : (idx += 1) {
-        const byte = source[idx];
-        if (in_string) {
-            try out.append(allocator, byte);
-            if (escaped) {
-                escaped = false;
-            } else if (byte == '\\') {
-                escaped = true;
-            } else if (byte == '"') {
-                in_string = false;
-            }
-            continue;
-        }
-
-        if (byte == '"') {
-            in_string = true;
-            try out.append(allocator, byte);
-            continue;
-        }
-        if (byte == '/' and idx + 1 < source.len and source[idx + 1] == '/') {
-            idx += 2;
-            while (idx < source.len and source[idx] != '\n') : (idx += 1) {}
-            continue;
-        }
-        if (std.ascii.isWhitespace(byte)) continue;
-        try out.append(allocator, byte);
-    }
-
-    return try out.toOwnedSlice(allocator);
-}
-
-fn containsAllInScopes(
-    full_source: []const u8,
-    entry_source: []const u8,
-    required_snippets: []const []const u8,
-    entry_required_snippets: []const []const u8,
-) bool {
-    for (required_snippets) |snippet| {
-        if (std.mem.indexOf(u8, full_source, snippet) == null) return false;
-    }
-
-    if (entry_required_snippets.len == 0) {
-        for (required_snippets) |snippet| {
-            if (std.mem.indexOf(u8, entry_source, snippet) == null) return false;
-        }
-        return true;
-    }
-
-    for (entry_required_snippets) |snippet| {
-        if (std.mem.indexOf(u8, entry_source, snippet) == null) return false;
-    }
-    return true;
-}
-
-fn acceptedProgram(
+fn generatedProgramFromLowered(
     allocator: std.mem.Allocator,
     spec: Spec,
     case: SupportedCase,
+    lowered: authoring_lowerer.LoweredAuthoring,
 ) std.mem.Allocator.Error!GeneratedProgram {
-    const scenario = parity_scenarios.byId(case.scenario_id);
-    const source_path = try duplicateSourcePath(allocator, case.source_path);
-    errdefer allocator.free(source_path);
-    const steps = try duplicateSteps(allocator, scenario.steps);
-    errdefer allocator.free(steps);
-    const feature_flags = try duplicateFeatureFlags(allocator, case.match.feature_flags);
-    errdefer allocator.free(feature_flags);
-    const diagnostics = try emptyDiagnostics(allocator);
-    errdefer allocator.free(diagnostics);
+    const diagnostics = blk: {
+        if (lowered.status != .rejected) break :blk lowered.diagnostics;
+        const translated = try allocator.dupe(Diagnostic, lowered.diagnostics);
+        allocator.free(lowered.diagnostics);
+        for (translated) |*diag| {
+            if (std.mem.eql(u8, diag.code, "structural_mismatch") or
+                std.mem.eql(u8, diag.code, "expected_status_mismatch") or
+                std.mem.eql(u8, diag.code, "entry_missing"))
+            {
+                diag.code = "unsupported_shape";
+            }
+        }
+        break :blk translated;
+    };
+
     const witness = blk: {
+        if (lowered.status == .rejected) {
+            const template = rejectedWitnessTemplate(spec);
+            const witness_diagnostics = try duplicateWitnessDiagnostics(allocator, diagnostics);
+            errdefer allocator.free(witness_diagnostics);
+            break :blk error_witness.ErrorWitnessV1{
+                .surface = .ordinary,
+                .support_status = .unsupported,
+                .public_runtime_errors = error_witness.no_runtime_error_tags[0..],
+                .setup_error_names = template.setup_error_names,
+                .semantic_error_names = template.semantic_error_names,
+                .contributors = template.contributors,
+                .diagnostics = witness_diagnostics,
+            };
+        }
+
         const template = witnessTemplate(spec, case);
         break :blk error_witness.ErrorWitnessV1{
             .surface = .ordinary,
@@ -1194,51 +986,46 @@ fn acceptedProgram(
             .diagnostics = error_witness.no_diagnostics[0..],
         };
     };
+
     return .{
-        .case_id = case.case_id,
-        .label = case.label,
-        .source_path = source_path,
+        .case_id = lowered.case_id,
+        .label = lowered.label,
+        .source_path = lowered.source_path,
         .surface_kind = spec.surface_kind,
-        .status = case.status,
-        .canonical_scenario_id = case.scenario_id,
-        .expected_transcript = scenario.expected_transcript,
-        .steps = steps,
-        .feature_flags = feature_flags,
+        .status = lowered.status,
+        .canonical_scenario_id = lowered.canonical_scenario_id,
+        .expected_transcript = lowered.expected_transcript,
+        .steps = lowered.steps,
+        .feature_flags = lowered.feature_flags,
         .diagnostics = diagnostics,
         .error_witness = witness,
     };
 }
 
-fn rejectedProgram(
+fn generatedRejectedProgram(
     allocator: std.mem.Allocator,
     spec: Spec,
     case: SupportedCase,
-    diagnostics: []const Diagnostic,
+    message: []const u8,
 ) std.mem.Allocator.Error!GeneratedProgram {
-    const steps = try allocator.alloc(lowered_machine.Step, 0);
-    errdefer allocator.free(steps);
     const source_path = try duplicateSourcePath(allocator, spec.source_path);
     errdefer allocator.free(source_path);
-    const owned_diagnostics = try allocator.dupe(Diagnostic, diagnostics);
-    errdefer allocator.free(owned_diagnostics);
-    allocator.free(diagnostics);
-    for (owned_diagnostics) |*diag| diag.path = source_path;
+    const diagnostics = try allocator.alloc(Diagnostic, 1);
+    errdefer allocator.free(diagnostics);
+    diagnostics[0] = .{
+        .code = "unsupported_shape",
+        .message = message,
+        .path = source_path,
+        .line = 1,
+        .column = 1,
+    };
+    const steps = try allocator.alloc(lowered_machine.Step, 0);
+    errdefer allocator.free(steps);
     const feature_flags = try duplicateFeatureFlags(allocator, case.match.feature_flags);
     errdefer allocator.free(feature_flags);
-    const witness = blk: {
-        const template = rejectedWitnessTemplate(spec);
-        const witness_diagnostics = try duplicateWitnessDiagnostics(allocator, owned_diagnostics);
-        errdefer allocator.free(witness_diagnostics);
-        break :blk error_witness.ErrorWitnessV1{
-            .surface = .ordinary,
-            .support_status = .unsupported,
-            .public_runtime_errors = error_witness.no_runtime_error_tags[0..],
-            .setup_error_names = template.setup_error_names,
-            .semantic_error_names = template.semantic_error_names,
-            .contributors = template.contributors,
-            .diagnostics = witness_diagnostics,
-        };
-    };
+    const template = rejectedWitnessTemplate(spec);
+    const witness_diagnostics = try duplicateWitnessDiagnostics(allocator, diagnostics);
+    errdefer allocator.free(witness_diagnostics);
     return .{
         .case_id = case.case_id,
         .label = case.label,
@@ -1249,8 +1036,16 @@ fn rejectedProgram(
         .expected_transcript = "",
         .steps = steps,
         .feature_flags = feature_flags,
-        .diagnostics = owned_diagnostics,
-        .error_witness = witness,
+        .diagnostics = diagnostics,
+        .error_witness = .{
+            .surface = .ordinary,
+            .support_status = .unsupported,
+            .public_runtime_errors = error_witness.no_runtime_error_tags[0..],
+            .setup_error_names = template.setup_error_names,
+            .semantic_error_names = template.semantic_error_names,
+            .contributors = template.contributors,
+            .diagnostics = witness_diagnostics,
+        },
     };
 }
 
@@ -1260,65 +1055,24 @@ fn inspectSourceText(
     case: SupportedCase,
     source_text: []const u8,
 ) !GeneratedProgram {
-    const source_z = try allocator.dupeZ(u8, source_text);
-    defer allocator.free(source_z);
-
-    var tree = try std.zig.Ast.parse(allocator, source_z, .zig);
-    defer tree.deinit(allocator);
-
-    if (tree.errors.len != 0) {
-        return rejectedProgram(
-            allocator,
-            spec,
-            case,
-            try parseFailureDiagnostic(allocator, spec.source_path, source_z, tree),
-        );
-    }
-    if (!sourceTextMatchesCanonical(allocator, case.source_path, source_text)) {
-        return rejectedProgram(
-            allocator,
-            spec,
-            case,
-            try shapeDiagnostic(allocator, spec.source_path, "source does not match the canonical repo-owned source for this case"),
-        );
-    }
-    if (!hasTopLevelFunctionNamed(tree, spec.entry_symbol)) {
-        return rejectedProgram(
-            allocator,
-            spec,
-            case,
-            try shapeDiagnostic(allocator, spec.source_path, "entry function was not found at the top level"),
-        );
-    }
-    const stripped_source = try stripLineCommentsAlloc(allocator, source_z);
-    defer allocator.free(stripped_source);
-    const entry_source = entryFunctionSourceSlice(tree, source_z, spec.entry_symbol) orelse "";
-    const stripped_entry_source = try stripLineCommentsAlloc(allocator, entry_source);
-    defer allocator.free(stripped_entry_source);
-
-    if (!containsAllInScopes(
-        stripped_source,
-        stripped_entry_source,
-        case.match.required_snippets,
-        case.match.entry_required_snippets,
-    )) {
-        return rejectedProgram(
-            allocator,
-            spec,
-            case,
-            try shapeDiagnostic(allocator, spec.source_path, "source does not match the currently supported restricted source-lowering shape"),
-        );
+    if (!std.mem.eql(u8, spec.entry_symbol, case.entry_symbol)) {
+        return generatedRejectedProgram(allocator, spec, case, "entry function does not match the supported source-lowering shape for this case");
     }
     if (spec.expected_status != case.status) {
-        return rejectedProgram(
-            allocator,
-            spec,
-            case,
-            try shapeDiagnostic(allocator, spec.source_path, "requested expected_status does not match the supported status for this case"),
-        );
+        return generatedRejectedProgram(allocator, spec, case, "requested expected_status does not match the supported status for this case");
     }
 
-    return acceptedProgram(allocator, spec, case);
+    const lowered = try authoring_lowerer.lowerSourceText(
+        allocator,
+        loweringCase(spec, case),
+        .{
+            .display_path = spec.source_path,
+            .actual_path = case.source_path,
+            .source_text = source_text,
+            .expected_status = spec.expected_status,
+        },
+    );
+    return generatedProgramFromLowered(allocator, spec, case, lowered);
 }
 
 /// Inspect and lower one restricted source-lowering source file.
@@ -1327,34 +1081,32 @@ pub fn inspectSource(allocator: std.mem.Allocator, spec: Spec) LowerError!Genera
         .source_case => sourceSupportedCase(source_registry.find(spec.case_id) orelse return error.UnsupportedSourceCase),
         .example, .effect, .user_defined_effect, .witness => promotedSupportedCase(spec.case_id, spec.surface_kind) orelse return error.UnsupportedSourceCase,
     };
-    const resolved_source_path = resolvedSourcePathAlloc(allocator, spec.source_path) catch {
-        return rejectedProgram(
-            allocator,
-            spec,
-            case,
-            try shapeDiagnostic(allocator, spec.source_path, "source file could not be read"),
-        );
-    };
+    if (!std.mem.eql(u8, spec.entry_symbol, case.entry_symbol)) {
+        return generatedRejectedProgram(allocator, spec, case, "entry function does not match the supported source-lowering shape for this case");
+    }
+    if (spec.expected_status != case.status) {
+        return generatedRejectedProgram(allocator, spec, case, "requested expected_status does not match the supported status for this case");
+    }
+    const resolved_source_path = resolvedSourcePathAlloc(allocator, spec.source_path) catch try allocator.dupe(u8, spec.source_path);
     defer allocator.free(resolved_source_path);
 
-    const source = std.fs.cwd().readFileAlloc(allocator, resolved_source_path, 1 << 20) catch {
-        return rejectedProgram(
-            allocator,
-            spec,
-            case,
-            try shapeDiagnostic(allocator, spec.source_path, "source file could not be read"),
-        );
+    const lowered = try authoring_lowerer.lowerSourceFile(
+        allocator,
+        loweringCase(spec, case),
+        spec.source_path,
+        resolved_source_path,
+        spec.expected_status,
+    );
+    return generatedProgramFromLowered(allocator, spec, case, lowered);
+}
+
+/// Inspect and lower one inline source body against a supported source-lowering case.
+pub fn inspectInlineSource(allocator: std.mem.Allocator, spec: Spec, source_text: []const u8) LowerError!GeneratedProgram {
+    const case = switch (spec.surface_kind) {
+        .source_case => sourceSupportedCase(source_registry.find(spec.case_id) orelse return error.UnsupportedSourceCase),
+        .example, .effect, .user_defined_effect, .witness => promotedSupportedCase(spec.case_id, spec.surface_kind) orelse return error.UnsupportedSourceCase,
     };
-    defer allocator.free(source);
-    if (!sourcePathMatchesExpected(allocator, resolved_source_path, case.source_path)) {
-        return rejectedProgram(
-            allocator,
-            spec,
-            case,
-            try sourcePathDiagnostic(allocator, spec.source_path, "source path does not match the canonical repo-owned path for this case"),
-        );
-    }
-    return inspectSourceText(allocator, spec, case, source);
+    return inspectSourceText(allocator, spec, case, source_text);
 }
 
 /// Lower one supported source-lowering fixture through the source-validated path.

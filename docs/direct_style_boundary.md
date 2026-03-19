@@ -9,11 +9,12 @@ that surface. Today, that support comes in two internal forms:
 
 - `src/program_frontend.zig` lowers internal structured programs into the
   canonical lowered IR in `src/parity_scenarios.zig`
-- `src/source_lowering.zig` validates the canonical source corpus, witness set,
-  generated/user-defined examples, algebraic examples, and built-in declaration
-  rows, then projects them onto canonical lowered scenarios
-- `src/program_bridge.zig` maps a named unchanged-body direct-style subset onto
-  the same lowered scenarios for parity proof
+- `src/source_lowering.zig` structurally validates the canonical source corpus,
+  witness set, generated/user-defined examples, algebraic examples, and built-in
+  declaration rows, then projects accepted rows onto canonical lowered scenarios
+- `src/program_bridge.zig` now routes the supported unchanged-body example and
+  witness subset through the same shared authoring-lowering core before replaying
+  canonical lowered scenarios for parity proof
 - `src/private_lowered_runtime.zig` executes the currently supported bridge
   subset through an internal lowered-runtime seam
 
@@ -22,7 +23,8 @@ The current limit is structural:
 - the bridge currently supports only a named subset of unchanged direct-style
   cases
 - the internal source-lowering track is still structurally restricted even
-  though it now covers the repo-owned coverage matrix
+  though it now covers the repo-owned coverage matrix and emits checked
+  equivalence/rejection artifacts
 - the current proof-facing source-lowering scope is tracked separately in
   `docs/source_lowering_coverage_matrix.json`
 - arbitrary public-style `fn body() ...` code still relies on host-language
@@ -41,4 +43,5 @@ So the current answer is:
 
 This document is backed by `test/program_frontend_boundary_test.zig`,
 `test/direct_style_bridge_boundary_test.zig`, `test/source_lowering_boundary_test.zig`,
-and the structured-program lowering snapshots under `test/authoring_lowerings/`.
+`test/source_lowering_rejection_corpus_test.zig`, and the structured-program
+lowering snapshots under `test/authoring_lowerings/`.

@@ -1,0 +1,8 @@
+{
+  "scope": "lowering_rejection",
+  "rows": [
+    {"label":"source.branch_resume.dead_code","case_id":"source.branch_resume","diagnostic_code":"unsupported_shape","source_path":"test/source_lowering_corpus/fixtures/branch_resume.zig","line":1,"column":5},
+    {"label":"source.helper_call_resume.dynamic_callee","case_id":"source.helper_call_resume","diagnostic_code":"unsupported_shape","source_path":"test/source_lowering_corpus/fixtures/helper_call_resume.zig","line":1,"column":1},
+    {"label":"example.define_basic.wrong_entry","case_id":"example.define_basic","diagnostic_code":"unsupported_shape","source_path":"examples/define_basic.zig","line":1,"column":1}
+  ]
+}
