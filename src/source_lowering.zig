@@ -1063,6 +1063,31 @@ fn inspectSourceText(
     return generatedProgramFromLowered(allocator, spec, case, lowered);
 }
 
+fn inspectFileBackedSourceText(
+    allocator: std.mem.Allocator,
+    spec: Spec,
+    case: SupportedCase,
+    actual_path: []const u8,
+    source_text: []const u8,
+) !GeneratedProgram {
+    if (!std.mem.eql(u8, spec.entry_symbol, case.entry_symbol)) {
+        return generatedRejectedProgram(allocator, spec, case, "entry function does not match the supported source-lowering shape for this case");
+    }
+    if (spec.expected_status != case.status) {
+        return generatedRejectedProgram(allocator, spec, case, "requested expected_status does not match the supported status for this case");
+    }
+
+    const lowered = try authoring_lowerer.lowerFileBackedSourceText(
+        allocator,
+        loweringCase(spec, case),
+        spec.source_path,
+        actual_path,
+        source_text,
+        spec.expected_status,
+    );
+    return generatedProgramFromLowered(allocator, spec, case, lowered);
+}
+
 /// Inspect and lower one restricted source-lowering source file.
 pub fn inspectSource(allocator: std.mem.Allocator, spec: Spec) LowerError!GeneratedProgram {
     const case = switch (spec.surface_kind) {
@@ -1095,6 +1120,21 @@ pub fn inspectInlineSource(allocator: std.mem.Allocator, spec: Spec, source_text
         .example, .effect, .user_defined_effect, .witness => promotedSupportedCase(spec.case_id, spec.surface_kind) orelse return error.UnsupportedSourceCase,
     };
     return inspectSourceText(allocator, spec, case, source_text);
+}
+
+/// Inspect file-backed source text against the canonical file-backed lowering path without mutating the fixture on disk.
+pub fn inspectFileBackedInlineSource(
+    allocator: std.mem.Allocator,
+    spec: Spec,
+    source_text: []const u8,
+) LowerError!GeneratedProgram {
+    const case = switch (spec.surface_kind) {
+        .source_case => sourceSupportedCase(source_registry.find(spec.case_id) orelse return error.UnsupportedSourceCase),
+        .example, .effect, .user_defined_effect, .witness => promotedSupportedCase(spec.case_id, spec.surface_kind) orelse return error.UnsupportedSourceCase,
+    };
+    const resolved_source_path = resolvedSourcePathAlloc(allocator, spec.source_path) catch try allocator.dupe(u8, spec.source_path);
+    defer allocator.free(resolved_source_path);
+    return inspectFileBackedSourceText(allocator, spec, case, resolved_source_path, source_text);
 }
 
 /// Lower one supported source-lowering fixture through the source-validated path.

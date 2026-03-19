@@ -150,9 +150,6 @@ test "source-lowering accepts comment-only edits to canonical fixtures" {
 
 test "source-lowering rejects drifted canonical files even when the path stays canonical" {
     const fixture_path = "test/source_lowering_corpus/fixtures/helper_call_resume.zig";
-    const original = try std.fs.cwd().readFileAlloc(std.testing.allocator, fixture_path, 1 << 20);
-    defer std.testing.allocator.free(original);
-    defer std.fs.cwd().writeFile(.{ .sub_path = fixture_path, .data = original }) catch unreachable;
 
     const drifted =
         \\/// Stable source-lowering case id.
@@ -174,14 +171,13 @@ test "source-lowering rejects drifted canonical files even when the path stays c
         \\    try writer.print("final={d}\n", .{answer});
         \\}
     ;
-    try std.fs.cwd().writeFile(.{ .sub_path = fixture_path, .data = drifted });
 
-    var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
+    var lowered = try source_lowering.inspectFileBackedInlineSource(std.testing.allocator, .{
         .case_id = "source.helper_call_resume",
         .source_path = fixture_path,
         .entry_symbol = "run",
         .surface_kind = .source_case,
-    });
+    }, drifted);
     defer lowered.deinit(std.testing.allocator);
 
     try std.testing.expect(!lowered.isAccepted());

@@ -366,6 +366,43 @@ fn sourceTextMatchesCanonicalHash(
     return std.mem.eql(u8, &actual_hash, &expected_hash);
 }
 
+/// Lower one file-backed source text without rereading the file from disk.
+pub fn lowerFileBackedSourceText(
+    allocator: std.mem.Allocator,
+    case: CanonicalCase,
+    display_path: []const u8,
+    actual_path: []const u8,
+    source_text: []const u8,
+    expected_status: LowerStatus,
+) anyerror!LoweredAuthoring {
+    if (!sourcePathMatchesExpected(allocator, actual_path, case.source_path)) {
+        return rejectedResult(allocator, case, display_path, try diagnosticAt(
+            allocator,
+            display_path,
+            "non_canonical_source_path",
+            "source path does not match the canonical repo-owned path for this case",
+            1,
+            1,
+        ));
+    }
+    if (!sourceTextMatchesCanonicalHash(allocator, case.source_path, source_text)) {
+        return rejectedResult(allocator, case, display_path, try diagnosticAt(
+            allocator,
+            display_path,
+            "canonical_source_drift",
+            "source no longer matches the canonical repo-owned source for this case",
+            1,
+            1,
+        ));
+    }
+    return lowerSourceText(allocator, case, .{
+        .display_path = display_path,
+        .actual_path = actual_path,
+        .source_text = source_text,
+        .expected_status = expected_status,
+    });
+}
+
 fn rejectedResult(
     allocator: std.mem.Allocator,
     case: CanonicalCase,
@@ -513,30 +550,5 @@ pub fn lowerSourceFile(
         ));
     };
     defer allocator.free(source);
-    if (!sourcePathMatchesExpected(allocator, actual_path, case.source_path)) {
-        return rejectedResult(allocator, case, display_path, try diagnosticAt(
-            allocator,
-            display_path,
-            "non_canonical_source_path",
-            "source path does not match the canonical repo-owned path for this case",
-            1,
-            1,
-        ));
-    }
-    if (!sourceTextMatchesCanonicalHash(allocator, case.source_path, source)) {
-        return rejectedResult(allocator, case, display_path, try diagnosticAt(
-            allocator,
-            display_path,
-            "canonical_source_drift",
-            "source no longer matches the canonical repo-owned source for this case",
-            1,
-            1,
-        ));
-    }
-    return lowerSourceText(allocator, case, .{
-        .display_path = display_path,
-        .actual_path = actual_path,
-        .source_text = source,
-        .expected_status = expected_status,
-    });
+    return lowerFileBackedSourceText(allocator, case, display_path, actual_path, source, expected_status);
 }
