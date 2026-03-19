@@ -1154,7 +1154,7 @@ pub fn inspectFileBackedInlineSource(
         .source_case => sourceSupportedCase(source_registry.find(spec.case_id) orelse return error.UnsupportedSourceCase),
         .example, .effect, .user_defined_effect, .witness => promotedSupportedCase(spec.case_id, spec.surface_kind) orelse return error.UnsupportedSourceCase,
     };
-    const resolved_source_path = resolvedSourcePathAlloc(allocator, spec.source_path) catch try allocator.dupe(u8, spec.source_path);
+    const resolved_source_path = resolvedRepoSourcePathAlloc(allocator, spec.source_path) catch try allocator.dupe(u8, spec.source_path);
     defer allocator.free(resolved_source_path);
     return inspectFileBackedSourceText(allocator, spec, case, resolved_source_path, source_text);
 }

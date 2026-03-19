@@ -27,6 +27,27 @@ pub fn lowerFixture(comptime Fixture: type) anyerror!authoring_lowerer.LoweredAu
     return lowerCaseId(std.heap.page_allocator, Fixture.bridge_case_id);
 }
 
+/// Inspect one supported bridge case id against injected file-backed source text.
+pub fn inspectCaseIdSourceText(
+    allocator: std.mem.Allocator,
+    case_id: []const u8,
+    source_text: []const u8,
+) anyerror!authoring_lowerer.LoweredAuthoring {
+    const case = bridge_manifest.find(case_id) orelse return error.UnsupportedBridgeCase;
+    if (case.status == .blocked) return error.UnsupportedBridgeCase;
+    const resolved_source_path = try authoring_lowerer.resolveRepoSourcePathAlloc(allocator, case.source_module);
+    defer allocator.free(resolved_source_path);
+
+    return try authoring_lowerer.lowerFileBackedSourceText(
+        allocator,
+        canonicalBridgeCase(case),
+        case.source_module,
+        resolved_source_path,
+        source_text,
+        .canonical,
+    );
+}
+
 /// Lower one supported bridge example case id through the shared authoring lowerer.
 pub fn lowerCaseId(allocator: std.mem.Allocator, case_id: []const u8) anyerror!authoring_lowerer.LoweredAuthoring {
     const case = bridge_manifest.find(case_id) orelse return error.UnsupportedBridgeCase;

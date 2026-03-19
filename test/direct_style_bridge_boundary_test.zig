@@ -1,6 +1,7 @@
 const bridge_manifest = @import("direct_style_bridge_manifest");
 const early_exit = @import("direct_style_bridge_early_exit");
 const private_lowered_runtime = @import("private_lowered_runtime");
+const program_bridge = @import("program_bridge");
 const std = @import("std");
 const witness_admission = @import("witness_admission_registry");
 
@@ -50,4 +51,23 @@ test "bridge case ids still execute through the lowered runtime seam" {
     const execution = try private_lowered_runtime.runCaseId(&writer, "early_exit");
     try std.testing.expectEqualStrings("bridge.early_exit", execution.label);
     try std.testing.expectEqualStrings("early_exit", execution.scenario.case_id);
+}
+
+test "bridge case-id admission rejects drifted canonical sources" {
+    const drifted =
+        \\const shift = @import("shift");
+        \\
+        \\pub const bridge_case_id = "early_exit";
+        \\
+        \\pub fn run(writer: anytype) !void {
+        \\    _ = shift;
+        \\    try writer.writeAll("status=late\\n");
+        \\}
+    ;
+
+    var lowered = try program_bridge.inspectCaseIdSourceText(std.testing.allocator, "early_exit", drifted);
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(lowered.status == .rejected);
+    try std.testing.expectEqualStrings("canonical_source_drift", lowered.diagnostics[0].code);
 }

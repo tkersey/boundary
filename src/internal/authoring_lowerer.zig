@@ -652,6 +652,16 @@ pub fn lowerSourceText(
     if (tree.errors.len != 0) {
         return rejectedResult(allocator, case, input.display_path, try parseFailureDiagnostic(allocator, input.display_path, source_z, tree));
     }
+    if (!sourceTextMatchesCanonicalHash(allocator, case, input.source_text)) {
+        return rejectedResult(allocator, case, input.display_path, try diagnosticAt(
+            allocator,
+            input.display_path,
+            "canonical_source_drift",
+            "source no longer matches the canonical repo-owned source for this case",
+            1,
+            1,
+        ));
+    }
     if (!hasTopLevelFunctionNamed(tree, case.entry_symbol)) {
         return rejectedResult(allocator, case, input.display_path, try diagnosticAt(
             allocator,
