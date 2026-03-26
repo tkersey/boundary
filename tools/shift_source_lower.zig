@@ -1,3 +1,4 @@
+const error_witness = @import("error_witness");
 const lowered_machine = @import("lowered_machine");
 const source_lowering = @import("source_lowering");
 const std = @import("std");
@@ -161,7 +162,7 @@ fn writeJson(program: source_lowering.GeneratedProgram, writer: anytype) !void {
     try writer.writeAll("\"public_runtime_errors\":[");
     for (program.error_witness.public_runtime_errors, 0..) |tag, idx| {
         if (idx != 0) try writer.writeAll(",");
-        try writeJsonStringLiteral(writer, @tagName(tag));
+        try writeJsonStringLiteral(writer, error_witness.runtimeErrorTagName(tag));
     }
     try writer.writeAll("],\"setup_error_names\":");
     try writeJsonStringArray(writer, program.error_witness.setup_error_names);

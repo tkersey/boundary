@@ -13,13 +13,13 @@ pub const SupportStatus = enum {
 };
 
 pub const RuntimeErrorTag = enum {
-    MissingPrompt,
-    CrossThread,
-    RuntimeBusy,
-    RuntimeDestroyed,
-    NonDiagonalComplete,
-    FrontendSuspend,
-    ProgramContractViolation,
+    missing_prompt,
+    cross_thread,
+    runtime_busy,
+    runtime_destroyed,
+    non_diagonal_complete,
+    frontend_suspend,
+    program_contract_violation,
 };
 
 pub const ContributorKind = enum {
@@ -78,13 +78,25 @@ pub const no_diagnostics = [_]WitnessDiagnostic{};
 
 pub fn runtimeErrorTags() []const RuntimeErrorTag {
     return &.{
-        .MissingPrompt,
-        .CrossThread,
-        .RuntimeBusy,
-        .RuntimeDestroyed,
-        .NonDiagonalComplete,
-        .FrontendSuspend,
-        .ProgramContractViolation,
+        .missing_prompt,
+        .cross_thread,
+        .runtime_busy,
+        .runtime_destroyed,
+        .non_diagonal_complete,
+        .frontend_suspend,
+        .program_contract_violation,
+    };
+}
+
+pub fn runtimeErrorTagName(tag: RuntimeErrorTag) []const u8 {
+    return switch (tag) {
+        .missing_prompt => "MissingPrompt",
+        .cross_thread => "CrossThread",
+        .runtime_busy => "RuntimeBusy",
+        .runtime_destroyed => "RuntimeDestroyed",
+        .non_diagonal_complete => "NonDiagonalComplete",
+        .frontend_suspend => "FrontendSuspend",
+        .program_contract_violation => "ProgramContractViolation",
     };
 }
 

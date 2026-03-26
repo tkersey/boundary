@@ -879,6 +879,7 @@ pub fn build(b: *std.Build) void {
     });
     source_lowering_tool_mod.addImport("source_lowering", source_lowering_mod);
     source_lowering_tool_mod.addImport("lowered_machine", lowered_machine_mod);
+    source_lowering_tool_mod.addImport("error_witness", error_witness_mod);
     const source_lowering_tool_exe = b.addExecutable(.{
         .name = "shift-source-lower",
         .root_module = source_lowering_tool_mod,
