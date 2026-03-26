@@ -78,7 +78,9 @@ test "front-door declaration and op shells stay compact" {
             return "resource";
         }
 
-        pub fn release(_: []const u8) void {}
+        pub fn release(_: []const u8) void {
+            // Deliberately empty for the compact-size witness.
+        }
     }))));
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(@TypeOf(shift.Decl.writer([]const u8))));
 }

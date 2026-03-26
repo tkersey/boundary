@@ -2,7 +2,9 @@ const shift = @import("shift");
 const std = @import("std");
 
 const bad_manager = struct {
-    pub fn release(_: []const u8) void {}
+    pub fn release(_: []const u8) void {
+        // Intentionally empty for this compile-fail fixture.
+    }
 };
 
 const Demo = shift.Program(.{
