@@ -51,7 +51,7 @@ test "shift.With distinguishes semantic from execution error metadata" {
     const Handlers = @TypeOf(.{
         .state = shift.effect.state.use(@as(i32, 7)),
     });
-    const Body = struct {
+    const body_spec = struct {
         pub const SemanticErrorSet = error{BodyOops};
 
         pub fn body(eff: anytype) !i32 {
@@ -59,7 +59,7 @@ test "shift.With distinguishes semantic from execution error metadata" {
             return error.BodyOops;
         }
     };
-    const Meta = shift.With(Handlers, Body);
+    const Meta = shift.With(Handlers, body_spec);
 
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "BodyOops"));
     try std.testing.expect(!hasErrorName(Meta.SemanticErrorSet, "MissingPrompt"));
@@ -74,14 +74,14 @@ test "shift.With preserves semantic body errors that collide with setup names" {
     const Handlers = @TypeOf(.{
         .state = shift.effect.state.use(@as(i32, 7)),
     });
-    const Body = struct {
+    const body_spec = struct {
         pub const SemanticErrorSet = error{OutOfMemory};
 
         pub fn body(_: anytype) !i32 {
             return error.OutOfMemory;
         }
     };
-    const Meta = shift.With(Handlers, Body);
+    const Meta = shift.With(Handlers, body_spec);
 
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "OutOfMemory"));
     try std.testing.expect(hasErrorName(Meta.ExecutionError, "OutOfMemory"));
@@ -91,7 +91,7 @@ test "shift.With preserves mixed collided body errors in SemanticErrorSet" {
     const Handlers = @TypeOf(.{
         .state = shift.effect.state.use(@as(i32, 7)),
     });
-    const Body = struct {
+    const body_spec = struct {
         pub const SemanticErrorSet = error{ BodyOops, OutOfMemory, MissingPrompt };
 
         pub fn body(eff: anytype) !i32 {
@@ -99,7 +99,7 @@ test "shift.With preserves mixed collided body errors in SemanticErrorSet" {
             return error.OutOfMemory;
         }
     };
-    const Meta = shift.With(Handlers, Body);
+    const Meta = shift.With(Handlers, body_spec);
 
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "BodyOops"));
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "OutOfMemory"));
@@ -110,13 +110,13 @@ test "shift.With instantiates for effect-only bodies without SemanticErrorSet me
     const Handlers = @TypeOf(.{
         .state = shift.effect.state.use(@as(i32, 7)),
     });
-    const Body = struct {
+    const body_spec = struct {
         pub fn body(eff: anytype) !i32 {
             _ = try eff.state.get();
             return 0;
         }
     };
-    const Meta = shift.With(Handlers, Body);
+    const Meta = shift.With(Handlers, body_spec);
 
     try std.testing.expect(@sizeOf(Meta.Result) > 0);
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "MissingPrompt"));
@@ -125,7 +125,7 @@ test "shift.With instantiates for effect-only bodies without SemanticErrorSet me
 }
 
 test "shift.With preview includes continuation errors from lexical explicit programs" {
-    const ProbeDescriptor = struct {
+    const probe_descriptor = struct {
         pub const ErrorSet = error{};
         pub const State = i32;
         pub const Output = void;
@@ -172,9 +172,9 @@ test "shift.With preview includes continuation errors from lexical explicit prog
     };
 
     const Handlers = @TypeOf(.{
-        .probe = ProbeDescriptor{},
+        .probe = probe_descriptor{},
     });
-    const Body = struct {
+    const body_spec = struct {
         pub const SemanticErrorSet = error{ContinueOops};
 
         pub fn body(eff: anytype) !i32 {
@@ -185,7 +185,7 @@ test "shift.With preview includes continuation errors from lexical explicit prog
             });
         }
     };
-    const Meta = shift.With(Handlers, Body);
+    const Meta = shift.With(Handlers, body_spec);
 
     try std.testing.expect(hasErrorName(Meta.ExecutionError, "ContinueOops"));
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "ContinueOops"));
@@ -356,7 +356,7 @@ test "generated lexical handlers infer after-hook errors when error_set_type is 
         },
     });
 
-    const handler = struct {
+    const Handler = struct {
         state: i32 = 7,
 
         pub fn get(self: *@This()) i32 {
@@ -372,7 +372,7 @@ test "generated lexical handlers infer after-hook errors when error_set_type is 
     defer runtime.deinit();
 
     const CallType = @TypeOf(shift.with(&runtime, .{
-        .counter = Counter.use(.{ .handler = handler{} }),
+        .counter = Counter.use(.{ .handler = Handler{} }),
     }, struct {
         pub fn body(eff: anytype) !i32 {
             return try eff.counter.get.perform();

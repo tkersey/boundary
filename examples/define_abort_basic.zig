@@ -5,7 +5,7 @@ const transcript = struct {
     threadlocal var abort_line: []const u8 = "";
 };
 
-const GuardHandler = struct {
+const guard_handler = struct {
     /// Validate one missing name and return the canonical generated abort answer.
     pub fn fail(_: *@This(), payload: []const u8) ![]const u8 {
         transcript.abort_line = payload;
@@ -18,7 +18,7 @@ const Guard = shift.Decl.family(.{
     .ops = .{
         shift.Op.abort("fail", []const u8),
     },
-}, GuardHandler);
+}, guard_handler);
 
 const GuardProgram = shift.Program(.{
     .guard = Guard,
@@ -38,7 +38,7 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("validate=name\n");
     const result = try shift.run(&runtime, GuardProgram, .{
-        .guard = GuardHandler{},
+        .guard = guard_handler{},
     });
     try writer.print("abort={s}\n", .{transcript.abort_line});
     try writer.print("final={s}\n", .{result.value});

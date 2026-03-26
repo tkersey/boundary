@@ -11,10 +11,10 @@ const transcript = struct {
     }
 };
 
-const SearchState = struct {};
+const search_state = struct {};
 
 const SearchHandler = struct {
-    state: SearchState = .{},
+    state: search_state = .{},
 
     /// Record the search query and return the canonical total.
     pub fn search(_: *@This(), payload: []const u8) i32 {
@@ -30,7 +30,7 @@ const SearchHandler = struct {
 };
 
 const Search = shift.Decl.family(.{
-    .state_type = SearchState,
+    .state_type = search_state,
     .ops = .{
         shift.Op.transform("search", []const u8, i32),
     },

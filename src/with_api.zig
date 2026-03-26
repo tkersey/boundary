@@ -267,8 +267,8 @@ fn PreviewCapabilityType(comptime DescriptorType: type, comptime ErrorSet: type)
 }
 
 fn PreviewContextPtrType(comptime DescriptorType: type, comptime ErrorSet: type) type {
-    const PreviewCapability = PreviewCapabilityType(DescriptorType, ErrorSet);
-    return *family.Context(PreviewCapability, DescriptorType.State, void, ErrorSet);
+    const preview_capability = PreviewCapabilityType(DescriptorType, ErrorSet);
+    return *family.Context(preview_capability, DescriptorType.State, void, ErrorSet);
 }
 
 fn PreviewHandleType(
@@ -280,14 +280,14 @@ fn PreviewHandleType(
 ) type {
     const HandleFn = @TypeOf(DescriptorType.HandleType);
     const params = @typeInfo(HandleFn).@"fn".params;
-    const PreviewCapability = PreviewCapabilityType(DescriptorType, ErrorSet);
+    const preview_capability = PreviewCapabilityType(DescriptorType, ErrorSet);
     return switch (params.len) {
         2 => DescriptorType.HandleType(
-            PreviewCapability,
+            preview_capability,
             PreviewContextPtrType(DescriptorType, ErrorSet),
         ),
         5 => DescriptorType.HandleType(
-            PreviewCapability,
+            preview_capability,
             PreviewContextPtrType(DescriptorType, ErrorSet),
             HandlersType,
             PreviousEffType,
@@ -329,8 +329,8 @@ pub fn ContinuationEffType(
     comptime CurrentHandleType: type,
 ) type {
     const field = @typeInfo(HandlersType).@"struct".fields[index];
-    const current_eff = ExtendBundleType(PreviousEffType, field.name, CurrentHandleType);
-    return PreviewEffType(HandlersType, index + 1, current_eff, HandlerErrorSet(HandlersType));
+    const CurrentEff = ExtendBundleType(PreviousEffType, field.name, CurrentHandleType);
+    return PreviewEffType(HandlersType, index + 1, CurrentEff, HandlerErrorSet(HandlersType));
 }
 
 fn BodyFunctionType(comptime Body: type) type {

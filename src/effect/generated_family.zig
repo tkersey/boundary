@@ -369,13 +369,13 @@ fn inferHandlerErrorSet(
                         @as(*HandlerType, undefined),
                         @as(OpPayloadType(Op), undefined),
                     ));
-                const after_return_type = @TypeOf(@field(HandlerType, afterMethodName(opName(Op)))(
+                const AfterReturnType = @TypeOf(@field(HandlerType, afterMethodName(opName(Op)))(
                     @as(*HandlerType, undefined),
                     @as(AnswerType, undefined),
                 ));
                 ErrorSet = ErrorSet ||
                     ReturnTypeErrorSet(resume_return_type) ||
-                    ReturnTypeErrorSet(after_return_type);
+                    ReturnTypeErrorSet(AfterReturnType);
             },
             .resume_or_return => {
                 const decide_return_type = if (comptime OpPayloadType(Op) == void)
@@ -385,13 +385,13 @@ fn inferHandlerErrorSet(
                         @as(*HandlerType, undefined),
                         @as(OpPayloadType(Op), undefined),
                     ));
-                const after_return_type = @TypeOf(@field(HandlerType, afterMethodName(opName(Op)))(
+                const AfterReturnType = @TypeOf(@field(HandlerType, afterMethodName(opName(Op)))(
                     @as(*HandlerType, undefined),
                     @as(AnswerType, undefined),
                 ));
                 ErrorSet = ErrorSet ||
                     ReturnTypeErrorSet(decide_return_type) ||
-                    ReturnTypeErrorSet(after_return_type);
+                    ReturnTypeErrorSet(AfterReturnType);
             },
             .direct_return => {
                 const direct_return_type = if (comptime OpPayloadType(Op) == void)
@@ -428,8 +428,8 @@ fn inferHandlerOperationErrorSet(
         ErrorSet = ErrorSet || ReturnTypeErrorSet(operation_return_type);
         switch (mode) {
             .resume_then_transform, .resume_or_return => {
-                const after_return_type = @typeInfo(@TypeOf(@field(HandlerType, afterMethodName(opName(Op))))).@"fn".return_type.?;
-                ErrorSet = ErrorSet || ReturnTypeErrorSet(after_return_type);
+                const AfterReturnType = @typeInfo(@TypeOf(@field(HandlerType, afterMethodName(opName(Op))))).@"fn".return_type.?;
+                ErrorSet = ErrorSet || ReturnTypeErrorSet(AfterReturnType);
             },
             .direct_return => {},
         }
@@ -444,7 +444,7 @@ fn PreviewBodyErrorSet(
     comptime mode: prompt_contract.PromptMode,
     comptime Body: type,
 ) type {
-    const PreviewEngine = struct {
+    const preview_engine = struct {
         pub fn perform(_: *@This(), comptime Op: type, _: Op.Payload) lowered_machine.ResetError(BaseErrorSet)!Op.Resume {
             unreachable;
         }
@@ -464,16 +464,16 @@ fn PreviewBodyErrorSet(
         }
     };
 
-    const PreviewCapability = struct {
+    const preview_capability = struct {
         pub fn EngineContextType() type {
-            return PreviewEngine;
+            return preview_engine;
         }
     };
 
-    const PreviewContext = *family.Context(PreviewCapability, StateType, AnswerType, BaseErrorSet);
+    const PreviewContext = *family.Context(preview_capability, StateType, AnswerType, BaseErrorSet);
     _ = mode;
     if (family.hasDeclSafe(Body, "program")) {
-        const AuthoredType = @TypeOf(Body.program(PreviewCapability, @as(PreviewContext, undefined)));
+        const AuthoredType = @TypeOf(Body.program(preview_capability, @as(PreviewContext, undefined)));
         switch (@typeInfo(AuthoredType)) {
             .@"struct" => if (@hasField(AuthoredType, "prompt")) {
                 return switch (@typeInfo(@FieldType(AuthoredType, "prompt"))) {
@@ -486,7 +486,7 @@ fn PreviewBodyErrorSet(
         return error{};
     }
     if (!family.hasDeclSafe(Body, "body")) return error{};
-    return ReturnTypeErrorSet(@TypeOf(Body.body(PreviewCapability, @as(PreviewContext, undefined))));
+    return ReturnTypeErrorSet(@TypeOf(Body.body(preview_capability, @as(PreviewContext, undefined))));
 }
 
 fn computeProgramForPrompt(

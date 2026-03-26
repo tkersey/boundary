@@ -26,7 +26,19 @@ pub const DeclarationMeta = struct {
 
 pub const Decision = decision_api.Decision;
 
-pub const Op = op_api;
+pub const ops = struct {
+    pub fn transform(comptime name: [:0]const u8, comptime PayloadType: type, comptime ResumeType: type) type {
+        return op_api.Transform(name, PayloadType, ResumeType);
+    }
+
+    pub fn choice(comptime name: [:0]const u8, comptime PayloadType: type, comptime ResumeType: type) type {
+        return op_api.Choice(name, PayloadType, ResumeType);
+    }
+
+    pub fn abort(comptime name: [:0]const u8, comptime PayloadType: type) type {
+        return op_api.Abort(name, PayloadType);
+    }
+};
 
 fn StateDecl(comptime StateType: type) type {
     return struct {
@@ -74,15 +86,15 @@ fn WriterDecl(comptime ItemType: type) type {
 }
 
 fn FamilyDecl(comptime spec: anytype, comptime HandlerType: type) type {
-    const GeneratedFamily = family_builder.build(spec);
+    const generated_family = family_builder.build(spec);
     return struct {
         pub const kind = DeclarationKind.family;
-        pub const Generated = GeneratedFamily;
+        pub const generated = generated_family;
         pub const Handler = HandlerType;
     };
 }
 
-pub const Decl = struct {
+pub const decl = struct {
     pub fn state(comptime StateType: type) StateDecl(StateType) {
         return .{};
     }
@@ -123,7 +135,7 @@ fn hasOutput(comptime DeclType: type) bool {
     return switch (DeclType.kind) {
         .state, .writer => true,
         .reader, .optional, .exception, .resource => false,
-        .family => DeclType.Generated.definition.mode == .resume_then_transform,
+        .family => DeclType.generated.definition.mode == .resume_then_transform,
     };
 }
 
@@ -143,7 +155,7 @@ fn handlerFieldType(comptime DeclType: type) type {
         .exception => @TypeOf(@import("effect/exception.zig").use(DeclType.Payload, DeclType.Catch)),
         .resource => @TypeOf(@import("effect/resource.zig").use(DeclType.Resource, DeclType.Manager)),
         .writer => @import("effect/writer.zig").LexicalDescriptor(DeclType.Item, error{}),
-        .family => @TypeOf(DeclType.Generated.use(.{ .handler = @as(DeclType.Handler, undefined) })),
+        .family => @TypeOf(DeclType.generated.use(.{ .handler = @as(DeclType.Handler, undefined) })),
     };
 }
 
@@ -229,7 +241,7 @@ fn buildHandlers(
             .exception => @import("effect/exception.zig").use(DeclType.Payload, DeclType.Catch),
             .resource => @import("effect/resource.zig").use(DeclType.Resource, DeclType.Manager),
             .writer => @import("effect/writer.zig").use(DeclType.Item, runtime.allocator),
-            .family => DeclType.Generated.use(.{ .handler = @field(bindings, field.name) }),
+            .family => DeclType.generated.use(.{ .handler = @field(bindings, field.name) }),
         };
         @field(bundle, field.name) = value;
     }
@@ -252,7 +264,7 @@ pub fn Program(comptime declaration_values: anytype, comptime BodyType: type) ty
     return struct {
         pub const Body = BodyType;
         pub const Bindings = bindingsType(DeclarationsType);
-        pub const InternalManifest = manifest_api.build(DeclarationKind, declaration_values, hasBinding, hasOutput);
+        pub const internal_manifest = manifest_api.build(DeclarationKind, declaration_values, hasBinding, hasOutput);
         pub const declarations = declaration_values;
 
         pub fn run(runtime: *lowered_machine.Runtime, bindings: Bindings) RunReturnType(@This()) {
@@ -275,11 +287,11 @@ pub fn run(runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindin
 }
 
 test "program manifest records declaration metadata and outputs" {
-    const Counter = Decl.family(.{
+    const Counter = decl.family(.{
         .state_type = i32,
         .ops = .{
-            Op.transform("get", void, i32),
-            Op.transform("set", i32, void),
+            ops.transform("get", void, i32),
+            ops.transform("set", i32, void),
         },
     }, struct {
         state: i32,
@@ -301,18 +313,18 @@ test "program manifest records declaration metadata and outputs" {
         }
     });
 
-    const Demo = Program(.{
-        .state = Decl.state(i32),
-        .reader = Decl.reader(i32),
+    const demo_program = Program(.{
+        .state = decl.state(i32),
+        .reader = decl.reader(i32),
         .counter = Counter,
-        .writer = Decl.writer([]const u8),
+        .writer = decl.writer([]const u8),
     }, struct {
         pub fn body(_: anytype) i32 {
             return 0;
         }
     });
 
-    const Manifest = manifest_api.of(Demo);
+    const Manifest = manifest_api.of(demo_program);
     try std.testing.expectEqual(@as(usize, 4), Manifest.declaration_count);
     try std.testing.expectEqualStrings("state", Manifest.entries[0].name);
     try std.testing.expectEqualStrings("state", Manifest.entries[0].kind);
@@ -325,8 +337,8 @@ test "program manifest records declaration metadata and outputs" {
 }
 
 test "program run executes through the new front door" {
-    const Demo = Program(.{
-        .state = Decl.state(i32),
+    const demo_program = Program(.{
+        .state = decl.state(i32),
     }, struct {
         pub fn body(eff: anytype) !i32 {
             const before = try eff.state.get();
@@ -337,7 +349,7 @@ test "program run executes through the new front door" {
 
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
-    const result = try run(&runtime, Demo, .{ .state = 5 });
+    const result = try run(&runtime, demo_program, .{ .state = 5 });
     try std.testing.expectEqual(@as(i32, 6), result.outputs.state);
     try std.testing.expectEqual(@as(i32, 11), result.value);
 }

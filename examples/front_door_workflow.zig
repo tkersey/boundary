@@ -6,10 +6,10 @@ const transcript = struct {
     threadlocal var search_line: []const u8 = "";
 };
 
-const SearchState = struct {};
+const search_state = struct {};
 
 const SearchHandler = struct {
-    state: SearchState = .{},
+    state: search_state = .{},
 
     /// Record the search query and return the canonical total.
     pub fn search(_: *@This(), payload: []const u8) i32 {
@@ -24,7 +24,7 @@ const SearchHandler = struct {
     }
 };
 
-const ApprovalHandler = struct {
+const approval_handler = struct {
     /// Approve publication through the composite front-door example.
     pub fn publish(_: *@This()) shift.Decision([]const u8, []const u8) {
         transcript.approval_line = "approval=publish";
@@ -41,7 +41,7 @@ const Workflow = shift.Program(.{
     .state = shift.Decl.state(i32),
     .writer = shift.Decl.writer([]const u8),
     .search = shift.Decl.family(.{
-        .state_type = SearchState,
+        .state_type = search_state,
         .ops = .{
             shift.Op.transform("search", []const u8, i32),
         },
@@ -51,7 +51,7 @@ const Workflow = shift.Program(.{
         .ops = .{
             shift.Op.choice("publish", void, []const u8),
         },
-    }, ApprovalHandler),
+    }, approval_handler),
 }, struct {
     /// Run one composite workflow through the root front door.
     pub fn body(eff: anytype) ![]const u8 {
@@ -79,7 +79,7 @@ pub fn run(writer: anytype) anyerror!void {
     const result = try shift.run(&runtime, Workflow, .{
         .state = @as(i32, 0),
         .search = SearchHandler{},
-        .approval = ApprovalHandler{},
+        .approval = approval_handler{},
     });
     defer std.heap.page_allocator.free(result.outputs.writer);
 

@@ -54,12 +54,12 @@ fn buildSnapshot(allocator: std.mem.Allocator) ![]u8 {
         while (line_end < content.len and content[line_end] != '\n') : (line_end += 1) {}
         const trimmed = trimWhitespace(content[offset..line_end]);
         if (trimmed.len != 0) {
-            const pubConst = "pub const ";
-            const pubFn = "pub fn ";
-            if (trimmed.len > pubConst.len and std.mem.startsWith(u8, trimmed, pubConst)) {
-                try exports.append(allocator, try allocator.dupe(u8, readIdentifier(trimmed, pubConst.len)));
-            } else if (trimmed.len > pubFn.len and std.mem.startsWith(u8, trimmed, pubFn)) {
-                try exports.append(allocator, try allocator.dupe(u8, readIdentifier(trimmed, pubFn.len)));
+            const pub_const = "pub const ";
+            const pub_fn = "pub fn ";
+            if (trimmed.len > pub_const.len and std.mem.startsWith(u8, trimmed, pub_const)) {
+                try exports.append(allocator, try allocator.dupe(u8, readIdentifier(trimmed, pub_const.len)));
+            } else if (trimmed.len > pub_fn.len and std.mem.startsWith(u8, trimmed, pub_fn)) {
+                try exports.append(allocator, try allocator.dupe(u8, readIdentifier(trimmed, pub_fn.len)));
             }
         }
         if (line_end >= content.len) break;

@@ -103,7 +103,7 @@ test "family declarations stay compact and hide implementation context" {
     const CounterType = @TypeOf(Counter);
 
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(CounterType));
-    try std.testing.expect(@hasDecl(CounterType, "Generated"));
+    try std.testing.expect(@hasDecl(CounterType, "generated"));
     try std.testing.expect(@hasDecl(CounterType, "Handler"));
     try std.testing.expect(!@hasDecl(CounterType, "Context"));
     try std.testing.expect(!@hasDecl(CounterType, "Continuation"));
@@ -208,7 +208,7 @@ test "front-door optional declarations infer continuation errors" {
 }
 
 test "front-door choice families infer continuation errors" {
-    const PickerHandler = struct {
+    const picker_handler = struct {
         pub fn pick(_: *@This(), payload: i32) shift.Decision(i32, i32) {
             return shift.Decision(i32, i32).resumeWith(payload);
         }
@@ -223,7 +223,7 @@ test "front-door choice families infer continuation errors" {
         .ops = .{
             shift.Op.choice("pick", i32, i32),
         },
-    }, PickerHandler);
+    }, picker_handler);
 
     const PickerProgram = shift.Program(.{
         .picker = Picker,
@@ -241,12 +241,12 @@ test "front-door choice families infer continuation errors" {
     defer runtime.deinit();
 
     const CallType = @TypeOf(shift.run(&runtime, PickerProgram, .{
-        .picker = PickerHandler{},
+        .picker = picker_handler{},
     }));
     const ErrorSet = @typeInfo(CallType).error_union.error_set;
 
     try std.testing.expect(hasErrorName(ErrorSet, "ContinueOops"));
     try std.testing.expectError(error.ContinueOops, shift.run(&runtime, PickerProgram, .{
-        .picker = PickerHandler{},
+        .picker = picker_handler{},
     }));
 }

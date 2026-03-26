@@ -90,21 +90,21 @@ pub fn Program(
                     const RunErrorSet = InferredSpecErrorSet || ConfiguredBodyErrorSet(Context, Body);
                     const ConfiguredWithErrorSet = ProgramWithErrorSet(Answer, RunErrorSet, ops).handlers(self.specs);
                     if (@hasDecl(Body, "program")) {
-                        const AdaptedBody = struct {
+                        const adapted_body = struct {
                             pub fn program(ctx: *@TypeOf(ConfiguredWithErrorSet).Context) @TypeOf(Body.program(@as(*Context, undefined))) {
                                 // The public wrapper keeps its documented Context shape while the widened runner carries a larger inferred error set.
                                 return Body.program(@as(*Context, @ptrCast(ctx)));
                             }
                         };
-                        return ConfiguredWithErrorSet.run(runtime, AdaptedBody);
+                        return ConfiguredWithErrorSet.run(runtime, adapted_body);
                     }
                     if (@hasDecl(Body, "body")) {
-                        const AdaptedBody = struct {
+                        const adapted_body = struct {
                             pub fn body(ctx: *@TypeOf(ConfiguredWithErrorSet).Context) @TypeOf(Body.body(@as(*Context, undefined))) {
                                 return Body.body(@as(*Context, @ptrCast(ctx)));
                             }
                         };
-                        return ConfiguredWithErrorSet.run(runtime, AdaptedBody);
+                        return ConfiguredWithErrorSet.run(runtime, adapted_body);
                     }
                     @compileError("algebraic body must declare program or body");
                 }

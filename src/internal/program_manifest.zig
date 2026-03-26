@@ -31,7 +31,7 @@ pub fn build(
             .kind = @tagName(@as(DeclarationKind, field.type.kind)),
             .has_binding = hasBinding(field.type),
             .has_output = hasOutput(field.type),
-            .op_count = if (@hasDecl(field.type, "Generated")) field.type.Generated.definition.op_count else 0,
+            .op_count = if (@hasDecl(field.type, "generated")) field.type.generated.definition.op_count else 0,
         };
         if (hasOutput(field.type)) {
             output_names[output_count] = field.name;
@@ -54,5 +54,5 @@ pub fn build(
 }
 
 pub fn of(comptime ProgramType: type) type {
-    return ProgramType.InternalManifest;
+    return ProgramType.internal_manifest;
 }

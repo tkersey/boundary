@@ -8,37 +8,37 @@ const WitnessCase = struct {
     Runner: type,
 };
 
-const AtmRunner = struct {
+const atm_runner = struct {
     pub fn run(writer: anytype) !void {
         try lexical_witness_runners.runAtmResumeTransform(writer);
     }
 };
 
-const DirectReturnRunner = struct {
+const direct_return_runner = struct {
     pub fn run(writer: anytype) !void {
         try lexical_witness_runners.runDirectReturn(writer);
     }
 };
 
-const MultiPromptRunner = struct {
+const multi_prompt_runner = struct {
     pub fn run(writer: anytype) !void {
         try lexical_witness_runners.runMultiPrompt(writer);
     }
 };
 
-const ResumeRunner = struct {
+const resume_runner = struct {
     pub fn run(writer: anytype) !void {
         try lexical_witness_runners.runResumeOrReturnResume(writer);
     }
 };
 
-const ReturnNowRunner = struct {
+const return_now_runner = struct {
     pub fn run(writer: anytype) !void {
         try lexical_witness_runners.runResumeOrReturnReturnNow(writer);
     }
 };
 
-const StaticRedelimRunner = struct {
+const static_redelim_runner = struct {
     pub fn run(writer: anytype) !void {
         try lexical_witness_runners.runStaticRedelim(writer);
     }
@@ -62,10 +62,10 @@ fn expectWitnessBridgeParity(comptime witness: WitnessCase) !void {
 }
 
 test "direct-style bridge witness cases still match the lexical witness runners" {
-    try expectWitnessBridgeParity(.{ .case_id = "atm_resume_transform", .Runner = AtmRunner });
-    try expectWitnessBridgeParity(.{ .case_id = "direct_return", .Runner = DirectReturnRunner });
-    try expectWitnessBridgeParity(.{ .case_id = "multi_prompt", .Runner = MultiPromptRunner });
-    try expectWitnessBridgeParity(.{ .case_id = "resume_or_return_resume", .Runner = ResumeRunner });
-    try expectWitnessBridgeParity(.{ .case_id = "resume_or_return_return_now", .Runner = ReturnNowRunner });
-    try expectWitnessBridgeParity(.{ .case_id = "static_redelim", .Runner = StaticRedelimRunner });
+    try expectWitnessBridgeParity(.{ .case_id = "atm_resume_transform", .Runner = atm_runner });
+    try expectWitnessBridgeParity(.{ .case_id = "direct_return", .Runner = direct_return_runner });
+    try expectWitnessBridgeParity(.{ .case_id = "multi_prompt", .Runner = multi_prompt_runner });
+    try expectWitnessBridgeParity(.{ .case_id = "resume_or_return_resume", .Runner = resume_runner });
+    try expectWitnessBridgeParity(.{ .case_id = "resume_or_return_return_now", .Runner = return_now_runner });
+    try expectWitnessBridgeParity(.{ .case_id = "static_redelim", .Runner = static_redelim_runner });
 }

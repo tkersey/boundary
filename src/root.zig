@@ -11,9 +11,9 @@ pub const ErrorWitnessV1 = error_witness.ErrorWitnessV1;
 /// Root-level choice-decision helper for the front-door API.
 pub const Decision = program_api.Decision;
 /// Unified declaration namespace for the front-door API.
-pub const Decl = program_api.Decl;
+pub const Decl = @import("root_decl_api.zig").Decl;
 /// Unified op-descriptor namespace for the front-door API.
-pub const Op = program_api.Op;
+pub const Op = @import("root_op_api.zig").Op;
 /// Root-first authored program surface.
 pub const Program = program_api.Program;
 

@@ -9,37 +9,37 @@ const WitnessCase = struct {
     Runner: type,
 };
 
-const AtmRunner = struct {
+const atm_runner = struct {
     pub fn run(writer: anytype) !void {
         try lexical_witness_runners.runAtmResumeTransform(writer);
     }
 };
 
-const DirectReturnRunner = struct {
+const direct_return_runner = struct {
     pub fn run(writer: anytype) !void {
         try lexical_witness_runners.runDirectReturn(writer);
     }
 };
 
-const MultiPromptRunner = struct {
+const multi_prompt_runner = struct {
     pub fn run(writer: anytype) !void {
         try lexical_witness_runners.runMultiPrompt(writer);
     }
 };
 
-const ResumeRunner = struct {
+const resume_runner = struct {
     pub fn run(writer: anytype) !void {
         try lexical_witness_runners.runResumeOrReturnResume(writer);
     }
 };
 
-const ReturnNowRunner = struct {
+const return_now_runner = struct {
     pub fn run(writer: anytype) !void {
         try lexical_witness_runners.runResumeOrReturnReturnNow(writer);
     }
 };
 
-const StaticRedelimRunner = struct {
+const static_redelim_runner = struct {
     pub fn run(writer: anytype) !void {
         try lexical_witness_runners.runStaticRedelim(writer);
     }
@@ -66,31 +66,31 @@ test "structured witness programs still match the canonical lexical witness runn
     try expectWitnessCase(.{
         .case_id = "atm_resume_transform",
         .program = program_frontend.witnesses.atmResumeTransform(),
-        .Runner = AtmRunner,
+        .Runner = atm_runner,
     });
     try expectWitnessCase(.{
         .case_id = "direct_return",
         .program = program_frontend.witnesses.directReturn(),
-        .Runner = DirectReturnRunner,
+        .Runner = direct_return_runner,
     });
     try expectWitnessCase(.{
         .case_id = "multi_prompt",
         .program = program_frontend.witnesses.multiPrompt(),
-        .Runner = MultiPromptRunner,
+        .Runner = multi_prompt_runner,
     });
     try expectWitnessCase(.{
         .case_id = "resume_or_return_resume",
         .program = program_frontend.witnesses.resumeOrReturnResume(),
-        .Runner = ResumeRunner,
+        .Runner = resume_runner,
     });
     try expectWitnessCase(.{
         .case_id = "resume_or_return_return_now",
         .program = program_frontend.witnesses.resumeOrReturnReturnNow(),
-        .Runner = ReturnNowRunner,
+        .Runner = return_now_runner,
     });
     try expectWitnessCase(.{
         .case_id = "static_redelim",
         .program = program_frontend.witnesses.staticRedelim(),
-        .Runner = StaticRedelimRunner,
+        .Runner = static_redelim_runner,
     });
 }
