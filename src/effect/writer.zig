@@ -104,7 +104,11 @@ pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) t
         /// Run one lexical writer descriptor through the existing writer family.
         pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             var instance = family.Instance(WriterState(ItemType), ErrorSetType).init();
-            const result = try handleWithErrorSet(ItemType, AnswerType, RunErrorSetType, runtime, &instance, self.allocator, Body);
+            const result = try handleWithErrorSet(.{
+                .item = ItemType,
+                .answer = AnswerType,
+                .error_set = RunErrorSetType,
+            }, runtime, &instance, self.allocator, Body);
             return .{
                 .output = result.items,
                 .value = result.value,
@@ -163,16 +167,18 @@ pub fn handle(
 
 /// Public `handleWithErrorSet` helper.
 pub fn handleWithErrorSet(
-    comptime ItemType: type,
-    comptime AnswerType: type,
-    comptime RunErrorSetType: type,
+    comptime Types: struct {
+        item: type,
+        answer: type,
+        error_set: type,
+    },
     runtime: *shift.Runtime,
     instance: anytype,
     allocator: std.mem.Allocator,
     comptime Body: type,
-) lowered_machine.ResetError(RunErrorSetType)!HandleResult(ItemType, AnswerType) {
-    const item_type = ItemType;
-    const answer_type = AnswerType;
+) lowered_machine.ResetError(Types.error_set)!HandleResult(Types.item, Types.answer) {
+    const item_type = Types.item;
+    const answer_type = Types.answer;
     const result = try algebraic.handleWriterWithErrorSet(struct {
         /// Public `Item` declaration.
         pub const Item = item_type;
@@ -180,7 +186,7 @@ pub fn handleWithErrorSet(
         pub const Answer = answer_type;
         /// Public `WriterStateType` declaration.
         pub const WriterStateType = WriterState(item_type);
-    }, RunErrorSetType, runtime, instance, allocator, Body);
+    }, Types.error_set, runtime, instance, allocator, Body);
     return .{
         .items = result.items,
         .value = result.value,

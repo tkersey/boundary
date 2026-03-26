@@ -226,7 +226,7 @@ const nested_workflow_match = Match{
 
 const front_door_workflow_match = Match{
     .required_snippets = &.{
-        "shift.Op.Transform(\"search\", []const u8, i32)",
+        "shift.Ops.Transform(\"search\", []const u8, i32)",
         "const total = try eff.search.search.perform(\"artifact-search\");",
         "try eff.writer.tell(\"workflow=queued\");",
         "return try eff.approval.publish.perform(struct {",
@@ -300,7 +300,7 @@ const exception_example_match = Match{
 const define_basic_match = Match{
     .required_snippets = &.{
         "const Counter = shift.Decl.family",
-        "shift.Op.Transform(\"get\", void, i32)",
+        "shift.Ops.Transform(\"get\", void, i32)",
         "eff.counter.get.perform()",
         "eff.counter.set.perform(before + 1)",
         "counter={d}",
@@ -314,7 +314,7 @@ const define_basic_match = Match{
 const define_choice_match = Match{
     .required_snippets = &.{
         "const Picker = shift.Decl.family",
-        "shift.Op.Choice(\"pick\", i32, i32)",
+        "shift.Ops.Choice(\"pick\", i32, i32)",
         "eff.picker.pick.perform(41",
         "body-after-pick",
         "policy-after-resume",
@@ -331,7 +331,7 @@ const define_choice_match = Match{
 const define_abort_match = Match{
     .required_snippets = &.{
         "const Guard = shift.Decl.family",
-        "shift.Op.Abort(\"fail\", []const u8)",
+        "shift.Ops.Abort(\"fail\", []const u8)",
         "eff.guard.fail.abort(\"missing-name\")",
         "abort={s}",
     },
@@ -375,7 +375,7 @@ const writer_example_match = Match{
 const algebraic_abort_match = Match{
     .required_snippets = &.{
         "shift.Decl.family(.{",
-        "shift.Op.Abort(\"fail\", []const u8)",
+        "shift.Ops.Abort(\"fail\", []const u8)",
         "try eff.guard.fail.abort(\"missing-name\")",
         "abort={s}",
     },
@@ -390,7 +390,7 @@ const algebraic_abort_match = Match{
 const algebraic_artifact_match = Match{
     .required_snippets = &.{
         "const Search = shift.Decl.family(.{",
-        "shift.Op.Transform(\"search\", []const u8, i32)",
+        "shift.Ops.Transform(\"search\", []const u8, i32)",
         "const total = try eff.search.search.perform(\"artifact-search\");",
         "opencode_source=jsonl",
     },
@@ -1099,14 +1099,14 @@ fn inspectFileBackedSourceText(
         return generatedRejectedProgram(allocator, spec, case, "requested expected_status does not match the supported status for this case");
     }
 
-    const lowered = try authoring_lowerer.lowerFileBackedSourceText(
-        allocator,
-        loweringCase(spec, case),
-        spec.source_path,
-        actual_path,
-        source_text,
-        spec.expected_status,
-    );
+    const lowered = try authoring_lowerer.lowerFileBackedSourceText(.{
+        .allocator = allocator,
+        .case = loweringCase(spec, case),
+        .display_path = spec.source_path,
+        .actual_path = actual_path,
+        .source_text = source_text,
+        .expected_status = spec.expected_status,
+    });
     return generatedProgramFromLowered(allocator, spec, case, lowered);
 }
 

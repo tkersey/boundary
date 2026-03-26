@@ -13,7 +13,7 @@ pub const Decision = program_api.Decision;
 /// Unified declaration namespace for the front-door API.
 pub const Decl = @import("root_decl_api.zig").Decl;
 /// Unified op-descriptor namespace for the front-door API.
-pub const Op = @import("root_op_api.zig").Op;
+pub const Ops = @import("root_op_api.zig").Ops;
 /// Root-first authored program surface.
 pub const Program = program_api.Program;
 
@@ -26,7 +26,7 @@ test {
     _ = Decl;
     _ = Decision;
     _ = ErrorWitnessV1;
-    _ = Op;
+    _ = Ops;
     _ = Program;
     _ = Runtime;
     _ = RuntimeError;

@@ -28,8 +28,8 @@ const CounterHandler = struct {
 const Counter = shift.Decl.family(.{
     .state_type = i32,
     .ops = .{
-        shift.Op.Transform("get", void, i32),
-        shift.Op.Transform("set", i32, void),
+        shift.Ops.Transform("get", void, i32),
+        shift.Ops.Transform("set", i32, void),
     },
 }, CounterHandler);
 

@@ -1,7 +1,7 @@
 const program_api = @import("program_api.zig");
 
-/// Public `Op` declaration.
-pub const Op = enum(u8) {
+/// Public `Ops` declaration.
+pub const Ops = enum(u8) {
     reserved,
 
     /// Public `Transform` declaration.

@@ -38,14 +38,14 @@ pub fn inspectCaseIdSourceText(
     const resolved_source_path = try authoring_lowerer.resolveRepoSourcePathAlloc(allocator, case.source_module);
     defer allocator.free(resolved_source_path);
 
-    return try authoring_lowerer.lowerFileBackedSourceText(
-        allocator,
-        canonicalBridgeCase(case),
-        case.source_module,
-        resolved_source_path,
-        source_text,
-        .canonical,
-    );
+    return try authoring_lowerer.lowerFileBackedSourceText(.{
+        .allocator = allocator,
+        .case = canonicalBridgeCase(case),
+        .display_path = case.source_module,
+        .actual_path = resolved_source_path,
+        .source_text = source_text,
+        .expected_status = .canonical,
+    });
 }
 
 /// Lower one supported bridge example case id through the shared authoring lowerer.

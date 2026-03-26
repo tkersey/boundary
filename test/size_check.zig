@@ -21,7 +21,7 @@ test "public root exposes only the current front door" {
     try std.testing.expect(@hasDecl(shift, "ErrorWitnessV1"));
     try std.testing.expect(@hasDecl(shift, "Decision"));
     try std.testing.expect(@hasDecl(shift, "Decl"));
-    try std.testing.expect(@hasDecl(shift, "Op"));
+    try std.testing.expect(@hasDecl(shift, "Ops"));
     try std.testing.expect(@hasDecl(shift, "Program"));
     try std.testing.expect(@hasDecl(shift, "run"));
 
@@ -49,9 +49,9 @@ test "public runtime error surface still exposes the current contract" {
 }
 
 test "front-door declaration and op shells stay compact" {
-    const Transform = shift.Op.Transform("search", []const u8, i32);
-    const Choice = shift.Op.Choice("publish", void, []const u8);
-    const Abort = shift.Op.Abort("fail", []const u8);
+    const Transform = shift.Ops.Transform("search", []const u8, i32);
+    const Choice = shift.Ops.Choice("publish", void, []const u8);
+    const Abort = shift.Ops.Abort("fail", []const u8);
 
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(Transform));
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(Choice));
@@ -94,7 +94,7 @@ test "family declarations stay compact and hide implementation context" {
     const Counter = shift.Decl.family(.{
         .state_type = i32,
         .ops = .{
-            shift.Op.Transform("get", void, i32),
+            shift.Ops.Transform("get", void, i32),
         },
     }, struct {
         state: i32 = 7,
@@ -157,7 +157,7 @@ test "front-door custom family infers handler errors" {
     const Counter = shift.Decl.family(.{
         .state_type = i32,
         .ops = .{
-            shift.Op.Transform("get", void, i32),
+            shift.Ops.Transform("get", void, i32),
         },
     }, CounterHandler);
 
@@ -240,7 +240,7 @@ test "front-door choice families infer continuation errors" {
     const Picker = shift.Decl.family(.{
         .state_type = struct {},
         .ops = .{
-            shift.Op.Choice("pick", i32, i32),
+            shift.Ops.Choice("pick", i32, i32),
         },
     }, picker_handler);
 

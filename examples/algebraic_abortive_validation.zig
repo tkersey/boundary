@@ -19,7 +19,7 @@ const Validation = shift.Program(.{
     .guard = shift.Decl.family(.{
         .state_type = struct {},
         .ops = .{
-            shift.Op.Abort("fail", []const u8),
+            shift.Ops.Abort("fail", []const u8),
         },
     }, GuardHandler),
 }, struct {

@@ -171,8 +171,8 @@ fn canonicalEntrySourceHash(b: *std.Build, path: []const u8, entry_symbol: []con
     for (root.ast.members) |member| {
         if (isSharedWitnessEntry(tree, member)) {
             var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
-            const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse unreachable;
-            const name_token = fn_proto.name_token orelse unreachable;
+            const fn_proto = tree.fullFnProto(&fn_buffer, member).?;
+            const name_token = fn_proto.name_token.?;
             if (!std.mem.eql(u8, tree.tokenSlice(name_token), entry_symbol)) continue;
             found_entry = true;
         }

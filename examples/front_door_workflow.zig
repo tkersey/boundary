@@ -43,13 +43,13 @@ const Workflow = shift.Program(.{
     .search = shift.Decl.family(.{
         .state_type = search_state,
         .ops = .{
-            shift.Op.Transform("search", []const u8, i32),
+            shift.Ops.Transform("search", []const u8, i32),
         },
     }, SearchHandler),
     .approval = shift.Decl.family(.{
         .state_type = struct {},
         .ops = .{
-            shift.Op.Choice("publish", void, []const u8),
+            shift.Ops.Choice("publish", void, []const u8),
         },
     }, approval_handler),
 }, struct {
@@ -69,9 +69,8 @@ const Workflow = shift.Program(.{
     }
 });
 
-/// Write the composite front-door workflow transcript.
-pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
+    var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
     transcript.search_line = "";
@@ -81,7 +80,7 @@ pub fn run(writer: anytype) anyerror!void {
         .search = SearchHandler{},
         .approval = approval_handler{},
     });
-    defer std.heap.page_allocator.free(result.outputs.writer);
+    defer allocator.free(result.outputs.writer);
 
     try writer.print("{s}\n", .{transcript.search_line});
     try writer.print("{s}\n", .{transcript.approval_line});
@@ -91,6 +90,11 @@ pub fn run(writer: anytype) anyerror!void {
     try writer.print("final_state={d}\n", .{result.outputs.state});
     try writer.print("total={d}\n", .{result.outputs.state});
     try writer.print("result={s}\n", .{result.value});
+}
+
+/// Write the composite front-door workflow transcript.
+pub fn run(writer: anytype) anyerror!void {
+    try runWithAllocator(writer, std.heap.page_allocator);
 }
 
 /// Run the composite front-door workflow example.

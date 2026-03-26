@@ -225,8 +225,8 @@ fn sharedWitnessCompareSourceAlloc(
     for (root.ast.members) |member| {
         if (isSharedWitnessEntry(tree, member)) {
             var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
-            const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse unreachable;
-            const name_token = fn_proto.name_token orelse unreachable;
+            const fn_proto = tree.fullFnProto(&fn_buffer, member).?;
+            const name_token = fn_proto.name_token.?;
             if (!std.mem.eql(u8, tree.tokenSlice(name_token), entry_symbol)) continue;
             found_entry = true;
         }
@@ -247,23 +247,26 @@ fn includeEntryCompareMember(tree: std.zig.Ast, member: std.zig.Ast.Node.Index, 
     return std.mem.eql(u8, tree.tokenSlice(name_token), entry_symbol);
 }
 
-fn diagnosticAt(
+const DiagnosticAtInput = struct {
     allocator: std.mem.Allocator,
     display_path: []const u8,
     code: []const u8,
     message: []const u8,
     line: usize,
     column: usize,
-) std.mem.Allocator.Error![]const Diagnostic {
-    const owned_path = try allocator.dupe(u8, display_path);
+};
+
+fn diagnosticAt(input: DiagnosticAtInput) std.mem.Allocator.Error![]const Diagnostic {
+    const allocator = input.allocator;
+    const owned_path = try allocator.dupe(u8, input.display_path);
     errdefer allocator.free(owned_path);
     const diags = try allocator.alloc(Diagnostic, 1);
     diags[0] = .{
-        .code = code,
-        .message = message,
+        .code = input.code,
+        .message = input.message,
         .path = owned_path,
-        .line = line,
-        .column = column,
+        .line = input.line,
+        .column = input.column,
     };
     return diags;
 }
@@ -275,13 +278,27 @@ fn parseFailureDiagnostic(
     tree: std.zig.Ast,
 ) std.mem.Allocator.Error![]const Diagnostic {
     if (tree.errors.len == 0) {
-        return diagnosticAt(allocator, display_path, "invalid_source", "authoring lowerer rejected the source before building a lowered result", 1, 1);
+        return diagnosticAt(.{
+            .allocator = allocator,
+            .display_path = display_path,
+            .code = "invalid_source",
+            .message = "authoring lowerer rejected the source before building a lowered result",
+            .line = 1,
+            .column = 1,
+        });
     }
 
     const parse_error = tree.errors[0];
     const loc = tree.tokenLocation(0, parse_error.token);
     _ = source;
-    return diagnosticAt(allocator, display_path, "parse_error", @tagName(parse_error.tag), loc.line + 1, loc.column + 1);
+    return diagnosticAt(.{
+        .allocator = allocator,
+        .display_path = display_path,
+        .code = "parse_error",
+        .message = @tagName(parse_error.tag),
+        .line = loc.line + 1,
+        .column = loc.column + 1,
+    });
 }
 
 fn tokenLiteralKind(tag: std.zig.Token.Tag) bool {
@@ -535,24 +552,32 @@ fn normalizedComparisonTokensAlloc(
     }
 }
 
-/// Lower one file-backed source text without rereading the file from disk.
-pub fn lowerFileBackedSourceText(
+const LowerFileBackedSourceTextInput = struct {
     allocator: std.mem.Allocator,
     case: CanonicalCase,
     display_path: []const u8,
     actual_path: []const u8,
     source_text: []const u8,
     expected_status: LowerStatus,
-) anyerror!LoweredAuthoring {
+};
+
+/// Lower one file-backed source text without rereading the file from disk.
+pub fn lowerFileBackedSourceText(input: LowerFileBackedSourceTextInput) anyerror!LoweredAuthoring {
+    const allocator = input.allocator;
+    const case = input.case;
+    const display_path = input.display_path;
+    const actual_path = input.actual_path;
+    const source_text = input.source_text;
+    const expected_status = input.expected_status;
     if (!sourcePathMatchesExpected(allocator, actual_path, case.source_path)) {
-        return rejectedResult(allocator, case, display_path, try diagnosticAt(
-            allocator,
-            display_path,
-            "non_canonical_source_path",
-            "source path does not match the canonical repo-owned path for this case",
-            1,
-            1,
-        ));
+        return rejectedResult(allocator, case, display_path, try diagnosticAt(.{
+            .allocator = allocator,
+            .display_path = display_path,
+            .code = "non_canonical_source_path",
+            .message = "source path does not match the canonical repo-owned path for this case",
+            .line = 1,
+            .column = 1,
+        }));
     }
     const source_z = try allocator.dupeZ(u8, source_text);
     defer allocator.free(source_z);
@@ -562,14 +587,14 @@ pub fn lowerFileBackedSourceText(
         return rejectedResult(allocator, case, display_path, try parseFailureDiagnostic(allocator, display_path, source_z, tree));
     }
     if (!sourceTextMatchesCanonicalHash(allocator, case, source_text)) {
-        return rejectedResult(allocator, case, display_path, try diagnosticAt(
-            allocator,
-            display_path,
-            "canonical_source_drift",
-            "source no longer matches the canonical repo-owned source for this case",
-            1,
-            1,
-        ));
+        return rejectedResult(allocator, case, display_path, try diagnosticAt(.{
+            .allocator = allocator,
+            .display_path = display_path,
+            .code = "canonical_source_drift",
+            .message = "source no longer matches the canonical repo-owned source for this case",
+            .line = 1,
+            .column = 1,
+        }));
     }
     return lowerSourceText(allocator, case, .{
         .display_path = display_path,
@@ -636,14 +661,14 @@ pub fn lowerSourceText(
     input: LowerSourceInput,
 ) anyerror!LoweredAuthoring {
     if (!sourcePathMatchesExpected(allocator, input.actual_path, case.source_path)) {
-        return rejectedResult(allocator, case, input.display_path, try diagnosticAt(
-            allocator,
-            input.display_path,
-            "non_canonical_source_path",
-            "source path does not match the canonical repo-owned path for this case",
-            1,
-            1,
-        ));
+        return rejectedResult(allocator, case, input.display_path, try diagnosticAt(.{
+            .allocator = allocator,
+            .display_path = input.display_path,
+            .code = "non_canonical_source_path",
+            .message = "source path does not match the canonical repo-owned path for this case",
+            .line = 1,
+            .column = 1,
+        }));
     }
 
     const source_z = try allocator.dupeZ(u8, input.source_text);
@@ -655,34 +680,34 @@ pub fn lowerSourceText(
         return rejectedResult(allocator, case, input.display_path, try parseFailureDiagnostic(allocator, input.display_path, source_z, tree));
     }
     if (!sourceTextMatchesCanonicalHash(allocator, case, input.source_text)) {
-        return rejectedResult(allocator, case, input.display_path, try diagnosticAt(
-            allocator,
-            input.display_path,
-            "canonical_source_drift",
-            "source no longer matches the canonical repo-owned source for this case",
-            1,
-            1,
-        ));
+        return rejectedResult(allocator, case, input.display_path, try diagnosticAt(.{
+            .allocator = allocator,
+            .display_path = input.display_path,
+            .code = "canonical_source_drift",
+            .message = "source no longer matches the canonical repo-owned source for this case",
+            .line = 1,
+            .column = 1,
+        }));
     }
     if (!hasTopLevelFunctionNamed(tree, case.entry_symbol)) {
-        return rejectedResult(allocator, case, input.display_path, try diagnosticAt(
-            allocator,
-            input.display_path,
-            "entry_missing",
-            "entry function was not found at the top level",
-            1,
-            1,
-        ));
+        return rejectedResult(allocator, case, input.display_path, try diagnosticAt(.{
+            .allocator = allocator,
+            .display_path = input.display_path,
+            .code = "entry_missing",
+            .message = "entry function was not found at the top level",
+            .line = 1,
+            .column = 1,
+        }));
     }
     if (input.expected_status != case.status) {
-        return rejectedResult(allocator, case, input.display_path, try diagnosticAt(
-            allocator,
-            input.display_path,
-            "expected_status_mismatch",
-            "requested expected_status does not match the supported status for this case",
-            1,
-            1,
-        ));
+        return rejectedResult(allocator, case, input.display_path, try diagnosticAt(.{
+            .allocator = allocator,
+            .display_path = input.display_path,
+            .code = "expected_status_mismatch",
+            .message = "requested expected_status does not match the supported status for this case",
+            .line = 1,
+            .column = 1,
+        }));
     }
 
     const canonical_source = try readCanonicalSource(allocator, case.source_path);
@@ -705,14 +730,14 @@ pub fn lowerSourceText(
             tree.tokenLocation(0, token_index)
         else
             .{ .line = 0, .column = 0, .line_start = 0, .line_end = 0 };
-        return rejectedResult(allocator, case, input.display_path, try diagnosticAt(
-            allocator,
-            input.display_path,
-            "structural_mismatch",
-            mismatch.message,
-            loc.line + 1,
-            loc.column + 1,
-        ));
+        return rejectedResult(allocator, case, input.display_path, try diagnosticAt(.{
+            .allocator = allocator,
+            .display_path = input.display_path,
+            .code = "structural_mismatch",
+            .message = mismatch.message,
+            .line = loc.line + 1,
+            .column = loc.column + 1,
+        }));
     }
 
     return acceptedResult(allocator, case, input.display_path);
@@ -727,15 +752,22 @@ pub fn lowerSourceFile(
     expected_status: LowerStatus,
 ) anyerror!LoweredAuthoring {
     const source = std.fs.cwd().readFileAlloc(allocator, actual_path, 1 << 20) catch {
-        return rejectedResult(allocator, case, display_path, try diagnosticAt(
-            allocator,
-            display_path,
-            "source_unreadable",
-            "source file could not be read",
-            1,
-            1,
-        ));
+        return rejectedResult(allocator, case, display_path, try diagnosticAt(.{
+            .allocator = allocator,
+            .display_path = display_path,
+            .code = "source_unreadable",
+            .message = "source file could not be read",
+            .line = 1,
+            .column = 1,
+        }));
     };
     defer allocator.free(source);
-    return lowerFileBackedSourceText(allocator, case, display_path, actual_path, source, expected_status);
+    return lowerFileBackedSourceText(.{
+        .allocator = allocator,
+        .case = case,
+        .display_path = display_path,
+        .actual_path = actual_path,
+        .source_text = source,
+        .expected_status = expected_status,
+    });
 }

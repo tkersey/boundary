@@ -8,7 +8,7 @@ const expected_snapshot =
     \\    "ErrorWitnessV1",
     \\    "Decision",
     \\    "Decl",
-    \\    "Op",
+    \\    "Ops",
     \\    "Program",
     \\    "run"
     \\  ]

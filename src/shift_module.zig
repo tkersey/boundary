@@ -5,7 +5,7 @@ pub const Decision = root.Decision;
 /// Unified declaration namespace.
 pub const Decl = root.Decl;
 /// Unified op descriptor namespace.
-pub const Op = root.Op;
+pub const Ops = root.Ops;
 /// Root-first authored program surface.
 pub const Program = root.Program;
 /// Canonical runtime handle.

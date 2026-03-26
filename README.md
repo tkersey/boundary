@@ -35,7 +35,7 @@ The current public product claim is:
   `shift.Decl.reader`, `shift.Decl.optional`, `shift.Decl.exception`,
   `shift.Decl.resource`, and `shift.Decl.writer`
 - custom closed-world families are declared through `shift.Decl.family(.{ ... })`
-  and `shift.Op.Transform` / `shift.Op.Choice` / `shift.Op.Abort`
+  and `shift.Ops.Transform` / `shift.Ops.Choice` / `shift.Ops.Abort`
 - `shift.Decision(...)` is the public choice-decision type for front-door
   optional and generated choice handlers
 - prompt descriptors, `PromptMode`, `ResumeOrReturn`, `reset`, and `frontend`
@@ -197,7 +197,7 @@ The surviving declaration-family contract is now:
   `eff.exception.throw(...)`, `eff.resource.acquire()`, and
   `eff.writer.tell(...)`
 - custom closed-world families are declared through `shift.Decl.family(.{ ... })`
-  and `shift.Op.*`, then surfaced through named op handles like
+  and `shift.Ops.*`, then surfaced through named op handles like
   `eff.counter.get.perform(...)`, `eff.picker.pick.perform(...)`, and
   `eff.guard.fail.abort(...)`
 - forged or cross-instance contexts still fail at compile time; see:
@@ -211,7 +211,7 @@ The surviving declaration-family contract is now:
   - `resource_manager_missing_acquire.zig`
 
 The root front door absorbs the old algebraic and effect-oriented public stories.
-Only `shift.Program`, `shift.run`, `shift.Decl`, `shift.Op`, and `shift.Decision`
+Only `shift.Program`, `shift.run`, `shift.Decl`, `shift.Ops`, and `shift.Decision`
 remain public.
 
 ## Examples
