@@ -170,12 +170,19 @@ fn bridgeProofSpec(allocator: std.mem.Allocator, case: bridge_manifest.Case) !?P
     switch (case.source_kind) {
         .witness => return .{
             .case_id = try std.fmt.allocPrint(allocator, "witness.{s}", .{case.case_id}),
-            .source_path = case.source_module,
+            .source_path = "src/witness_sources.zig",
             .entry_symbol = case.entry_symbol,
             .surface_kind = .witness,
         },
         .example => {
-            if (std.mem.eql(u8, case.case_id, "generator")) return null;
+            if (std.mem.eql(u8, case.case_id, "generator")) {
+                return .{
+                    .case_id = try allocator.dupe(u8, "witness.generator"),
+                    .source_path = "src/witness_sources.zig",
+                    .entry_symbol = "runGenerator",
+                    .surface_kind = .witness,
+                };
+            }
             return .{
                 .case_id = try std.fmt.allocPrint(allocator, "example.{s}", .{case.case_id}),
                 .source_path = case.source_module,
@@ -205,6 +212,17 @@ fn bridgeWitnessStatus(allocator: std.mem.Allocator, case: bridge_manifest.Case)
     });
     defer lowered.deinit(allocator);
     return witnessStatus(&lowered);
+}
+
+fn bridgeRowWitnessStatus(
+    allocator: std.mem.Allocator,
+    case: bridge_manifest.Case,
+    lowered: anytype,
+) !WitnessStatus {
+    return switch (case.source_kind) {
+        .witness => if (lowered.status == .rejected) .unsupported else try bridgeWitnessStatus(allocator, case),
+        .example => try bridgeWitnessStatus(allocator, case),
+    };
 }
 
 fn renderSourceRow(list: *std.ArrayList(u8), allocator: std.mem.Allocator, spec: ReportSpec, first: *bool) !void {
@@ -272,7 +290,7 @@ fn renderBridgeRows(list: *std.ArrayList(u8), allocator: std.mem.Allocator, firs
         try line.writer.print(",\"lower_status\":\"{s}\",\"canonical_replay_matches_expected\":{},\"error_witness_status\":\"{s}\",\"diagnostic_count\":{},\"feature_flags\":", .{
             @tagName(lowered.status),
             std.mem.eql(u8, transcript_writer.buffered(), scenario.expected_transcript),
-            @tagName(try bridgeWitnessStatus(allocator, case)),
+            @tagName(try bridgeRowWitnessStatus(allocator, case, &lowered)),
             lowered.diagnostics.len,
         });
         try writeFeatureFlags(&line.writer, lowered.feature_flags);

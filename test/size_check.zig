@@ -57,6 +57,9 @@ test "front-door declaration and op shells stay compact" {
     const Transform = shift.Ops.Transform("search", []const u8, i32);
     const Choice = shift.Ops.Choice("publish", void, []const u8);
     const Abort = shift.Ops.Abort("fail", []const u8);
+    const LegacyTransformUpper = shift.Op.Transform("search", []const u8, i32);
+    const LegacyChoiceUpper = shift.Op.Choice("publish", void, []const u8);
+    const LegacyAbortUpper = shift.Op.Abort("fail", []const u8);
     const LegacyTransform = shift.Op.transform("search", []const u8, i32);
     const LegacyChoice = shift.Op.choice("publish", void, []const u8);
     const LegacyAbort = shift.Op.abort("fail", []const u8);
@@ -64,9 +67,15 @@ test "front-door declaration and op shells stay compact" {
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(Transform));
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(Choice));
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(Abort));
+    try std.testing.expectEqual(@as(usize, 0), @sizeOf(LegacyTransformUpper));
+    try std.testing.expectEqual(@as(usize, 0), @sizeOf(LegacyChoiceUpper));
+    try std.testing.expectEqual(@as(usize, 0), @sizeOf(LegacyAbortUpper));
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(LegacyTransform));
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(LegacyChoice));
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(LegacyAbort));
+    try std.testing.expect(LegacyTransformUpper == Transform);
+    try std.testing.expect(LegacyChoiceUpper == Choice);
+    try std.testing.expect(LegacyAbortUpper == Abort);
     try std.testing.expect(LegacyTransform == Transform);
     try std.testing.expect(LegacyChoice == Choice);
     try std.testing.expect(LegacyAbort == Abort);

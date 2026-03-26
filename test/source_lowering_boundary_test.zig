@@ -2,6 +2,18 @@ const source_lowering = @import("source_lowering");
 const source_lowering_registry = @import("source_lowering_registry");
 const std = @import("std");
 
+fn symlinkAliasPath(
+    allocator: std.mem.Allocator,
+    tmp: *std.testing.TmpDir,
+    target_path: []const u8,
+    alias_name: []const u8,
+) ![]u8 {
+    try tmp.dir.symLink(target_path, alias_name, .{});
+    const tmp_path = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(tmp_path);
+    return try std.fmt.allocPrint(allocator, "{s}{c}{s}", .{ tmp_path, std.fs.path.sep, alias_name });
+}
+
 test "source-lowering registry keeps the exact wave-one case count" {
     try std.testing.expectEqual(@as(usize, 8), source_lowering_registry.cases.len);
     for (source_lowering_registry.cases) |case| {
@@ -22,6 +34,30 @@ test "source-lowering rejects non-canonical source paths for known cases" {
     var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
         .case_id = "source.branch_resume",
         .source_path = "test/source_lowering_corpus/fixtures/helper_call_resume.zig",
+        .entry_symbol = "run",
+        .surface_kind = .source_case,
+    });
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(!lowered.isAccepted());
+    try std.testing.expectEqualStrings("non_canonical_source_path", lowered.diagnostics[0].code);
+}
+
+test "source-lowering rejects symlink aliases for canonical files" {
+    const canonical_path = try std.fs.cwd().realpathAlloc(
+        std.testing.allocator,
+        "test/source_lowering_corpus/fixtures/branch_resume.zig",
+    );
+    defer std.testing.allocator.free(canonical_path);
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const alias_path = try symlinkAliasPath(std.testing.allocator, &tmp, canonical_path, "branch_resume_alias.zig");
+    defer std.testing.allocator.free(alias_path);
+
+    var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
+        .case_id = "source.branch_resume",
+        .source_path = alias_path,
         .entry_symbol = "run",
         .surface_kind = .source_case,
     });
@@ -163,6 +199,37 @@ test "inline source lowering rejects non-canonical source paths even for canonic
     var lowered = try source_lowering.inspectInlineSource(std.testing.allocator, .{
         .case_id = "source.branch_resume",
         .source_path = "/tmp/shift-inline-noncanonical.zig",
+        .entry_symbol = "run",
+        .surface_kind = .source_case,
+    }, canonical_text);
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(!lowered.isAccepted());
+    try std.testing.expectEqualStrings("non_canonical_source_path", lowered.diagnostics[0].code);
+}
+
+test "inline source lowering rejects symlink aliases for canonical text" {
+    const canonical_text = try std.fs.cwd().readFileAlloc(
+        std.testing.allocator,
+        "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        1 << 20,
+    );
+    defer std.testing.allocator.free(canonical_text);
+
+    const canonical_path = try std.fs.cwd().realpathAlloc(
+        std.testing.allocator,
+        "test/source_lowering_corpus/fixtures/branch_resume.zig",
+    );
+    defer std.testing.allocator.free(canonical_path);
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const alias_path = try symlinkAliasPath(std.testing.allocator, &tmp, canonical_path, "branch_resume_inline_alias.zig");
+    defer std.testing.allocator.free(alias_path);
+
+    var lowered = try source_lowering.inspectInlineSource(std.testing.allocator, .{
+        .case_id = "source.branch_resume",
+        .source_path = alias_path,
         .entry_symbol = "run",
         .surface_kind = .source_case,
     }, canonical_text);

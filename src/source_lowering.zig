@@ -1,5 +1,4 @@
 const authoring_lowerer = @import("authoring_lowerer");
-const build_options = @import("build_options");
 const error_witness = @import("error_witness");
 const lowered_machine = @import("lowered_machine");
 const parity_scenarios = @import("parity_scenarios");
@@ -932,12 +931,19 @@ fn duplicateSourcePath(allocator: std.mem.Allocator, path: []const u8) std.mem.A
 
 fn resolvedRepoSourcePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
     if (std.fs.path.isAbsolute(source_path)) {
-        return try std.fs.cwd().realpathAlloc(allocator, source_path);
+        return try std.fs.path.resolve(allocator, &.{source_path});
     }
 
-    var repo_dir = try std.fs.openDirAbsolute(build_options.package_root, .{});
-    defer repo_dir.close();
-    return try repo_dir.realpathAlloc(allocator, source_path);
+    const repo_relative = try authoring_lowerer.resolveRepoSourcePathAlloc(allocator, source_path);
+    if (std.fs.cwd().access(repo_relative, .{})) {
+        return repo_relative;
+    } else |_| {
+        allocator.free(repo_relative);
+    }
+
+    const cwd_path = try std.process.getCwdAlloc(allocator);
+    defer allocator.free(cwd_path);
+    return try std.fs.path.resolve(allocator, &.{ cwd_path, source_path });
 }
 
 fn stripLineCommentsAlloc(allocator: std.mem.Allocator, source: []const u8) std.mem.Allocator.Error![]u8 {

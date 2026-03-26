@@ -129,42 +129,121 @@ fn emptyDiagnostics(allocator: std.mem.Allocator) std.mem.Allocator.Error![]cons
     return try allocator.alloc(Diagnostic, 0);
 }
 
-fn sourcePathMatchesExpected(allocator: std.mem.Allocator, actual_path: []const u8, expected_path: []const u8) bool {
-    const cwd = std.fs.cwd();
-    const actual_realpath = cwd.realpathAlloc(allocator, actual_path) catch return false;
-    defer allocator.free(actual_realpath);
-
-    var repo_dir = std.fs.openDirAbsolute(build_options.package_root, .{}) catch return false;
-    defer repo_dir.close();
-
-    const normalized_expected = allocator.dupe(u8, expected_path) catch return false;
-    defer allocator.free(normalized_expected);
-    if (std.fs.path.sep != '/') {
-        for (normalized_expected) |*byte| {
-            if (byte.* == '/') byte.* = std.fs.path.sep;
-        }
+fn normalizeCallerVisiblePathAlloc(
+    allocator: std.mem.Allocator,
+    base_path: []const u8,
+    path: []const u8,
+) ![]u8 {
+    if (std.fs.path.isAbsolute(path)) {
+        return try std.fs.path.resolve(allocator, &.{path});
     }
+    return try std.fs.path.resolve(allocator, &.{ base_path, path });
+}
 
-    const expected_realpath = repo_dir.realpathAlloc(allocator, normalized_expected) catch return false;
-    defer allocator.free(expected_realpath);
-    return std.mem.eql(u8, actual_realpath, expected_realpath);
+fn sourcePathMatchesExpected(allocator: std.mem.Allocator, actual_path: []const u8, expected_path: []const u8) bool {
+    const cwd_path = std.process.getCwdAlloc(allocator) catch return false;
+    defer allocator.free(cwd_path);
+
+    const normalized_actual = normalizeCallerVisiblePathAlloc(allocator, cwd_path, actual_path) catch return false;
+    defer allocator.free(normalized_actual);
+
+    const normalized_expected = normalizeCallerVisiblePathAlloc(allocator, build_options.package_root, expected_path) catch return false;
+    defer allocator.free(normalized_expected);
+
+    return std.mem.eql(u8, normalized_actual, normalized_expected);
 }
 
 /// Public `resolveRepoSourcePathAlloc` helper.
 pub fn resolveRepoSourcePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
-    if (std.fs.path.isAbsolute(source_path)) {
-        return try std.fs.cwd().realpathAlloc(allocator, source_path);
-    }
-
-    var repo_dir = try std.fs.openDirAbsolute(build_options.package_root, .{});
-    defer repo_dir.close();
-    return try repo_dir.realpathAlloc(allocator, source_path);
+    return try normalizeCallerVisiblePathAlloc(allocator, build_options.package_root, source_path);
 }
 
 fn readCanonicalSource(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
     var repo_dir = try std.fs.openDirAbsolute(build_options.package_root, .{});
     defer repo_dir.close();
     return try repo_dir.readFileAlloc(allocator, source_path, 1 << 20);
+}
+
+fn canonicalSourceHash(expected_path: []const u8) ?[32]u8 {
+    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/local_mutation_resume.zig")) return build_options.hash_local_mutation_resume;
+    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/branch_resume.zig")) return build_options.hash_branch_resume;
+    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/loop_resume.zig")) return build_options.hash_loop_resume;
+    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/helper_call_resume.zig")) return build_options.hash_helper_call_resume;
+    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/nested_prompt_static_redelim.zig")) return build_options.hash_nested_prompt_static_redelim;
+    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/typed_error_try.zig")) return build_options.hash_typed_error_try;
+    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/defer_resume.zig")) return build_options.hash_defer_resume;
+    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/errdefer_error.zig")) return build_options.hash_errdefer_error;
+    if (std.mem.eql(u8, expected_path, "examples/define_basic.zig")) return build_options.hash_define_basic;
+    if (std.mem.eql(u8, expected_path, "examples/define_choice_basic.zig")) return build_options.hash_define_choice_basic;
+    if (std.mem.eql(u8, expected_path, "examples/define_abort_basic.zig")) return build_options.hash_define_abort_basic;
+    if (std.mem.eql(u8, expected_path, "examples/early_exit.zig")) return build_options.hash_early_exit;
+    if (std.mem.eql(u8, expected_path, "examples/generator.zig")) return build_options.hash_generator;
+    if (std.mem.eql(u8, expected_path, "examples/resume_or_return.zig")) return build_options.hash_resume_or_return;
+    if (std.mem.eql(u8, expected_path, "examples/front_door_workflow.zig")) return build_options.hash_front_door_workflow;
+    if (std.mem.eql(u8, expected_path, "examples/nested_workflow.zig")) return build_options.hash_nested_workflow;
+    if (std.mem.eql(u8, expected_path, "examples/state_basic.zig")) return build_options.hash_state_basic;
+    if (std.mem.eql(u8, expected_path, "examples/reader_basic.zig")) return build_options.hash_reader_basic;
+    if (std.mem.eql(u8, expected_path, "examples/optional_basic.zig")) return build_options.hash_optional_basic;
+    if (std.mem.eql(u8, expected_path, "examples/exception_basic.zig")) return build_options.hash_exception_basic;
+    if (std.mem.eql(u8, expected_path, "examples/resource_basic.zig")) return build_options.hash_resource_basic;
+    if (std.mem.eql(u8, expected_path, "examples/writer_basic.zig")) return build_options.hash_writer_basic;
+    if (std.mem.eql(u8, expected_path, "examples/algebraic_abortive_validation.zig")) return build_options.hash_algebraic_abortive_validation;
+    if (std.mem.eql(u8, expected_path, "examples/algebraic_artifact_search.zig")) return build_options.hash_algebraic_artifact_search;
+    if (std.mem.eql(u8, expected_path, "src/witness_sources.zig")) return build_options.hash_witness_sources;
+    if (std.mem.eql(u8, expected_path, "src/witnesses.zig")) return build_options.hash_witnesses;
+    return null;
+}
+
+fn sourceTextMatchesCanonicalHash(
+    allocator: std.mem.Allocator,
+    expected_path: []const u8,
+    source_text: []const u8,
+) bool {
+    const expected_hash = canonicalSourceHash(expected_path) orelse return false;
+    const normalized = normalizeSourceForHashAlloc(allocator, source_text) catch return false;
+    defer allocator.free(normalized);
+
+    var actual_hash = std.mem.zeroes([32]u8);
+    std.crypto.hash.Blake3.hash(normalized, &actual_hash, .{});
+    return std.mem.eql(u8, &actual_hash, &expected_hash);
+}
+
+fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8) std.mem.Allocator.Error![]u8 {
+    var out = std.ArrayList(u8).empty;
+    defer out.deinit(allocator);
+
+    var in_string = false;
+    var escaped = false;
+    var idx: usize = 0;
+    while (idx < source.len) : (idx += 1) {
+        const byte = source[idx];
+        if (in_string) {
+            try out.append(allocator, byte);
+            if (escaped) {
+                escaped = false;
+            } else if (byte == '\\') {
+                escaped = true;
+            } else if (byte == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if (byte == '"') {
+            in_string = true;
+            try out.append(allocator, byte);
+            continue;
+        }
+        if (byte == '/' and idx + 1 < source.len and source[idx + 1] == '/') {
+            idx += 2;
+            while (idx < source.len and source[idx] != '\n') : (idx += 1) {}
+            continue;
+        }
+        if (std.ascii.isWhitespace(byte)) continue;
+        try out.append(allocator, byte);
+    }
+
+    return try out.toOwnedSlice(allocator);
 }
 
 fn hasTopLevelFunctionNamed(tree: std.zig.Ast, name: []const u8) bool {
@@ -191,7 +270,8 @@ fn includeEntryCompareMember(tree: std.zig.Ast, member: std.zig.Ast.Node.Index, 
     var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
     const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse return false;
     const name_token = fn_proto.name_token orelse return false;
-    return std.mem.eql(u8, tree.tokenSlice(name_token), entry_symbol);
+    const fn_name = tree.tokenSlice(name_token);
+    return std.mem.eql(u8, fn_name, entry_symbol) or std.mem.eql(u8, fn_name, "runWitness");
 }
 
 const DiagnosticAtInput = struct {
@@ -524,6 +604,16 @@ pub fn lowerSourceText(
 
     const canonical_source = try readCanonicalSource(allocator, case.source_path);
     defer allocator.free(canonical_source);
+    if (!sourceTextMatchesCanonicalHash(allocator, case.source_path, canonical_source)) {
+        return rejectedResult(allocator, case, case.source_path, try diagnosticAt(.{
+            .allocator = allocator,
+            .display_path = case.source_path,
+            .code = "canonical_source_drift",
+            .message = "canonical source on disk no longer matches the frozen admitted baseline for this case",
+            .line = 1,
+            .column = 1,
+        }));
+    }
     const canonical_z = try allocator.dupeZ(u8, canonical_source);
     defer allocator.free(canonical_z);
     var canonical_tree = try std.zig.Ast.parse(allocator, canonical_z, .zig);

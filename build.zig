@@ -99,6 +99,58 @@ fn assertOwnedCompileFailFixtures(b: *std.Build, dir_path: []const u8, fixture_t
     }
 }
 
+fn canonicalSourceHash(b: *std.Build, path: []const u8) [32]u8 {
+    const bytes = std.fs.cwd().readFileAlloc(b.allocator, b.pathFromRoot(path), 1 << 20) catch
+        std.process.fatal("unable to read canonical source-lowering source", .{});
+    defer b.allocator.free(bytes);
+
+    const normalized = normalizeSourceForHashAlloc(b.allocator, bytes) catch
+        std.process.fatal("unable to normalize canonical source-lowering source", .{});
+    defer b.allocator.free(normalized);
+
+    var digest = std.mem.zeroes([32]u8);
+    std.crypto.hash.Blake3.hash(normalized, &digest, .{});
+    return digest;
+}
+
+fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
+    var out = std.ArrayList(u8).empty;
+    defer out.deinit(allocator);
+
+    var in_string = false;
+    var escaped = false;
+    var idx: usize = 0;
+    while (idx < source.len) : (idx += 1) {
+        const byte = source[idx];
+        if (in_string) {
+            try out.append(allocator, byte);
+            if (escaped) {
+                escaped = false;
+            } else if (byte == '\\') {
+                escaped = true;
+            } else if (byte == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if (byte == '"') {
+            in_string = true;
+            try out.append(allocator, byte);
+            continue;
+        }
+        if (byte == '/' and idx + 1 < source.len and source[idx + 1] == '/') {
+            idx += 2;
+            while (idx < source.len and source[idx] != '\n') : (idx += 1) {}
+            continue;
+        }
+        if (std.ascii.isWhitespace(byte)) continue;
+        try out.append(allocator, byte);
+    }
+
+    return try out.toOwnedSlice(allocator);
+}
+
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -156,6 +208,32 @@ pub fn build(b: *std.Build) void {
     const lowerer_opts_marker = true;
     authoring_lowerer_options.addOption([]const u8, "package_root", b.pathFromRoot("."));
     authoring_lowerer_options.addOption(bool, "authoring_lowerer_options_marker", lowerer_opts_marker);
+    authoring_lowerer_options.addOption([32]u8, "hash_local_mutation_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/local_mutation_resume.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_branch_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/branch_resume.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_loop_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/loop_resume.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_helper_call_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/helper_call_resume.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_nested_prompt_static_redelim", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/nested_prompt_static_redelim.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_typed_error_try", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/typed_error_try.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_defer_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/defer_resume.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_errdefer_error", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/errdefer_error.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_define_basic", canonicalSourceHash(b, "examples/define_basic.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_define_choice_basic", canonicalSourceHash(b, "examples/define_choice_basic.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_define_abort_basic", canonicalSourceHash(b, "examples/define_abort_basic.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_early_exit", canonicalSourceHash(b, "examples/early_exit.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_generator", canonicalSourceHash(b, "examples/generator.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_resume_or_return", canonicalSourceHash(b, "examples/resume_or_return.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_front_door_workflow", canonicalSourceHash(b, "examples/front_door_workflow.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_nested_workflow", canonicalSourceHash(b, "examples/nested_workflow.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_state_basic", canonicalSourceHash(b, "examples/state_basic.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_reader_basic", canonicalSourceHash(b, "examples/reader_basic.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_optional_basic", canonicalSourceHash(b, "examples/optional_basic.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_exception_basic", canonicalSourceHash(b, "examples/exception_basic.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_resource_basic", canonicalSourceHash(b, "examples/resource_basic.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_writer_basic", canonicalSourceHash(b, "examples/writer_basic.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_algebraic_abortive_validation", canonicalSourceHash(b, "examples/algebraic_abortive_validation.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_algebraic_artifact_search", canonicalSourceHash(b, "examples/algebraic_artifact_search.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_witness_sources", canonicalSourceHash(b, "src/witness_sources.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_witnesses", canonicalSourceHash(b, "src/witnesses.zig"));
     const authoring_lowerer_mod = b.createModule(.{
         .root_source_file = b.path("src/internal/authoring_lowerer.zig"),
         .target = target,

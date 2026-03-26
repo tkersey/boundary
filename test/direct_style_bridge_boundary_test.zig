@@ -73,6 +73,127 @@ test "bridge case-id admission rejects drifted canonical sources" {
     try std.testing.expect(lowered.diagnostics[0].line > 1);
 }
 
+test "bridge witness case-id admission rejects drifted wrapper sources" {
+    const drifted =
+        \\const sources = @import("witness_sources.zig");
+        \\const std = @import("std");
+        \\
+        \\/// Stable witness metadata for the tests-only corpus.
+        \\pub const Witness = struct {
+        \\    witness_id: []const u8,
+        \\    title: []const u8,
+        \\};
+        \\
+        \\/// Stable witness registry used by transcript-locked tests.
+        \\pub const witnesses = [_]Witness{
+        \\    .{ .witness_id = "atm_resume_transform", .title = "ATM resume-then-transform" },
+        \\    .{ .witness_id = "direct_return", .title = "Direct return without continuation exposure" },
+        \\    .{ .witness_id = "resume_or_return_return_now", .title = "Optional resumption chooses direct return" },
+        \\    .{ .witness_id = "resume_or_return_resume", .title = "Optional resumption chooses single resume" },
+        \\    .{ .witness_id = "static_redelim", .title = "Static re-delimitation against control/prompt" },
+        \\    .{ .witness_id = "multi_prompt", .title = "Prompt-value separation" },
+        \\    .{ .witness_id = "generator", .title = "Generator" },
+        \\};
+        \\
+        \\/// Print the stable witness registry.
+        \\pub fn listWitnesses(writer: anytype) anyerror!void {
+        \\    for (witnesses) |witness| try writer.print("{s}\t{s}\n", .{ witness.witness_id, witness.title });
+        \\}
+        \\
+        \\/// Run one witness by stable id.
+        \\pub fn runWitness(writer: anytype, id: []const u8) anyerror!void {
+        \\    if (std.mem.eql(u8, id, "atm_resume_transform")) return runDirectReturn(writer);
+        \\    if (std.mem.eql(u8, id, "direct_return")) return runDirectReturn(writer);
+        \\    if (std.mem.eql(u8, id, "resume_or_return_return_now")) return runResumeOrReturnReturnNow(writer);
+        \\    if (std.mem.eql(u8, id, "resume_or_return_resume")) return runResumeOrReturnResume(writer);
+        \\    if (std.mem.eql(u8, id, "static_redelim")) return runStaticRedelim(writer);
+        \\    if (std.mem.eql(u8, id, "multi_prompt")) return runMultiPrompt(writer);
+        \\    if (std.mem.eql(u8, id, "generator")) return runGenerator(writer);
+        \\    return error.UnknownWitness;
+        \\}
+        \\
+        \\/// Run the ATM resume-then-transform witness.
+        \\pub fn runAtmResumeTransform(writer: anytype) anyerror!void {
+        \\    try sources.runDirectReturn(writer);
+        \\}
+        \\
+        \\/// Run the generator witness.
+        \\pub fn runGenerator(writer: anytype) anyerror!void {
+        \\    try sources.runGenerator(writer);
+        \\}
+        \\
+        \\/// Run the early-exit practical witness.
+        \\pub fn runEarlyExit(writer: anytype) anyerror!void {
+        \\    try writer.writeAll("result=early\n");
+        \\}
+        \\
+        \\/// Run the nested-workflow practical witness.
+        \\pub fn runNestedWorkflow(writer: anytype) anyerror!void {
+        \\    try writer.writeAll(
+        \\        "workflow=queued\n" ++
+        \\            "audit=entered\n" ++
+        \\            "audit=after\n" ++
+        \\            "approval=publish\n" ++
+        \\            "workflow=done\n" ++
+        \\            "result=completed\n",
+        \\    );
+        \\}
+        \\
+        \\/// Run the direct-return witness.
+        \\pub fn runDirectReturn(writer: anytype) anyerror!void {
+        \\    try sources.runDirectReturn(writer);
+        \\}
+        \\
+        \\/// Run the return-now witness for resume-or-return prompts.
+        \\pub fn runResumeOrReturnReturnNow(writer: anytype) anyerror!void {
+        \\    try sources.runResumeOrReturnReturnNow(writer);
+        \\}
+        \\
+        \\/// Run the single-resume witness for resume-or-return prompts.
+        \\pub fn runResumeOrReturnResume(writer: anytype) anyerror!void {
+        \\    try sources.runResumeOrReturnResume(writer);
+        \\}
+        \\
+        \\/// Run the static re-delimitation witness.
+        \\pub fn runStaticRedelim(writer: anytype) anyerror!void {
+        \\    try sources.runStaticRedelim(writer);
+        \\}
+        \\
+        \\/// Run the prompt-separation witness.
+        \\pub fn runMultiPrompt(writer: anytype) anyerror!void {
+        \\    try sources.runMultiPrompt(writer);
+        \\}
+    ;
+
+    var lowered = try program_bridge.inspectCaseIdSourceText(std.testing.allocator, "atm_resume_transform", drifted);
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(lowered.status == .rejected);
+    try std.testing.expectEqualStrings("structural_mismatch", lowered.diagnostics[0].code);
+    try std.testing.expect(lowered.diagnostics[0].line > 1);
+}
+
+test "bridge witness case-id admission rejects drifted runWitness dispatch" {
+    const witness_wrapper_text = try std.fs.cwd().readFileAlloc(std.testing.allocator, "src/witnesses.zig", 1 << 20);
+    defer std.testing.allocator.free(witness_wrapper_text);
+
+    const drifted = try std.mem.replaceOwned(
+        u8,
+        std.testing.allocator,
+        witness_wrapper_text,
+        "if (std.mem.eql(u8, id, \"atm_resume_transform\")) return runAtmResumeTransform(writer);",
+        "if (std.mem.eql(u8, id, \"atm_resume_transform\")) return runDirectReturn(writer);",
+    );
+    defer std.testing.allocator.free(drifted);
+
+    var lowered = try program_bridge.inspectCaseIdSourceText(std.testing.allocator, "atm_resume_transform", drifted);
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(lowered.status == .rejected);
+    try std.testing.expectEqualStrings("structural_mismatch", lowered.diagnostics[0].code);
+    try std.testing.expect(lowered.diagnostics[0].line > 1);
+}
+
 test "private lowered runtime stays stable when bridge admission rejects injected drift" {
     const drifted =
         \\const shift = @import("shift");

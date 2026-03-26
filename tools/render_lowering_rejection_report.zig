@@ -46,6 +46,31 @@ const dynamic_callee_source =
     \\}
 ;
 
+const renamed_helper_source =
+    \\/// Stable source-lowering case id.
+    \\pub const source_case_id = "source.helper_call_resume";
+    \\/// Embedded source text consumed by the source-validated source-lowering checker.
+    \\pub const source = @embedFile("helper_call_resume.zig");
+    \\
+    \\fn helper(writer: anytype) anyerror!i32 {
+    \\    try writer.writeAll("helper=enter\n");
+    \\    const resumed: i32 = 41;
+    \\    try writer.print("resume={d}\n", .{resumed});
+    \\    try writer.writeAll("helper=exit\n");
+    \\    return resumed + 1;
+    \\}
+    \\
+    \\fn alternate(writer: anytype) anyerror!i32 {
+    \\    return helper(writer);
+    \\}
+    \\
+    \\/// Run the helper-call case with source-lowering control flow.
+    \\pub fn run(writer: anytype) anyerror!void {
+    \\    const answer = try alternate(writer);
+    \\    try writer.print("final={d}\n", .{answer});
+    \\}
+;
+
 fn outputPath() []const u8 {
     return "docs/lowering_rejection_report.json";
 }
@@ -82,6 +107,10 @@ fn appendInlineRow(
 ) !void {
     var lowered = try source_lowering.inspectInlineSource(allocator, input.spec, input.source_text);
     defer lowered.deinit(allocator);
+    if (lowered.isAccepted() or lowered.diagnostics.len == 0) {
+        std.debug.print("lowering rejection row unexpectedly accepted: {s}\n", .{input.label});
+        return error.RejectionRowAccepted;
+    }
     if (!first.*) try list.appendSlice(allocator, ",\n");
     first.* = false;
     var line: std.io.Writer.Allocating = .init(allocator);
@@ -112,6 +141,10 @@ fn appendFileRow(
 ) !void {
     var lowered = try source_lowering.inspectSource(allocator, spec);
     defer lowered.deinit(allocator);
+    if (lowered.isAccepted() or lowered.diagnostics.len == 0) {
+        std.debug.print("lowering rejection row unexpectedly accepted: {s}\n", .{label});
+        return error.RejectionRowAccepted;
+    }
     if (!first.*) try list.appendSlice(allocator, ",\n");
     first.* = false;
     var line: std.io.Writer.Allocating = .init(allocator);
@@ -157,6 +190,16 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
             .surface_kind = .source_case,
         },
         .source_text = dynamic_callee_source,
+    }, &first);
+    try appendInlineRow(list, allocator, .{
+        .label = "source.helper_call_resume.renamed_helper",
+        .spec = .{
+            .case_id = "source.helper_call_resume",
+            .source_path = "test/source_lowering_corpus/fixtures/helper_call_resume.zig",
+            .entry_symbol = "run",
+            .surface_kind = .source_case,
+        },
+        .source_text = renamed_helper_source,
     }, &first);
     try appendFileRow(list, allocator, "example.define_basic.wrong_entry", .{
         .case_id = "example.define_basic",
