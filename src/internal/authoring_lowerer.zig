@@ -179,48 +179,11 @@ fn hasTopLevelFunctionNamed(tree: std.zig.Ast, name: []const u8) bool {
     return false;
 }
 
-fn appendMemberSource(list: *std.ArrayList(u8), allocator: std.mem.Allocator, source: []const u8, tree: std.zig.Ast, member: std.zig.Ast.Node.Index) !void {
-    const start = tree.tokenStart(tree.firstToken(member));
-    const last = tree.lastToken(member);
-    const end = tree.tokenStart(last) + @as(u32, @intCast(tree.tokenSlice(last).len));
-    try list.appendSlice(allocator, source[start..end]);
-    if (end >= source.len or source[end - 1] != '\n') try list.append(allocator, '\n');
-}
-
 fn isSharedWitnessEntry(tree: std.zig.Ast, member: std.zig.Ast.Node.Index) bool {
     var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
     const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse return false;
     const name_token = fn_proto.name_token orelse return false;
     return std.mem.startsWith(u8, tree.tokenSlice(name_token), "run");
-}
-
-fn sharedWitnessCompareSourceAlloc(
-    allocator: std.mem.Allocator,
-    source_z: [:0]const u8,
-    tree: std.zig.Ast,
-    entry_symbol: []const u8,
-) ![]u8 {
-    var container_buffer: [2]std.zig.Ast.Node.Index = undefined;
-    const root = tree.fullContainerDecl(&container_buffer, .root) orelse return error.InvalidCanonicalSource;
-    var compare_source = std.ArrayList(u8).empty;
-    defer compare_source.deinit(allocator);
-    var found_entry = false;
-
-    for (root.ast.members) |member| {
-        if (isSharedWitnessEntry(tree, member)) {
-            var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
-            const fn_proto = tree.fullFnProto(&fn_buffer, member).?;
-            const name_token = fn_proto.name_token.?;
-            if (!std.mem.eql(u8, tree.tokenSlice(name_token), entry_symbol)) continue;
-            found_entry = true;
-        }
-        if (!isSharedWitnessEntry(tree, member) or found_entry) {
-            try appendMemberSource(&compare_source, allocator, source_z, tree, member);
-            found_entry = false;
-        }
-    }
-    if (compare_source.items.len == 0) return error.InvalidCanonicalSource;
-    return try compare_source.toOwnedSlice(allocator);
 }
 
 fn includeEntryCompareMember(tree: std.zig.Ast, member: std.zig.Ast.Node.Index, entry_symbol: []const u8) bool {
@@ -380,121 +343,6 @@ fn duplicatedSourcePath(allocator: std.mem.Allocator, display_path: []const u8) 
     return try allocator.dupe(u8, display_path);
 }
 
-fn canonicalSourceHash(expected_path: []const u8) ?[32]u8 {
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/local_mutation_resume.zig")) return build_options.hash_local_mutation_resume;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/branch_resume.zig")) return build_options.hash_branch_resume;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/loop_resume.zig")) return build_options.hash_loop_resume;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/helper_call_resume.zig")) return build_options.hash_helper_call_resume;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/nested_prompt_static_redelim.zig")) return build_options.hash_nested_prompt_static_redelim;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/typed_error_try.zig")) return build_options.hash_typed_error_try;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/defer_resume.zig")) return build_options.hash_defer_resume;
-    if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/errdefer_error.zig")) return build_options.hash_errdefer_error;
-    if (std.mem.eql(u8, expected_path, "examples/define_basic.zig")) return build_options.hash_define_basic;
-    if (std.mem.eql(u8, expected_path, "examples/define_choice_basic.zig")) return build_options.hash_define_choice_basic;
-    if (std.mem.eql(u8, expected_path, "examples/define_abort_basic.zig")) return build_options.hash_define_abort_basic;
-    if (std.mem.eql(u8, expected_path, "examples/early_exit.zig")) return build_options.hash_early_exit;
-    if (std.mem.eql(u8, expected_path, "examples/generator.zig")) return build_options.hash_generator;
-    if (std.mem.eql(u8, expected_path, "examples/resume_or_return.zig")) return build_options.hash_resume_or_return;
-    if (std.mem.eql(u8, expected_path, "examples/front_door_workflow.zig")) return build_options.hash_front_door_workflow;
-    if (std.mem.eql(u8, expected_path, "examples/nested_workflow.zig")) return build_options.hash_nested_workflow;
-    if (std.mem.eql(u8, expected_path, "examples/state_basic.zig")) return build_options.hash_state_basic;
-    if (std.mem.eql(u8, expected_path, "examples/reader_basic.zig")) return build_options.hash_reader_basic;
-    if (std.mem.eql(u8, expected_path, "examples/optional_basic.zig")) return build_options.hash_optional_basic;
-    if (std.mem.eql(u8, expected_path, "examples/exception_basic.zig")) return build_options.hash_exception_basic;
-    if (std.mem.eql(u8, expected_path, "examples/resource_basic.zig")) return build_options.hash_resource_basic;
-    if (std.mem.eql(u8, expected_path, "examples/writer_basic.zig")) return build_options.hash_writer_basic;
-    if (std.mem.eql(u8, expected_path, "examples/algebraic_abortive_validation.zig")) return build_options.hash_algebraic_abortive_validation;
-    if (std.mem.eql(u8, expected_path, "examples/algebraic_artifact_search.zig")) return build_options.hash_algebraic_artifact_search;
-    if (std.mem.eql(u8, expected_path, "src/witness_sources.zig")) return build_options.hash_witness_sources;
-    return null;
-}
-
-fn canonicalEntryHash(case: CanonicalCase) ?[32]u8 {
-    if (!std.mem.eql(u8, case.source_path, "src/witness_sources.zig")) return null;
-    if (std.mem.eql(u8, case.entry_symbol, "runAtmResumeTransform")) return build_options.hash_witness_entry_atm_resume_transform;
-    if (std.mem.eql(u8, case.entry_symbol, "runDirectReturn")) return build_options.hash_witness_entry_direct_return;
-    if (std.mem.eql(u8, case.entry_symbol, "runResumeOrReturnReturnNow")) return build_options.hash_witness_entry_resume_or_return_return_now;
-    if (std.mem.eql(u8, case.entry_symbol, "runResumeOrReturnResume")) return build_options.hash_witness_entry_resume_or_return_resume;
-    if (std.mem.eql(u8, case.entry_symbol, "runStaticRedelim")) return build_options.hash_witness_entry_static_redelim;
-    if (std.mem.eql(u8, case.entry_symbol, "runMultiPrompt")) return build_options.hash_witness_entry_multi_prompt;
-    if (std.mem.eql(u8, case.entry_symbol, "runGenerator")) return build_options.hash_witness_entry_generator;
-    return null;
-}
-
-fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(allocator);
-
-    var in_string = false;
-    var escaped = false;
-    var idx: usize = 0;
-    while (idx < source.len) : (idx += 1) {
-        const byte = source[idx];
-        if (in_string) {
-            try out.append(allocator, byte);
-            if (escaped) {
-                escaped = false;
-            } else if (byte == '\\') {
-                escaped = true;
-            } else if (byte == '"') {
-                in_string = false;
-            }
-            continue;
-        }
-
-        if (byte == '"') {
-            in_string = true;
-            try out.append(allocator, byte);
-            continue;
-        }
-        if (byte == '/' and idx + 1 < source.len and source[idx + 1] == '/') {
-            idx += 2;
-            while (idx < source.len and source[idx] != '\n') : (idx += 1) {}
-            continue;
-        }
-        if (std.ascii.isWhitespace(byte)) continue;
-        try out.append(allocator, byte);
-    }
-
-    return try out.toOwnedSlice(allocator);
-}
-
-fn normalizedComparisonSourceAlloc(
-    allocator: std.mem.Allocator,
-    case: CanonicalCase,
-    source_text: []const u8,
-) ?[]u8 {
-    switch (case.compare_scope) {
-        .file => return normalizeSourceForHashAlloc(allocator, source_text) catch null,
-        .entry => {
-            const source_z = allocator.dupeZ(u8, source_text) catch return null;
-            defer allocator.free(source_z);
-            var tree = std.zig.Ast.parse(allocator, source_z, .zig) catch return null;
-            defer tree.deinit(allocator);
-            if (tree.errors.len != 0) return null;
-            const compare_source = sharedWitnessCompareSourceAlloc(allocator, source_z, tree, case.entry_symbol) catch return null;
-            defer allocator.free(compare_source);
-            return normalizeSourceForHashAlloc(allocator, compare_source) catch null;
-        },
-    }
-}
-
-fn sourceTextMatchesCanonicalHash(
-    allocator: std.mem.Allocator,
-    case: CanonicalCase,
-    source_text: []const u8,
-) bool {
-    const expected_hash = switch (case.compare_scope) {
-        .file => canonicalSourceHash(case.source_path),
-        .entry => canonicalEntryHash(case),
-    } orelse return false;
-    const normalized = normalizedComparisonSourceAlloc(allocator, case, source_text) orelse return false;
-    defer allocator.free(normalized);
-    var actual_hash = std.mem.zeroes([32]u8);
-    std.crypto.hash.Blake3.hash(normalized, &actual_hash, .{});
-    return std.mem.eql(u8, &actual_hash, &expected_hash);
-}
-
 fn normalizedComparisonTokensAlloc(
     allocator: std.mem.Allocator,
     case: CanonicalCase,
@@ -569,16 +417,6 @@ pub fn lowerFileBackedSourceText(input: LowerFileBackedSourceTextInput) anyerror
     defer tree.deinit(allocator);
     if (tree.errors.len != 0) {
         return rejectedResult(allocator, case, display_path, try parseFailureDiagnostic(allocator, display_path, source_z, tree));
-    }
-    if (!sourceTextMatchesCanonicalHash(allocator, case, source_text)) {
-        return rejectedResult(allocator, case, display_path, try diagnosticAt(.{
-            .allocator = allocator,
-            .display_path = display_path,
-            .code = "canonical_source_drift",
-            .message = "source no longer matches the canonical repo-owned source for this case",
-            .line = 1,
-            .column = 1,
-        }));
     }
     return lowerSourceText(allocator, case, .{
         .display_path = display_path,
@@ -662,16 +500,6 @@ pub fn lowerSourceText(
 
     if (tree.errors.len != 0) {
         return rejectedResult(allocator, case, input.display_path, try parseFailureDiagnostic(allocator, input.display_path, source_z, tree));
-    }
-    if (!sourceTextMatchesCanonicalHash(allocator, case, input.source_text)) {
-        return rejectedResult(allocator, case, input.display_path, try diagnosticAt(.{
-            .allocator = allocator,
-            .display_path = input.display_path,
-            .code = "canonical_source_drift",
-            .message = "source no longer matches the canonical repo-owned source for this case",
-            .line = 1,
-            .column = 1,
-        }));
     }
     if (!hasTopLevelFunctionNamed(tree, case.entry_symbol)) {
         return rejectedResult(allocator, case, input.display_path, try diagnosticAt(.{

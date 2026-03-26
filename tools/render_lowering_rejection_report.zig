@@ -2,6 +2,12 @@ const source_lowering = @import("source_lowering");
 const std = @import("std");
 
 const dead_code_source =
+    \\/// Stable source-lowering case id.
+    \\pub const source_case_id = "source.branch_resume";
+    \\/// Embedded source text consumed by the source-validated source-lowering checker.
+    \\pub const source = @embedFile("branch_resume.zig");
+    \\
+    \\/// Run the branch case with source-lowering control flow.
     \\pub fn run(writer: anytype) anyerror!void {
     \\    try writer.writeAll("branch=before\n");
     \\    return;
@@ -19,12 +25,20 @@ const dead_code_source =
 ;
 
 const dynamic_callee_source =
+    \\/// Stable source-lowering case id.
+    \\pub const source_case_id = "source.helper_call_resume";
+    \\/// Embedded source text consumed by the source-validated source-lowering checker.
+    \\pub const source = @embedFile("helper_call_resume.zig");
+    \\
     \\fn helper(writer: anytype) anyerror!i32 {
     \\    try writer.writeAll("helper=enter\n");
+    \\    const resumed: i32 = 41;
+    \\    try writer.print("resume={d}\n", .{resumed});
     \\    try writer.writeAll("helper=exit\n");
-    \\    return 42;
+    \\    return resumed + 1;
     \\}
     \\
+    \\/// Run the helper-call case with source-lowering control flow.
     \\pub fn run(writer: anytype) anyerror!void {
     \\    const callee = helper;
     \\    const answer = try callee(writer);

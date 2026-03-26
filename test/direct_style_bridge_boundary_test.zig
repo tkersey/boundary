@@ -69,7 +69,8 @@ test "bridge case-id admission rejects drifted canonical sources" {
     defer lowered.deinit(std.testing.allocator);
 
     try std.testing.expect(lowered.status == .rejected);
-    try std.testing.expectEqualStrings("canonical_source_drift", lowered.diagnostics[0].code);
+    try std.testing.expectEqualStrings("structural_mismatch", lowered.diagnostics[0].code);
+    try std.testing.expect(lowered.diagnostics[0].line > 1);
 }
 
 test "private lowered runtime stays stable when bridge admission rejects injected drift" {
@@ -101,7 +102,8 @@ test "private lowered runtime stays stable when bridge admission rejects injecte
     var lowered = try program_bridge.inspectCaseIdSourceText(std.testing.allocator, "early_exit", drifted);
     defer lowered.deinit(std.testing.allocator);
     try std.testing.expect(lowered.status == .rejected);
-    try std.testing.expectEqualStrings("canonical_source_drift", lowered.diagnostics[0].code);
+    try std.testing.expectEqualStrings("structural_mismatch", lowered.diagnostics[0].code);
+    try std.testing.expect(lowered.diagnostics[0].line > 1);
 
     try std.testing.expect(private_lowered_runtime.supportsCaseId("early_exit"));
 

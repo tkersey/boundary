@@ -395,6 +395,24 @@ test "accepted source-lowering rows canonicalize source paths" {
     try std.testing.expectEqualStrings("examples/define_basic.zig", lowered.source_path);
 }
 
+test "source-lowering accepts canonical repo-relative paths from subdirectories" {
+    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(original_cwd);
+    try std.posix.chdir("examples");
+    defer std.posix.chdir(original_cwd) catch unreachable;
+
+    var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
+        .case_id = "example.define_basic",
+        .source_path = "examples/define_basic.zig",
+        .entry_symbol = "run",
+        .surface_kind = .example,
+    });
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(lowered.isAccepted());
+    try std.testing.expectEqualStrings("examples/define_basic.zig", lowered.source_path);
+}
+
 test "source-lowering rejects mismatched expected_status values" {
     var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
         .case_id = "example.define_basic",

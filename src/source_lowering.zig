@@ -929,11 +929,6 @@ fn duplicateSourcePath(allocator: std.mem.Allocator, path: []const u8) std.mem.A
     return try allocator.dupe(u8, path);
 }
 
-fn resolvedSourcePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
-    _ = build_options;
-    return try std.fs.cwd().realpathAlloc(allocator, source_path);
-}
-
 fn resolvedRepoSourcePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
     if (std.fs.path.isAbsolute(source_path)) {
         return try std.fs.cwd().realpathAlloc(allocator, source_path);
@@ -1122,7 +1117,7 @@ pub fn inspectSource(allocator: std.mem.Allocator, spec: Spec) LowerError!Genera
     if (spec.expected_status != case.status) {
         return generatedRejectedProgram(allocator, spec, case, "requested expected_status does not match the supported status for this case");
     }
-    const resolved_source_path = resolvedSourcePathAlloc(allocator, spec.source_path) catch try allocator.dupe(u8, spec.source_path);
+    const resolved_source_path = resolvedRepoSourcePathAlloc(allocator, spec.source_path) catch try allocator.dupe(u8, spec.source_path);
     defer allocator.free(resolved_source_path);
 
     const lowered = try authoring_lowerer.lowerSourceFile(

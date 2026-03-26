@@ -99,158 +99,6 @@ fn assertOwnedCompileFailFixtures(b: *std.Build, dir_path: []const u8, fixture_t
     }
 }
 
-fn canonicalSourceHash(b: *std.Build, path: []const u8) [32]u8 {
-    const bytes = std.fs.cwd().readFileAlloc(b.allocator, b.pathFromRoot(path), 1 << 20) catch
-        std.process.fatal("unable to read canonical source-lowering source", .{});
-    defer b.allocator.free(bytes);
-
-    const normalized = normalizeSourceForHashAlloc(b.allocator, bytes) catch
-        std.process.fatal("unable to normalize canonical source-lowering source", .{});
-    defer b.allocator.free(normalized);
-
-    var digest = std.mem.zeroes([32]u8);
-    std.crypto.hash.Blake3.hash(normalized, &digest, .{});
-    return digest;
-}
-
-fn appendMemberSource(list: *std.ArrayList(u8), allocator: std.mem.Allocator, source: []const u8, tree: std.zig.Ast, member: std.zig.Ast.Node.Index) void {
-    const start = tree.tokenStart(tree.firstToken(member));
-    const last = tree.lastToken(member);
-    const end = tree.tokenStart(last) + @as(u32, @intCast(tree.tokenSlice(last).len));
-    list.appendSlice(allocator, source[start..end]) catch
-        std.process.fatal("unable to append canonical source-lowering member", .{});
-    if (end >= source.len or source[end - 1] != '\n') {
-        list.append(allocator, '\n') catch std.process.fatal("unable to terminate canonical source-lowering member", .{});
-    }
-}
-
-fn isSharedWitnessEntry(tree: std.zig.Ast, member: std.zig.Ast.Node.Index) bool {
-    var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
-    const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse return false;
-    const name_token = fn_proto.name_token orelse return false;
-    return std.mem.startsWith(u8, tree.tokenSlice(name_token), "run");
-}
-
-fn canonicalEntrySourceHash(b: *std.Build, path: []const u8, entry_symbol: []const u8) [32]u8 {
-    const bytes = std.fs.cwd().readFileAlloc(b.allocator, b.pathFromRoot(path), 1 << 20) catch
-        std.process.fatal("unable to read canonical source-lowering source", .{});
-    defer b.allocator.free(bytes);
-
-    const source_z = b.allocator.dupeZ(u8, bytes) catch
-        std.process.fatal("unable to duplicate canonical source-lowering source", .{});
-    defer b.allocator.free(source_z);
-
-    var tree = std.zig.Ast.parse(b.allocator, source_z, .zig) catch
-        std.process.fatal("unable to parse canonical source-lowering source", .{});
-    defer tree.deinit(b.allocator);
-    if (tree.errors.len != 0) std.process.fatal("canonical source-lowering source failed to parse", .{});
-
-    var compare_source = std.ArrayList(u8).empty;
-    defer compare_source.deinit(b.allocator);
-
-    var container_buffer: [2]std.zig.Ast.Node.Index = undefined;
-    const root = tree.fullContainerDecl(&container_buffer, .root) orelse
-        std.process.fatal("unable to inspect canonical source-lowering root", .{});
-    var found_entry = false;
-    for (root.ast.members) |member| {
-        if (isSharedWitnessEntry(tree, member)) {
-            var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
-            const fn_proto = tree.fullFnProto(&fn_buffer, member).?;
-            const name_token = fn_proto.name_token.?;
-            if (!std.mem.eql(u8, tree.tokenSlice(name_token), entry_symbol)) continue;
-            found_entry = true;
-        }
-        if (!isSharedWitnessEntry(tree, member) or found_entry) {
-            appendMemberSource(&compare_source, b.allocator, source_z, tree, member);
-            found_entry = false;
-        }
-    }
-    if (compare_source.items.len == 0) {
-        std.process.fatal("unable to locate canonical source-lowering entry {s} in {s}", .{ entry_symbol, path });
-    }
-
-    const normalized = normalizeSourceForHashAlloc(b.allocator, compare_source.items) catch
-        std.process.fatal("unable to normalize canonical source-lowering entry", .{});
-    defer b.allocator.free(normalized);
-
-    var digest = std.mem.zeroes([32]u8);
-    std.crypto.hash.Blake3.hash(normalized, &digest, .{});
-    return digest;
-}
-
-fn addCanonicalSourceHashOptions(b: *std.Build, options: *std.Build.Step.Options) void {
-    options.addOption([32]u8, "hash_local_mutation_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/local_mutation_resume.zig"));
-    options.addOption([32]u8, "hash_branch_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/branch_resume.zig"));
-    options.addOption([32]u8, "hash_loop_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/loop_resume.zig"));
-    options.addOption([32]u8, "hash_helper_call_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/helper_call_resume.zig"));
-    options.addOption([32]u8, "hash_nested_prompt_static_redelim", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/nested_prompt_static_redelim.zig"));
-    options.addOption([32]u8, "hash_typed_error_try", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/typed_error_try.zig"));
-    options.addOption([32]u8, "hash_defer_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/defer_resume.zig"));
-    options.addOption([32]u8, "hash_errdefer_error", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/errdefer_error.zig"));
-    options.addOption([32]u8, "hash_define_basic", canonicalSourceHash(b, "examples/define_basic.zig"));
-    options.addOption([32]u8, "hash_define_choice_basic", canonicalSourceHash(b, "examples/define_choice_basic.zig"));
-    options.addOption([32]u8, "hash_define_abort_basic", canonicalSourceHash(b, "examples/define_abort_basic.zig"));
-    options.addOption([32]u8, "hash_early_exit", canonicalSourceHash(b, "examples/early_exit.zig"));
-    options.addOption([32]u8, "hash_generator", canonicalSourceHash(b, "examples/generator.zig"));
-    options.addOption([32]u8, "hash_resume_or_return", canonicalSourceHash(b, "examples/resume_or_return.zig"));
-    options.addOption([32]u8, "hash_front_door_workflow", canonicalSourceHash(b, "examples/front_door_workflow.zig"));
-    options.addOption([32]u8, "hash_nested_workflow", canonicalSourceHash(b, "examples/nested_workflow.zig"));
-    options.addOption([32]u8, "hash_state_basic", canonicalSourceHash(b, "examples/state_basic.zig"));
-    options.addOption([32]u8, "hash_reader_basic", canonicalSourceHash(b, "examples/reader_basic.zig"));
-    options.addOption([32]u8, "hash_optional_basic", canonicalSourceHash(b, "examples/optional_basic.zig"));
-    options.addOption([32]u8, "hash_exception_basic", canonicalSourceHash(b, "examples/exception_basic.zig"));
-    options.addOption([32]u8, "hash_resource_basic", canonicalSourceHash(b, "examples/resource_basic.zig"));
-    options.addOption([32]u8, "hash_writer_basic", canonicalSourceHash(b, "examples/writer_basic.zig"));
-    options.addOption([32]u8, "hash_algebraic_abortive_validation", canonicalSourceHash(b, "examples/algebraic_abortive_validation.zig"));
-    options.addOption([32]u8, "hash_algebraic_artifact_search", canonicalSourceHash(b, "examples/algebraic_artifact_search.zig"));
-    options.addOption([32]u8, "hash_witness_sources", canonicalSourceHash(b, "src/witness_sources.zig"));
-    options.addOption([32]u8, "hash_witness_entry_atm_resume_transform", canonicalEntrySourceHash(b, "src/witness_sources.zig", "runAtmResumeTransform"));
-    options.addOption([32]u8, "hash_witness_entry_direct_return", canonicalEntrySourceHash(b, "src/witness_sources.zig", "runDirectReturn"));
-    options.addOption([32]u8, "hash_witness_entry_resume_or_return_return_now", canonicalEntrySourceHash(b, "src/witness_sources.zig", "runResumeOrReturnReturnNow"));
-    options.addOption([32]u8, "hash_witness_entry_resume_or_return_resume", canonicalEntrySourceHash(b, "src/witness_sources.zig", "runResumeOrReturnResume"));
-    options.addOption([32]u8, "hash_witness_entry_static_redelim", canonicalEntrySourceHash(b, "src/witness_sources.zig", "runStaticRedelim"));
-    options.addOption([32]u8, "hash_witness_entry_multi_prompt", canonicalEntrySourceHash(b, "src/witness_sources.zig", "runMultiPrompt"));
-    options.addOption([32]u8, "hash_witness_entry_generator", canonicalEntrySourceHash(b, "src/witness_sources.zig", "runGenerator"));
-}
-
-fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(allocator);
-
-    var in_string = false;
-    var escaped = false;
-    var idx: usize = 0;
-    while (idx < source.len) : (idx += 1) {
-        const byte = source[idx];
-        if (in_string) {
-            try out.append(allocator, byte);
-            if (escaped) {
-                escaped = false;
-            } else if (byte == '\\') {
-                escaped = true;
-            } else if (byte == '"') {
-                in_string = false;
-            }
-            continue;
-        }
-
-        if (byte == '"') {
-            in_string = true;
-            try out.append(allocator, byte);
-            continue;
-        }
-        if (byte == '/' and idx + 1 < source.len and source[idx + 1] == '/') {
-            idx += 2;
-            while (idx < source.len and source[idx] != '\n') : (idx += 1) {}
-            continue;
-        }
-        if (std.ascii.isWhitespace(byte)) continue;
-        try out.append(allocator, byte);
-    }
-
-    return try out.toOwnedSlice(allocator);
-}
-
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -305,10 +153,9 @@ pub fn build(b: *std.Build) void {
     });
     lowered_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
     const authoring_lowerer_options = b.addOptions();
-    const authoring_lowerer_hash_bundle = true;
+    const lowerer_opts_marker = true;
     authoring_lowerer_options.addOption([]const u8, "package_root", b.pathFromRoot("."));
-    authoring_lowerer_options.addOption(bool, "authoring_lowerer_hash_bundle", authoring_lowerer_hash_bundle);
-    addCanonicalSourceHashOptions(b, authoring_lowerer_options);
+    authoring_lowerer_options.addOption(bool, "authoring_lowerer_options_marker", lowerer_opts_marker);
     const authoring_lowerer_mod = b.createModule(.{
         .root_source_file = b.path("src/internal/authoring_lowerer.zig"),
         .target = target,
@@ -381,7 +228,6 @@ pub fn build(b: *std.Build) void {
     });
     const source_lowering_options = b.addOptions();
     source_lowering_options.addOption([]const u8, "package_root", b.pathFromRoot("."));
-    addCanonicalSourceHashOptions(b, source_lowering_options);
     source_lowering_mod.addOptions("build_options", source_lowering_options);
     source_lowering_mod.addImport("source_lowering_registry", source_lowering_registry_mod);
     source_lowering_mod.addImport("parity_scenarios", parity_scenarios_mod);
@@ -1019,6 +865,8 @@ pub fn build(b: *std.Build) void {
     source_lowering_gauntlet_step.dependOn(&source_lowering_contract_cmd.step);
     source_lowering_gauntlet_step.dependOn(&src_lower_matrix_check.step);
     source_lowering_gauntlet_step.dependOn(&src_lower_tool_contract.step);
+    source_lowering_gauntlet_step.dependOn(lower_eq_chk_step);
+    source_lowering_gauntlet_step.dependOn(lower_reject_chk_step);
     test_step.dependOn(source_lowering_gauntlet_step);
     test_step.dependOn(&src_lower_cov_check.step);
     test_step.dependOn(&witness_admission_check_cmd.step);
