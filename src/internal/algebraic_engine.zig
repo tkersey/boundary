@@ -194,18 +194,16 @@ fn ExplicitContinuationFnType(comptime Continuation: type) type {
     };
 }
 
-fn ExplicitContinuationReturnType(comptime Continuation: type, comptime ResumeType: type) type {
+fn ExplicitContinuationReturnType(comptime Continuation: type) type {
     const ContinuationFn = ExplicitContinuationFnType(Continuation);
     const params = @typeInfo(ContinuationFn).@"fn".params;
     if (params.len != 1) @compileError("explicit program continuation must accept exactly one resumed value");
-    if (comptime hasDeclSafe(Continuation, "apply")) {
-        return @TypeOf(@field(Continuation, "apply")(@as(ResumeType, undefined)));
-    }
-    return @TypeOf(Continuation(@as(ResumeType, undefined)));
+    return @typeInfo(ContinuationFn).@"fn".return_type.?;
 }
 
 fn ExplicitContinuationErrorSet(comptime Continuation: type, comptime ResumeType: type) type {
-    return ReturnTypeErrorSet(ExplicitContinuationReturnType(Continuation, ResumeType));
+    _ = ResumeType;
+    return ReturnTypeErrorSet(ExplicitContinuationReturnType(Continuation));
 }
 
 fn assertTransformImplType(comptime TransformContract: type) void {

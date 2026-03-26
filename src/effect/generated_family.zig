@@ -137,9 +137,9 @@ fn ExplicitContinuationReturnType(comptime Continuation: type, comptime ResumeTy
     const params = @typeInfo(ContinuationFn).@"fn".params;
     if (params.len != 1) @compileError("generated explicit program continuation must accept exactly one resumed value");
     if (comptime family.hasDeclSafe(Continuation, "apply")) {
-        return @TypeOf(@field(Continuation, "apply")(@as(ResumeType, undefined)));
+        return @TypeOf(@field(Continuation, "apply")(dummyValue(ResumeType)));
     }
-    return @TypeOf(Continuation(@as(ResumeType, undefined)));
+    return @TypeOf(Continuation(dummyValue(ResumeType)));
 }
 
 fn ExplicitContinuationAnswerType(comptime Continuation: type, comptime ResumeType: type) type {
@@ -273,9 +273,26 @@ fn OpType(comptime op_specs: anytype, comptime tag: anytype) type {
 }
 
 fn dummyPointer(comptime PtrType: type) PtrType {
+    const pointer = @typeInfo(PtrType).pointer;
     const Child = std.meta.Child(PtrType);
-    const addr = comptime std.mem.alignForward(usize, 1, @alignOf(Child));
-    return @as(PtrType, @ptrFromInt(addr));
+    return switch (pointer.size) {
+        .slice => blk: {
+            const empty: [0]Child = .{};
+            const slice = empty[0..];
+            if (pointer.is_const) break :blk @as(PtrType, slice);
+            break :blk @as(PtrType, @constCast(slice));
+        },
+        else => @as(PtrType, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(Child)))),
+    };
+}
+
+fn dummyValue(comptime T: type) T {
+    return switch (@typeInfo(T)) {
+        .pointer => dummyPointer(T),
+        .optional => null,
+        .void => {},
+        else => dummyPointer(*T).*,
+    };
 }
 
 fn assertTransformHandlerBundle(comptime HandlerType: type, comptime StateType: type, comptime AnswerType: type, comptime ErrorSetType: type, comptime Op: type) void {
@@ -353,7 +370,6 @@ fn assertHandlerBundle(comptime mode: prompt_contract.PromptMode, comptime State
 
 fn InferHandlerErrorSet(
     comptime mode: prompt_contract.PromptMode,
-    comptime AnswerType: type,
     comptime op_specs: anytype,
     comptime HandlerType: type,
 ) type {
@@ -362,45 +378,21 @@ fn InferHandlerErrorSet(
         const handler_method = @field(HandlerType, opName(Op));
         switch (mode) {
             .resume_then_transform => {
-                const resume_return_type = if (comptime OpPayloadType(Op) == void)
-                    @TypeOf(handler_method(@as(*HandlerType, undefined)))
-                else
-                    @TypeOf(handler_method(
-                        @as(*HandlerType, undefined),
-                        @as(OpPayloadType(Op), undefined),
-                    ));
-                const AfterReturnType = @TypeOf(@field(HandlerType, afterMethodName(opName(Op)))(
-                    @as(*HandlerType, undefined),
-                    @as(AnswerType, undefined),
-                ));
+                const resume_return_type = @typeInfo(@TypeOf(handler_method)).@"fn".return_type.?;
+                const AfterReturnType = @typeInfo(@TypeOf(@field(HandlerType, afterMethodName(opName(Op))))).@"fn".return_type.?;
                 ErrorSet = ErrorSet ||
                     ReturnTypeErrorSet(resume_return_type) ||
                     ReturnTypeErrorSet(AfterReturnType);
             },
             .resume_or_return => {
-                const decide_return_type = if (comptime OpPayloadType(Op) == void)
-                    @TypeOf(handler_method(@as(*HandlerType, undefined)))
-                else
-                    @TypeOf(handler_method(
-                        @as(*HandlerType, undefined),
-                        @as(OpPayloadType(Op), undefined),
-                    ));
-                const AfterReturnType = @TypeOf(@field(HandlerType, afterMethodName(opName(Op)))(
-                    @as(*HandlerType, undefined),
-                    @as(AnswerType, undefined),
-                ));
+                const decide_return_type = @typeInfo(@TypeOf(handler_method)).@"fn".return_type.?;
+                const AfterReturnType = @typeInfo(@TypeOf(@field(HandlerType, afterMethodName(opName(Op))))).@"fn".return_type.?;
                 ErrorSet = ErrorSet ||
                     ReturnTypeErrorSet(decide_return_type) ||
                     ReturnTypeErrorSet(AfterReturnType);
             },
             .direct_return => {
-                const direct_return_type = if (comptime OpPayloadType(Op) == void)
-                    @TypeOf(handler_method(@as(*HandlerType, undefined)))
-                else
-                    @TypeOf(handler_method(
-                        @as(*HandlerType, undefined),
-                        @as(OpPayloadType(Op), undefined),
-                    ));
+                const direct_return_type = @typeInfo(@TypeOf(handler_method)).@"fn".return_type.?;
                 ErrorSet = ErrorSet || ReturnTypeErrorSet(direct_return_type);
             },
         }
@@ -417,15 +409,7 @@ fn InferHandlerOperationErrorSet(
     inline for (op_specs) |Op| {
         const handler_method = @field(HandlerType, opName(Op));
         const operation_return_type = switch (mode) {
-            .resume_then_transform, .resume_or_return, .direct_return => blk: {
-                if (comptime OpPayloadType(Op) == void) {
-                    break :blk @TypeOf(handler_method(@as(*HandlerType, undefined)));
-                }
-                break :blk @TypeOf(handler_method(
-                    @as(*HandlerType, undefined),
-                    @as(OpPayloadType(Op), undefined),
-                ));
-            },
+            .resume_then_transform, .resume_or_return, .direct_return => @typeInfo(@TypeOf(handler_method)).@"fn".return_type.?,
         };
         ErrorSet = ErrorSet || ReturnTypeErrorSet(operation_return_type);
         switch (mode) {
@@ -478,7 +462,7 @@ fn PreviewBodyErrorSet(
     const PreviewContext = *family.Context(preview_capability, StateType, AnswerType, BaseErrorSet);
     _ = mode;
     if (family.hasDeclSafe(Body, "program")) {
-        const AuthoredType = @TypeOf(Body.program(preview_capability, @as(PreviewContext, undefined)));
+        const AuthoredType = @TypeOf(Body.program(preview_capability, dummyValue(PreviewContext)));
         switch (@typeInfo(AuthoredType)) {
             .@"struct" => if (@hasField(AuthoredType, "prompt")) {
                 return switch (@typeInfo(@FieldType(AuthoredType, "prompt"))) {
@@ -491,7 +475,7 @@ fn PreviewBodyErrorSet(
         return error{};
     }
     if (!family.hasDeclSafe(Body, "body")) return error{};
-    return ReturnTypeErrorSet(@TypeOf(Body.body(preview_capability, @as(PreviewContext, undefined))));
+    return ReturnTypeErrorSet(@TypeOf(Body.body(preview_capability, dummyValue(PreviewContext))));
 }
 
 fn computeProgramForPrompt(
@@ -772,7 +756,7 @@ pub fn Build(comptime spec: anytype) type {
 
         fn HandleErrorSet(comptime AnswerType: type, comptime HandlerType: type, comptime Body: type) type {
             comptime assertHandlerBundle(mode, StateType, AnswerType, ErrorSetType, op_specs, HandlerType);
-            const BaseErrorSet = ErrorSetType || InferHandlerErrorSet(mode, AnswerType, op_specs, HandlerType);
+            const BaseErrorSet = ErrorSetType || InferHandlerErrorSet(mode, op_specs, HandlerType);
             return BaseErrorSet || PreviewBodyErrorSet(StateType, AnswerType, BaseErrorSet, mode, Body);
         }
 

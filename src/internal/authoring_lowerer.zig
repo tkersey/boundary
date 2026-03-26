@@ -506,7 +506,7 @@ fn sourceTextMatchesCanonicalHash(
     } orelse return false;
     const normalized = normalizedComparisonSourceAlloc(allocator, case, source_text) orelse return false;
     defer allocator.free(normalized);
-    var actual_hash: [32]u8 = undefined;
+    var actual_hash = std.mem.zeroes([32]u8);
     std.crypto.hash.Blake3.hash(normalized, &actual_hash, .{});
     return std.mem.eql(u8, &actual_hash, &expected_hash);
 }

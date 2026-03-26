@@ -153,10 +153,8 @@ fn ExplicitProgramContinuationReturnType(comptime Continuation: type, comptime R
     const ContinuationFn = ExplicitProgramContinuationFnType(Continuation);
     const params = @typeInfo(ContinuationFn).@"fn".params;
     if (params.len != 1) @compileError("lexical explicit-program continuation must accept exactly one resumed value");
-    if (comptime hasDeclSafe(Continuation, "apply")) {
-        return @TypeOf(@field(Continuation, "apply")(@as(ResumeType, undefined)));
-    }
-    return @TypeOf(Continuation(@as(ResumeType, undefined)));
+    _ = ResumeType;
+    return @typeInfo(ContinuationFn).@"fn".return_type.?;
 }
 
 fn ExplicitProgramContinuationAnswerType(comptime Continuation: type, comptime ResumeType: type) type {
@@ -376,8 +374,8 @@ fn BodyFunctionType(comptime Body: type) type {
 }
 
 fn BodyReturnType(comptime Body: type, comptime EffType: type) type {
-    if (@hasDecl(Body, "body")) return @TypeOf(Body.body(@as(EffType, undefined)));
-    return @TypeOf(Body(@as(EffType, undefined)));
+    if (@hasDecl(Body, "body")) return @TypeOf(Body.body(DummyValue(EffType)));
+    return @TypeOf(Body(DummyValue(EffType)));
 }
 
 fn BodyAnswerType(comptime Body: type, comptime EffType: type) type {
@@ -437,15 +435,31 @@ fn ContinuationReturnType(
     const params = @typeInfo(ResumeFn).@"fn".params;
     if (params.len != 2) @compileError("lexical choice continuation apply must accept exactly (value, eff)");
     if (comptime hasDeclSafe(Continuation, "apply")) {
-        return @TypeOf(@field(Continuation, "apply")(
-            @as(ResumeType, undefined),
-            @as(EffType, undefined),
-        ));
+        return @TypeOf(@field(Continuation, "apply")(DummyValue(ResumeType), DummyValue(EffType)));
     }
-    return @TypeOf(Continuation(
-        @as(ResumeType, undefined),
-        @as(EffType, undefined),
-    ));
+    return @typeInfo(ResumeFn).@"fn".return_type.?;
+}
+
+fn DummyPointer(comptime PtrType: type) PtrType {
+    const pointer = @typeInfo(PtrType).pointer;
+    return switch (pointer.size) {
+        .slice => blk: {
+            const empty: [0]pointer.child = .{};
+            const slice = empty[0..];
+            if (pointer.is_const) break :blk @as(PtrType, slice);
+            break :blk @as(PtrType, @constCast(slice));
+        },
+        else => @as(PtrType, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(pointer.child)))),
+    };
+}
+
+fn DummyValue(comptime T: type) T {
+    return switch (@typeInfo(T)) {
+        .pointer => DummyPointer(T),
+        .optional => null,
+        .void => {},
+        else => DummyPointer(*T).*,
+    };
 }
 
 /// Resolve the final answer type produced by one lexical choice continuation.

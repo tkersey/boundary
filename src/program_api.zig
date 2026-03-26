@@ -180,7 +180,29 @@ fn HandlerFieldType(comptime DeclType: type) type {
         .exception => @TypeOf(@import("effect/exception.zig").use(DeclType.Payload, DeclType.Catch)),
         .resource => @TypeOf(@import("effect/resource.zig").use(DeclType.Resource, DeclType.Manager)),
         .writer => @import("effect/writer.zig").LexicalDescriptor(DeclType.Item, error{}),
-        .family => @TypeOf(DeclType.generated.use(.{ .handler = @as(DeclType.Handler, undefined) })),
+        .family => @TypeOf(DeclType.generated.use(.{ .handler = DummyValue(DeclType.Handler) })),
+    };
+}
+
+fn DummyPointer(comptime PtrType: type) PtrType {
+    const pointer = @typeInfo(PtrType).pointer;
+    return switch (pointer.size) {
+        .slice => blk: {
+            const empty: [0]pointer.child = .{};
+            const slice = empty[0..];
+            if (pointer.is_const) break :blk @as(PtrType, slice);
+            break :blk @as(PtrType, @constCast(slice));
+        },
+        else => @as(PtrType, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(pointer.child)))),
+    };
+}
+
+fn DummyValue(comptime T: type) T {
+    return switch (@typeInfo(T)) {
+        .pointer => DummyPointer(T),
+        .optional => null,
+        .void => {},
+        else => DummyPointer(*T).*,
     };
 }
 
@@ -254,7 +276,7 @@ fn buildHandlers(
     bindings: ProgramType.Bindings,
 ) HandlerBundleType(@TypeOf(ProgramType.declarations)) {
     const Bundle = HandlerBundleType(@TypeOf(ProgramType.declarations));
-    var bundle: Bundle = undefined;
+    var bundle_buffer: Bundle = undefined;
     const fields = @typeInfo(@TypeOf(ProgramType.declarations)).@"struct".fields;
 
     inline for (fields) |field| {
@@ -268,10 +290,10 @@ fn buildHandlers(
             .writer => @import("effect/writer.zig").use(DeclType.Item, runtime.allocator),
             .family => DeclType.generated.use(.{ .handler = @field(bindings, field.name) }),
         };
-        @field(bundle, field.name) = value;
+        @field(bundle_buffer, field.name) = value;
     }
 
-    return bundle;
+    return bundle_buffer;
 }
 
 fn assertDeclarations(comptime DeclarationsType: type) void {
