@@ -230,11 +230,12 @@ const front_door_workflow_match = Match{
         "const total = try eff.search.search.perform(\"artifact-search\");",
         "try eff.writer.tell(\"workflow=queued\");",
         "return try eff.approval.publish.perform(struct {",
-    },
-    .entry_required_snippets = &.{
         "const result = try shift.run(&runtime, Workflow, .{",
         "try writer.print(\"final_state={d}\\n\", .{result.outputs.state});",
         "try writer.print(\"result={s}\\n\", .{result.value});",
+    },
+    .entry_required_snippets = &.{
+        "try runWithAllocator(writer, std.heap.page_allocator);",
     },
     .feature_flags = &.{ "generated_transform", "generated_choice", "promoted_example" },
 };
@@ -363,11 +364,11 @@ const writer_example_match = Match{
         "shift.Decl.writer([]const u8)",
         "try eff.writer.tell(\"a\")",
         "try eff.writer.tell(\"b\")",
+        "const result = try shift.run(&runtime, WriterProgram, .{});",
         "value={s}",
     },
     .entry_required_snippets = &.{
-        "const result = try shift.run(&runtime, WriterProgram, .{});",
-        "try writer.print(\"value={s}\\n\", .{result.value});",
+        "try runWithAllocator(writer, std.heap.page_allocator);",
     },
     .feature_flags = &.{ "writer_effect", "lexical_effect", "source_canonical" },
 };
@@ -939,6 +940,109 @@ fn resolvedRepoSourcePathAlloc(allocator: std.mem.Allocator, source_path: []cons
     return try repo_dir.realpathAlloc(allocator, source_path);
 }
 
+fn stripLineCommentsAlloc(allocator: std.mem.Allocator, source: []const u8) std.mem.Allocator.Error![]u8 {
+    var out = std.ArrayList(u8).empty;
+    defer out.deinit(allocator);
+
+    var in_string = false;
+    var escaped = false;
+    var idx: usize = 0;
+    while (idx < source.len) : (idx += 1) {
+        const byte = source[idx];
+        if (in_string) {
+            try out.append(allocator, byte);
+            if (escaped) {
+                escaped = false;
+            } else if (byte == '\\') {
+                escaped = true;
+            } else if (byte == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if (byte == '"') {
+            in_string = true;
+            try out.append(allocator, byte);
+            continue;
+        }
+        if (byte == '/' and idx + 1 < source.len and source[idx + 1] == '/') {
+            idx += 2;
+            while (idx < source.len and source[idx] != '\n') : (idx += 1) {}
+            if (idx < source.len and source[idx] == '\n') try out.append(allocator, '\n');
+            continue;
+        }
+        try out.append(allocator, byte);
+    }
+
+    return try out.toOwnedSlice(allocator);
+}
+
+fn entryFunctionSourceSlice(tree: std.zig.Ast, source: []const u8, name: []const u8) ?[]const u8 {
+    var container_buffer: [2]std.zig.Ast.Node.Index = undefined;
+    const root = tree.fullContainerDecl(&container_buffer, .root) orelse return null;
+    for (root.ast.members) |member| {
+        var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
+        const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse continue;
+        const name_token = fn_proto.name_token orelse continue;
+        if (!std.mem.eql(u8, tree.tokenSlice(name_token), name)) continue;
+        const start = tree.tokenStart(fn_proto.firstToken());
+        const last = tree.lastToken(member);
+        const end = tree.tokenStart(last) + @as(u32, @intCast(tree.tokenSlice(last).len));
+        return source[start..end];
+    }
+    return null;
+}
+
+fn containsAllInScopes(
+    full_source: []const u8,
+    entry_source: []const u8,
+    required_snippets: []const []const u8,
+    entry_required_snippets: []const []const u8,
+) bool {
+    for (required_snippets) |snippet| {
+        if (std.mem.indexOf(u8, full_source, snippet) == null) return false;
+    }
+
+    if (entry_required_snippets.len == 0) {
+        for (required_snippets) |snippet| {
+            if (std.mem.indexOf(u8, entry_source, snippet) == null) return false;
+        }
+        return true;
+    }
+
+    for (entry_required_snippets) |snippet| {
+        if (std.mem.indexOf(u8, entry_source, snippet) == null) return false;
+    }
+    return true;
+}
+
+fn sourceMatchesDeclaredShape(
+    allocator: std.mem.Allocator,
+    case: SupportedCase,
+    source_text: []const u8,
+) !bool {
+    const source_z = try allocator.dupeZ(u8, source_text);
+    defer allocator.free(source_z);
+
+    var tree = try std.zig.Ast.parse(allocator, source_z, .zig);
+    defer tree.deinit(allocator);
+    if (tree.errors.len != 0) return false;
+
+    const stripped_source = try stripLineCommentsAlloc(allocator, source_z);
+    defer allocator.free(stripped_source);
+    const entry_source = entryFunctionSourceSlice(tree, source_z, case.entry_symbol) orelse return false;
+    const stripped_entry_source = try stripLineCommentsAlloc(allocator, entry_source);
+    defer allocator.free(stripped_entry_source);
+
+    return containsAllInScopes(
+        stripped_source,
+        stripped_entry_source,
+        case.match.required_snippets,
+        case.match.entry_required_snippets,
+    );
+}
+
 fn generatedProgramFromLowered(
     allocator: std.mem.Allocator,
     spec: Spec,
@@ -1077,6 +1181,9 @@ fn inspectSourceText(
             .expected_status = spec.expected_status,
         },
     );
+    if (lowered.status != .rejected and !(try sourceMatchesDeclaredShape(allocator, case, source_text))) {
+        return generatedRejectedProgram(allocator, spec, case, "source does not match the currently supported restricted source-lowering shape");
+    }
     return generatedProgramFromLowered(allocator, spec, case, lowered);
 }
 
@@ -1102,6 +1209,9 @@ fn inspectFileBackedSourceText(
         .source_text = source_text,
         .expected_status = spec.expected_status,
     });
+    if (lowered.status != .rejected and !(try sourceMatchesDeclaredShape(allocator, case, source_text))) {
+        return generatedRejectedProgram(allocator, spec, case, "source does not match the currently supported restricted source-lowering shape");
+    }
     return generatedProgramFromLowered(allocator, spec, case, lowered);
 }
 
@@ -1119,15 +1229,11 @@ pub fn inspectSource(allocator: std.mem.Allocator, spec: Spec) LowerError!Genera
     }
     const resolved_source_path = resolvedRepoSourcePathAlloc(allocator, spec.source_path) catch try allocator.dupe(u8, spec.source_path);
     defer allocator.free(resolved_source_path);
-
-    const lowered = try authoring_lowerer.lowerSourceFile(
-        allocator,
-        loweringCase(spec, case),
-        spec.source_path,
-        resolved_source_path,
-        spec.expected_status,
-    );
-    return generatedProgramFromLowered(allocator, spec, case, lowered);
+    const source = std.fs.cwd().readFileAlloc(allocator, resolved_source_path, 1 << 20) catch {
+        return generatedRejectedProgram(allocator, spec, case, "source file could not be read");
+    };
+    defer allocator.free(source);
+    return inspectFileBackedSourceText(allocator, spec, case, resolved_source_path, source);
 }
 
 /// Inspect and lower one inline source body against a supported source-lowering case.

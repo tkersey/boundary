@@ -25,6 +25,7 @@ test "public root exposes only the current front door" {
     try std.testing.expect(@hasDecl(shift, "ErrorWitnessV1"));
     try std.testing.expect(@hasDecl(shift, "Decision"));
     try std.testing.expect(@hasDecl(shift, "Decl"));
+    try std.testing.expect(@hasDecl(shift, "Op"));
     try std.testing.expect(@hasDecl(shift, "Ops"));
     try std.testing.expect(@hasDecl(shift, "Program"));
     try std.testing.expect(@hasDecl(shift, "run"));
@@ -56,10 +57,19 @@ test "front-door declaration and op shells stay compact" {
     const Transform = shift.Ops.Transform("search", []const u8, i32);
     const Choice = shift.Ops.Choice("publish", void, []const u8);
     const Abort = shift.Ops.Abort("fail", []const u8);
+    const LegacyTransform = shift.Op.transform("search", []const u8, i32);
+    const LegacyChoice = shift.Op.choice("publish", void, []const u8);
+    const LegacyAbort = shift.Op.abort("fail", []const u8);
 
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(Transform));
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(Choice));
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(Abort));
+    try std.testing.expectEqual(@as(usize, 0), @sizeOf(LegacyTransform));
+    try std.testing.expectEqual(@as(usize, 0), @sizeOf(LegacyChoice));
+    try std.testing.expectEqual(@as(usize, 0), @sizeOf(LegacyAbort));
+    try std.testing.expect(LegacyTransform == Transform);
+    try std.testing.expect(LegacyChoice == Choice);
+    try std.testing.expect(LegacyAbort == Abort);
 
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(@TypeOf(shift.Decl.state(i32))));
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(@TypeOf(shift.Decl.reader(i32))));
@@ -116,6 +126,7 @@ test "family declarations stay compact and hide implementation context" {
     const CounterType = @TypeOf(Counter);
 
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(CounterType));
+    try std.testing.expect(@hasDecl(CounterType, "Generated"));
     try std.testing.expect(@hasDecl(CounterType, "generated"));
     try std.testing.expect(@hasDecl(CounterType, "Handler"));
     try std.testing.expect(!@hasDecl(CounterType, "Context"));
@@ -139,6 +150,8 @@ test "front-door program preserves custom body errors" {
     const CallType = @TypeOf(shift.run(&runtime, StateProgram, .{ .state = 1 }));
     const ErrorSet = @typeInfo(CallType).error_union.error_set;
 
+    try std.testing.expect(@hasDecl(StateProgram, "InternalManifest"));
+    try std.testing.expect(@hasDecl(StateProgram, "internal_manifest"));
     try std.testing.expect(hasErrorName(ErrorSet, "BodyOops"));
     try std.testing.expectError(error.BodyOops, shift.run(&runtime, StateProgram, .{ .state = 1 }));
 }
@@ -188,6 +201,46 @@ test "front-door custom family infers handler errors" {
     try std.testing.expectError(error.HandlerOops, shift.run(&runtime, CounterProgram, .{
         .counter = CounterHandler{},
     }));
+}
+
+test "front-door custom family infers errors from parameter-derived handler returns" {
+    const CounterHandler = struct {
+        state: i32 = 7,
+
+        /// Return the current counter state through a parameter-derived type.
+        pub fn get(self: *@This()) @TypeOf(self.state) {
+            return self.state;
+        }
+
+        /// Preserve the resumed answer through a parameter-derived type.
+        pub fn afterGet(_: *@This(), answer: i32) @TypeOf(answer) {
+            return answer;
+        }
+    };
+
+    const Counter = shift.Decl.family(.{
+        .state_type = i32,
+        .ops = .{
+            shift.Ops.Transform("get", void, i32),
+        },
+    }, CounterHandler);
+
+    const CounterProgram = shift.Program(.{
+        .counter = Counter,
+    }, struct {
+        /// Execute this public body hook.
+        pub fn body(eff: anytype) anyerror!i32 {
+            return try eff.counter.get.perform();
+        }
+    });
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.run(&runtime, CounterProgram, .{
+        .counter = CounterHandler{},
+    });
+    try std.testing.expectEqual(@as(i32, 7), result.value);
 }
 
 test "front-door optional declarations infer continuation errors" {

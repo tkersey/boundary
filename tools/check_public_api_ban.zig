@@ -6,6 +6,7 @@ const allowed_exports = &[_][]const u8{
     "ErrorWitnessV1",
     "Decision",
     "Decl",
+    "Op",
     "Ops",
     "Program",
     "run",

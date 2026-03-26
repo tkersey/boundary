@@ -14,6 +14,9 @@ The public authored-body surface remains:
 - `shift.run(&runtime, Program, bindings)`
 - `shift.Decl.*`, `shift.Ops.*`, and `shift.Decision(...)`
 
+Legacy `shift.Op.*` aliases remain available for existing callers, but the
+documented authored-body lane is the `shift.Ops.*` surface above.
+
 The source-lowering toolchain exists only as internal proof scaffolding beneath
 that public boundary. Its current implementation now compares covered rows
 against the canonical repo-owned structural shape rather than exact source-text

@@ -106,6 +106,8 @@ fn FamilyDeclType(comptime spec: anytype, comptime HandlerType: type) type {
         pub const kind = DeclarationKind.family;
         /// Public `generated` declaration.
         pub const generated = generated_family;
+        /// Legacy `Generated` alias preserved for metaprogramming compatibility.
+        pub const Generated = generated;
         /// Public `Handler` declaration.
         pub const Handler = HandlerType;
     };
@@ -323,6 +325,8 @@ pub fn Program(comptime declaration_values: anytype, comptime BodyType: type) ty
         pub const Bindings = BindingsType(DeclarationsType);
         /// Public `internal_manifest` declaration.
         pub const internal_manifest = manifest_api.Build(DeclarationKind, declaration_values, hasBinding, hasOutput);
+        /// Legacy `InternalManifest` alias preserved for metaprogramming compatibility.
+        pub const InternalManifest = internal_manifest;
         /// Public `declarations` declaration.
         pub const declarations = declaration_values;
 

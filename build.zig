@@ -1483,6 +1483,9 @@ pub fn build(b: *std.Build) void {
                 b.path(".zig-cache"),
                 b.path(".zig-global-cache"),
                 b.path("src/error_witness.zig"),
+                b.path("src/op_compat.zig"),
+                b.path("src/program_api_compat.zig"),
+                b.path("src/program_api.zig"),
             },
         });
         inline for (@typeInfo(zlinter.BuiltinLintRule).@"enum".fields) |field| {

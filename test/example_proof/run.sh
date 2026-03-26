@@ -20,6 +20,7 @@ early_exit.zig|primary|run-early-exit|early_exit.txt
 exception_basic.zig|primary|run-exception-basic|exception_basic.txt
 define_basic.zig|primary|run-define-basic|define_basic.txt
 define_choice_basic.zig|primary|run-define-choice-basic|define_choice_basic.txt
+front_door_workflow.zig|primary|run-front-door-workflow|front_door_workflow.txt
 generator.zig|extra|run-generator|generator.txt
 nested_workflow.zig|primary|run-nested-workflow|nested_workflow.txt
 optional_basic.zig|primary|run-optional-basic|optional_basic.txt

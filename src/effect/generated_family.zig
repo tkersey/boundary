@@ -113,8 +113,7 @@ fn continuationHasApply(comptime Continuation: anytype) bool {
     return family.hasDeclSafe(ContinuationCarrierType(Continuation), "apply");
 }
 
-fn fnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
-    const ReturnType = @typeInfo(FnType).@"fn".return_type.?;
+fn returnTypeMatches(comptime ReturnType: type, comptime ExpectedType: type) bool {
     return switch (@typeInfo(ReturnType)) {
         .error_union => |err_union| err_union.payload == ExpectedType,
         else => ReturnType == ExpectedType,
@@ -320,11 +319,11 @@ fn assertTransformHandlerBundle(comptime HandlerType: type, comptime StateType: 
 
     const ResumeFn = @TypeOf(@field(HandlerType, opName(Op)));
     if (comptime OpPayloadType(Op) == void) {
-        if (!fnParamsMatch(ResumeFn, &.{*HandlerType}) or !fnReturnMatches(ResumeFn, OpResumeType(Op))) {
+        if (!fnParamsMatch(ResumeFn, &.{*HandlerType}) or !returnTypeMatches(HandlerReturnType(HandlerType, Op), OpResumeType(Op))) {
             @compileError("generated transform handler op method must have type fn (*Handler) Resume or fn (*Handler) ResetError(ErrorSet)!Resume");
         }
     } else {
-        if (!fnParamsMatch(ResumeFn, &.{ *HandlerType, OpPayloadType(Op) }) or !fnReturnMatches(ResumeFn, OpResumeType(Op))) {
+        if (!fnParamsMatch(ResumeFn, &.{ *HandlerType, OpPayloadType(Op) }) or !returnTypeMatches(HandlerReturnType(HandlerType, Op), OpResumeType(Op))) {
             @compileError("generated transform handler op method must have type fn (*Handler, Payload) Resume or fn (*Handler, Payload) ResetError(ErrorSet)!Resume");
         }
     }
@@ -332,7 +331,7 @@ fn assertTransformHandlerBundle(comptime HandlerType: type, comptime StateType: 
     const after_name = comptime afterMethodName(opName(Op));
     if (!@hasDecl(HandlerType, after_name)) @compileError("generated transform handler is missing after_<op> method");
     const AfterFn = @TypeOf(@field(HandlerType, after_name));
-    if (!fnParamsMatch(AfterFn, &.{ *HandlerType, AnswerType }) or !fnReturnMatches(AfterFn, AnswerType)) {
+    if (!fnParamsMatch(AfterFn, &.{ *HandlerType, AnswerType }) or !returnTypeMatches(AfterHandlerReturnType(HandlerType, Op), AnswerType)) {
         @compileError("generated transform handler after_<op> must have type fn (*Handler, Answer) Answer or fn (*Handler, Answer) ResetError(ErrorSet)!Answer");
     }
 }
@@ -343,11 +342,11 @@ fn assertChoiceHandlerBundle(comptime HandlerType: type, comptime AnswerType: ty
     const DecisionType = choice.Decision(OpResumeType(Op), AnswerType);
     const ResumeFn = @TypeOf(@field(HandlerType, opName(Op)));
     if (comptime OpPayloadType(Op) == void) {
-        if (!fnParamsMatch(ResumeFn, &.{*HandlerType}) or !fnReturnMatches(ResumeFn, DecisionType)) {
+        if (!fnParamsMatch(ResumeFn, &.{*HandlerType}) or !returnTypeMatches(HandlerReturnType(HandlerType, Op), DecisionType)) {
             @compileError("generated choice handler op method must have type fn (*Handler) effect.choice.Decision or fn (*Handler) ResetError(ErrorSet)!effect.choice.Decision");
         }
     } else {
-        if (!fnParamsMatch(ResumeFn, &.{ *HandlerType, OpPayloadType(Op) }) or !fnReturnMatches(ResumeFn, DecisionType)) {
+        if (!fnParamsMatch(ResumeFn, &.{ *HandlerType, OpPayloadType(Op) }) or !returnTypeMatches(HandlerReturnType(HandlerType, Op), DecisionType)) {
             @compileError("generated choice handler op method must have type fn (*Handler, Payload) effect.choice.Decision or fn (*Handler, Payload) ResetError(ErrorSet)!effect.choice.Decision");
         }
     }
@@ -355,7 +354,7 @@ fn assertChoiceHandlerBundle(comptime HandlerType: type, comptime AnswerType: ty
     const after_name = comptime afterMethodName(opName(Op));
     if (!@hasDecl(HandlerType, after_name)) @compileError("generated choice handler is missing after_<op> method");
     const AfterFn = @TypeOf(@field(HandlerType, after_name));
-    if (!fnParamsMatch(AfterFn, &.{ *HandlerType, AnswerType }) or !fnReturnMatches(AfterFn, AnswerType)) {
+    if (!fnParamsMatch(AfterFn, &.{ *HandlerType, AnswerType }) or !returnTypeMatches(AfterHandlerReturnType(HandlerType, Op), AnswerType)) {
         @compileError("generated choice handler after_<op> must have type fn (*Handler, Answer) Answer or fn (*Handler, Answer) ResetError(ErrorSet)!Answer");
     }
 }
@@ -365,11 +364,11 @@ fn assertAbortHandlerBundle(comptime HandlerType: type, comptime AnswerType: typ
     if (!@hasDecl(HandlerType, opName(Op))) @compileError("generated abort handler is missing op method");
     const DirectFn = @TypeOf(@field(HandlerType, opName(Op)));
     if (comptime OpPayloadType(Op) == void) {
-        if (!fnParamsMatch(DirectFn, &.{*HandlerType}) or !fnReturnMatches(DirectFn, AnswerType)) {
+        if (!fnParamsMatch(DirectFn, &.{*HandlerType}) or !returnTypeMatches(HandlerReturnType(HandlerType, Op), AnswerType)) {
             @compileError("generated abort handler op method must have type fn (*Handler) Answer or fn (*Handler) ResetError(ErrorSet)!Answer");
         }
     } else {
-        if (!fnParamsMatch(DirectFn, &.{ *HandlerType, OpPayloadType(Op) }) or !fnReturnMatches(DirectFn, AnswerType)) {
+        if (!fnParamsMatch(DirectFn, &.{ *HandlerType, OpPayloadType(Op) }) or !returnTypeMatches(HandlerReturnType(HandlerType, Op), AnswerType)) {
             @compileError("generated abort handler op method must have type fn (*Handler, Payload) Answer or fn (*Handler, Payload) ResetError(ErrorSet)!Answer");
         }
     }
@@ -385,6 +384,26 @@ fn assertHandlerBundle(comptime mode: prompt_contract.PromptMode, comptime State
     }
 }
 
+fn HandlerReturnType(comptime HandlerType: type, comptime Op: type) type {
+    const handler_method = @field(HandlerType, opName(Op));
+    return if (comptime OpPayloadType(Op) == void)
+        @TypeOf(handler_method(dummyPointer(*HandlerType)))
+    else
+        @TypeOf(handler_method(dummyPointer(*HandlerType), dummyValue(OpPayloadType(Op))));
+}
+
+fn AfterHandlerAnswerType(comptime HandlerType: type, comptime Op: type) type {
+    const AfterFn = @TypeOf(@field(HandlerType, afterMethodName(opName(Op))));
+    return @typeInfo(AfterFn).@"fn".params[1].type.?;
+}
+
+fn AfterHandlerReturnType(comptime HandlerType: type, comptime Op: type) type {
+    return @TypeOf(@field(HandlerType, afterMethodName(opName(Op)))(
+        dummyPointer(*HandlerType),
+        dummyValue(AfterHandlerAnswerType(HandlerType, Op)),
+    ));
+}
+
 fn InferHandlerErrorSet(
     comptime mode: prompt_contract.PromptMode,
     comptime op_specs: anytype,
@@ -392,24 +411,23 @@ fn InferHandlerErrorSet(
 ) type {
     var ErrorSet = error{};
     inline for (op_specs) |Op| {
-        const handler_method = @field(HandlerType, opName(Op));
         switch (mode) {
             .resume_then_transform => {
-                const ResumeReturnType = @typeInfo(@TypeOf(handler_method)).@"fn".return_type.?;
-                const AfterReturnType = @typeInfo(@TypeOf(@field(HandlerType, afterMethodName(opName(Op))))).@"fn".return_type.?;
+                const ResumeReturnType = HandlerReturnType(HandlerType, Op);
+                const AfterReturnType = AfterHandlerReturnType(HandlerType, Op);
                 ErrorSet = ErrorSet ||
                     ReturnTypeErrorSet(ResumeReturnType) ||
                     ReturnTypeErrorSet(AfterReturnType);
             },
             .resume_or_return => {
-                const DecideReturnType = @typeInfo(@TypeOf(handler_method)).@"fn".return_type.?;
-                const AfterReturnType = @typeInfo(@TypeOf(@field(HandlerType, afterMethodName(opName(Op))))).@"fn".return_type.?;
+                const DecideReturnType = HandlerReturnType(HandlerType, Op);
+                const AfterReturnType = AfterHandlerReturnType(HandlerType, Op);
                 ErrorSet = ErrorSet ||
                     ReturnTypeErrorSet(DecideReturnType) ||
                     ReturnTypeErrorSet(AfterReturnType);
             },
             .direct_return => {
-                const DirectReturnType = @typeInfo(@TypeOf(handler_method)).@"fn".return_type.?;
+                const DirectReturnType = HandlerReturnType(HandlerType, Op);
                 ErrorSet = ErrorSet || ReturnTypeErrorSet(DirectReturnType);
             },
         }
@@ -424,14 +442,13 @@ fn InferHandlerOperationErrorSet(
 ) type {
     var ErrorSet = error{};
     inline for (op_specs) |Op| {
-        const handler_method = @field(HandlerType, opName(Op));
         const OperationReturnType = switch (mode) {
-            .resume_then_transform, .resume_or_return, .direct_return => @typeInfo(@TypeOf(handler_method)).@"fn".return_type.?,
+            .resume_then_transform, .resume_or_return, .direct_return => HandlerReturnType(HandlerType, Op),
         };
         ErrorSet = ErrorSet || ReturnTypeErrorSet(OperationReturnType);
         switch (mode) {
             .resume_then_transform, .resume_or_return => {
-                const AfterReturnType = @typeInfo(@TypeOf(@field(HandlerType, afterMethodName(opName(Op))))).@"fn".return_type.?;
+                const AfterReturnType = AfterHandlerReturnType(HandlerType, Op);
                 ErrorSet = ErrorSet || ReturnTypeErrorSet(AfterReturnType);
             },
             .direct_return => {},
@@ -664,52 +681,52 @@ pub fn Build(comptime spec: anytype) type {
                 .resume_then_transform => struct {
                     /// Produce one resumptive value from the generated handler bundle.
                     pub fn resumeValue(self: HandlerPtrType, payload: OpPayloadType(op_type)) lowered_machine.ResetError(RunErrorSetType)!OpResumeType(op_type) {
-                        const ResumeFn = @TypeOf(@field(HandlerType, opName(op_type)));
+                        const ResumeReturnType = HandlerReturnType(HandlerType, op_type);
                         if (comptime OpPayloadType(op_type) == void) {
-                            if (ResumeFn == fn (HandlerPtrType) OpResumeType(op_type)) return @field(HandlerType, opName(op_type))(self);
+                            if (comptime ReturnTypeErrorSet(ResumeReturnType) == error{}) return @field(HandlerType, opName(op_type))(self);
                             return try @field(HandlerType, opName(op_type))(self);
                         }
-                        if (ResumeFn == fn (HandlerPtrType, OpPayloadType(op_type)) OpResumeType(op_type)) return @field(HandlerType, opName(op_type))(self, payload);
+                        if (comptime ReturnTypeErrorSet(ResumeReturnType) == error{}) return @field(HandlerType, opName(op_type))(self, payload);
                         return try @field(HandlerType, opName(op_type))(self, payload);
                     }
 
                     /// Convert one resumed answer into the enclosing generated answer.
                     pub fn afterResume(self: HandlerPtrType, answer: AnswerType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
                         const after_name = comptime afterMethodName(opName(op_type));
-                        const AfterFn = @TypeOf(@field(HandlerType, after_name));
-                        if (AfterFn == fn (HandlerPtrType, AnswerType) AnswerType) return @field(HandlerType, after_name)(self, answer);
+                        const AfterReturnType = AfterHandlerReturnType(HandlerType, op_type);
+                        if (comptime ReturnTypeErrorSet(AfterReturnType) == error{}) return @field(HandlerType, after_name)(self, answer);
                         return try @field(HandlerType, after_name)(self, answer);
                     }
                 },
                 .resume_or_return => struct {
                     /// Decide whether one generated choice op resumes or returns now.
                     pub fn resumeOrReturn(self: HandlerPtrType, payload: OpPayloadType(op_type)) lowered_machine.ResetError(RunErrorSetType)!choice.Decision(OpResumeType(op_type), AnswerType) {
-                        const ResumeFn = @TypeOf(@field(HandlerType, opName(op_type)));
+                        const ResumeReturnType = HandlerReturnType(HandlerType, op_type);
                         if (comptime OpPayloadType(op_type) == void) {
-                            if (ResumeFn == fn (HandlerPtrType) choice.Decision(OpResumeType(op_type), AnswerType)) return @field(HandlerType, opName(op_type))(self);
+                            if (comptime ReturnTypeErrorSet(ResumeReturnType) == error{}) return @field(HandlerType, opName(op_type))(self);
                             return try @field(HandlerType, opName(op_type))(self);
                         }
-                        if (ResumeFn == fn (HandlerPtrType, OpPayloadType(op_type)) choice.Decision(OpResumeType(op_type), AnswerType)) return @field(HandlerType, opName(op_type))(self, payload);
+                        if (comptime ReturnTypeErrorSet(ResumeReturnType) == error{}) return @field(HandlerType, opName(op_type))(self, payload);
                         return try @field(HandlerType, opName(op_type))(self, payload);
                     }
 
                     /// Convert one resumed choice answer into the enclosing generated answer.
                     pub fn afterResume(self: HandlerPtrType, answer: AnswerType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
                         const after_name = comptime afterMethodName(opName(op_type));
-                        const AfterFn = @TypeOf(@field(HandlerType, after_name));
-                        if (AfterFn == fn (HandlerPtrType, AnswerType) AnswerType) return @field(HandlerType, after_name)(self, answer);
+                        const AfterReturnType = AfterHandlerReturnType(HandlerType, op_type);
+                        if (comptime ReturnTypeErrorSet(AfterReturnType) == error{}) return @field(HandlerType, after_name)(self, answer);
                         return try @field(HandlerType, after_name)(self, answer);
                     }
                 },
                 .direct_return => struct {
                     /// Convert one generated abort payload into the enclosing answer.
                     pub fn directReturn(self: HandlerPtrType, payload: OpPayloadType(op_type)) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-                        const DirectFn = @TypeOf(@field(HandlerType, opName(op_type)));
+                        const DirectReturnType = HandlerReturnType(HandlerType, op_type);
                         if (comptime OpPayloadType(op_type) == void) {
-                            if (DirectFn == fn (HandlerPtrType) AnswerType) return @field(HandlerType, opName(op_type))(self);
+                            if (comptime ReturnTypeErrorSet(DirectReturnType) == error{}) return @field(HandlerType, opName(op_type))(self);
                             return try @field(HandlerType, opName(op_type))(self);
                         }
-                        if (DirectFn == fn (HandlerPtrType, OpPayloadType(op_type)) AnswerType) return @field(HandlerType, opName(op_type))(self, payload);
+                        if (comptime ReturnTypeErrorSet(DirectReturnType) == error{}) return @field(HandlerType, opName(op_type))(self, payload);
                         return try @field(HandlerType, opName(op_type))(self, payload);
                     }
                 },

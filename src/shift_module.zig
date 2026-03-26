@@ -4,6 +4,8 @@ const root = @import("root.zig");
 pub const Decision = root.Decision;
 /// Unified declaration namespace.
 pub const Decl = root.Decl;
+/// Legacy unified op descriptor namespace.
+pub const Op = root.Op;
 /// Unified op descriptor namespace.
 pub const Ops = root.Ops;
 /// Root-first authored program surface.

@@ -21,7 +21,7 @@ grep -q '`shift.Decl.state`' "$readme"
 grep -q '`shift.Decl.family(.{ ... })`' "$readme"
 grep -q '`shift.Ops.Transform` / `shift.Ops.Choice` / `shift.Ops.Abort`' "$readme"
 grep -q '`shift.Decision(...)`' "$readme"
-grep -q 'The legacy compatibility window is now closed.' "$readme"
+grep -q '`shift.Op.transform` / `shift.Op.choice` / `shift.Op.abort`' "$readme"
 grep -q 'one root-front-door authoring story' "$readme"
 
 ! grep -q '`Program.Manifest`' "$readme"
