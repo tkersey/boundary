@@ -1,5 +1,5 @@
-const source_lowering = @import("source_lowering");
 const parity_scenarios = @import("parity_scenarios");
+const source_lowering = @import("source_lowering");
 const std = @import("std");
 
 const example_early_exit = @import("promoted_example_early_exit");

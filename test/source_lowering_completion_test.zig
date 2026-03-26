@@ -1,5 +1,5 @@
-const source_lowering = @import("source_lowering");
 const parity_scenarios = @import("parity_scenarios");
+const source_lowering = @import("source_lowering");
 const std = @import("std");
 
 const example_algebraic_abortive_validation = @import("example_algebraic_abortive_validation");

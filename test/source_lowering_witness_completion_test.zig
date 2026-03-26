@@ -1,5 +1,5 @@
-const source_lowering = @import("source_lowering");
 const parity_scenarios = @import("parity_scenarios");
+const source_lowering = @import("source_lowering");
 const std = @import("std");
 const witness_sources = @import("witness_sources");
 

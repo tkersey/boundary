@@ -13,9 +13,9 @@ const ReportSpec = struct {
 };
 
 const WitnessStatus = enum {
+    not_applicable,
     supported,
     unsupported,
-    not_applicable,
 };
 
 const ProofSpec = struct {

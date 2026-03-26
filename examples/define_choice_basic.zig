@@ -12,7 +12,7 @@ const transcript = struct {
 };
 
 const PickerHandler = struct {
-    branch: enum { return_now, resume_with },
+    branch: enum { resume_with, return_now },
 
     /// Choose the configured generated lexical choice branch.
     pub fn pick(self: *@This(), payload: i32) !shift.Decision(i32, []const u8) {

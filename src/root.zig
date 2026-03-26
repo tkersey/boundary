@@ -1,5 +1,5 @@
-const lowered_machine = @import("lowered_machine");
 const error_witness = @import("error_witness");
+const lowered_machine = @import("lowered_machine");
 const program_api = @import("program_api.zig");
 
 /// Canonical lowered-first runtime handle.

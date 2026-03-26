@@ -1,5 +1,5 @@
-const source_lowering_registry = @import("source_lowering_registry");
 const source_lowering = @import("source_lowering");
+const source_lowering_registry = @import("source_lowering_registry");
 const std = @import("std");
 
 test "source-lowering registry keeps the exact wave-one case count" {

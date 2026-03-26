@@ -1,6 +1,6 @@
 const decision_api = @import("decision_api.zig");
-const lowered_machine = @import("lowered_machine");
 const family_builder = @import("internal/family_builder.zig");
+const lowered_machine = @import("lowered_machine");
 const manifest_api = @import("internal/program_manifest.zig");
 const op_api = @import("op_api.zig");
 const program_runtime = @import("internal/program_runtime.zig");
@@ -8,13 +8,13 @@ const std = @import("std");
 
 /// Public declaration kind enum.
 pub const DeclarationKind = enum {
-    state,
-    reader,
-    optional,
     exception,
-    resource,
-    writer,
     family,
+    optional,
+    reader,
+    resource,
+    state,
+    writer,
 };
 
 /// Public declaration metadata shape.

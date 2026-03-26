@@ -2,10 +2,10 @@ const std = @import("std");
 
 /// Public witness surface enum.
 pub const Surface = enum {
-    ordinary,
-    lexical,
     algebraic,
     generated_family,
+    lexical,
+    ordinary,
 };
 
 /// Public witness support-status enum.
@@ -16,24 +16,24 @@ pub const SupportStatus = enum {
 
 /// Public runtime error tag enum.
 pub const RuntimeErrorTag = enum {
-    missing_prompt,
     cross_thread,
+    frontend_suspend,
+    missing_prompt,
+    non_diagonal_complete,
+    program_contract_violation,
     runtime_busy,
     runtime_destroyed,
-    non_diagonal_complete,
-    frontend_suspend,
-    program_contract_violation,
 };
 
 /// Public contributor-kind enum.
 pub const ContributorKind = enum {
     body,
+    cleanup,
     continuation,
     descriptor,
     handler,
-    policy,
     manager,
-    cleanup,
+    policy,
 };
 
 /// Public contributor record.

@@ -1,5 +1,5 @@
-const source_lowering_registry = @import("source_lowering_registry");
 const source_lowering = @import("source_lowering");
+const source_lowering_registry = @import("source_lowering_registry");
 const parity_scenarios = @import("parity_scenarios");
 const std = @import("std");
 
