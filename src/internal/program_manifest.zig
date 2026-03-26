@@ -8,7 +8,7 @@ pub const DeclarationMeta = struct {
     op_count: usize,
 };
 
-pub fn build(
+pub fn Build(
     comptime DeclarationKind: type,
     comptime declarations: anytype,
     comptime hasBinding: fn (type) bool,
@@ -53,6 +53,6 @@ pub fn build(
     };
 }
 
-pub fn of(comptime ProgramType: type) type {
+pub fn Of(comptime ProgramType: type) type {
     return ProgramType.internal_manifest;
 }

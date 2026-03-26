@@ -58,7 +58,7 @@ fn expectDeclTypeOneOf(comptime Owner: type, comptime name: []const u8, comptime
     }
 }
 
-fn FnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
+fn fnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
     const ReturnType = @typeInfo(FnType).@"fn".return_type.?;
     return switch (@typeInfo(ReturnType)) {
         .error_union => |err_union| err_union.payload == ExpectedType,
@@ -66,10 +66,10 @@ fn FnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
     };
 }
 
-fn FnParamsMatch(comptime FnType: type, comptime params: []const type) bool {
+fn fnParamsMatch(comptime FnType: type, comptime ParamTypes: []const type) bool {
     const actual = @typeInfo(FnType).@"fn".params;
-    if (actual.len != params.len) return false;
-    inline for (params, 0..) |ParamType, index| {
+    if (actual.len != ParamTypes.len) return false;
+    inline for (ParamTypes, 0..) |ParamType, index| {
         if (actual[index].type == null or actual[index].type.? != ParamType) return false;
     }
     return true;
@@ -83,27 +83,27 @@ fn assertHandlerProtocol(comptime Resume: type, comptime PromptType: type, compt
     switch (PromptType.mode) {
         .resume_or_return => {
             if (!hasDeclSafe(Handler, "resumeOrReturn")) @compileError(@typeName(Handler) ++ " must declare resumeOrReturn");
-            if (!FnParamsMatch(@TypeOf(Handler.resumeOrReturn), &.{}) or !FnReturnMatches(@TypeOf(Handler.resumeOrReturn), ResumeOrReturnType(Resume, PromptType))) {
+            if (!fnParamsMatch(@TypeOf(Handler.resumeOrReturn), &.{}) or !fnReturnMatches(@TypeOf(Handler.resumeOrReturn), ResumeOrReturnType(Resume, PromptType))) {
                 @compileError(@typeName(Handler) ++ ".resumeOrReturn must have type fn () ResumeOrReturn or fn () ResetError(ErrorSet)!ResumeOrReturn");
             }
             if (!hasDeclSafe(Handler, "afterResume")) @compileError(@typeName(Handler) ++ " must declare afterResume");
-            if (!FnParamsMatch(@TypeOf(Handler.afterResume), &.{PromptType.InAnswer}) or !FnReturnMatches(@TypeOf(Handler.afterResume), PromptType.OutAnswer)) {
+            if (!fnParamsMatch(@TypeOf(Handler.afterResume), &.{PromptType.InAnswer}) or !fnReturnMatches(@TypeOf(Handler.afterResume), PromptType.OutAnswer)) {
                 @compileError(@typeName(Handler) ++ ".afterResume must have type fn (InAnswer) OutAnswer or fn (InAnswer) ResetError(ErrorSet)!OutAnswer");
             }
         },
         .resume_then_transform => {
             if (!hasDeclSafe(Handler, "resumeValue")) @compileError(@typeName(Handler) ++ " must declare resumeValue");
-            if (!FnParamsMatch(@TypeOf(Handler.resumeValue), &.{}) or !FnReturnMatches(@TypeOf(Handler.resumeValue), Resume)) {
+            if (!fnParamsMatch(@TypeOf(Handler.resumeValue), &.{}) or !fnReturnMatches(@TypeOf(Handler.resumeValue), Resume)) {
                 @compileError(@typeName(Handler) ++ ".resumeValue must have type fn () Resume or fn () ResetError(ErrorSet)!Resume");
             }
             if (!hasDeclSafe(Handler, "afterResume")) @compileError(@typeName(Handler) ++ " must declare afterResume");
-            if (!FnParamsMatch(@TypeOf(Handler.afterResume), &.{PromptType.InAnswer}) or !FnReturnMatches(@TypeOf(Handler.afterResume), PromptType.OutAnswer)) {
+            if (!fnParamsMatch(@TypeOf(Handler.afterResume), &.{PromptType.InAnswer}) or !fnReturnMatches(@TypeOf(Handler.afterResume), PromptType.OutAnswer)) {
                 @compileError(@typeName(Handler) ++ ".afterResume must have type fn (InAnswer) OutAnswer or fn (InAnswer) ResetError(ErrorSet)!OutAnswer");
             }
         },
         .direct_return => {
             if (!hasDeclSafe(Handler, "directReturn")) @compileError(@typeName(Handler) ++ " must declare directReturn");
-            if (!FnParamsMatch(@TypeOf(Handler.directReturn), &.{}) or !FnReturnMatches(@TypeOf(Handler.directReturn), PromptType.OutAnswer)) {
+            if (!fnParamsMatch(@TypeOf(Handler.directReturn), &.{}) or !fnReturnMatches(@TypeOf(Handler.directReturn), PromptType.OutAnswer)) {
                 @compileError(@typeName(Handler) ++ ".directReturn must have type fn () OutAnswer or fn () ResetError(ErrorSet)!OutAnswer");
             }
         },
@@ -146,7 +146,7 @@ fn assertContinuationType(
     if (!hasDeclSafe(Continuation, "apply")) {
         @compileError(@typeName(Continuation) ++ " must declare apply");
     }
-    if (!FnParamsMatch(@TypeOf(Continuation.apply), &.{Input}) or !FnReturnMatches(@TypeOf(Continuation.apply), PromptType.InAnswer)) {
+    if (!fnParamsMatch(@TypeOf(Continuation.apply), &.{Input}) or !fnReturnMatches(@TypeOf(Continuation.apply), PromptType.InAnswer)) {
         @compileError(@typeName(Continuation) ++ ".apply must have type fn (Input) InAnswer or fn (Input) ResetError(ErrorSet)!InAnswer");
     }
 }
