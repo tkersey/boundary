@@ -2,7 +2,7 @@ const program_api = @import("program_api.zig");
 
 /// Public `Op` declaration.
 pub const Op = enum(u8) {
-    _,
+    reserved,
 
     /// Public `Transform` declaration.
     pub const Transform = program_api.ops.Transform;

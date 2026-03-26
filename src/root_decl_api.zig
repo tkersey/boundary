@@ -2,7 +2,7 @@ const program_api = @import("program_api.zig");
 
 /// Public `Decl` declaration.
 pub const Decl = enum(u8) {
-    _,
+    reserved,
 
     /// Public `state` helper.
     pub fn state(comptime StateType: type) @TypeOf(program_api.decl.state(StateType)) {

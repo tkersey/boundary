@@ -321,8 +321,9 @@ pub fn build(b: *std.Build) void {
     });
     lowered_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
     const authoring_lowerer_options = b.addOptions();
+    const authoring_lowerer_hash_bundle = true;
     authoring_lowerer_options.addOption([]const u8, "package_root", b.pathFromRoot("."));
-    authoring_lowerer_options.addOption(bool, "authoring_lowerer_hash_bundle", true);
+    authoring_lowerer_options.addOption(bool, "authoring_lowerer_hash_bundle", authoring_lowerer_hash_bundle);
     addCanonicalSourceHashOptions(b, authoring_lowerer_options);
     const authoring_lowerer_mod = b.createModule(.{
         .root_source_file = b.path("src/internal/authoring_lowerer.zig"),

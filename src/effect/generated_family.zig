@@ -417,13 +417,15 @@ fn InferHandlerOperationErrorSet(
     inline for (op_specs) |Op| {
         const handler_method = @field(HandlerType, opName(Op));
         const operation_return_type = switch (mode) {
-            .resume_then_transform, .resume_or_return, .direct_return => if (comptime OpPayloadType(Op) == void)
-                @TypeOf(handler_method(@as(*HandlerType, undefined)))
-            else
-                @TypeOf(handler_method(
+            .resume_then_transform, .resume_or_return, .direct_return => blk: {
+                if (comptime OpPayloadType(Op) == void) {
+                    break :blk @TypeOf(handler_method(@as(*HandlerType, undefined)));
+                }
+                break :blk @TypeOf(handler_method(
                     @as(*HandlerType, undefined),
                     @as(OpPayloadType(Op), undefined),
-                )),
+                ));
+            },
         };
         ErrorSet = ErrorSet || ReturnTypeErrorSet(operation_return_type);
         switch (mode) {

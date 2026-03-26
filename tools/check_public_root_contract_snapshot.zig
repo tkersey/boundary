@@ -67,6 +67,7 @@ fn buildSnapshot(allocator: std.mem.Allocator) ![]u8 {
     }
 
     var out = std.ArrayList(u8).empty;
+    errdefer out.deinit(allocator);
     try out.appendSlice(allocator, "{\n  \"root_exports\": [\n");
     for (exports.items, 0..) |item, index| {
         try out.appendSlice(allocator, "    \"");
