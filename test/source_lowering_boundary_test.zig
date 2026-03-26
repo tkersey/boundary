@@ -102,7 +102,9 @@ test "source-lowering rejects altered fixture sources with dead-code canonical s
     ;
 
     const modified_fixture = struct {
+        /// Public `source_case_id` declaration.
         pub const source_case_id = "source.branch_resume";
+        /// Public `source` declaration.
         pub const source = modified_source;
     };
 
@@ -138,7 +140,9 @@ test "source-lowering accepts comment-only edits to canonical fixtures" {
     ;
 
     const modified_fixture = struct {
+        /// Public `source_case_id` declaration.
         pub const source_case_id = "source.branch_resume";
+        /// Public `source` declaration.
         pub const source = comment_only_source;
     };
 

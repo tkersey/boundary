@@ -173,10 +173,12 @@ fn ExplicitProgramContinuationErrorSet(comptime Continuation: type, comptime Res
 
 fn PreviewEngineContext(comptime ErrorSet: type) type {
     return struct {
+        /// Perform this public operation.
         pub fn perform(_: *@This(), comptime Op: type, _: Op.Payload) lowered_machine.ResetError(ErrorSet)!Op.Resume {
             unreachable;
         }
 
+        /// Build this public explicit program.
         pub fn performProgram(
             _: *@This(),
             comptime Op: type,
@@ -204,62 +206,91 @@ fn PreviewCapabilityType(comptime DescriptorType: type, comptime ErrorSet: type)
     const StateType = DescriptorType.State;
     const WriterItemType = PreviewWriterItemType(DescriptorType);
     return struct {
+        /// Return the engine context type for this public helper.
         pub fn EngineContextType() type {
             return PreviewEngineContext(ErrorSet);
         }
 
+        /// Return the public get operation type.
         pub fn GetOp() type {
             return struct {
+                /// Public `mode` declaration.
                 pub const mode = prompt_contract.PromptMode.resume_then_transform;
+                /// Public `Payload` declaration.
                 pub const Payload = void;
+                /// Public `Resume` declaration.
                 pub const Resume = StateType;
             };
         }
 
+        /// Return the public set operation type.
         pub fn SetOp() type {
             return struct {
+                /// Public `mode` declaration.
                 pub const mode = prompt_contract.PromptMode.resume_then_transform;
+                /// Public `Payload` declaration.
                 pub const Payload = StateType;
+                /// Public `Resume` declaration.
                 pub const Resume = void;
             };
         }
 
+        /// Return the public ask operation type.
         pub fn AskOp() type {
             return struct {
+                /// Public `mode` declaration.
                 pub const mode = prompt_contract.PromptMode.resume_then_transform;
+                /// Public `Payload` declaration.
                 pub const Payload = void;
+                /// Public `Resume` declaration.
                 pub const Resume = StateType;
             };
         }
 
+        /// Return the public tell operation type.
         pub fn TellOp() type {
             return struct {
+                /// Public `mode` declaration.
                 pub const mode = prompt_contract.PromptMode.resume_then_transform;
+                /// Public `Payload` declaration.
                 pub const Payload = WriterItemType;
+                /// Public `Resume` declaration.
                 pub const Resume = void;
             };
         }
 
+        /// Return the public throw operation type.
         pub fn ThrowOp() type {
             return struct {
+                /// Public `mode` declaration.
                 pub const mode = prompt_contract.PromptMode.direct_return;
+                /// Public `Payload` declaration.
                 pub const Payload = StateType;
+                /// Public `Resume` declaration.
                 pub const Resume = noreturn;
             };
         }
 
+        /// Return the public request operation type.
         pub fn RequestOp() type {
             return struct {
+                /// Public `mode` declaration.
                 pub const mode = prompt_contract.PromptMode.resume_or_return;
+                /// Public `Payload` declaration.
                 pub const Payload = void;
+                /// Public `Resume` declaration.
                 pub const Resume = StateType;
             };
         }
 
+        /// Return the public acquire operation type.
         pub fn AcquireOp() type {
             return struct {
+                /// Public `mode` declaration.
                 pub const mode = prompt_contract.PromptMode.resume_then_transform;
+                /// Public `Payload` declaration.
                 pub const Payload = void;
+                /// Public `Resume` declaration.
                 pub const Resume = StateType;
             };
         }
@@ -322,6 +353,7 @@ fn BodyDeclSemanticErrorSet(comptime Body: type) ?type {
     return null;
 }
 
+/// Return the public continuation effect type.
 pub fn ContinuationEffType(
     comptime HandlersType: type,
     comptime index: usize,
@@ -426,6 +458,7 @@ pub fn ChoiceAnswerType(comptime Continuation: type) type {
     };
 }
 
+/// Return the public choice answer type for one continuation.
 pub fn ChoiceAnswerTypeFor(
     comptime Continuation: type,
     comptime ResumeType: type,
@@ -446,6 +479,7 @@ fn ChoiceErrorSet(
     return ReturnTypeErrorSet(ContinuationReturnType(Continuation, ResumeType, EffType));
 }
 
+/// Return the public choice execution error set.
 pub fn ChoiceExecutionErrorSet(
     comptime BaseErrorSet: type,
     comptime Continuation: type,
@@ -663,14 +697,18 @@ fn WithSemanticErrorSet(comptime HandlersType: type, comptime Body: type) type {
     return HandlerSet || BodySet;
 }
 
+/// Build the public With metadata type.
 pub fn With(comptime HandlersType: type, comptime Body: type) type {
     const ReturnType = WithFnReturnType(HandlersType, Body);
     return struct {
+        /// Public `Result` declaration.
         pub const Result = switch (@typeInfo(ReturnType)) {
             .error_union => |err_union| err_union.payload,
             else => ReturnType,
         };
+        /// Public `SemanticErrorSet` declaration.
         pub const SemanticErrorSet = WithSemanticErrorSet(HandlersType, Body);
+        /// Public `ExecutionError` declaration.
         pub const ExecutionError = switch (@typeInfo(ReturnType)) {
             .error_union => |err_union| err_union.error_set,
             else => error{},

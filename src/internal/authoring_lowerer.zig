@@ -13,6 +13,7 @@ pub const SurfaceKind = enum {
     witness,
 };
 
+/// Public `CompareScope` declaration.
 pub const CompareScope = enum {
     file,
     entry,
@@ -149,6 +150,7 @@ fn sourcePathMatchesExpected(allocator: std.mem.Allocator, actual_path: []const 
     return std.mem.eql(u8, actual_realpath, expected_realpath);
 }
 
+/// Public `resolveRepoSourcePathAlloc` helper.
 pub fn resolveRepoSourcePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
     if (std.fs.path.isAbsolute(source_path)) {
         return try std.fs.cwd().realpathAlloc(allocator, source_path);

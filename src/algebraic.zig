@@ -91,6 +91,7 @@ pub fn Program(
                     const ConfiguredWithErrorSet = ProgramWithErrorSet(Answer, RunErrorSet, ops).handlers(self.specs);
                     if (@hasDecl(Body, "program")) {
                         const adapted_body = struct {
+                            /// Public `program` helper.
                             pub fn program(ctx: *@TypeOf(ConfiguredWithErrorSet).Context) @TypeOf(Body.program(@as(*Context, undefined))) {
                                 // The public wrapper keeps its documented Context shape while the widened runner carries a larger inferred error set.
                                 return Body.program(@as(*Context, @ptrCast(ctx)));
@@ -100,6 +101,7 @@ pub fn Program(
                     }
                     if (@hasDecl(Body, "body")) {
                         const adapted_body = struct {
+                            /// Execute this public body hook.
                             pub fn body(ctx: *@TypeOf(ConfiguredWithErrorSet).Context) @TypeOf(Body.body(@as(*Context, undefined))) {
                                 return Body.body(@as(*Context, @ptrCast(ctx)));
                             }

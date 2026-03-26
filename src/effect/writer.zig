@@ -161,6 +161,7 @@ pub fn handle(
     };
 }
 
+/// Public `handleWithErrorSet` helper.
 pub fn handleWithErrorSet(
     comptime ItemType: type,
     comptime AnswerType: type,
@@ -173,8 +174,11 @@ pub fn handleWithErrorSet(
     const item_type = ItemType;
     const answer_type = AnswerType;
     const result = try algebraic.handleWriterWithErrorSet(struct {
+        /// Public `Item` declaration.
         pub const Item = item_type;
+        /// Public `Answer` declaration.
         pub const Answer = answer_type;
+        /// Public `WriterStateType` declaration.
         pub const WriterStateType = WriterState(item_type);
     }, RunErrorSetType, runtime, instance, allocator, Body);
     return .{

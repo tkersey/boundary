@@ -78,6 +78,7 @@ fn buildSnapshot(allocator: std.mem.Allocator) ![]u8 {
     return try out.toOwnedSlice(allocator);
 }
 
+/// Run this public entrypoint.
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();

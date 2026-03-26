@@ -39,6 +39,7 @@ fn contains(slice: []const []const u8, value: []const u8) bool {
     return false;
 }
 
+/// Run this public entrypoint.
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();

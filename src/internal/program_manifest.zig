@@ -1,5 +1,6 @@
 const std = @import("std");
 
+/// Public declaration metadata shape.
 pub const DeclarationMeta = struct {
     name: []const u8,
     kind: []const u8,
@@ -8,6 +9,7 @@ pub const DeclarationMeta = struct {
     op_count: usize,
 };
 
+/// Build this public type.
 pub fn Build(
     comptime DeclarationKind: type,
     comptime declarations: anytype,
@@ -47,12 +49,16 @@ pub fn Build(
     };
 
     return struct {
+        /// Public `declaration_count` declaration.
         pub const declaration_count = fields.len;
+        /// Public `entries` declaration.
         pub const entries = manifest_entries;
+        /// Public `outputs` declaration.
         pub const outputs = manifest_outputs[0..];
     };
 }
 
+/// Public `Of` helper.
 pub fn Of(comptime ProgramType: type) type {
     return ProgramType.internal_manifest;
 }

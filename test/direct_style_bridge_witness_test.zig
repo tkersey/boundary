@@ -9,36 +9,42 @@ const WitnessCase = struct {
 };
 
 const atm_runner = struct {
+    /// Run this public entrypoint.
     pub fn run(writer: anytype) !void {
         try lexical_witness_runners.runAtmResumeTransform(writer);
     }
 };
 
 const direct_return_runner = struct {
+    /// Run this public entrypoint.
     pub fn run(writer: anytype) !void {
         try lexical_witness_runners.runDirectReturn(writer);
     }
 };
 
 const multi_prompt_runner = struct {
+    /// Run this public entrypoint.
     pub fn run(writer: anytype) !void {
         try lexical_witness_runners.runMultiPrompt(writer);
     }
 };
 
 const resume_runner = struct {
+    /// Run this public entrypoint.
     pub fn run(writer: anytype) !void {
         try lexical_witness_runners.runResumeOrReturnResume(writer);
     }
 };
 
 const return_now_runner = struct {
+    /// Run this public entrypoint.
     pub fn run(writer: anytype) !void {
         try lexical_witness_runners.runResumeOrReturnReturnNow(writer);
     }
 };
 
 const static_redelim_runner = struct {
+    /// Run this public entrypoint.
     pub fn run(writer: anytype) !void {
         try lexical_witness_runners.runStaticRedelim(writer);
     }

@@ -6,6 +6,7 @@ const op_api = @import("op_api.zig");
 const program_runtime = @import("internal/program_runtime.zig");
 const std = @import("std");
 
+/// Public declaration kind enum.
 pub const DeclarationKind = enum {
     state,
     reader,
@@ -16,6 +17,7 @@ pub const DeclarationKind = enum {
     family,
 };
 
+/// Public declaration metadata shape.
 pub const DeclarationMeta = struct {
     name: []const u8,
     kind: DeclarationKind,
@@ -24,55 +26,75 @@ pub const DeclarationMeta = struct {
     op_count: usize,
 };
 
+/// Public decision helper.
 pub const Decision = decision_api.Decision;
 
+/// Public op-descriptor namespace.
 pub const ops = struct {
+    /// Public `Transform` declaration.
     pub const Transform = op_api.Transform;
+    /// Public `Choice` declaration.
     pub const Choice = op_api.Choice;
+    /// Public `Abort` declaration.
     pub const Abort = op_api.Abort;
 };
 
 fn StateDeclType(comptime StateType: type) type {
     return struct {
+        /// Public `kind` declaration.
         pub const kind = DeclarationKind.state;
+        /// Public `Value` declaration.
         pub const Value = StateType;
     };
 }
 
 fn ReaderDeclType(comptime EnvType: type) type {
     return struct {
+        /// Public `kind` declaration.
         pub const kind = DeclarationKind.reader;
+        /// Public `Value` declaration.
         pub const Value = EnvType;
     };
 }
 
 fn OptionalDeclType(comptime ResumeType: type, comptime PolicyType: type) type {
     return struct {
+        /// Public `kind` declaration.
         pub const kind = DeclarationKind.optional;
+        /// Public `Resume` declaration.
         pub const Resume = ResumeType;
+        /// Public `Policy` declaration.
         pub const Policy = PolicyType;
     };
 }
 
 fn ExceptionDeclType(comptime PayloadType: type, comptime CatchType: type) type {
     return struct {
+        /// Public `kind` declaration.
         pub const kind = DeclarationKind.exception;
+        /// Public `Payload` declaration.
         pub const Payload = PayloadType;
+        /// Public `Catch` declaration.
         pub const Catch = CatchType;
     };
 }
 
 fn ResourceDeclType(comptime ResourceType: type, comptime ManagerType: type) type {
     return struct {
+        /// Public `kind` declaration.
         pub const kind = DeclarationKind.resource;
+        /// Public `Resource` declaration.
         pub const Resource = ResourceType;
+        /// Public `Manager` declaration.
         pub const Manager = ManagerType;
     };
 }
 
 fn WriterDeclType(comptime ItemType: type) type {
     return struct {
+        /// Public `kind` declaration.
         pub const kind = DeclarationKind.writer;
+        /// Public `Item` declaration.
         pub const Item = ItemType;
     };
 }
@@ -80,37 +102,48 @@ fn WriterDeclType(comptime ItemType: type) type {
 fn FamilyDeclType(comptime spec: anytype, comptime HandlerType: type) type {
     const generated_family = family_builder.Build(spec);
     return struct {
+        /// Public `kind` declaration.
         pub const kind = DeclarationKind.family;
+        /// Public `generated` declaration.
         pub const generated = generated_family;
+        /// Public `Handler` declaration.
         pub const Handler = HandlerType;
     };
 }
 
+/// Public declaration namespace.
 pub const decl = struct {
+    /// Public `state` helper.
     pub fn state(comptime StateType: type) StateDeclType(StateType) {
         return .{};
     }
 
+    /// Public `reader` helper.
     pub fn reader(comptime EnvType: type) ReaderDeclType(EnvType) {
         return .{};
     }
 
+    /// Public `optional` helper.
     pub fn optional(comptime ResumeType: type, comptime PolicyType: type) OptionalDeclType(ResumeType, PolicyType) {
         return .{};
     }
 
+    /// Public `exception` helper.
     pub fn exception(comptime PayloadType: type, comptime CatchType: type) ExceptionDeclType(PayloadType, CatchType) {
         return .{};
     }
 
+    /// Public `resource` helper.
     pub fn resource(comptime ResourceType: type, comptime ManagerType: type) ResourceDeclType(ResourceType, ManagerType) {
         return .{};
     }
 
+    /// Public `writer` helper.
     pub fn writer(comptime ItemType: type) WriterDeclType(ItemType) {
         return .{};
     }
 
+    /// Public `family` helper.
     pub fn family(comptime spec: anytype, comptime HandlerType: type) FamilyDeclType(spec, HandlerType) {
         return .{};
     }
@@ -250,21 +283,28 @@ fn assertDeclarations(comptime DeclarationsType: type) void {
     }
 }
 
+/// Build the public program type.
 pub fn Program(comptime declaration_values: anytype, comptime BodyType: type) type {
     const DeclarationsType = @TypeOf(declaration_values);
     comptime assertDeclarations(DeclarationsType);
     return struct {
+        /// Public `Body` declaration.
         pub const Body = BodyType;
+        /// Public `Bindings` declaration.
         pub const Bindings = BindingsType(DeclarationsType);
+        /// Public `internal_manifest` declaration.
         pub const internal_manifest = manifest_api.Build(DeclarationKind, declaration_values, hasBinding, hasOutput);
+        /// Public `declarations` declaration.
         pub const declarations = declaration_values;
 
+        /// Run this public entrypoint.
         pub fn run(runtime: *lowered_machine.Runtime, bindings: Bindings) RunReturnType(@This()) {
             return programRun(runtime, @This(), bindings);
         }
     };
 }
 
+/// Return the public run result type.
 pub fn RunReturnType(comptime ProgramType: type) type {
     return program_runtime.RunReturnType(HandlerBundleType(@TypeOf(ProgramType.declarations)), ProgramType.Body);
 }
@@ -274,6 +314,7 @@ fn programRun(runtime: *lowered_machine.Runtime, comptime ProgramType: type, bin
     return program_runtime.run(runtime, handlers, ProgramType.Body);
 }
 
+/// Run this public entrypoint.
 pub fn run(runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) RunReturnType(ProgramType) {
     return programRun(runtime, ProgramType, bindings);
 }
@@ -288,18 +329,22 @@ test "program manifest records declaration metadata and outputs" {
     }, struct {
         state: i32,
 
+        /// Public `get` helper.
         pub fn get(self: *@This()) i32 {
             return self.state;
         }
 
+        /// Public `afterGet` helper.
         pub fn afterGet(_: *@This(), answer: i32) i32 {
             return answer;
         }
 
+        /// Public `set` helper.
         pub fn set(self: *@This(), value: i32) void {
             self.state = value;
         }
 
+        /// Public `afterSet` helper.
         pub fn afterSet(_: *@This(), answer: i32) i32 {
             return answer;
         }
@@ -311,6 +356,7 @@ test "program manifest records declaration metadata and outputs" {
         .counter = Counter,
         .writer = decl.writer([]const u8),
     }, struct {
+        /// Execute this public body hook.
         pub fn body(_: anytype) i32 {
             return 0;
         }
@@ -332,6 +378,7 @@ test "program run executes through the new front door" {
     const demo_program = Program(.{
         .state = decl.state(i32),
     }, struct {
+        /// Execute this public body hook.
         pub fn body(eff: anytype) !i32 {
             const before = try eff.state.get();
             try eff.state.set(before + 1);

@@ -44,6 +44,7 @@ const ReturnNowProgram = shift.Program(.{
     /// Trigger the front-door optional choice point and prove the continuation is skipped.
     pub fn body(eff: anytype) ![]const u8 {
         return try eff.optional.request(struct {
+            /// Apply this public continuation hook.
             pub fn apply(_: i32, _: anytype) ![]const u8 {
                 unreachable;
             }
@@ -57,6 +58,7 @@ const ResumeProgram = shift.Program(.{
     /// Trigger the front-door optional choice point and complete the resumed continuation explicitly.
     pub fn body(eff: anytype) ![]const u8 {
         return try eff.optional.request(struct {
+            /// Apply this public continuation hook.
             pub fn apply(value: i32, _: anytype) ![]const u8 {
                 if (value != 41) unreachable;
                 transcript.note("body-after-request");

@@ -108,6 +108,7 @@ pub fn handle(
     return try algebraic.handleState(AnswerType, runtime, instance, initial_state, Body);
 }
 
+/// Public `handleWithErrorSet` helper.
 pub fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,

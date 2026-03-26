@@ -110,6 +110,7 @@ pub fn handle(
     return try algebraic.handleException(AnswerType, runtime, instance, Catch, Body);
 }
 
+/// Public `handleWithErrorSet` helper.
 pub fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,

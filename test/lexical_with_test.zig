@@ -24,6 +24,7 @@ test "shift.with retains explicit body errors in ExecutionError" {
     const CallType = @TypeOf(shift.with(&runtime, .{
         .state = shift.effect.state.use(@as(i32, 7)),
     }, struct {
+        /// Execute this public body hook.
         pub fn body(eff: anytype) !i32 {
             _ = try eff.state.get();
             return error.BodyOops;
@@ -36,6 +37,7 @@ test "shift.with retains explicit body errors in ExecutionError" {
     _ = shift.with(&runtime, .{
         .state = shift.effect.state.use(@as(i32, 7)),
     }, struct {
+        /// Execute this public body hook.
         pub fn body(eff: anytype) !i32 {
             _ = try eff.state.get();
             return error.BodyOops;
@@ -52,8 +54,10 @@ test "shift.With distinguishes semantic from execution error metadata" {
         .state = shift.effect.state.use(@as(i32, 7)),
     });
     const body_spec = struct {
+        /// Public `SemanticErrorSet` declaration.
         pub const SemanticErrorSet = error{BodyOops};
 
+        /// Execute this public body hook.
         pub fn body(eff: anytype) !i32 {
             _ = try eff.state.get();
             return error.BodyOops;
@@ -75,8 +79,10 @@ test "shift.With preserves semantic body errors that collide with setup names" {
         .state = shift.effect.state.use(@as(i32, 7)),
     });
     const body_spec = struct {
+        /// Public `SemanticErrorSet` declaration.
         pub const SemanticErrorSet = error{OutOfMemory};
 
+        /// Execute this public body hook.
         pub fn body(_: anytype) !i32 {
             return error.OutOfMemory;
         }
@@ -92,8 +98,10 @@ test "shift.With preserves mixed collided body errors in SemanticErrorSet" {
         .state = shift.effect.state.use(@as(i32, 7)),
     });
     const body_spec = struct {
+        /// Public `SemanticErrorSet` declaration.
         pub const SemanticErrorSet = error{ BodyOops, OutOfMemory, MissingPrompt };
 
+        /// Execute this public body hook.
         pub fn body(eff: anytype) !i32 {
             _ = try eff.state.get();
             return error.OutOfMemory;
@@ -111,6 +119,7 @@ test "shift.With instantiates for effect-only bodies without SemanticErrorSet me
         .state = shift.effect.state.use(@as(i32, 7)),
     });
     const body_spec = struct {
+        /// Execute this public body hook.
         pub fn body(eff: anytype) !i32 {
             _ = try eff.state.get();
             return 0;
@@ -126,11 +135,15 @@ test "shift.With instantiates for effect-only bodies without SemanticErrorSet me
 
 test "shift.With preview includes continuation errors from lexical explicit programs" {
     const probe_descriptor = struct {
+        /// Public `ErrorSet` declaration.
         pub const ErrorSet = error{};
+        /// Public `State` declaration.
         pub const State = i32;
+        /// Public `Output` declaration.
         pub const Output = void;
         const ProbeOp = shift.effect.ops.Choice("probe", void, i32);
 
+        /// Return the public handle type.
         pub fn HandleType(comptime Cap: type, comptime ContextPtrType: type) type {
             _ = ContextPtrType;
             return struct {
@@ -146,17 +159,20 @@ test "shift.With preview includes continuation errors from lexical explicit prog
                     return shift.RuntimeError || error{OutOfMemory} || PromptType(Continuation).ErrorSet;
                 }
 
+                /// Perform this public operation.
                 pub fn perform(_: @This(), comptime Continuation: type) ExecutionErrorSet(Continuation)!PromptType(Continuation).OutAnswer {
                     unreachable;
                 }
             };
         }
 
+        /// Public `bindLexical` helper.
         pub fn bindLexical(self: @This(), comptime Cap: type, ctx: anytype) HandleType(Cap, @TypeOf(ctx)) {
             _ = self;
             return .{};
         }
 
+        /// Run this public entrypoint.
         pub fn run(
             self: @This(),
             comptime AnswerType: type,
@@ -175,10 +191,13 @@ test "shift.With preview includes continuation errors from lexical explicit prog
         .probe = probe_descriptor{},
     });
     const body_spec = struct {
+        /// Public `SemanticErrorSet` declaration.
         pub const SemanticErrorSet = error{ContinueOops};
 
+        /// Execute this public body hook.
         pub fn body(eff: anytype) !i32 {
             return try eff.probe.perform(struct {
+                /// Apply this public continuation hook.
                 pub fn apply(_: i32) !i32 {
                     return error.ContinueOops;
                 }
@@ -193,10 +212,12 @@ test "shift.With preview includes continuation errors from lexical explicit prog
 
 test "lexical optional request retains explicit continuation errors" {
     const policy = struct {
+        /// Decide whether this public hook resumes or returns.
         pub fn resumeOrReturn() shift.effect.choice.Decision(i32, i32) {
             return shift.effect.choice.Decision(i32, i32).resumeWith(41);
         }
 
+        /// Finish this public resumed path.
         pub fn afterResume(answer: i32) i32 {
             return answer;
         }
@@ -208,8 +229,10 @@ test "lexical optional request retains explicit continuation errors" {
     const CallType = @TypeOf(shift.with(&runtime, .{
         .optional = shift.effect.optional.use(i32, policy),
     }, struct {
+        /// Execute this public body hook.
         pub fn body(eff: anytype) !i32 {
             return try eff.optional.request(struct {
+                /// Apply this public continuation hook.
                 pub fn apply(value: i32, _: anytype) !i32 {
                     _ = value;
                     return error.ContinueOops;
@@ -224,8 +247,10 @@ test "lexical optional request retains explicit continuation errors" {
     _ = shift.with(&runtime, .{
         .optional = shift.effect.optional.use(i32, policy),
     }, struct {
+        /// Execute this public body hook.
         pub fn body(eff: anytype) !i32 {
             return try eff.optional.request(struct {
+                /// Apply this public continuation hook.
                 pub fn apply(value: i32, _: anytype) !i32 {
                     _ = value;
                     return error.ContinueOops;
@@ -248,10 +273,12 @@ test "generated lexical choice retains explicit continuation errors" {
     });
 
     const handler = struct {
+        /// Public `pick` helper.
         pub fn pick(_: *@This(), value: i32) shift.effect.choice.Decision(i32, i32) {
             return shift.effect.choice.Decision(i32, i32).resumeWith(value);
         }
 
+        /// Public `afterPick` helper.
         pub fn afterPick(_: *@This(), answer: i32) i32 {
             return answer;
         }
@@ -263,8 +290,10 @@ test "generated lexical choice retains explicit continuation errors" {
     const CallType = @TypeOf(shift.with(&runtime, .{
         .picker = Picker.use(.{ .handler = handler{} }),
     }, struct {
+        /// Execute this public body hook.
         pub fn body(eff: anytype) !i32 {
             return try eff.picker.pick.perform(41, struct {
+                /// Apply this public continuation hook.
                 pub fn apply(value: i32, _: anytype) !i32 {
                     _ = value;
                     return error.ContinueOops;
@@ -279,8 +308,10 @@ test "generated lexical choice retains explicit continuation errors" {
     _ = shift.with(&runtime, .{
         .picker = Picker.use(.{ .handler = handler{} }),
     }, struct {
+        /// Execute this public body hook.
         pub fn body(eff: anytype) !i32 {
             return try eff.picker.pick.perform(41, struct {
+                /// Apply this public continuation hook.
                 pub fn apply(value: i32, _: anytype) !i32 {
                     _ = value;
                     return error.ContinueOops;
@@ -303,11 +334,13 @@ test "generated family infers handler errors when error_set_type is omitted" {
     });
 
     const handler = struct {
+        /// Public `pick` helper.
         pub fn pick(_: *@This(), value: i32) !shift.effect.choice.Decision(i32, i32) {
             _ = value;
             return error.HandlerOops;
         }
 
+        /// Public `afterPick` helper.
         pub fn afterPick(_: *@This(), answer: i32) i32 {
             return answer;
         }
@@ -319,8 +352,10 @@ test "generated family infers handler errors when error_set_type is omitted" {
     const CallType = @TypeOf(shift.with(&runtime, .{
         .picker = Picker.use(.{ .handler = handler{} }),
     }, struct {
+        /// Execute this public body hook.
         pub fn body(eff: anytype) !i32 {
             return try eff.picker.pick.perform(41, struct {
+                /// Apply this public continuation hook.
                 pub fn apply(value: i32, _: anytype) i32 {
                     return value;
                 }
@@ -334,8 +369,10 @@ test "generated family infers handler errors when error_set_type is omitted" {
     _ = shift.with(&runtime, .{
         .picker = Picker.use(.{ .handler = handler{} }),
     }, struct {
+        /// Execute this public body hook.
         pub fn body(eff: anytype) !i32 {
             return try eff.picker.pick.perform(41, struct {
+                /// Apply this public continuation hook.
                 pub fn apply(value: i32, _: anytype) i32 {
                     return value;
                 }
@@ -359,10 +396,12 @@ test "generated lexical handlers infer after-hook errors when error_set_type is 
     const Handler = struct {
         state: i32 = 7,
 
+        /// Public `get` helper.
         pub fn get(self: *@This()) i32 {
             return self.state;
         }
 
+        /// Public `afterGet` helper.
         pub fn afterGet(_: *@This(), _: i32) !i32 {
             return error.AfterOops;
         }
@@ -374,6 +413,7 @@ test "generated lexical handlers infer after-hook errors when error_set_type is 
     const CallType = @TypeOf(shift.with(&runtime, .{
         .counter = Counter.use(.{ .handler = Handler{} }),
     }, struct {
+        /// Execute this public body hook.
         pub fn body(eff: anytype) !i32 {
             return try eff.counter.get.perform();
         }

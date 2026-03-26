@@ -445,10 +445,12 @@ fn PreviewBodyErrorSet(
     comptime Body: type,
 ) type {
     const preview_engine = struct {
+        /// Perform this public operation.
         pub fn perform(_: *@This(), comptime Op: type, _: Op.Payload) lowered_machine.ResetError(BaseErrorSet)!Op.Resume {
             unreachable;
         }
 
+        /// Build this public explicit program.
         pub fn performProgram(
             _: *@This(),
             comptime Op: type,
@@ -465,6 +467,7 @@ fn PreviewBodyErrorSet(
     };
 
     const preview_capability = struct {
+        /// Return the engine context type for this public helper.
         pub fn EngineContextType() type {
             return preview_engine;
         }
@@ -1062,6 +1065,7 @@ pub fn Build(comptime spec: anytype) type {
             return self_type.handleWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, handler, Body);
         }
 
+        /// Public `handleWithErrorSet` helper.
         pub fn handleWithErrorSet(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
             var handler_value = handler;
             const handler_ptr = &handler_value;
@@ -1077,6 +1081,7 @@ pub fn Build(comptime spec: anytype) type {
             const capability_meta = struct {
                 const body_tag = Body;
 
+                /// Return the engine context type for this public helper.
                 pub fn EngineContextType() type {
                     return Configured.Context;
                 }

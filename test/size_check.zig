@@ -60,24 +60,29 @@ test "front-door declaration and op shells stay compact" {
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(@TypeOf(shift.Decl.state(i32))));
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(@TypeOf(shift.Decl.reader(i32))));
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(@TypeOf(shift.Decl.optional(i32, struct {
+        /// Decide whether this public hook resumes or returns.
         pub fn resumeOrReturn() shift.Decision(i32, i32) {
             return shift.Decision(i32, i32).resumeWith(1);
         }
 
+        /// Finish this public resumed path.
         pub fn afterResume(answer: i32) i32 {
             return answer;
         }
     }))));
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(@TypeOf(shift.Decl.exception([]const u8, struct {
+        /// Return directly through this public hook.
         pub fn directReturn(payload: []const u8) []const u8 {
             return payload;
         }
     }))));
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(@TypeOf(shift.Decl.resource([]const u8, struct {
+        /// Public `acquire` helper.
         pub fn acquire() []const u8 {
             return "resource";
         }
 
+        /// Public `release` helper.
         pub fn release(_: []const u8) void {
             // Deliberately empty for the compact-size witness.
         }
@@ -94,10 +99,12 @@ test "family declarations stay compact and hide implementation context" {
     }, struct {
         state: i32 = 7,
 
+        /// Public `get` helper.
         pub fn get(self: *@This()) i32 {
             return self.state;
         }
 
+        /// Public `afterGet` helper.
         pub fn afterGet(_: *@This(), answer: i32) i32 {
             return answer;
         }
@@ -115,6 +122,7 @@ test "front-door program preserves custom body errors" {
     const StateProgram = shift.Program(.{
         .state = shift.Decl.state(i32),
     }, struct {
+        /// Execute this public body hook.
         pub fn body(eff: anytype) !i32 {
             _ = try eff.state.get();
             return error.BodyOops;
@@ -135,10 +143,12 @@ test "front-door custom family infers handler errors" {
     const CounterHandler = struct {
         state: i32 = 7,
 
+        /// Public `get` helper.
         pub fn get(_: *@This()) !i32 {
             return error.HandlerOops;
         }
 
+        /// Public `afterGet` helper.
         pub fn afterGet(_: *@This(), answer: i32) i32 {
             return answer;
         }
@@ -154,6 +164,7 @@ test "front-door custom family infers handler errors" {
     const CounterProgram = shift.Program(.{
         .counter = Counter,
     }, struct {
+        /// Execute this public body hook.
         pub fn body(eff: anytype) !i32 {
             return try eff.counter.get.perform();
         }
@@ -177,10 +188,12 @@ test "front-door custom family infers handler errors" {
 
 test "front-door optional declarations infer continuation errors" {
     const policy = struct {
+        /// Decide whether this public hook resumes or returns.
         pub fn resumeOrReturn() shift.Decision(i32, i32) {
             return shift.Decision(i32, i32).resumeWith(41);
         }
 
+        /// Finish this public resumed path.
         pub fn afterResume(answer: i32) i32 {
             return answer;
         }
@@ -189,8 +202,10 @@ test "front-door optional declarations infer continuation errors" {
     const OptionalProgram = shift.Program(.{
         .optional = shift.Decl.optional(i32, policy),
     }, struct {
+        /// Execute this public body hook.
         pub fn body(eff: anytype) !i32 {
             return try eff.optional.request(struct {
+                /// Apply this public continuation hook.
                 pub fn apply(value: i32, _: anytype) !i32 {
                     _ = value;
                     return error.ContinueOops;
@@ -211,10 +226,12 @@ test "front-door optional declarations infer continuation errors" {
 
 test "front-door choice families infer continuation errors" {
     const picker_handler = struct {
+        /// Public `pick` helper.
         pub fn pick(_: *@This(), payload: i32) shift.Decision(i32, i32) {
             return shift.Decision(i32, i32).resumeWith(payload);
         }
 
+        /// Public `afterPick` helper.
         pub fn afterPick(_: *@This(), answer: i32) i32 {
             return answer;
         }
@@ -230,8 +247,10 @@ test "front-door choice families infer continuation errors" {
     const PickerProgram = shift.Program(.{
         .picker = Picker,
     }, struct {
+        /// Execute this public body hook.
         pub fn body(eff: anytype) !i32 {
             return try eff.picker.pick.perform(41, struct {
+                /// Apply this public continuation hook.
                 pub fn apply(_: i32, _: anytype) !i32 {
                     return error.ContinueOops;
                 }

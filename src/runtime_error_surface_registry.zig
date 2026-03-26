@@ -29,6 +29,7 @@ fn retainedVariant(comptime tag: error_witness.RuntimeErrorTag) ErrorVariant {
     };
 }
 
+/// Public retained runtime error variants.
 pub const retained_variants = [_]ErrorVariant{
     retainedVariant(.missing_prompt),
     retainedVariant(.cross_thread),
@@ -39,6 +40,7 @@ pub const retained_variants = [_]ErrorVariant{
     retainedVariant(.program_contract_violation),
 };
 
+/// Public retired runtime error variants.
 pub const retired_variants = [_]ErrorVariant{
     .{
         .name = "AlreadyResolved",

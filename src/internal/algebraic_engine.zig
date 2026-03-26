@@ -77,9 +77,13 @@ pub fn handleAbort(comptime Op: type, state: anytype, comptime Impl: type) Abort
 
 fn TransformSpec(comptime Op: type, comptime StateType: type, comptime Impl: type) type {
     return struct {
+        /// Public `Operation` declaration.
         pub const Operation = Op;
+        /// Public `builder_kind` declaration.
         pub const builder_kind = BuilderKind.transform;
+        /// Public `State` declaration.
         pub const State = StateType;
+        /// Public `ImplType` declaration.
         pub const ImplType = Impl;
 
         state: StateType,
@@ -88,9 +92,13 @@ fn TransformSpec(comptime Op: type, comptime StateType: type, comptime Impl: typ
 
 fn DirectTransformSpec(comptime Op: type, comptime StateType: type, comptime Impl: type) type {
     return struct {
+        /// Public `Operation` declaration.
         pub const Operation = Op;
+        /// Public `builder_kind` declaration.
         pub const builder_kind = BuilderKind.direct_transform;
+        /// Public `State` declaration.
         pub const State = StateType;
+        /// Public `ImplType` declaration.
         pub const ImplType = Impl;
 
         state: StateType,
@@ -99,9 +107,13 @@ fn DirectTransformSpec(comptime Op: type, comptime StateType: type, comptime Imp
 
 fn ChoiceSpec(comptime Op: type, comptime StateType: type, comptime Impl: type) type {
     return struct {
+        /// Public `Operation` declaration.
         pub const Operation = Op;
+        /// Public `builder_kind` declaration.
         pub const builder_kind = BuilderKind.choice;
+        /// Public `State` declaration.
         pub const State = StateType;
+        /// Public `ImplType` declaration.
         pub const ImplType = Impl;
 
         state: StateType,
@@ -110,9 +122,13 @@ fn ChoiceSpec(comptime Op: type, comptime StateType: type, comptime Impl: type) 
 
 fn AbortSpec(comptime Op: type, comptime StateType: type, comptime Impl: type) type {
     return struct {
+        /// Public `Operation` declaration.
         pub const Operation = Op;
+        /// Public `builder_kind` declaration.
         pub const builder_kind = BuilderKind.abort;
+        /// Public `State` declaration.
         pub const State = StateType;
+        /// Public `ImplType` declaration.
         pub const ImplType = Impl;
 
         state: StateType,

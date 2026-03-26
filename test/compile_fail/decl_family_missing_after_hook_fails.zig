@@ -4,6 +4,7 @@ const std = @import("std");
 const BadHandler = struct {
     state: i32,
 
+    /// Public `get` helper.
     pub fn get(self: *@This()) i32 {
         return self.state;
     }
@@ -19,11 +20,13 @@ const Counter = shift.Decl.family(.{
 const Demo = shift.Program(.{
     .counter = Counter,
 }, struct {
+    /// Execute this public body hook.
     pub fn body(eff: anytype) !i32 {
         return try eff.counter.get.perform();
     }
 });
 
+/// Run this public entrypoint.
 pub fn main() !void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();

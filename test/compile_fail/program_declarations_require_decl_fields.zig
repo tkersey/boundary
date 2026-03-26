@@ -4,6 +4,7 @@ comptime {
     _ = shift.Program(.{
         .bad = struct {}{},
     }, struct {
+        /// Execute this public body hook.
         pub fn body(_: anytype) !i32 {
             return 0;
         }

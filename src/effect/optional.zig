@@ -179,6 +179,7 @@ pub fn handle(
     return try algebraic.handleOptional(AnswerType, runtime, instance, Policy, Body);
 }
 
+/// Public `handleWithErrorSet` helper.
 pub fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,

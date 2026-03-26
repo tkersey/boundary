@@ -1,5 +1,6 @@
 const std = @import("std");
 
+/// Public witness surface enum.
 pub const Surface = enum {
     ordinary,
     lexical,
@@ -7,11 +8,13 @@ pub const Surface = enum {
     generated_family,
 };
 
+/// Public witness support-status enum.
 pub const SupportStatus = enum {
     supported,
     unsupported,
 };
 
+/// Public runtime error tag enum.
 pub const RuntimeErrorTag = enum {
     missing_prompt,
     cross_thread,
@@ -22,6 +25,7 @@ pub const RuntimeErrorTag = enum {
     program_contract_violation,
 };
 
+/// Public contributor-kind enum.
 pub const ContributorKind = enum {
     body,
     continuation,
@@ -32,6 +36,7 @@ pub const ContributorKind = enum {
     cleanup,
 };
 
+/// Public contributor record.
 pub const Contributor = struct {
     kind: ContributorKind,
     surface: Surface,
@@ -39,6 +44,7 @@ pub const Contributor = struct {
     error_names: []const []const u8,
 };
 
+/// Public witness diagnostic record.
 pub const WitnessDiagnostic = struct {
     code: []const u8,
     message: []const u8,
@@ -58,6 +64,7 @@ pub const ErrorWitnessV1 = struct {
     contributors: []const Contributor,
     diagnostics: []const WitnessDiagnostic,
 
+    /// Return the empty public value.
     pub fn empty(comptime surface: Surface) ErrorWitnessV1 {
         return .{
             .surface = surface,
@@ -71,11 +78,16 @@ pub const ErrorWitnessV1 = struct {
     }
 };
 
+/// Public empty error-name slice.
 pub const no_error_names = [_][]const u8{};
+/// Public empty runtime-error-tag slice.
 pub const no_runtime_error_tags = [_]RuntimeErrorTag{};
+/// Public empty contributor slice.
 pub const no_contributors = [_]Contributor{};
+/// Public empty diagnostic slice.
 pub const no_diagnostics = [_]WitnessDiagnostic{};
 
+/// Return the public runtime error tags.
 pub fn runtimeErrorTags() []const RuntimeErrorTag {
     return &.{
         .missing_prompt,
@@ -88,6 +100,7 @@ pub fn runtimeErrorTags() []const RuntimeErrorTag {
     };
 }
 
+/// Return the public runtime error tag name.
 pub fn runtimeErrorTagName(tag: RuntimeErrorTag) []const u8 {
     return switch (tag) {
         .missing_prompt => "MissingPrompt",
@@ -100,6 +113,7 @@ pub fn runtimeErrorTagName(tag: RuntimeErrorTag) []const u8 {
     };
 }
 
+/// Return the public setup error names.
 pub fn setupErrorNames(has_oom: bool) []const []const u8 {
     return if (has_oom) &.{"OutOfMemory"} else &no_error_names;
 }
