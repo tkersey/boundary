@@ -8,7 +8,11 @@ fn hasErrorName(comptime ErrorSet: type, comptime wanted: []const u8) bool {
     return false;
 }
 
-fn expectFixtureTranscript(comptime fixture_path: []const u8, writer_fn: anytype) !void {
+fn ExecResult(comptime T: type) type {
+    return (shift.RuntimeError || error{ OutOfMemory, BodyOops, ContinueOops, HandlerOops, AfterOops })!T;
+}
+
+fn expectFixtureTranscript(comptime fixture_path: []const u8, writer_fn: anytype) anyerror!void {
     var buffer: std.io.Writer.Allocating = .init(std.testing.allocator);
     defer buffer.deinit();
     try writer_fn(&buffer.writer);
@@ -23,7 +27,7 @@ test "shift.with retains explicit body errors in ExecutionError" {
         .state = shift.effect.state.use(@as(i32, 7)),
     }, struct {
         /// Execute this public body hook.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) ExecResult(i32) {
             _ = try eff.state.get();
             return error.BodyOops;
         }
@@ -36,7 +40,7 @@ test "shift.with retains explicit body errors in ExecutionError" {
         .state = shift.effect.state.use(@as(i32, 7)),
     }, struct {
         /// Execute this public body hook.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) ExecResult(i32) {
             _ = try eff.state.get();
             return error.BodyOops;
         }
@@ -56,7 +60,7 @@ test "shift.With distinguishes semantic from execution error metadata" {
         pub const SemanticErrorSet = error{BodyOops};
 
         /// Execute this public body hook.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) ExecResult(i32) {
             _ = try eff.state.get();
             return error.BodyOops;
         }
@@ -81,7 +85,7 @@ test "shift.With preserves semantic body errors that collide with setup names" {
         pub const SemanticErrorSet = error{OutOfMemory};
 
         /// Execute this public body hook.
-        pub fn body(_: anytype) !i32 {
+        pub fn body(_: anytype) ExecResult(i32) {
             return error.OutOfMemory;
         }
     };
@@ -100,7 +104,7 @@ test "shift.With preserves mixed collided body errors in SemanticErrorSet" {
         pub const SemanticErrorSet = error{ BodyOops, OutOfMemory, MissingPrompt };
 
         /// Execute this public body hook.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) ExecResult(i32) {
             _ = try eff.state.get();
             return error.OutOfMemory;
         }
@@ -118,7 +122,7 @@ test "shift.With instantiates for effect-only bodies without SemanticErrorSet me
     });
     const body_spec = struct {
         /// Execute this public body hook.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) ExecResult(i32) {
             _ = try eff.state.get();
             return 0;
         }
@@ -193,10 +197,10 @@ test "shift.With preview includes continuation errors from lexical explicit prog
         pub const SemanticErrorSet = error{ContinueOops};
 
         /// Execute this public body hook.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) ExecResult(i32) {
             return try eff.probe.perform(struct {
                 /// Apply this public continuation hook.
-                pub fn apply(_: i32) !i32 {
+                pub fn apply(_: i32) ExecResult(i32) {
                     return error.ContinueOops;
                 }
             });
@@ -228,10 +232,10 @@ test "lexical optional request retains explicit continuation errors" {
         .optional = shift.effect.optional.use(i32, policy),
     }, struct {
         /// Execute this public body hook.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) ExecResult(i32) {
             return try eff.optional.request(struct {
                 /// Apply this public continuation hook.
-                pub fn apply(value: i32, _: anytype) !i32 {
+                pub fn apply(value: i32, _: anytype) ExecResult(i32) {
                     _ = value;
                     return error.ContinueOops;
                 }
@@ -246,10 +250,10 @@ test "lexical optional request retains explicit continuation errors" {
         .optional = shift.effect.optional.use(i32, policy),
     }, struct {
         /// Execute this public body hook.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) ExecResult(i32) {
             return try eff.optional.request(struct {
                 /// Apply this public continuation hook.
-                pub fn apply(value: i32, _: anytype) !i32 {
+                pub fn apply(value: i32, _: anytype) ExecResult(i32) {
                     _ = value;
                     return error.ContinueOops;
                 }
@@ -289,10 +293,10 @@ test "generated lexical choice retains explicit continuation errors" {
         .picker = Picker.use(.{ .handler = handler{} }),
     }, struct {
         /// Execute this public body hook.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) ExecResult(i32) {
             return try eff.picker.pick.perform(41, struct {
                 /// Apply this public continuation hook.
-                pub fn apply(value: i32, _: anytype) !i32 {
+                pub fn apply(value: i32, _: anytype) ExecResult(i32) {
                     _ = value;
                     return error.ContinueOops;
                 }
@@ -307,10 +311,10 @@ test "generated lexical choice retains explicit continuation errors" {
         .picker = Picker.use(.{ .handler = handler{} }),
     }, struct {
         /// Execute this public body hook.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) ExecResult(i32) {
             return try eff.picker.pick.perform(41, struct {
                 /// Apply this public continuation hook.
-                pub fn apply(value: i32, _: anytype) !i32 {
+                pub fn apply(value: i32, _: anytype) ExecResult(i32) {
                     _ = value;
                     return error.ContinueOops;
                 }
@@ -333,7 +337,7 @@ test "generated family infers handler errors when error_set_type is omitted" {
 
     const handler = struct {
         /// Public `pick` helper.
-        pub fn pick(_: *@This(), value: i32) !shift.effect.choice.Decision(i32, i32) {
+        pub fn pick(_: *@This(), value: i32) ExecResult(shift.effect.choice.Decision(i32, i32)) {
             _ = value;
             return error.HandlerOops;
         }
@@ -351,7 +355,7 @@ test "generated family infers handler errors when error_set_type is omitted" {
         .picker = Picker.use(.{ .handler = handler{} }),
     }, struct {
         /// Execute this public body hook.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) ExecResult(i32) {
             return try eff.picker.pick.perform(41, struct {
                 /// Apply this public continuation hook.
                 pub fn apply(value: i32, _: anytype) i32 {
@@ -368,7 +372,7 @@ test "generated family infers handler errors when error_set_type is omitted" {
         .picker = Picker.use(.{ .handler = handler{} }),
     }, struct {
         /// Execute this public body hook.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) ExecResult(i32) {
             return try eff.picker.pick.perform(41, struct {
                 /// Apply this public continuation hook.
                 pub fn apply(value: i32, _: anytype) i32 {
@@ -400,7 +404,7 @@ test "generated lexical handlers infer after-hook errors when error_set_type is 
         }
 
         /// Public `afterGet` helper.
-        pub fn afterGet(_: *@This(), _: i32) !i32 {
+        pub fn afterGet(_: *@This(), _: i32) ExecResult(i32) {
             return error.AfterOops;
         }
     };
@@ -412,7 +416,7 @@ test "generated lexical handlers infer after-hook errors when error_set_type is 
         .counter = Counter.use(.{ .handler = Handler{} }),
     }, struct {
         /// Execute this public body hook.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) ExecResult(i32) {
             return try eff.counter.get.perform();
         }
     }));
@@ -430,7 +434,7 @@ test "shift.with composes state and reader through lexical handles" {
         .reader = shift.effect.reader.use(@as(i32, 21)),
     }, struct {
         /// Read from the lexical reader, update lexical state, and return the new state.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) ExecResult(i32) {
             const env = try eff.reader.ask();
             const before = try eff.state.get();
             try eff.state.set(before + env);
@@ -444,7 +448,7 @@ test "shift.with composes state and reader through lexical handles" {
 
 test "shift.with matches the state fixture transcript through lexical handles" {
     try expectFixtureTranscript("example_proof/fixtures/state_basic.txt", struct {
-        fn run(writer: anytype) !void {
+        fn run(writer: anytype) anyerror!void {
             var runtime = shift.Runtime.init(std.testing.allocator);
             defer runtime.deinit();
 
@@ -452,7 +456,7 @@ test "shift.with matches the state fixture transcript through lexical handles" {
                 .state = shift.effect.state.use(@as(i32, 5)),
             }, struct {
                 /// Match the public state example transcript through lexical handles.
-                pub fn body(eff: anytype) !i32 {
+                pub fn body(eff: anytype) ExecResult(i32) {
                     const before = try eff.state.get();
                     try eff.state.set(before + 1);
                     return before + (try eff.state.get());
@@ -466,7 +470,7 @@ test "shift.with matches the state fixture transcript through lexical handles" {
 
 test "shift.with matches the reader fixture transcript through lexical handles" {
     try expectFixtureTranscript("example_proof/fixtures/reader_basic.txt", struct {
-        fn run(writer: anytype) !void {
+        fn run(writer: anytype) anyerror!void {
             var runtime = shift.Runtime.init(std.testing.allocator);
             defer runtime.deinit();
 
@@ -474,7 +478,7 @@ test "shift.with matches the reader fixture transcript through lexical handles" 
                 .reader = shift.effect.reader.use(@as(i32, 21)),
             }, struct {
                 /// Match the public reader example transcript through lexical handles.
-                pub fn body(eff: anytype) !i32 {
+                pub fn body(eff: anytype) ExecResult(i32) {
                     const env = try eff.reader.ask();
                     return env * 2;
                 }
@@ -487,7 +491,7 @@ test "shift.with matches the reader fixture transcript through lexical handles" 
 
 test "shift.with matches the optional fixture transcript through lexical handles" {
     try expectFixtureTranscript("example_proof/fixtures/optional_basic.txt", struct {
-        fn run(writer: anytype) !void {
+        fn run(writer: anytype) anyerror!void {
             const transcript = struct {
                 threadlocal var active_writer: ?@TypeOf(writer) = null;
 
@@ -535,10 +539,10 @@ test "shift.with matches the optional fixture transcript through lexical handles
                 .optional = shift.effect.optional.use(i32, return_now_policy),
             }, struct {
                 /// Trigger the lexical optional choice point and prove the resume continuation is skipped.
-                pub fn body(eff: anytype) ![]const u8 {
+                pub fn body(eff: anytype) ExecResult([]const u8) {
                     return try eff.optional.request(struct {
                         /// This continuation must never run in the return-now branch.
-                        pub fn apply(_: i32, _: anytype) ![]const u8 {
+                        pub fn apply(_: i32, _: anytype) ExecResult([]const u8) {
                             unreachable;
                         }
                     });
@@ -551,10 +555,10 @@ test "shift.with matches the optional fixture transcript through lexical handles
                 .optional = shift.effect.optional.use(i32, resume_policy),
             }, struct {
                 /// Trigger the lexical optional choice point and complete the resumed continuation explicitly.
-                pub fn body(eff: anytype) ![]const u8 {
+                pub fn body(eff: anytype) ExecResult([]const u8) {
                     return try eff.optional.request(struct {
                         /// Resume the lexical optional continuation with the canonical final answer.
-                        pub fn apply(value: i32, _: anytype) ![]const u8 {
+                        pub fn apply(value: i32, _: anytype) ExecResult([]const u8) {
                             if (value != 41) unreachable;
                             transcript.note("body-after-request\n");
                             return "answer=42";
@@ -569,7 +573,7 @@ test "shift.with matches the optional fixture transcript through lexical handles
 
 test "shift.with matches the exception fixture transcript through lexical handles" {
     try expectFixtureTranscript("example_proof/fixtures/exception_basic.txt", struct {
-        fn run(writer: anytype) !void {
+        fn run(writer: anytype) anyerror!void {
             const transcript = struct {
                 threadlocal var active_writer: ?@TypeOf(writer) = null;
 
@@ -598,7 +602,7 @@ test "shift.with matches the exception fixture transcript through lexical handle
                 .exception = shift.effect.exception.use([]const u8, catch_policy),
             }, struct {
                 /// Return normally through the lexical exception scope.
-                pub fn body(_: anytype) ![]const u8 {
+                pub fn body(_: anytype) ExecResult([]const u8) {
                     return "result=ok";
                 }
             });
@@ -610,7 +614,7 @@ test "shift.with matches the exception fixture transcript through lexical handle
                 .exception = shift.effect.exception.use([]const u8, catch_policy),
             }, struct {
                 /// Throw once through the lexical exception scope.
-                pub fn body(eff: anytype) ![]const u8 {
+                pub fn body(eff: anytype) ExecResult([]const u8) {
                     transcript.note("body-before-throw\n");
                     try eff.exception.throw("result=boom");
                 }
@@ -622,7 +626,7 @@ test "shift.with matches the exception fixture transcript through lexical handle
 
 test "shift.with matches the resource fixture transcript through lexical handles" {
     try expectFixtureTranscript("example_proof/fixtures/resource_basic.txt", struct {
-        fn run(writer: anytype) !void {
+        fn run(writer: anytype) anyerror!void {
             const transcript = struct {
                 threadlocal var active_writer: ?@TypeOf(writer) = null;
 
@@ -661,7 +665,7 @@ test "shift.with matches the resource fixture transcript through lexical handles
                 .resource = shift.effect.resource.use([]const u8, resource_manager),
             }, struct {
                 /// Acquire and use two resources through the lexical scope.
-                pub fn body(eff: anytype) ![]const u8 {
+                pub fn body(eff: anytype) ExecResult([]const u8) {
                     const first = try eff.resource.acquire();
                     transcript.note("use=");
                     transcript.note(first);
@@ -683,7 +687,7 @@ test "shift.with matches the resource fixture transcript through lexical handles
 
 test "shift.with matches the writer fixture transcript through lexical handles" {
     try expectFixtureTranscript("example_proof/fixtures/writer_basic.txt", struct {
-        fn run(writer: anytype) !void {
+        fn run(writer: anytype) anyerror!void {
             var runtime = shift.Runtime.init(std.testing.allocator);
             defer runtime.deinit();
 
@@ -691,7 +695,7 @@ test "shift.with matches the writer fixture transcript through lexical handles" 
                 .writer = shift.effect.writer.use([]const u8, std.testing.allocator),
             }, struct {
                 /// Append two items and return the canonical writer answer.
-                pub fn body(eff: anytype) ![]const u8 {
+                pub fn body(eff: anytype) ExecResult([]const u8) {
                     try eff.writer.tell("a");
                     try eff.writer.tell("b");
                     return "done";
@@ -716,7 +720,7 @@ test "generated choice families use the lexical choice form" {
     });
 
     try expectFixtureTranscript("example_proof/fixtures/optional_basic.txt", struct {
-        fn run(writer: anytype) !void {
+        fn run(writer: anytype) anyerror!void {
             const transcript = struct {
                 threadlocal var active_writer: ?@TypeOf(writer) = null;
 
@@ -764,10 +768,10 @@ test "generated choice families use the lexical choice form" {
                 .picker = Picker.use(.{ .handler = return_now_handler{} }),
             }, struct {
                 /// Trigger the generated lexical choice point and prove the continuation is skipped.
-                pub fn body(eff: anytype) ![]const u8 {
+                pub fn body(eff: anytype) ExecResult([]const u8) {
                     return try eff.picker.pick.perform(41, struct {
                         /// This generated continuation must never run in the return-now branch.
-                        pub fn apply(_: i32, _: anytype) ![]const u8 {
+                        pub fn apply(_: i32, _: anytype) ExecResult([]const u8) {
                             unreachable;
                         }
                     });
@@ -780,10 +784,10 @@ test "generated choice families use the lexical choice form" {
                 .picker = Picker.use(.{ .handler = resume_handler{} }),
             }, struct {
                 /// Trigger the generated lexical choice point and complete the explicit continuation.
-                pub fn body(eff: anytype) ![]const u8 {
+                pub fn body(eff: anytype) ExecResult([]const u8) {
                     return try eff.picker.pick.perform(41, struct {
                         /// Resume the generated lexical choice continuation with the canonical final answer.
-                        pub fn apply(value: i32, _: anytype) ![]const u8 {
+                        pub fn apply(value: i32, _: anytype) ExecResult([]const u8) {
                             if (value != 41) unreachable;
                             transcript.note("body-after-request\n");
                             return "answer=42";
@@ -805,7 +809,7 @@ test "generated abort families use the lexical abort form" {
     });
 
     try expectFixtureTranscript("example_proof/fixtures/algebraic_abortive_validation.txt", struct {
-        fn run(writer: anytype) !void {
+        fn run(writer: anytype) anyerror!void {
             const transcript = struct {
                 threadlocal var active_writer: ?@TypeOf(writer) = null;
 
@@ -834,7 +838,7 @@ test "generated abort families use the lexical abort form" {
                 .guard = Guard.use(.{ .handler = guard_handler{} }),
             }, struct {
                 /// Trigger the generated lexical abort point directly.
-                pub fn body(eff: anytype) ![]const u8 {
+                pub fn body(eff: anytype) ExecResult([]const u8) {
                     try eff.guard.fail.abort("missing-name");
                 }
             });
@@ -868,10 +872,10 @@ test "generated zero-payload choice fields stay ergonomic" {
         }{} }),
     }, struct {
         /// Trigger a zero-payload generated lexical choice op with no payload argument.
-        pub fn body(eff: anytype) ![]const u8 {
+        pub fn body(eff: anytype) ExecResult([]const u8) {
             return try eff.asker.ask.perform(struct {
                 /// Convert the resumed generated answer into the final lexical result.
-                pub fn apply(value: i32, _: anytype) ![]const u8 {
+                        pub fn apply(value: i32, _: anytype) ExecResult([]const u8) {
                     if (value != 7) unreachable;
                     return "answer=7";
                 }

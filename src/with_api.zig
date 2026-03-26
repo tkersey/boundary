@@ -374,8 +374,8 @@ fn BodyFunctionType(comptime Body: type) type {
 }
 
 fn BodyReturnType(comptime Body: type, comptime EffType: type) type {
-    if (@hasDecl(Body, "body")) return @TypeOf(Body.body(DummyValue(EffType)));
-    return @TypeOf(Body(DummyValue(EffType)));
+    if (@hasDecl(Body, "body")) return @TypeOf(Body.body(dummyValue(EffType)));
+    return @TypeOf(Body(dummyValue(EffType)));
 }
 
 fn BodyAnswerType(comptime Body: type, comptime EffType: type) type {
@@ -435,12 +435,12 @@ fn ContinuationReturnType(
     const params = @typeInfo(ResumeFn).@"fn".params;
     if (params.len != 2) @compileError("lexical choice continuation apply must accept exactly (value, eff)");
     if (comptime hasDeclSafe(Continuation, "apply")) {
-        return @TypeOf(@field(Continuation, "apply")(DummyValue(ResumeType), DummyValue(EffType)));
+        return @TypeOf(@field(Continuation, "apply")(dummyValue(ResumeType), dummyValue(EffType)));
     }
     return @typeInfo(ResumeFn).@"fn".return_type.?;
 }
 
-fn DummyPointer(comptime PtrType: type) PtrType {
+fn dummyPointer(comptime PtrType: type) PtrType {
     const pointer = @typeInfo(PtrType).pointer;
     return switch (pointer.size) {
         .slice => blk: {
@@ -453,12 +453,19 @@ fn DummyPointer(comptime PtrType: type) PtrType {
     };
 }
 
-fn DummyValue(comptime T: type) T {
+fn dummyValue(comptime T: type) T {
     return switch (@typeInfo(T)) {
-        .pointer => DummyPointer(T),
+        .pointer => dummyPointer(T),
         .optional => null,
+        .@"struct" => |info| blk: {
+            var value_buffer: T = undefined;
+            inline for (info.fields) |field| {
+                @field(value_buffer, field.name) = dummyValue(field.type);
+            }
+            break :blk value_buffer;
+        },
         .void => {},
-        else => DummyPointer(*T).*,
+        else => dummyPointer(*T).*,
     };
 }
 

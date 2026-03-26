@@ -12,14 +12,14 @@ const Demo = shift.Program(.{
     .resource = shift.Decl.resource([]const u8, bad_manager),
 }, struct {
     /// Execute this public body hook.
-    pub fn body(eff: anytype) !usize {
+    pub fn body(eff: anytype) anyerror!usize {
         const item = try eff.resource.acquire();
         return item.len;
     }
 });
 
 /// Run this public entrypoint.
-pub fn main() !void {
+pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     _ = try shift.run(&runtime, Demo, .{});

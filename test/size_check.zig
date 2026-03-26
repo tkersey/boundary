@@ -9,6 +9,10 @@ fn hasErrorName(comptime ErrorSet: type, comptime wanted: []const u8) bool {
     return false;
 }
 
+fn ExecResult(comptime T: type) type {
+    return (shift.RuntimeError || error{ OutOfMemory, BodyOops, ContinueOops, HandlerOops })!T;
+}
+
 test "prompt shell stays compact" {
     const NoError = error{};
     const DemoPrompt = prompt_support.Prompt(.resume_then_transform, void, void, NoError);
@@ -123,7 +127,7 @@ test "front-door program preserves custom body errors" {
         .state = shift.Decl.state(i32),
     }, struct {
         /// Execute this public body hook.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) ExecResult(i32) {
             _ = try eff.state.get();
             return error.BodyOops;
         }
@@ -144,7 +148,7 @@ test "front-door custom family infers handler errors" {
         state: i32 = 7,
 
         /// Public `get` helper.
-        pub fn get(_: *@This()) !i32 {
+        pub fn get(_: *@This()) ExecResult(i32) {
             return error.HandlerOops;
         }
 
@@ -165,7 +169,7 @@ test "front-door custom family infers handler errors" {
         .counter = Counter,
     }, struct {
         /// Execute this public body hook.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) ExecResult(i32) {
             return try eff.counter.get.perform();
         }
     });
@@ -203,10 +207,10 @@ test "front-door optional declarations infer continuation errors" {
         .optional = shift.Decl.optional(i32, policy),
     }, struct {
         /// Execute this public body hook.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) ExecResult(i32) {
             return try eff.optional.request(struct {
                 /// Apply this public continuation hook.
-                pub fn apply(value: i32, _: anytype) !i32 {
+                pub fn apply(value: i32, _: anytype) ExecResult(i32) {
                     _ = value;
                     return error.ContinueOops;
                 }
@@ -248,10 +252,10 @@ test "front-door choice families infer continuation errors" {
         .picker = Picker,
     }, struct {
         /// Execute this public body hook.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) ExecResult(i32) {
             return try eff.picker.pick.perform(41, struct {
                 /// Apply this public continuation hook.
-                pub fn apply(_: i32, _: anytype) !i32 {
+                pub fn apply(_: i32, _: anytype) ExecResult(i32) {
                     return error.ContinueOops;
                 }
             });

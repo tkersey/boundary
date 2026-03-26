@@ -37,14 +37,14 @@ const CounterProgram = shift.Program(.{
     .counter = Counter,
 }, struct {
     /// Increment the generated counter once and return the new value.
-    pub fn body(eff: anytype) !i32 {
+    pub fn body(eff: anytype) anyerror!i32 {
         const before = try eff.counter.get.perform();
         try eff.counter.set.perform(before + 1);
         return try eff.counter.get.perform();
     }
 });
 
-fn runCounter(runtime: *shift.Runtime) !i32 {
+fn runCounter(runtime: *shift.Runtime) anyerror!i32 {
     const result = try shift.run(runtime, CounterProgram, .{
         .counter = CounterHandler{ .state = 5 },
     });

@@ -43,7 +43,7 @@ fn readIdentifier(line: []const u8, start: usize) []const u8 {
     return line[start..idx];
 }
 
-fn buildSnapshot(allocator: std.mem.Allocator) ![]u8 {
+fn buildSnapshot(allocator: std.mem.Allocator) anyerror![]u8 {
     const content = try std.fs.cwd().readFileAlloc(allocator, "src/root.zig", std.math.maxInt(usize));
     var exports = std.ArrayList([]const u8).empty;
     defer exports.deinit(allocator);
@@ -80,7 +80,7 @@ fn buildSnapshot(allocator: std.mem.Allocator) ![]u8 {
 }
 
 /// Run this public entrypoint.
-pub fn main() !void {
+pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();

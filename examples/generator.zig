@@ -6,7 +6,7 @@ const GeneratorProgram = shift.Program(.{
     .state = shift.Decl.state(i32),
 }, struct {
     /// Emit three yielded values and return the final counter.
-    pub fn body(eff: anytype) !i32 {
+    pub fn body(eff: anytype) anyerror!i32 {
         while (true) {
             const current = try eff.state.get();
             if (current == 3) return current;

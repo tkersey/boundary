@@ -17,10 +17,10 @@ const Demo = shift.Program(.{
     .optional = shift.Decl.optional(i32, bad_policy),
 }, struct {
     /// Execute this public body hook.
-    pub fn body(eff: anytype) !i32 {
+    pub fn body(eff: anytype) anyerror!i32 {
         return try eff.optional.request(struct {
             /// Apply this public continuation hook.
-            pub fn apply(value: i32, _: anytype) !i32 {
+            pub fn apply(value: i32, _: anytype) anyerror!i32 {
                 return value;
             }
         });
@@ -28,7 +28,7 @@ const Demo = shift.Program(.{
 });
 
 /// Run this public entrypoint.
-pub fn main() !void {
+pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     _ = try shift.run(&runtime, Demo, .{});

@@ -40,7 +40,7 @@ const ArtifactSearch = shift.Program(.{
     .search = Search,
 }, struct {
     /// Trigger the front-door search operation and emit the canonical artifact transcript fields.
-    pub fn body(eff: anytype) !i32 {
+    pub fn body(eff: anytype) anyerror!i32 {
         const total = try eff.search.search.perform("artifact-search");
         if (total != 3) unreachable;
         transcript.note("messages=1");

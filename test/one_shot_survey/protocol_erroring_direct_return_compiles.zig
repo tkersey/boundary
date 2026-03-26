@@ -6,7 +6,7 @@ const DemoPrompt = prompt_support.Prompt(.direct_return, i32, i32, DemoError);
 const demo = struct {
     const handle = struct {
         /// Exercise the error-carrying direct-return protocol shape.
-        pub fn directReturn() !i32 {
+        pub fn directReturn() anyerror!i32 {
             return error.Boom;
         }
     };

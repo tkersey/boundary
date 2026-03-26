@@ -290,6 +290,13 @@ fn dummyValue(comptime T: type) T {
     return switch (@typeInfo(T)) {
         .pointer => dummyPointer(T),
         .optional => null,
+        .@"struct" => |info| blk: {
+            var value_buffer: T = undefined;
+            inline for (info.fields) |field| {
+                @field(value_buffer, field.name) = dummyValue(field.type);
+            }
+            break :blk value_buffer;
+        },
         .void => {},
         else => dummyPointer(*T).*,
     };
@@ -378,22 +385,22 @@ fn InferHandlerErrorSet(
         const handler_method = @field(HandlerType, opName(Op));
         switch (mode) {
             .resume_then_transform => {
-                const resume_return_type = @typeInfo(@TypeOf(handler_method)).@"fn".return_type.?;
+                const ResumeReturnType = @typeInfo(@TypeOf(handler_method)).@"fn".return_type.?;
                 const AfterReturnType = @typeInfo(@TypeOf(@field(HandlerType, afterMethodName(opName(Op))))).@"fn".return_type.?;
                 ErrorSet = ErrorSet ||
-                    ReturnTypeErrorSet(resume_return_type) ||
+                    ReturnTypeErrorSet(ResumeReturnType) ||
                     ReturnTypeErrorSet(AfterReturnType);
             },
             .resume_or_return => {
-                const decide_return_type = @typeInfo(@TypeOf(handler_method)).@"fn".return_type.?;
+                const DecideReturnType = @typeInfo(@TypeOf(handler_method)).@"fn".return_type.?;
                 const AfterReturnType = @typeInfo(@TypeOf(@field(HandlerType, afterMethodName(opName(Op))))).@"fn".return_type.?;
                 ErrorSet = ErrorSet ||
-                    ReturnTypeErrorSet(decide_return_type) ||
+                    ReturnTypeErrorSet(DecideReturnType) ||
                     ReturnTypeErrorSet(AfterReturnType);
             },
             .direct_return => {
-                const direct_return_type = @typeInfo(@TypeOf(handler_method)).@"fn".return_type.?;
-                ErrorSet = ErrorSet || ReturnTypeErrorSet(direct_return_type);
+                const DirectReturnType = @typeInfo(@TypeOf(handler_method)).@"fn".return_type.?;
+                ErrorSet = ErrorSet || ReturnTypeErrorSet(DirectReturnType);
             },
         }
     }
@@ -408,10 +415,10 @@ fn InferHandlerOperationErrorSet(
     var ErrorSet = error{};
     inline for (op_specs) |Op| {
         const handler_method = @field(HandlerType, opName(Op));
-        const operation_return_type = switch (mode) {
+        const OperationReturnType = switch (mode) {
             .resume_then_transform, .resume_or_return, .direct_return => @typeInfo(@TypeOf(handler_method)).@"fn".return_type.?,
         };
-        ErrorSet = ErrorSet || ReturnTypeErrorSet(operation_return_type);
+        ErrorSet = ErrorSet || ReturnTypeErrorSet(OperationReturnType);
         switch (mode) {
             .resume_then_transform, .resume_or_return => {
                 const AfterReturnType = @typeInfo(@TypeOf(@field(HandlerType, afterMethodName(opName(Op))))).@"fn".return_type.?;

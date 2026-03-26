@@ -180,11 +180,11 @@ fn HandlerFieldType(comptime DeclType: type) type {
         .exception => @TypeOf(@import("effect/exception.zig").use(DeclType.Payload, DeclType.Catch)),
         .resource => @TypeOf(@import("effect/resource.zig").use(DeclType.Resource, DeclType.Manager)),
         .writer => @import("effect/writer.zig").LexicalDescriptor(DeclType.Item, error{}),
-        .family => @TypeOf(DeclType.generated.use(.{ .handler = DummyValue(DeclType.Handler) })),
+        .family => @TypeOf(DeclType.generated.use(.{ .handler = dummyValue(DeclType.Handler) })),
     };
 }
 
-fn DummyPointer(comptime PtrType: type) PtrType {
+fn dummyPointer(comptime PtrType: type) PtrType {
     const pointer = @typeInfo(PtrType).pointer;
     return switch (pointer.size) {
         .slice => blk: {
@@ -197,12 +197,19 @@ fn DummyPointer(comptime PtrType: type) PtrType {
     };
 }
 
-fn DummyValue(comptime T: type) T {
+fn dummyValue(comptime T: type) T {
     return switch (@typeInfo(T)) {
-        .pointer => DummyPointer(T),
+        .pointer => dummyPointer(T),
         .optional => null,
+        .@"struct" => |info| blk: {
+            var value_buffer: T = undefined;
+            inline for (info.fields) |field| {
+                @field(value_buffer, field.name) = dummyValue(field.type);
+            }
+            break :blk value_buffer;
+        },
         .void => {},
-        else => DummyPointer(*T).*,
+        else => dummyPointer(*T).*,
     };
 }
 
@@ -401,7 +408,7 @@ test "program run executes through the new front door" {
         .state = decl.state(i32),
     }, struct {
         /// Execute this public body hook.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) anyerror!i32 {
             const before = try eff.state.get();
             try eff.state.set(before + 1);
             return before + (try eff.state.get());

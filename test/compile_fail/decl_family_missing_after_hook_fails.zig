@@ -21,13 +21,13 @@ const Demo = shift.Program(.{
     .counter = Counter,
 }, struct {
     /// Execute this public body hook.
-    pub fn body(eff: anytype) !i32 {
+    pub fn body(eff: anytype) anyerror!i32 {
         return try eff.counter.get.perform();
     }
 });
 
 /// Run this public entrypoint.
-pub fn main() !void {
+pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     _ = try shift.run(&runtime, Demo, .{

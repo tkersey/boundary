@@ -30,7 +30,7 @@ fn SpecsErrorSet(comptime SpecsType: type) type {
 
 fn ConfiguredBodyErrorSet(comptime ContextType: type, comptime Body: type) type {
     if (@hasDecl(Body, "program")) {
-        const AuthoredType = @TypeOf(Body.program(DummyValue(*ContextType)));
+        const AuthoredType = @TypeOf(Body.program(dummyValue(*ContextType)));
         switch (@typeInfo(AuthoredType)) {
             .@"struct" => if (@hasField(AuthoredType, "prompt")) {
                 return switch (@typeInfo(@FieldType(AuthoredType, "prompt"))) {
@@ -43,7 +43,7 @@ fn ConfiguredBodyErrorSet(comptime ContextType: type, comptime Body: type) type 
         return error{};
     }
     if (!@hasDecl(Body, "body")) return error{};
-    return ReturnTypeErrorSet(@TypeOf(Body.body(DummyValue(*ContextType))));
+    return ReturnTypeErrorSet(@TypeOf(Body.body(dummyValue(*ContextType))));
 }
 
 /// Define one closed-world abortive operation.
@@ -77,7 +77,7 @@ pub fn Program(
     return struct {
         fn HandlersReturnType(comptime SpecsType: type) type {
             const InferredSpecErrorSet = SpecsErrorSet(SpecsType);
-            const BaseConfigured = @TypeOf(ProgramWithErrorSet(Answer, InferredSpecErrorSet, ops).handlers(DummyValue(SpecsType)));
+            const BaseConfigured = @TypeOf(ProgramWithErrorSet(Answer, InferredSpecErrorSet, ops).handlers(dummyValue(SpecsType)));
             return struct {
                 specs: SpecsType,
 
@@ -91,7 +91,7 @@ pub fn Program(
                     if (@hasDecl(Body, "program")) {
                         const adapted_body = struct {
                             /// Public `program` helper.
-                            pub fn program(ctx: *@TypeOf(ConfiguredWithErrorSet).Context) @TypeOf(Body.program(DummyValue(*Context))) {
+                            pub fn program(ctx: *@TypeOf(ConfiguredWithErrorSet).Context) @TypeOf(Body.program(dummyValue(*Context))) {
                                 // The public wrapper keeps its documented Context shape while the widened runner carries a larger inferred error set.
                                 return Body.program(@as(*Context, @ptrCast(ctx)));
                             }
@@ -101,7 +101,7 @@ pub fn Program(
                     if (@hasDecl(Body, "body")) {
                         const adapted_body = struct {
                             /// Execute this public body hook.
-                            pub fn body(ctx: *@TypeOf(ConfiguredWithErrorSet).Context) @TypeOf(Body.body(DummyValue(*Context))) {
+                            pub fn body(ctx: *@TypeOf(ConfiguredWithErrorSet).Context) @TypeOf(Body.body(dummyValue(*Context))) {
                                 return Body.body(@as(*Context, @ptrCast(ctx)));
                             }
                         };
@@ -119,7 +119,7 @@ pub fn Program(
     };
 }
 
-fn DummyPointer(comptime PtrType: type) PtrType {
+fn dummyPointer(comptime PtrType: type) PtrType {
     const pointer = @typeInfo(PtrType).pointer;
     return switch (pointer.size) {
         .slice => blk: {
@@ -132,12 +132,19 @@ fn DummyPointer(comptime PtrType: type) PtrType {
     };
 }
 
-fn DummyValue(comptime T: type) T {
+fn dummyValue(comptime T: type) T {
     return switch (@typeInfo(T)) {
-        .pointer => DummyPointer(T),
+        .pointer => dummyPointer(T),
         .optional => null,
+        .@"struct" => |info| blk: {
+            var value_buffer: T = undefined;
+            inline for (info.fields) |field| {
+                @field(value_buffer, field.name) = dummyValue(field.type);
+            }
+            break :blk value_buffer;
+        },
         .void => {},
-        else => DummyPointer(*T).*,
+        else => dummyPointer(*T).*,
     };
 }
 
