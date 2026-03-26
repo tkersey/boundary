@@ -113,22 +113,6 @@ fn canonicalSourceHash(b: *std.Build, path: []const u8) [32]u8 {
     return digest;
 }
 
-fn entryFunctionSourceSlice(tree: std.zig.Ast, source: []const u8, name: []const u8) ?[]const u8 {
-    var container_buffer: [2]std.zig.Ast.Node.Index = undefined;
-    const root = tree.fullContainerDecl(&container_buffer, .root) orelse return null;
-    for (root.ast.members) |member| {
-        var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
-        const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse continue;
-        const name_token = fn_proto.name_token orelse continue;
-        if (!std.mem.eql(u8, tree.tokenSlice(name_token), name)) continue;
-        const start = tree.tokenStart(fn_proto.firstToken());
-        const last = tree.lastToken(member);
-        const end = tree.tokenStart(last) + @as(u32, @intCast(tree.tokenSlice(last).len));
-        return source[start..end];
-    }
-    return null;
-}
-
 fn appendMemberSource(list: *std.ArrayList(u8), allocator: std.mem.Allocator, source: []const u8, tree: std.zig.Ast, member: std.zig.Ast.Node.Index) void {
     const start = tree.tokenStart(tree.firstToken(member));
     const last = tree.lastToken(member);

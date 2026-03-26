@@ -1,7 +1,5 @@
 const lexical_runtime = @import("lexical_runtime_internal");
 const std = @import("std");
-
-const NoError = error{};
 const ResumeWitness = lexical_runtime.effect.Define(.{
     .state_type = void,
     .ops = .{

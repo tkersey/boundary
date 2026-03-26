@@ -45,19 +45,6 @@ fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
     };
 }
 
-fn expectDeclTypeOneOf(comptime Owner: type, comptime name: []const u8, comptime ExpectedA: type, comptime ExpectedB: type) void {
-    if (!hasDeclSafe(Owner, name)) {
-        @compileError(@typeName(Owner) ++ " must declare " ++ name);
-    }
-    const ActualType = @TypeOf(@field(Owner, name));
-    if (ActualType != ExpectedA and ActualType != ExpectedB) {
-        @compileError(
-            @typeName(Owner) ++ "." ++ name ++ " must have type " ++ @typeName(ExpectedA) ++
-                " or " ++ @typeName(ExpectedB),
-        );
-    }
-}
-
 fn fnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
     const ReturnType = @typeInfo(FnType).@"fn".return_type.?;
     return switch (@typeInfo(ReturnType)) {

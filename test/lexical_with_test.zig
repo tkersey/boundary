@@ -1,8 +1,6 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const NoError = error{};
-
 fn hasErrorName(comptime ErrorSet: type, comptime wanted: []const u8) bool {
     inline for (@typeInfo(ErrorSet).error_set.?) |field| {
         if (comptime std.mem.eql(u8, field.name, wanted)) return true;

@@ -1,5 +1,4 @@
 const prompt_support = @import("prompt_support");
-const shift = @import("shift");
 
 const DemoError = error{Boom};
 const DemoPrompt = prompt_support.Prompt(.resume_or_return, i32, i32, DemoError);

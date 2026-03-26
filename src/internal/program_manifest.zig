@@ -1,5 +1,3 @@
-const std = @import("std");
-
 /// Public declaration metadata shape.
 pub const DeclarationMeta = struct {
     name: []const u8,

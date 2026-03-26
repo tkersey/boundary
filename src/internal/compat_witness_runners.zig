@@ -1,7 +1,5 @@
 const shift = @import("shift");
 const std = @import("std");
-
-const NoError = error{};
 const ResumeWitness = shift.effect.Define(.{
     .state_type = void,
     .ops = .{

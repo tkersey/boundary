@@ -1,5 +1,3 @@
-const std = @import("std");
-
 /// Public witness surface enum.
 pub const Surface = enum {
     algebraic,

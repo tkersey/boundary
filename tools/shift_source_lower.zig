@@ -103,21 +103,6 @@ fn writeZigStringArray(writer: anytype, values: []const []const u8) !void {
     try writer.writeByte('}');
 }
 
-fn writeZigWitnessDiagnostics(writer: anytype, diagnostics: anytype) !void {
-    try writer.writeAll("&.{");
-    for (diagnostics, 0..) |diag, idx| {
-        if (idx != 0) try writer.writeAll(", ");
-        try writer.writeAll(".{ .code = ");
-        try writeZigStringLiteral(writer, diag.code);
-        try writer.writeAll(", .message = ");
-        try writeZigStringLiteral(writer, diag.message);
-        try writer.writeAll(", .path = ");
-        try writeZigStringLiteral(writer, diag.path);
-        try writer.print(", .line = {d}, .column = {d} }}", .{ diag.line, diag.column });
-    }
-    try writer.writeByte('}');
-}
-
 fn writeZigContributors(writer: anytype, contributors: anytype) !void {
     try writer.writeAll("&.{");
     for (contributors, 0..) |contributor, idx| {
