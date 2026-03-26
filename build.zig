@@ -1480,9 +1480,9 @@ pub fn build(b: *std.Build) void {
         var builder = zlinter.builder(b, .{});
         builder.addPaths(.{
             .exclude = &.{
+                b.path(".zig-cache"),
                 b.path(".zig-global-cache"),
                 b.path("src/error_witness.zig"),
-                b.path("vendor"),
             },
         });
         inline for (@typeInfo(zlinter.BuiltinLintRule).@"enum".fields) |field| {
