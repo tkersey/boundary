@@ -2,7 +2,9 @@ const bridge_manifest = @import("direct_style_bridge_manifest");
 const lowered_machine = @import("lowered_machine");
 const parity_scenarios = @import("parity_scenarios");
 const program_bridge = @import("program_bridge");
+const source_coverage = @import("source_lowering_coverage_registry");
 const source_lowering = @import("source_lowering");
+const source_registry = @import("source_lowering_registry");
 const std = @import("std");
 
 const ReportSpec = struct {
@@ -75,7 +77,7 @@ fn outputPath() []const u8 {
 }
 
 fn usage() noreturn {
-    std.debug.print("usage: shift-lowering-equivalence-report <write|check>\n", .{});
+    std.debug.print("usage: shift-lowering-admission-report <write|check>\n", .{});
     std.process.exit(1);
 }
 
@@ -99,6 +101,69 @@ fn writeFeatureFlags(writer: anytype, flags: []const []const u8) !void {
         try writeJsonString(writer, flag);
     }
     try writer.writeByte(']');
+}
+
+fn containsSourceSpec(case_id: []const u8) bool {
+    for (source_specs) |spec| {
+        if (std.mem.eql(u8, spec.case_id, case_id)) return true;
+    }
+    return false;
+}
+
+fn containsPromotedSpec(case_id: []const u8) bool {
+    for (promoted_specs) |spec| {
+        if (std.mem.eql(u8, spec.case_id, case_id)) return true;
+    }
+    return false;
+}
+
+fn mappedCoverageCaseId(row: source_coverage.Row) ?[]const u8 {
+    if (row.coverage_status != .covered) return null;
+    switch (row.category) {
+        .example, .user_defined_effect, .witness => return row.coverage_id,
+        .built_in_effect => {
+            if (std.mem.eql(u8, row.coverage_id, "built_in.state")) return "effect.state_basic";
+            if (std.mem.eql(u8, row.coverage_id, "built_in.reader")) return "effect.reader_basic";
+            if (std.mem.eql(u8, row.coverage_id, "built_in.optional")) return "effect.optional_basic";
+            if (std.mem.eql(u8, row.coverage_id, "built_in.exception")) return "effect.exception_basic";
+            if (std.mem.eql(u8, row.coverage_id, "built_in.resource")) return "effect.resource_basic";
+            if (std.mem.eql(u8, row.coverage_id, "built_in.writer")) return "effect.writer_basic";
+            return null;
+        },
+    }
+}
+
+fn isExpectedPromotedCaseId(case_id: []const u8) bool {
+    for (source_coverage.rows) |row| {
+        const mapped = mappedCoverageCaseId(row) orelse continue;
+        if (std.mem.eql(u8, mapped, case_id)) return true;
+    }
+    return false;
+}
+
+fn verifyReportSpecCoverage() !void {
+    for (source_registry.cases) |case| {
+        if (containsSourceSpec(case.case_id)) continue;
+        std.debug.print("lowering admission report missing source row: {s}\n", .{case.case_id});
+        return error.MissingSourceAdmissionRow;
+    }
+    for (source_specs) |spec| {
+        if (source_registry.find(spec.case_id) != null) continue;
+        std.debug.print("lowering admission report includes unknown source row: {s}\n", .{spec.case_id});
+        return error.UnknownSourceAdmissionRow;
+    }
+
+    for (source_coverage.rows) |row| {
+        const mapped = mappedCoverageCaseId(row) orelse continue;
+        if (containsPromotedSpec(mapped)) continue;
+        std.debug.print("lowering admission report missing covered row: {s}\n", .{mapped});
+        return error.MissingCoveredAdmissionRow;
+    }
+    for (promoted_specs) |spec| {
+        if (isExpectedPromotedCaseId(spec.case_id)) continue;
+        std.debug.print("lowering admission report includes untracked covered row: {s}\n", .{spec.case_id});
+        return error.UnknownCoveredAdmissionRow;
+    }
 }
 
 fn bridgeProofSpec(allocator: std.mem.Allocator, case: bridge_manifest.Case) !?ProofSpec {
@@ -169,7 +234,7 @@ fn renderSourceRow(list: *std.ArrayList(u8), allocator: std.mem.Allocator, spec:
     try writeJsonString(&line.writer, spec.entry_symbol);
     try line.writer.writeAll(",\"canonical_scenario_id\":");
     try writeJsonString(&line.writer, @tagName(lowered.canonical_scenario_id.?));
-    try line.writer.print(",\"lower_status\":\"{s}\",\"transcript_equivalence\":{},\"error_witness_status\":\"{s}\",\"diagnostic_count\":{},\"feature_flags\":", .{
+    try line.writer.print(",\"lower_status\":\"{s}\",\"canonical_replay_matches_expected\":{},\"error_witness_status\":\"{s}\",\"diagnostic_count\":{},\"feature_flags\":", .{
         @tagName(lowered.status),
         std.mem.eql(u8, transcript_writer.buffered(), scenario.expected_transcript),
         @tagName(witnessStatus(&lowered)),
@@ -204,7 +269,7 @@ fn renderBridgeRows(list: *std.ArrayList(u8), allocator: std.mem.Allocator, firs
         try writeJsonString(&line.writer, case.entry_symbol);
         try line.writer.writeAll(",\"canonical_scenario_id\":");
         try writeJsonString(&line.writer, @tagName(lowered.canonical_scenario_id.?));
-        try line.writer.print(",\"lower_status\":\"{s}\",\"transcript_equivalence\":{},\"error_witness_status\":\"{s}\",\"diagnostic_count\":{},\"feature_flags\":", .{
+        try line.writer.print(",\"lower_status\":\"{s}\",\"canonical_replay_matches_expected\":{},\"error_witness_status\":\"{s}\",\"diagnostic_count\":{},\"feature_flags\":", .{
             @tagName(lowered.status),
             std.mem.eql(u8, transcript_writer.buffered(), scenario.expected_transcript),
             @tagName(try bridgeWitnessStatus(allocator, case)),
@@ -219,8 +284,9 @@ fn renderBridgeRows(list: *std.ArrayList(u8), allocator: std.mem.Allocator, firs
 }
 
 fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
+    try verifyReportSpecCoverage();
     try list.appendSlice(allocator, "{\n");
-    try list.appendSlice(allocator, "  \"scope\": \"lowering_equivalence\",\n");
+    try list.appendSlice(allocator, "  \"scope\": \"lowering_admission_replay\",\n");
     try list.appendSlice(allocator, "  \"rows\": [\n");
     var first = true;
     for (source_specs) |spec| try renderSourceRow(list, allocator, spec, &first);
@@ -229,7 +295,7 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, "\n  ]\n}\n");
 }
 
-/// Render or check the lowering equivalence report artifact.
+/// Render or check the legacy-named lowering admission report artifact.
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -252,7 +318,7 @@ pub fn main() anyerror!void {
     const actual = try std.fs.cwd().readFileAlloc(allocator, outputPath(), std.math.maxInt(usize));
     defer allocator.free(actual);
     if (!std.mem.eql(u8, actual, rendered.items)) {
-        std.debug.print("lowering equivalence report drift: {s}\n", .{outputPath()});
-        return error.LoweringEquivalenceReportDrift;
+        std.debug.print("lowering admission report drift: {s}\n", .{outputPath()});
+        return error.LoweringAdmissionReportDrift;
     }
 }

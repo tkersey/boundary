@@ -944,6 +944,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     lowering_equivalence_mod.addImport("source_lowering", source_lowering_mod);
+    lowering_equivalence_mod.addImport("source_lowering_coverage_registry", src_lower_cov_registry_mod);
+    lowering_equivalence_mod.addImport("source_lowering_registry", source_lowering_registry_mod);
     lowering_equivalence_mod.addImport("parity_scenarios", parity_scenarios_mod);
     lowering_equivalence_mod.addImport("lowered_machine", lowered_machine_mod);
     lowering_equivalence_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
@@ -954,11 +956,11 @@ pub fn build(b: *std.Build) void {
     });
     const lower_eq_check = b.addRunArtifact(lowering_equivalence_exe);
     lower_eq_check.addArg("check");
-    const lower_eq_chk_step = b.step("lowering-equivalence-report-check", "Check the lowering equivalence report artifact.");
+    const lower_eq_chk_step = b.step("lowering-equivalence-report-check", "Check the legacy-named lowering admission report artifact.");
     lower_eq_chk_step.dependOn(&lower_eq_check.step);
     const lower_eq_write = b.addRunArtifact(lowering_equivalence_exe);
     lower_eq_write.addArg("write");
-    const lower_eq_wr_step = b.step("lowering-equivalence-report-write", "Refresh the lowering equivalence report artifact.");
+    const lower_eq_wr_step = b.step("lowering-equivalence-report-write", "Refresh the legacy-named lowering admission report artifact.");
     lower_eq_wr_step.dependOn(&lower_eq_write.step);
 
     const lowering_rejection_mod = b.createModule(.{

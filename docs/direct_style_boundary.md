@@ -24,7 +24,7 @@ The current limit is structural:
   cases
 - the internal source-lowering track is still structurally restricted even
   though it now covers the repo-owned coverage matrix and emits checked
-  equivalence/rejection artifacts
+  admission/rejection artifacts
 - the current proof-facing source-lowering scope is tracked separately in
   `docs/source_lowering_coverage_matrix.json`
 - arbitrary public-style `fn body() ...` code still relies on host-language

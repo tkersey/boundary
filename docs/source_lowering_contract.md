@@ -112,16 +112,18 @@ It records the current source-lowering label, law anchor, current proof signal,
 and `coverage_status` for each covered witness, example, built-in declaration,
 and user-defined effect row.
 
-The checked equivalence artifact is:
+The checked admission/replay artifact is stored at the legacy path:
 
 ```text
 docs/lowering_equivalence_report.json
 ```
 
 It records the current accepted source, promoted, witness, and bridge
-rows together with transcript status and the checked witness status
-(`supported`, `unsupported`, or `not_applicable` when no matching
-source-lowering proof row exists).
+rows together with authoring admission status, canonical replay status,
+and the checked witness status (`supported`, `unsupported`, or
+`not_applicable` when no matching source-lowering proof row exists).
+It is not itself a direct source-vs-lowered equivalence proof; that proof
+remains in the gauntlet and the direct-source parity suites.
 
 The checked rejection artifact is:
 
@@ -152,5 +154,5 @@ The gauntlet proves every source corpus case in two ways:
 
 The checked corpus artifact is `docs/source_lowering_matrix.json`.
 The checked coverage artifact is `docs/source_lowering_coverage_matrix.json`.
-The checked equivalence artifact is `docs/lowering_equivalence_report.json`.
+The checked admission/replay artifact is `docs/lowering_equivalence_report.json`.
 The checked rejection artifact is `docs/lowering_rejection_report.json`.
