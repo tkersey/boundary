@@ -16,7 +16,7 @@ const expected_snapshot =
     \\}
 ;
 
-const SnapshotError = error{ SnapshotMismatch };
+const SnapshotError = error{SnapshotMismatch};
 
 fn trimAll(bytes: []const u8) []const u8 {
     var start: usize = 0;

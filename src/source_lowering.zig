@@ -1177,7 +1177,7 @@ fn inspectSourceText(
     const resolved_source_path = resolvedRepoSourcePathAlloc(allocator, spec.source_path) catch try allocator.dupe(u8, spec.source_path);
     defer allocator.free(resolved_source_path);
 
-    const lowered = try authoring_lowerer.lowerSourceText(
+    var lowered = try authoring_lowerer.lowerSourceText(
         allocator,
         loweringCase(spec, case),
         .{
@@ -1187,10 +1187,16 @@ fn inspectSourceText(
             .expected_status = spec.expected_status,
         },
     );
+    var lowered_owned = true;
+    errdefer if (lowered_owned) lowered.deinit(allocator);
     if (lowered.status != .rejected and !(try sourceMatchesDeclaredShape(allocator, case, source_text))) {
+        lowered.deinit(allocator);
+        lowered_owned = false;
         return generatedRejectedProgram(allocator, spec, case, "source does not match the currently supported restricted source-lowering shape");
     }
-    return generatedProgramFromLowered(allocator, spec, case, lowered);
+    const program = try generatedProgramFromLowered(allocator, spec, case, lowered);
+    lowered_owned = false;
+    return program;
 }
 
 fn inspectFileBackedSourceText(
@@ -1207,7 +1213,7 @@ fn inspectFileBackedSourceText(
         return generatedRejectedProgram(allocator, spec, case, "requested expected_status does not match the supported status for this case");
     }
 
-    const lowered = try authoring_lowerer.lowerFileBackedSourceText(.{
+    var lowered = try authoring_lowerer.lowerFileBackedSourceText(.{
         .allocator = allocator,
         .case = loweringCase(spec, case),
         .display_path = spec.source_path,
@@ -1215,10 +1221,16 @@ fn inspectFileBackedSourceText(
         .source_text = source_text,
         .expected_status = spec.expected_status,
     });
+    var lowered_owned = true;
+    errdefer if (lowered_owned) lowered.deinit(allocator);
     if (lowered.status != .rejected and !(try sourceMatchesDeclaredShape(allocator, case, source_text))) {
+        lowered.deinit(allocator);
+        lowered_owned = false;
         return generatedRejectedProgram(allocator, spec, case, "source does not match the currently supported restricted source-lowering shape");
     }
-    return generatedProgramFromLowered(allocator, spec, case, lowered);
+    const program = try generatedProgramFromLowered(allocator, spec, case, lowered);
+    lowered_owned = false;
+    return program;
 }
 
 /// Inspect and lower one restricted source-lowering source file.

@@ -981,7 +981,7 @@ test "generated zero-payload choice fields stay ergonomic" {
         pub fn body(eff: anytype) ExecResult([]const u8) {
             return try eff.asker.ask.perform(struct {
                 /// Convert the resumed generated answer into the final lexical result.
-                        pub fn apply(value: i32, _: anytype) ExecResult([]const u8) {
+                pub fn apply(value: i32, _: anytype) ExecResult([]const u8) {
                     if (value != 7) unreachable;
                     return "answer=7";
                 }

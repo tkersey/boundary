@@ -224,18 +224,18 @@ const effect_optional_return_micro = struct {
         }
     };
 
-        /// Execute the return-now optional micro benchmark body.
-        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.optional.requestProgram(Cap, ctx, struct {
+    /// Execute the return-now optional micro benchmark body.
+    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.optional.requestProgram(Cap, ctx, struct {
+        /// Return the direct-answer branch if the request unexpectedly resumes.
+        pub fn apply(_: usize) usize {
+            return 0;
+        }
+    })) {
+        return shift.effect.optional.requestProgram(Cap, ctx, struct {
             /// Return the direct-answer branch if the request unexpectedly resumes.
             pub fn apply(_: usize) usize {
                 return 0;
             }
-        })) {
-            return shift.effect.optional.requestProgram(Cap, ctx, struct {
-                /// Return the direct-answer branch if the request unexpectedly resumes.
-                pub fn apply(_: usize) usize {
-                    return 0;
-                }
         });
     }
 };
@@ -280,22 +280,22 @@ const effect_optional_return_prelude = struct {
         }
     };
 
-        /// Execute the return-now amortized benchmark body.
-        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.optional.requestProgram(Cap, ctx, struct {
-            /// Recompute the amortized prelude checksum if the request unexpectedly resumes.
-            pub fn apply(_: usize) usize {
-                var checksum: usize = 0;
+    /// Execute the return-now amortized benchmark body.
+    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.optional.requestProgram(Cap, ctx, struct {
+        /// Recompute the amortized prelude checksum if the request unexpectedly resumes.
+        pub fn apply(_: usize) usize {
+            var checksum: usize = 0;
             var current: usize = 0;
             while (current < prelude_items_per_body) : (current += 1) {
                 checksum +%= raw_optional_return_prelude.current_value + current + 1;
             }
             return checksum;
         }
-        })) {
-            return shift.effect.optional.requestProgram(Cap, ctx, struct {
-                /// Recompute the amortized prelude checksum if the request unexpectedly resumes.
-                pub fn apply(_: usize) usize {
-                    var checksum: usize = 0;
+    })) {
+        return shift.effect.optional.requestProgram(Cap, ctx, struct {
+            /// Recompute the amortized prelude checksum if the request unexpectedly resumes.
+            pub fn apply(_: usize) usize {
+                var checksum: usize = 0;
                 var current: usize = 0;
                 while (current < prelude_items_per_body) : (current += 1) {
                     checksum +%= raw_optional_return_prelude.current_value + current + 1;
@@ -341,18 +341,18 @@ const effect_optional_resume_micro = struct {
         }
     };
 
-        /// Execute the resumptive optional micro benchmark body.
-        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.optional.requestProgram(Cap, ctx, struct {
+    /// Execute the resumptive optional micro benchmark body.
+    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.optional.requestProgram(Cap, ctx, struct {
+        /// Increment the resumed optional value for the micro lane.
+        pub fn apply(value: usize) usize {
+            return value + 1;
+        }
+    })) {
+        return shift.effect.optional.requestProgram(Cap, ctx, struct {
             /// Increment the resumed optional value for the micro lane.
             pub fn apply(value: usize) usize {
                 return value + 1;
             }
-        })) {
-            return shift.effect.optional.requestProgram(Cap, ctx, struct {
-                /// Increment the resumed optional value for the micro lane.
-                pub fn apply(value: usize) usize {
-                    return value + 1;
-                }
         });
     }
 };
@@ -397,22 +397,22 @@ const effect_optional_resume_batch = struct {
         }
     };
 
-        /// Execute the resumptive amortized optional benchmark body.
-        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.optional.requestProgram(Cap, ctx, struct {
-            /// Add the amortized prelude checksum to the resumed optional value.
-            pub fn apply(value: usize) usize {
-                var checksum: usize = value;
+    /// Execute the resumptive amortized optional benchmark body.
+    pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(shift.effect.optional.requestProgram(Cap, ctx, struct {
+        /// Add the amortized prelude checksum to the resumed optional value.
+        pub fn apply(value: usize) usize {
+            var checksum: usize = value;
             var current: usize = 0;
             while (current < prelude_items_per_body) : (current += 1) {
                 checksum +%= raw_optional_resume_batch.current_value + current + 1;
             }
             return checksum;
         }
-        })) {
-            return shift.effect.optional.requestProgram(Cap, ctx, struct {
-                /// Add the amortized prelude checksum to the resumed optional value.
-                pub fn apply(value: usize) usize {
-                    var checksum: usize = value;
+    })) {
+        return shift.effect.optional.requestProgram(Cap, ctx, struct {
+            /// Add the amortized prelude checksum to the resumed optional value.
+            pub fn apply(value: usize) usize {
+                var checksum: usize = value;
                 var current: usize = 0;
                 while (current < prelude_items_per_body) : (current += 1) {
                     checksum +%= raw_optional_resume_batch.current_value + current + 1;

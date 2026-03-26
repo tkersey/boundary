@@ -12,7 +12,7 @@ const allowed_exports = &[_][]const u8{
     "run",
 };
 
-const BanError = error{ PublicApiBanViolation };
+const BanError = error{PublicApiBanViolation};
 
 fn trimWhitespace(line: []const u8) []const u8 {
     var start: usize = 0;

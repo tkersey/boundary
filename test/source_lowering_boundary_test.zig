@@ -293,6 +293,35 @@ test "inline source lowering rejects drifted canonical text even on the canonica
     try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
 }
 
+test "inline source lowering rejects whitespace drift after accepted authoring admission" {
+    const canonical_text = try std.fs.cwd().readFileAlloc(
+        std.testing.allocator,
+        "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        1 << 20,
+    );
+    defer std.testing.allocator.free(canonical_text);
+
+    const drifted = try std.mem.replaceOwned(
+        u8,
+        std.testing.allocator,
+        canonical_text,
+        "answer = resumed + 1;",
+        "answer = resumed +\n            1;",
+    );
+    defer std.testing.allocator.free(drifted);
+
+    var lowered = try source_lowering.inspectInlineSource(std.testing.allocator, .{
+        .case_id = "source.branch_resume",
+        .source_path = "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        .entry_symbol = "run",
+        .surface_kind = .source_case,
+    }, drifted);
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(!lowered.isAccepted());
+    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+}
+
 test "file-backed inline source lowering accepts canonical repo-relative paths from subdirectories" {
     const canonical_text = try std.fs.cwd().readFileAlloc(
         std.testing.allocator,
@@ -345,6 +374,35 @@ test "source-lowering rejects drifted canonical files even when the path stays c
     var lowered = try source_lowering.inspectFileBackedInlineSource(std.testing.allocator, .{
         .case_id = "source.helper_call_resume",
         .source_path = fixture_path,
+        .entry_symbol = "run",
+        .surface_kind = .source_case,
+    }, drifted);
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(!lowered.isAccepted());
+    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+}
+
+test "file-backed inline source lowering rejects whitespace drift after accepted authoring admission" {
+    const canonical_text = try std.fs.cwd().readFileAlloc(
+        std.testing.allocator,
+        "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        1 << 20,
+    );
+    defer std.testing.allocator.free(canonical_text);
+
+    const drifted = try std.mem.replaceOwned(
+        u8,
+        std.testing.allocator,
+        canonical_text,
+        "answer = resumed + 1;",
+        "answer = resumed +\n            1;",
+    );
+    defer std.testing.allocator.free(drifted);
+
+    var lowered = try source_lowering.inspectFileBackedInlineSource(std.testing.allocator, .{
+        .case_id = "source.branch_resume",
+        .source_path = "test/source_lowering_corpus/fixtures/branch_resume.zig",
         .entry_symbol = "run",
         .surface_kind = .source_case,
     }, drifted);

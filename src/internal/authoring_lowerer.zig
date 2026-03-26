@@ -276,20 +276,27 @@ fn hasTopLevelFunctionNamed(tree: std.zig.Ast, name: []const u8) bool {
     return false;
 }
 
-fn isSharedWitnessEntry(tree: std.zig.Ast, member: std.zig.Ast.Node.Index) bool {
+fn topLevelFunctionName(tree: std.zig.Ast, member: std.zig.Ast.Node.Index) ?[]const u8 {
     var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
-    const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse return false;
-    const name_token = fn_proto.name_token orelse return false;
-    return std.mem.startsWith(u8, tree.tokenSlice(name_token), "run");
+    const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse return null;
+    const name_token = fn_proto.name_token orelse return null;
+    return tree.tokenSlice(name_token);
+}
+
+fn isSharedWitnessSourceEntryName(name: []const u8) bool {
+    return std.mem.eql(u8, name, "runAtmResumeTransform") or
+        std.mem.eql(u8, name, "runDirectReturn") or
+        std.mem.eql(u8, name, "runResumeOrReturnReturnNow") or
+        std.mem.eql(u8, name, "runResumeOrReturnResume") or
+        std.mem.eql(u8, name, "runStaticRedelim") or
+        std.mem.eql(u8, name, "runMultiPrompt") or
+        std.mem.eql(u8, name, "runGenerator");
 }
 
 fn includeEntryCompareMember(tree: std.zig.Ast, member: std.zig.Ast.Node.Index, entry_symbol: []const u8) bool {
-    if (!isSharedWitnessEntry(tree, member)) return true;
-    var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
-    const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse return false;
-    const name_token = fn_proto.name_token orelse return false;
-    const fn_name = tree.tokenSlice(name_token);
-    return std.mem.eql(u8, fn_name, entry_symbol) or std.mem.eql(u8, fn_name, "runWitness");
+    const fn_name = topLevelFunctionName(tree, member) orelse return true;
+    if (!isSharedWitnessSourceEntryName(fn_name)) return true;
+    return std.mem.eql(u8, fn_name, entry_symbol);
 }
 
 const DiagnosticAtInput = struct {
