@@ -38,7 +38,7 @@ const PickerHandler = struct {
 const Picker = shift.Decl.family(.{
     .state_type = struct {},
     .ops = .{
-        shift.Op.choice("pick", i32, i32),
+        shift.Op.Choice("pick", i32, i32),
     },
 }, PickerHandler);
 

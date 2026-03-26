@@ -32,7 +32,7 @@ const SearchHandler = struct {
 const Search = shift.Decl.family(.{
     .state_type = search_state,
     .ops = .{
-        shift.Op.transform("search", []const u8, i32),
+        shift.Op.Transform("search", []const u8, i32),
     },
 }, SearchHandler);
 

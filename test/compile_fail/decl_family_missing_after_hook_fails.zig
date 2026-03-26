@@ -12,7 +12,7 @@ const BadHandler = struct {
 const Counter = shift.Decl.family(.{
     .state_type = i32,
     .ops = .{
-        shift.Op.transform("get", void, i32),
+        shift.Op.Transform("get", void, i32),
     },
 }, BadHandler);
 

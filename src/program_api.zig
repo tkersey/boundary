@@ -27,9 +27,9 @@ pub const DeclarationMeta = struct {
 pub const Decision = decision_api.Decision;
 
 pub const ops = struct {
-    pub const transform = op_api.Transform;
-    pub const choice = op_api.Choice;
-    pub const abort = op_api.Abort;
+    pub const Transform = op_api.Transform;
+    pub const Choice = op_api.Choice;
+    pub const Abort = op_api.Abort;
 };
 
 fn StateDeclType(comptime StateType: type) type {
@@ -282,8 +282,8 @@ test "program manifest records declaration metadata and outputs" {
     const Counter = decl.family(.{
         .state_type = i32,
         .ops = .{
-            ops.transform("get", void, i32),
-            ops.transform("set", i32, void),
+            ops.Transform("get", void, i32),
+            ops.Transform("set", i32, void),
         },
     }, struct {
         state: i32,

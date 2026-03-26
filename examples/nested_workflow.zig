@@ -27,7 +27,7 @@ const approval_handler = struct {
 const Approval = shift.Decl.family(.{
     .state_type = struct {},
     .ops = .{
-        shift.Op.choice("publish", void, []const u8),
+        shift.Op.Choice("publish", void, []const u8),
     },
 }, approval_handler);
 

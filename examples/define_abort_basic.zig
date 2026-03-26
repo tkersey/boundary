@@ -16,7 +16,7 @@ const guard_handler = struct {
 const Guard = shift.Decl.family(.{
     .state_type = struct {},
     .ops = .{
-        shift.Op.abort("fail", []const u8),
+        shift.Op.Abort("fail", []const u8),
     },
 }, guard_handler);
 

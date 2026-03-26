@@ -35,7 +35,7 @@ The current public product claim is:
   `shift.Decl.reader`, `shift.Decl.optional`, `shift.Decl.exception`,
   `shift.Decl.resource`, and `shift.Decl.writer`
 - custom closed-world families are declared through `shift.Decl.family(.{ ... })`
-  and `shift.Op.transform` / `shift.Op.choice` / `shift.Op.abort`
+  and `shift.Op.Transform` / `shift.Op.Choice` / `shift.Op.Abort`
 - `shift.Decision(...)` is the public choice-decision type for front-door
   optional and generated choice handlers
 - prompt descriptors, `PromptMode`, `ResumeOrReturn`, `reset`, and `frontend`
