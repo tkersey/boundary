@@ -105,6 +105,14 @@ fn OpResumeType(comptime Op: type) type {
     return Op.Resume;
 }
 
+fn ContinuationCarrierType(comptime Continuation: anytype) type {
+    return if (@TypeOf(Continuation) == type) Continuation else @TypeOf(Continuation);
+}
+
+fn continuationHasApply(comptime Continuation: anytype) bool {
+    return family.hasDeclSafe(ContinuationCarrierType(Continuation), "apply");
+}
+
 fn fnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
     const ReturnType = @typeInfo(FnType).@"fn".return_type.?;
     return switch (@typeInfo(ReturnType)) {
@@ -120,29 +128,31 @@ fn ReturnTypeErrorSet(comptime ReturnType: type) type {
     };
 }
 
-fn ExplicitContinuationFnType(comptime Continuation: type) type {
-    if (family.hasDeclSafe(Continuation, "apply")) return @TypeOf(@field(Continuation, "apply"));
-    return switch (@typeInfo(Continuation)) {
-        .@"fn" => Continuation,
+fn ExplicitContinuationFnType(comptime Continuation: anytype) type {
+    const Carrier = ContinuationCarrierType(Continuation);
+    if (continuationHasApply(Continuation)) return @TypeOf(Continuation.apply);
+    return switch (@typeInfo(Carrier)) {
+        .@"fn" => Carrier,
         .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn")
-            Continuation
+            pointer.child
         else
             @compileError("generated explicit program continuation must declare apply(value) or be a callable function"),
         else => @compileError("generated explicit program continuation must declare apply(value) or be a callable function"),
     };
 }
 
-fn ExplicitContinuationReturnType(comptime Continuation: type, comptime ResumeType: type) type {
+fn ExplicitContinuationReturnType(comptime Continuation: anytype, comptime ResumeType: type) type {
     const ContinuationFn = ExplicitContinuationFnType(Continuation);
     const params = @typeInfo(ContinuationFn).@"fn".params;
     if (params.len != 1) @compileError("generated explicit program continuation must accept exactly one resumed value");
-    if (comptime family.hasDeclSafe(Continuation, "apply")) {
-        return @TypeOf(@field(Continuation, "apply")(dummyValue(ResumeType)));
+    if (comptime continuationHasApply(Continuation)) {
+        return @TypeOf(Continuation.apply(dummyValue(ResumeType)));
     }
+    if (comptime @TypeOf(Continuation) == type) @compileError("generated explicit-program continuations must be passed as callable values, not function types");
     return @TypeOf(Continuation(dummyValue(ResumeType)));
 }
 
-fn ExplicitContinuationAnswerType(comptime Continuation: type, comptime ResumeType: type) type {
+fn ExplicitContinuationAnswerType(comptime Continuation: anytype, comptime ResumeType: type) type {
     const ReturnType = ExplicitContinuationReturnType(Continuation, ResumeType);
     return switch (@typeInfo(ReturnType)) {
         .error_union => |err_union| err_union.payload,
@@ -150,7 +160,7 @@ fn ExplicitContinuationAnswerType(comptime Continuation: type, comptime ResumeTy
     };
 }
 
-fn ExplicitContinuationErrorSet(comptime Continuation: type, comptime ResumeType: type) type {
+fn ExplicitContinuationErrorSet(comptime Continuation: anytype, comptime ResumeType: type) type {
     return ReturnTypeErrorSet(ExplicitContinuationReturnType(Continuation, ResumeType));
 }
 
@@ -448,7 +458,7 @@ fn PreviewBodyErrorSet(
             _: *@This(),
             comptime Op: type,
             _: Op.Payload,
-            comptime Continuation: type,
+            comptime Continuation: anytype,
         ) frontend.BoundProgram(prompt_contract.Prompt(
             Op.mode,
             Op.Resume,
@@ -828,7 +838,7 @@ pub fn Build(comptime spec: anytype) type {
                     outputs_ptr: ?*lexical_with.OutputBundleType(Config.Handlers),
 
                     /// Perform one zero-payload generated lexical choice op.
-                    pub fn perform(self: Handle, comptime Continuation: type) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
+                    pub fn perform(self: Handle, comptime Continuation: anytype) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
                         const request_state = struct {
                             threadlocal var active_handle: ?Handle = null;
 
@@ -871,7 +881,7 @@ pub fn Build(comptime spec: anytype) type {
                     outputs_ptr: ?*lexical_with.OutputBundleType(Config.Handlers),
 
                     /// Perform one payload-carrying generated lexical choice op.
-                    pub fn perform(self: Handle, payload: OpPayloadType(OpTypeValue), comptime Continuation: type) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
+                    pub fn perform(self: Handle, payload: OpPayloadType(OpTypeValue), comptime Continuation: anytype) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
                         const request_state = struct {
                             threadlocal var active_handle: ?Handle = null;
 
@@ -1144,7 +1154,7 @@ pub fn Build(comptime spec: anytype) type {
                 }
 
                 /// Build one explicit zero-payload generated control op program.
-                pub fn program(comptime Cap: type, ctx: anytype, comptime Continuation: type) @TypeOf(activeEngineContext(Cap, ctx).performProgram(OpTypeValue, {}, Continuation)) {
+                pub fn program(comptime Cap: type, ctx: anytype, comptime Continuation: anytype) @TypeOf(activeEngineContext(Cap, ctx).performProgram(OpTypeValue, {}, Continuation)) {
                     comptime family.assertContextType(Cap, @TypeOf(ctx));
                     return activeEngineContext(Cap, ctx).performProgram(OpTypeValue, {}, Continuation);
                 }
@@ -1164,7 +1174,7 @@ pub fn Build(comptime spec: anytype) type {
                 }
 
                 /// Build one explicit payload-carrying generated control op program.
-                pub fn program(comptime Cap: type, ctx: anytype, payload: OpTypeValue.Payload, comptime Continuation: type) @TypeOf(activeEngineContext(Cap, ctx).performProgram(OpTypeValue, payload, Continuation)) {
+                pub fn program(comptime Cap: type, ctx: anytype, payload: OpTypeValue.Payload, comptime Continuation: anytype) @TypeOf(activeEngineContext(Cap, ctx).performProgram(OpTypeValue, payload, Continuation)) {
                     comptime family.assertContextType(Cap, @TypeOf(ctx));
                     return activeEngineContext(Cap, ctx).performProgram(OpTypeValue, payload, Continuation);
                 }

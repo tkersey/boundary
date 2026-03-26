@@ -182,28 +182,70 @@ fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
     };
 }
 
-fn ExplicitContinuationFnType(comptime Continuation: type) type {
-    if (hasDeclSafe(Continuation, "apply")) return @TypeOf(@field(Continuation, "apply"));
-    return switch (@typeInfo(Continuation)) {
-        .@"fn" => Continuation,
+fn ContinuationCarrierType(comptime Continuation: anytype) type {
+    return if (@TypeOf(Continuation) == type) Continuation else @TypeOf(Continuation);
+}
+
+fn continuationHasApply(comptime Continuation: anytype) bool {
+    return hasDeclSafe(ContinuationCarrierType(Continuation), "apply");
+}
+
+fn ExplicitContinuationFnType(comptime Continuation: anytype) type {
+    const Carrier = ContinuationCarrierType(Continuation);
+    if (continuationHasApply(Continuation)) return @TypeOf(Continuation.apply);
+    return switch (@typeInfo(Carrier)) {
+        .@"fn" => Carrier,
         .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn")
-            Continuation
+            pointer.child
         else
             @compileError("explicit program continuation must declare apply(value) or be a callable function"),
         else => @compileError("explicit program continuation must declare apply(value) or be a callable function"),
     };
 }
 
-fn ExplicitContinuationReturnType(comptime Continuation: type) type {
+fn dummyPointer(comptime PtrType: type) PtrType {
+    const pointer = @typeInfo(PtrType).pointer;
+    const Child = std.meta.Child(PtrType);
+    return switch (pointer.size) {
+        .slice => blk: {
+            const empty: [0]Child = .{};
+            const slice = empty[0..];
+            if (pointer.is_const) break :blk @as(PtrType, slice);
+            break :blk @as(PtrType, @constCast(slice));
+        },
+        else => @as(PtrType, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(Child)))),
+    };
+}
+
+fn dummyValue(comptime T: type) T {
+    return switch (@typeInfo(T)) {
+        .pointer => dummyPointer(T),
+        .optional => null,
+        .@"struct" => |info| blk: {
+            var value_buffer: T = undefined;
+            inline for (info.fields) |field| {
+                @field(value_buffer, field.name) = dummyValue(field.type);
+            }
+            break :blk value_buffer;
+        },
+        .void => {},
+        else => dummyPointer(*T).*,
+    };
+}
+
+fn ExplicitContinuationReturnType(comptime Continuation: anytype, comptime ResumeType: type) type {
     const ContinuationFn = ExplicitContinuationFnType(Continuation);
     const params = @typeInfo(ContinuationFn).@"fn".params;
     if (params.len != 1) @compileError("explicit program continuation must accept exactly one resumed value");
-    return @typeInfo(ContinuationFn).@"fn".return_type.?;
+    if (comptime continuationHasApply(Continuation)) {
+        return @TypeOf(Continuation.apply(dummyValue(ResumeType)));
+    }
+    if (comptime @TypeOf(Continuation) == type) @compileError("explicit program continuations must be passed as callable values, not function types");
+    return @TypeOf(Continuation(dummyValue(ResumeType)));
 }
 
-fn ExplicitContinuationErrorSet(comptime Continuation: type, comptime ResumeType: type) type {
-    _ = ResumeType;
-    return ReturnTypeErrorSet(ExplicitContinuationReturnType(Continuation));
+fn ExplicitContinuationErrorSet(comptime Continuation: anytype, comptime ResumeType: type) type {
+    return ReturnTypeErrorSet(ExplicitContinuationReturnType(Continuation, ResumeType));
 }
 
 fn assertTransformImplType(comptime TransformContract: type) void {
@@ -348,18 +390,18 @@ fn Binding(
         spec: SpecType,
         prompt: PromptType,
 
-        fn ProgramErrorSet(comptime Continuation: type) type {
+        fn ProgramErrorSet(comptime Continuation: anytype) type {
             return switch (SpecType.builder_kind) {
                 .transform, .choice => ErrorSet || ExplicitContinuationErrorSet(Continuation, Op.Resume),
                 .direct_transform, .abort => ErrorSet,
             };
         }
 
-        fn ProgramPromptType(comptime Continuation: type) type {
+        fn ProgramPromptType(comptime Continuation: anytype) type {
             return PromptTypeForOp(Op, ContinueAnswer, Answer, ProgramErrorSet(Continuation));
         }
 
-        fn promptRef(self: *@This(), comptime Continuation: type) *const ProgramPromptType(Continuation) {
+        fn promptRef(self: *@This(), comptime Continuation: anytype) *const ProgramPromptType(Continuation) {
             // Prompt layout is token-only, so reusing the active delimiter identity across widened error sets is safe.
             return @ptrCast(&self.prompt);
         }
@@ -496,7 +538,7 @@ fn Binding(
         }
 
         /// Build one explicit frontend program for the bound operation and continuation.
-        pub fn program(self: *@This(), payload: Op.Payload, comptime Continuation: type) frontend.Program(ProgramPromptType(Continuation)) {
+        pub fn program(self: *@This(), payload: Op.Payload, comptime Continuation: anytype) frontend.Program(ProgramPromptType(Continuation)) {
             const BindingType = @This();
             return switch (SpecType.builder_kind) {
                 .direct_transform => @compileError("direct transform bindings do not support explicit program construction"),
@@ -552,7 +594,7 @@ fn Binding(
         }
 
         /// Build one explicit frontend program that closes over this binding directly.
-        pub fn directProgram(self: *@This(), payload: Op.Payload, comptime Continuation: type) frontend.Program(ProgramPromptType(Continuation)) {
+        pub fn directProgram(self: *@This(), payload: Op.Payload, comptime Continuation: anytype) frontend.Program(ProgramPromptType(Continuation)) {
             const BindingType = @This();
             BindingType.direct_binding = self;
             BindingType.direct_payload = payload;
@@ -753,7 +795,7 @@ pub fn Program(
                         self: *Context,
                         comptime Op: type,
                         payload: Op.Payload,
-                        comptime Continuation: type,
+                        comptime Continuation: anytype,
                     ) frontend.BoundProgram(BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, findOpIndex(Op)).ProgramPromptType(Continuation)) {
                         const index = comptime findOpIndex(Op);
                         const binding = self.bindings.bindingPtr(index);

@@ -45,6 +45,27 @@ fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
     };
 }
 
+fn ContinuationCarrierType(comptime Continuation: anytype) type {
+    return if (@TypeOf(Continuation) == type) Continuation else @TypeOf(Continuation);
+}
+
+fn continuationHasApply(comptime Continuation: anytype) bool {
+    return hasDeclSafe(ContinuationCarrierType(Continuation), "apply");
+}
+
+fn ContinuationFnType(comptime Continuation: anytype) type {
+    const Carrier = ContinuationCarrierType(Continuation);
+    if (continuationHasApply(Continuation)) return @TypeOf(Continuation.apply);
+    return switch (@typeInfo(Carrier)) {
+        .@"fn" => Carrier,
+        .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn")
+            pointer.child
+        else
+            @compileError(@typeName(Carrier) ++ " must declare apply or be a callable function"),
+        else => @compileError(@typeName(Carrier) ++ " must declare apply or be a callable function"),
+    };
+}
+
 fn fnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
     const ReturnType = @typeInfo(FnType).@"fn".return_type.?;
     return switch (@typeInfo(ReturnType)) {
@@ -128,25 +149,31 @@ fn callResumeOrReturn(comptime Resume: type, comptime PromptType: type, comptime
 fn assertContinuationType(
     comptime Input: type,
     comptime PromptType: type,
-    comptime Continuation: type,
+    comptime Continuation: anytype,
 ) void {
-    if (!hasDeclSafe(Continuation, "apply")) {
-        @compileError(@typeName(Continuation) ++ " must declare apply");
-    }
-    if (!fnParamsMatch(@TypeOf(Continuation.apply), &.{Input}) or !fnReturnMatches(@TypeOf(Continuation.apply), PromptType.InAnswer)) {
-        @compileError(@typeName(Continuation) ++ ".apply must have type fn (Input) InAnswer or fn (Input) ResetError(ErrorSet)!InAnswer");
+    const FnType = ContinuationFnType(Continuation);
+    if (!fnParamsMatch(FnType, &.{Input}) or !fnReturnMatches(FnType, PromptType.InAnswer)) {
+        @compileError(@typeName(ContinuationCarrierType(Continuation)) ++ " must have type fn (Input) InAnswer or fn (Input) ResetError(ErrorSet)!InAnswer");
     }
 }
 
 fn callContinuation(
     comptime Input: type,
     comptime PromptType: type,
-    comptime Continuation: type,
+    comptime Continuation: anytype,
     value: Input,
 ) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
-    const ApplyFn = @TypeOf(Continuation.apply);
-    if (ApplyFn == fn (Input) PromptType.InAnswer) return Continuation.apply(value);
-    return Continuation.apply(value) catch |err| return @errorCast(err);
+    if (comptime continuationHasApply(Continuation)) {
+        const ApplyFn = @TypeOf(Continuation.apply);
+        if (ApplyFn == fn (Input) PromptType.InAnswer) return Continuation.apply(value);
+        return Continuation.apply(value) catch |err| return @errorCast(err);
+    }
+    if (comptime @TypeOf(Continuation) == type) {
+        @compileError("frontend explicit continuations must be passed as callable values, not function types");
+    }
+    const FnType = ContinuationFnType(Continuation);
+    if (FnType == fn (Input) PromptType.InAnswer) return Continuation(value);
+    return Continuation(value) catch |err| return @errorCast(err);
 }
 
 fn encodeValue(comptime T: type, value: T) lowered_machine.Error!EncodedValue {
@@ -262,7 +289,7 @@ pub fn transformProgram(
     comptime PromptType: type,
     comptime Resume: type,
     comptime Handler: type,
-    comptime Continuation: type,
+    comptime Continuation: anytype,
 ) Program(PromptType) {
     comptime assertPromptTypeMode(PromptType, .resume_then_transform, "transformProgram");
     comptime assertHandlerProtocol(Resume, PromptType, Handler);
@@ -289,7 +316,7 @@ pub fn choiceProgram(
     comptime PromptType: type,
     comptime Resume: type,
     comptime Handler: type,
-    comptime Continuation: type,
+    comptime Continuation: anytype,
 ) Program(PromptType) {
     comptime assertPromptTypeMode(PromptType, .resume_or_return, "choiceProgram");
     comptime assertHandlerProtocol(Resume, PromptType, Handler);

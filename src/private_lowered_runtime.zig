@@ -1,3 +1,4 @@
+const bridge_manifest = @import("direct_style_bridge_manifest");
 const lowered_machine = @import("lowered_machine");
 const parity_scenarios = @import("parity_scenarios");
 const program_bridge = @import("program_bridge");
@@ -9,23 +10,26 @@ pub const Execution = struct {
     scenario: *const parity_scenarios.Scenario,
 };
 
+fn supportedCase(case_id: []const u8) error{UnsupportedBridgeCase}!*const bridge_manifest.Case {
+    const case = bridge_manifest.find(case_id) orelse return error.UnsupportedBridgeCase;
+    if (case.status != .supported) return error.UnsupportedBridgeCase;
+    return case;
+}
+
 /// Whether the private seam currently supports the given stable case id.
 pub fn supportsCaseId(case_id: []const u8) bool {
-    var lowered = program_bridge.lowerCaseId(std.heap.page_allocator, case_id) catch return false;
-    defer lowered.deinit(std.heap.page_allocator);
-    return lowered.status != .rejected;
+    const case = bridge_manifest.find(case_id) orelse return false;
+    return case.status == .supported;
 }
 
 /// Execute one supported bridge case through the private lowered runtime seam.
 pub fn runCaseId(writer: anytype, case_id: []const u8) anyerror!Execution {
-    var lowered = try program_bridge.lowerCaseId(std.heap.page_allocator, case_id);
-    defer lowered.deinit(std.heap.page_allocator);
-    if (lowered.status == .rejected) return error.RejectedBridgeCase;
-    const scenario = parity_scenarios.byId(lowered.canonical_scenario_id.?);
+    const case = try supportedCase(case_id);
+    const scenario = parity_scenarios.byId(case.scenario_id);
     const state = lowered_machine.runSteps(scenario.steps);
     try lowered_machine.writeTranscript(writer, &state);
     return .{
-        .label = lowered.label,
+        .label = case.label,
         .scenario = scenario,
     };
 }

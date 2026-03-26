@@ -82,6 +82,14 @@ fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
     };
 }
 
+fn ContinuationCarrierType(comptime Continuation: anytype) type {
+    return if (@TypeOf(Continuation) == type) Continuation else @TypeOf(Continuation);
+}
+
+fn continuationHasApply(comptime Continuation: anytype) bool {
+    return hasDeclSafe(ContinuationCarrierType(Continuation), "apply");
+}
+
 fn HandlerErrorSet(comptime HandlersType: type) type {
     comptime assertHandlerBundleShape(HandlersType);
     const fields = @typeInfo(HandlersType).@"struct".fields;
@@ -137,27 +145,31 @@ fn extendBundle(comptime Base: type, base: Base, comptime field_name: [:0]const 
     return result;
 }
 
-fn ExplicitProgramContinuationFnType(comptime Continuation: type) type {
-    if (hasDeclSafe(Continuation, "apply")) return @TypeOf(@field(Continuation, "apply"));
-    return switch (@typeInfo(Continuation)) {
-        .@"fn" => Continuation,
+fn ExplicitProgramContinuationFnType(comptime Continuation: anytype) type {
+    const Carrier = ContinuationCarrierType(Continuation);
+    if (continuationHasApply(Continuation)) return @TypeOf(Continuation.apply);
+    return switch (@typeInfo(Carrier)) {
+        .@"fn" => Carrier,
         .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn")
-            Continuation
+            pointer.child
         else
             @compileError("lexical explicit-program continuation must declare apply(value) or be a callable function"),
         else => @compileError("lexical explicit-program continuation must declare apply(value) or be a callable function"),
     };
 }
 
-fn ExplicitProgramContinuationReturnType(comptime Continuation: type, comptime ResumeType: type) type {
+fn ExplicitProgramContinuationReturnType(comptime Continuation: anytype, comptime ResumeType: type) type {
     const ContinuationFn = ExplicitProgramContinuationFnType(Continuation);
     const params = @typeInfo(ContinuationFn).@"fn".params;
     if (params.len != 1) @compileError("lexical explicit-program continuation must accept exactly one resumed value");
-    _ = ResumeType;
-    return @typeInfo(ContinuationFn).@"fn".return_type.?;
+    if (comptime continuationHasApply(Continuation)) {
+        return @TypeOf(Continuation.apply(dummyValue(ResumeType)));
+    }
+    if (comptime @TypeOf(Continuation) == type) @compileError("lexical explicit-program continuations must be passed as callable values, not function types");
+    return @TypeOf(Continuation(dummyValue(ResumeType)));
 }
 
-fn ExplicitProgramContinuationAnswerType(comptime Continuation: type, comptime ResumeType: type) type {
+fn ExplicitProgramContinuationAnswerType(comptime Continuation: anytype, comptime ResumeType: type) type {
     const ReturnType = ExplicitProgramContinuationReturnType(Continuation, ResumeType);
     return switch (@typeInfo(ReturnType)) {
         .error_union => |err_union| err_union.payload,
@@ -165,7 +177,7 @@ fn ExplicitProgramContinuationAnswerType(comptime Continuation: type, comptime R
     };
 }
 
-fn ExplicitProgramContinuationErrorSet(comptime Continuation: type, comptime ResumeType: type) type {
+fn ExplicitProgramContinuationErrorSet(comptime Continuation: anytype, comptime ResumeType: type) type {
     return ReturnTypeErrorSet(ExplicitProgramContinuationReturnType(Continuation, ResumeType));
 }
 
@@ -181,7 +193,7 @@ fn PreviewEngineContext(comptime ErrorSet: type) type {
             _: *@This(),
             comptime Op: type,
             _: Op.Payload,
-            comptime Continuation: type,
+            comptime Continuation: anytype,
         ) frontend.BoundProgram(prompt_contract.Prompt(
             Op.mode,
             Op.Resume,
@@ -417,27 +429,32 @@ fn callBody(
     return Body(eff);
 }
 
-fn ContinuationFnType(comptime Continuation: type) type {
-    if (hasDeclSafe(Continuation, "apply")) return @TypeOf(@field(Continuation, "apply"));
-    return switch (@typeInfo(Continuation)) {
-        .@"fn" => Continuation,
-        .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn") Continuation else @compileError("lexical choice continuation must declare apply(value, eff) or be a callable function"),
+fn ContinuationFnType(comptime Continuation: anytype) type {
+    const Carrier = ContinuationCarrierType(Continuation);
+    if (continuationHasApply(Continuation)) return @TypeOf(Continuation.apply);
+    return switch (@typeInfo(Carrier)) {
+        .@"fn" => Carrier,
+        .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn")
+            pointer.child
+        else
+            @compileError("lexical choice continuation must declare apply(value, eff) or be a callable function"),
         else => @compileError("lexical choice continuation must declare apply(value, eff) or be a callable function"),
     };
 }
 
 fn ContinuationReturnType(
-    comptime Continuation: type,
+    comptime Continuation: anytype,
     comptime ResumeType: type,
     comptime EffType: type,
 ) type {
     const ResumeFn = ContinuationFnType(Continuation);
     const params = @typeInfo(ResumeFn).@"fn".params;
     if (params.len != 2) @compileError("lexical choice continuation apply must accept exactly (value, eff)");
-    if (comptime hasDeclSafe(Continuation, "apply")) {
-        return @TypeOf(@field(Continuation, "apply")(dummyValue(ResumeType), dummyValue(EffType)));
+    if (comptime continuationHasApply(Continuation)) {
+        return @TypeOf(Continuation.apply(dummyValue(ResumeType), dummyValue(EffType)));
     }
-    return @typeInfo(ResumeFn).@"fn".return_type.?;
+    if (comptime @TypeOf(Continuation) == type) @compileError("lexical choice continuations must be passed as callable values, not function types");
+    return @TypeOf(Continuation(dummyValue(ResumeType), dummyValue(EffType)));
 }
 
 fn dummyPointer(comptime PtrType: type) PtrType {
@@ -470,7 +487,7 @@ fn dummyValue(comptime T: type) T {
 }
 
 /// Resolve the final answer type produced by one lexical choice continuation.
-pub fn ChoiceAnswerType(comptime Continuation: type) type {
+pub fn ChoiceAnswerType(comptime Continuation: anytype) type {
     const ResumeFn = ContinuationFnType(Continuation);
     const ReturnType = @typeInfo(ResumeFn).@"fn".return_type.?;
     return switch (@typeInfo(ReturnType)) {
@@ -481,7 +498,7 @@ pub fn ChoiceAnswerType(comptime Continuation: type) type {
 
 /// Return the public choice answer type for one continuation.
 pub fn ChoiceAnswerTypeFor(
-    comptime Continuation: type,
+    comptime Continuation: anytype,
     comptime ResumeType: type,
     comptime EffType: type,
 ) type {
@@ -493,7 +510,7 @@ pub fn ChoiceAnswerTypeFor(
 }
 
 fn ChoiceErrorSet(
-    comptime Continuation: type,
+    comptime Continuation: anytype,
     comptime ResumeType: type,
     comptime EffType: type,
 ) type {
@@ -503,7 +520,7 @@ fn ChoiceErrorSet(
 /// Return the public choice execution error set.
 pub fn ChoiceExecutionErrorSet(
     comptime BaseErrorSet: type,
-    comptime Continuation: type,
+    comptime Continuation: anytype,
     comptime ResumeType: type,
     comptime EffType: type,
 ) type {
@@ -511,7 +528,7 @@ pub fn ChoiceExecutionErrorSet(
 }
 
 fn callChoiceContinuation(
-    comptime Continuation: type,
+    comptime Continuation: anytype,
     resume_value: anytype,
     eff: anytype,
     comptime ErrorSet: type,
@@ -519,14 +536,14 @@ fn callChoiceContinuation(
     const ResumeFn = ContinuationFnType(Continuation);
     const params = @typeInfo(ResumeFn).@"fn".params;
     if (params.len != 2) @compileError("lexical choice continuation apply must accept exactly (value, eff)");
-    const ReturnType = @typeInfo(ResumeFn).@"fn".return_type.?;
-    if (comptime hasDeclSafe(Continuation, "apply")) {
-        const invoke = @field(Continuation, "apply");
+    const ReturnType = ContinuationReturnType(Continuation, @TypeOf(resume_value), @TypeOf(eff));
+    if (comptime continuationHasApply(Continuation)) {
         if (@typeInfo(ReturnType) == .error_union) {
-            return invoke(resume_value, eff) catch |err| return @errorCast(err);
+            return Continuation.apply(resume_value, eff) catch |err| return @errorCast(err);
         }
-        return invoke(resume_value, eff);
+        return Continuation.apply(resume_value, eff);
     }
+    if (comptime @TypeOf(Continuation) == type) @compileError("lexical choice continuations must be passed as callable values, not function types");
     if (@typeInfo(ReturnType) == .error_union) {
         return Continuation(resume_value, eff) catch |err| return @errorCast(err);
     }
@@ -623,7 +640,7 @@ fn runChoiceChain(
     comptime index: usize,
     comptime EffType: type,
     state: ChoiceRunState(HandlersType, EffType),
-    comptime Continuation: type,
+    comptime Continuation: anytype,
     resume_value: anytype,
 ) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation, @TypeOf(resume_value), EffType))!ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), EffType) {
     const ErrorSet = HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation, @TypeOf(resume_value), EffType);
@@ -690,7 +707,7 @@ pub fn continueChoice(
     comptime HandlersType: type,
     comptime index: usize,
     frame: anytype,
-    comptime Continuation: type,
+    comptime Continuation: anytype,
     resume_value: anytype,
 ) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation, @TypeOf(resume_value), ContinuationEffType(HandlersType, index, @TypeOf(frame.previous_eff), @TypeOf(frame.current_handle))))!ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), ContinuationEffType(HandlersType, index, @TypeOf(frame.previous_eff), @TypeOf(frame.current_handle))) {
     const field = @typeInfo(HandlersType).@"struct".fields[index];

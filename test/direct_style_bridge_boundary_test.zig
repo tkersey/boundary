@@ -71,3 +71,43 @@ test "bridge case-id admission rejects drifted canonical sources" {
     try std.testing.expect(lowered.status == .rejected);
     try std.testing.expectEqualStrings("canonical_source_drift", lowered.diagnostics[0].code);
 }
+
+test "private lowered runtime stays stable when bridge admission rejects injected drift" {
+    const drifted =
+        \\const shift = @import("shift");
+        \\
+        \\const EarlyExitProgram = shift.Program(.{
+        \\    .exception = shift.Decl.exception([]const u8, struct {
+        \\        pub fn directReturn(payload: []const u8) []const u8 {
+        \\            return payload;
+        \\        }
+        \\    }),
+        \\}, struct {
+        \\    pub fn body(eff: anytype) anyerror![]const u8 {
+        \\        try eff.exception.throw("result=late");
+        \\    }
+        \\});
+        \\
+        \\pub const bridge_case_id = "early_exit";
+        \\
+        \\pub fn run(writer: anytype) anyerror!void {
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\    const result = try shift.run(&runtime, EarlyExitProgram, .{});
+        \\    try writer.print("final={s}\\n", .{result.value});
+        \\}
+    ;
+
+    var lowered = try program_bridge.inspectCaseIdSourceText(std.testing.allocator, "early_exit", drifted);
+    defer lowered.deinit(std.testing.allocator);
+    try std.testing.expect(lowered.status == .rejected);
+    try std.testing.expectEqualStrings("canonical_source_drift", lowered.diagnostics[0].code);
+
+    try std.testing.expect(private_lowered_runtime.supportsCaseId("early_exit"));
+
+    var buffer: [128]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+    const execution = try private_lowered_runtime.runCaseId(&writer, "early_exit");
+    try std.testing.expectEqualStrings("bridge.early_exit", execution.label);
+    try std.testing.expectEqualStrings("early_exit", execution.scenario.case_id);
+}

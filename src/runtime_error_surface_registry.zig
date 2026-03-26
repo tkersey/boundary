@@ -18,26 +18,26 @@ fn retainedVariant(comptime tag: error_witness.RuntimeErrorTag) ErrorVariant {
         .name = error_witness.runtimeErrorTagName(tag),
         .status = .retained,
         .rationale = switch (tag) {
-            .missing_prompt => "The lowered-only public runtime still needs a missing-delimiter failure.",
-            .cross_thread => "Runtime ownership remains thread-affine even after the stackful backend is gone.",
-            .runtime_busy => "Active-runtime teardown misuse remains a public runtime concern.",
-            .runtime_destroyed => "Destroyed-runtime misuse remains a public runtime concern.",
-            .non_diagonal_complete => "Non-diagonal completion is still part of the public shift/reset semantic contract.",
-            .frontend_suspend => "Replay-driven explicit frontend operations still use suspend as part of the lowered public execution contract.",
-            .program_contract_violation => "Explicit frontend program-shape violations still remain observable through the lowered public execution contract.",
+            .MissingPrompt => "The lowered-only public runtime still needs a missing-delimiter failure.",
+            .CrossThread => "Runtime ownership remains thread-affine even after the stackful backend is gone.",
+            .RuntimeBusy => "Active-runtime teardown misuse remains a public runtime concern.",
+            .RuntimeDestroyed => "Destroyed-runtime misuse remains a public runtime concern.",
+            .NonDiagonalComplete => "Non-diagonal completion is still part of the public shift/reset semantic contract.",
+            .FrontendSuspend => "Replay-driven explicit frontend operations still use suspend as part of the lowered public execution contract.",
+            .ProgramContractViolation => "Explicit frontend program-shape violations still remain observable through the lowered public execution contract.",
         },
     };
 }
 
 /// Public retained runtime error variants.
 pub const retained_variants = [_]ErrorVariant{
-    retainedVariant(.missing_prompt),
-    retainedVariant(.cross_thread),
-    retainedVariant(.runtime_busy),
-    retainedVariant(.runtime_destroyed),
-    retainedVariant(.non_diagonal_complete),
-    retainedVariant(.frontend_suspend),
-    retainedVariant(.program_contract_violation),
+    retainedVariant(.MissingPrompt),
+    retainedVariant(.CrossThread),
+    retainedVariant(.RuntimeBusy),
+    retainedVariant(.RuntimeDestroyed),
+    retainedVariant(.NonDiagonalComplete),
+    retainedVariant(.FrontendSuspend),
+    retainedVariant(.ProgramContractViolation),
 };
 
 /// Public retired runtime error variants.

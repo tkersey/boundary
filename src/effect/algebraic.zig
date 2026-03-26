@@ -614,7 +614,7 @@ pub inline fn optionalRequest(
 pub inline fn optionalRequestProgram(
     comptime Cap: type,
     ctx: anytype,
-    comptime Continuation: type,
+    comptime Continuation: anytype,
 ) frontend.Program(prompt_contract.Prompt(
     .resume_or_return,
     family.ContextStateType(@TypeOf(ctx)),
@@ -629,7 +629,7 @@ pub inline fn optionalRequestProgram(
 pub inline fn optionalRequestBoundProgram(
     comptime Cap: type,
     ctx: anytype,
-    comptime Continuation: type,
+    comptime Continuation: anytype,
 ) @TypeOf(activeEngineContext(Cap, ctx).performProgram(Cap.RequestOp(), {}, Continuation)) {
     comptime family.assertContextType(Cap, @TypeOf(ctx));
     return activeEngineContext(Cap, ctx).performProgram(Cap.RequestOp(), {}, Continuation);

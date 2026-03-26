@@ -212,6 +212,78 @@ test "shift.With preview includes continuation errors from lexical explicit prog
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "ContinueOops"));
 }
 
+test "shift.With preview specializes generic lexical explicit continuations" {
+    const probe_descriptor = struct {
+        /// Public `ErrorSet` declaration.
+        pub const ErrorSet = error{};
+        /// Public `State` declaration.
+        pub const State = i32;
+        /// Public `Output` declaration.
+        pub const Output = void;
+        const ProbeOp = shift.effect.ops.Choice("probe", void, i32);
+
+        /// Return the public handle type.
+        pub fn HandleType(comptime Cap: type, comptime ContextPtrType: type) type {
+            _ = ContextPtrType;
+            return struct {
+                /// Return the public bound-program type.
+                fn BoundProgramType(comptime Continuation: anytype) type {
+                    return @TypeOf((@as(*Cap.EngineContextType(), undefined)).performProgram(ProbeOp, {}, Continuation));
+                }
+
+                /// Return the prompt type for one continuation.
+                fn PromptType(comptime Continuation: anytype) type {
+                    return @typeInfo(@FieldType(BoundProgramType(Continuation), "prompt")).pointer.child;
+                }
+
+                /// Perform this public operation.
+                pub fn perform(_: @This(), comptime Continuation: anytype) (shift.RuntimeError || error{OutOfMemory} || PromptType(Continuation).ErrorSet)!PromptType(Continuation).OutAnswer {
+                    unreachable;
+                }
+            };
+        }
+
+        /// Public `bindLexical` helper.
+        pub fn bindLexical(self: @This(), comptime Cap: type, ctx: anytype) HandleType(Cap, @TypeOf(ctx)) {
+            _ = self;
+            return .{};
+        }
+
+        /// Run this public entrypoint.
+        pub fn run(
+            self: @This(),
+            comptime AnswerType: type,
+            comptime RunErrorSetType: type,
+            runtime: *shift.Runtime,
+            comptime Body: type,
+        ) (shift.RuntimeError || error{OutOfMemory} || RunErrorSetType)!struct { output: void, value: AnswerType } {
+            _ = self;
+            _ = runtime;
+            _ = Body;
+            unreachable;
+        }
+    };
+
+    const Handlers = @TypeOf(.{
+        .probe = probe_descriptor{},
+    });
+    const body_spec = struct {
+        const genericResumeValue = struct {
+            fn call(value: anytype) @TypeOf(value) {
+                return value;
+            }
+        }.call;
+
+        /// Execute this public body hook.
+        pub fn body(eff: anytype) ExecResult(i32) {
+            return try eff.probe.perform(genericResumeValue);
+        }
+    };
+    const Meta = shift.With(Handlers, body_spec);
+
+    try std.testing.expect(@FieldType(Meta.Result, "value") == i32);
+}
+
 test "lexical optional request retains explicit continuation errors" {
     const policy = struct {
         /// Decide whether this public hook resumes or returns.
@@ -264,6 +336,40 @@ test "lexical optional request retains explicit continuation errors" {
         return;
     };
     return error.TestExpectedError;
+}
+
+test "lexical optional request accepts generic callable continuations" {
+    const policy = struct {
+        /// Decide whether this public hook resumes or returns.
+        pub fn resumeOrReturn() shift.effect.choice.Decision(i32, i32) {
+            return shift.effect.choice.Decision(i32, i32).resumeWith(41);
+        }
+
+        /// Finish this public resumed path.
+        pub fn afterResume(answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    const genericResume = struct {
+        fn call(value: anytype, _: anytype) @TypeOf(value) {
+            return value;
+        }
+    }.call;
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(&runtime, .{
+        .optional = shift.effect.optional.use(i32, policy),
+    }, struct {
+        /// Execute this public body hook.
+        pub fn body(eff: anytype) ExecResult(i32) {
+            return try eff.optional.request(genericResume);
+        }
+    });
+
+    try std.testing.expectEqual(@as(i32, 41), result.value);
 }
 
 test "generated lexical choice retains explicit continuation errors" {

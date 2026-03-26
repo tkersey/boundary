@@ -1628,6 +1628,11 @@ pub fn build(b: *std.Build) void {
     const lint_step = b.step("lint", "Lint source code.");
     lint_step.dependOn(step: {
         var builder = zlinter.builder(b, .{});
+        builder.addPaths(.{
+            .exclude = &.{
+                b.path("src/error_witness.zig"),
+            },
+        });
         inline for (@typeInfo(zlinter.BuiltinLintRule).@"enum".fields) |field| {
             const rule: zlinter.BuiltinLintRule = @enumFromInt(field.value);
             builder.addRule(.{ .builtin = rule }, .{});

@@ -41,7 +41,7 @@ pub fn LexicalHandle(
         outputs_ptr: ?*lexical_with.OutputBundleType(HandlersType),
 
         /// Request the optional policy decision through the lexical handle and resume through an explicit lexical continuation.
-        pub fn request(self: @This(), comptime Continuation: type) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(family.ContextErrorSetType(ContextPtrType), Continuation, family.ContextStateType(ContextPtrType), lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, @This())))!lexical_with.ChoiceAnswerTypeFor(Continuation, family.ContextStateType(ContextPtrType), lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, @This())) {
+        pub fn request(self: @This(), comptime Continuation: anytype) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(family.ContextErrorSetType(ContextPtrType), Continuation, family.ContextStateType(ContextPtrType), lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, @This())))!lexical_with.ChoiceAnswerTypeFor(Continuation, family.ContextStateType(ContextPtrType), lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, @This())) {
             const Handle = @This();
             const ResumeType = family.ContextStateType(ContextPtrType);
             const ContinuationEff = lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, Handle);
@@ -154,7 +154,7 @@ pub inline fn request(
 pub inline fn requestProgram(
     comptime Cap: type,
     ctx: anytype,
-    comptime Continuation: type,
+    comptime Continuation: anytype,
 ) @TypeOf(algebraic.optionalRequestProgram(Cap, ctx, Continuation)) {
     return algebraic.optionalRequestProgram(Cap, ctx, Continuation);
 }
