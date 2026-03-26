@@ -1586,9 +1586,7 @@ pub fn build(b: *std.Build) void {
             .name = bench_spec.name,
             .root_module = bench_mod,
         });
-        b.installArtifact(bench_exe);
         const bench_run = b.addRunArtifact(bench_exe);
-        bench_run.step.dependOn(b.getInstallStep());
         const bench_step = b.step(bench_spec.step_name, bench_spec.step_desc);
         bench_step.dependOn(&bench_run.step);
     }
@@ -1605,9 +1603,7 @@ pub fn build(b: *std.Build) void {
         .name = "shift-runtime-backend-matrix-bench",
         .root_module = runtime_backend_bench_mod,
     });
-    b.installArtifact(runtime_backend_bench_exe);
     const runtime_backend_bench_run = b.addRunArtifact(runtime_backend_bench_exe);
-    runtime_backend_bench_run.step.dependOn(b.getInstallStep());
     const runtime_backend_bench_step = b.step("bench-runtime-backends", "Compare the current stack runtime against the lowered runtime over the supported bridge corpus.");
     runtime_backend_bench_step.dependOn(&runtime_backend_bench_run.step);
 
