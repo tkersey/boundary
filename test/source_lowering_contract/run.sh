@@ -69,6 +69,10 @@ grep -q 'docs/source_lowering_coverage_matrix.json' "$contract"
 grep -q 'coverage_status' "$contract"
 grep -q 'zig build source-lowering-gauntlet' "$contract"
 grep -q 'zig build source-lowering-coverage-check' "$contract"
+grep -q 'zig build lowering-equivalence-report-check' "$contract"
+grep -q 'zig build lowering-rejection-report-check' "$contract"
 grep -q 'zig build test' "$contract"
 ! rg -n 'shift\.decl|shift\.ops' "$repo_root/src/source_lowering.zig" >/dev/null
-rg -n 'shift\.Decl|shift\.Op' "$repo_root/src/source_lowering.zig" >/dev/null
+! rg -n 'shift\.Op\b' "$repo_root/src/source_lowering.zig" >/dev/null
+rg -n 'shift\.Decl' "$repo_root/src/source_lowering.zig" >/dev/null
+rg -n 'shift\.Ops\.' "$repo_root/src/source_lowering.zig" >/dev/null

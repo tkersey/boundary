@@ -3,8 +3,7 @@
     .version = "0.0.1",
     .dependencies = .{
         .zlinter = .{
-            .url = "git+https://github.com/kurtwagner/zlinter?ref=0.15.x#59129bb0ca1efecd3b6625def6dc527cead4caac",
-            .hash = "zlinter-0.0.1-OjQ08ZOnCwBx9meqm2cUjOkYUBeTUpKhQ3ERnVPg6ARc",
+            .path = "vendor/zlinter",
         },
     },
     .minimum_zig_version = "0.15.2",
@@ -17,6 +16,7 @@
         "src",
         "test",
         "tools",
+        "vendor",
     },
     .fingerprint = 0xa50b3b45523140a3,
 }
