@@ -39,7 +39,7 @@ pub fn runBridgeFixture(comptime Fixture: type, writer: anytype) anyerror!Execut
     if (!@hasDecl(Fixture, "bridge_case_id")) {
         @compileError(@typeName(Fixture) ++ " must declare bridge_case_id");
     }
-    var lowered = try program_bridge.lowerFixture(Fixture);
+    var lowered = try program_bridge.lowerFixture(std.heap.page_allocator, Fixture);
     defer lowered.deinit(std.heap.page_allocator);
     if (lowered.status == .rejected) return error.RejectedBridgeFixture;
     const scenario = parity_scenarios.byId(lowered.canonical_scenario_id.?);

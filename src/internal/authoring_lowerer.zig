@@ -191,6 +191,24 @@ fn canonicalSourceHash(expected_path: []const u8) ?[32]u8 {
     if (std.mem.eql(u8, expected_path, "examples/algebraic_artifact_search.zig")) return build_options.hash_algebraic_artifact_search;
     if (std.mem.eql(u8, expected_path, "src/witness_sources.zig")) return build_options.hash_witness_sources;
     if (std.mem.eql(u8, expected_path, "src/witnesses.zig")) return build_options.hash_witnesses;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/algebraic_abortive_validation.zig")) return build_options.hash_bridge_fixture_algebraic_abortive_validation;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/algebraic_artifact_search.zig")) return build_options.hash_bridge_fixture_algebraic_artifact_search;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/atm_resume_transform.zig")) return build_options.hash_bridge_fixture_atm_resume_transform;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/direct_return.zig")) return build_options.hash_bridge_fixture_direct_return;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/early_exit.zig")) return build_options.hash_bridge_fixture_early_exit;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/exception_basic.zig")) return build_options.hash_bridge_fixture_exception_basic;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/generator.zig")) return build_options.hash_bridge_fixture_generator;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/multi_prompt.zig")) return build_options.hash_bridge_fixture_multi_prompt;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/nested_workflow.zig")) return build_options.hash_bridge_fixture_nested_workflow;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/optional_basic.zig")) return build_options.hash_bridge_fixture_optional_basic;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/reader_basic.zig")) return build_options.hash_bridge_fixture_reader_basic;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/resource_basic.zig")) return build_options.hash_bridge_fixture_resource_basic;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/resume_or_return.zig")) return build_options.hash_bridge_fixture_resume_or_return;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/resume_or_return_resume.zig")) return build_options.hash_bridge_fixture_resume_or_return_resume;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/resume_or_return_return_now.zig")) return build_options.hash_bridge_fixture_resume_or_return_return_now;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/state_basic.zig")) return build_options.hash_bridge_fixture_state_basic;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/static_redelim.zig")) return build_options.hash_bridge_fixture_static_redelim;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/writer_basic.zig")) return build_options.hash_bridge_fixture_writer_basic;
     return null;
 }
 

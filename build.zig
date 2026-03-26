@@ -234,6 +234,24 @@ pub fn build(b: *std.Build) void {
     authoring_lowerer_options.addOption([32]u8, "hash_algebraic_artifact_search", canonicalSourceHash(b, "examples/algebraic_artifact_search.zig"));
     authoring_lowerer_options.addOption([32]u8, "hash_witness_sources", canonicalSourceHash(b, "src/witness_sources.zig"));
     authoring_lowerer_options.addOption([32]u8, "hash_witnesses", canonicalSourceHash(b, "src/witnesses.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_algebraic_abortive_validation", canonicalSourceHash(b, "test/direct_style_bridge/algebraic_abortive_validation.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_algebraic_artifact_search", canonicalSourceHash(b, "test/direct_style_bridge/algebraic_artifact_search.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_atm_resume_transform", canonicalSourceHash(b, "test/direct_style_bridge/atm_resume_transform.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_direct_return", canonicalSourceHash(b, "test/direct_style_bridge/direct_return.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_early_exit", canonicalSourceHash(b, "test/direct_style_bridge/early_exit.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_exception_basic", canonicalSourceHash(b, "test/direct_style_bridge/exception_basic.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_generator", canonicalSourceHash(b, "test/direct_style_bridge/generator.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_multi_prompt", canonicalSourceHash(b, "test/direct_style_bridge/multi_prompt.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_nested_workflow", canonicalSourceHash(b, "test/direct_style_bridge/nested_workflow.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_optional_basic", canonicalSourceHash(b, "test/direct_style_bridge/optional_basic.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_reader_basic", canonicalSourceHash(b, "test/direct_style_bridge/reader_basic.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_resource_basic", canonicalSourceHash(b, "test/direct_style_bridge/resource_basic.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_resume_or_return", canonicalSourceHash(b, "test/direct_style_bridge/resume_or_return.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_resume_or_return_resume", canonicalSourceHash(b, "test/direct_style_bridge/resume_or_return_resume.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_resume_or_return_return_now", canonicalSourceHash(b, "test/direct_style_bridge/resume_or_return_return_now.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_state_basic", canonicalSourceHash(b, "test/direct_style_bridge/state_basic.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_static_redelim", canonicalSourceHash(b, "test/direct_style_bridge/static_redelim.zig"));
+    authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_writer_basic", canonicalSourceHash(b, "test/direct_style_bridge/writer_basic.zig"));
     const authoring_lowerer_mod = b.createModule(.{
         .root_source_file = b.path("src/internal/authoring_lowerer.zig"),
         .target = target,
