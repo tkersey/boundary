@@ -140,6 +140,61 @@ fn normalizeCallerVisiblePathAlloc(
     return try std.fs.path.resolve(allocator, &.{ base_path, path });
 }
 
+fn canonicalRepoRootAlloc(allocator: std.mem.Allocator) ![]u8 {
+    return try std.fs.realpathAlloc(allocator, build_options.package_root);
+}
+
+fn normalizeRepoRelativePathAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    const normalized = try allocator.dupe(u8, path);
+    for (normalized) |*byte| {
+        if (byte.* == '/' or byte.* == '\\') byte.* = std.fs.path.sep;
+    }
+    return normalized;
+}
+
+fn normalizeExpectedCanonicalPathAlloc(
+    allocator: std.mem.Allocator,
+    canonical_repo_root: []const u8,
+    expected_path: []const u8,
+) ![]u8 {
+    return try std.fs.path.resolve(allocator, &.{ canonical_repo_root, expected_path });
+}
+
+fn repoAliasRootMatchesExpected(
+    allocator: std.mem.Allocator,
+    normalized_actual: []const u8,
+    expected_path: []const u8,
+    canonical_repo_root: []const u8,
+) bool {
+    if (!std.mem.endsWith(u8, normalized_actual, expected_path)) return false;
+    if (normalized_actual.len <= expected_path.len) return false;
+    if (normalized_actual[normalized_actual.len - expected_path.len - 1] != std.fs.path.sep) return false;
+
+    var repo_alias_root = normalized_actual[0 .. normalized_actual.len - expected_path.len];
+    while (repo_alias_root.len != 0 and repo_alias_root[repo_alias_root.len - 1] == std.fs.path.sep) {
+        repo_alias_root.len -= 1;
+    }
+    if (repo_alias_root.len == 0) return false;
+    if (std.mem.startsWith(u8, repo_alias_root, canonical_repo_root)) {
+        if (repo_alias_root.len == canonical_repo_root.len) return false;
+        if (repo_alias_root[canonical_repo_root.len] == std.fs.path.sep) return false;
+    }
+
+    const canonical_alias_root = std.fs.realpathAlloc(allocator, repo_alias_root) catch return false;
+    defer allocator.free(canonical_alias_root);
+    if (!std.mem.eql(u8, canonical_alias_root, canonical_repo_root)) return false;
+
+    const alias_parent = std.fs.path.dirname(repo_alias_root) orelse return false;
+    const canonical_alias_parent = std.fs.realpathAlloc(allocator, alias_parent) catch return false;
+    defer allocator.free(canonical_alias_parent);
+
+    if (std.mem.startsWith(u8, canonical_alias_parent, canonical_repo_root)) {
+        if (canonical_alias_parent.len == canonical_repo_root.len) return false;
+        if (canonical_alias_parent[canonical_repo_root.len] == std.fs.path.sep) return false;
+    }
+    return true;
+}
+
 fn sourcePathMatchesExpected(allocator: std.mem.Allocator, actual_path: []const u8, expected_path: []const u8) bool {
     const cwd_path = std.process.getCwdAlloc(allocator) catch return false;
     defer allocator.free(cwd_path);
@@ -147,10 +202,17 @@ fn sourcePathMatchesExpected(allocator: std.mem.Allocator, actual_path: []const 
     const normalized_actual = normalizeCallerVisiblePathAlloc(allocator, cwd_path, actual_path) catch return false;
     defer allocator.free(normalized_actual);
 
-    const normalized_expected = normalizeCallerVisiblePathAlloc(allocator, build_options.package_root, expected_path) catch return false;
-    defer allocator.free(normalized_expected);
+    const canonical_repo_root = canonicalRepoRootAlloc(allocator) catch return false;
+    defer allocator.free(canonical_repo_root);
 
-    return std.mem.eql(u8, normalized_actual, normalized_expected);
+    const normalized_expected_path = normalizeRepoRelativePathAlloc(allocator, expected_path) catch return false;
+    defer allocator.free(normalized_expected_path);
+
+    const canonical_expected = normalizeExpectedCanonicalPathAlloc(allocator, canonical_repo_root, normalized_expected_path) catch return false;
+    defer allocator.free(canonical_expected);
+
+    if (std.mem.eql(u8, normalized_actual, canonical_expected)) return true;
+    return repoAliasRootMatchesExpected(allocator, normalized_actual, normalized_expected_path, canonical_repo_root);
 }
 
 /// Public `resolveRepoSourcePathAlloc` helper.

@@ -43,7 +43,7 @@ test "source-lowering rejects non-canonical source paths for known cases" {
     try std.testing.expectEqualStrings("non_canonical_source_path", lowered.diagnostics[0].code);
 }
 
-test "source-lowering rejects symlink aliases for canonical files" {
+test "source-lowering rejects external symlink aliases for canonical files" {
     const canonical_path = try std.fs.cwd().realpathAlloc(
         std.testing.allocator,
         "test/source_lowering_corpus/fixtures/branch_resume.zig",
@@ -208,7 +208,7 @@ test "inline source lowering rejects non-canonical source paths even for canonic
     try std.testing.expectEqualStrings("non_canonical_source_path", lowered.diagnostics[0].code);
 }
 
-test "inline source lowering rejects symlink aliases for canonical text" {
+test "inline source lowering rejects external symlink aliases for canonical text" {
     const canonical_text = try std.fs.cwd().readFileAlloc(
         std.testing.allocator,
         "test/source_lowering_corpus/fixtures/branch_resume.zig",
@@ -262,6 +262,148 @@ test "inline source lowering accepts canonical repo-relative paths from subdirec
 
     try std.testing.expect(lowered.isAccepted());
     try std.testing.expectEqualStrings("test/source_lowering_corpus/fixtures/branch_resume.zig", lowered.source_path);
+}
+
+test "source-lowering accepts canonical repo-relative paths from symlinked checkouts" {
+    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(original_cwd);
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const checkout_alias = try symlinkAliasPath(std.testing.allocator, &tmp, original_cwd, "shift_repo_alias");
+    defer std.testing.allocator.free(checkout_alias);
+
+    try std.posix.chdir(checkout_alias);
+    defer std.posix.chdir(original_cwd) catch unreachable;
+
+    var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
+        .case_id = "source.branch_resume",
+        .source_path = "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        .entry_symbol = "run",
+        .surface_kind = .source_case,
+    });
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(lowered.isAccepted());
+    try std.testing.expectEqualStrings("test/source_lowering_corpus/fixtures/branch_resume.zig", lowered.source_path);
+}
+
+test "inline source lowering rejects alias-root prefix matches without a path boundary" {
+    const canonical_text = try std.fs.cwd().readFileAlloc(
+        std.testing.allocator,
+        "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        1 << 20,
+    );
+    defer std.testing.allocator.free(canonical_text);
+
+    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(original_cwd);
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const checkout_alias = try symlinkAliasPath(std.testing.allocator, &tmp, original_cwd, "shift_repo_alias_prefix");
+    defer std.testing.allocator.free(checkout_alias);
+
+    const prefixed_alias_path = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "{s}{s}",
+        .{ checkout_alias, "test/source_lowering_corpus/fixtures/branch_resume.zig" },
+    );
+    defer std.testing.allocator.free(prefixed_alias_path);
+
+    var lowered = try source_lowering.inspectInlineSource(std.testing.allocator, .{
+        .case_id = "source.branch_resume",
+        .source_path = prefixed_alias_path,
+        .entry_symbol = "run",
+        .surface_kind = .source_case,
+    }, canonical_text);
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(!lowered.isAccepted());
+    try std.testing.expectEqualStrings("non_canonical_source_path", lowered.diagnostics[0].code);
+}
+
+test "inline source lowering rejects repo-internal checkout aliases" {
+    const canonical_text = try std.fs.cwd().readFileAlloc(
+        std.testing.allocator,
+        "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        1 << 20,
+    );
+    defer std.testing.allocator.free(canonical_text);
+
+    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(original_cwd);
+
+    const internal_alias_name = ".tmp_shift_repo_alias_internal";
+    std.fs.cwd().deleteFile(internal_alias_name) catch {};
+    try std.fs.cwd().symLink(original_cwd, internal_alias_name, .{});
+    defer std.fs.cwd().deleteFile(internal_alias_name) catch unreachable;
+
+    const alias_source_path = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "{s}{c}{s}",
+        .{ internal_alias_name, std.fs.path.sep, "test/source_lowering_corpus/fixtures/branch_resume.zig" },
+    );
+    defer std.testing.allocator.free(alias_source_path);
+
+    var lowered = try source_lowering.inspectInlineSource(std.testing.allocator, .{
+        .case_id = "source.branch_resume",
+        .source_path = alias_source_path,
+        .entry_symbol = "run",
+        .surface_kind = .source_case,
+    }, canonical_text);
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(!lowered.isAccepted());
+    try std.testing.expectEqualStrings("non_canonical_source_path", lowered.diagnostics[0].code);
+}
+
+test "inline source lowering rejects repo-internal aliases nested inside symlinked checkouts" {
+    const canonical_text = try std.fs.cwd().readFileAlloc(
+        std.testing.allocator,
+        "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        1 << 20,
+    );
+    defer std.testing.allocator.free(canonical_text);
+
+    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(original_cwd);
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const checkout_alias = try symlinkAliasPath(std.testing.allocator, &tmp, original_cwd, "shift_repo_alias_nested");
+    defer std.testing.allocator.free(checkout_alias);
+
+    var checkout_dir = try std.fs.openDirAbsolute(checkout_alias, .{});
+    defer checkout_dir.close();
+    const nested_alias_name = ".tmp_shift_repo_alias_nested_internal";
+    checkout_dir.deleteFile(nested_alias_name) catch {};
+    try checkout_dir.symLink(original_cwd, nested_alias_name, .{});
+    defer checkout_dir.deleteFile(nested_alias_name) catch unreachable;
+
+    const alias_source_path = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "{s}{c}{s}{c}{s}",
+        .{
+            checkout_alias,
+            std.fs.path.sep,
+            nested_alias_name,
+            std.fs.path.sep,
+            "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        },
+    );
+    defer std.testing.allocator.free(alias_source_path);
+
+    var lowered = try source_lowering.inspectInlineSource(std.testing.allocator, .{
+        .case_id = "source.branch_resume",
+        .source_path = alias_source_path,
+        .entry_symbol = "run",
+        .surface_kind = .source_case,
+    }, canonical_text);
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(!lowered.isAccepted());
+    try std.testing.expectEqualStrings("non_canonical_source_path", lowered.diagnostics[0].code);
 }
 
 test "inline source lowering rejects drifted canonical text even on the canonical path" {
