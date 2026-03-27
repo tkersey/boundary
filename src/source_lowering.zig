@@ -1,7 +1,9 @@
 const authoring_lowerer = @import("authoring_lowerer");
+const effect_ir = @import("effect_ir");
 const error_witness = @import("error_witness");
 const lowered_machine = @import("lowered_machine");
 const parity_scenarios = @import("parity_scenarios");
+const program_frontend = @import("program_frontend");
 const source_registry = @import("source_lowering_registry");
 const std = @import("std");
 
@@ -62,6 +64,23 @@ pub const GeneratedProgram = struct {
     }
 };
 
+/// One open-row lowering record that keeps the resolved Effect IR plus its normalization proof.
+pub const OpenRowGeneratedProgram = struct {
+    label: []const u8,
+    normalization: effect_ir.NormalizationDigest,
+    program: effect_ir.Program,
+};
+
+/// Lower one open-row frontend payload into the Effect IR shell and capture its normalization digest.
+pub fn lowerOpenRowProgram(program: program_frontend.OpenRowProgram) !OpenRowGeneratedProgram {
+    const lowered = try authoring_lowerer.lowerOpenRowProgram(program);
+    return .{
+        .label = lowered.label,
+        .normalization = lowered.normalization,
+        .program = lowered.program,
+    };
+}
+
 /// Error surface for source-lowering entrypoints.
 pub const LowerError = anyerror;
 
@@ -70,6 +89,40 @@ const Match = struct {
     entry_required_snippets: []const []const u8 = &.{},
     feature_flags: []const []const u8,
 };
+
+test "lowerOpenRowProgram preserves label and normalization digest" {
+    const row = effect_ir.rowFromSpec(.{
+        .state = .{
+            .get = effect_ir.Transform(void, i32),
+            .set = effect_ir.Transform(i32, void),
+        },
+        .writer = .{
+            .tell = effect_ir.Transform([]const u8, void),
+        },
+    });
+    const program = try lowerOpenRowProgram(.{
+        .label = "example.open_row_state_writer",
+        .function = .{
+            .symbol = .{
+                .module_path = "examples/open_row_state_writer.zig",
+                .symbol_name = "Workflow",
+            },
+            .row = row,
+            .outputs = &.{
+                .{ .label = "state", .OutputType = i32 },
+                .{ .label = "writer", .OutputType = []const []const u8 },
+            },
+        },
+        .call_edges = &.{},
+    });
+
+    try std.testing.expectEqualStrings("example.open_row_state_writer", program.label);
+    try std.testing.expectEqual(@as(usize, 2), program.normalization.requirement_count);
+    try std.testing.expectEqual(@as(usize, 3), program.normalization.op_count);
+    try std.testing.expectEqual(@as(usize, 2), program.normalization.output_count);
+    try std.testing.expectEqual(@as(usize, 1), program.program.functions.len);
+    _ = program_frontend;
+}
 
 const local_mutation_match = Match{
     .required_snippets = &.{
@@ -183,13 +236,14 @@ const errdefer_match = Match{
 
 const early_exit_match = Match{
     .required_snippets = &.{
-        "const EarlyExitProgram = shift.Program(.{",
-        "shift.Decl.exception([]const u8, catch_policy)",
+        "const EarlyExitRow = shift.effects.exception([]const u8);",
+        "pub const Uses = shift.Uses(EarlyExitRow);",
         "try eff.exception.throw(\"result=early\");",
         "transcript.handler_line = \"handler-direct-return\";",
     },
     .entry_required_snippets = &.{
-        "const result = try shift.run(&runtime, EarlyExitProgram, .{});",
+        "const closed = shift.bind(EarlyExitWorkflow, .{",
+        "const result = try shift.run(&runtime, closed);",
         "try writer.print(\"final={s}\\n\", .{result.value});",
     },
     .feature_flags = &.{ "lexical_exception", "direct_return", "promoted_example" },
@@ -204,23 +258,26 @@ const resume_or_return_example_match = Match{
     },
     .entry_required_snippets = &.{
         "try writer.writeAll(\"branch=return_now\\n\");",
-        "const early = try shift.run(&runtime, ReturnNowProgram, .{});",
-        "const resumed = try shift.run(&runtime, ResumeProgram, .{});",
+        "const return_now_closed = shift.bind(ReturnNowWorkflow, .{",
+        "const early = try shift.run(&runtime, return_now_closed);",
+        "const resume_closed = shift.bind(ResumeWorkflow, .{",
+        "const resumed = try shift.run(&runtime, resume_closed);",
     },
     .feature_flags = &.{ "lexical_optional", "return_now", "resume_with", "promoted_example" },
 };
 
 const nested_workflow_match = Match{
     .required_snippets = &.{
-        "const Approval = shift.Decl.family",
-        "eff.approval.publish.perform",
+        "const ApprovalRow = shift.effects.optional([]const u8);",
+        "const approved = try eff.optional.request(struct {",
         "approval=publish",
     },
     .entry_required_snippets = &.{
-        "const result = try shift.run(&runtime, WorkflowProgram, .{",
+        "const closed = shift.bind(Workflow, .{",
+        "const result = try shift.run(&runtime, closed);",
         "try writer.print(\"result={s}\\n\", .{result.value});",
     },
-    .feature_flags = &.{ "generated_choice", "nested_workflow", "promoted_example" },
+    .feature_flags = &.{ "lexical_optional", "nested_workflow", "promoted_example" },
 };
 
 const front_door_workflow_match = Match{
@@ -241,13 +298,14 @@ const front_door_workflow_match = Match{
 
 const state_example_match = Match{
     .required_snippets = &.{
-        "const StateProgram = shift.Program(.{",
-        "shift.Decl.state(i32)",
+        "const StateRow = shift.effects.state(i32);",
+        "pub const Uses = shift.Uses(StateRow);",
         "const before = try eff.state.get();",
         "try eff.state.set(before + 1);",
     },
     .entry_required_snippets = &.{
-        "const result = try shift.run(&runtime, StateProgram, .{",
+        "const closed = shift.bind(StateWorkflow, .{",
+        "const result = try shift.run(&runtime, closed);",
         "try writer.print(\"before=5\\nafter=6\\nfinal_state={d}\\nvalue={d}\\n\", .{ result.outputs.state, result.value });",
     },
     .feature_flags = &.{ "state_effect", "lexical_effect", "promoted_cohort_a" },
@@ -255,13 +313,14 @@ const state_example_match = Match{
 
 const reader_example_match = Match{
     .required_snippets = &.{
-        "const ReaderProgram = shift.Program(.{",
-        "shift.Decl.reader(i32)",
+        "const ReaderRow = shift.effects.reader(i32);",
+        "pub const Uses = shift.Uses(ReaderRow);",
         "const env = try eff.reader.ask();",
         "return env * 2;",
     },
     .entry_required_snippets = &.{
-        "const result = try shift.run(&runtime, ReaderProgram, .{",
+        "const closed = shift.bind(ReaderWorkflow, .{",
+        "const result = try shift.run(&runtime, closed);",
         "try writer.print(\"env=21\\nvalue={d}\\n\", .{result.value});",
     },
     .feature_flags = &.{ "reader_effect", "lexical_effect", "promoted_cohort_a" },
@@ -272,11 +331,13 @@ const optional_example_match = Match{
         "policy-return-now",
         "policy-resume",
         "body-after-request",
-        "shift.Decl.optional(i32, resume_policy)",
+        "const OptionalRow = shift.effects.optional(i32);",
     },
     .entry_required_snippets = &.{
-        "const early_result = try shift.run(&runtime, ReturnNowProgram, .{});",
-        "const resumed = try shift.run(&runtime, ResumeProgram, .{});",
+        "const return_now_closed = shift.bind(ReturnNowWorkflow, .{",
+        "const early_result = try shift.run(&runtime, return_now_closed);",
+        "const resume_closed = shift.bind(ResumeWorkflow, .{",
+        "const resumed = try shift.run(&runtime, resume_closed);",
     },
     .feature_flags = &.{ "optional_effect", "lexical_effect", "promoted_cohort_a" },
 };
@@ -284,13 +345,15 @@ const optional_example_match = Match{
 const exception_example_match = Match{
     .required_snippets = &.{
         "branch=throw",
-        "shift.Decl.exception([]const u8, catch_policy)",
+        "const ExceptionRow = shift.effects.exception([]const u8);",
         "try eff.exception.throw(\"result=boom\");",
         "catch={s}",
     },
     .entry_required_snippets = &.{
-        "const ok = try shift.run(&runtime, ExceptionPassProgram, .{});",
-        "const thrown = try shift.run(&runtime, ExceptionProgram, .{});",
+        "const pass_closed = shift.bind(ExceptionPassWorkflow, .{",
+        "const ok = try shift.run(&runtime, pass_closed);",
+        "const throw_closed = shift.bind(ExceptionWorkflow, .{",
+        "const thrown = try shift.run(&runtime, throw_closed);",
         "try writer.print(\"catch={s}\\n\", .{transcript.caught_payload});",
         "try writer.print(\"final={s}\\n\", .{thrown.value});",
     },
@@ -311,6 +374,20 @@ const define_basic_match = Match{
     .feature_flags = &.{ "generated_transform", "user_defined_effect", "source_canonical" },
 };
 
+const open_row_transform_match = Match{
+    .required_snippets = &.{
+        "const counter_row = shift.Row(.{",
+        "shift.Transform(void, i32)",
+        "eff.counter.get.perform()",
+        "eff.counter.set.perform(before + 1)",
+        "counter={d}",
+    },
+    .entry_required_snippets = &.{
+        "try writer.print(\"counter={d}\\n\", .{try run_counter(&runtime)});",
+    },
+    .feature_flags = &.{ "generated_transform", "user_defined_effect", "open_row", "source_canonical" },
+};
+
 const define_choice_match = Match{
     .required_snippets = &.{
         "const Picker = shift.Decl.family",
@@ -328,6 +405,23 @@ const define_choice_match = Match{
     .feature_flags = &.{ "generated_choice", "user_defined_effect", "source_canonical" },
 };
 
+const open_row_choice_match = Match{
+    .required_snippets = &.{
+        "const picker_row = shift.Row(.{",
+        "shift.Choice(i32, i32)",
+        "eff.picker.pick.perform(41",
+        "body-after-pick",
+        "policy-after-resume",
+    },
+    .entry_required_snippets = &.{
+        "const return_now_closed = shift.bind(picker_workflow, .{",
+        "const early = try shift.run(&runtime, return_now_closed);",
+        "const resume_closed = shift.bind(picker_workflow, .{",
+        "const resumed = try shift.run(&runtime, resume_closed);",
+    },
+    .feature_flags = &.{ "generated_choice", "user_defined_effect", "open_row", "source_canonical" },
+};
+
 const define_abort_match = Match{
     .required_snippets = &.{
         "const Guard = shift.Decl.family",
@@ -343,15 +437,34 @@ const define_abort_match = Match{
     .feature_flags = &.{ "generated_abort", "user_defined_effect", "source_canonical" },
 };
 
+const open_row_abort_match = Match{
+    .required_snippets = &.{
+        "const guard_row = shift.Row(.{",
+        "shift.Abort([]const u8)",
+        "eff.guard.fail.abort(\"missing-name\")",
+        "abort={s}",
+    },
+    .entry_required_snippets = &.{
+        "const closed = shift.bind(guard_workflow, .{",
+        "const result = try shift.run(&runtime, closed);",
+        "try writer.writeAll(\"validate=name\\n\");",
+        "try writer.print(\"abort={s}\\n\", .{transcript.abort_line});",
+    },
+    .feature_flags = &.{ "generated_abort", "user_defined_effect", "open_row", "source_canonical" },
+};
+
 const resource_example_match = Match{
     .required_snippets = &.{
-        "shift.Decl.resource([]const u8, resource_manager)",
+        "const ResourceRow = shift.effects.resource([]const u8);",
+        "pub const Uses = shift.Uses(ResourceRow);",
+        ".resource = shift.handlers.resource([]const u8, resource_manager),",
+        "const result = try shift.run(&runtime, shift.bind(ResourceProgram, .{",
         "const first = try eff.resource.acquire();",
         "const second = try eff.resource.acquire();",
         "release=a",
     },
     .entry_required_snippets = &.{
-        "const result = try shift.run(&runtime, ResourceProgram, .{});",
+        "const result = try shift.run(&runtime, shift.bind(ResourceProgram, .{",
         "try writer.print(\"final={s}\\n\", .{result.value});",
     },
     .feature_flags = &.{ "resource_effect", "lexical_effect", "source_canonical" },
@@ -359,11 +472,12 @@ const resource_example_match = Match{
 
 const writer_example_match = Match{
     .required_snippets = &.{
-        "const WriterProgram = shift.Program(.{",
-        "shift.Decl.writer([]const u8)",
+        "const WriterRow = shift.effects.writer([]const u8);",
+        "pub const Uses = shift.Uses(WriterRow);",
         "try eff.writer.tell(\"a\")",
         "try eff.writer.tell(\"b\")",
-        "const result = try shift.run(&runtime, WriterProgram, .{});",
+        "const closed = shift.bind(WriterWorkflow, .{",
+        "const result = try shift.run(&runtime, closed);",
         "value={s}",
     },
     .entry_required_snippets = &.{
@@ -387,6 +501,22 @@ const algebraic_abort_match = Match{
     .feature_flags = &.{ "algebraic_abort", "source_canonical" },
 };
 
+const open_row_abortive_validation_match = Match{
+    .required_snippets = &.{
+        "const validation_row = shift.Row(.{",
+        "shift.Abort([]const u8)",
+        "try eff.guard.fail.abort(\"missing-name\")",
+        "abort={s}",
+    },
+    .entry_required_snippets = &.{
+        "const closed = shift.bind(validation_workflow, .{",
+        "const result = try shift.run(&runtime, closed);",
+        "try writer.writeAll(\"validate=name\\n\");",
+        "try writer.print(\"abort={s}\\n\", .{transcript.abort_line});",
+    },
+    .feature_flags = &.{ "generated_abort", "user_defined_effect", "open_row", "source_canonical" },
+};
+
 const algebraic_artifact_match = Match{
     .required_snippets = &.{
         "const Search = shift.Decl.family(.{",
@@ -399,6 +529,49 @@ const algebraic_artifact_match = Match{
         "try writer.print(\"total={d}\\n\", .{result.value});",
     },
     .feature_flags = &.{ "algebraic_transform", "source_canonical" },
+};
+
+const open_row_artifact_match = Match{
+    .required_snippets = &.{
+        "const search_row = shift.Row(.{",
+        "shift.Transform([]const u8, i32)",
+        "const total = try eff.search.search.perform(\"artifact-search\");",
+        "opencode_source=jsonl",
+    },
+    .entry_required_snippets = &.{
+        "const closed = shift.bind(artifact_search_workflow, .{",
+        "const result = try shift.run(&runtime, closed);",
+        "try writer.print(\"total={d}\\n\", .{result.value});",
+    },
+    .feature_flags = &.{ "generated_transform", "user_defined_effect", "open_row", "source_canonical" },
+};
+
+const open_row_workflow_match = Match{
+    .required_snippets = &.{
+        "const workflow_row = shift.mergeRows(.{",
+        "shift.effects.state(i32)",
+        "shift.effects.writer([]const u8)",
+        "const total = try eff.search.search.perform(\"artifact-search\");",
+        "return try eff.approval.publish.perform(struct {",
+    },
+    .entry_required_snippets = &.{
+        "try run_with_allocator(writer, std.heap.page_allocator);",
+    },
+    .feature_flags = &.{ "generated_transform", "generated_choice", "open_row", "source_canonical" },
+};
+
+const open_row_generator_match = Match{
+    .required_snippets = &.{
+        "const generator_row = shift.mergeRows(.{",
+        "shift.effects.state(i32)",
+        "shift.effects.writer([]const u8)",
+        "try eff.writer.tell(line);",
+        "done={d}",
+    },
+    .entry_required_snippets = &.{
+        "try run_with_allocator(writer, std.heap.page_allocator);",
+    },
+    .feature_flags = &.{ "state_effect", "writer_effect", "open_row", "source_canonical" },
 };
 
 const witness_atm_match = Match{
@@ -606,6 +779,62 @@ fn rejectedWitnessTemplate(spec: Spec) WitnessTemplate {
 
 fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?SupportedCase {
     if (surface_kind == .example) {
+        if (std.mem.eql(u8, case_id, "example.open_row_transform_basic")) return .{
+            .case_id = case_id,
+            .label = "source.example.open_row_transform_basic",
+            .source_path = "examples/open_row_transform_basic.zig",
+            .scenario_id = .define_basic,
+            .status = .canonical,
+            .match = open_row_transform_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.open_row_choice_basic")) return .{
+            .case_id = case_id,
+            .label = "source.example.open_row_choice_basic",
+            .source_path = "examples/open_row_choice_basic.zig",
+            .scenario_id = .define_choice_basic,
+            .status = .canonical,
+            .match = open_row_choice_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.open_row_abort_basic")) return .{
+            .case_id = case_id,
+            .label = "source.example.open_row_abort_basic",
+            .source_path = "examples/open_row_abort_basic.zig",
+            .scenario_id = .define_abort_basic,
+            .status = .canonical,
+            .match = open_row_abort_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.open_row_workflow")) return .{
+            .case_id = case_id,
+            .label = "source.example.open_row_workflow",
+            .source_path = "examples/open_row_workflow.zig",
+            .scenario_id = .front_door_workflow,
+            .status = .canonical,
+            .match = open_row_workflow_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.open_row_abortive_validation")) return .{
+            .case_id = case_id,
+            .label = "source.example.open_row_abortive_validation",
+            .source_path = "examples/open_row_abortive_validation.zig",
+            .scenario_id = .algebraic_abortive_validation,
+            .status = .canonical,
+            .match = open_row_abortive_validation_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.open_row_artifact_search")) return .{
+            .case_id = case_id,
+            .label = "source.example.open_row_artifact_search",
+            .source_path = "examples/open_row_artifact_search.zig",
+            .scenario_id = .algebraic_artifact_search,
+            .status = .canonical,
+            .match = open_row_artifact_match,
+        };
+        if (std.mem.eql(u8, case_id, "example.open_row_generator")) return .{
+            .case_id = case_id,
+            .label = "source.example.open_row_generator",
+            .source_path = "examples/open_row_generator.zig",
+            .scenario_id = .generator,
+            .status = .canonical,
+            .match = open_row_generator_match,
+        };
         if (std.mem.eql(u8, case_id, "example.define_basic")) return .{
             .case_id = case_id,
             .label = "source.example.define_basic",
@@ -781,26 +1010,26 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
         if (std.mem.eql(u8, case_id, "user_defined.transform")) return .{
             .case_id = case_id,
             .label = "source.user_defined.transform",
-            .source_path = "examples/define_basic.zig",
+            .source_path = "examples/open_row_transform_basic.zig",
             .scenario_id = .define_basic,
             .status = .canonical,
-            .match = define_basic_match,
+            .match = open_row_transform_match,
         };
         if (std.mem.eql(u8, case_id, "user_defined.choice")) return .{
             .case_id = case_id,
             .label = "source.user_defined.choice",
-            .source_path = "examples/define_choice_basic.zig",
+            .source_path = "examples/open_row_choice_basic.zig",
             .scenario_id = .define_choice_basic,
             .status = .canonical,
-            .match = define_choice_match,
+            .match = open_row_choice_match,
         };
         if (std.mem.eql(u8, case_id, "user_defined.abort")) return .{
             .case_id = case_id,
             .label = "source.user_defined.abort",
-            .source_path = "examples/define_abort_basic.zig",
+            .source_path = "examples/open_row_abort_basic.zig",
             .scenario_id = .define_abort_basic,
             .status = .canonical,
-            .match = define_abort_match,
+            .match = open_row_abort_match,
         };
     }
     if (surface_kind == .witness) {

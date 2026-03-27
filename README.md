@@ -7,14 +7,15 @@
 
 In the repo's current state, that means two things:
 
-- the public front door is rooted in `shift.Program(.{ ... }, Body)` and
-  `shift.run(&runtime, Program, bindings)`
+- the public front door is rooted in `shift.Row(.{ ... })` / `shift.mergeRows(.{ ... })`,
+  `shift.effects.*`, `shift.handlers.*`, `shift.bind(...)`, and
+  `shift.run(&runtime, closed)`
 - the runtime remains explicit, thread-affine, and user-owned, without exposing
   a public continuation handle
 
-The root front door is the only documented public authoring surface. For
-existing callers, `shift.Op.transform` / `shift.Op.choice` / `shift.Op.abort`
-remain available as compatibility aliases beneath that front door.
+The open-row front door is the only documented public authoring surface.
+Retired root spellings are gone from the shipped root and are only guarded by
+tombstone proofs.
 
 The repo therefore treats runtime code as the last rung of a semantics ladder,
 not as the source of truth:
@@ -29,17 +30,17 @@ The shipped runtime backend is the canonical authored-body lowered runtime.
 
 The current public product claim is:
 
-- `shift.Program(.{ ... }, Body)` is the reusable authored-body surface
-- `shift.run(&runtime, Program, bindings)` is the explicit root execution entrypoint
-- built-in declarations are installed through `shift.Decl.state`,
-  `shift.Decl.reader`, `shift.Decl.optional`, `shift.Decl.exception`,
-  `shift.Decl.resource`, and `shift.Decl.writer`
-- custom closed-world families are declared through `shift.Decl.family(.{ ... })`
-  and `shift.Ops.Transform` / `shift.Ops.Choice` / `shift.Ops.Abort`
-  (`shift.Op.transform` / `shift.Op.choice` / `shift.Op.abort` remain supported
-  as compatibility aliases)
-- `shift.Decision(...)` is the public choice-decision type for front-door
-  optional and generated choice handlers
+- structural rows are authored through `shift.Row(.{ ... })` and
+  `shift.mergeRows(.{ ... })`
+- built-in row fragments are exposed through `shift.effects.state`,
+  `shift.effects.reader`, `shift.effects.optional`, `shift.effects.exception`,
+  and `shift.effects.writer`
+- builtin handler bridges are exposed through `shift.handlers.state`,
+  `shift.handlers.reader`, `shift.handlers.optional`, `shift.handlers.exception`,
+  and `shift.handlers.writer`
+- `shift.Transform`, `shift.Choice`, and `shift.Abort` are the open-row leaf builders
+- `const closed = shift.bind(BodyOrStage, handlers); try shift.run(&runtime, closed)` is the open-row execution story
+- `shift.Decision(...)` remains the public choice-decision type
 - prompt descriptors, `PromptMode`, `ResumeOrReturn`, `reset`, and `frontend`
   no longer live at the top level; repo-owned proof surfaces now reach them
   only through direct imports of `src/internal/prompt_support.zig`
@@ -48,7 +49,7 @@ The current public product claim is:
 ## Semantic Commitments
 
 - static `shift/reset`, not `control/prompt`
-- one root-front-door authoring story with a legacy `shift.Op.*` compatibility shim
+- one open-row front-door story with no public retired spellings
 - internal typed prompt discipline beneath that story
 - one-shot continuation use
 - honest answer-type pressure if the kernel requires it
@@ -124,7 +125,6 @@ zig build bench-runtime-backends-check
 zig build bench-state-effect
 zig build bench-state-effect-write
 zig build bench-state-effect-check
-zig build shared-declaration-engine-boundary
 ```
 
 ## Executable Contract
@@ -135,10 +135,12 @@ one of these proof surfaces:
 - `zig build test` for the combined runtime, witness, compile-fail, README, and
   formal-core gates
 - `zig build effect-construction-boundary` for the generalized construction boundary
-- `zig build shared-declaration-engine-boundary` for the checked claim that the surviving declaration surfaces now share one internal declaration engine
+- `zig build public-root-contract-snapshot-check` for the open-row root tombstone snapshot
+- `zig build public-error-api-ban` for the fail-closed proof that retired root spellings stay out of shipped docs/examples/root surfaces
+- `zig build retired-lane-inventory-check` for the fail-closed proof that retired vocabulary stays out of proof-facing files
 - `zig build compile-fail` for hidden continuation/context surfaces and forged
   capability misuse
-- `zig build example-proof` for exact-output public example transcripts
+- `zig build example-proof` for the exact-output open-row example corpus
 - `zig build backend-parity` for the hidden lowered proof engine over the
   canonical scenario IR, kept strictly beneath the canonical public
   `shift/reset` surface
@@ -164,8 +166,6 @@ one of these proof surfaces:
   backend
 - `zig build runtime-contract-suite` for executable public-runtime contract
   cases that still guard the final stackful-backed behaviors
-- `zig build public-error-api-ban` for the fail-closed proof that banned legacy
-  public error spellings are gone from shipped docs/examples/root surfaces
 - `zig build runtime-error-surface-matrix-check` for the checked retained-vs-retired
   public runtime error surface
 - `zig build source-lowering-error-witness-check` for the checked source-lowering-tool witness
@@ -191,245 +191,32 @@ one of these proof surfaces:
 - `zig build bench-state-effect-check` for the checked benchmark artifact on a
   clean tree
 
-The surviving declaration-family contract is now:
+The current open-row contract is now:
 
-- programs are authored as `shift.Program(.{ ... }, Body)` and executed with `shift.run(...)`
-- built-in declarations expose named handles such as `eff.state.get()`,
-  `eff.reader.ask()`, `eff.optional.request(...)`,
-  `eff.exception.throw(...)`, `eff.resource.acquire()`, and
-  `eff.writer.tell(...)`
-- custom closed-world families are declared through `shift.Decl.family(.{ ... })`
-  and `shift.Ops.*`, then surfaced through named op handles like
-  `eff.counter.get.perform(...)`, `eff.picker.pick.perform(...)`, and
-  `eff.guard.fail.abort(...)`
-- forged or cross-instance contexts still fail at compile time; see:
-  - `decl_family_duplicate_op_name_fails.zig`
-  - `decl_family_explicit_mode_mismatch_fails.zig`
-  - `decl_family_missing_after_hook_fails.zig`
-  - `decl_family_mixed_mode_fails.zig`
-  - `decl_family_reserved_name_fails.zig`
-  - `exception_policy_missing_direct_return.zig`
-  - `optional_policy_missing_resume_or_return.zig`
-  - `resource_manager_missing_acquire.zig`
-
-The root front door absorbs the old algebraic and effect-oriented public stories.
-Only `shift.Program`, `shift.run`, `shift.Decl`, `shift.Ops`, legacy-compatible
-`shift.Op`, and `shift.Decision` remain public.
+- rows are authored with `shift.Row(.{ ... })` and composed with `shift.mergeRows(.{ ... })`
+- built-in row fragments come from `shift.effects.*`
+- handlers are supplied explicitly through `shift.handlers.*`
+- roots execute through `shift.bind(...)` plus `shift.run(&runtime, closed)`
+- retired root spellings are checked by tombstone proofs instead of compatibility narratives
 
 ## Examples
 
-### `algebraic_abortive_validation`
+### `open_row_state_writer`
 
 ```bash
-zig build run-algebraic-abortive-validation
+zig build run-open-row-state-writer
 ```
 
 Expected output:
 
 ```text
-validate=name
-abort=missing-name
-final=error=missing-name
-```
-
-### `algebraic_artifact_search`
-
-```bash
-zig build run-algebraic-artifact-search
-```
-
-Expected output:
-
-```text
-query=artifact-search
-messages=1
-tool_calls=0
-memory_blocks=1
-opencode_source=jsonl
-total=3
-```
-
-### `direct_return`
-
-```bash
-zig build run-early-exit
-```
-
-Expected output:
-
-```text
-handler-direct-return
-final=result=early
-```
-
-### `resume_or_return`
-
-```bash
-zig build run-resume-or-return
-```
-
-Expected output:
-
-```text
-branch=return_now
-handler-return-now
-final=result=early
-branch=resume_with
-handler-decide-resume
-body-after-shift
-handler-after-resume
-final=answer=42
-```
-
-### `resume_then_transform`
-
-```bash
-zig build run-nested-workflow
-```
-
-Expected output:
-
-```text
-workflow=queued
-audit=entered
-audit=after
-approval=publish
-workflow=done
-result=completed
-```
-
-### Extra `resume_then_transform` Example
-
-```bash
-zig build run-generator
-```
-
-Expected output:
-
-```text
-yield=1
-yield=2
-yield=3
-done=3
-```
-
-### `define_basic`
-
-```bash
-zig build run-define-basic
-```
-
-Expected output:
-
-```text
-counter=6
-```
-
-### `reader_effect`
-
-```bash
-zig build run-reader-basic
-```
-
-Expected output:
-
-```text
-env=21
-value=42
-```
-
-### `exception_effect`
-
-```bash
-zig build run-exception-basic
-```
-
-Expected output:
-
-```text
-branch=pass
-body-pass
-final=result=ok
-branch=throw
-body-before-throw
-catch=result=boom
-final=result=boom
-```
-
-### `optional_effect`
-
-```bash
-zig build run-optional-basic
-```
-
-Expected output:
-
-```text
-branch=return_now
-policy-return-now
-final=result=early
-branch=resume_with
-policy-resume
-body-after-request
-policy-after-resume
-final=answer=42
-```
-
-### `resource_effect`
-
-```bash
-zig build run-resource-basic
-```
-
-Expected output:
-
-```text
-acquire=a
-use=a
-acquire=b
-use=b
-release=b
-release=a
-final=done
-```
-
-### `writer_effect`
-
-```bash
-zig build run-writer-basic
-```
-
-Expected output:
-
-```text
-item=a
-item=b
+item=queued
+final_state=6
 value=done
 ```
 
-### `state_effect`
-
-```bash
-zig build run-state-basic
-```
-
-Expected output:
-
-```text
-before=5
-after=6
-final_state=6
-value=11
-```
-
-The surviving declaration families use `shift.Program(.{ ... }, Body)` and
-`shift.run(...)` with named handles such as `eff.reader.ask()`,
-`eff.state.get()` / `eff.state.set(...)`, `eff.optional.request(...)`,
-`eff.exception.throw(...)`, `eff.resource.acquire()`, and
-`eff.writer.tell(...)`. User-defined sealed families are declared through
-`shift.Decl.family(.{ ... })` and expose named op fields such as
-`eff.<binding>.<op>.perform(...)` and `eff.<binding>.<op>.abort(...)` over the
-same exact-context boundary.
+The shipped public example corpus is open-row-only. Retired root spellings are
+guarded by tombstone proofs instead of compatibility narratives.
 
 The generalized construction boundary is checked by:
 
@@ -440,12 +227,9 @@ zig build effect-construction-boundary
 The current hidden internal control-class coverage at the effect layer is:
 
 - transform-style (`.resume_then_transform` internally): `state`, `reader`,
-  `resource`, `writer`
+  `writer`
 - choice-style (`.resume_or_return` internally): `optional`
 - abortive (`.direct_return` internally): `exception`
-- `shift.Decl.family(.{ ... })`: user-defined sealed families for one chosen
-  non-resource mode per family (`.resume_then_transform`, `.resume_or_return`,
-  or `.direct_return`)
 
 ## Benchmark Contract
 
@@ -614,9 +398,9 @@ The generated artifact lives at `docs/runtime_route_matrix.json`.
 `src/parity_kernel.zig` acts as a proof façade over that core.
 
 `src/internal/algebraic_engine.zig` now owns the shared internal
-operation, binding, and prompt machinery used by the surviving declaration
-surfaces. `zig build shared-declaration-engine-boundary` is the architectural
-truth gate for that claim.
+operation, binding, and prompt machinery used beneath the open-row surface.
+`zig build public-root-contract-snapshot-check` and `zig build public-error-api-ban`
+are the tombstone truth gates for retired root spellings.
 
 `zig build runtime-route-matrix-check` is the architectural truth gate for that
 claim, and
@@ -653,30 +437,30 @@ artifact lives at `docs/surface_truth_scorecard.json`.
 const shift = @import("shift");
 const std = @import("std");
 
-const NoError = error{};
-
 pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
-    const Program = shift.Program(.{
-        .state = shift.Decl.state(i32),
-        .reader = shift.Decl.reader(i32),
-    }, struct {
-        pub fn body(eff: anytype) !i32 {
-            const env = try eff.reader.ask();
+    const Workflow = struct {
+        pub fn body(eff: anytype) ![]const u8 {
             const before = try eff.state.get();
-            try eff.state.set(before + env);
-            return try eff.state.get();
+            try eff.state.set(before + 1);
+            try eff.writer.tell("queued");
+            return "done";
         }
-    });
+    };
 
-    const result = try shift.run(&runtime, Program, .{
-        .state = @as(i32, 5),
-        .reader = @as(i32, 21),
+    const closed = shift.bind(Workflow, .{
+        .state = shift.handlers.state(@as(i32, 5)),
+        .writer = shift.handlers.writer([]const u8, std.heap.page_allocator),
     });
+    const result = try shift.run(&runtime, closed);
+    defer std.heap.page_allocator.free(result.outputs.writer);
 
-    std.debug.print("value={d} state={d}\n", .{ result.value, result.outputs.state });
+    for (result.outputs.writer) |item| {
+        std.debug.print("item={s}\\n", .{item});
+    }
+    std.debug.print("value={s} state={d}\\n", .{ result.value, result.outputs.state });
 }
 ```
 

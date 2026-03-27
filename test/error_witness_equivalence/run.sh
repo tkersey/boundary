@@ -16,15 +16,15 @@ trap 'rm -f "$one" "$two"' EXIT INT TERM
 (
   cd "$repo_root/examples"
   "$tool" \
-    --id example.define_basic \
-    --source define_basic.zig \
+    --id example.open_row_transform_basic \
+    --source open_row_transform_basic.zig \
     --entry run \
     --surface example \
     --emit json \
     --out "$one"
   "$tool" \
-    --id example.algebraic_abortive_validation \
-    --source algebraic_abortive_validation.zig \
+    --id example.open_row_abortive_validation \
+    --source open_row_abortive_validation.zig \
     --entry run \
     --surface example \
     --emit json \

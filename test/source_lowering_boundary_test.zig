@@ -69,8 +69,8 @@ test "source-lowering rejects external symlink aliases for canonical files" {
 
 test "source-lowering rejects the wrong entry function for supported examples" {
     var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
-        .case_id = "example.define_basic",
-        .source_path = "examples/define_basic.zig",
+        .case_id = "example.open_row_transform_basic",
+        .source_path = "examples/open_row_transform_basic.zig",
         .entry_symbol = "runCounter",
         .surface_kind = .example,
     });
@@ -651,15 +651,15 @@ test "accepted source-lowering rows canonicalize source paths" {
     defer std.posix.chdir(original_cwd) catch unreachable;
 
     var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
-        .case_id = "example.define_basic",
-        .source_path = "define_basic.zig",
+        .case_id = "example.open_row_transform_basic",
+        .source_path = "open_row_transform_basic.zig",
         .entry_symbol = "run",
         .surface_kind = .example,
     });
     defer lowered.deinit(std.testing.allocator);
 
     try std.testing.expect(lowered.isAccepted());
-    try std.testing.expectEqualStrings("examples/define_basic.zig", lowered.source_path);
+    try std.testing.expectEqualStrings("examples/open_row_transform_basic.zig", lowered.source_path);
 }
 
 test "source-lowering accepts canonical repo-relative paths from subdirectories" {
@@ -669,21 +669,21 @@ test "source-lowering accepts canonical repo-relative paths from subdirectories"
     defer std.posix.chdir(original_cwd) catch unreachable;
 
     var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
-        .case_id = "example.define_basic",
-        .source_path = "examples/define_basic.zig",
+        .case_id = "example.open_row_transform_basic",
+        .source_path = "examples/open_row_transform_basic.zig",
         .entry_symbol = "run",
         .surface_kind = .example,
     });
     defer lowered.deinit(std.testing.allocator);
 
     try std.testing.expect(lowered.isAccepted());
-    try std.testing.expectEqualStrings("examples/define_basic.zig", lowered.source_path);
+    try std.testing.expectEqualStrings("examples/open_row_transform_basic.zig", lowered.source_path);
 }
 
 test "source-lowering rejects mismatched expected_status values" {
     var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
-        .case_id = "example.define_basic",
-        .source_path = "examples/define_basic.zig",
+        .case_id = "example.open_row_transform_basic",
+        .source_path = "examples/open_row_transform_basic.zig",
         .entry_symbol = "run",
         .surface_kind = .example,
         .expected_status = .candidate_green,

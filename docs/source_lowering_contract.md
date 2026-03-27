@@ -10,12 +10,9 @@ corpus and the promoted example and witness rows backed by the
 
 The public authored-body surface remains:
 
-- `shift.Program(.{ ... }, Body)`
-- `shift.run(&runtime, Program, bindings)`
-- `shift.Decl.*`, `shift.Ops.*`, and `shift.Decision(...)`
-
-Legacy `shift.Op.*` aliases remain available for existing callers, but the
-documented authored-body lane is the `shift.Ops.*` surface above.
+- `shift.Row(.{ ... })` / `shift.mergeRows(.{ ... })`
+- `shift.effects.*`, `shift.handlers.*`, and `shift.Decision(...)`
+- `const closed = shift.bind(...); try shift.run(&runtime, closed)`
 
 The source-lowering toolchain exists only as internal proof scaffolding beneath
 that public boundary. Its current implementation now compares covered rows
@@ -70,12 +67,8 @@ track:
 The internal source-lowering track currently covers these repo-owned authored
 rows:
 
-- `example.define_basic`
-- `example.define_choice_basic`
-- `example.define_abort_basic`
 - `example.early_exit`
 - `example.resume_or_return`
-- `example.front_door_workflow`
 - `example.nested_workflow`
 - `example.state_basic`
 - `example.reader_basic`
@@ -83,17 +76,7 @@ rows:
 - `example.exception_basic`
 - `example.resource_basic`
 - `example.writer_basic`
-- `example.algebraic_abortive_validation`
-- `example.algebraic_artifact_search`
-- `built_in.state`
-- `built_in.reader`
-- `built_in.optional`
-- `built_in.exception`
-- `built_in.resource`
-- `built_in.writer`
-- `user_defined.transform`
-- `user_defined.choice`
-- `user_defined.abort`
+- `open_row_state_writer`
 - witness rows
 
 Every covered row must stay backed by:
@@ -112,8 +95,7 @@ docs/source_lowering_coverage_matrix.json
 ```
 
 It records the current source-lowering label, law anchor, current proof signal,
-and `coverage_status` for each covered witness, example, built-in declaration,
-and user-defined effect row.
+and `coverage_status` for each covered witness and shipped open-row example/effect row.
 
 The checked admission/replay artifact is stored at the legacy path:
 

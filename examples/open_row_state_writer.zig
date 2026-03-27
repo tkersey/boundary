@@ -1,0 +1,51 @@
+const shift = @import("shift");
+const std = @import("std");
+
+const WorkflowRow = shift.mergeRows(.{
+    shift.effects.state(i32),
+    shift.effects.writer([]const u8),
+});
+
+const Workflow = struct {
+    pub const Uses = shift.Uses(WorkflowRow);
+
+    /// Run one open-row state-plus-writer workflow through the migration bridge.
+    pub fn body(eff: anytype) ![]const u8 {
+        const before = try eff.state.get();
+        try eff.state.set(before + 1);
+        try eff.writer.tell("query=artifact-search");
+        try eff.writer.tell("workflow=queued");
+        return "done";
+    }
+};
+
+fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) !void {
+    var runtime = shift.Runtime.init(allocator);
+    defer runtime.deinit();
+
+    const closed = shift.bind(Workflow, .{
+        .state = shift.handlers.state(@as(i32, 5)),
+        .writer = shift.handlers.writer([]const u8, allocator),
+    });
+    const result = try shift.run(&runtime, closed);
+    defer allocator.free(result.outputs.writer);
+
+    for (result.outputs.writer) |item| {
+        try writer.print("item={s}\n", .{item});
+    }
+    try writer.print("final_state={d}\n", .{result.outputs.state});
+    try writer.print("value={s}\n", .{result.value});
+}
+
+/// Write the open-row state-plus-writer transcript.
+pub fn run(writer: anytype) !void {
+    try runWithAllocator(writer, std.heap.page_allocator);
+}
+
+pub fn main() !void {
+    var stdout_buffer: [256]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    try run(stdout);
+    try stdout.flush();
+}

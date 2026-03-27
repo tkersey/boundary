@@ -1,3 +1,4 @@
+const effect_ir = @import("effect_ir");
 const parity_scenarios = @import("parity_scenarios");
 
 /// Witness programs exposed through the internal structured-program front end.
@@ -36,6 +37,47 @@ pub const Program = union(enum) {
 pub const LoweredProgram = struct {
     label: []const u8,
     scenario: *const parity_scenarios.Scenario,
+};
+
+/// One open-row program payload lowered through the new Effect IR semantic center.
+pub const OpenRowProgram = struct {
+    label: []const u8,
+    function: effect_ir.Function,
+    call_edges: []const effect_ir.CallEdge = &.{},
+};
+
+/// Open-row frontend constructors for the new lowering path.
+pub const open_rows = struct {
+    /// Lower one state-plus-writer workflow through the open-row frontend.
+    pub fn stateWriterWorkflow() OpenRowProgram {
+        const row = effect_ir.mergeRows(.{
+            effect_ir.rowFromSpec(.{
+                .state = .{
+                    .get = effect_ir.Transform(void, i32),
+                    .set = effect_ir.Transform(i32, void),
+                },
+            }),
+            effect_ir.rowFromSpec(.{
+                .writer = .{
+                    .tell = effect_ir.Transform([]const u8, void),
+                },
+            }),
+        });
+        return .{
+            .label = "example.open_row.state_writer_workflow",
+            .function = .{
+                .symbol = .{
+                    .module_path = "examples/open_row_state_writer.zig",
+                    .symbol_name = "Workflow",
+                },
+                .row = row,
+                .outputs = &.{
+                    .{ .label = "state", .OutputType = i32 },
+                    .{ .label = "writer", .OutputType = []const []const u8 },
+                },
+            },
+        };
+    }
 };
 
 /// Structured-program constructors for witness cases.
@@ -180,4 +222,51 @@ pub fn lower(program: Program) LoweredProgram {
             }),
         },
     };
+}
+
+/// Lower one open-row frontend payload into the resolved Effect IR shell.
+pub fn lowerOpenRow(program: OpenRowProgram) effect_ir.Program {
+    return .{
+        .functions = &.{program.function},
+        .call_edges = program.call_edges,
+    };
+}
+
+test "lowerOpenRow preserves the function payload" {
+    const row = effect_ir.rowFromSpec(.{
+        .state = .{
+            .get = effect_ir.Transform(void, i32),
+            .set = effect_ir.Transform(i32, void),
+        },
+    });
+    const function = effect_ir.Function{
+        .symbol = .{
+            .module_path = "examples/open_row.zig",
+            .symbol_name = "workflow",
+        },
+        .row = row,
+        .outputs = &.{
+            .{ .label = "state", .OutputType = i32 },
+        },
+    };
+    const program = lowerOpenRow(.{
+        .label = "example.open_row.workflow",
+        .function = function,
+    });
+
+    try @import("std").testing.expectEqual(@as(usize, 1), program.functions.len);
+    try @import("std").testing.expectEqualStrings("workflow", program.functions[0].symbol.symbol_name);
+    const digest = try effect_ir.rowDigest(program.functions[0].row, program.functions[0].outputs);
+    try @import("std").testing.expectEqual(@as(usize, 1), digest.requirement_count);
+    try @import("std").testing.expectEqual(@as(usize, 2), digest.op_count);
+    try @import("std").testing.expectEqual(@as(usize, 1), digest.output_count);
+}
+
+test "open row state-writer workflow carries both requirements and outputs" {
+    const program = lowerOpenRow(open_rows.stateWriterWorkflow());
+    try @import("std").testing.expectEqual(@as(usize, 1), program.functions.len);
+    const digest = try effect_ir.rowDigest(program.functions[0].row, program.functions[0].outputs);
+    try @import("std").testing.expectEqual(@as(usize, 2), digest.requirement_count);
+    try @import("std").testing.expectEqual(@as(usize, 3), digest.op_count);
+    try @import("std").testing.expectEqual(@as(usize, 2), digest.output_count);
 }

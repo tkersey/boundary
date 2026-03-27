@@ -13,6 +13,7 @@ pub const SectionId = enum {
     practical_witnesses,
     public_algebraic_builders,
     resource_bracketing,
+    retired_surface_tombstones,
     static_redelim,
     strict_effect_capabilities,
 };
@@ -28,38 +29,52 @@ pub const Section = struct {
 };
 
 const atm_paragraphs = [_][]const u8{
-    "`atm_resume_transform` is the single-resume semantic witness behind the transform-style branch of the current root `shift.Program` / `shift.run` story. The corresponding prompt protocol still exists in `src/frontend.zig` and `src/lowered_machine.zig`, but canonical docs now treat it as hidden implementation scaffolding rather than a public root API.",
-};
-
-const direct_return_paragraphs = [_][]const u8{
-    "`direct_return` is the abortive semantic witness behind the current root-front-door exception and abortive control behavior. The corresponding direct-return prompt protocol remains hidden implementation scaffolding in `src/frontend.zig` and `src/lowered_machine.zig`, not a public root API.",
+    "`atm_resume_transform` is the single-resume semantic witness behind the transform-style branch of the current open-row story built from `shift.Row`, `shift.effects.*`, explicit handler bundles, `shift.bind(...)`, and `shift.run(&runtime, closed)`. The corresponding prompt protocol still exists in `src/frontend.zig` and `src/lowered_machine.zig`, but canonical docs treat it as hidden implementation scaffolding rather than a public root API.",
 };
 
 const construction_paragraphs = [_][]const u8{
-    "The surviving declaration families are now expected to route through one shared internal construction substrate instead of embedding bespoke prompt-mode runner logic. `zig build effect-construction-boundary` is the explicit proof gate for that claim, and `shift.Decl.writer` is the first shipped declaration family added entirely through the generalized path.",
+    "The open-row surface routes through one shared internal construction substrate instead of embedding bespoke prompt-mode runner logic. `zig build effect-construction-boundary` remains the explicit proof gate for that claim.",
+};
+
+const direct_return_paragraphs = [_][]const u8{
+    "`direct_return` is the abortive semantic witness behind the current open-row exception and abortive control behavior. The corresponding prompt protocol remains hidden implementation scaffolding in `src/frontend.zig` and `src/lowered_machine.zig`, not a public root API.",
 };
 
 const mode_coverage_paragraphs = [_][]const u8{
-    "The shipped declaration layer now covers each hidden internal control class explicitly beneath the root front door:\n\n- transform-style (`.resume_then_transform` internally): `shift.Decl.state`, `shift.Decl.reader`, `shift.Decl.resource`, `shift.Decl.writer`\n- choice-style (`.resume_or_return` internally): `shift.Decl.optional`\n- abortive (`.direct_return` internally): `shift.Decl.exception`",
+    "The shipped surface exposes open-row control builders at the root. The hidden internal control classes are still transform-style, choice-style, and abortive; the current open-row branch exercises them through `shift.Transform`, `shift.Choice`, `shift.Abort`, `shift.effects.*`, and explicit handler bundles.",
 };
 
 const exception_effect_paragraphs = [_][]const u8{
-    "`shift.Decl.exception(Payload, CatchPolicy)` gives the direct-return prompt mode a strict declaration-family surface, and the resulting `eff.exception.throw(payload)` body operation does not resume after `throw`. The catch policy converts the payload into the enclosing answer through `directReturn(payload)`.",
+    "The open-row exception fragment and handler bridge enforce abortive control: `shift.effects.exception(Payload)` provides the fragment, and `eff.exception.throw(payload)` does not resume after `throw`. The handler bridge converts the payload into the enclosing answer through `shift.handlers.exception(Payload, CatchPolicy)` and `directReturn(payload)`.",
 };
 
 const optional_resumption_paragraphs = [_][]const u8{
-    "`resume_or_return_return_now` and `resume_or_return_resume` are the zero-or-one-resume witnesses behind root-front-door optional handling and generated choice ops. Canonical docs now explain that behavior through `shift.Decl.optional(...)`, `eff.optional.request(...)`, generated choice handlers, and `shift.Decision`, while raw resume-or-return helper machinery stays hidden.",
+    "The open-row optional fragment and handler bridge model zero-or-one resume: `shift.effects.optional(T)` exposes `eff.optional.request(...)`, `shift.handlers.optional(...)` supplies the policy, and the canonical witnesses `resume_or_return_return_now` and `resume_or_return_resume` keep the one-shot continuation boundary explicit.",
 };
 
 const perf_coverage_paragraphs = [_][]const u8{
-    "The checked performance surface now splits into two layers:\n\n- `bench-state-effect` / `bench-state-effect-check` for the deeper historical `state` lane\n- `bench-effect-matrix` / `bench-effect-matrix-check` for the `effect_family_matrix_v2` artifact covering `state_micro`, `reader_micro`, `reader_batch8`, `optional_return_now_micro`, `optional_return_now_prelude8`, `optional_resume_with_micro`, `optional_resume_with_batch8`, `exception_throw_micro`, `exception_throw_prelude8`, `algebraic_transform_micro`, `algebraic_choice_return_now_micro`, `algebraic_abort_micro`, `resource_normal_4`, `resource_normal_32`, `writer_micro`, `writer_batch16`, and `writer_batch64`",
+    "The checked performance surface now splits into two layers:\n\n- `bench-state-effect` / `bench-state-effect-check` for the deeper historical `state` lane\n- `bench-effect-matrix` / `bench-effect-matrix-check` for the `effect_family_matrix_v2` artifact covering `state_micro`, `reader_micro`, `reader_batch8`, `optional_return_now_micro`, `optional_return_now_prelude8`, `optional_resume_with_micro`, `optional_resume_with_batch8`, `exception_throw_micro`, `exception_throw_prelude8`, `writer_micro`, `writer_batch16`, and `writer_batch64`",
     "The matrix classifies lanes as `micro`, `amortized`, or `investigation` so fixed-tax measurements, heavier representative bodies, and intentionally diagnostic loose-threshold lanes are not conflated.",
-    "The current execution classes are `direct_frame` for `state`/`reader`, `abortive_control` for `optional`/`exception`, and `storage_backed` for `resource`/`writer`. The private decomposition benches (`bench-writer-decompose`, `bench-resource-decompose`, `bench-abortive-decompose`) are investigative tools for those classes and do not change the checked public artifact contract.",
+    "The current execution classes are `direct_frame` for `state`/`reader`, `abortive_control` for `optional`/`exception`, and `storage_backed` for `writer`. The private decomposition benches (`bench-writer-decompose`, `bench-abortive-decompose`) are investigative tools for those classes and do not change the checked public artifact contract.",
 };
 
-const public_alg_builder_paragraphs = [_][]const u8{
-    "The old algebraic root-builder story is no longer a public root API. Its semantics remain represented through the canonical algebraic examples and the shared internal declaration engine, with no public continuation handle exposed from `@import(\"shift\")`.",
-    "The algebraic example surface is currently proven by `zig build size-check`, `zig build compile-fail`, and exact-output examples instead of a separate benchmark artifact. The shipped witness examples are `examples/algebraic_artifact_search.zig` and `examples/algebraic_abortive_validation.zig`, and the compile-fail misuse fixtures cover duplicate op names, mixed or explicit mode mismatches, reserved generated names, and missing generated after-hooks.",
+const practical_witnesses_paragraphs = [_][]const u8{
+    "The repo keeps one shipped example, `open_row_state_writer`, plus the lowered proof engine and exact-output fixture pipeline behind `zig build backend-parity`, `zig build proof-fixtures-write`, and `zig build proof-fixtures-check`.",
+    "The lowered proof engine is checked by `zig build backend-parity`. `src/parity_scenarios.zig` is the canonical lowered proof registry, `src/parity_kernel.zig` interprets it, and `src/parity_machine.zig` is only a facade over that kernel. The exact-output fixture artifacts are rendered from the same registry by `zig build proof-fixtures-write` and checked by `zig build proof-fixtures-check`. This remains hidden internal infrastructure beneath the canonical public `shift/reset` surface, not a public fallback runtime.",
+};
+
+const public_algebraic_builders_paragraphs = [_][]const u8{
+    "The old algebraic and generated-family root-builder surface is retired from the shipped package. Its remaining rows are tracked only as internal proof labels while the open-row public surface becomes the only shipped story.",
+};
+
+const retired_surface_tombstones_paragraphs = [_][]const u8{
+    "The retired root spellings are tombstoned by `public-root-contract-snapshot-check` and `public-error-api-ban`, and retired vocabulary stays out of proof-facing files through `retired-lane-inventory-check`.",
+    "The shipped example corpus is open-row-only; the retired declaration-style and algebraic proof surfaces are no longer part of the public story.",
+};
+
+const resource_bracketing_paragraphs = [_][]const u8{
+    "The open-row resource fragment and handler bridge preserve bracketed cleanup semantics: `shift.effects.resource(Resource)` exposes `eff.resource.acquire()`, `shift.handlers.resource(Resource, Manager)` installs the manager, acquired resources release in LIFO order, and outer exception or return-now exits still trigger cleanup before they win publicly.",
+    "Release errors are attempted for every acquired resource; the first release error becomes public only when no earlier body or reset error already won.",
 };
 
 const static_redelim_paragraphs = [_][]const u8{
@@ -70,19 +85,9 @@ const multi_prompt_paragraphs = [_][]const u8{
     "Distinct prompt values do not alias each other, even when they share the same handler protocol and answer types. The live witness is `multi_prompt`.",
 };
 
-const practical_witnesses_paragraphs = [_][]const u8{
-    "The repo keeps one extra practical witness, `generator`, plus primary exact-output examples for `define_basic`, `early_exit`, `resume_or_return`, `front_door_workflow`, `nested_workflow`, `exception_basic`, `optional_basic`, `reader_basic`, `resource_basic`, `state_basic`, and `writer_basic`.",
-    "The lowered proof engine is checked by `zig build backend-parity`. `src/parity_scenarios.zig` is the canonical lowered proof registry, `src/parity_kernel.zig` interprets it, and `src/parity_machine.zig` is only a facade over that kernel. The exact-output fixture artifacts are rendered from the same registry by `zig build proof-fixtures-write` and checked by `zig build proof-fixtures-check`. This remains hidden internal infrastructure beneath the canonical public `shift/reset` surface, not a public fallback runtime.",
-};
-
-const resource_bracketing_paragraphs = [_][]const u8{
-    "`shift.Decl.resource(Resource, Manager)` records acquired resources under a bracketed manager, and the resulting `eff.resource.acquire()` body operation guarantees LIFO cleanup after normal completion, outer exception abort, and outer optional return-now exits. Release errors are attempted for all acquired resources; the first release error becomes public only when no earlier body/reset error already won.",
-};
-
 const effect_capability_paragraphs = [_][]const u8{
-    "The shipped declaration families are `shift.Decl.state`, `shift.Decl.reader`, `shift.Decl.optional`, `shift.Decl.exception`, `shift.Decl.resource`, and `shift.Decl.writer`. They all rely on exact private context types plus fresh capability witnesses minted inside the family handler, but the public caller surface is the root program body: `eff.state.get()` / `eff.state.set(value)`, `eff.reader.ask()`, `eff.optional.request(...)`, `eff.exception.throw(payload)`, `eff.resource.acquire()`, and `eff.writer.tell(item)`.",
-    "`shift.Decl.family(.{ ... })` now lets users mint their own sealed transform, choice, and abort families on top of the same shared engine and exact-context boundary. Generated families still expose internal proof helpers and named body ops such as `eff.<binding>.<op>.perform(...)` / `eff.<binding>.<op>.abort(...)`, but they are installed through `shift.Program(.{ ... }, Body)` rather than exported as separate public root namespaces.",
-    "Compile-fail fixtures under `test/compile_fail/` prove declaration-family mode/name invariants, optional and exception policy signatures, and resource manager shape checks.",
+    "The active root surface exposes `shift.Row`, `shift.mergeRows`, `shift.effects.*`, `shift.handlers.*`, `shift.Transform`, `shift.Choice`, `shift.Abort`, `shift.Decision`, `shift.bind(...)`, and `shift.run(&runtime, closed)`. The public caller surface is the body handle bundle: `eff.state.get()` / `eff.state.set(value)`, `eff.reader.ask()`, `eff.optional.request(...)`, `eff.exception.throw(payload)`, `eff.resource.acquire()`, and `eff.writer.tell(item)`.",
+    "Retired root spellings stay absent from the shipped surface and are checked by tombstone proofs instead of compatibility narratives.",
 };
 
 /// Canonical section registry used by the formal-core renderer.
@@ -97,7 +102,7 @@ pub const sections = [_]Section{
         .section_id = .construction_coverage,
         .title = "Construction Coverage",
         .paragraphs = &construction_paragraphs,
-        .example_ids = &.{"writer_basic"},
+        .example_ids = &.{"open_row_state_writer"},
     },
     .{
         .section_id = .direct_return,
@@ -120,7 +125,6 @@ pub const sections = [_]Section{
         .title = "Optional Resumption",
         .paragraphs = &optional_resumption_paragraphs,
         .witness_ids = &.{ "resume_or_return_return_now", "resume_or_return_resume" },
-        .example_ids = &.{"optional_basic"},
     },
     .{
         .section_id = .performance_coverage,
@@ -128,17 +132,26 @@ pub const sections = [_]Section{
         .paragraphs = &perf_coverage_paragraphs,
     },
     .{
+        .section_id = .practical_witnesses,
+        .title = "Practical Witnesses",
+        .paragraphs = &practical_witnesses_paragraphs,
+        .example_ids = &.{"open_row_state_writer"},
+    },
+    .{
         .section_id = .public_algebraic_builders,
-        .title = "Public Algebraic Builders",
-        .paragraphs = &public_alg_builder_paragraphs,
-        .example_ids = &.{ "algebraic_artifact_search", "algebraic_abortive_validation" },
-        .fixture_files = &.{
-            "decl_family_duplicate_op_name_fails.zig",
-            "decl_family_explicit_mode_mismatch_fails.zig",
-            "decl_family_missing_after_hook_fails.zig",
-            "decl_family_mixed_mode_fails.zig",
-            "decl_family_reserved_name_fails.zig",
-        },
+        .title = "Retired Algebraic Builders",
+        .paragraphs = &public_algebraic_builders_paragraphs,
+    },
+    .{
+        .section_id = .retired_surface_tombstones,
+        .title = "Retired Surface Tombstones",
+        .paragraphs = &retired_surface_tombstones_paragraphs,
+    },
+    .{
+        .section_id = .resource_bracketing,
+        .title = "Bracketed Resource Cleanup",
+        .paragraphs = &resource_bracketing_paragraphs,
+        .example_ids = &.{"resource_basic"},
     },
     .{
         .section_id = .static_redelim,
@@ -153,36 +166,9 @@ pub const sections = [_]Section{
         .witness_ids = &.{"multi_prompt"},
     },
     .{
-        .section_id = .practical_witnesses,
-        .title = "Practical Witnesses",
-        .paragraphs = &practical_witnesses_paragraphs,
-        .witness_ids = &.{"generator"},
-        .example_ids = &.{ "define_basic", "early_exit", "resume_or_return", "front_door_workflow", "nested_workflow", "exception_basic", "optional_basic", "reader_basic", "resource_basic", "state_basic", "writer_basic" },
-    },
-    .{
-        .section_id = .resource_bracketing,
-        .title = "Bracketed Resource Cleanup",
-        .paragraphs = &resource_bracketing_paragraphs,
-        .example_ids = &.{"resource_basic"},
-    },
-    .{
         .section_id = .strict_effect_capabilities,
         .title = "Strict Effect Capabilities",
         .paragraphs = &effect_capability_paragraphs,
-        .fixture_files = &.{
-            "decl_family_duplicate_op_name_fails.zig",
-            "decl_family_explicit_mode_mismatch_fails.zig",
-            "decl_family_missing_after_hook_fails.zig",
-            "decl_family_mixed_mode_fails.zig",
-            "decl_family_reserved_name_fails.zig",
-            "exception_policy_missing_direct_return.zig",
-            "exception_policy_wrong_direct_return_type.zig",
-            "optional_policy_missing_resume_or_return.zig",
-            "optional_policy_wrong_after_resume_type.zig",
-            "resource_manager_missing_acquire.zig",
-            "resource_manager_missing_release.zig",
-            "resource_manager_wrong_release_type.zig",
-        },
     },
 };
 
@@ -197,8 +183,9 @@ pub fn anchorId(comptime id: SectionId) []const u8 {
         .multi_prompt_separation => "multi-prompt-separation",
         .optional_resumption => "optional-resumption",
         .performance_coverage => "performance-coverage",
-        .public_algebraic_builders => "public-algebraic-builders",
         .practical_witnesses => "practical-witnesses",
+        .public_algebraic_builders => "retired-algebraic-builders",
+        .retired_surface_tombstones => "retired-surface-tombstones",
         .resource_bracketing => "resource-bracketing",
         .static_redelim => "static-redelim",
         .strict_effect_capabilities => "strict-effect-capabilities",
@@ -216,8 +203,9 @@ pub fn anchorPath(comptime id: SectionId) []const u8 {
         .multi_prompt_separation => "FORMAL_CORE.md#multi-prompt-separation",
         .optional_resumption => "FORMAL_CORE.md#optional-resumption",
         .performance_coverage => "FORMAL_CORE.md#performance-coverage",
-        .public_algebraic_builders => "FORMAL_CORE.md#public-algebraic-builders",
         .practical_witnesses => "FORMAL_CORE.md#practical-witnesses",
+        .public_algebraic_builders => "FORMAL_CORE.md#retired-algebraic-builders",
+        .retired_surface_tombstones => "FORMAL_CORE.md#retired-surface-tombstones",
         .resource_bracketing => "FORMAL_CORE.md#resource-bracketing",
         .static_redelim => "FORMAL_CORE.md#static-redelim",
         .strict_effect_capabilities => "FORMAL_CORE.md#strict-effect-capabilities",
@@ -239,7 +227,6 @@ pub fn sectionForWitness(witness_id: []const u8) ?SectionId {
     if (std.mem.eql(u8, witness_id, "multi_prompt")) return .multi_prompt_separation;
     if (std.mem.eql(u8, witness_id, "resume_or_return_return_now")) return .optional_resumption;
     if (std.mem.eql(u8, witness_id, "resume_or_return_resume")) return .optional_resumption;
-    if (std.mem.eql(u8, witness_id, "generator")) return .practical_witnesses;
     if (std.mem.eql(u8, witness_id, "static_redelim")) return .static_redelim;
     return null;
 }

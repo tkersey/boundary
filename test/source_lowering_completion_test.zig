@@ -2,11 +2,6 @@ const parity_scenarios = @import("parity_scenarios");
 const source_lowering = @import("source_lowering");
 const std = @import("std");
 
-const example_algebraic_abortive_validation = @import("example_algebraic_abortive_validation");
-const example_algebraic_artifact_search = @import("example_algebraic_artifact_search");
-const example_define_abort_basic = @import("example_define_abort_basic");
-const example_define_basic = @import("example_define_basic");
-const example_define_choice_basic = @import("example_define_choice_basic");
 const example_resource_basic = @import("example_resource_basic");
 const example_writer_basic = @import("example_writer_basic");
 
@@ -47,41 +42,6 @@ fn expectCompletionCase(comptime completion: CompletionCase) !void {
 
 test "remaining source-lowering completion rows stay source-backed and canonical" {
     try expectCompletionCase(.{
-        .case_id = "example.define_basic",
-        .source_path = "examples/define_basic.zig",
-        .surface_kind = .example,
-        .scenario_id = .define_basic,
-        .Runner = example_define_basic,
-    });
-    try expectCompletionCase(.{
-        .case_id = "example.define_choice_basic",
-        .source_path = "examples/define_choice_basic.zig",
-        .surface_kind = .example,
-        .scenario_id = .define_choice_basic,
-        .Runner = example_define_choice_basic,
-    });
-    try expectCompletionCase(.{
-        .case_id = "example.define_abort_basic",
-        .source_path = "examples/define_abort_basic.zig",
-        .surface_kind = .example,
-        .scenario_id = .define_abort_basic,
-        .Runner = example_define_abort_basic,
-    });
-    try expectCompletionCase(.{
-        .case_id = "example.algebraic_abortive_validation",
-        .source_path = "examples/algebraic_abortive_validation.zig",
-        .surface_kind = .example,
-        .scenario_id = .algebraic_abortive_validation,
-        .Runner = example_algebraic_abortive_validation,
-    });
-    try expectCompletionCase(.{
-        .case_id = "example.algebraic_artifact_search",
-        .source_path = "examples/algebraic_artifact_search.zig",
-        .surface_kind = .example,
-        .scenario_id = .algebraic_artifact_search,
-        .Runner = example_algebraic_artifact_search,
-    });
-    try expectCompletionCase(.{
         .case_id = "example.resource_basic",
         .source_path = "examples/resource_basic.zig",
         .surface_kind = .example,
@@ -94,40 +54,5 @@ test "remaining source-lowering completion rows stay source-backed and canonical
         .surface_kind = .example,
         .scenario_id = .writer_basic,
         .Runner = example_writer_basic,
-    });
-    try expectCompletionCase(.{
-        .case_id = "effect.resource_basic",
-        .source_path = "examples/resource_basic.zig",
-        .surface_kind = .effect,
-        .scenario_id = .resource_basic,
-        .Runner = example_resource_basic,
-    });
-    try expectCompletionCase(.{
-        .case_id = "effect.writer_basic",
-        .source_path = "examples/writer_basic.zig",
-        .surface_kind = .effect,
-        .scenario_id = .writer_basic,
-        .Runner = example_writer_basic,
-    });
-    try expectCompletionCase(.{
-        .case_id = "user_defined.transform",
-        .source_path = "examples/define_basic.zig",
-        .surface_kind = .user_defined_effect,
-        .scenario_id = .define_basic,
-        .Runner = example_define_basic,
-    });
-    try expectCompletionCase(.{
-        .case_id = "user_defined.choice",
-        .source_path = "examples/define_choice_basic.zig",
-        .surface_kind = .user_defined_effect,
-        .scenario_id = .define_choice_basic,
-        .Runner = example_define_choice_basic,
-    });
-    try expectCompletionCase(.{
-        .case_id = "user_defined.abort",
-        .source_path = "examples/define_abort_basic.zig",
-        .surface_kind = .user_defined_effect,
-        .scenario_id = .define_abort_basic,
-        .Runner = example_define_abort_basic,
     });
 }

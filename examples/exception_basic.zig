@@ -14,24 +14,26 @@ const transcript = struct {
     threadlocal var caught_payload: []const u8 = "";
 };
 
-const ExceptionProgram = shift.Program(.{
-    .exception = shift.Decl.exception([]const u8, catch_policy),
-}, struct {
+const ExceptionRow = shift.effects.exception([]const u8);
+
+const ExceptionWorkflow = struct {
+    pub const Uses = shift.Uses(ExceptionRow);
+
     /// Throw once through the front-door exception scope.
     pub fn body(eff: anytype) ![]const u8 {
         transcript.body_before_throw = true;
         try eff.exception.throw("result=boom");
     }
-});
+};
 
-const ExceptionPassProgram = shift.Program(.{
-    .exception = shift.Decl.exception([]const u8, catch_policy),
-}, struct {
+const ExceptionPassWorkflow = struct {
+    pub const Uses = shift.Uses(ExceptionRow);
+
     /// Return normally through the front-door exception scope.
     pub fn body(_: anytype) ![]const u8 {
         return "result=ok";
     }
-});
+};
 
 /// Write the exception-family transcript through the root front door.
 pub fn run(writer: anytype) anyerror!void {
@@ -39,14 +41,20 @@ pub fn run(writer: anytype) anyerror!void {
     defer runtime.deinit();
 
     try writer.writeAll("branch=pass\n");
-    const ok = try shift.run(&runtime, ExceptionPassProgram, .{});
+    const pass_closed = shift.bind(ExceptionPassWorkflow, .{
+        .exception = shift.handlers.exception([]const u8, catch_policy),
+    });
+    const ok = try shift.run(&runtime, pass_closed);
     try writer.writeAll("body-pass\n");
     try writer.print("final={s}\n", .{ok.value});
 
     try writer.writeAll("branch=throw\n");
     transcript.body_before_throw = false;
     transcript.caught_payload = "";
-    const thrown = try shift.run(&runtime, ExceptionProgram, .{});
+    const throw_closed = shift.bind(ExceptionWorkflow, .{
+        .exception = shift.handlers.exception([]const u8, catch_policy),
+    });
+    const thrown = try shift.run(&runtime, throw_closed);
     if (transcript.body_before_throw) try writer.writeAll("body-before-throw\n");
     try writer.print("catch={s}\n", .{transcript.caught_payload});
     try writer.print("final={s}\n", .{thrown.value});

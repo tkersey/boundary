@@ -38,9 +38,11 @@ const resume_policy = struct {
     }
 };
 
-const ReturnNowProgram = shift.Program(.{
-    .optional = shift.Decl.optional(i32, return_now_policy),
-}, struct {
+const OptionalRow = shift.effects.optional(i32);
+
+const ReturnNowWorkflow = struct {
+    pub const Uses = shift.Uses(OptionalRow);
+
     /// Trigger the front-door choice point and prove the return-now branch skips the continuation.
     pub fn body(eff: anytype) ![]const u8 {
         return try eff.optional.request(struct {
@@ -50,11 +52,11 @@ const ReturnNowProgram = shift.Program(.{
             }
         });
     }
-});
+};
 
-const ResumeProgram = shift.Program(.{
-    .optional = shift.Decl.optional(i32, resume_policy),
-}, struct {
+const ResumeWorkflow = struct {
+    pub const Uses = shift.Uses(OptionalRow);
+
     /// Trigger the front-door choice point and complete the resumed continuation.
     pub fn body(eff: anytype) ![]const u8 {
         return try eff.optional.request(struct {
@@ -66,7 +68,7 @@ const ResumeProgram = shift.Program(.{
             }
         });
     }
-});
+};
 
 /// Write the optional-resumption transcript through the root front door.
 pub fn run(writer: anytype) anyerror!void {
@@ -75,7 +77,10 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=return_now\n");
     transcript.len = 0;
-    const early = try shift.run(&runtime, ReturnNowProgram, .{});
+    const return_now_closed = shift.bind(ReturnNowWorkflow, .{
+        .optional = shift.handlers.optional(i32, return_now_policy),
+    });
+    const early = try shift.run(&runtime, return_now_closed);
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }
@@ -83,7 +88,10 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=resume_with\n");
     transcript.len = 0;
-    const resumed = try shift.run(&runtime, ResumeProgram, .{});
+    const resume_closed = shift.bind(ResumeWorkflow, .{
+        .optional = shift.handlers.optional(i32, resume_policy),
+    });
+    const resumed = try shift.run(&runtime, resume_closed);
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }

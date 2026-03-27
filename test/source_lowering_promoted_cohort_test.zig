@@ -4,8 +4,14 @@ const std = @import("std");
 
 const example_early_exit = @import("promoted_example_early_exit");
 const example_exception_basic = @import("promoted_example_exception_basic");
-const example_front_door_workflow = @import("promoted_example_front_door_workflow");
 const example_nested_workflow = @import("promoted_example_nested_workflow");
+const example_open_row_abort_basic = @import("promoted_example_open_row_abort_basic");
+const example_open_row_abortive_validation = @import("promoted_example_open_row_abortive_validation");
+const example_open_row_artifact_search = @import("promoted_example_open_row_artifact_search");
+const example_open_row_choice_basic = @import("promoted_example_open_row_choice_basic");
+const example_open_row_generator = @import("promoted_example_open_row_generator");
+const example_open_row_transform_basic = @import("promoted_example_open_row_transform_basic");
+const example_open_row_workflow = @import("promoted_example_open_row_workflow");
 const example_optional_basic = @import("promoted_example_optional_basic");
 const example_reader_basic = @import("promoted_example_reader_basic");
 const example_resume_or_return = @import("promoted_example_resume_or_return");
@@ -48,6 +54,55 @@ fn expectPromotedCase(comptime promoted: PromotedCase) !void {
 
 test "promoted source-lowering example and effect cohort stays source-backed and canonical" {
     try expectPromotedCase(.{
+        .case_id = "example.open_row_transform_basic",
+        .source_path = "examples/open_row_transform_basic.zig",
+        .surface_kind = .example,
+        .scenario_id = .define_basic,
+        .Runner = example_open_row_transform_basic,
+    });
+    try expectPromotedCase(.{
+        .case_id = "example.open_row_choice_basic",
+        .source_path = "examples/open_row_choice_basic.zig",
+        .surface_kind = .example,
+        .scenario_id = .define_choice_basic,
+        .Runner = example_open_row_choice_basic,
+    });
+    try expectPromotedCase(.{
+        .case_id = "example.open_row_abort_basic",
+        .source_path = "examples/open_row_abort_basic.zig",
+        .surface_kind = .example,
+        .scenario_id = .define_abort_basic,
+        .Runner = example_open_row_abort_basic,
+    });
+    try expectPromotedCase(.{
+        .case_id = "example.open_row_workflow",
+        .source_path = "examples/open_row_workflow.zig",
+        .surface_kind = .example,
+        .scenario_id = .front_door_workflow,
+        .Runner = example_open_row_workflow,
+    });
+    try expectPromotedCase(.{
+        .case_id = "example.open_row_abortive_validation",
+        .source_path = "examples/open_row_abortive_validation.zig",
+        .surface_kind = .example,
+        .scenario_id = .algebraic_abortive_validation,
+        .Runner = example_open_row_abortive_validation,
+    });
+    try expectPromotedCase(.{
+        .case_id = "example.open_row_artifact_search",
+        .source_path = "examples/open_row_artifact_search.zig",
+        .surface_kind = .example,
+        .scenario_id = .algebraic_artifact_search,
+        .Runner = example_open_row_artifact_search,
+    });
+    try expectPromotedCase(.{
+        .case_id = "example.open_row_generator",
+        .source_path = "examples/open_row_generator.zig",
+        .surface_kind = .example,
+        .scenario_id = .generator,
+        .Runner = example_open_row_generator,
+    });
+    try expectPromotedCase(.{
         .case_id = "example.early_exit",
         .source_path = "examples/early_exit.zig",
         .surface_kind = .example,
@@ -60,13 +115,6 @@ test "promoted source-lowering example and effect cohort stays source-backed and
         .surface_kind = .example,
         .scenario_id = .resume_or_return,
         .Runner = example_resume_or_return,
-    });
-    try expectPromotedCase(.{
-        .case_id = "example.front_door_workflow",
-        .source_path = "examples/front_door_workflow.zig",
-        .surface_kind = .example,
-        .scenario_id = .front_door_workflow,
-        .Runner = example_front_door_workflow,
     });
     try expectPromotedCase(.{
         .case_id = "example.nested_workflow",
@@ -100,34 +148,6 @@ test "promoted source-lowering example and effect cohort stays source-backed and
         .case_id = "example.exception_basic",
         .source_path = "examples/exception_basic.zig",
         .surface_kind = .example,
-        .scenario_id = .exception_basic,
-        .Runner = example_exception_basic,
-    });
-    try expectPromotedCase(.{
-        .case_id = "effect.state_basic",
-        .source_path = "examples/state_basic.zig",
-        .surface_kind = .effect,
-        .scenario_id = .state_basic,
-        .Runner = example_state_basic,
-    });
-    try expectPromotedCase(.{
-        .case_id = "effect.reader_basic",
-        .source_path = "examples/reader_basic.zig",
-        .surface_kind = .effect,
-        .scenario_id = .reader_basic,
-        .Runner = example_reader_basic,
-    });
-    try expectPromotedCase(.{
-        .case_id = "effect.optional_basic",
-        .source_path = "examples/optional_basic.zig",
-        .surface_kind = .effect,
-        .scenario_id = .optional_basic,
-        .Runner = example_optional_basic,
-    });
-    try expectPromotedCase(.{
-        .case_id = "effect.exception_basic",
-        .source_path = "examples/exception_basic.zig",
-        .surface_kind = .effect,
         .scenario_id = .exception_basic,
         .Runner = example_exception_basic,
     });

@@ -11,35 +11,30 @@ const transcript = struct {
     }
 };
 
-const approval_handler = struct {
-    /// Approve publication through the front-door generated choice surface.
-    pub fn publish(_: *@This()) shift.Decision([]const u8, []const u8) {
+const approval_policy = struct {
+    /// Approve publication through the open-row choice surface.
+    pub fn resumeOrReturn() shift.Decision([]const u8, []const u8) {
         transcript.note("approval=publish");
         return shift.Decision([]const u8, []const u8).returnNow("completed");
     }
 
-    /// Preserve the resumed workflow answer unchanged.
-    pub fn afterPublish(_: *@This(), answer: []const u8) []const u8 {
+    /// Preserve the workflow answer unchanged.
+    pub fn afterResume(answer: []const u8) []const u8 {
         return answer;
     }
 };
 
-const Approval = shift.Decl.family(.{
-    .state_type = struct {},
-    .ops = .{
-        shift.Ops.Choice("publish", void, []const u8),
-    },
-}, approval_handler);
+const ApprovalRow = shift.effects.optional([]const u8);
 
-const WorkflowProgram = shift.Program(.{
-    .approval = Approval,
-}, struct {
+const Workflow = struct {
+    pub const Uses = shift.Uses(ApprovalRow);
+
     /// Queue the workflow, request approval, and finish on the resumed branch.
     pub fn body(eff: anytype) ![]const u8 {
         transcript.note("workflow=queued");
         transcript.note("audit=entered");
         transcript.note("audit=after");
-        const approved = try eff.approval.publish.perform(struct {
+        const approved = try eff.optional.request(struct {
             /// This continuation must never run in the return-now approval branch.
             pub fn apply(_: []const u8, _: anytype) ![]const u8 {
                 unreachable;
@@ -48,7 +43,7 @@ const WorkflowProgram = shift.Program(.{
         transcript.note("workflow=done");
         return approved;
     }
-});
+};
 
 /// Write the nested workflow transcript through the root front door.
 pub fn run(writer: anytype) anyerror!void {
@@ -56,9 +51,10 @@ pub fn run(writer: anytype) anyerror!void {
     defer runtime.deinit();
     transcript.len = 0;
 
-    const result = try shift.run(&runtime, WorkflowProgram, .{
-        .approval = approval_handler{},
+    const closed = shift.bind(Workflow, .{
+        .optional = shift.handlers.optional([]const u8, approval_policy),
     });
+    const result = try shift.run(&runtime, closed);
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }

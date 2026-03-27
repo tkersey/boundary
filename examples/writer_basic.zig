@@ -1,22 +1,27 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const WriterProgram = shift.Program(.{
-    .writer = shift.Decl.writer([]const u8),
-}, struct {
+const WriterRow = shift.effects.writer([]const u8);
+
+const WriterWorkflow = struct {
+    pub const Uses = shift.Uses(WriterRow);
+
     /// Append two items and return the canonical writer answer.
     pub fn body(eff: anytype) ![]const u8 {
         try eff.writer.tell("a");
         try eff.writer.tell("b");
         return "done";
     }
-});
+};
 
 fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
     var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
-    const result = try shift.run(&runtime, WriterProgram, .{});
+    const closed = shift.bind(WriterWorkflow, .{
+        .writer = shift.handlers.writer([]const u8, allocator),
+    });
+    const result = try shift.run(&runtime, closed);
     defer allocator.free(result.outputs.writer);
 
     for (result.outputs.writer) |item| {

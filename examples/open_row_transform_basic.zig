@@ -1,0 +1,69 @@
+const shift = @import("shift");
+const std = @import("std");
+
+const counter_row = shift.Row(.{
+    .counter = .{
+        .get = shift.Transform(void, i32),
+        .set = shift.Transform(i32, void),
+    },
+});
+
+const counter_handler = struct {
+    state: i32,
+
+    /// Read the current counter state.
+    pub fn get(self: *@This()) i32 {
+        return self.state;
+    }
+
+    /// Preserve the enclosing answer after a counter read.
+    pub fn afterGet(_: *@This(), answer: i32) i32 {
+        return answer;
+    }
+
+    /// Replace the current counter state.
+    pub fn set(self: *@This(), value: i32) void {
+        self.state = value;
+    }
+
+    /// Preserve the enclosing answer after a counter write.
+    pub fn afterSet(_: *@This(), answer: i32) i32 {
+        return answer;
+    }
+};
+
+const counter_workflow = struct {
+    /// Capability bundle for the transform example.
+    pub const Uses = shift.Uses(counter_row);
+
+    /// Increment the counter once and return the new value.
+    pub fn body(eff: anytype) anyerror!i32 {
+        const before = try eff.counter.get.perform();
+        try eff.counter.set.perform(before + 1);
+        return try eff.counter.get.perform();
+    }
+};
+
+fn run_counter(runtime: *shift.Runtime) anyerror!i32 {
+    const closed = shift.bind(counter_workflow, .{
+        .counter = counter_handler{ .state = 5 },
+    });
+    const result = try shift.run(runtime, closed);
+    return result.value;
+}
+
+/// Render the transform example transcript.
+pub fn run(writer: anytype) anyerror!void {
+    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    defer runtime.deinit();
+    try writer.print("counter={d}\n", .{try run_counter(&runtime)});
+}
+
+/// Run the transform example on stdout.
+pub fn main() anyerror!void {
+    var stdout_buffer: [128]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    try run(stdout);
+    try stdout.flush();
+}

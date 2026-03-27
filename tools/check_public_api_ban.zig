@@ -4,11 +4,18 @@ const allowed_exports = &[_][]const u8{
     "Runtime",
     "RuntimeError",
     "ErrorWitnessV1",
+    "Transform",
+    "Choice",
+    "Abort",
+    "RunResult",
+    "Row",
+    "mergeRows",
+    "effects",
+    "handlers",
+    "Uses",
+    "handle",
+    "bind",
     "Decision",
-    "Decl",
-    "Op",
-    "Ops",
-    "Program",
     "run",
 };
 
@@ -35,6 +42,16 @@ fn readIdentifier(line: []const u8, start: usize) []const u8 {
     return line[start..idx];
 }
 
+fn braceDelta(line: []const u8) isize {
+    var delta: isize = 0;
+    for (line) |c| switch (c) {
+        '{' => delta += 1,
+        '}' => delta -= 1,
+        else => {},
+    };
+    return delta;
+}
+
 fn contains(slice: []const []const u8, value: []const u8) bool {
     for (slice) |entry| if (std.mem.eql(u8, entry, value)) return true;
     return false;
@@ -54,12 +71,13 @@ pub fn main() anyerror!void {
     defer names.deinit(allocator);
 
     var offset: usize = 0;
+    var depth: isize = 0;
     while (offset <= content.len) {
         var line_end = offset;
         while (line_end < content.len and content[line_end] != '\n') : (line_end += 1) {}
         const line = content[offset..line_end];
         const trimmed = trimWhitespace(line);
-        if (trimmed.len != 0) {
+        if (depth == 0 and trimmed.len != 0) {
             const pub_const = "pub const ";
             const pub_fn = "pub fn ";
             if (trimmed.len > pub_const.len and std.mem.startsWith(u8, trimmed, pub_const)) {
@@ -70,6 +88,7 @@ pub fn main() anyerror!void {
                 if (name.len != 0 and !contains(names.items, name)) try names.append(allocator, name);
             }
         }
+        depth += braceDelta(line);
         if (line_end >= content.len) break;
         offset = line_end + 1;
     }
@@ -79,7 +98,7 @@ pub fn main() anyerror!void {
     for (names.items) |name| if (!contains(allowed_exports, name)) try banned.append(allocator, name);
 
     if (banned.items.len != 0) {
-        std.debug.print("public API ban failure: disallowed exports found:\\n", .{});
+        std.debug.print("public API ban failure: retired root exports found:\\n", .{});
         for (banned.items) |name| std.debug.print("  {s}\\n", .{name});
         return BanError.PublicApiBanViolation;
     }
