@@ -15,7 +15,7 @@ pub const ErrorVariant = struct {
 
 fn retainedVariant(comptime tag: error_witness.RuntimeErrorTag) ErrorVariant {
     return .{
-        .name = @tagName(tag),
+        .name = error_witness.runtimeErrorTagName(tag),
         .status = .retained,
         .rationale = switch (tag) {
             .MissingPrompt => "The lowered-only public runtime still needs a missing-delimiter failure.",
@@ -29,6 +29,7 @@ fn retainedVariant(comptime tag: error_witness.RuntimeErrorTag) ErrorVariant {
     };
 }
 
+/// Public retained runtime error variants.
 pub const retained_variants = [_]ErrorVariant{
     retainedVariant(.MissingPrompt),
     retainedVariant(.CrossThread),
@@ -39,6 +40,7 @@ pub const retained_variants = [_]ErrorVariant{
     retainedVariant(.ProgramContractViolation),
 };
 
+/// Public retired runtime error variants.
 pub const retired_variants = [_]ErrorVariant{
     .{
         .name = "AlreadyResolved",

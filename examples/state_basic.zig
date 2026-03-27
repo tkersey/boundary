@@ -5,7 +5,7 @@ const StateProgram = shift.Program(.{
     .state = shift.Decl.state(i32),
 }, struct {
     /// Increment the front-door state once and return the canonical value witness.
-    pub fn body(eff: anytype) !i32 {
+    pub fn body(eff: anytype) anyerror!i32 {
         const before = try eff.state.get();
         try eff.state.set(before + 1);
         return before + (try eff.state.get());

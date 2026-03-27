@@ -28,8 +28,8 @@ const CounterHandler = struct {
 const Counter = shift.Decl.family(.{
     .state_type = i32,
     .ops = .{
-        shift.Op.transform("get", void, i32),
-        shift.Op.transform("set", i32, void),
+        shift.Ops.Transform("get", void, i32),
+        shift.Ops.Transform("set", i32, void),
     },
 }, CounterHandler);
 
@@ -37,14 +37,14 @@ const CounterProgram = shift.Program(.{
     .counter = Counter,
 }, struct {
     /// Increment the generated counter once and return the new value.
-    pub fn body(eff: anytype) !i32 {
+    pub fn body(eff: anytype) anyerror!i32 {
         const before = try eff.counter.get.perform();
         try eff.counter.set.perform(before + 1);
         return try eff.counter.get.perform();
     }
 });
 
-fn runCounter(runtime: *shift.Runtime) !i32 {
+fn runCounter(runtime: *shift.Runtime) anyerror!i32 {
     const result = try shift.run(runtime, CounterProgram, .{
         .counter = CounterHandler{ .state = 5 },
     });

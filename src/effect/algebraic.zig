@@ -224,6 +224,7 @@ pub fn handleState(
     return .{ .state = state_cell, .value = value };
 }
 
+/// Handle the public state capability with an explicit error set.
 pub fn handleStateWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
@@ -243,17 +244,21 @@ pub fn handleStateWithErrorSet(
     var state_cell = initial_state;
     const specs = .{
         internal.handleDirectTransform(get_state_op, &state_cell, struct {
+            /// Provide the resumptive value for this public hook.
             pub fn resumeValue(state_ptr: *StateType, _: void) StateType {
                 return state_ptr.*;
             }
+            /// Finish this public resumed path.
             pub fn afterResume(_: *StateType, answer: AnswerType) AnswerType {
                 return answer;
             }
         }),
         internal.handleDirectTransform(set_state_op, &state_cell, struct {
+            /// Provide the resumptive value for this public hook.
             pub fn resumeValue(state_ptr: *StateType, payload: StateType) void {
                 state_ptr.* = payload;
             }
+            /// Finish this public resumed path.
             pub fn afterResume(_: *StateType, answer: AnswerType) AnswerType {
                 return answer;
             }
@@ -268,14 +273,17 @@ pub fn handleStateWithErrorSet(
     const capability_meta = struct {
         const body_tag = Body;
 
+        /// Return the engine context type for this public helper.
         pub fn EngineContextType() type {
             return GeneratedEngineContextType;
         }
 
+        /// Return the public get operation type.
         pub fn GetOp() type {
             return get_state_op;
         }
 
+        /// Return the public set operation type.
         pub fn SetOp() type {
             return set_state_op;
         }
@@ -357,6 +365,7 @@ pub fn handleReader(
     return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
 }
 
+/// Handle the public reader capability with an explicit error set.
 pub fn handleReaderWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
@@ -372,9 +381,11 @@ pub fn handleReaderWithErrorSet(
     var env_value = environment;
     const specs = .{
         internal.handleDirectTransform(reader_ask_op, &env_value, struct {
+            /// Provide the resumptive value for this public hook.
             pub fn resumeValue(env_ptr: *StateType, _: void) StateType {
                 return env_ptr.*;
             }
+            /// Finish this public resumed path.
             pub fn afterResume(_: *StateType, answer: AnswerType) AnswerType {
                 return answer;
             }
@@ -389,10 +400,12 @@ pub fn handleReaderWithErrorSet(
     const capability_meta = struct {
         const body_tag = Body;
 
+        /// Return the engine context type for this public helper.
         pub fn EngineContextType() type {
             return GeneratedEngineContextType;
         }
 
+        /// Return the public ask operation type.
         pub fn AskOp() type {
             return reader_ask_op;
         }
@@ -482,6 +495,7 @@ pub fn handleWriter(
     return .{ .items = items, .value = value };
 }
 
+/// Handle the public writer capability with an explicit error set.
 pub fn handleWriterWithErrorSet(
     comptime WriterContract: type,
     comptime RunErrorSetType: type,
@@ -503,9 +517,11 @@ pub fn handleWriterWithErrorSet(
     errdefer writer_state.deinit();
     const specs = .{
         internal.handleDirectTransform(writer_tell_op, &writer_state, struct {
+            /// Provide the resumptive value for this public hook.
             pub fn resumeValue(state_ptr: *WriterStateType, payload: ItemType) lowered_machine.ResetError(RunErrorSetType)!void {
                 try state_ptr.append(payload);
             }
+            /// Finish this public resumed path.
             pub fn afterResume(_: *WriterStateType, answer: AnswerType) AnswerType {
                 return answer;
             }
@@ -520,10 +536,12 @@ pub fn handleWriterWithErrorSet(
     const capability_meta = struct {
         const body_tag = Body;
 
+        /// Return the engine context type for this public helper.
         pub fn EngineContextType() type {
             return GeneratedEngineContextType;
         }
 
+        /// Return the public tell operation type.
         pub fn TellOp() type {
             return writer_tell_op;
         }
@@ -596,7 +614,7 @@ pub inline fn optionalRequest(
 pub inline fn optionalRequestProgram(
     comptime Cap: type,
     ctx: anytype,
-    comptime Continuation: type,
+    comptime Continuation: anytype,
 ) frontend.Program(prompt_contract.Prompt(
     .resume_or_return,
     family.ContextStateType(@TypeOf(ctx)),
@@ -611,7 +629,7 @@ pub inline fn optionalRequestProgram(
 pub inline fn optionalRequestBoundProgram(
     comptime Cap: type,
     ctx: anytype,
-    comptime Continuation: type,
+    comptime Continuation: anytype,
 ) @TypeOf(activeEngineContext(Cap, ctx).performProgram(Cap.RequestOp(), {}, Continuation)) {
     comptime family.assertContextType(Cap, @TypeOf(ctx));
     return activeEngineContext(Cap, ctx).performProgram(Cap.RequestOp(), {}, Continuation);
@@ -705,6 +723,7 @@ pub fn handleOptional(
     return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
 }
 
+/// Handle the public optional capability with an explicit error set.
 pub fn handleOptionalWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
@@ -725,11 +744,13 @@ pub fn handleOptionalWithErrorSet(
     const cleanup_marker = cleanup.checkpoint();
     const specs = .{
         internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker }, struct {
+            /// Decide whether this public hook resumes or returns.
             pub fn resumeOrReturn(_: OptionalState, _: void) lowered_machine.ResetError(RunErrorSetType)!choice.Decision(ResumeType, AnswerType) {
                 const DecisionFn = @TypeOf(Policy.resumeOrReturn);
                 if (DecisionFn == fn () choice.Decision(ResumeType, AnswerType)) return Policy.resumeOrReturn();
                 return try Policy.resumeOrReturn();
             }
+            /// Finish this public resumed path.
             pub fn afterResume(state: OptionalState, value: ResumeType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
                 if (cleanup.checkpoint() != state.cleanup_marker) {
                     cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
@@ -749,14 +770,17 @@ pub fn handleOptionalWithErrorSet(
     const capability_meta = struct {
         const body_tag = Body;
 
+        /// Return the public policy type.
         pub fn PolicyType() type {
             return Policy;
         }
 
+        /// Return the engine context type for this public helper.
         pub fn EngineContextType() type {
             return GeneratedEngineContextType;
         }
 
+        /// Return the public request operation type.
         pub fn RequestOp() type {
             return optional_request_op;
         }
@@ -844,6 +868,7 @@ pub fn handleOptionalLexical(
     return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
 }
 
+/// Handle the public optional lexical capability with an explicit error set.
 pub fn handleOptionalLexicalWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
@@ -864,11 +889,13 @@ pub fn handleOptionalLexicalWithErrorSet(
     const cleanup_marker = cleanup.checkpoint();
     const specs = .{
         internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker }, struct {
+            /// Decide whether this public hook resumes or returns.
             pub fn resumeOrReturn(_: OptionalState, _: void) lowered_machine.ResetError(RunErrorSetType)!choice.Decision(ResumeType, AnswerType) {
                 const DecisionFn = @TypeOf(Policy.resumeOrReturn);
                 if (DecisionFn == fn () choice.Decision(ResumeType, AnswerType)) return Policy.resumeOrReturn();
                 return try Policy.resumeOrReturn();
             }
+            /// Finish this public resumed path.
             pub fn afterResume(state: OptionalState, answer: AnswerType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
                 if (cleanup.checkpoint() != state.cleanup_marker) {
                     cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
@@ -888,14 +915,17 @@ pub fn handleOptionalLexicalWithErrorSet(
     const capability_meta = struct {
         const body_tag = Body;
 
+        /// Return the public policy type.
         pub fn PolicyType() type {
             return Policy;
         }
 
+        /// Return the engine context type for this public helper.
         pub fn EngineContextType() type {
             return GeneratedEngineContextType;
         }
 
+        /// Return the public request operation type.
         pub fn RequestOp() type {
             return optional_request_op;
         }
@@ -1033,6 +1063,7 @@ pub fn handleException(
     return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
 }
 
+/// Handle the public exception capability with an explicit error set.
 pub fn handleExceptionWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
@@ -1053,6 +1084,7 @@ pub fn handleExceptionWithErrorSet(
     const cleanup_marker = cleanup.checkpoint();
     const specs = .{
         internal.handleAbort(exception_throw_op, ExceptionState{ .cleanup_marker = cleanup_marker }, struct {
+            /// Return directly through this public hook.
             pub fn directReturn(state: ExceptionState, payload: PayloadType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
                 cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
                 const DirectFn = @TypeOf(Catch.directReturn);
@@ -1070,14 +1102,17 @@ pub fn handleExceptionWithErrorSet(
     const capability_meta = struct {
         const body_tag = Body;
 
+        /// Return the public catch type.
         pub fn CatchType() type {
             return Catch;
         }
 
+        /// Return the engine context type for this public helper.
         pub fn EngineContextType() type {
             return GeneratedEngineContextType;
         }
 
+        /// Return the public throw operation type.
         pub fn ThrowOp() type {
             return exception_throw_op;
         }
@@ -1251,6 +1286,7 @@ pub fn handleResource(
     return answer.?;
 }
 
+/// Handle the public resource capability with an explicit error set.
 pub fn handleResourceWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
@@ -1301,12 +1337,14 @@ pub fn handleResourceWithErrorSet(
     defer frame.deinit();
     const specs = .{
         internal.handleDirectTransform(resource_acquire_op, &frame, struct {
+            /// Provide the resumptive value for this public hook.
             pub fn resumeValue(frame_ptr: *Frame, _: void) lowered_machine.ResetError(RunErrorSetType)!ResourceType {
                 const AcquireFn = @TypeOf(Manager.acquire);
                 const resource = if (AcquireFn == fn () ResourceType) Manager.acquire() else try Manager.acquire();
                 try frame_ptr.resources.append(frame_ptr.allocator, resource);
                 return resource;
             }
+            /// Finish this public resumed path.
             pub fn afterResume(_: *Frame, answer: AnswerType) AnswerType {
                 return answer;
             }
@@ -1321,14 +1359,17 @@ pub fn handleResourceWithErrorSet(
     const capability_meta = struct {
         const body_tag = Body;
 
+        /// Return the public manager type.
         pub fn ManagerType() type {
             return Manager;
         }
 
+        /// Return the engine context type for this public helper.
         pub fn EngineContextType() type {
             return GeneratedEngineContextType;
         }
 
+        /// Return the public acquire operation type.
         pub fn AcquireOp() type {
             return resource_acquire_op;
         }

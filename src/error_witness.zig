@@ -1,37 +1,48 @@
-const std = @import("std");
-
+/// Public witness surface enum.
 pub const Surface = enum {
-    ordinary,
-    lexical,
     algebraic,
     generated_family,
+    lexical,
+    ordinary,
 };
 
+/// Public witness support-status enum.
 pub const SupportStatus = enum {
     supported,
     unsupported,
 };
 
+/// Public runtime error tag enum.
 pub const RuntimeErrorTag = enum {
-    MissingPrompt,
     CrossThread,
+    FrontendSuspend,
+    MissingPrompt,
+    NonDiagonalComplete,
+    ProgramContractViolation,
     RuntimeBusy,
     RuntimeDestroyed,
-    NonDiagonalComplete,
-    FrontendSuspend,
-    ProgramContractViolation,
+
+    pub const cross_thread = RuntimeErrorTag.CrossThread;
+    pub const frontend_suspend = RuntimeErrorTag.FrontendSuspend;
+    pub const missing_prompt = RuntimeErrorTag.MissingPrompt;
+    pub const non_diagonal_complete = RuntimeErrorTag.NonDiagonalComplete;
+    pub const program_contract_violation = RuntimeErrorTag.ProgramContractViolation;
+    pub const runtime_busy = RuntimeErrorTag.RuntimeBusy;
+    pub const runtime_destroyed = RuntimeErrorTag.RuntimeDestroyed;
 };
 
+/// Public contributor-kind enum.
 pub const ContributorKind = enum {
     body,
+    cleanup,
     continuation,
     descriptor,
     handler,
-    policy,
     manager,
-    cleanup,
+    policy,
 };
 
+/// Public contributor record.
 pub const Contributor = struct {
     kind: ContributorKind,
     surface: Surface,
@@ -39,6 +50,7 @@ pub const Contributor = struct {
     error_names: []const []const u8,
 };
 
+/// Public witness diagnostic record.
 pub const WitnessDiagnostic = struct {
     code: []const u8,
     message: []const u8,
@@ -58,6 +70,7 @@ pub const ErrorWitnessV1 = struct {
     contributors: []const Contributor,
     diagnostics: []const WitnessDiagnostic,
 
+    /// Return the empty public value.
     pub fn empty(comptime surface: Surface) ErrorWitnessV1 {
         return .{
             .surface = surface,
@@ -71,23 +84,53 @@ pub const ErrorWitnessV1 = struct {
     }
 };
 
+/// Public empty error-name slice.
 pub const no_error_names = [_][]const u8{};
+/// Public empty runtime-error-tag slice.
 pub const no_runtime_error_tags = [_]RuntimeErrorTag{};
+/// Public empty contributor slice.
 pub const no_contributors = [_]Contributor{};
+/// Public empty diagnostic slice.
 pub const no_diagnostics = [_]WitnessDiagnostic{};
 
+/// Return the public runtime error tags.
 pub fn runtimeErrorTags() []const RuntimeErrorTag {
     return &.{
-        .MissingPrompt,
-        .CrossThread,
-        .RuntimeBusy,
-        .RuntimeDestroyed,
-        .NonDiagonalComplete,
-        .FrontendSuspend,
-        .ProgramContractViolation,
+        .missing_prompt,
+        .cross_thread,
+        .runtime_busy,
+        .runtime_destroyed,
+        .non_diagonal_complete,
+        .frontend_suspend,
+        .program_contract_violation,
     };
 }
 
+/// Return the public runtime error tag name.
+pub fn runtimeErrorTagName(tag: RuntimeErrorTag) []const u8 {
+    return switch (tag) {
+        .MissingPrompt => "MissingPrompt",
+        .CrossThread => "CrossThread",
+        .RuntimeBusy => "RuntimeBusy",
+        .RuntimeDestroyed => "RuntimeDestroyed",
+        .NonDiagonalComplete => "NonDiagonalComplete",
+        .FrontendSuspend => "FrontendSuspend",
+        .ProgramContractViolation => "ProgramContractViolation",
+    };
+}
+
+/// Return the public setup error names.
 pub fn setupErrorNames(has_oom: bool) []const []const u8 {
     return if (has_oom) &.{"OutOfMemory"} else &no_error_names;
+}
+
+test "runtime error tag aliases stay source-compatible" {
+    try @import("std").testing.expectEqual(RuntimeErrorTag.MissingPrompt, RuntimeErrorTag.missing_prompt);
+    try @import("std").testing.expectEqual(RuntimeErrorTag.CrossThread, RuntimeErrorTag.cross_thread);
+    try @import("std").testing.expectEqual(RuntimeErrorTag.RuntimeBusy, RuntimeErrorTag.runtime_busy);
+    try @import("std").testing.expectEqual(RuntimeErrorTag.RuntimeDestroyed, RuntimeErrorTag.runtime_destroyed);
+    try @import("std").testing.expectEqual(RuntimeErrorTag.NonDiagonalComplete, RuntimeErrorTag.non_diagonal_complete);
+    try @import("std").testing.expectEqual(RuntimeErrorTag.FrontendSuspend, RuntimeErrorTag.frontend_suspend);
+    try @import("std").testing.expectEqual(RuntimeErrorTag.ProgramContractViolation, RuntimeErrorTag.program_contract_violation);
+    try @import("std").testing.expectEqualStrings("MissingPrompt", @tagName(RuntimeErrorTag.MissingPrompt));
 }

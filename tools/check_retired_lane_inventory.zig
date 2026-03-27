@@ -47,7 +47,7 @@ fn isSkippedPath(path: []const u8) bool {
     return false;
 }
 
-fn checkFile(allocator: std.mem.Allocator, violations: *std.ArrayList([]const u8), path: []const u8) !void {
+fn checkFile(allocator: std.mem.Allocator, violations: *std.ArrayList([]const u8), path: []const u8) anyerror!void {
     if (isSkippedPath(path)) return;
     const content = try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
     defer allocator.free(content);
@@ -59,7 +59,7 @@ fn checkFile(allocator: std.mem.Allocator, violations: *std.ArrayList([]const u8
     }
 }
 
-fn checkDirRecursive(allocator: std.mem.Allocator, violations: *std.ArrayList([]const u8), dir_path: []const u8) !void {
+fn checkDirRecursive(allocator: std.mem.Allocator, violations: *std.ArrayList([]const u8), dir_path: []const u8) anyerror!void {
     var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
     defer dir.close();
     var iterator = dir.iterate();
@@ -75,7 +75,8 @@ fn checkDirRecursive(allocator: std.mem.Allocator, violations: *std.ArrayList([]
     }
 }
 
-pub fn main() !void {
+/// Run this public entrypoint.
+pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();

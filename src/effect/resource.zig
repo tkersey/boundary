@@ -102,6 +102,7 @@ pub fn handle(
     return try algebraic.handleResource(AnswerType, runtime, instance, Manager, Body);
 }
 
+/// Public `handleWithErrorSet` helper.
 pub fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,

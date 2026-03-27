@@ -21,6 +21,10 @@ grep -q '^## Proof Surface$' "$contract"
 grep -q 'internal source-lowering contract' "$contract"
 grep -q 'shift.Program(.{ ... }, Body)' "$contract"
 grep -q 'shift.run(&runtime, Program, bindings)' "$contract"
+grep -q 'shift.Decl.\*' "$contract"
+grep -q 'shift.Ops.\*' "$contract"
+! grep -q 'shift\.decl' "$contract"
+! grep -q 'shift\.ops' "$contract"
 grep -q 'shift-source-lower' "$contract"
 grep -q 'static delimitation' "$contract"
 grep -q 'one-shot linearity' "$contract"
@@ -65,4 +69,10 @@ grep -q 'docs/source_lowering_coverage_matrix.json' "$contract"
 grep -q 'coverage_status' "$contract"
 grep -q 'zig build source-lowering-gauntlet' "$contract"
 grep -q 'zig build source-lowering-coverage-check' "$contract"
+grep -q 'zig build lowering-equivalence-report-check' "$contract"
+grep -q 'zig build lowering-rejection-report-check' "$contract"
 grep -q 'zig build test' "$contract"
+! rg -n 'shift\.decl|shift\.ops' "$repo_root/src/source_lowering.zig" >/dev/null
+! rg -n 'shift\.Op\b' "$repo_root/src/source_lowering.zig" >/dev/null
+rg -n 'shift\.Decl' "$repo_root/src/source_lowering.zig" >/dev/null
+rg -n 'shift\.Ops\.' "$repo_root/src/source_lowering.zig" >/dev/null

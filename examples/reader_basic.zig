@@ -5,7 +5,7 @@ const ReaderProgram = shift.Program(.{
     .reader = shift.Decl.reader(i32),
 }, struct {
     /// Read the front-door reader environment once and double it.
-    pub fn body(eff: anytype) !i32 {
+    pub fn body(eff: anytype) anyerror!i32 {
         const env = try eff.reader.ask();
         return env * 2;
     }

@@ -1,5 +1,6 @@
-const lowered_machine = @import("lowered_machine");
 const error_witness = @import("error_witness");
+const lowered_machine = @import("lowered_machine");
+const op_compat = @import("op_compat.zig");
 const program_api = @import("program_api.zig");
 
 /// Canonical lowered-first runtime handle.
@@ -11,9 +12,11 @@ pub const ErrorWitnessV1 = error_witness.ErrorWitnessV1;
 /// Root-level choice-decision helper for the front-door API.
 pub const Decision = program_api.Decision;
 /// Unified declaration namespace for the front-door API.
-pub const Decl = program_api.Decl;
+pub const Decl = @import("root_decl_api.zig").Decl;
+/// Legacy op-descriptor namespace preserved for compatibility.
+pub const Op = op_compat.Op;
 /// Unified op-descriptor namespace for the front-door API.
-pub const Op = program_api.Op;
+pub const Ops = @import("root_op_api.zig").Ops;
 /// Root-first authored program surface.
 pub const Program = program_api.Program;
 
@@ -27,6 +30,7 @@ test {
     _ = Decision;
     _ = ErrorWitnessV1;
     _ = Op;
+    _ = Ops;
     _ = Program;
     _ = Runtime;
     _ = RuntimeError;

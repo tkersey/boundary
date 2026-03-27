@@ -45,20 +45,28 @@ fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
     };
 }
 
-fn expectDeclTypeOneOf(comptime Owner: type, comptime name: []const u8, comptime ExpectedA: type, comptime ExpectedB: type) void {
-    if (!hasDeclSafe(Owner, name)) {
-        @compileError(@typeName(Owner) ++ " must declare " ++ name);
-    }
-    const ActualType = @TypeOf(@field(Owner, name));
-    if (ActualType != ExpectedA and ActualType != ExpectedB) {
-        @compileError(
-            @typeName(Owner) ++ "." ++ name ++ " must have type " ++ @typeName(ExpectedA) ++
-                " or " ++ @typeName(ExpectedB),
-        );
-    }
+fn ContinuationCarrierType(comptime Continuation: anytype) type {
+    return if (@TypeOf(Continuation) == type) Continuation else @TypeOf(Continuation);
 }
 
-fn FnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
+fn continuationHasApply(comptime Continuation: anytype) bool {
+    return hasDeclSafe(ContinuationCarrierType(Continuation), "apply");
+}
+
+fn ContinuationFnType(comptime Continuation: anytype) type {
+    const Carrier = ContinuationCarrierType(Continuation);
+    if (continuationHasApply(Continuation)) return @TypeOf(Continuation.apply);
+    return switch (@typeInfo(Carrier)) {
+        .@"fn" => Carrier,
+        .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn")
+            pointer.child
+        else
+            @compileError(@typeName(Carrier) ++ " must declare apply or be a callable function"),
+        else => @compileError(@typeName(Carrier) ++ " must declare apply or be a callable function"),
+    };
+}
+
+fn fnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
     const ReturnType = @typeInfo(FnType).@"fn".return_type.?;
     return switch (@typeInfo(ReturnType)) {
         .error_union => |err_union| err_union.payload == ExpectedType,
@@ -66,10 +74,10 @@ fn FnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
     };
 }
 
-fn FnParamsMatch(comptime FnType: type, comptime params: []const type) bool {
+fn fnParamsMatch(comptime FnType: type, comptime ParamTypes: []const type) bool {
     const actual = @typeInfo(FnType).@"fn".params;
-    if (actual.len != params.len) return false;
-    inline for (params, 0..) |ParamType, index| {
+    if (actual.len != ParamTypes.len) return false;
+    inline for (ParamTypes, 0..) |ParamType, index| {
         if (actual[index].type == null or actual[index].type.? != ParamType) return false;
     }
     return true;
@@ -83,27 +91,27 @@ fn assertHandlerProtocol(comptime Resume: type, comptime PromptType: type, compt
     switch (PromptType.mode) {
         .resume_or_return => {
             if (!hasDeclSafe(Handler, "resumeOrReturn")) @compileError(@typeName(Handler) ++ " must declare resumeOrReturn");
-            if (!FnParamsMatch(@TypeOf(Handler.resumeOrReturn), &.{}) or !FnReturnMatches(@TypeOf(Handler.resumeOrReturn), ResumeOrReturnType(Resume, PromptType))) {
+            if (!fnParamsMatch(@TypeOf(Handler.resumeOrReturn), &.{}) or !fnReturnMatches(@TypeOf(Handler.resumeOrReturn), ResumeOrReturnType(Resume, PromptType))) {
                 @compileError(@typeName(Handler) ++ ".resumeOrReturn must have type fn () ResumeOrReturn or fn () ResetError(ErrorSet)!ResumeOrReturn");
             }
             if (!hasDeclSafe(Handler, "afterResume")) @compileError(@typeName(Handler) ++ " must declare afterResume");
-            if (!FnParamsMatch(@TypeOf(Handler.afterResume), &.{PromptType.InAnswer}) or !FnReturnMatches(@TypeOf(Handler.afterResume), PromptType.OutAnswer)) {
+            if (!fnParamsMatch(@TypeOf(Handler.afterResume), &.{PromptType.InAnswer}) or !fnReturnMatches(@TypeOf(Handler.afterResume), PromptType.OutAnswer)) {
                 @compileError(@typeName(Handler) ++ ".afterResume must have type fn (InAnswer) OutAnswer or fn (InAnswer) ResetError(ErrorSet)!OutAnswer");
             }
         },
         .resume_then_transform => {
             if (!hasDeclSafe(Handler, "resumeValue")) @compileError(@typeName(Handler) ++ " must declare resumeValue");
-            if (!FnParamsMatch(@TypeOf(Handler.resumeValue), &.{}) or !FnReturnMatches(@TypeOf(Handler.resumeValue), Resume)) {
+            if (!fnParamsMatch(@TypeOf(Handler.resumeValue), &.{}) or !fnReturnMatches(@TypeOf(Handler.resumeValue), Resume)) {
                 @compileError(@typeName(Handler) ++ ".resumeValue must have type fn () Resume or fn () ResetError(ErrorSet)!Resume");
             }
             if (!hasDeclSafe(Handler, "afterResume")) @compileError(@typeName(Handler) ++ " must declare afterResume");
-            if (!FnParamsMatch(@TypeOf(Handler.afterResume), &.{PromptType.InAnswer}) or !FnReturnMatches(@TypeOf(Handler.afterResume), PromptType.OutAnswer)) {
+            if (!fnParamsMatch(@TypeOf(Handler.afterResume), &.{PromptType.InAnswer}) or !fnReturnMatches(@TypeOf(Handler.afterResume), PromptType.OutAnswer)) {
                 @compileError(@typeName(Handler) ++ ".afterResume must have type fn (InAnswer) OutAnswer or fn (InAnswer) ResetError(ErrorSet)!OutAnswer");
             }
         },
         .direct_return => {
             if (!hasDeclSafe(Handler, "directReturn")) @compileError(@typeName(Handler) ++ " must declare directReturn");
-            if (!FnParamsMatch(@TypeOf(Handler.directReturn), &.{}) or !FnReturnMatches(@TypeOf(Handler.directReturn), PromptType.OutAnswer)) {
+            if (!fnParamsMatch(@TypeOf(Handler.directReturn), &.{}) or !fnReturnMatches(@TypeOf(Handler.directReturn), PromptType.OutAnswer)) {
                 @compileError(@typeName(Handler) ++ ".directReturn must have type fn () OutAnswer or fn () ResetError(ErrorSet)!OutAnswer");
             }
         },
@@ -141,25 +149,31 @@ fn callResumeOrReturn(comptime Resume: type, comptime PromptType: type, comptime
 fn assertContinuationType(
     comptime Input: type,
     comptime PromptType: type,
-    comptime Continuation: type,
+    comptime Continuation: anytype,
 ) void {
-    if (!hasDeclSafe(Continuation, "apply")) {
-        @compileError(@typeName(Continuation) ++ " must declare apply");
-    }
-    if (!FnParamsMatch(@TypeOf(Continuation.apply), &.{Input}) or !FnReturnMatches(@TypeOf(Continuation.apply), PromptType.InAnswer)) {
-        @compileError(@typeName(Continuation) ++ ".apply must have type fn (Input) InAnswer or fn (Input) ResetError(ErrorSet)!InAnswer");
+    const FnType = ContinuationFnType(Continuation);
+    if (!fnParamsMatch(FnType, &.{Input}) or !fnReturnMatches(FnType, PromptType.InAnswer)) {
+        @compileError(@typeName(ContinuationCarrierType(Continuation)) ++ " must have type fn (Input) InAnswer or fn (Input) ResetError(ErrorSet)!InAnswer");
     }
 }
 
 fn callContinuation(
     comptime Input: type,
     comptime PromptType: type,
-    comptime Continuation: type,
+    comptime Continuation: anytype,
     value: Input,
 ) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
-    const ApplyFn = @TypeOf(Continuation.apply);
-    if (ApplyFn == fn (Input) PromptType.InAnswer) return Continuation.apply(value);
-    return Continuation.apply(value) catch |err| return @errorCast(err);
+    if (comptime continuationHasApply(Continuation)) {
+        const ApplyFn = @TypeOf(Continuation.apply);
+        if (ApplyFn == fn (Input) PromptType.InAnswer) return Continuation.apply(value);
+        return Continuation.apply(value) catch |err| return @errorCast(err);
+    }
+    if (comptime @TypeOf(Continuation) == type) {
+        @compileError("frontend explicit continuations must be passed as callable values, not function types");
+    }
+    const FnType = ContinuationFnType(Continuation);
+    if (FnType == fn (Input) PromptType.InAnswer) return Continuation(value);
+    return Continuation(value) catch |err| return @errorCast(err);
 }
 
 fn encodeValue(comptime T: type, value: T) lowered_machine.Error!EncodedValue {
@@ -275,7 +289,7 @@ pub fn transformProgram(
     comptime PromptType: type,
     comptime Resume: type,
     comptime Handler: type,
-    comptime Continuation: type,
+    comptime Continuation: anytype,
 ) Program(PromptType) {
     comptime assertPromptTypeMode(PromptType, .resume_then_transform, "transformProgram");
     comptime assertHandlerProtocol(Resume, PromptType, Handler);
@@ -302,7 +316,7 @@ pub fn choiceProgram(
     comptime PromptType: type,
     comptime Resume: type,
     comptime Handler: type,
-    comptime Continuation: type,
+    comptime Continuation: anytype,
 ) Program(PromptType) {
     comptime assertPromptTypeMode(PromptType, .resume_or_return, "choiceProgram");
     comptime assertHandlerProtocol(Resume, PromptType, Handler);

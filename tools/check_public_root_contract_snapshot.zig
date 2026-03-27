@@ -9,13 +9,14 @@ const expected_snapshot =
     \\    "Decision",
     \\    "Decl",
     \\    "Op",
+    \\    "Ops",
     \\    "Program",
     \\    "run"
     \\  ]
     \\}
 ;
 
-const SnapshotError = error{ SnapshotMismatch };
+const SnapshotError = error{SnapshotMismatch};
 
 fn trimAll(bytes: []const u8) []const u8 {
     var start: usize = 0;
@@ -43,7 +44,7 @@ fn readIdentifier(line: []const u8, start: usize) []const u8 {
     return line[start..idx];
 }
 
-fn buildSnapshot(allocator: std.mem.Allocator) ![]u8 {
+fn buildSnapshot(allocator: std.mem.Allocator) anyerror![]u8 {
     const content = try std.fs.cwd().readFileAlloc(allocator, "src/root.zig", std.math.maxInt(usize));
     var exports = std.ArrayList([]const u8).empty;
     defer exports.deinit(allocator);
@@ -54,12 +55,12 @@ fn buildSnapshot(allocator: std.mem.Allocator) ![]u8 {
         while (line_end < content.len and content[line_end] != '\n') : (line_end += 1) {}
         const trimmed = trimWhitespace(content[offset..line_end]);
         if (trimmed.len != 0) {
-            const pubConst = "pub const ";
-            const pubFn = "pub fn ";
-            if (trimmed.len > pubConst.len and std.mem.startsWith(u8, trimmed, pubConst)) {
-                try exports.append(allocator, try allocator.dupe(u8, readIdentifier(trimmed, pubConst.len)));
-            } else if (trimmed.len > pubFn.len and std.mem.startsWith(u8, trimmed, pubFn)) {
-                try exports.append(allocator, try allocator.dupe(u8, readIdentifier(trimmed, pubFn.len)));
+            const pub_const = "pub const ";
+            const pub_fn = "pub fn ";
+            if (trimmed.len > pub_const.len and std.mem.startsWith(u8, trimmed, pub_const)) {
+                try exports.append(allocator, try allocator.dupe(u8, readIdentifier(trimmed, pub_const.len)));
+            } else if (trimmed.len > pub_fn.len and std.mem.startsWith(u8, trimmed, pub_fn)) {
+                try exports.append(allocator, try allocator.dupe(u8, readIdentifier(trimmed, pub_fn.len)));
             }
         }
         if (line_end >= content.len) break;
@@ -67,6 +68,7 @@ fn buildSnapshot(allocator: std.mem.Allocator) ![]u8 {
     }
 
     var out = std.ArrayList(u8).empty;
+    errdefer out.deinit(allocator);
     try out.appendSlice(allocator, "{\n  \"root_exports\": [\n");
     for (exports.items, 0..) |item, index| {
         try out.appendSlice(allocator, "    \"");
@@ -78,7 +80,8 @@ fn buildSnapshot(allocator: std.mem.Allocator) ![]u8 {
     return try out.toOwnedSlice(allocator);
 }
 
-pub fn main() !void {
+/// Run this public entrypoint.
+pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();

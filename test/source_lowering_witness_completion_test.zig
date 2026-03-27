@@ -1,5 +1,5 @@
-const source_lowering = @import("source_lowering");
 const parity_scenarios = @import("parity_scenarios");
+const source_lowering = @import("source_lowering");
 const std = @import("std");
 const witness_sources = @import("witness_sources");
 
@@ -38,36 +38,43 @@ fn expectWitnessCase(comptime completion: CompletionCase) !void {
 }
 
 const witness_atm_runner = struct {
+    /// Run this public entrypoint.
     pub fn run(writer: anytype) anyerror!void {
         try witness_sources.runAtmResumeTransform(writer);
     }
 };
 const witness_direct_runner = struct {
+    /// Run this public entrypoint.
     pub fn run(writer: anytype) anyerror!void {
         try witness_sources.runDirectReturn(writer);
     }
 };
 const witness_ror_return_runner = struct {
+    /// Run this public entrypoint.
     pub fn run(writer: anytype) anyerror!void {
         try witness_sources.runResumeOrReturnReturnNow(writer);
     }
 };
 const witness_ror_resume_runner = struct {
+    /// Run this public entrypoint.
     pub fn run(writer: anytype) anyerror!void {
         try witness_sources.runResumeOrReturnResume(writer);
     }
 };
 const witness_static_runner = struct {
+    /// Run this public entrypoint.
     pub fn run(writer: anytype) anyerror!void {
         try witness_sources.runStaticRedelim(writer);
     }
 };
 const witness_multi_runner = struct {
+    /// Run this public entrypoint.
     pub fn run(writer: anytype) anyerror!void {
         try witness_sources.runMultiPrompt(writer);
     }
 };
 const witness_generator_runner = struct {
+    /// Run this public entrypoint.
     pub fn run(writer: anytype) anyerror!void {
         try witness_sources.runGenerator(writer);
     }

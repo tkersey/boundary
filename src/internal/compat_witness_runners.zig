@@ -1,7 +1,5 @@
 const shift = @import("shift");
 const std = @import("std");
-
-const NoError = error{};
 const ResumeWitness = shift.effect.Define(.{
     .state_type = void,
     .ops = .{
@@ -9,7 +7,7 @@ const ResumeWitness = shift.effect.Define(.{
     },
 });
 
-fn printTranscript(writer: anytype, lines: []const []const u8) !void {
+fn printTranscript(writer: anytype, lines: []const []const u8) anyerror!void {
     for (lines) |line| try writer.print("{s}\n", .{line});
 }
 
@@ -33,7 +31,7 @@ pub fn runDirectReturn(writer: anytype) anyerror!void {
         .exception = shift.effect.exception.use([]const u8, catch_policy),
     }, struct {
         /// Abort immediately through the lexical exception surface.
-        pub fn body(eff: anytype) ![]const u8 {
+        pub fn body(eff: anytype) anyerror![]const u8 {
             try eff.exception.throw("result=early");
         }
     });
@@ -72,10 +70,10 @@ pub fn runResumeOrReturnReturnNow(writer: anytype) anyerror!void {
         .optional = shift.effect.optional.use(i32, policy),
     }, struct {
         /// Trigger the lexical choice point and confirm the continuation is skipped.
-        pub fn body(eff: anytype) ![]const u8 {
+        pub fn body(eff: anytype) anyerror![]const u8 {
             return try eff.optional.request(struct {
                 /// This continuation must never run in the return-now witness.
-                pub fn apply(_: i32, _: anytype) ![]const u8 {
+                pub fn apply(_: i32, _: anytype) anyerror![]const u8 {
                     unreachable;
                 }
             });
@@ -117,10 +115,10 @@ pub fn runResumeOrReturnResume(writer: anytype) anyerror!void {
         .optional = shift.effect.optional.use(i32, policy),
     }, struct {
         /// Trigger the lexical choice point and finish the resumed continuation.
-        pub fn body(eff: anytype) ![]const u8 {
+        pub fn body(eff: anytype) anyerror![]const u8 {
             return try eff.optional.request(struct {
                 /// Resume the lexical witness continuation with the canonical answer.
-                pub fn apply(value: i32, _: anytype) ![]const u8 {
+                pub fn apply(value: i32, _: anytype) anyerror![]const u8 {
                     if (value != 41) unreachable;
                     transcript.note("body-after-shift");
                     return "answer=42";
@@ -143,7 +141,7 @@ pub fn runGenerator(writer: anytype) anyerror!void {
         .state = shift.effect.state.use(@as(i32, 0)),
     }, struct {
         /// Emit three yielded values and return the final generator count.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) anyerror!i32 {
             while (true) {
                 const current = try eff.state.get();
                 if (current == 3) return current;
@@ -196,7 +194,7 @@ pub fn runAtmResumeTransform(writer: anytype) anyerror!void {
         .atm = ResumeWitness.use(.{ .handler = Handler{} }),
     }, struct {
         /// Resume once through the lexical ATM witness and return the final answer.
-        pub fn body(eff: anytype) ![]const u8 {
+        pub fn body(eff: anytype) anyerror![]const u8 {
             _ = try eff.atm.step.perform();
             transcript.note("body-after-shift");
             transcript.note("handler-after-resume");
@@ -257,14 +255,14 @@ pub fn runStaticRedelim(writer: anytype) anyerror!void {
         .outer = ResumeWitness.use(.{ .handler = OuterHandler{} }),
     }, struct {
         /// Resume the outer witness, then open and resolve the nested inner witness.
-        pub fn body(outer_eff: anytype) !i32 {
+        pub fn body(outer_eff: anytype) anyerror!i32 {
             transcript.outer_value = try outer_eff.outer.step.perform();
             transcript.note("after-outer-shift");
             const nested = try shift.with(transcript.runtime_ptr.?, .{
                 .inner = ResumeWitness.use(.{ .handler = InnerHandler{} }),
             }, struct {
                 /// Resume the nested inner witness and return the composed answer.
-                pub fn body(inner_eff: anytype) !i32 {
+                pub fn body(inner_eff: anytype) anyerror!i32 {
                     const inner_value = try inner_eff.inner.step.perform();
                     transcript.note("after-inner-shift");
                     transcript.note("inner-handler-exit");
@@ -326,7 +324,7 @@ pub fn runMultiPrompt(writer: anytype) anyerror!void {
         .inner = ResumeWitness.use(.{ .handler = InnerHandler{} }),
     }, struct {
         /// Prove the outer and inner witness bindings remain distinct under one lexical scope.
-        pub fn body(eff: anytype) !i32 {
+        pub fn body(eff: anytype) anyerror!i32 {
             transcript.note("outer-before-inner");
             transcript.note("inner-before");
             _ = eff.inner;

@@ -1,7 +1,7 @@
 const bridge_manifest = @import("direct_style_bridge_manifest");
-const source_lowering_registry = @import("source_lowering_registry");
-const program_frontend = @import("program_frontend");
 const coverage = @import("source_lowering_coverage_registry");
+const program_frontend = @import("program_frontend");
+const source_lowering_registry = @import("source_lowering_registry");
 const std = @import("std");
 
 fn scorecardPath() []const u8 {

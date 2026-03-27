@@ -9,43 +9,49 @@ const WitnessCase = struct {
     Runner: type,
 };
 
-const AtmRunner = struct {
-    pub fn run(writer: anytype) !void {
+const atm_runner = struct {
+    /// Run this public entrypoint.
+    pub fn run(writer: anytype) anyerror!void {
         try lexical_witness_runners.runAtmResumeTransform(writer);
     }
 };
 
-const DirectReturnRunner = struct {
-    pub fn run(writer: anytype) !void {
+const direct_return_runner = struct {
+    /// Run this public entrypoint.
+    pub fn run(writer: anytype) anyerror!void {
         try lexical_witness_runners.runDirectReturn(writer);
     }
 };
 
-const MultiPromptRunner = struct {
-    pub fn run(writer: anytype) !void {
+const multi_prompt_runner = struct {
+    /// Run this public entrypoint.
+    pub fn run(writer: anytype) anyerror!void {
         try lexical_witness_runners.runMultiPrompt(writer);
     }
 };
 
-const ResumeRunner = struct {
-    pub fn run(writer: anytype) !void {
+const resume_runner = struct {
+    /// Run this public entrypoint.
+    pub fn run(writer: anytype) anyerror!void {
         try lexical_witness_runners.runResumeOrReturnResume(writer);
     }
 };
 
-const ReturnNowRunner = struct {
-    pub fn run(writer: anytype) !void {
+const return_now_runner = struct {
+    /// Run this public entrypoint.
+    pub fn run(writer: anytype) anyerror!void {
         try lexical_witness_runners.runResumeOrReturnReturnNow(writer);
     }
 };
 
-const StaticRedelimRunner = struct {
-    pub fn run(writer: anytype) !void {
+const static_redelim_runner = struct {
+    /// Run this public entrypoint.
+    pub fn run(writer: anytype) anyerror!void {
         try lexical_witness_runners.runStaticRedelim(writer);
     }
 };
 
-fn expectWitnessCase(comptime witness: WitnessCase) !void {
+fn expectWitnessCase(comptime witness: WitnessCase) anyerror!void {
     const lowered = program_frontend.lower(witness.program);
 
     var kernel_buffer: [1024]u8 = undefined;
@@ -66,31 +72,31 @@ test "structured witness programs still match the canonical lexical witness runn
     try expectWitnessCase(.{
         .case_id = "atm_resume_transform",
         .program = program_frontend.witnesses.atmResumeTransform(),
-        .Runner = AtmRunner,
+        .Runner = atm_runner,
     });
     try expectWitnessCase(.{
         .case_id = "direct_return",
         .program = program_frontend.witnesses.directReturn(),
-        .Runner = DirectReturnRunner,
+        .Runner = direct_return_runner,
     });
     try expectWitnessCase(.{
         .case_id = "multi_prompt",
         .program = program_frontend.witnesses.multiPrompt(),
-        .Runner = MultiPromptRunner,
+        .Runner = multi_prompt_runner,
     });
     try expectWitnessCase(.{
         .case_id = "resume_or_return_resume",
         .program = program_frontend.witnesses.resumeOrReturnResume(),
-        .Runner = ResumeRunner,
+        .Runner = resume_runner,
     });
     try expectWitnessCase(.{
         .case_id = "resume_or_return_return_now",
         .program = program_frontend.witnesses.resumeOrReturnReturnNow(),
-        .Runner = ReturnNowRunner,
+        .Runner = return_now_runner,
     });
     try expectWitnessCase(.{
         .case_id = "static_redelim",
         .program = program_frontend.witnesses.staticRedelim(),
-        .Runner = StaticRedelimRunner,
+        .Runner = static_redelim_runner,
     });
 }

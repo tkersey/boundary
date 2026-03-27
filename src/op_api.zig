@@ -1,3 +1,6 @@
-pub const transform = @import("effect/define.zig").ops.Transform;
-pub const choice = @import("effect/define.zig").ops.Choice;
-pub const abort = @import("effect/define.zig").ops.Abort;
+/// Public `Transform` declaration.
+pub const Transform = @import("effect/define.zig").ops.Transform;
+/// Public `Choice` declaration.
+pub const Choice = @import("effect/define.zig").ops.Choice;
+/// Public `Abort` declaration.
+pub const Abort = @import("effect/define.zig").ops.Abort;

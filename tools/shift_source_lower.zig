@@ -1,3 +1,4 @@
+const error_witness = @import("error_witness");
 const lowered_machine = @import("lowered_machine");
 const source_lowering = @import("source_lowering");
 const std = @import("std");
@@ -102,21 +103,6 @@ fn writeZigStringArray(writer: anytype, values: []const []const u8) !void {
     try writer.writeByte('}');
 }
 
-fn writeZigWitnessDiagnostics(writer: anytype, diagnostics: anytype) !void {
-    try writer.writeAll("&.{");
-    for (diagnostics, 0..) |diag, idx| {
-        if (idx != 0) try writer.writeAll(", ");
-        try writer.writeAll(".{ .code = ");
-        try writeZigStringLiteral(writer, diag.code);
-        try writer.writeAll(", .message = ");
-        try writeZigStringLiteral(writer, diag.message);
-        try writer.writeAll(", .path = ");
-        try writeZigStringLiteral(writer, diag.path);
-        try writer.print(", .line = {d}, .column = {d} }}", .{ diag.line, diag.column });
-    }
-    try writer.writeByte('}');
-}
-
 fn writeZigContributors(writer: anytype, contributors: anytype) !void {
     try writer.writeAll("&.{");
     for (contributors, 0..) |contributor, idx| {
@@ -161,7 +147,7 @@ fn writeJson(program: source_lowering.GeneratedProgram, writer: anytype) !void {
     try writer.writeAll("\"public_runtime_errors\":[");
     for (program.error_witness.public_runtime_errors, 0..) |tag, idx| {
         if (idx != 0) try writer.writeAll(",");
-        try writeJsonStringLiteral(writer, @tagName(tag));
+        try writeJsonStringLiteral(writer, error_witness.runtimeErrorTagName(tag));
     }
     try writer.writeAll("],\"setup_error_names\":");
     try writeJsonStringArray(writer, program.error_witness.setup_error_names);

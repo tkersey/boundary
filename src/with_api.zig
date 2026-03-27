@@ -82,6 +82,14 @@ fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
     };
 }
 
+fn ContinuationCarrierType(comptime Continuation: anytype) type {
+    return if (@TypeOf(Continuation) == type) Continuation else @TypeOf(Continuation);
+}
+
+fn continuationHasApply(comptime Continuation: anytype) bool {
+    return hasDeclSafe(ContinuationCarrierType(Continuation), "apply");
+}
+
 fn HandlerErrorSet(comptime HandlersType: type) type {
     comptime assertHandlerBundleShape(HandlersType);
     const fields = @typeInfo(HandlersType).@"struct".fields;
@@ -137,29 +145,31 @@ fn extendBundle(comptime Base: type, base: Base, comptime field_name: [:0]const 
     return result;
 }
 
-fn ExplicitProgramContinuationFnType(comptime Continuation: type) type {
-    if (hasDeclSafe(Continuation, "apply")) return @TypeOf(@field(Continuation, "apply"));
-    return switch (@typeInfo(Continuation)) {
-        .@"fn" => Continuation,
+fn ExplicitProgramContinuationFnType(comptime Continuation: anytype) type {
+    const Carrier = ContinuationCarrierType(Continuation);
+    if (continuationHasApply(Continuation)) return @TypeOf(Continuation.apply);
+    return switch (@typeInfo(Carrier)) {
+        .@"fn" => Carrier,
         .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn")
-            Continuation
+            pointer.child
         else
             @compileError("lexical explicit-program continuation must declare apply(value) or be a callable function"),
         else => @compileError("lexical explicit-program continuation must declare apply(value) or be a callable function"),
     };
 }
 
-fn ExplicitProgramContinuationReturnType(comptime Continuation: type, comptime ResumeType: type) type {
+fn ExplicitProgramContinuationReturnType(comptime Continuation: anytype, comptime ResumeType: type) type {
     const ContinuationFn = ExplicitProgramContinuationFnType(Continuation);
     const params = @typeInfo(ContinuationFn).@"fn".params;
     if (params.len != 1) @compileError("lexical explicit-program continuation must accept exactly one resumed value");
-    if (comptime hasDeclSafe(Continuation, "apply")) {
-        return @TypeOf(@field(Continuation, "apply")(@as(ResumeType, undefined)));
+    if (comptime continuationHasApply(Continuation)) {
+        return @TypeOf(Continuation.apply(dummyValue(ResumeType)));
     }
-    return @TypeOf(Continuation(@as(ResumeType, undefined)));
+    if (comptime @TypeOf(Continuation) == type) @compileError("lexical explicit-program continuations must be passed as callable values, not function types");
+    return @TypeOf(Continuation(dummyValue(ResumeType)));
 }
 
-fn ExplicitProgramContinuationAnswerType(comptime Continuation: type, comptime ResumeType: type) type {
+fn ExplicitProgramContinuationAnswerType(comptime Continuation: anytype, comptime ResumeType: type) type {
     const ReturnType = ExplicitProgramContinuationReturnType(Continuation, ResumeType);
     return switch (@typeInfo(ReturnType)) {
         .error_union => |err_union| err_union.payload,
@@ -167,21 +177,23 @@ fn ExplicitProgramContinuationAnswerType(comptime Continuation: type, comptime R
     };
 }
 
-fn ExplicitProgramContinuationErrorSet(comptime Continuation: type, comptime ResumeType: type) type {
+fn ExplicitProgramContinuationErrorSet(comptime Continuation: anytype, comptime ResumeType: type) type {
     return ReturnTypeErrorSet(ExplicitProgramContinuationReturnType(Continuation, ResumeType));
 }
 
 fn PreviewEngineContext(comptime ErrorSet: type) type {
     return struct {
+        /// Perform this public operation.
         pub fn perform(_: *@This(), comptime Op: type, _: Op.Payload) lowered_machine.ResetError(ErrorSet)!Op.Resume {
             unreachable;
         }
 
+        /// Build this public explicit program.
         pub fn performProgram(
             _: *@This(),
             comptime Op: type,
             _: Op.Payload,
-            comptime Continuation: type,
+            comptime Continuation: anytype,
         ) frontend.BoundProgram(prompt_contract.Prompt(
             Op.mode,
             Op.Resume,
@@ -204,62 +216,91 @@ fn PreviewCapabilityType(comptime DescriptorType: type, comptime ErrorSet: type)
     const StateType = DescriptorType.State;
     const WriterItemType = PreviewWriterItemType(DescriptorType);
     return struct {
+        /// Return the engine context type for this public helper.
         pub fn EngineContextType() type {
             return PreviewEngineContext(ErrorSet);
         }
 
+        /// Return the public get operation type.
         pub fn GetOp() type {
             return struct {
+                /// Public `mode` declaration.
                 pub const mode = prompt_contract.PromptMode.resume_then_transform;
+                /// Public `Payload` declaration.
                 pub const Payload = void;
+                /// Public `Resume` declaration.
                 pub const Resume = StateType;
             };
         }
 
+        /// Return the public set operation type.
         pub fn SetOp() type {
             return struct {
+                /// Public `mode` declaration.
                 pub const mode = prompt_contract.PromptMode.resume_then_transform;
+                /// Public `Payload` declaration.
                 pub const Payload = StateType;
+                /// Public `Resume` declaration.
                 pub const Resume = void;
             };
         }
 
+        /// Return the public ask operation type.
         pub fn AskOp() type {
             return struct {
+                /// Public `mode` declaration.
                 pub const mode = prompt_contract.PromptMode.resume_then_transform;
+                /// Public `Payload` declaration.
                 pub const Payload = void;
+                /// Public `Resume` declaration.
                 pub const Resume = StateType;
             };
         }
 
+        /// Return the public tell operation type.
         pub fn TellOp() type {
             return struct {
+                /// Public `mode` declaration.
                 pub const mode = prompt_contract.PromptMode.resume_then_transform;
+                /// Public `Payload` declaration.
                 pub const Payload = WriterItemType;
+                /// Public `Resume` declaration.
                 pub const Resume = void;
             };
         }
 
+        /// Return the public throw operation type.
         pub fn ThrowOp() type {
             return struct {
+                /// Public `mode` declaration.
                 pub const mode = prompt_contract.PromptMode.direct_return;
+                /// Public `Payload` declaration.
                 pub const Payload = StateType;
+                /// Public `Resume` declaration.
                 pub const Resume = noreturn;
             };
         }
 
+        /// Return the public request operation type.
         pub fn RequestOp() type {
             return struct {
+                /// Public `mode` declaration.
                 pub const mode = prompt_contract.PromptMode.resume_or_return;
+                /// Public `Payload` declaration.
                 pub const Payload = void;
+                /// Public `Resume` declaration.
                 pub const Resume = StateType;
             };
         }
 
+        /// Return the public acquire operation type.
         pub fn AcquireOp() type {
             return struct {
+                /// Public `mode` declaration.
                 pub const mode = prompt_contract.PromptMode.resume_then_transform;
+                /// Public `Payload` declaration.
                 pub const Payload = void;
+                /// Public `Resume` declaration.
                 pub const Resume = StateType;
             };
         }
@@ -267,8 +308,8 @@ fn PreviewCapabilityType(comptime DescriptorType: type, comptime ErrorSet: type)
 }
 
 fn PreviewContextPtrType(comptime DescriptorType: type, comptime ErrorSet: type) type {
-    const PreviewCapability = PreviewCapabilityType(DescriptorType, ErrorSet);
-    return *family.Context(PreviewCapability, DescriptorType.State, void, ErrorSet);
+    const preview_capability = PreviewCapabilityType(DescriptorType, ErrorSet);
+    return *family.Context(preview_capability, DescriptorType.State, void, ErrorSet);
 }
 
 fn PreviewHandleType(
@@ -280,14 +321,14 @@ fn PreviewHandleType(
 ) type {
     const HandleFn = @TypeOf(DescriptorType.HandleType);
     const params = @typeInfo(HandleFn).@"fn".params;
-    const PreviewCapability = PreviewCapabilityType(DescriptorType, ErrorSet);
+    const preview_capability = PreviewCapabilityType(DescriptorType, ErrorSet);
     return switch (params.len) {
         2 => DescriptorType.HandleType(
-            PreviewCapability,
+            preview_capability,
             PreviewContextPtrType(DescriptorType, ErrorSet),
         ),
         5 => DescriptorType.HandleType(
-            PreviewCapability,
+            preview_capability,
             PreviewContextPtrType(DescriptorType, ErrorSet),
             HandlersType,
             PreviousEffType,
@@ -322,6 +363,7 @@ fn BodyDeclSemanticErrorSet(comptime Body: type) ?type {
     return null;
 }
 
+/// Return the public continuation effect type.
 pub fn ContinuationEffType(
     comptime HandlersType: type,
     comptime index: usize,
@@ -329,8 +371,8 @@ pub fn ContinuationEffType(
     comptime CurrentHandleType: type,
 ) type {
     const field = @typeInfo(HandlersType).@"struct".fields[index];
-    const current_eff = ExtendBundleType(PreviousEffType, field.name, CurrentHandleType);
-    return PreviewEffType(HandlersType, index + 1, current_eff, HandlerErrorSet(HandlersType));
+    const CurrentEff = ExtendBundleType(PreviousEffType, field.name, CurrentHandleType);
+    return PreviewEffType(HandlersType, index + 1, CurrentEff, HandlerErrorSet(HandlersType));
 }
 
 fn BodyFunctionType(comptime Body: type) type {
@@ -344,8 +386,8 @@ fn BodyFunctionType(comptime Body: type) type {
 }
 
 fn BodyReturnType(comptime Body: type, comptime EffType: type) type {
-    if (@hasDecl(Body, "body")) return @TypeOf(Body.body(@as(EffType, undefined)));
-    return @TypeOf(Body(@as(EffType, undefined)));
+    if (@hasDecl(Body, "body")) return @TypeOf(Body.body(dummyValue(EffType)));
+    return @TypeOf(Body(dummyValue(EffType)));
 }
 
 fn BodyAnswerType(comptime Body: type, comptime EffType: type) type {
@@ -387,37 +429,67 @@ fn callBody(
     return Body(eff);
 }
 
-fn ContinuationFnType(comptime Continuation: type) type {
-    if (hasDeclSafe(Continuation, "apply")) return @TypeOf(@field(Continuation, "apply"));
-    return switch (@typeInfo(Continuation)) {
-        .@"fn" => Continuation,
-        .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn") Continuation else @compileError("lexical choice continuation must declare apply(value, eff) or be a callable function"),
+fn ContinuationFnType(comptime Continuation: anytype) type {
+    const Carrier = ContinuationCarrierType(Continuation);
+    if (continuationHasApply(Continuation)) return @TypeOf(Continuation.apply);
+    return switch (@typeInfo(Carrier)) {
+        .@"fn" => Carrier,
+        .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn")
+            pointer.child
+        else
+            @compileError("lexical choice continuation must declare apply(value, eff) or be a callable function"),
         else => @compileError("lexical choice continuation must declare apply(value, eff) or be a callable function"),
     };
 }
 
 fn ContinuationReturnType(
-    comptime Continuation: type,
+    comptime Continuation: anytype,
     comptime ResumeType: type,
     comptime EffType: type,
 ) type {
     const ResumeFn = ContinuationFnType(Continuation);
     const params = @typeInfo(ResumeFn).@"fn".params;
     if (params.len != 2) @compileError("lexical choice continuation apply must accept exactly (value, eff)");
-    if (comptime hasDeclSafe(Continuation, "apply")) {
-        return @TypeOf(@field(Continuation, "apply")(
-            @as(ResumeType, undefined),
-            @as(EffType, undefined),
-        ));
+    if (comptime continuationHasApply(Continuation)) {
+        return @TypeOf(Continuation.apply(dummyValue(ResumeType), dummyValue(EffType)));
     }
-    return @TypeOf(Continuation(
-        @as(ResumeType, undefined),
-        @as(EffType, undefined),
-    ));
+    if (comptime @TypeOf(Continuation) == type) @compileError("lexical choice continuations must be passed as callable values, not function types");
+    return @TypeOf(Continuation(dummyValue(ResumeType), dummyValue(EffType)));
+}
+
+fn dummyPointer(comptime PtrType: type) PtrType {
+    const pointer = @typeInfo(PtrType).pointer;
+    const Child = std.meta.Child(PtrType);
+    return switch (pointer.size) {
+        .slice => blk: {
+            const base = std.mem.alignForward(usize, 1, @alignOf(Child));
+            const many = @as([*]Child, @ptrFromInt(base));
+            const slice = many[0..1];
+            if (pointer.is_const) break :blk @as(PtrType, slice);
+            break :blk @as(PtrType, @constCast(slice));
+        },
+        else => @as(PtrType, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(Child)))),
+    };
+}
+
+fn dummyValue(comptime T: type) T {
+    return switch (@typeInfo(T)) {
+        .pointer => dummyPointer(T),
+        .optional => |optional| dummyValue(optional.child),
+        .@"struct" => |info| blk: {
+            var value_buffer: T = undefined;
+            inline for (info.fields) |field| {
+                @field(value_buffer, field.name) = dummyValue(field.type);
+            }
+            break :blk value_buffer;
+        },
+        .void => {},
+        else => dummyPointer(*T).*,
+    };
 }
 
 /// Resolve the final answer type produced by one lexical choice continuation.
-pub fn ChoiceAnswerType(comptime Continuation: type) type {
+pub fn ChoiceAnswerType(comptime Continuation: anytype) type {
     const ResumeFn = ContinuationFnType(Continuation);
     const ReturnType = @typeInfo(ResumeFn).@"fn".return_type.?;
     return switch (@typeInfo(ReturnType)) {
@@ -426,8 +498,9 @@ pub fn ChoiceAnswerType(comptime Continuation: type) type {
     };
 }
 
+/// Return the public choice answer type for one continuation.
 pub fn ChoiceAnswerTypeFor(
-    comptime Continuation: type,
+    comptime Continuation: anytype,
     comptime ResumeType: type,
     comptime EffType: type,
 ) type {
@@ -439,16 +512,17 @@ pub fn ChoiceAnswerTypeFor(
 }
 
 fn ChoiceErrorSet(
-    comptime Continuation: type,
+    comptime Continuation: anytype,
     comptime ResumeType: type,
     comptime EffType: type,
 ) type {
     return ReturnTypeErrorSet(ContinuationReturnType(Continuation, ResumeType, EffType));
 }
 
+/// Return the public choice execution error set.
 pub fn ChoiceExecutionErrorSet(
     comptime BaseErrorSet: type,
-    comptime Continuation: type,
+    comptime Continuation: anytype,
     comptime ResumeType: type,
     comptime EffType: type,
 ) type {
@@ -456,7 +530,7 @@ pub fn ChoiceExecutionErrorSet(
 }
 
 fn callChoiceContinuation(
-    comptime Continuation: type,
+    comptime Continuation: anytype,
     resume_value: anytype,
     eff: anytype,
     comptime ErrorSet: type,
@@ -464,14 +538,14 @@ fn callChoiceContinuation(
     const ResumeFn = ContinuationFnType(Continuation);
     const params = @typeInfo(ResumeFn).@"fn".params;
     if (params.len != 2) @compileError("lexical choice continuation apply must accept exactly (value, eff)");
-    const ReturnType = @typeInfo(ResumeFn).@"fn".return_type.?;
-    if (comptime hasDeclSafe(Continuation, "apply")) {
-        const invoke = @field(Continuation, "apply");
+    const ReturnType = ContinuationReturnType(Continuation, @TypeOf(resume_value), @TypeOf(eff));
+    if (comptime continuationHasApply(Continuation)) {
         if (@typeInfo(ReturnType) == .error_union) {
-            return invoke(resume_value, eff) catch |err| return @errorCast(err);
+            return Continuation.apply(resume_value, eff) catch |err| return @errorCast(err);
         }
-        return invoke(resume_value, eff);
+        return Continuation.apply(resume_value, eff);
     }
+    if (comptime @TypeOf(Continuation) == type) @compileError("lexical choice continuations must be passed as callable values, not function types");
     if (@typeInfo(ReturnType) == .error_union) {
         return Continuation(resume_value, eff) catch |err| return @errorCast(err);
     }
@@ -568,7 +642,7 @@ fn runChoiceChain(
     comptime index: usize,
     comptime EffType: type,
     state: ChoiceRunState(HandlersType, EffType),
-    comptime Continuation: type,
+    comptime Continuation: anytype,
     resume_value: anytype,
 ) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation, @TypeOf(resume_value), EffType))!ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), EffType) {
     const ErrorSet = HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation, @TypeOf(resume_value), EffType);
@@ -635,7 +709,7 @@ pub fn continueChoice(
     comptime HandlersType: type,
     comptime index: usize,
     frame: anytype,
-    comptime Continuation: type,
+    comptime Continuation: anytype,
     resume_value: anytype,
 ) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation, @TypeOf(resume_value), ContinuationEffType(HandlersType, index, @TypeOf(frame.previous_eff), @TypeOf(frame.current_handle))))!ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), ContinuationEffType(HandlersType, index, @TypeOf(frame.previous_eff), @TypeOf(frame.current_handle))) {
     const field = @typeInfo(HandlersType).@"struct".fields[index];
@@ -663,14 +737,18 @@ fn WithSemanticErrorSet(comptime HandlersType: type, comptime Body: type) type {
     return HandlerSet || BodySet;
 }
 
+/// Build the public With metadata type.
 pub fn With(comptime HandlersType: type, comptime Body: type) type {
     const ReturnType = WithFnReturnType(HandlersType, Body);
     return struct {
+        /// Public `Result` declaration.
         pub const Result = switch (@typeInfo(ReturnType)) {
             .error_union => |err_union| err_union.payload,
             else => ReturnType,
         };
+        /// Public `SemanticErrorSet` declaration.
         pub const SemanticErrorSet = WithSemanticErrorSet(HandlersType, Body);
+        /// Public `ExecutionError` declaration.
         pub const ExecutionError = switch (@typeInfo(ReturnType)) {
             .error_union => |err_union| err_union.error_set,
             else => error{},

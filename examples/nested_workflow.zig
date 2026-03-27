@@ -11,7 +11,7 @@ const transcript = struct {
     }
 };
 
-const ApprovalHandler = struct {
+const approval_handler = struct {
     /// Approve publication through the front-door generated choice surface.
     pub fn publish(_: *@This()) shift.Decision([]const u8, []const u8) {
         transcript.note("approval=publish");
@@ -27,9 +27,9 @@ const ApprovalHandler = struct {
 const Approval = shift.Decl.family(.{
     .state_type = struct {},
     .ops = .{
-        shift.Op.choice("publish", void, []const u8),
+        shift.Ops.Choice("publish", void, []const u8),
     },
-}, ApprovalHandler);
+}, approval_handler);
 
 const WorkflowProgram = shift.Program(.{
     .approval = Approval,
@@ -57,7 +57,7 @@ pub fn run(writer: anytype) anyerror!void {
     transcript.len = 0;
 
     const result = try shift.run(&runtime, WorkflowProgram, .{
-        .approval = ApprovalHandler{},
+        .approval = approval_handler{},
     });
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});

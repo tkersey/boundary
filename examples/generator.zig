@@ -6,7 +6,7 @@ const GeneratorProgram = shift.Program(.{
     .state = shift.Decl.state(i32),
 }, struct {
     /// Emit three yielded values and return the final counter.
-    pub fn body(eff: anytype) !i32 {
+    pub fn body(eff: anytype) anyerror!i32 {
         while (true) {
             const current = try eff.state.get();
             if (current == 3) return current;
@@ -23,20 +23,24 @@ const GeneratorProgram = shift.Program(.{
     }
 });
 
-/// Write the generator transcript through the root front door.
-pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
+    var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
     const result = try shift.run(&runtime, GeneratorProgram, .{
         .state = @as(i32, 0),
     });
-    defer std.heap.page_allocator.free(result.outputs.writer);
+    defer allocator.free(result.outputs.writer);
 
     for (result.outputs.writer) |item| {
         try writer.print("{s}\n", .{item});
     }
     try writer.print("done={d}\n", .{result.value});
+}
+
+/// Write the generator transcript through the root front door.
+pub fn run(writer: anytype) anyerror!void {
+    try runWithAllocator(writer, std.heap.page_allocator);
 }
 
 /// Run the generator example.

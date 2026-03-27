@@ -1,10 +1,10 @@
 /// Current execution frontier for one public or proof-facing surface.
 pub const Frontier = enum {
     compile_boundary,
-    reference_only,
     lowered_bridge,
     lowered_source_validated,
     lowered_structured,
+    reference_only,
 };
 
 /// One shipped-surface frontier record.

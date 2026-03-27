@@ -12,18 +12,22 @@ const WriterProgram = shift.Program(.{
     }
 });
 
-/// Write the writer-effect transcript through the root front door.
-pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
+    var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
     const result = try shift.run(&runtime, WriterProgram, .{});
-    defer std.heap.page_allocator.free(result.outputs.writer);
+    defer allocator.free(result.outputs.writer);
 
     for (result.outputs.writer) |item| {
         try writer.print("item={s}\n", .{item});
     }
     try writer.print("value={s}\n", .{result.value});
+}
+
+/// Write the writer-effect transcript through the root front door.
+pub fn run(writer: anytype) anyerror!void {
+    try runWithAllocator(writer, std.heap.page_allocator);
 }
 
 /// Run the writer-effect example.

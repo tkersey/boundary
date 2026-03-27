@@ -104,7 +104,11 @@ pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) t
         /// Run one lexical writer descriptor through the existing writer family.
         pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             var instance = family.Instance(WriterState(ItemType), ErrorSetType).init();
-            const result = try handleWithErrorSet(ItemType, AnswerType, RunErrorSetType, runtime, &instance, self.allocator, Body);
+            const result = try handleWithErrorSet(.{
+                .Item = ItemType,
+                .Answer = AnswerType,
+                .ErrorSet = RunErrorSetType,
+            }, runtime, &instance, self.allocator, Body);
             return .{
                 .output = result.items,
                 .value = result.value,
@@ -161,22 +165,28 @@ pub fn handle(
     };
 }
 
+/// Public `handleWithErrorSet` helper.
 pub fn handleWithErrorSet(
-    comptime ItemType: type,
-    comptime AnswerType: type,
-    comptime RunErrorSetType: type,
+    comptime Types: struct {
+        Item: type,
+        Answer: type,
+        ErrorSet: type,
+    },
     runtime: *shift.Runtime,
     instance: anytype,
     allocator: std.mem.Allocator,
     comptime Body: type,
-) lowered_machine.ResetError(RunErrorSetType)!HandleResult(ItemType, AnswerType) {
-    const item_type = ItemType;
-    const answer_type = AnswerType;
+) lowered_machine.ResetError(Types.ErrorSet)!HandleResult(Types.Item, Types.Answer) {
+    const ItemType = Types.Item;
+    const AnswerType = Types.Answer;
     const result = try algebraic.handleWriterWithErrorSet(struct {
-        pub const Item = item_type;
-        pub const Answer = answer_type;
-        pub const WriterStateType = WriterState(item_type);
-    }, RunErrorSetType, runtime, instance, allocator, Body);
+        /// Public `Item` declaration.
+        pub const Item = ItemType;
+        /// Public `Answer` declaration.
+        pub const Answer = AnswerType;
+        /// Public `WriterStateType` declaration.
+        pub const WriterStateType = WriterState(ItemType);
+    }, Types.ErrorSet, runtime, instance, allocator, Body);
     return .{
         .items = result.items,
         .value = result.value,

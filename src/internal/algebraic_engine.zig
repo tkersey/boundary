@@ -77,9 +77,13 @@ pub fn handleAbort(comptime Op: type, state: anytype, comptime Impl: type) Abort
 
 fn TransformSpec(comptime Op: type, comptime StateType: type, comptime Impl: type) type {
     return struct {
+        /// Public `Operation` declaration.
         pub const Operation = Op;
+        /// Public `builder_kind` declaration.
         pub const builder_kind = BuilderKind.transform;
+        /// Public `State` declaration.
         pub const State = StateType;
+        /// Public `ImplType` declaration.
         pub const ImplType = Impl;
 
         state: StateType,
@@ -88,9 +92,13 @@ fn TransformSpec(comptime Op: type, comptime StateType: type, comptime Impl: typ
 
 fn DirectTransformSpec(comptime Op: type, comptime StateType: type, comptime Impl: type) type {
     return struct {
+        /// Public `Operation` declaration.
         pub const Operation = Op;
+        /// Public `builder_kind` declaration.
         pub const builder_kind = BuilderKind.direct_transform;
+        /// Public `State` declaration.
         pub const State = StateType;
+        /// Public `ImplType` declaration.
         pub const ImplType = Impl;
 
         state: StateType,
@@ -99,9 +107,13 @@ fn DirectTransformSpec(comptime Op: type, comptime StateType: type, comptime Imp
 
 fn ChoiceSpec(comptime Op: type, comptime StateType: type, comptime Impl: type) type {
     return struct {
+        /// Public `Operation` declaration.
         pub const Operation = Op;
+        /// Public `builder_kind` declaration.
         pub const builder_kind = BuilderKind.choice;
+        /// Public `State` declaration.
         pub const State = StateType;
+        /// Public `ImplType` declaration.
         pub const ImplType = Impl;
 
         state: StateType,
@@ -110,9 +122,13 @@ fn ChoiceSpec(comptime Op: type, comptime StateType: type, comptime Impl: type) 
 
 fn AbortSpec(comptime Op: type, comptime StateType: type, comptime Impl: type) type {
     return struct {
+        /// Public `Operation` declaration.
         pub const Operation = Op;
+        /// Public `builder_kind` declaration.
         pub const builder_kind = BuilderKind.abort;
+        /// Public `State` declaration.
         pub const State = StateType;
+        /// Public `ImplType` declaration.
         pub const ImplType = Impl;
 
         state: StateType,
@@ -135,7 +151,7 @@ fn assertBodyType(comptime Body: type, comptime ContextType: type, comptime Erro
     if (!@hasDecl(Body, "program") and !@hasDecl(Body, "body")) @compileError("algebraic body must declare program or body");
 }
 
-fn FnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
+fn fnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
     const ReturnType = @typeInfo(FnType).@"fn".return_type.?;
     return switch (@typeInfo(ReturnType)) {
         .error_union => |err_union| err_union.payload == ExpectedType,
@@ -143,10 +159,10 @@ fn FnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
     };
 }
 
-fn FnParamsMatch(comptime FnType: type, comptime params: []const type) bool {
+fn fnParamsMatch(comptime FnType: type, comptime ParamTypes: []const type) bool {
     const actual = @typeInfo(FnType).@"fn".params;
-    if (actual.len != params.len) return false;
-    inline for (params, 0..) |ParamType, index| {
+    if (actual.len != ParamTypes.len) return false;
+    inline for (ParamTypes, 0..) |ParamType, index| {
         if (actual[index].type == null or actual[index].type.? != ParamType) return false;
     }
     return true;
@@ -166,29 +182,70 @@ fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
     };
 }
 
-fn ExplicitContinuationFnType(comptime Continuation: type) type {
-    if (hasDeclSafe(Continuation, "apply")) return @TypeOf(@field(Continuation, "apply"));
-    return switch (@typeInfo(Continuation)) {
-        .@"fn" => Continuation,
+fn ContinuationCarrierType(comptime Continuation: anytype) type {
+    return if (@TypeOf(Continuation) == type) Continuation else @TypeOf(Continuation);
+}
+
+fn continuationHasApply(comptime Continuation: anytype) bool {
+    return hasDeclSafe(ContinuationCarrierType(Continuation), "apply");
+}
+
+fn ExplicitContinuationFnType(comptime Continuation: anytype) type {
+    const Carrier = ContinuationCarrierType(Continuation);
+    if (continuationHasApply(Continuation)) return @TypeOf(Continuation.apply);
+    return switch (@typeInfo(Carrier)) {
+        .@"fn" => Carrier,
         .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn")
-            Continuation
+            pointer.child
         else
             @compileError("explicit program continuation must declare apply(value) or be a callable function"),
         else => @compileError("explicit program continuation must declare apply(value) or be a callable function"),
     };
 }
 
-fn ExplicitContinuationReturnType(comptime Continuation: type, comptime ResumeType: type) type {
+fn dummyPointer(comptime PtrType: type) PtrType {
+    const pointer = @typeInfo(PtrType).pointer;
+    const Child = std.meta.Child(PtrType);
+    return switch (pointer.size) {
+        .slice => blk: {
+            const base = std.mem.alignForward(usize, 1, @alignOf(Child));
+            const many = @as([*]Child, @ptrFromInt(base));
+            const slice = many[0..1];
+            if (pointer.is_const) break :blk @as(PtrType, slice);
+            break :blk @as(PtrType, @constCast(slice));
+        },
+        else => @as(PtrType, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(Child)))),
+    };
+}
+
+fn dummyValue(comptime T: type) T {
+    return switch (@typeInfo(T)) {
+        .pointer => dummyPointer(T),
+        .optional => |optional| dummyValue(optional.child),
+        .@"struct" => |info| blk: {
+            var value_buffer: T = undefined;
+            inline for (info.fields) |field| {
+                @field(value_buffer, field.name) = dummyValue(field.type);
+            }
+            break :blk value_buffer;
+        },
+        .void => {},
+        else => dummyPointer(*T).*,
+    };
+}
+
+fn ExplicitContinuationReturnType(comptime Continuation: anytype, comptime ResumeType: type) type {
     const ContinuationFn = ExplicitContinuationFnType(Continuation);
     const params = @typeInfo(ContinuationFn).@"fn".params;
     if (params.len != 1) @compileError("explicit program continuation must accept exactly one resumed value");
-    if (comptime hasDeclSafe(Continuation, "apply")) {
-        return @TypeOf(@field(Continuation, "apply")(@as(ResumeType, undefined)));
+    if (comptime continuationHasApply(Continuation)) {
+        return @TypeOf(Continuation.apply(dummyValue(ResumeType)));
     }
-    return @TypeOf(Continuation(@as(ResumeType, undefined)));
+    if (comptime @TypeOf(Continuation) == type) @compileError("explicit program continuations must be passed as callable values, not function types");
+    return @TypeOf(Continuation(dummyValue(ResumeType)));
 }
 
-fn ExplicitContinuationErrorSet(comptime Continuation: type, comptime ResumeType: type) type {
+fn ExplicitContinuationErrorSet(comptime Continuation: anytype, comptime ResumeType: type) type {
     return ReturnTypeErrorSet(ExplicitContinuationReturnType(Continuation, ResumeType));
 }
 
@@ -203,12 +260,12 @@ fn assertTransformImplType(comptime TransformContract: type) void {
     if (!@hasDecl(Impl, "afterResume")) @compileError("transform handler must declare afterResume");
 
     const ResumeFn = @TypeOf(Impl.resumeValue);
-    if (!FnParamsMatch(ResumeFn, &.{ StateType, Op.Payload }) or !FnReturnMatches(ResumeFn, Op.Resume)) {
+    if (!fnParamsMatch(ResumeFn, &.{ StateType, Op.Payload }) or !fnReturnMatches(ResumeFn, Op.Resume)) {
         @compileError("transform handler resumeValue must have type fn (State, Payload) Resume or fn (State, Payload) ResetError(ErrorSet)!Resume");
     }
 
     const AfterFn = @TypeOf(Impl.afterResume);
-    if (!FnParamsMatch(AfterFn, &.{ StateType, ContinueAnswer }) or !FnReturnMatches(AfterFn, Answer)) {
+    if (!fnParamsMatch(AfterFn, &.{ StateType, ContinueAnswer }) or !fnReturnMatches(AfterFn, Answer)) {
         @compileError("transform handler afterResume must have type fn (State, ContinueAnswer) Answer or fn (State, ContinueAnswer) ResetError(ErrorSet)!Answer");
     }
 }
@@ -225,12 +282,12 @@ fn assertChoiceImplType(comptime ChoiceContract: type) void {
 
     const DecisionType = prompt_contract.ResumeOrReturn(Op.Resume, Answer);
     const DecideFn = @TypeOf(Impl.resumeOrReturn);
-    if (!FnParamsMatch(DecideFn, &.{ StateType, Op.Payload }) or !FnReturnMatches(DecideFn, DecisionType)) {
+    if (!fnParamsMatch(DecideFn, &.{ StateType, Op.Payload }) or !fnReturnMatches(DecideFn, DecisionType)) {
         @compileError("choice handler resumeOrReturn must have type fn (State, Payload) ResumeOrReturn or fn (State, Payload) ResetError(ErrorSet)!ResumeOrReturn");
     }
 
     const AfterFn = @TypeOf(Impl.afterResume);
-    if (!FnParamsMatch(AfterFn, &.{ StateType, ContinueAnswer }) or !FnReturnMatches(AfterFn, Answer)) {
+    if (!fnParamsMatch(AfterFn, &.{ StateType, ContinueAnswer }) or !fnReturnMatches(AfterFn, Answer)) {
         @compileError("choice handler afterResume must have type fn (State, ContinueAnswer) Answer or fn (State, ContinueAnswer) ResetError(ErrorSet)!Answer");
     }
 }
@@ -245,7 +302,7 @@ fn assertAbortImplType(
     _ = ErrorSet;
     if (!@hasDecl(Impl, "directReturn")) @compileError("abort handler must declare directReturn");
     const DirectFn = @TypeOf(Impl.directReturn);
-    if (!FnParamsMatch(DirectFn, &.{ StateType, Op.Payload }) or !FnReturnMatches(DirectFn, Answer)) {
+    if (!fnParamsMatch(DirectFn, &.{ StateType, Op.Payload }) or !fnReturnMatches(DirectFn, Answer)) {
         @compileError("abort handler directReturn must have type fn (State, Payload) Answer or fn (State, Payload) ResetError(ErrorSet)!Answer");
     }
 }
@@ -334,18 +391,18 @@ fn Binding(
         spec: SpecType,
         prompt: PromptType,
 
-        fn ProgramErrorSet(comptime Continuation: type) type {
+        fn ProgramErrorSet(comptime Continuation: anytype) type {
             return switch (SpecType.builder_kind) {
                 .transform, .choice => ErrorSet || ExplicitContinuationErrorSet(Continuation, Op.Resume),
                 .direct_transform, .abort => ErrorSet,
             };
         }
 
-        fn ProgramPromptType(comptime Continuation: type) type {
+        fn ProgramPromptType(comptime Continuation: anytype) type {
             return PromptTypeForOp(Op, ContinueAnswer, Answer, ProgramErrorSet(Continuation));
         }
 
-        fn promptRef(self: *@This(), comptime Continuation: type) *const ProgramPromptType(Continuation) {
+        fn promptRef(self: *@This(), comptime Continuation: anytype) *const ProgramPromptType(Continuation) {
             // Prompt layout is token-only, so reusing the active delimiter identity across widened error sets is safe.
             return @ptrCast(&self.prompt);
         }
@@ -482,7 +539,7 @@ fn Binding(
         }
 
         /// Build one explicit frontend program for the bound operation and continuation.
-        pub fn program(self: *@This(), payload: Op.Payload, comptime Continuation: type) frontend.Program(ProgramPromptType(Continuation)) {
+        pub fn program(self: *@This(), payload: Op.Payload, comptime Continuation: anytype) frontend.Program(ProgramPromptType(Continuation)) {
             const BindingType = @This();
             return switch (SpecType.builder_kind) {
                 .direct_transform => @compileError("direct transform bindings do not support explicit program construction"),
@@ -538,7 +595,7 @@ fn Binding(
         }
 
         /// Build one explicit frontend program that closes over this binding directly.
-        pub fn directProgram(self: *@This(), payload: Op.Payload, comptime Continuation: type) frontend.Program(ProgramPromptType(Continuation)) {
+        pub fn directProgram(self: *@This(), payload: Op.Payload, comptime Continuation: anytype) frontend.Program(ProgramPromptType(Continuation)) {
             const BindingType = @This();
             BindingType.direct_binding = self;
             BindingType.direct_payload = payload;
@@ -739,7 +796,7 @@ pub fn Program(
                         self: *Context,
                         comptime Op: type,
                         payload: Op.Payload,
-                        comptime Continuation: type,
+                        comptime Continuation: anytype,
                     ) frontend.BoundProgram(BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, findOpIndex(Op)).ProgramPromptType(Continuation)) {
                         const index = comptime findOpIndex(Op);
                         const binding = self.bindings.bindingPtr(index);

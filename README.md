@@ -12,9 +12,9 @@ In the repo's current state, that means two things:
 - the runtime remains explicit, thread-affine, and user-owned, without exposing
   a public continuation handle
 
-The legacy compatibility window is now closed. The root front door is the only
-supported public authoring surface, and the older lanes are no longer part of
-the public API contract.
+The root front door is the only documented public authoring surface. For
+existing callers, `shift.Op.transform` / `shift.Op.choice` / `shift.Op.abort`
+remain available as compatibility aliases beneath that front door.
 
 The repo therefore treats runtime code as the last rung of a semantics ladder,
 not as the source of truth:
@@ -35,7 +35,9 @@ The current public product claim is:
   `shift.Decl.reader`, `shift.Decl.optional`, `shift.Decl.exception`,
   `shift.Decl.resource`, and `shift.Decl.writer`
 - custom closed-world families are declared through `shift.Decl.family(.{ ... })`
-  and `shift.Op.transform` / `shift.Op.choice` / `shift.Op.abort`
+  and `shift.Ops.Transform` / `shift.Ops.Choice` / `shift.Ops.Abort`
+  (`shift.Op.transform` / `shift.Op.choice` / `shift.Op.abort` remain supported
+  as compatibility aliases)
 - `shift.Decision(...)` is the public choice-decision type for front-door
   optional and generated choice handlers
 - prompt descriptors, `PromptMode`, `ResumeOrReturn`, `reset`, and `frontend`
@@ -46,7 +48,7 @@ The current public product claim is:
 ## Semantic Commitments
 
 - static `shift/reset`, not `control/prompt`
-- one root-front-door authoring story with the migration window closed
+- one root-front-door authoring story with a legacy `shift.Op.*` compatibility shim
 - internal typed prompt discipline beneath that story
 - one-shot continuation use
 - honest answer-type pressure if the kernel requires it
@@ -197,7 +199,7 @@ The surviving declaration-family contract is now:
   `eff.exception.throw(...)`, `eff.resource.acquire()`, and
   `eff.writer.tell(...)`
 - custom closed-world families are declared through `shift.Decl.family(.{ ... })`
-  and `shift.Op.*`, then surfaced through named op handles like
+  and `shift.Ops.*`, then surfaced through named op handles like
   `eff.counter.get.perform(...)`, `eff.picker.pick.perform(...)`, and
   `eff.guard.fail.abort(...)`
 - forged or cross-instance contexts still fail at compile time; see:
@@ -211,8 +213,8 @@ The surviving declaration-family contract is now:
   - `resource_manager_missing_acquire.zig`
 
 The root front door absorbs the old algebraic and effect-oriented public stories.
-Only `shift.Program`, `shift.run`, `shift.Decl`, `shift.Op`, and `shift.Decision`
-remain public.
+Only `shift.Program`, `shift.run`, `shift.Decl`, `shift.Ops`, legacy-compatible
+`shift.Op`, and `shift.Decision` remain public.
 
 ## Examples
 
