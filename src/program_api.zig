@@ -188,21 +188,23 @@ fn HandlerFieldType(comptime DeclType: type) type {
 
 fn dummyPointer(comptime PtrType: type) PtrType {
     const pointer = @typeInfo(PtrType).pointer;
+    const Child = std.meta.Child(PtrType);
     return switch (pointer.size) {
         .slice => blk: {
-            const empty: [0]pointer.child = .{};
-            const slice = empty[0..];
+            const base = std.mem.alignForward(usize, 1, @alignOf(Child));
+            const many = @as([*]Child, @ptrFromInt(base));
+            const slice = many[0..1];
             if (pointer.is_const) break :blk @as(PtrType, slice);
             break :blk @as(PtrType, @constCast(slice));
         },
-        else => @as(PtrType, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(pointer.child)))),
+        else => @as(PtrType, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(Child)))),
     };
 }
 
 fn dummyValue(comptime T: type) T {
     return switch (@typeInfo(T)) {
         .pointer => dummyPointer(T),
-        .optional => null,
+        .optional => |optional| dummyValue(optional.child),
         .@"struct" => |info| blk: {
             var value_buffer: T = undefined;
             inline for (info.fields) |field| {

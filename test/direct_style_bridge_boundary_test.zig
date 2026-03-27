@@ -59,6 +59,18 @@ test "bridge witness case-id lowering reports canonical witness sources" {
 
     try std.testing.expect(lowered.status == .canonical);
     try std.testing.expectEqualStrings("src/witness_sources.zig", lowered.source_path);
+    try std.testing.expectEqualStrings("witness", lowered.feature_flags[0]);
+    try std.testing.expectEqualStrings("transform", lowered.feature_flags[1]);
+}
+
+test "bridge example case-id lowering preserves feature flags" {
+    var lowered = try program_bridge.lowerCaseId(std.testing.allocator, "early_exit");
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(lowered.status == .canonical);
+    try std.testing.expectEqualStrings("lexical_exception", lowered.feature_flags[0]);
+    try std.testing.expectEqualStrings("direct_return", lowered.feature_flags[1]);
+    try std.testing.expectEqualStrings("promoted_example", lowered.feature_flags[2]);
 }
 
 test "bridge case-id admission rejects drifted canonical sources" {

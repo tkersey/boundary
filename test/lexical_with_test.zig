@@ -372,6 +372,39 @@ test "lexical optional request accepts generic callable continuations" {
     try std.testing.expectEqual(@as(i32, 41), result.value);
 }
 
+test "lexical optional request keeps continuation inference value-agnostic for slices" {
+    const policy = struct {
+        /// Decide whether this public hook resumes or returns.
+        pub fn resumeOrReturn() shift.effect.choice.Decision([]const u8, u8) {
+            return shift.effect.choice.Decision([]const u8, u8).resumeWith("abc");
+        }
+
+        /// Finish this public resumed path.
+        pub fn afterResume(answer: u8) u8 {
+            return answer;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(&runtime, .{
+        .optional = shift.effect.optional.use([]const u8, policy),
+    }, struct {
+        /// Execute this public body hook.
+        pub fn body(eff: anytype) ExecResult(u8) {
+            return try eff.optional.request(struct {
+                /// Apply this public continuation hook.
+                pub fn apply(value: []const u8, _: anytype) u8 {
+                    return value[0];
+                }
+            });
+        }
+    });
+
+    try std.testing.expectEqual(@as(u8, 'a'), result.value);
+}
+
 test "generated lexical choice retains explicit continuation errors" {
     const Picker = shift.effect.Define(.{
         .state_type = struct {},

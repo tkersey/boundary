@@ -252,6 +252,47 @@ test "front-door custom family infers errors from parameter-derived handler retu
     try std.testing.expectEqual(@as(i32, 7), result.value);
 }
 
+test "front-door custom family keeps handler inference value-agnostic for optional fields" {
+    const CounterHandler = struct {
+        state: i32 = 7,
+        maybe_state: ?i32 = 7,
+
+        /// Read the current generated counter state through an optional-derived type.
+        pub fn get(self: *@This()) @TypeOf(self.maybe_state.?) {
+            return self.maybe_state.?;
+        }
+
+        /// Preserve the resumed answer through a parameter-derived type.
+        pub fn afterGet(_: *@This(), answer: i32) @TypeOf(answer) {
+            return answer;
+        }
+    };
+
+    const Counter = shift.Decl.family(.{
+        .state_type = i32,
+        .ops = .{
+            shift.Ops.Transform("get", void, i32),
+        },
+    }, CounterHandler);
+
+    const CounterProgram = shift.Program(.{
+        .counter = Counter,
+    }, struct {
+        /// Execute this public body hook.
+        pub fn body(eff: anytype) anyerror!i32 {
+            return try eff.counter.get.perform();
+        }
+    });
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.run(&runtime, CounterProgram, .{
+        .counter = CounterHandler{},
+    });
+    try std.testing.expectEqual(@as(i32, 7), result.value);
+}
+
 test "front-door optional declarations infer continuation errors" {
     const policy = struct {
         /// Decide whether this public hook resumes or returns.
