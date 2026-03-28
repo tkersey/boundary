@@ -17,6 +17,7 @@ const transcript = struct {
 const ExceptionRow = shift.effects.exception([]const u8);
 
 const exception_workflow = struct {
+    /// Capability bundle for the throwing exception branch.
     pub const Uses = shift.Uses(ExceptionRow);
 
     /// Throw once through the front-door exception scope.
@@ -27,6 +28,7 @@ const exception_workflow = struct {
 };
 
 const exception_pass_workflow = struct {
+    /// Capability bundle for the non-throwing exception branch.
     pub const Uses = shift.Uses(ExceptionRow);
 
     /// Return normally through the front-door exception scope.

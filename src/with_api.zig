@@ -883,16 +883,20 @@ pub fn with(
 test "closed output bundle keeps only handlers with Output" {
     const Handlers = struct {
         state: struct {
+            /// Explicit output type used by this test state handler.
             pub const Output = i32;
 
+            /// Finalize the test state handler output.
             pub fn finish(_: *@This()) i32 {
                 return 7;
             }
         },
         reader: struct {},
         writer: struct {
+            /// Explicit output type used by this test writer handler.
             pub const Output = [4]u8;
 
+            /// Finalize the test writer handler output.
             pub fn finish(_: *@This()) [4]u8 {
                 return .{ 'd', 'o', 'n', 'e' };
             }
@@ -908,16 +912,20 @@ test "closed output bundle keeps only handlers with Output" {
 test "collectClosedOutputs mirrors finish results" {
     const StateHandler = struct {
         value: i32,
+        /// Explicit output type carried by this test state handler.
         pub const Output = i32;
 
+        /// Finalize the test state handler output.
         pub fn finish(self: *@This()) i32 {
             return self.value;
         }
     };
     const reader_handler = struct {};
     const writer_handler = struct {
+        /// Explicit output type carried by this test writer handler.
         pub const Output = [4]u8;
 
+        /// Finalize the test writer handler output.
         pub fn finish(_: *@This()) [4]u8 {
             return .{ 'd', 'o', 'n', 'e' };
         }

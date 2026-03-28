@@ -4,6 +4,7 @@ const std = @import("std");
 const WriterRow = shift.effects.writer([]const u8);
 
 const writer_workflow = struct {
+    /// Capability bundle for the writer example.
     pub const Uses = shift.Uses(WriterRow);
 
     /// Append two items and return the canonical writer answer.

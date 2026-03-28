@@ -4,6 +4,7 @@ const std = @import("std");
 const StateRow = shift.effects.state(i32);
 
 const state_workflow = struct {
+    /// Capability bundle for the state example.
     pub const Uses = shift.Uses(StateRow);
 
     /// Increment the front-door state once and return the canonical value witness.

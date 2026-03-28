@@ -7,6 +7,7 @@ const WorkflowRow = shift.mergeRows(.{
 });
 
 const workflow = struct {
+    /// Capability bundle for the state-plus-writer example.
     pub const Uses = shift.Uses(WorkflowRow);
 
     /// Run one open-row state-plus-writer workflow through the migration bridge.
@@ -19,7 +20,7 @@ const workflow = struct {
     }
 };
 
-fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) !void {
+fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
     var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
@@ -38,11 +39,12 @@ fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) !void {
 }
 
 /// Write the open-row state-plus-writer transcript.
-pub fn run(writer: anytype) !void {
+pub fn run(writer: anytype) anyerror!void {
     try runWithAllocator(writer, std.heap.page_allocator);
 }
 
-pub fn main() !void {
+/// Run the state-plus-writer example on stdout.
+pub fn main() anyerror!void {
     var stdout_buffer: [256]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     const stdout = &stdout_writer.interface;

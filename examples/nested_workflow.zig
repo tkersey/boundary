@@ -27,6 +27,7 @@ const approval_policy = struct {
 const ApprovalRow = shift.effects.optional([]const u8);
 
 const workflow = struct {
+    /// Capability bundle for the nested workflow example.
     pub const Uses = shift.Uses(ApprovalRow);
 
     /// Queue the workflow, request approval, and finish on the resumed branch.

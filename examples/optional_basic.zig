@@ -41,6 +41,7 @@ const resume_policy = struct {
 const OptionalRow = shift.effects.optional(i32);
 
 const return_now_workflow = struct {
+    /// Capability bundle for the return-now optional branch.
     pub const Uses = shift.Uses(OptionalRow);
 
     /// Trigger the front-door optional choice point and prove the continuation is skipped.
@@ -55,6 +56,7 @@ const return_now_workflow = struct {
 };
 
 const resume_workflow = struct {
+    /// Capability bundle for the resumptive optional branch.
     pub const Uses = shift.Uses(OptionalRow);
 
     /// Trigger the front-door optional choice point and complete the resumed continuation explicitly.

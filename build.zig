@@ -1,5 +1,5 @@
-const std = @import("std");
 const shipped_open_row_corpus = @import("src/shipped_open_row_corpus_registry.zig");
+const std = @import("std");
 const zlinter = @import("zlinter");
 
 const ShiftConsumerDeps = struct {

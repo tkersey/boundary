@@ -82,7 +82,7 @@ pub const OpenRowLoweredAuthoring = struct {
 };
 
 /// Lower one open-row frontend payload through the shared semantic center.
-pub fn lowerOpenRowProgram(program: program_frontend.OpenRowProgram) !OpenRowLoweredAuthoring {
+pub fn lowerOpenRowProgram(program: program_frontend.OpenRowProgram) effect_ir.NormalizeError!OpenRowLoweredAuthoring {
     const lowered = program_frontend.lowerOpenRow(program);
     return .{
         .label = program.label,

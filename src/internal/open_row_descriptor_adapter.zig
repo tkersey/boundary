@@ -11,6 +11,7 @@ fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
     };
 }
 
+/// Return whether a handler already matches the descriptor contract.
 pub fn isDescriptorLike(comptime T: type) bool {
     return hasDeclSafe(T, "ErrorSet") and
         hasDeclSafe(T, "Output") and
@@ -116,6 +117,7 @@ fn WrappedHandlerType(comptime requirement: effect_ir.Requirement, comptime Answ
             if (@hasField(PlainHandler, "state")) self.state = @field(self.inner, "state");
         }
 
+        /// Initialize the wrapped plain handler state.
         pub fn init(inner: PlainHandler) @This() {
             return .{
                 .inner = inner,
@@ -123,66 +125,79 @@ fn WrappedHandlerType(comptime requirement: effect_ir.Requirement, comptime Answ
             };
         }
 
+        /// Forward one payload-free operation into the wrapped handler.
         pub fn get(self: *@This()) @TypeOf(callNoPayload(self, "get")) {
             const result = callNoPayload(self, "get");
             self.syncState();
             return result;
         }
 
+        /// Forward one post-resume hook after `get`.
         pub fn afterGet(self: *@This(), answer: AnswerType) @TypeOf(callAfter(self, "afterGet", answer)) {
             return callAfter(self, "afterGet", answer);
         }
 
+        /// Forward one payloaded operation into the wrapped handler.
         pub fn set(self: *@This(), value: i32) @TypeOf(callPayload(self, "set", value)) {
             const result = callPayload(self, "set", value);
             self.syncState();
             return result;
         }
 
+        /// Forward one post-resume hook after `set`.
         pub fn afterSet(self: *@This(), answer: AnswerType) @TypeOf(callAfter(self, "afterSet", answer)) {
             return callAfter(self, "afterSet", answer);
         }
 
+        /// Forward one search operation into the wrapped handler.
         pub fn search(self: *@This(), payload: []const u8) @TypeOf(callPayload(self, "search", payload)) {
             const result = callPayload(self, "search", payload);
             self.syncState();
             return result;
         }
 
+        /// Forward one post-resume hook after `search`.
         pub fn afterSearch(self: *@This(), answer: AnswerType) @TypeOf(callAfter(self, "afterSearch", answer)) {
             return callAfter(self, "afterSearch", answer);
         }
 
+        /// Forward one query operation into the wrapped handler.
         pub fn query(self: *@This(), payload: []const u8) @TypeOf(callPayload(self, "query", payload)) {
             const result = callPayload(self, "query", payload);
             self.syncState();
             return result;
         }
 
+        /// Forward one post-resume hook after `query`.
         pub fn afterQuery(self: *@This(), answer: AnswerType) @TypeOf(callAfter(self, "afterQuery", answer)) {
             return callAfter(self, "afterQuery", answer);
         }
 
+        /// Forward one choice operation into the wrapped handler.
         pub fn pick(self: *@This(), payload: i32) @TypeOf(callPayload(self, "pick", payload)) {
             const result = callPayload(self, "pick", payload);
             self.syncState();
             return result;
         }
 
+        /// Forward one post-resume hook after `pick`.
         pub fn afterPick(self: *@This(), answer: AnswerType) @TypeOf(callAfter(self, "afterPick", answer)) {
             return callAfter(self, "afterPick", answer);
         }
 
+        /// Forward one payload-free choice operation into the wrapped handler.
         pub fn publish(self: *@This()) @TypeOf(callNoPayload(self, "publish")) {
             const result = callNoPayload(self, "publish");
             self.syncState();
             return result;
         }
 
+        /// Forward one post-resume hook after `publish`.
         pub fn afterPublish(self: *@This(), answer: AnswerType) @TypeOf(callAfter(self, "afterPublish", answer)) {
             return callAfter(self, "afterPublish", answer);
         }
 
+        /// Forward one abort operation into the wrapped handler.
         pub fn fail(self: *@This(), payload: []const u8) @TypeOf(callPayload(self, "fail", payload)) {
             const result = callPayload(self, "fail", payload);
             self.syncState();
@@ -234,6 +249,7 @@ fn AdaptedDescriptorType(comptime requirement: effect_ir.Requirement, comptime P
     }));
 }
 
+/// Adapt one plain handler value into a descriptor-compatible value.
 pub fn adaptedHandlerValue(comptime requirement: effect_ir.Requirement, comptime PlainHandler: type, comptime AnswerType: type, handler: PlainHandler) AdaptedDescriptorType(requirement, PlainHandler, AnswerType) {
     const Wrapped = WrappedHandlerType(requirement, AnswerType, PlainHandler);
     const Family = FamilyTypeForRequirement(requirement, PlainHandler, AnswerType);
@@ -290,15 +306,17 @@ fn AdaptedHandlersType(comptime Body: type, comptime HandlersType: type) type {
     });
 }
 
+/// Adapt one handler bundle for a given open-row body.
 pub fn adaptHandlersForBody(comptime Body: type, handlers: anytype) AdaptedHandlersType(Body, @TypeOf(handlers)) {
     const Adapted = AdaptedHandlersType(Body, @TypeOf(handlers));
-    var adapted: Adapted = undefined;
+    var storage: [@sizeOf(Adapted)]u8 align(@alignOf(Adapted)) = [_]u8{0} ** @sizeOf(Adapted);
+    const adapted_ptr: *Adapted = @ptrCast(&storage);
     inline for (@typeInfo(@TypeOf(handlers)).@"struct".fields) |field| {
         if (comptime isDescriptorLike(field.type)) {
-            @field(adapted, field.name) = @field(handlers, field.name);
+            @field(adapted_ptr.*, field.name) = @field(handlers, field.name);
         } else {
             const requirement = requirementForLabel(rowForBody(Body), field.name);
-            @field(adapted, field.name) = adaptedHandlerValue(
+            @field(adapted_ptr.*, field.name) = adaptedHandlerValue(
                 requirement,
                 field.type,
                 DeclaredBodyAnswerType(Body),
@@ -306,7 +324,7 @@ pub fn adaptHandlersForBody(comptime Body: type, handlers: anytype) AdaptedHandl
             );
         }
     }
-    return adapted;
+    return adapted_ptr.*;
 }
 
 test "plain user-defined transform handler adapts to a descriptor" {
@@ -317,9 +335,14 @@ test "plain user-defined transform handler adapts to a descriptor" {
         },
     });
     const workflow = struct {
-        pub const uses = struct { pub const Row = WorkflowRow; };
+        /// Capability bundle for the adapter test workflow.
+        pub const uses = struct {
+            /// The row carried by the adapter test workflow.
+            pub const Row = WorkflowRow;
+        };
 
-        pub fn body(eff: anytype) !i32 {
+        /// Run the adapter test workflow.
+        pub fn body(eff: anytype) anyerror!i32 {
             const before = try eff.counter.get.perform();
             try eff.counter.set.perform(before + 1);
             return try eff.counter.get.perform();
@@ -328,10 +351,12 @@ test "plain user-defined transform handler adapts to a descriptor" {
     const Handler = struct {
         state: i32,
 
+        /// Read the current test counter state.
         pub fn get(self: *@This()) i32 {
             return self.state;
         }
 
+        /// Replace the current test counter state.
         pub fn set(self: *@This(), value: i32) void {
             self.state = value;
         }

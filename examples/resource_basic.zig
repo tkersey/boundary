@@ -34,6 +34,7 @@ const resource_manager = struct {
 };
 
 const resource_program = struct {
+    /// Capability bundle for the resource example.
     pub const Uses = shift.Uses(ResourceRow);
 
     /// Acquire and use two resources through the open-row scope.

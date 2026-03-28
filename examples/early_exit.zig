@@ -16,6 +16,7 @@ const catch_policy = struct {
 const EarlyExitRow = shift.effects.exception([]const u8);
 
 const early_exit_workflow = struct {
+    /// Capability bundle for the early-exit example.
     pub const Uses = shift.Uses(EarlyExitRow);
 
     /// Abort immediately through the front-door exception surface.

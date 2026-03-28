@@ -73,7 +73,7 @@ pub const OpenRowGeneratedProgram = struct {
 };
 
 /// Lower one open-row frontend payload into the Effect IR shell and capture its normalization digest.
-pub fn lowerOpenRowProgram(program: program_frontend.OpenRowProgram) !OpenRowGeneratedProgram {
+pub fn lowerOpenRowProgram(program: program_frontend.OpenRowProgram) effect_ir.NormalizeError!OpenRowGeneratedProgram {
     const lowered = try authoring_lowerer.lowerOpenRowProgram(program);
     return .{
         .label = lowered.label,
@@ -281,22 +281,6 @@ const nested_workflow_match = Match{
     .feature_flags = &.{ "lexical_optional", "nested_workflow", "promoted_example" },
 };
 
-const front_door_workflow_match = Match{
-    .required_snippets = &.{
-        "shift.Ops.Transform(\"search\", []const u8, i32)",
-        "const total = try eff.search.search.perform(\"artifact-search\");",
-        "try eff.writer.tell(\"workflow=queued\");",
-        "return try eff.approval.publish.perform(struct {",
-        "const result = try shift.run(&runtime, Workflow, .{",
-        "try writer.print(\"final_state={d}\\n\", .{result.outputs.state});",
-        "try writer.print(\"result={s}\\n\", .{result.value});",
-    },
-    .entry_required_snippets = &.{
-        "try runWithAllocator(writer, std.heap.page_allocator);",
-    },
-    .feature_flags = &.{ "generated_transform", "generated_choice", "promoted_example" },
-};
-
 const state_example_match = Match{
     .required_snippets = &.{
         "const StateRow = shift.effects.state(i32);",
@@ -361,20 +345,6 @@ const exception_example_match = Match{
     .feature_flags = &.{ "exception_effect", "lexical_effect", "promoted_cohort_a" },
 };
 
-const define_basic_match = Match{
-    .required_snippets = &.{
-        "const Counter = shift.Decl.family",
-        "shift.Ops.Transform(\"get\", void, i32)",
-        "eff.counter.get.perform()",
-        "eff.counter.set.perform(before + 1)",
-        "counter={d}",
-    },
-    .entry_required_snippets = &.{
-        "try writer.print(\"counter={d}\\n\", .{try runCounter(&runtime)});",
-    },
-    .feature_flags = &.{ "generated_transform", "user_defined_effect", "source_canonical" },
-};
-
 const open_row_transform_match = Match{
     .required_snippets = &.{
         "const counter_row = shift.Row(.{",
@@ -387,23 +357,6 @@ const open_row_transform_match = Match{
         "try writer.print(\"counter={d}\\n\", .{try runCounter(&runtime)});",
     },
     .feature_flags = &.{ "generated_transform", "user_defined_effect", "open_row", "source_canonical" },
-};
-
-const define_choice_match = Match{
-    .required_snippets = &.{
-        "const Picker = shift.Decl.family",
-        "shift.Ops.Choice(\"pick\", i32, i32)",
-        "eff.picker.pick.perform(41",
-        "body-after-pick",
-        "policy-after-resume",
-    },
-    .entry_required_snippets = &.{
-        "const early = try shift.run(&runtime, PickerProgram, .{",
-        "const resumed = try shift.run(&runtime, PickerProgram, .{",
-        "try writer.writeAll(\"branch=return_now\\n\");",
-        "try writer.writeAll(\"branch=resume_with\\n\");",
-    },
-    .feature_flags = &.{ "generated_choice", "user_defined_effect", "source_canonical" },
 };
 
 const open_row_choice_match = Match{
@@ -421,21 +374,6 @@ const open_row_choice_match = Match{
         "const resumed = try shift.run(&runtime, resume_closed);",
     },
     .feature_flags = &.{ "generated_choice", "user_defined_effect", "open_row", "source_canonical" },
-};
-
-const define_abort_match = Match{
-    .required_snippets = &.{
-        "const Guard = shift.Decl.family",
-        "shift.Ops.Abort(\"fail\", []const u8)",
-        "eff.guard.fail.abort(\"missing-name\")",
-        "abort={s}",
-    },
-    .entry_required_snippets = &.{
-        "const result = try shift.run(&runtime, GuardProgram, .{",
-        "try writer.writeAll(\"validate=name\\n\");",
-        "try writer.print(\"abort={s}\\n\", .{transcript.abort_line});",
-    },
-    .feature_flags = &.{ "generated_abort", "user_defined_effect", "source_canonical" },
 };
 
 const open_row_abort_match = Match{
@@ -487,22 +425,7 @@ const writer_example_match = Match{
     .feature_flags = &.{ "writer_effect", "lexical_effect", "source_canonical" },
 };
 
-const algebraic_abort_match = Match{
-    .required_snippets = &.{
-        "shift.Decl.family(.{",
-        "shift.Ops.Abort(\"fail\", []const u8)",
-        "try eff.guard.fail.abort(\"missing-name\")",
-        "abort={s}",
-    },
-    .entry_required_snippets = &.{
-        "const result = try shift.run(&runtime, Validation, .{",
-        "try writer.writeAll(\"validate=name\\n\");",
-        "try writer.print(\"abort={s}\\n\", .{transcript.abort_line});",
-    },
-    .feature_flags = &.{ "algebraic_abort", "source_canonical" },
-};
-
-const open_row_abortive_validation_match = Match{
+const open_row_abortive_match = Match{
     .required_snippets = &.{
         "const validation_row = shift.Row(.{",
         "shift.Abort([]const u8)",
@@ -516,20 +439,6 @@ const open_row_abortive_validation_match = Match{
         "try writer.print(\"abort={s}\\n\", .{transcript.abort_line});",
     },
     .feature_flags = &.{ "generated_abort", "user_defined_effect", "open_row", "source_canonical" },
-};
-
-const algebraic_artifact_match = Match{
-    .required_snippets = &.{
-        "const Search = shift.Decl.family(.{",
-        "shift.Ops.Transform(\"search\", []const u8, i32)",
-        "const total = try eff.search.search.perform(\"artifact-search\");",
-        "opencode_source=jsonl",
-    },
-    .entry_required_snippets = &.{
-        "const result = try shift.run(&runtime, ArtifactSearch, .{",
-        "try writer.print(\"total={d}\\n\", .{result.value});",
-    },
-    .feature_flags = &.{ "algebraic_transform", "source_canonical" },
 };
 
 const open_row_artifact_match = Match{
@@ -699,7 +608,7 @@ fn customMatch(kind: shipped_open_row_corpus.CustomExampleKind) Match {
         .choice_basic => open_row_choice_match,
         .abort_basic => open_row_abort_match,
         .workflow => open_row_workflow_match,
-        .abortive_validation => open_row_abortive_validation_match,
+        .abortive_validation => open_row_abortive_match,
         .artifact_search => open_row_artifact_match,
         .generator => open_row_generator_match,
     };

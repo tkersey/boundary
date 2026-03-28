@@ -4,6 +4,7 @@ const std = @import("std");
 const ReaderRow = shift.effects.reader(i32);
 
 const reader_workflow = struct {
+    /// Capability bundle for the reader example.
     pub const Uses = shift.Uses(ReaderRow);
 
     /// Read the front-door reader environment once and double it.

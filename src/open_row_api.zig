@@ -30,14 +30,18 @@ pub fn mergeRows(comptime Specs: anytype) effect_ir.Row {
 /// Minimal capability-bundle carrier for the future direct-call surface.
 pub fn Uses(comptime RowValue: effect_ir.Row) type {
     return struct {
+        /// The normalized row carried by this capability bundle.
         pub const Row = RowValue;
     };
 }
 
 fn Handled(comptime label_name: []const u8, comptime TargetType: type, comptime HandlerType: type) type {
     return struct {
+        /// The handled label for this partial discharge wrapper.
         pub const handled_label = label_name;
+        /// The target type wrapped by this handled value.
         pub const Target = TargetType;
+        /// The handler type installed for the handled label.
         pub const Handler = HandlerType;
 
         target: TargetType,
@@ -48,14 +52,18 @@ fn Handled(comptime label_name: []const u8, comptime TargetType: type, comptime 
 fn Bound(comptime TargetValue: anytype, comptime HandlersType: type) type {
     return if (@TypeOf(TargetValue) == type)
         struct {
+            /// The body type closed by this bind call.
             pub const body = TargetValue;
+            /// The handler bundle type closed by this bind call.
             pub const Handlers = HandlersType;
 
             handlers: HandlersType,
         }
     else
         struct {
+            /// The target value type wrapped by this bind call.
             pub const Target = @TypeOf(TargetValue);
+            /// The handler bundle type wrapped by this bind call.
             pub const Handlers = HandlersType;
 
             target: @TypeOf(TargetValue),
@@ -63,6 +71,7 @@ fn Bound(comptime TargetValue: anytype, comptime HandlersType: type) type {
         };
 }
 
+/// Partially discharge one handled label around a target value.
 pub fn handle(comptime label: []const u8, handler: anytype, target: anytype) Handled(label, @TypeOf(target), @TypeOf(handler)) {
     return .{
         .target = target,
@@ -70,6 +79,7 @@ pub fn handle(comptime label: []const u8, handler: anytype, target: anytype) Han
     };
 }
 
+/// Bind a complete handler bundle around a body or handled target.
 pub fn bind(target: anytype, handlers: anytype) Bound(target, @TypeOf(handlers)) {
     if (@TypeOf(target) == type) {
         return .{ .handlers = handlers };
@@ -92,6 +102,7 @@ pub fn runBound(runtime: anytype, bound: anytype) @TypeOf(with_api.with(runtime,
 
 /// Built-in row fragment constructors on top of the open-row core.
 pub const effects = struct {
+    /// Build the canonical state row fragment.
     pub fn state(comptime T: type) effect_ir.Row {
         return Row(.{
             .state = .{
@@ -101,6 +112,7 @@ pub const effects = struct {
         });
     }
 
+    /// Build the canonical reader row fragment.
     pub fn reader(comptime T: type) effect_ir.Row {
         return Row(.{
             .reader = .{
@@ -109,6 +121,7 @@ pub const effects = struct {
         });
     }
 
+    /// Build the canonical writer row fragment.
     pub fn writer(comptime T: type) effect_ir.Row {
         return Row(.{
             .writer = .{
@@ -117,6 +130,7 @@ pub const effects = struct {
         });
     }
 
+    /// Build the canonical optional row fragment.
     pub fn optional(comptime T: type) effect_ir.Row {
         return Row(.{
             .optional = .{
@@ -125,6 +139,7 @@ pub const effects = struct {
         });
     }
 
+    /// Build the canonical exception row fragment.
     pub fn exception(comptime T: type) effect_ir.Row {
         return Row(.{
             .exception = .{
@@ -133,6 +148,7 @@ pub const effects = struct {
         });
     }
 
+    /// Build the canonical resource row fragment.
     pub fn resource(comptime T: type) effect_ir.Row {
         return Row(.{
             .resource = .{

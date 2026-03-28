@@ -13,9 +13,13 @@ fn LeafDescriptor(
     comptime Resume: type,
 ) type {
     return struct {
+        /// Marker that this type is one effect-IR leaf descriptor.
         pub const is_effect_ir_leaf = true;
+        /// The control mode carried by this leaf.
         pub const mode = mode_value;
+        /// The payload type carried by this leaf.
         pub const PayloadType = Payload;
+        /// The resumed answer type carried by this leaf.
         pub const ResumeType = Resume;
     };
 }
@@ -56,8 +60,8 @@ fn joinPath(comptime prefix: []const u8, comptime name: []const u8) []const u8 {
 }
 
 fn countLeaves(comptime Spec: anytype) usize {
-    const T = @TypeOf(Spec);
-    const info = @typeInfo(T);
+    const SpecType = @TypeOf(Spec);
+    const info = @typeInfo(SpecType);
     if (info != .@"struct") @compileError("effect_ir row specs must be nested struct literals whose leaves are Transform/Choice/Abort descriptors");
 
     var count: usize = 0;
@@ -79,8 +83,8 @@ fn populateLeaves(
     comptime leaves: []NormalizedLeaf,
     index: *usize,
 ) void {
-    const T = @TypeOf(Spec);
-    const info = @typeInfo(T);
+    const SpecType = @TypeOf(Spec);
+    const info = @typeInfo(SpecType);
     if (info != .@"struct") @compileError("effect_ir row specs must be nested struct literals whose leaves are Transform/Choice/Abort descriptors");
 
     inline for (info.@"struct".fields) |field| {
@@ -123,8 +127,11 @@ pub fn NormalizedRow(comptime Spec: anytype) type {
     };
 
     return struct {
+        /// The original nested row spec.
         pub const raw = Spec;
+        /// The normalized leaves derived from this row.
         pub const leaves = normalized_leaves;
+        /// The number of normalized leaves derived from this row.
         pub const leaf_count = leaf_count_value;
     };
 }
@@ -150,8 +157,11 @@ pub fn MergedRows(comptime Specs: anytype) type {
     };
 
     return struct {
+        /// The original tuple of row specs.
         pub const specs = Specs;
+        /// The normalized leaves derived from the merged rows.
         pub const leaves = normalized_leaves;
+        /// The total number of normalized leaves in the merged rows.
         pub const leaf_count = total_value;
     };
 }
@@ -161,6 +171,7 @@ pub const SymbolRef = struct {
     module_path: []const u8,
     symbol_name: []const u8,
 
+    /// Compare two symbolic references for equality.
     pub fn eql(self: SymbolRef, other: SymbolRef) bool {
         return std.mem.eql(u8, self.module_path, other.module_path) and
             std.mem.eql(u8, self.symbol_name, other.symbol_name);
@@ -232,6 +243,7 @@ pub const SccComponent = struct {
 pub const SccResolution = struct {
     components: []SccComponent,
 
+    /// Release allocator-owned component index storage.
     pub fn deinit(self: *SccResolution, allocator: std.mem.Allocator) void {
         for (self.components) |component| allocator.free(component.indices);
         allocator.free(self.components);
@@ -247,6 +259,7 @@ pub const NormalizationDigest = struct {
     output_count: usize,
 };
 
+/// Error set for row normalization and graph validation.
 pub const NormalizeError = error{
     DuplicateRequirementLabel,
     DuplicateOpName,
@@ -553,76 +566,78 @@ pub fn validateGraph(graph: ResolverGraph) NormalizeError!void {
     }
 }
 
-fn tarjanVisit(
-    allocator: std.mem.Allocator,
-    graph: ResolverGraph,
-    vertex: usize,
-    stack: *std.ArrayList(usize),
-    groups: *std.ArrayList(SccGroup),
-    indexes: []usize,
-    lowlinks: []usize,
-    on_stack: []bool,
-    next_index: *usize,
-) NormalizeError!void {
-    indexes[vertex] = next_index.*;
-    lowlinks[vertex] = next_index.*;
-    next_index.* += 1;
-    try stack.append(allocator, vertex);
-    on_stack[vertex] = true;
-
-    for (graph.edges) |edge| {
-        const caller_index = symbolIndex(graph, edge.caller).?;
-        if (caller_index != vertex) continue;
-        const callee_index = symbolIndex(graph, edge.callee).?;
-        if (indexes[callee_index] == std.math.maxInt(usize)) {
-            try tarjanVisit(allocator, graph, callee_index, stack, groups, indexes, lowlinks, on_stack, next_index);
-            lowlinks[vertex] = @min(lowlinks[vertex], lowlinks[callee_index]);
-        } else if (on_stack[callee_index]) {
-            lowlinks[vertex] = @min(lowlinks[vertex], indexes[callee_index]);
-        }
-    }
-
-    if (lowlinks[vertex] != indexes[vertex]) return;
-
-    var component = std.ArrayList(usize){};
-    while (true) {
-        const member = stack.pop().?;
-        on_stack[member] = false;
-        try component.append(allocator, member);
-        if (member == vertex) break;
-    }
-    try groups.append(allocator, .{ .symbol_indexes = try component.toOwnedSlice(allocator) });
-}
-
 /// Compute strongly connected components for one validated resolver graph.
 pub fn computeSccs(allocator: std.mem.Allocator, graph: ResolverGraph) NormalizeError![]SccGroup {
     try validateGraph(graph);
+    var state = struct {
+        allocator: std.mem.Allocator,
+        graph: ResolverGraph,
+        stack: std.ArrayList(usize),
+        groups: std.ArrayList(SccGroup),
+        indexes: []usize,
+        lowlinks: []usize,
+        on_stack: []bool,
+        next_index: usize = 0,
 
-    var stack = std.ArrayList(usize){};
-    defer stack.deinit(allocator);
-    var groups = std.ArrayList(SccGroup){};
+        fn visit(self: *@This(), vertex: usize) NormalizeError!void {
+            self.indexes[vertex] = self.next_index;
+            self.lowlinks[vertex] = self.next_index;
+            self.next_index += 1;
+            try self.stack.append(self.allocator, vertex);
+            self.on_stack[vertex] = true;
+
+            for (self.graph.edges) |edge| {
+                const caller_index = symbolIndex(self.graph, edge.caller).?;
+                if (caller_index != vertex) continue;
+                const callee_index = symbolIndex(self.graph, edge.callee).?;
+                if (self.indexes[callee_index] == std.math.maxInt(usize)) {
+                    try self.visit(callee_index);
+                    self.lowlinks[vertex] = @min(self.lowlinks[vertex], self.lowlinks[callee_index]);
+                } else if (self.on_stack[callee_index]) {
+                    self.lowlinks[vertex] = @min(self.lowlinks[vertex], self.indexes[callee_index]);
+                }
+            }
+
+            if (self.lowlinks[vertex] != self.indexes[vertex]) return;
+
+            var component = std.ArrayList(usize){};
+            while (true) {
+                const member = self.stack.pop().?;
+                self.on_stack[member] = false;
+                try component.append(self.allocator, member);
+                if (member == vertex) break;
+            }
+            try self.groups.append(self.allocator, .{
+                .symbol_indexes = try component.toOwnedSlice(self.allocator),
+            });
+        }
+    }{
+        .allocator = allocator,
+        .graph = graph,
+        .stack = .{},
+        .groups = .{},
+        .indexes = try allocator.alloc(usize, graph.symbols.len),
+        .lowlinks = try allocator.alloc(usize, graph.symbols.len),
+        .on_stack = try allocator.alloc(bool, graph.symbols.len),
+    };
+    defer state.stack.deinit(allocator);
+    defer allocator.free(state.indexes);
+    defer allocator.free(state.lowlinks);
+    defer allocator.free(state.on_stack);
     errdefer {
-        for (groups.items) |group| allocator.free(group.symbol_indexes);
-        groups.deinit(allocator);
+        for (state.groups.items) |group| allocator.free(group.symbol_indexes);
+        state.groups.deinit(allocator);
     }
 
-    const indexes = try allocator.alloc(usize, graph.symbols.len);
-    defer allocator.free(indexes);
-    const lowlinks = try allocator.alloc(usize, graph.symbols.len);
-    defer allocator.free(lowlinks);
-    const on_stack = try allocator.alloc(bool, graph.symbols.len);
-    defer allocator.free(on_stack);
+    @memset(state.indexes, std.math.maxInt(usize));
+    @memset(state.lowlinks, 0);
+    @memset(state.on_stack, false);
 
-    @memset(indexes, std.math.maxInt(usize));
-    @memset(lowlinks, 0);
-    @memset(on_stack, false);
-
-    var next_index: usize = 0;
     for (graph.symbols, 0..) |_, vertex| {
-        if (indexes[vertex] != std.math.maxInt(usize)) continue;
-        try tarjanVisit(allocator, graph, vertex, &stack, &groups, indexes, lowlinks, on_stack, &next_index);
+        if (state.indexes[vertex] != std.math.maxInt(usize)) continue;
+        try state.visit(vertex);
     }
-    return try groups.toOwnedSlice(allocator);
+    return try state.groups.toOwnedSlice(allocator);
 }
 
 /// Free SCC groups returned by `computeSccs`.
@@ -708,7 +723,7 @@ pub fn resolveSccs(
     allocator: std.mem.Allocator,
     symbols: []const SymbolRef,
     edges: []const CallEdge,
-) !SccResolution {
+) std.mem.Allocator.Error!SccResolution {
     var state = struct {
         allocator: std.mem.Allocator,
         symbols: []const SymbolRef,

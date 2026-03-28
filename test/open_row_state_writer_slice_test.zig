@@ -7,8 +7,10 @@ const WorkflowRow = shift.mergeRows(.{
 });
 
 const workflow = struct {
+    /// Capability bundle for the state-writer slice test.
     pub const Uses = shift.Uses(WorkflowRow);
 
+    /// Run the state-writer slice through the public open-row surface.
     pub fn run(_: type, eff: anytype) ![]const u8 {
         const before = try eff.state.get();
         try eff.state.set(before + 1);

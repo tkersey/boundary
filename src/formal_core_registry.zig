@@ -63,11 +63,11 @@ const practical_witnesses_paragraphs = [_][]const u8{
     "The lowered proof engine is checked by `zig build backend-parity`. `src/parity_scenarios.zig` is the canonical lowered proof registry, `src/parity_kernel.zig` interprets it, and `src/parity_machine.zig` is only a facade over that kernel. The exact-output fixture artifacts are rendered from the same registry by `zig build proof-fixtures-write` and checked by `zig build proof-fixtures-check`. This remains hidden internal infrastructure beneath the canonical public `shift/reset` surface, not a public fallback runtime.",
 };
 
-const public_algebraic_builders_paragraphs = [_][]const u8{
+const algebraic_builder_paragraphs = [_][]const u8{
     "The old algebraic and generated-family root-builder surface is retired from the shipped package. Its remaining rows are tracked only as internal proof labels while the open-row public surface becomes the only shipped story.",
 };
 
-const retired_surface_tombstones_paragraphs = [_][]const u8{
+const retired_surface_paragraphs = [_][]const u8{
     "The retired root spellings are tombstoned by `public-root-contract-snapshot-check` and `public-error-api-ban`, and retired vocabulary stays out of proof-facing files through `retired-lane-inventory-check`.",
     "The shipped example corpus is open-row-only; the retired declaration-style and algebraic proof surfaces are no longer part of the public story.",
 };
@@ -140,12 +140,12 @@ pub const sections = [_]Section{
     .{
         .section_id = .public_algebraic_builders,
         .title = "Retired Algebraic Builders",
-        .paragraphs = &public_algebraic_builders_paragraphs,
+        .paragraphs = &algebraic_builder_paragraphs,
     },
     .{
         .section_id = .retired_surface_tombstones,
         .title = "Retired Surface Tombstones",
-        .paragraphs = &retired_surface_tombstones_paragraphs,
+        .paragraphs = &retired_surface_paragraphs,
     },
     .{
         .section_id = .resource_bracketing,
