@@ -26,7 +26,7 @@ const approval_policy = struct {
 
 const ApprovalRow = shift.effects.optional([]const u8);
 
-const Workflow = struct {
+const workflow = struct {
     pub const Uses = shift.Uses(ApprovalRow);
 
     /// Queue the workflow, request approval, and finish on the resumed branch.
@@ -51,7 +51,7 @@ pub fn run(writer: anytype) anyerror!void {
     defer runtime.deinit();
     transcript.len = 0;
 
-    const closed = shift.bind(Workflow, .{
+    const closed = shift.bind(workflow, .{
         .optional = shift.handlers.optional([]const u8, approval_policy),
     });
     const result = try shift.run(&runtime, closed);

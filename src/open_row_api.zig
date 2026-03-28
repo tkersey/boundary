@@ -34,9 +34,9 @@ pub fn Uses(comptime RowValue: effect_ir.Row) type {
     };
 }
 
-fn Handled(comptime Label: []const u8, comptime TargetType: type, comptime HandlerType: type) type {
+fn Handled(comptime label_name: []const u8, comptime TargetType: type, comptime HandlerType: type) type {
     return struct {
-        pub const handled_label = Label;
+        pub const handled_label = label_name;
         pub const Target = TargetType;
         pub const Handler = HandlerType;
 
@@ -48,7 +48,7 @@ fn Handled(comptime Label: []const u8, comptime TargetType: type, comptime Handl
 fn Bound(comptime TargetValue: anytype, comptime HandlersType: type) type {
     return if (@TypeOf(TargetValue) == type)
         struct {
-            pub const Body = TargetValue;
+            pub const body = TargetValue;
             pub const Handlers = HandlersType;
 
             handlers: HandlersType,
@@ -81,13 +81,13 @@ pub fn bind(target: anytype, handlers: anytype) Bound(target, @TypeOf(handlers))
 }
 
 /// Execute one closed root built by `bind`.
-pub fn runBound(runtime: anytype, bound: anytype) @TypeOf(with_api.with(runtime, open_row_descriptor_adapter.adaptHandlersForBody(@TypeOf(bound).Body, bound.handlers), @TypeOf(bound).Body)) {
+pub fn runBound(runtime: anytype, bound: anytype) @TypeOf(with_api.with(runtime, open_row_descriptor_adapter.adaptHandlersForBody(@TypeOf(bound).body, bound.handlers), @TypeOf(bound).body)) {
     const BoundType = @TypeOf(bound);
-    if (!@hasDecl(BoundType, "Body")) {
+    if (!@hasDecl(BoundType, "body")) {
         @compileError("runBound expects a value returned from bind(Body, handlers)");
     }
-    const adapted = open_row_descriptor_adapter.adaptHandlersForBody(BoundType.Body, bound.handlers);
-    return with_api.with(runtime, adapted, BoundType.Body);
+    const adapted = open_row_descriptor_adapter.adaptHandlersForBody(BoundType.body, bound.handlers);
+    return with_api.with(runtime, adapted, BoundType.body);
 }
 
 /// Built-in row fragment constructors on top of the open-row core.
@@ -165,8 +165,8 @@ test "Uses carries the normalized row type" {
             },
         },
     });
-    const Eff = Uses(WorkflowRow);
-    const digest = try effect_ir.rowDigest(Eff.Row, &.{});
+    const eff = Uses(WorkflowRow);
+    const digest = try effect_ir.rowDigest(eff.Row, &.{});
     try @import("std").testing.expectEqual(@as(usize, 2), digest.requirement_count);
 }
 

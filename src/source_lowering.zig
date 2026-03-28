@@ -384,7 +384,7 @@ const open_row_transform_match = Match{
         "counter={d}",
     },
     .entry_required_snippets = &.{
-        "try writer.print(\"counter={d}\\n\", .{try run_counter(&runtime)});",
+        "try writer.print(\"counter={d}\\n\", .{try runCounter(&runtime)});",
     },
     .feature_flags = &.{ "generated_transform", "user_defined_effect", "open_row", "source_canonical" },
 };

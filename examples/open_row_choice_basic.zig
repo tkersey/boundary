@@ -17,7 +17,7 @@ const transcript = struct {
     }
 };
 
-const picker_handler = struct {
+const PickerHandler = struct {
     branch: enum { resume_with, return_now },
 
     /// Choose the configured branch.
@@ -66,7 +66,7 @@ pub fn run(writer: anytype) anyerror!void {
     try writer.writeAll("branch=return_now\n");
     transcript.len = 0;
     const return_now_closed = shift.bind(picker_workflow, .{
-        .picker = picker_handler{ .branch = .return_now },
+        .picker = PickerHandler{ .branch = .return_now },
     });
     const early = try shift.run(&runtime, return_now_closed);
     for (transcript.items[0..transcript.len]) |item| {
@@ -77,7 +77,7 @@ pub fn run(writer: anytype) anyerror!void {
     try writer.writeAll("branch=resume_with\n");
     transcript.len = 0;
     const resume_closed = shift.bind(picker_workflow, .{
-        .picker = picker_handler{ .branch = .resume_with },
+        .picker = PickerHandler{ .branch = .resume_with },
     });
     const resumed = try shift.run(&runtime, resume_closed);
     for (transcript.items[0..transcript.len]) |item| {

@@ -33,7 +33,7 @@ const resource_manager = struct {
     }
 };
 
-const ResourceProgram = struct {
+const resource_program = struct {
     pub const Uses = shift.Uses(ResourceRow);
 
     /// Acquire and use two resources through the open-row scope.
@@ -55,7 +55,7 @@ pub fn run(writer: anytype) anyerror!void {
     resource_manager.next_index = 0;
     transcript.len = 0;
 
-    const result = try shift.run(&runtime, shift.bind(ResourceProgram, .{
+    const result = try shift.run(&runtime, shift.bind(resource_program, .{
         .resource = shift.handlers.resource([]const u8, resource_manager),
     }));
 

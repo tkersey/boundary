@@ -39,8 +39,8 @@ pub fn Abort(comptime Payload: type) type {
 pub const NormalizedLeaf = struct {
     path: []const u8,
     mode: ControlMode,
-    payload_type: type,
-    resume_type: type,
+    PayloadType: type,
+    ResumeType: type,
 };
 
 fn isNormalizedLeafDescriptor(comptime T: type) bool {
@@ -91,8 +91,8 @@ fn populateLeaves(
             leaves[index.*] = .{
                 .path = path,
                 .mode = field_value.mode,
-                .payload_type = field_value.PayloadType,
-                .resume_type = field_value.ResumeType,
+                .PayloadType = field_value.PayloadType,
+                .ResumeType = field_value.ResumeType,
             };
             index.* += 1;
             continue;

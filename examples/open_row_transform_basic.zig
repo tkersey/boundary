@@ -8,7 +8,7 @@ const counter_row = shift.Row(.{
     },
 });
 
-const counter_handler = struct {
+const CounterHandler = struct {
     state: i32,
 
     /// Read the current counter state.
@@ -44,9 +44,9 @@ const counter_workflow = struct {
     }
 };
 
-fn run_counter(runtime: *shift.Runtime) anyerror!i32 {
+fn runCounter(runtime: *shift.Runtime) anyerror!i32 {
     const closed = shift.bind(counter_workflow, .{
-        .counter = counter_handler{ .state = 5 },
+        .counter = CounterHandler{ .state = 5 },
     });
     const result = try shift.run(runtime, closed);
     return result.value;
@@ -56,7 +56,7 @@ fn run_counter(runtime: *shift.Runtime) anyerror!i32 {
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
-    try writer.print("counter={d}\n", .{try run_counter(&runtime)});
+    try writer.print("counter={d}\n", .{try runCounter(&runtime)});
 }
 
 /// Run the transform example on stdout.

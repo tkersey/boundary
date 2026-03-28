@@ -6,7 +6,7 @@ const WorkflowRow = shift.mergeRows(.{
     shift.effects.writer([]const u8),
 });
 
-const Workflow = struct {
+const workflow = struct {
     pub const Uses = shift.Uses(WorkflowRow);
 
     /// Run one open-row state-plus-writer workflow through the migration bridge.
@@ -23,7 +23,7 @@ fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) !void {
     var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
-    const closed = shift.bind(Workflow, .{
+    const closed = shift.bind(workflow, .{
         .state = shift.handlers.state(@as(i32, 5)),
         .writer = shift.handlers.writer([]const u8, allocator),
     });

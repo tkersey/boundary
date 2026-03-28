@@ -3,7 +3,7 @@ const std = @import("std");
 
 const StateRow = shift.effects.state(i32);
 
-const StateWorkflow = struct {
+const state_workflow = struct {
     pub const Uses = shift.Uses(StateRow);
 
     /// Increment the front-door state once and return the canonical value witness.
@@ -19,7 +19,7 @@ pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
-    const closed = shift.bind(StateWorkflow, .{
+    const closed = shift.bind(state_workflow, .{
         .state = shift.handlers.state(@as(i32, 5)),
     });
     const result = try shift.run(&runtime, closed);

@@ -16,7 +16,7 @@ const transcript = struct {
 
 const ExceptionRow = shift.effects.exception([]const u8);
 
-const ExceptionWorkflow = struct {
+const exception_workflow = struct {
     pub const Uses = shift.Uses(ExceptionRow);
 
     /// Throw once through the front-door exception scope.
@@ -26,7 +26,7 @@ const ExceptionWorkflow = struct {
     }
 };
 
-const ExceptionPassWorkflow = struct {
+const exception_pass_workflow = struct {
     pub const Uses = shift.Uses(ExceptionRow);
 
     /// Return normally through the front-door exception scope.
@@ -41,7 +41,7 @@ pub fn run(writer: anytype) anyerror!void {
     defer runtime.deinit();
 
     try writer.writeAll("branch=pass\n");
-    const pass_closed = shift.bind(ExceptionPassWorkflow, .{
+    const pass_closed = shift.bind(exception_pass_workflow, .{
         .exception = shift.handlers.exception([]const u8, catch_policy),
     });
     const ok = try shift.run(&runtime, pass_closed);
@@ -51,7 +51,7 @@ pub fn run(writer: anytype) anyerror!void {
     try writer.writeAll("branch=throw\n");
     transcript.body_before_throw = false;
     transcript.caught_payload = "";
-    const throw_closed = shift.bind(ExceptionWorkflow, .{
+    const throw_closed = shift.bind(exception_workflow, .{
         .exception = shift.handlers.exception([]const u8, catch_policy),
     });
     const thrown = try shift.run(&runtime, throw_closed);

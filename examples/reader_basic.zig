@@ -3,7 +3,7 @@ const std = @import("std");
 
 const ReaderRow = shift.effects.reader(i32);
 
-const ReaderWorkflow = struct {
+const reader_workflow = struct {
     pub const Uses = shift.Uses(ReaderRow);
 
     /// Read the front-door reader environment once and double it.
@@ -18,7 +18,7 @@ pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
-    const closed = shift.bind(ReaderWorkflow, .{
+    const closed = shift.bind(reader_workflow, .{
         .reader = shift.handlers.reader(@as(i32, 21)),
     });
     const result = try shift.run(&runtime, closed);

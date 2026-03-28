@@ -68,7 +68,7 @@ const workflow = struct {
     }
 };
 
-fn run_with_allocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
+fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
     var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
@@ -95,7 +95,7 @@ fn run_with_allocator(writer: anytype, allocator: std.mem.Allocator) anyerror!vo
 
 /// Render the workflow example transcript.
 pub fn run(writer: anytype) anyerror!void {
-    try run_with_allocator(writer, std.heap.page_allocator);
+    try runWithAllocator(writer, std.heap.page_allocator);
 }
 
 /// Run the workflow example on stdout.

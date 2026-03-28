@@ -40,7 +40,7 @@ const resume_policy = struct {
 
 const OptionalRow = shift.effects.optional(i32);
 
-const ReturnNowWorkflow = struct {
+const return_now_workflow = struct {
     pub const Uses = shift.Uses(OptionalRow);
 
     /// Trigger the front-door optional choice point and prove the continuation is skipped.
@@ -54,7 +54,7 @@ const ReturnNowWorkflow = struct {
     }
 };
 
-const ResumeWorkflow = struct {
+const resume_workflow = struct {
     pub const Uses = shift.Uses(OptionalRow);
 
     /// Trigger the front-door optional choice point and complete the resumed continuation explicitly.
@@ -77,7 +77,7 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=return_now\n");
     transcript.len = 0;
-    const return_now_closed = shift.bind(ReturnNowWorkflow, .{
+    const return_now_closed = shift.bind(return_now_workflow, .{
         .optional = shift.handlers.optional(i32, return_now_policy),
     });
     const early_result = try shift.run(&runtime, return_now_closed);
@@ -88,7 +88,7 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=resume_with\n");
     transcript.len = 0;
-    const resume_closed = shift.bind(ResumeWorkflow, .{
+    const resume_closed = shift.bind(resume_workflow, .{
         .optional = shift.handlers.optional(i32, resume_policy),
     });
     const resumed = try shift.run(&runtime, resume_closed);

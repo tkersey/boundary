@@ -6,7 +6,7 @@ const WorkflowRow = shift.mergeRows(.{
     shift.effects.writer([]const u8),
 });
 
-const Workflow = struct {
+const workflow = struct {
     pub const Uses = shift.Uses(WorkflowRow);
 
     pub fn run(_: type, eff: anytype) ![]const u8 {
@@ -26,7 +26,7 @@ test "open-row state plus writer workflow yields the canonical result shape" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const closed = shift.bind(Workflow, handlers);
+    const closed = shift.bind(workflow, handlers);
     const result = try shift.run(&runtime, closed);
     defer std.testing.allocator.free(result.outputs.writer);
 

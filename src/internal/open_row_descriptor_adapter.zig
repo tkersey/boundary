@@ -43,14 +43,16 @@ fn requirementForLabel(comptime row: effect_ir.Row, comptime label: []const u8) 
 }
 
 fn rowForBody(comptime Body: type) effect_ir.Row {
-    if (!@hasDecl(Body, "Uses")) {
+    const uses_type = if (@hasDecl(Body, "Uses"))
+        Body.Uses
+    else if (@hasDecl(Body, "uses"))
+        Body.uses
+    else
         @compileError(@typeName(Body) ++ " must declare Uses = shift.Uses(...)");
-    }
-    const UsesType = Body.Uses;
-    if (!@hasDecl(UsesType, "Row")) {
+    if (!@hasDecl(uses_type, "Row")) {
         @compileError(@typeName(Body) ++ ".Uses must expose Row");
     }
-    return UsesType.Row;
+    return uses_type.Row;
 }
 
 fn StateTypeForPlainHandler(comptime requirement: effect_ir.Requirement, comptime PlainHandler: type) type {
@@ -70,7 +72,7 @@ fn opNameSentinel(comptime name: []const u8) [:0]const u8 {
     return name[0..name.len :0];
 }
 
-fn generatedOpType(comptime op: effect_ir.OpSpec) type {
+fn GeneratedOpType(comptime op: effect_ir.OpSpec) type {
     return switch (op.mode) {
         .transform => generated_family.ops.Transform(opNameSentinel(op.op_name), op.PayloadType, op.ResumeType),
         .choice => generated_family.ops.Choice(opNameSentinel(op.op_name), op.PayloadType, op.ResumeType),
@@ -100,7 +102,7 @@ else
     return @field(@TypeOf(self.inner), name)(&self.inner, answer);
 }
 
-fn wrappedHandlerType(comptime requirement: effect_ir.Requirement, comptime AnswerType: type, comptime PlainHandler: type) type {
+fn WrappedHandlerType(comptime requirement: effect_ir.Requirement, comptime AnswerType: type, comptime PlainHandler: type) type {
     const StateType = StateTypeForPlainHandler(requirement, PlainHandler);
     return struct {
         inner: PlainHandler,
@@ -189,58 +191,58 @@ fn wrappedHandlerType(comptime requirement: effect_ir.Requirement, comptime Answ
     };
 }
 
-fn familyTypeForRequirement(comptime requirement: effect_ir.Requirement, comptime PlainHandler: type, comptime AnswerType: type) type {
+fn FamilyTypeForRequirement(comptime requirement: effect_ir.Requirement, comptime PlainHandler: type, comptime AnswerType: type) type {
     _ = AnswerType;
     return switch (requirement.ops.len) {
         1 => generated_family.Build(.{
             .state_type = StateTypeForPlainHandler(requirement, PlainHandler),
-            .ops = .{generatedOpType(requirement.ops[0])},
+            .ops = .{GeneratedOpType(requirement.ops[0])},
         }),
         2 => generated_family.Build(.{
             .state_type = StateTypeForPlainHandler(requirement, PlainHandler),
             .ops = .{
-                generatedOpType(requirement.ops[0]),
-                generatedOpType(requirement.ops[1]),
+                GeneratedOpType(requirement.ops[0]),
+                GeneratedOpType(requirement.ops[1]),
             },
         }),
         3 => generated_family.Build(.{
             .state_type = StateTypeForPlainHandler(requirement, PlainHandler),
             .ops = .{
-                generatedOpType(requirement.ops[0]),
-                generatedOpType(requirement.ops[1]),
-                generatedOpType(requirement.ops[2]),
+                GeneratedOpType(requirement.ops[0]),
+                GeneratedOpType(requirement.ops[1]),
+                GeneratedOpType(requirement.ops[2]),
             },
         }),
         4 => generated_family.Build(.{
             .state_type = StateTypeForPlainHandler(requirement, PlainHandler),
             .ops = .{
-                generatedOpType(requirement.ops[0]),
-                generatedOpType(requirement.ops[1]),
-                generatedOpType(requirement.ops[2]),
-                generatedOpType(requirement.ops[3]),
+                GeneratedOpType(requirement.ops[0]),
+                GeneratedOpType(requirement.ops[1]),
+                GeneratedOpType(requirement.ops[2]),
+                GeneratedOpType(requirement.ops[3]),
             },
         }),
         else => @compileError("plain user-defined open-row adapter currently supports between 1 and 4 ops"),
     };
 }
 
-fn adaptedDescriptorType(comptime requirement: effect_ir.Requirement, comptime PlainHandler: type, comptime AnswerType: type) type {
-    const Wrapped = wrappedHandlerType(requirement, AnswerType, PlainHandler);
-    const Family = familyTypeForRequirement(requirement, PlainHandler, AnswerType);
+fn AdaptedDescriptorType(comptime requirement: effect_ir.Requirement, comptime PlainHandler: type, comptime AnswerType: type) type {
+    const Wrapped = WrappedHandlerType(requirement, AnswerType, PlainHandler);
+    const Family = FamilyTypeForRequirement(requirement, PlainHandler, AnswerType);
     return @TypeOf(Family.use(.{
         .handler = Wrapped.init(std.mem.zeroInit(PlainHandler, .{})),
     }));
 }
 
-pub fn adaptedHandlerValue(comptime requirement: effect_ir.Requirement, comptime PlainHandler: type, comptime AnswerType: type, handler: PlainHandler) adaptedDescriptorType(requirement, PlainHandler, AnswerType) {
-    const Wrapped = wrappedHandlerType(requirement, AnswerType, PlainHandler);
-    const Family = familyTypeForRequirement(requirement, PlainHandler, AnswerType);
+pub fn adaptedHandlerValue(comptime requirement: effect_ir.Requirement, comptime PlainHandler: type, comptime AnswerType: type, handler: PlainHandler) AdaptedDescriptorType(requirement, PlainHandler, AnswerType) {
+    const Wrapped = WrappedHandlerType(requirement, AnswerType, PlainHandler);
+    const Family = FamilyTypeForRequirement(requirement, PlainHandler, AnswerType);
     return Family.use(.{
         .handler = Wrapped.init(handler),
     });
 }
 
-fn declaredBodyAnswerType(comptime Body: type) type {
+fn DeclaredBodyAnswerType(comptime Body: type) type {
     const BodyFn = if (@hasDecl(Body, "body")) @TypeOf(Body.body) else @TypeOf(Body.run);
     const ReturnType = @typeInfo(BodyFn).@"fn".return_type orelse @compileError(@typeName(Body) ++ " must return a concrete answer type");
     return switch (@typeInfo(ReturnType)) {
@@ -249,13 +251,13 @@ fn declaredBodyAnswerType(comptime Body: type) type {
     };
 }
 
-fn adaptedFieldType(comptime body: type, comptime label: []const u8, comptime HandlerType: type) type {
+fn AdaptedFieldType(comptime Body: type, comptime label: []const u8, comptime HandlerType: type) type {
     if (isDescriptorLike(HandlerType)) return HandlerType;
-    const requirement = requirementForLabel(rowForBody(body), label);
-    return adaptedDescriptorType(requirement, HandlerType, declaredBodyAnswerType(body));
+    const requirement = requirementForLabel(rowForBody(Body), label);
+    return AdaptedDescriptorType(requirement, HandlerType, DeclaredBodyAnswerType(Body));
 }
 
-fn adaptedHandlersType(comptime Body: type, comptime HandlersType: type) type {
+fn AdaptedHandlersType(comptime Body: type, comptime HandlersType: type) type {
     const info = @typeInfo(HandlersType);
     if (info != .@"struct") @compileError("closed-root handlers must be a struct literal or struct value");
 
@@ -268,7 +270,7 @@ fn adaptedHandlersType(comptime Body: type, comptime HandlersType: type) type {
     }} ** info.@"struct".fields.len;
 
     inline for (info.@"struct".fields, 0..) |field, index| {
-        const FieldType = adaptedFieldType(Body, field.name, field.type);
+        const FieldType = AdaptedFieldType(Body, field.name, field.type);
         fields[index] = .{
             .name = field.name,
             .type = FieldType,
@@ -288,8 +290,8 @@ fn adaptedHandlersType(comptime Body: type, comptime HandlersType: type) type {
     });
 }
 
-pub fn adaptHandlersForBody(comptime Body: type, handlers: anytype) adaptedHandlersType(Body, @TypeOf(handlers)) {
-    const Adapted = adaptedHandlersType(Body, @TypeOf(handlers));
+pub fn adaptHandlersForBody(comptime Body: type, handlers: anytype) AdaptedHandlersType(Body, @TypeOf(handlers)) {
+    const Adapted = AdaptedHandlersType(Body, @TypeOf(handlers));
     var adapted: Adapted = undefined;
     inline for (@typeInfo(@TypeOf(handlers)).@"struct".fields) |field| {
         if (comptime isDescriptorLike(field.type)) {
@@ -299,7 +301,7 @@ pub fn adaptHandlersForBody(comptime Body: type, handlers: anytype) adaptedHandl
             @field(adapted, field.name) = adaptedHandlerValue(
                 requirement,
                 field.type,
-                declaredBodyAnswerType(Body),
+                DeclaredBodyAnswerType(Body),
                 @field(handlers, field.name),
             );
         }
@@ -314,8 +316,8 @@ test "plain user-defined transform handler adapts to a descriptor" {
             .set = effect_ir.Transform(i32, void),
         },
     });
-    const Workflow = struct {
-        pub const Uses = struct { pub const Row = WorkflowRow; };
+    const workflow = struct {
+        pub const uses = struct { pub const Row = WorkflowRow; };
 
         pub fn body(eff: anytype) !i32 {
             const before = try eff.counter.get.perform();
@@ -335,11 +337,11 @@ test "plain user-defined transform handler adapts to a descriptor" {
         }
     };
 
-    const adapted = adaptHandlersForBody(Workflow, .{
+    const adapted = adaptHandlersForBody(workflow, .{
         .counter = Handler{ .state = 5 },
     });
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
-    const result = try with_api.with(&runtime, adapted, Workflow);
+    const result = try with_api.with(&runtime, adapted, workflow);
     try std.testing.expectEqual(@as(i32, 6), result.value);
 }

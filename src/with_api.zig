@@ -914,8 +914,8 @@ test "collectClosedOutputs mirrors finish results" {
             return self.value;
         }
     };
-    const ReaderHandler = struct {};
-    const WriterHandler = struct {
+    const reader_handler = struct {};
+    const writer_handler = struct {
         pub const Output = [4]u8;
 
         pub fn finish(_: *@This()) [4]u8 {
@@ -924,8 +924,8 @@ test "collectClosedOutputs mirrors finish results" {
     };
     const Handlers = struct {
         state: StateHandler,
-        reader: ReaderHandler,
-        writer: WriterHandler,
+        reader: reader_handler,
+        writer: writer_handler,
     };
     var handlers: Handlers = .{
         .state = .{ .value = 9 },

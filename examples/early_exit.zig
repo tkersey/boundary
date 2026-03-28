@@ -15,7 +15,7 @@ const catch_policy = struct {
 
 const EarlyExitRow = shift.effects.exception([]const u8);
 
-const EarlyExitWorkflow = struct {
+const early_exit_workflow = struct {
     pub const Uses = shift.Uses(EarlyExitRow);
 
     /// Abort immediately through the front-door exception surface.
@@ -30,7 +30,7 @@ pub fn run(writer: anytype) anyerror!void {
     defer runtime.deinit();
     transcript.handler_line = "";
 
-    const closed = shift.bind(EarlyExitWorkflow, .{
+    const closed = shift.bind(early_exit_workflow, .{
         .exception = shift.handlers.exception([]const u8, catch_policy),
     });
     const result = try shift.run(&runtime, closed);

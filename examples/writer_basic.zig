@@ -3,7 +3,7 @@ const std = @import("std");
 
 const WriterRow = shift.effects.writer([]const u8);
 
-const WriterWorkflow = struct {
+const writer_workflow = struct {
     pub const Uses = shift.Uses(WriterRow);
 
     /// Append two items and return the canonical writer answer.
@@ -18,7 +18,7 @@ fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void
     var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
-    const closed = shift.bind(WriterWorkflow, .{
+    const closed = shift.bind(writer_workflow, .{
         .writer = shift.handlers.writer([]const u8, allocator),
     });
     const result = try shift.run(&runtime, closed);
