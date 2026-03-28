@@ -319,10 +319,22 @@ fn isEmptyStructType(comptime T: type) bool {
     };
 }
 
+fn stateTypeProducesOutput(comptime T: type) bool {
+    return T != void and !isEmptyStructType(T);
+}
+
+fn defaultStatelessStateValue(comptime T: type) T {
+    return switch (@typeInfo(T)) {
+        .void => {},
+        .@"struct" => .{},
+        else => @compileError("stateless generated transform state must be void or an empty struct"),
+    };
+}
+
 fn assertTransformHandlerBundle(comptime HandlerType: type, comptime StateType: type, comptime AnswerType: type, comptime ErrorSetType: type, comptime Op: type) void {
     _ = ErrorSetType;
     if (!@hasField(HandlerType, "state")) {
-        if (!isEmptyStructType(StateType)) @compileError("generated transform handler must declare state");
+        if (stateTypeProducesOutput(StateType)) @compileError("generated transform handler must declare state");
     } else if (@FieldType(HandlerType, "state") != StateType) {
         @compileError("generated transform handler state field must match state_type");
     }
@@ -1021,7 +1033,7 @@ pub fn Build(comptime spec: anytype) type {
         /// Descriptor value used by `shift.with(...)` for generated families.
         pub fn LexicalDescriptor(comptime HandlerType: type) type {
             return struct {
-                const produces_output = mode == .resume_then_transform and !isEmptyStructType(StateType);
+                const produces_output = mode == .resume_then_transform and stateTypeProducesOutput(StateType);
 
                 /// Shared error set carried by the generated lexical descriptor.
                 pub const ErrorSet = ErrorSetType;
@@ -1150,7 +1162,7 @@ pub fn Build(comptime spec: anytype) type {
             );
             if (mode == .resume_then_transform) {
                 return .{
-                    .state = if (@hasField(HandlerType, "state")) handler_value.state else std.mem.zeroInit(StateType, .{}),
+                    .state = if (@hasField(HandlerType, "state")) handler_value.state else defaultStatelessStateValue(StateType),
                     .value = value,
                 };
             }

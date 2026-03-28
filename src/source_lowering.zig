@@ -125,7 +125,7 @@ test "lowerOpenRowProgram preserves label and normalization digest" {
         .function = .{
             .symbol = .{
                 .module_path = "examples/open_row_state_writer.zig",
-                .symbol_name = "run",
+                .symbol_name = "body",
             },
             .row = row,
             .outputs = &.{
@@ -141,7 +141,7 @@ test "lowerOpenRowProgram preserves label and normalization digest" {
     try std.testing.expectEqual(@as(usize, 3), program.normalization.op_count);
     try std.testing.expectEqual(@as(usize, 2), program.normalization.output_count);
     try std.testing.expectEqual(@as(usize, 1), program.program.functions.len);
-    try std.testing.expectEqualStrings("workflow", program.program.functions[0].symbol.symbol_name);
+    try std.testing.expectEqualStrings("body", program.program.functions[0].symbol.symbol_name);
     _ = program_frontend;
 }
 

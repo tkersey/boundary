@@ -83,7 +83,7 @@ pub const open_rows = struct {
             .function = .{
                 .symbol = .{
                     .module_path = "examples/open_row_state_writer.zig",
-                    .symbol_name = "run",
+                    .symbol_name = "body",
                 },
                 .row = row,
                 .outputs = &.{
@@ -360,7 +360,7 @@ test "lowerOpenRow preserves the function payload" {
 test "open row state-writer workflow carries both requirements and outputs" {
     const program = lowerOpenRow(open_rows.stateWriterWorkflow());
     try @import("std").testing.expectEqual(@as(usize, 1), program.functions.len);
-    try @import("std").testing.expectEqualStrings("workflow", program.functions[0].symbol.symbol_name);
+    try @import("std").testing.expectEqualStrings("body", program.functions[0].symbol.symbol_name);
     const digest = try effect_ir.rowDigest(program.functions[0].row, program.functions[0].outputs);
     try @import("std").testing.expectEqual(@as(usize, 2), digest.requirement_count);
     try @import("std").testing.expectEqual(@as(usize, 3), digest.op_count);

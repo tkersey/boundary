@@ -470,6 +470,37 @@ test "program manifest omits void-state transform-family outputs" {
     try std.testing.expectEqualStrings("writer", Manifest.outputs[0]);
 }
 
+test "program run omits outputs for void-state transform handlers" {
+    const Audit = decl.family(.{
+        .state_type = void,
+        .ops = .{
+            ops.Transform("note", []const u8, i32),
+        },
+    }, struct {
+        pub fn note(_: *@This(), payload: []const u8) i32 {
+            return @intCast(payload.len);
+        }
+    });
+
+    const demo_program = Program(.{
+        .audit = Audit,
+    }, struct {
+        pub fn body(eff: anytype) anyerror!i32 {
+            return try eff.audit.note.perform("ok");
+        }
+    });
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try run(&runtime, demo_program, .{
+        .audit = .{},
+    });
+
+    try std.testing.expectEqual(@as(i32, 2), result.value);
+    try std.testing.expect(!@hasField(@TypeOf(result.outputs), "audit"));
+}
+
 test "program run executes through the new front door" {
     const demo_program = Program(.{
         .state = decl.state(i32),
