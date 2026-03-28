@@ -83,7 +83,7 @@ pub const GeneratedProgram = struct {
 pub const OpenRowGeneratedProgram = struct {
     label: []const u8,
     normalization: effect_ir.NormalizationDigest,
-    program: effect_ir.Program,
+    program: program_frontend.LoweredOpenRowProgram,
 };
 
 /// Lower one open-row frontend payload into the Effect IR shell and capture its normalization digest.

@@ -1024,3 +1024,34 @@ test "generated zero-payload choice fields stay ergonomic" {
 
     try std.testing.expectEqualStrings("answer=7", result.value);
 }
+
+test "shift.with accepts body run(eff)" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(&runtime, .{
+        .state = shift.effect.state.use(@as(i32, 9)),
+    }, struct {
+        pub fn run(eff: anytype) ExecResult(i32) {
+            return try eff.state.get();
+        }
+    });
+
+    try std.testing.expectEqual(@as(i32, 9), result.value);
+}
+
+test "shift.with accepts body run(self, eff)" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(&runtime, .{
+        .state = shift.effect.state.use(@as(i32, 11)),
+    }, struct {
+        pub fn run(self: @This(), eff: anytype) ExecResult(i32) {
+            _ = self;
+            return try eff.state.get();
+        }
+    });
+
+    try std.testing.expectEqual(@as(i32, 11), result.value);
+}

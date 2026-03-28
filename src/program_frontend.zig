@@ -46,6 +46,20 @@ pub const OpenRowProgram = struct {
     call_edges: []const effect_ir.CallEdge = &.{},
 };
 
+/// One lowered open-row program that owns its single-function storage.
+pub const LoweredOpenRowProgram = struct {
+    functions: [1]effect_ir.Function,
+    call_edges: []const effect_ir.CallEdge = &.{},
+
+    /// Project the owned single-function storage back into the generic Effect IR view.
+    pub fn asEffectProgram(self: *const @This()) effect_ir.Program {
+        return .{
+            .functions = self.functions[0..],
+            .call_edges = self.call_edges,
+        };
+    }
+};
+
 /// Open-row frontend constructors for the new lowering path.
 pub const open_rows = struct {
     /// Lower one state-plus-writer workflow through the open-row frontend.
@@ -224,10 +238,10 @@ pub fn lower(program: Program) LoweredProgram {
     };
 }
 
-/// Lower one open-row frontend payload into the resolved Effect IR shell.
-pub fn lowerOpenRow(program: OpenRowProgram) effect_ir.Program {
+/// Lower one open-row frontend payload into stable single-function storage.
+pub fn lowerOpenRow(program: OpenRowProgram) LoweredOpenRowProgram {
     return .{
-        .functions = &.{program.function},
+        .functions = .{program.function},
         .call_edges = program.call_edges,
     };
 }
@@ -270,4 +284,39 @@ test "open row state-writer workflow carries both requirements and outputs" {
     try @import("std").testing.expectEqual(@as(usize, 2), digest.requirement_count);
     try @import("std").testing.expectEqual(@as(usize, 3), digest.op_count);
     try @import("std").testing.expectEqual(@as(usize, 2), digest.output_count);
+}
+
+test "lowerOpenRow keeps prior lowered functions stable across later calls" {
+    const alpha = lowerOpenRow(.{
+        .label = "example.alpha",
+        .function = .{
+            .symbol = .{
+                .module_path = "examples/alpha.zig",
+                .symbol_name = "alpha",
+            },
+            .row = effect_ir.rowFromSpec(.{
+                .state = .{
+                    .get = effect_ir.Transform(void, i32),
+                },
+            }),
+        },
+    });
+    const beta = lowerOpenRow(.{
+        .label = "example.beta",
+        .function = .{
+            .symbol = .{
+                .module_path = "examples/beta.zig",
+                .symbol_name = "beta",
+            },
+            .row = effect_ir.rowFromSpec(.{
+                .writer = .{
+                    .tell = effect_ir.Transform([]const u8, void),
+                },
+            }),
+        },
+    });
+
+    try @import("std").testing.expectEqualStrings("alpha", alpha.functions[0].symbol.symbol_name);
+    try @import("std").testing.expectEqualStrings("beta", beta.functions[0].symbol.symbol_name);
+    try @import("std").testing.expectEqualStrings("alpha", alpha.asEffectProgram().functions[0].symbol.symbol_name);
 }

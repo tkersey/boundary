@@ -478,9 +478,38 @@ fn BodyFunctionType(comptime Body: type) type {
     @compileError("shift.with body must be a function or a type declaring body(eff)");
 }
 
+fn BodyRunFnType(comptime Body: type) type {
+    const RunFn = @TypeOf(Body.run);
+    return switch (@typeInfo(RunFn)) {
+        .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn") pointer.child else @compileError("shift.with body run must be callable"),
+        .@"fn" => RunFn,
+        else => @compileError("shift.with body run must be callable"),
+    };
+}
+
+fn BodyRunSelfValue(comptime Body: type) Body {
+    if (@sizeOf(Body) != 0) {
+        @compileError("shift.with body run(self, eff) requires a zero-sized body type; use run(eff) for stateful bodies");
+    }
+    return .{};
+}
+
 fn BodyReturnType(comptime Body: type, comptime EffType: type) type {
     if (@hasDecl(Body, "body")) return @TypeOf(Body.body(dummyValue(EffType)));
-    if (@hasDecl(Body, "run")) return @TypeOf(Body.run(Body, dummyValue(EffType)));
+    if (@hasDecl(Body, "run")) {
+        const params = @typeInfo(BodyRunFnType(Body)).@"fn".params;
+        if (params.len == 1) return @TypeOf(Body.run(dummyValue(EffType)));
+        if (params.len == 2) {
+            const first_param = params[0].type orelse @compileError("shift.with body run must type every parameter");
+            if (first_param == type) return @TypeOf(Body.run(Body, dummyValue(EffType)));
+            if (first_param == Body) return @TypeOf(Body.run(BodyRunSelfValue(Body), dummyValue(EffType)));
+            if (first_param == *Body or first_param == *const Body) {
+                var self = BodyRunSelfValue(Body);
+                return @TypeOf(Body.run(&self, dummyValue(EffType)));
+            }
+        }
+        @compileError("shift.with body run must accept either (eff), (self, eff), (*self, eff), or (BodyType, eff)");
+    }
     return @TypeOf(Body(dummyValue(EffType)));
 }
 
@@ -518,10 +547,37 @@ fn callBody(
     }
 
     if (@hasDecl(Body, "run")) {
-        if (@typeInfo(ReturnType) == .error_union) {
-            return Body.run(Body, eff) catch |err| return @errorCast(err);
+        const params = @typeInfo(BodyRunFnType(Body)).@"fn".params;
+        if (params.len == 1) {
+            if (@typeInfo(ReturnType) == .error_union) {
+                return Body.run(eff) catch |err| return @errorCast(err);
+            }
+            return Body.run(eff);
         }
-        return Body.run(Body, eff);
+        if (params.len == 2) {
+            const first_param = params[0].type orelse @compileError("shift.with body run must type every parameter");
+            if (first_param == type) {
+                if (@typeInfo(ReturnType) == .error_union) {
+                    return Body.run(Body, eff) catch |err| return @errorCast(err);
+                }
+                return Body.run(Body, eff);
+            }
+            if (first_param == Body) {
+                const self = BodyRunSelfValue(Body);
+                if (@typeInfo(ReturnType) == .error_union) {
+                    return Body.run(self, eff) catch |err| return @errorCast(err);
+                }
+                return Body.run(self, eff);
+            }
+            if (first_param == *Body or first_param == *const Body) {
+                var self = BodyRunSelfValue(Body);
+                if (@typeInfo(ReturnType) == .error_union) {
+                    return Body.run(&self, eff) catch |err| return @errorCast(err);
+                }
+                return Body.run(&self, eff);
+            }
+        }
+        @compileError("shift.with body run must accept either (eff), (self, eff), (*self, eff), or (BodyType, eff)");
     }
 
     if (@typeInfo(ReturnType) == .error_union) {

@@ -723,7 +723,11 @@ pub fn resolveSccs(
     allocator: std.mem.Allocator,
     symbols: []const SymbolRef,
     edges: []const CallEdge,
-) std.mem.Allocator.Error!SccResolution {
+) NormalizeError!SccResolution {
+    try validateGraph(.{
+        .symbols = symbols,
+        .edges = edges,
+    });
     var state = struct {
         allocator: std.mem.Allocator,
         symbols: []const SymbolRef,
@@ -745,7 +749,7 @@ pub fn resolveSccs(
             const caller = self.symbols[index];
             for (self.edges) |edge| {
                 if (!caller.eql(edge.caller)) continue;
-                const callee_index = symbolIndexSlice(self.symbols, edge.callee) orelse continue;
+                const callee_index = symbolIndexSlice(self.symbols, edge.callee).?;
                 if (self.indices[callee_index] == -1) {
                     try self.visit(callee_index);
                     self.low_links[index] = @min(self.low_links[index], self.low_links[callee_index]);
@@ -936,4 +940,18 @@ test "resolveSccs groups mutually recursive symbols together" {
     }
     try std.testing.expect(found_pair);
     try std.testing.expect(found_single);
+}
+
+test "resolveSccs rejects unknown symbols" {
+    const symbols = [_]SymbolRef{
+        .{ .module_path = "a.zig", .symbol_name = "alpha" },
+    };
+    const edges = [_]CallEdge{
+        .{
+            .caller = symbols[0],
+            .callee = .{ .module_path = "missing.zig", .symbol_name = "beta" },
+        },
+    };
+
+    try std.testing.expectError(error.UnknownSymbol, resolveSccs(std.testing.allocator, &symbols, &edges));
 }

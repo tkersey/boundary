@@ -103,7 +103,7 @@ pub const KernelProgramArtifact = struct {
 pub const OpenRowLoweredAuthoring = struct {
     label: []const u8,
     normalization: effect_ir.NormalizationDigest,
-    program: effect_ir.Program,
+    program: program_frontend.LoweredOpenRowProgram,
 };
 
 /// Lower one open-row frontend payload through the shared semantic center.
