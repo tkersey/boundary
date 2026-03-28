@@ -1,55 +1,47 @@
-/// Current migration status for one public-runtime obligation.
-pub const Status = enum {
-    compile_time_only,
-    kernel_runtime_ready,
-    legacy_runtime_required,
-    removed_from_shipped_path,
+/// Proof mode for one retained kernel-story surface.
+/// The file path stays stable for build compatibility even though the old obligation ledger is gone.
+pub const ProofMode = enum {
+    compile_boundary,
+    kernel_runtime,
 };
 
-/// One public-runtime obligation outside the retained route-matrix corpus.
-pub const Obligation = struct {
-    obligation_id: []const u8,
-    surface: []const u8,
-    status: Status,
+/// One retained proof surface outside the case corpus artifact.
+pub const Surface = struct {
+    surface_id: []const u8,
+    proof_surface: []const u8,
+    proof_mode: ProofMode,
     source: []const u8,
     note: []const u8,
 };
 
-/// Generator-owned registry of remaining public-runtime obligations.
-pub const obligations = [_]Obligation{
+/// Generator-owned registry of retained kernel-story surfaces.
+pub const surfaces = [_]Surface{
     .{
-        .obligation_id = "one_shot_survey.protocol_runtime_success",
-        .surface = "one_shot_survey",
-        .status = .kernel_runtime_ready,
+        .surface_id = "one_shot_survey.runtime_success",
+        .proof_surface = "one_shot_survey",
+        .proof_mode = .kernel_runtime,
         .source = "test/one_shot_survey/protocol_resume_transform_executes.zig",
-        .note = "The runtime-positive survey fixture now executes through the shared kernel runtime.",
+        .note = "The runtime-positive survey fixture executes through the shared kernel runtime.",
     },
     .{
-        .obligation_id = "one_shot_survey.protocol_compile_shape",
-        .surface = "one_shot_survey",
-        .status = .compile_time_only,
+        .surface_id = "one_shot_survey.protocol_compile_shape",
+        .proof_surface = "one_shot_survey",
+        .proof_mode = .compile_boundary,
         .source = "build.zig",
-        .note = "Most one-shot survey fixtures now prove public protocol shape through build-zig-managed compile steps rather than a shell harness.",
+        .note = "The remaining one-shot survey fixtures prove public protocol shape through build-zig-managed compile steps.",
     },
     .{
-        .obligation_id = "compile_fail.public_misuse",
-        .surface = "compile_fail",
-        .status = .compile_time_only,
+        .surface_id = "compile_fail.public_misuse",
+        .proof_surface = "compile_fail",
+        .proof_mode = .compile_boundary,
         .source = "build.zig",
-        .note = "Compile-fail misuse fixtures now run through build-zig-managed expected-compile-error steps rather than a shell harness.",
+        .note = "Compile-fail misuse fixtures run through build-zig-managed expected-compile-error steps.",
     },
     .{
-        .obligation_id = "size.prompt_shell_compact",
-        .surface = "size_check",
-        .status = .compile_time_only,
+        .surface_id = "size.prompt_shell_compact",
+        .proof_surface = "size_check",
+        .proof_mode = .compile_boundary,
         .source = "test/size_check.zig",
-        .note = "Prompt shell compactness is already independent of the public kernel runtime.",
-    },
-    .{
-        .obligation_id = "build.assembly_host_gate",
-        .surface = "build_runtime",
-        .status = .removed_from_shipped_path,
-        .source = "build.zig",
-        .note = "Default build/test wiring no longer adds stack-switch assembly files to the published kernel or retained proof lanes.",
+        .note = "Prompt shell compactness stays proven at the compile boundary rather than through a separate runtime lane.",
     },
 };

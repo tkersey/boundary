@@ -12,13 +12,13 @@ fn usage() noreturn {
 
 fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, "{\n");
-    try list.appendSlice(allocator, "  \"surfaces\": [\n");
+    try list.appendSlice(allocator, "  \"kernel_story_surfaces\": [\n");
     for (frontier.surfaces, 0..) |surface, idx| {
         if (idx != 0) try list.appendSlice(allocator, ",\n");
         const line = try std.fmt.allocPrint(
             allocator,
-            "    {{\"surface_id\":\"{s}\",\"surface_label\":\"{s}\",\"kernel_frontier\":\"{s}\",\"source\":\"{s}\",\"note\":\"{s}\"}}",
-            .{ surface.surface_id, surface.surface, @tagName(surface.frontier), surface.source, surface.note },
+            "    {{\"surface_id\":\"{s}\",\"surface_label\":\"{s}\",\"story_position\":\"{s}\",\"source\":\"{s}\",\"note\":\"{s}\"}}",
+            .{ surface.surface_id, surface.surface, @tagName(surface.story_position), surface.source, surface.note },
         );
         defer allocator.free(line);
         try list.appendSlice(allocator, line);
@@ -26,7 +26,7 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, "\n  ]\n}\n");
 }
 
-/// Render or check the shipped-surface frontier matrix artifact.
+/// Render or check the retained kernel-story artifact stored at the legacy frontier path.
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();

@@ -1,4 +1,4 @@
-/// Build-safe identifier for one shipped custom example retained in the open-row corpus registry.
+/// Build-safe identifier for one retained shipped walkthrough in the proof corpus registry.
 pub const CustomExampleKind = enum {
     abort_basic,
     abortive_validation,
@@ -9,7 +9,7 @@ pub const CustomExampleKind = enum {
     workflow,
 };
 
-/// One shipped custom example row shared across build and proof surfaces.
+/// One retained shipped walkthrough row shared across build and proof surfaces.
 pub const CustomExample = struct {
     kind: CustomExampleKind,
     name: []const u8,
@@ -21,7 +21,7 @@ pub const CustomExample = struct {
     user_defined_case_id: ?[]const u8 = null,
 };
 
-/// The shipped custom example corpus retained in the open-row registry.
+/// The retained shipped walkthrough corpus, kept as proof-facing registry rows.
 pub const custom_examples = [_]CustomExample{
     .{
         .kind = .transform_basic,
@@ -30,7 +30,7 @@ pub const custom_examples = [_]CustomExample{
         .example_case_id = "example.open_row_transform_basic",
         .fixture_name = "open_row_transform_basic.txt",
         .run_step_name = "run-open-row-transform-basic",
-        .run_step_desc = "Run the public transform example.",
+        .run_step_desc = "Run the retained transform walkthrough.",
         .user_defined_case_id = "user_defined.transform",
     },
     .{
@@ -40,7 +40,7 @@ pub const custom_examples = [_]CustomExample{
         .example_case_id = "example.open_row_choice_basic",
         .fixture_name = "open_row_choice_basic.txt",
         .run_step_name = "run-open-row-choice-basic",
-        .run_step_desc = "Run the public choice example.",
+        .run_step_desc = "Run the retained choice walkthrough.",
         .user_defined_case_id = "user_defined.choice",
     },
     .{
@@ -50,7 +50,7 @@ pub const custom_examples = [_]CustomExample{
         .example_case_id = "example.open_row_abort_basic",
         .fixture_name = "open_row_abort_basic.txt",
         .run_step_name = "run-open-row-abort-basic",
-        .run_step_desc = "Run the public abort example.",
+        .run_step_desc = "Run the retained abort walkthrough.",
         .user_defined_case_id = "user_defined.abort",
     },
     .{
@@ -60,7 +60,7 @@ pub const custom_examples = [_]CustomExample{
         .example_case_id = "example.open_row_workflow",
         .fixture_name = "open_row_workflow.txt",
         .run_step_name = "run-open-row-workflow",
-        .run_step_desc = "Run the public workflow example.",
+        .run_step_desc = "Run the retained workflow walkthrough.",
     },
     .{
         .kind = .abortive_validation,
@@ -69,7 +69,7 @@ pub const custom_examples = [_]CustomExample{
         .example_case_id = "example.open_row_abortive_validation",
         .fixture_name = "open_row_abortive_validation.txt",
         .run_step_name = "run-open-row-abortive-validation",
-        .run_step_desc = "Run the public abortive-validation example.",
+        .run_step_desc = "Run the retained abortive-validation walkthrough.",
     },
     .{
         .kind = .artifact_search,
@@ -78,7 +78,7 @@ pub const custom_examples = [_]CustomExample{
         .example_case_id = "example.open_row_artifact_search",
         .fixture_name = "open_row_artifact_search.txt",
         .run_step_name = "run-open-row-artifact-search",
-        .run_step_desc = "Run the public artifact-search example.",
+        .run_step_desc = "Run the retained artifact-search walkthrough.",
     },
     .{
         .kind = .generator,
@@ -87,7 +87,7 @@ pub const custom_examples = [_]CustomExample{
         .example_case_id = "example.open_row_generator",
         .fixture_name = "open_row_generator.txt",
         .run_step_name = "run-open-row-generator",
-        .run_step_desc = "Run the public generator example.",
+        .run_step_desc = "Run the retained generator walkthrough.",
     },
 };
 

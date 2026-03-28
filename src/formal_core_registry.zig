@@ -59,7 +59,7 @@ const perf_coverage_paragraphs = [_][]const u8{
 };
 
 const practical_witnesses_paragraphs = [_][]const u8{
-    "The repo keeps one shipped checked example, `open_row_state_writer`, plus the\nlowered proof engine and exact-output fixture pipeline behind `zig build\nkernel-parity-check`, `zig build proof-fixtures-write`, and `zig build\nproof-fixtures-check`. The example id persists as proof nomenclature, not as\nthe public product vocabulary.",
+    "The repo keeps one shipped checked state-writer walkthrough plus the lowered\nproof engine and exact-output fixture pipeline behind `zig build\nkernel-parity-check`, `zig build proof-fixtures-write`, and `zig build\nproof-fixtures-check`. Its retained proof id stays internal as\n`open_row_state_writer`, not as public product vocabulary.",
     "The lowered proof engine is checked by `zig build kernel-parity-check`.\n`src/parity_scenarios.zig` is the canonical lowered proof registry,\n`src/parity_kernel.zig` interprets it, and `src/parity_machine.zig` is only a\nfacade over that kernel. The exact-output fixture artifacts are rendered from\nthe same registry by `zig build proof-fixtures-write` and checked by `zig build\nproof-fixtures-check`. This remains hidden internal infrastructure beneath the\ncanonical public `shift/reset` surface, not a public fallback runtime.",
 };
 

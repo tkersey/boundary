@@ -712,12 +712,11 @@ pub fn build(b: *std.Build) void {
     });
     const run_boundary_tests = b.addRunArtifact(boundary_tests);
     const run_bridge_tests = b.addRunArtifact(bridge_tests);
+    run_bridge_tests.setName("hidden direct-style bridge parity runner");
     const run_bridge_boundary_tests = b.addRunArtifact(bridge_boundary_tests);
     const boundary_step = b.step("direct-style-boundary", "Run explicit boundary checks for unsupported raw direct-style lowering.");
     boundary_step.dependOn(&run_boundary_tests.step);
     boundary_step.dependOn(&run_bridge_boundary_tests.step);
-    const bridge_parity_step = b.step("internal-direct-style-bridge-parity", "Run unchanged-body parity checks for the internal direct-style bridge corpus.");
-    bridge_parity_step.dependOn(&run_bridge_tests.step);
 
     const source_lowering_corpus_mod = b.createModule(.{
         .root_source_file = b.path("test/source_lowering_corpus_test.zig"),
@@ -1053,12 +1052,8 @@ pub fn build(b: *std.Build) void {
     });
     const route_matrix_check_cmd = b.addRunArtifact(route_matrix_exe);
     route_matrix_check_cmd.addArg("check");
-    const route_matrix_check_step = b.step("internal-runtime-route-matrix-check", "Check the internal runtime route matrix for the supported lowered runtime corpus.");
-    route_matrix_check_step.dependOn(&route_matrix_check_cmd.step);
     const route_matrix_write_cmd = b.addRunArtifact(route_matrix_exe);
     route_matrix_write_cmd.addArg("write");
-    const route_matrix_write_step = b.step("internal-runtime-route-matrix-write", "Refresh the internal runtime route matrix for the supported lowered runtime corpus.");
-    route_matrix_write_step.dependOn(&route_matrix_write_cmd.step);
 
     const obligation_matrix_registry_mod = b.createModule(.{
         .root_source_file = b.path("src/runtime_obligation_registry.zig"),
@@ -1077,12 +1072,8 @@ pub fn build(b: *std.Build) void {
     });
     const obligation_matrix_check_cmd = b.addRunArtifact(obligation_matrix_exe);
     obligation_matrix_check_cmd.addArg("check");
-    const obligation_matrix_check_step = b.step("internal-runtime-obligation-matrix-check", "Check the internal runtime obligation matrix for remaining stack-runtime dependencies.");
-    obligation_matrix_check_step.dependOn(&obligation_matrix_check_cmd.step);
     const obligation_matrix_write_cmd = b.addRunArtifact(obligation_matrix_exe);
     obligation_matrix_write_cmd.addArg("write");
-    const obligation_matrix_write_step = b.step("internal-runtime-obligation-matrix-write", "Refresh the internal runtime obligation matrix for remaining stack-runtime dependencies.");
-    obligation_matrix_write_step.dependOn(&obligation_matrix_write_cmd.step);
 
     const error_surface_registry_mod = b.createModule(.{
         .root_source_file = b.path("src/runtime_error_surface_registry.zig"),
@@ -1142,7 +1133,6 @@ pub fn build(b: *std.Build) void {
         .root_module = bridge_witness_runner_mod,
     });
     const run_bridge_witness_tests = b.addRunArtifact(bridge_witness_tests);
-    bridge_parity_step.dependOn(&run_bridge_witness_tests.step);
     test_step.dependOn(&run_bridge_witness_tests.step);
 
     const lexical_witness_mod = b.createModule(.{
@@ -1229,8 +1219,7 @@ pub fn build(b: *std.Build) void {
     frontend_feature_write_step.dependOn(&frontend_feature_write_cmd.step);
 
     const shipped_backend_cmd = b.addSystemCommand(&.{ "sh", "test/shipped_backend_contract/run.sh" });
-    const shipped_backend_step = b.step("internal-shipped-backend-check", "Check that the internal shipped-path proof no longer depends on the stackful backend.");
-    shipped_backend_step.dependOn(&shipped_backend_cmd.step);
+    shipped_backend_cmd.setName("hidden shipped backend contract runner");
 
     test_step.dependOn(&authoring_lower_check_cmd.step);
     test_step.dependOn(&run_boundary_tests.step);

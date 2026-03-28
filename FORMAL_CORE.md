@@ -71,11 +71,11 @@ The current execution classes are `direct_frame` for `state`/`reader`, `abortive
 <a id="practical-witnesses"></a>
 ## Practical Witnesses
 
-The repo keeps one shipped checked example, `open_row_state_writer`, plus the
-lowered proof engine and exact-output fixture pipeline behind `zig build
+The repo keeps one shipped checked state-writer walkthrough plus the lowered
+proof engine and exact-output fixture pipeline behind `zig build
 kernel-parity-check`, `zig build proof-fixtures-write`, and `zig build
-proof-fixtures-check`. The example id persists as proof nomenclature, not as
-the public product vocabulary.
+proof-fixtures-check`. Its retained proof id stays internal as
+`open_row_state_writer`, not as public product vocabulary.
 
 The lowered proof engine is checked by `zig build kernel-parity-check`.
 `src/parity_scenarios.zig` is the canonical lowered proof registry,

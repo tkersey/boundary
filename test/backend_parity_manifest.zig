@@ -5,7 +5,7 @@ pub const Surface = parity_scenarios.Surface;
 /// State checkpoint type re-exported from the canonical scenario registry.
 pub const TraceCheckpoint = parity_scenarios.TraceCheckpoint;
 
-/// One exact-output transcript case covered by `backend-parity`.
+/// One exact-output transcript case covered by `kernel-parity-check`.
 pub const TranscriptCase = struct {
     case_id: []const u8,
     expected: []const u8,
@@ -14,7 +14,7 @@ pub const TranscriptCase = struct {
     state_trace_expected: []const TraceCheckpoint,
 };
 
-/// One runtime-positive proof case covered by `backend-parity`.
+/// One runtime-positive proof case covered by `kernel-parity-check`.
 pub const RuntimeCase = parity_scenarios.RuntimeSmoke;
 
 fn makeTranscriptCase(scenario: *const parity_scenarios.Scenario) TranscriptCase {

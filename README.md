@@ -84,7 +84,6 @@ zig build proof-fixtures-check
 zig build authoring-lowering-write
 zig build authoring-lowering-check
 zig build structured-program-suite
-zig build internal-direct-style-bridge-parity
 zig build direct-style-boundary
 zig build kernel-source-lowering-check
 zig build source-lower
@@ -93,10 +92,6 @@ zig build source-lowering-coverage-matrix-write
 zig build source-lowering-coverage-check
 zig build witness-admission-matrix-write
 zig build witness-admission-matrix-check
-zig build internal-runtime-route-matrix-write
-zig build internal-runtime-route-matrix-check
-zig build internal-runtime-obligation-matrix-write
-zig build internal-runtime-obligation-matrix-check
 zig build runtime-contract-suite
 zig build public-error-api-ban
 zig build retired-lane-inventory-check
@@ -108,7 +103,6 @@ zig build shipped-surface-frontier-matrix-check
 zig build frontend-feature-matrix-write
 zig build frontend-feature-matrix-check
 zig build no-raw-repo-refs-check
-zig build internal-shipped-backend-check
 zig build surface-truth-scorecard-write
 zig build surface-truth-scorecard-check
 zig build effect-construction-boundary
@@ -154,9 +148,6 @@ one of these proof surfaces:
   internal structured-program front end into the canonical lowered IR
 - `zig build structured-program-suite` for internal scaffolding coverage of the
   lowered proof engine
-- `zig build internal-direct-style-bridge-parity` for unchanged-body parity
-  checks over the supported direct-style bridge corpus, kept explicitly
-  internal-only
 - `zig build direct-style-boundary` for explicit boundary checks around
   unsupported unchanged direct-style shapes
 - `zig build kernel-source-lowering-check` for the internal source-lowering
@@ -164,10 +155,6 @@ one of these proof surfaces:
 - `zig build source-lowering-coverage-check` for the checked source-lowering
   coverage matrix that proves every current witness/example/declaration target
   is covered by the internal source-lowering track
-- `zig build internal-runtime-route-matrix-check` for the checked
-  execution-route matrix that records internal proof routing truth
-- `zig build internal-runtime-obligation-matrix-check` for the checked
-  obligation matrix that records internal compat/runtime obligations
 - `zig build runtime-contract-suite` for executable public-runtime contract
   cases that still guard the final stackful-backed behaviors
 - `zig build runtime-error-surface-matrix-check` for the checked retained-vs-retired
@@ -184,9 +171,6 @@ one of these proof surfaces:
   surface
 - `zig build no-raw-repo-refs-check` for the fail-closed proof that the repo no
   longer references the deleted raw runtime tree
-- `zig build internal-shipped-backend-check` for the checked guarantee that the
-  internal shipped-path proof no longer depends on deleted stackful runtime
-  components
 - `zig build surface-truth-scorecard-check` for the machine-readable
   maintainers' scorecard that summarizes whether the lowered path can honestly
   stay hidden beneath the canonical public surface
@@ -211,7 +195,7 @@ The current public kernel contract is now:
 
 ## Examples
 
-### `open_row_state_writer`
+### State Writer Walkthrough
 
 ```bash
 zig build run-open-row-state-writer
@@ -225,10 +209,10 @@ final_state=6
 value=done
 ```
 
-The step name is intentionally unchanged because it is a stable proof id.
-Treat it as a checked legacy fixture name, not as documentation of the public
-product vocabulary. Retired root spellings are guarded by tombstone proofs
-instead of compatibility narratives.
+The step id is intentionally unchanged because it is a stable proof handle.
+Treat `run-open-row-state-writer` as a checked legacy fixture name, not as
+documentation of the public product vocabulary. Retired root spellings are
+guarded by tombstone proofs instead of compatibility narratives.
 
 The generalized construction boundary is checked by:
 
@@ -397,15 +381,9 @@ current proof labels, and user-defined effect rows.
 from unchanged-body bridge admission. Both lanes are internal-only proof
 surfaces.
 
-`src/program_bridge.zig` is the current hidden-backend bridge for the supported
-unchanged direct-style subset, and `src/private_lowered_runtime.zig` is the
-internal lowered-runtime seam that executes that supported subset without
-changing the public API. `zig build internal-direct-style-bridge-parity` proves
-that subset against the canonical lowered scenarios, and
-`tools/render_runtime_route_matrix.zig` renders the machine-readable route
-matrix showing that those supported cases now execute through the shared
-lowered machine instead of direct scenario replay.
-The generated artifact lives at `docs/runtime_route_matrix.json`.
+`src/program_bridge.zig` and `src/private_lowered_runtime.zig` remain
+implementation-only proof infrastructure for the retained unchanged-body subset.
+They are no longer part of the public proof contract described here.
 
 `src/lowered_machine.zig` is now the shared executable machine core, while
 `src/parity_kernel.zig` acts as a proof façade over that core.
@@ -415,18 +393,8 @@ operation, binding, and prompt machinery used beneath the public kernel.
 `zig build public-root-contract-snapshot-check` and `zig build public-error-api-ban`
 are the tombstone truth gates for retired root spellings.
 
-`zig build internal-runtime-route-matrix-check` is the architectural truth gate for that
-claim, and
-`zig build internal-runtime-obligation-matrix-check` is the remaining-contract truth
-gate for the parts of the public runtime surface that are now compat-only or
-otherwise outside the shipped backend path.
-`tools/render_runtime_obligation_matrix.zig` renders that artifact, which lives
-at `docs/runtime_obligation_matrix.json`.
-
-`zig build runtime-contract-suite` is the executable complement to that
-artifact: it runs the remaining public-runtime contract cases through the
-current public API so the remaining runtime obligations are tracked by tests,
-not just by documentation.
+`zig build runtime-contract-suite` remains the executable proof lane for the
+remaining public-runtime contract cases that still matter at the shipped API.
 
 `tools/render_runtime_error_surface_matrix.zig` renders the checked public
 runtime error surface policy, which lives at
