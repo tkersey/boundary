@@ -10,7 +10,7 @@ obligation_matrix="$repo_root/docs/runtime_obligation_matrix.json"
 [ -f "$build_file" ] || { echo "missing build.zig" >&2; exit 1; }
 [ -f "$obligation_matrix" ] || { echo "missing docs/runtime_obligation_matrix.json" >&2; exit 1; }
 
-if grep -q '"status":"stack_backend_required"' "$obligation_matrix"; then
+if grep -Eq '"(status|proof_mode)":"stack_backend_required"' "$obligation_matrix"; then
   echo "shipped backend still blocked by runtime_obligation_matrix" >&2
   exit 1
 fi

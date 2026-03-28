@@ -89,21 +89,11 @@ fn bridgeProofCase(allocator: std.mem.Allocator, case: bridge_manifest.Case) !?s
             .entry_symbol = case.entry_symbol,
             .surface = .witness,
         },
-        .example => {
-            if (std.mem.eql(u8, case.case_id, "open_row_generator")) {
-                return .{
-                    .case_id = try allocator.dupe(u8, "witness.generator"),
-                    .source_path = "src/witness_sources.zig",
-                    .entry_symbol = "runGenerator",
-                    .surface = .witness,
-                };
-            }
-            return .{
-                .case_id = try std.fmt.allocPrint(allocator, "example.{s}", .{case.case_id}),
-                .source_path = case.source_module,
-                .entry_symbol = case.entry_symbol,
-                .surface = .example,
-            };
+        .example => return .{
+            .case_id = try std.fmt.allocPrint(allocator, "example.{s}", .{case.case_id}),
+            .source_path = case.source_module,
+            .entry_symbol = case.entry_symbol,
+            .surface = .example,
         },
     }
 }

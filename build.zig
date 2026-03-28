@@ -1246,11 +1246,14 @@ pub fn build(b: *std.Build) void {
 
     const shipped_backend_cmd = b.addSystemCommand(&.{ "sh", "test/shipped_backend_contract/run.sh" });
     shipped_backend_cmd.setName("hidden shipped backend contract runner");
+    const shipped_backend_step = b.step("shipped-backend-contract", "Check the shipped backend contract guard.");
+    shipped_backend_step.dependOn(&shipped_backend_cmd.step);
 
     test_step.dependOn(&authoring_lower_check_cmd.step);
     test_step.dependOn(&run_bridge_tests.step);
     test_step.dependOn(&run_boundary_tests.step);
     test_step.dependOn(&run_structured_program_tests.step);
+    test_step.dependOn(&shipped_backend_cmd.step);
 
     const compile_fail_step = b.step("compile-fail", "Verify compile-fail misuse fixtures.");
     const one_shot_success_fixtures = [_]struct {
