@@ -1,5 +1,6 @@
 const effect_ir = @import("effect_ir");
 const parity_scenarios = @import("parity_scenarios");
+const std = @import("std");
 
 /// Witness programs exposed through the internal structured-program front end.
 pub const WitnessProgram = enum {
@@ -238,11 +239,91 @@ pub fn lower(program: Program) LoweredProgram {
     };
 }
 
+fn cloneBytes(comptime bytes: []const u8) []const u8 {
+    return std.fmt.comptimePrint("{s}", .{bytes});
+}
+
+fn cloneSymbolRef(comptime symbol: effect_ir.SymbolRef) effect_ir.SymbolRef {
+    return .{
+        .module_path = cloneBytes(symbol.module_path),
+        .symbol_name = cloneBytes(symbol.symbol_name),
+    };
+}
+
+fn cloneOutputSpecs(comptime outputs: []const effect_ir.OutputSpec) []const effect_ir.OutputSpec {
+    return comptime blk: {
+        var buffer: [outputs.len]effect_ir.OutputSpec = undefined;
+        for (outputs, 0..) |output, index| {
+            buffer[index] = .{
+                .label = cloneBytes(output.label),
+                .OutputType = output.OutputType,
+            };
+        }
+        break :blk buffer[0..];
+    };
+}
+
+fn cloneOps(comptime ops: []const effect_ir.OpSpec) []const effect_ir.OpSpec {
+    return comptime blk: {
+        var buffer: [ops.len]effect_ir.OpSpec = undefined;
+        for (ops, 0..) |op, index| {
+            buffer[index] = .{
+                .requirement_label = cloneBytes(op.requirement_label),
+                .op_name = cloneBytes(op.op_name),
+                .mode = op.mode,
+                .PayloadType = op.PayloadType,
+                .ResumeType = op.ResumeType,
+            };
+        }
+        break :blk buffer[0..];
+    };
+}
+
+fn cloneRequirements(comptime requirements: []const effect_ir.Requirement) []const effect_ir.Requirement {
+    return comptime blk: {
+        var buffer: [requirements.len]effect_ir.Requirement = undefined;
+        for (requirements, 0..) |requirement, index| {
+            buffer[index] = .{
+                .label = cloneBytes(requirement.label),
+                .ops = cloneOps(requirement.ops),
+            };
+        }
+        break :blk buffer[0..];
+    };
+}
+
+fn cloneRow(comptime row: effect_ir.Row) effect_ir.Row {
+    return .{
+        .requirements = cloneRequirements(row.requirements),
+    };
+}
+
+fn cloneCallEdges(comptime call_edges: []const effect_ir.CallEdge) []const effect_ir.CallEdge {
+    return comptime blk: {
+        var buffer: [call_edges.len]effect_ir.CallEdge = undefined;
+        for (call_edges, 0..) |edge, index| {
+            buffer[index] = .{
+                .caller = cloneSymbolRef(edge.caller),
+                .callee = cloneSymbolRef(edge.callee),
+            };
+        }
+        break :blk buffer[0..];
+    };
+}
+
+fn cloneFunction(comptime function: effect_ir.Function) effect_ir.Function {
+    return .{
+        .symbol = cloneSymbolRef(function.symbol),
+        .row = cloneRow(function.row),
+        .outputs = cloneOutputSpecs(function.outputs),
+    };
+}
+
 /// Lower one open-row frontend payload into stable single-function storage.
 pub fn lowerOpenRow(program: OpenRowProgram) LoweredOpenRowProgram {
     return .{
-        .functions = .{program.function},
-        .call_edges = program.call_edges,
+        .functions = .{cloneFunction(program.function)},
+        .call_edges = cloneCallEdges(program.call_edges),
     };
 }
 

@@ -823,6 +823,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    open_row_lowering_mod.addImport("effect_ir", effect_ir_mod);
     open_row_lowering_mod.addImport("source_lowering", source_lowering_mod);
     open_row_lowering_mod.addImport("program_frontend", program_frontend_mod);
     open_row_lowering_mod.addImport("example_open_row_state_writer", createShiftConsumerModule(b, "examples/open_row_state_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
