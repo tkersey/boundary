@@ -187,7 +187,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    witnesses_mod.addImport("shift", shift_mod);
     const formal_core_registry_mod = b.createModule(.{
         .root_source_file = b.path("src/formal_core_registry.zig"),
         .target = target,
@@ -301,7 +300,16 @@ pub fn build(b: *std.Build) void {
     lexical_runtime_internal_mod.addImport("frontend_support", frontend_support_mod);
     lexical_runtime_internal_mod.addImport("lowered_machine", lowered_machine_mod);
     lexical_runtime_internal_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
-    witnesses_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    const witness_sources_mod = b.createModule(.{
+        .root_source_file = b.path("src/witness_sources.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    witness_sources_mod.addImport("lowered_machine", lowered_machine_mod);
+    witness_sources_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    witness_sources_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
+    witness_sources_mod.addImport("frontend_support", frontend_support_mod);
+    witnesses_mod.addImport("witness_sources", witness_sources_mod);
     const bridge_manifest_mod = b.createModule(.{
         .root_source_file = b.path("src/direct_style_bridge_manifest.zig"),
         .target = target,
@@ -465,6 +473,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const kernel_parity_witness_mod = b.createModule(.{
+        .root_source_file = b.path("test/kernel_parity_witness_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const backend_parity_manifest_mod = b.createModule(.{
         .root_source_file = b.path("test/backend_parity_manifest.zig"),
         .target = target,
@@ -502,8 +515,17 @@ pub fn build(b: *std.Build) void {
         .root_module = backend_parity_mod,
     });
     const run_backend_parity_tests = b.addRunArtifact(backend_parity_tests);
+    kernel_parity_witness_mod.addImport("backend_parity_manifest", backend_parity_manifest_mod);
+    kernel_parity_witness_mod.addImport("parity_kernel", parity_kernel_mod);
+    kernel_parity_witness_mod.addImport("parity_machine", parity_machine_mod);
+    kernel_parity_witness_mod.addImport("witnesses_src", witnesses_mod);
+    const kernel_parity_witness_tests = b.addTest(.{
+        .root_module = kernel_parity_witness_mod,
+    });
+    const run_parity_witness_tests = b.addRunArtifact(kernel_parity_witness_tests);
     const backend_parity_step = b.step("kernel-parity-check", "Check the hidden lowered proof engine beneath the root execution kernel.");
     backend_parity_step.dependOn(&run_backend_parity_tests.step);
+    backend_parity_step.dependOn(&run_parity_witness_tests.step);
 
     const proof_fixture_mod = b.createModule(.{
         .root_source_file = b.path("tools/render_proof_fixtures.zig"),
@@ -792,16 +814,7 @@ pub fn build(b: *std.Build) void {
     });
     src_lower_witness_mod.addImport("source_lowering", source_lowering_mod);
     src_lower_witness_mod.addImport("parity_scenarios", parity_scenarios_mod);
-    const src_lower_witness_src_mod = b.createModule(.{
-        .root_source_file = b.path("src/witness_sources.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    src_lower_witness_src_mod.addImport("lowered_machine", lowered_machine_mod);
-    src_lower_witness_src_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
-    src_lower_witness_src_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
-    src_lower_witness_src_mod.addImport("frontend_support", frontend_support_mod);
-    src_lower_witness_mod.addImport("witness_sources", src_lower_witness_src_mod);
+    src_lower_witness_mod.addImport("witness_sources", witness_sources_mod);
     const src_lower_witness_tests = b.addTest(.{
         .root_module = src_lower_witness_mod,
     });
