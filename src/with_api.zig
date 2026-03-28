@@ -140,8 +140,8 @@ pub fn collectClosedOutputs(handlers_ptr: anytype) ClosedOutputBundleType(std.me
     inline for (@typeInfo(HandlersType).@"struct".fields) |field| {
         const HandlerType = field.type;
         if (ClosedOutputType(HandlerType) == void) continue;
-        var handler_value: HandlerType = @field(handlers_ptr.*, field.name);
-        @field(outputs, field.name) = handler_value.finish();
+        const handler_ptr: *@FieldType(HandlersType, field.name) = @ptrFromInt(@intFromPtr(&@field(handlers_ptr.*, field.name)));
+        @field(outputs, field.name) = handler_ptr.finish();
     }
     return outputs;
 }
@@ -944,4 +944,29 @@ test "collectClosedOutputs mirrors finish results" {
     const outputs = collectClosedOutputs(&handlers);
     try std.testing.expectEqual(@as(i32, 9), outputs.state);
     try std.testing.expectEqualSlices(u8, "done", outputs.writer[0..]);
+}
+
+test "collectClosedOutputs finalizes the owned handler fields" {
+    const writer_handler = struct {
+        finished: bool = false,
+        storage: [4]u8 = .{ 'd', 'o', 'n', 'e' },
+        pub const Output = []const u8;
+
+        pub fn finish(self: *@This()) []const u8 {
+            self.finished = true;
+            return self.storage[0..];
+        }
+    };
+    const Handlers = struct {
+        writer: writer_handler,
+    };
+    var handlers: Handlers = .{
+        .writer = writer_handler{},
+    };
+
+    const outputs = collectClosedOutputs(&handlers);
+    try std.testing.expect(handlers.writer.finished);
+    try std.testing.expectEqualSlices(u8, "done", outputs.writer);
+    handlers.writer.storage[0] = 't';
+    try std.testing.expectEqual(@as(u8, 't'), outputs.writer[0]);
 }

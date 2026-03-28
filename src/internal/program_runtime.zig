@@ -30,8 +30,8 @@ pub fn run(
 }
 
 test "finalizeClosedResult mirrors explicit handler outputs" {
-    var handlers = .{
-        .state = struct {
+    const Handlers = struct {
+        state: struct {
             value: i32,
             /// Explicit output type collected from the state handler.
             pub const Output = i32;
@@ -40,8 +40,8 @@ test "finalizeClosedResult mirrors explicit handler outputs" {
             pub fn finish(self: *@This()) i32 {
                 return self.value;
             }
-        }{ .value = 5 },
-        .writer = struct {
+        },
+        writer: struct {
             /// Explicit output type collected from the writer handler.
             pub const Output = usize;
             value: usize = 2,
@@ -50,7 +50,11 @@ test "finalizeClosedResult mirrors explicit handler outputs" {
             pub fn finish(self: *@This()) usize {
                 return self.value;
             }
-        }{},
+        },
+    };
+    var handlers: Handlers = .{
+        .state = .{ .value = 5 },
+        .writer = .{},
     };
 
     const result = finalizeClosedResult(&handlers, @as([]const u8, "done"));

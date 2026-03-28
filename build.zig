@@ -715,6 +715,7 @@ pub fn build(b: *std.Build) void {
     run_bridge_tests.setName("hidden direct-style bridge parity runner");
     const run_bridge_boundary_tests = b.addRunArtifact(bridge_boundary_tests);
     const boundary_step = b.step("direct-style-boundary", "Run explicit boundary checks for unsupported raw direct-style lowering.");
+    boundary_step.dependOn(&run_bridge_tests.step);
     boundary_step.dependOn(&run_boundary_tests.step);
     boundary_step.dependOn(&run_bridge_boundary_tests.step);
 
@@ -1222,6 +1223,7 @@ pub fn build(b: *std.Build) void {
     shipped_backend_cmd.setName("hidden shipped backend contract runner");
 
     test_step.dependOn(&authoring_lower_check_cmd.step);
+    test_step.dependOn(&run_bridge_tests.step);
     test_step.dependOn(&run_boundary_tests.step);
     test_step.dependOn(&run_structured_program_tests.step);
 

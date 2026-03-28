@@ -158,11 +158,18 @@ fn hasBinding(comptime DeclType: type) bool {
     };
 }
 
+fn isEmptyStructType(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .@"struct" => |info| info.fields.len == 0,
+        else => false,
+    };
+}
+
 fn hasOutput(comptime DeclType: type) bool {
     return switch (DeclType.kind) {
         .state, .writer => true,
         .reader, .optional, .exception, .resource => false,
-        .family => DeclType.generated.definition.mode == .resume_then_transform,
+        .family => DeclType.generated.definition.mode == .resume_then_transform and !isEmptyStructType(DeclType.generated.definition.StateType),
     };
 }
 
@@ -407,6 +414,31 @@ test "program manifest records declaration metadata and outputs" {
     try std.testing.expectEqual(@as(usize, 2), Manifest.entries[2].op_count);
     try std.testing.expectEqual(@as(usize, 3), Manifest.outputs.len);
     try std.testing.expectEqualStrings("counter", Manifest.outputs[1]);
+}
+
+test "program manifest omits stateless transform-family outputs" {
+    const Audit = decl.family(.{
+        .state_type = struct {},
+        .ops = .{
+            ops.Transform("note", []const u8, void),
+        },
+    }, struct {
+        pub fn note(_: *@This(), _: []const u8) void {}
+    });
+
+    const demo_program = Program(.{
+        .audit = Audit,
+        .writer = decl.writer([]const u8),
+    }, struct {
+        pub fn body(_: anytype) i32 {
+            return 0;
+        }
+    });
+
+    const Manifest = manifest_api.Of(demo_program);
+    try std.testing.expect(!Manifest.entries[0].has_output);
+    try std.testing.expectEqual(@as(usize, 1), Manifest.outputs.len);
+    try std.testing.expectEqualStrings("writer", Manifest.outputs[0]);
 }
 
 test "program run executes through the new front door" {
