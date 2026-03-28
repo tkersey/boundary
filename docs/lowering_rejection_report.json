@@ -4,6 +4,6 @@
     {"label":"source.branch_resume.dead_code","case_id":"source.branch_resume","diagnostic_code":"unsupported_shape","source_path":"test/source_lowering_corpus/fixtures/branch_resume.zig","line":9,"column":5},
     {"label":"source.helper_call_resume.dynamic_callee","case_id":"source.helper_call_resume","diagnostic_code":"unsupported_shape","source_path":"test/source_lowering_corpus/fixtures/helper_call_resume.zig","line":16,"column":11},
     {"label":"source.helper_call_resume.renamed_helper","case_id":"source.helper_call_resume","diagnostic_code":"unsupported_shape","source_path":"test/source_lowering_corpus/fixtures/helper_call_resume.zig","line":14,"column":1},
-    {"label":"example.define_basic.wrong_entry","case_id":"example.define_basic","diagnostic_code":"unsupported_shape","source_path":"examples/define_basic.zig","line":1,"column":1}
+    {"label":"example.open_row_transform_basic.wrong_entry","case_id":"example.open_row_transform_basic","diagnostic_code":"unsupported_shape","source_path":"examples/open_row_transform_basic.zig","line":1,"column":1}
   ]
 }

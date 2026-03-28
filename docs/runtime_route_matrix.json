@@ -9,14 +9,14 @@
     {"case_id":"early_exit","route":"lowered_machine","source":"src/private_lowered_runtime.zig","note":"supported bridge case executes through lowered_machine"},
     {"case_id":"resume_or_return","route":"lowered_machine","source":"src/private_lowered_runtime.zig","note":"supported bridge case executes through lowered_machine"},
     {"case_id":"nested_workflow","route":"lowered_machine","source":"src/private_lowered_runtime.zig","note":"supported bridge case executes through lowered_machine"},
-    {"case_id":"generator","route":"lowered_machine","source":"src/private_lowered_runtime.zig","note":"supported bridge case executes through lowered_machine"},
+    {"case_id":"open_row_generator","route":"lowered_machine","source":"src/private_lowered_runtime.zig","note":"supported bridge case executes through lowered_machine"},
     {"case_id":"state_basic","route":"lowered_machine","source":"src/private_lowered_runtime.zig","note":"supported bridge case executes through lowered_machine"},
     {"case_id":"reader_basic","route":"lowered_machine","source":"src/private_lowered_runtime.zig","note":"supported bridge case executes through lowered_machine"},
     {"case_id":"optional_basic","route":"lowered_machine","source":"src/private_lowered_runtime.zig","note":"supported bridge case executes through lowered_machine"},
     {"case_id":"exception_basic","route":"lowered_machine","source":"src/private_lowered_runtime.zig","note":"supported bridge case executes through lowered_machine"},
     {"case_id":"resource_basic","route":"lowered_machine","source":"src/private_lowered_runtime.zig","note":"supported bridge case executes through lowered_machine"},
     {"case_id":"writer_basic","route":"lowered_machine","source":"src/private_lowered_runtime.zig","note":"supported bridge case executes through lowered_machine"},
-    {"case_id":"algebraic_abortive_validation","route":"lowered_machine","source":"src/private_lowered_runtime.zig","note":"supported bridge case executes through lowered_machine"},
-    {"case_id":"algebraic_artifact_search","route":"lowered_machine","source":"src/private_lowered_runtime.zig","note":"supported bridge case executes through lowered_machine"}
+    {"case_id":"open_row_abortive_validation","route":"lowered_machine","source":"src/private_lowered_runtime.zig","note":"supported bridge case executes through lowered_machine"},
+    {"case_id":"open_row_artifact_search","route":"lowered_machine","source":"src/private_lowered_runtime.zig","note":"supported bridge case executes through lowered_machine"}
   ]
 }

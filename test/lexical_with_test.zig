@@ -947,7 +947,7 @@ test "generated abort families use the lexical abort form" {
         },
     });
 
-    try expectFixtureTranscript("example_proof/fixtures/algebraic_abortive_validation.txt", struct {
+    try expectFixtureTranscript("example_proof/fixtures/open_row_abortive_validation.txt", struct {
         fn run(writer: anytype) anyerror!void {
             const transcript = struct {
                 threadlocal var active_writer: ?@TypeOf(writer) = null;

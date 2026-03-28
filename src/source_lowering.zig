@@ -4,6 +4,7 @@ const error_witness = @import("error_witness");
 const lowered_machine = @import("lowered_machine");
 const parity_scenarios = @import("parity_scenarios");
 const program_frontend = @import("program_frontend");
+const shipped_open_row_corpus = @import("shipped_open_row_corpus_registry");
 const source_registry = @import("source_lowering_registry");
 const std = @import("std");
 
@@ -680,6 +681,34 @@ const witness_generator_match = Match{
     .feature_flags = &.{ "witness", "generator", "source_canonical" },
 };
 
+fn customScenarioId(kind: shipped_open_row_corpus.CustomExampleKind) parity_scenarios.ScenarioId {
+    return switch (kind) {
+        .transform_basic => .define_basic,
+        .choice_basic => .define_choice_basic,
+        .abort_basic => .define_abort_basic,
+        .workflow => .front_door_workflow,
+        .abortive_validation => .algebraic_abortive_validation,
+        .artifact_search => .algebraic_artifact_search,
+        .generator => .generator,
+    };
+}
+
+fn customMatch(kind: shipped_open_row_corpus.CustomExampleKind) Match {
+    return switch (kind) {
+        .transform_basic => open_row_transform_match,
+        .choice_basic => open_row_choice_match,
+        .abort_basic => open_row_abort_match,
+        .workflow => open_row_workflow_match,
+        .abortive_validation => open_row_abortive_validation_match,
+        .artifact_search => open_row_artifact_match,
+        .generator => open_row_generator_match,
+    };
+}
+
+fn customLabel(comptime row: shipped_open_row_corpus.CustomExample) []const u8 {
+    return std.fmt.comptimePrint("source.{s}", .{row.example_case_id});
+}
+
 const SupportedCase = struct {
     case_id: []const u8,
     label: []const u8,
@@ -779,86 +808,16 @@ fn rejectedWitnessTemplate(spec: Spec) WitnessTemplate {
 
 fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?SupportedCase {
     if (surface_kind == .example) {
-        if (std.mem.eql(u8, case_id, "example.open_row_transform_basic")) return .{
-            .case_id = case_id,
-            .label = "source.example.open_row_transform_basic",
-            .source_path = "examples/open_row_transform_basic.zig",
-            .scenario_id = .define_basic,
-            .status = .canonical,
-            .match = open_row_transform_match,
-        };
-        if (std.mem.eql(u8, case_id, "example.open_row_choice_basic")) return .{
-            .case_id = case_id,
-            .label = "source.example.open_row_choice_basic",
-            .source_path = "examples/open_row_choice_basic.zig",
-            .scenario_id = .define_choice_basic,
-            .status = .canonical,
-            .match = open_row_choice_match,
-        };
-        if (std.mem.eql(u8, case_id, "example.open_row_abort_basic")) return .{
-            .case_id = case_id,
-            .label = "source.example.open_row_abort_basic",
-            .source_path = "examples/open_row_abort_basic.zig",
-            .scenario_id = .define_abort_basic,
-            .status = .canonical,
-            .match = open_row_abort_match,
-        };
-        if (std.mem.eql(u8, case_id, "example.open_row_workflow")) return .{
-            .case_id = case_id,
-            .label = "source.example.open_row_workflow",
-            .source_path = "examples/open_row_workflow.zig",
-            .scenario_id = .front_door_workflow,
-            .status = .canonical,
-            .match = open_row_workflow_match,
-        };
-        if (std.mem.eql(u8, case_id, "example.open_row_abortive_validation")) return .{
-            .case_id = case_id,
-            .label = "source.example.open_row_abortive_validation",
-            .source_path = "examples/open_row_abortive_validation.zig",
-            .scenario_id = .algebraic_abortive_validation,
-            .status = .canonical,
-            .match = open_row_abortive_validation_match,
-        };
-        if (std.mem.eql(u8, case_id, "example.open_row_artifact_search")) return .{
-            .case_id = case_id,
-            .label = "source.example.open_row_artifact_search",
-            .source_path = "examples/open_row_artifact_search.zig",
-            .scenario_id = .algebraic_artifact_search,
-            .status = .canonical,
-            .match = open_row_artifact_match,
-        };
-        if (std.mem.eql(u8, case_id, "example.open_row_generator")) return .{
-            .case_id = case_id,
-            .label = "source.example.open_row_generator",
-            .source_path = "examples/open_row_generator.zig",
-            .scenario_id = .generator,
-            .status = .canonical,
-            .match = open_row_generator_match,
-        };
-        if (std.mem.eql(u8, case_id, "example.define_basic")) return .{
-            .case_id = case_id,
-            .label = "source.example.define_basic",
-            .source_path = "examples/define_basic.zig",
-            .scenario_id = .define_basic,
-            .status = .canonical,
-            .match = define_basic_match,
-        };
-        if (std.mem.eql(u8, case_id, "example.define_choice_basic")) return .{
-            .case_id = case_id,
-            .label = "source.example.define_choice_basic",
-            .source_path = "examples/define_choice_basic.zig",
-            .scenario_id = .define_choice_basic,
-            .status = .canonical,
-            .match = define_choice_match,
-        };
-        if (std.mem.eql(u8, case_id, "example.define_abort_basic")) return .{
-            .case_id = case_id,
-            .label = "source.example.define_abort_basic",
-            .source_path = "examples/define_abort_basic.zig",
-            .scenario_id = .define_abort_basic,
-            .status = .canonical,
-            .match = define_abort_match,
-        };
+        inline for (shipped_open_row_corpus.custom_examples) |row| {
+            if (std.mem.eql(u8, case_id, row.example_case_id)) return .{
+                .case_id = case_id,
+                .label = customLabel(row),
+                .source_path = row.source_path,
+                .scenario_id = customScenarioId(row.kind),
+                .status = .canonical,
+                .match = customMatch(row.kind),
+            };
+        }
         if (std.mem.eql(u8, case_id, "example.early_exit")) return .{
             .case_id = case_id,
             .label = "source.example.early_exit",
@@ -874,14 +833,6 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .scenario_id = .resume_or_return,
             .status = .canonical,
             .match = resume_or_return_example_match,
-        };
-        if (std.mem.eql(u8, case_id, "example.front_door_workflow")) return .{
-            .case_id = case_id,
-            .label = "source.example.front_door_workflow",
-            .source_path = "examples/front_door_workflow.zig",
-            .scenario_id = .front_door_workflow,
-            .status = .canonical,
-            .match = front_door_workflow_match,
         };
         if (std.mem.eql(u8, case_id, "example.nested_workflow")) return .{
             .case_id = case_id,
@@ -939,22 +890,6 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .status = .canonical,
             .match = writer_example_match,
         };
-        if (std.mem.eql(u8, case_id, "example.algebraic_abortive_validation")) return .{
-            .case_id = case_id,
-            .label = "source.example.algebraic_abortive_validation",
-            .source_path = "examples/algebraic_abortive_validation.zig",
-            .scenario_id = .algebraic_abortive_validation,
-            .status = .canonical,
-            .match = algebraic_abort_match,
-        };
-        if (std.mem.eql(u8, case_id, "example.algebraic_artifact_search")) return .{
-            .case_id = case_id,
-            .label = "source.example.algebraic_artifact_search",
-            .source_path = "examples/algebraic_artifact_search.zig",
-            .scenario_id = .algebraic_artifact_search,
-            .status = .canonical,
-            .match = algebraic_artifact_match,
-        };
     }
     if (surface_kind == .effect) {
         if (std.mem.eql(u8, case_id, "effect.state_basic")) return .{
@@ -1007,30 +942,17 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
         };
     }
     if (surface_kind == .user_defined_effect) {
-        if (std.mem.eql(u8, case_id, "user_defined.transform")) return .{
-            .case_id = case_id,
-            .label = "source.user_defined.transform",
-            .source_path = "examples/open_row_transform_basic.zig",
-            .scenario_id = .define_basic,
-            .status = .canonical,
-            .match = open_row_transform_match,
-        };
-        if (std.mem.eql(u8, case_id, "user_defined.choice")) return .{
-            .case_id = case_id,
-            .label = "source.user_defined.choice",
-            .source_path = "examples/open_row_choice_basic.zig",
-            .scenario_id = .define_choice_basic,
-            .status = .canonical,
-            .match = open_row_choice_match,
-        };
-        if (std.mem.eql(u8, case_id, "user_defined.abort")) return .{
-            .case_id = case_id,
-            .label = "source.user_defined.abort",
-            .source_path = "examples/open_row_abort_basic.zig",
-            .scenario_id = .define_abort_basic,
-            .status = .canonical,
-            .match = open_row_abort_match,
-        };
+        inline for (shipped_open_row_corpus.custom_examples) |row| {
+            const user_defined_case_id = row.user_defined_case_id orelse continue;
+            if (std.mem.eql(u8, case_id, user_defined_case_id)) return .{
+                .case_id = case_id,
+                .label = std.fmt.comptimePrint("source.{s}", .{user_defined_case_id}),
+                .source_path = row.source_path,
+                .scenario_id = customScenarioId(row.kind),
+                .status = .canonical,
+                .match = customMatch(row.kind),
+            };
+        }
     }
     if (surface_kind == .witness) {
         if (std.mem.eql(u8, case_id, "witness.atm_resume_transform")) return .{

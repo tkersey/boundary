@@ -1,9 +1,9 @@
-const algebraic_abortive_validation = @import("direct_style_bridge_algebraic_abortive_validation");
-const algebraic_artifact_search = @import("direct_style_bridge_algebraic_artifact_search");
+const open_row_abortive_validation = @import("direct_style_bridge_open_row_abortive_validation");
+const open_row_artifact_search = @import("direct_style_bridge_open_row_artifact_search");
 const bridge_manifest = @import("direct_style_bridge_manifest");
 const early_exit = @import("direct_style_bridge_early_exit");
 const exception_basic = @import("direct_style_bridge_exception_basic");
-const generator = @import("direct_style_bridge_generator");
+const open_row_generator = @import("direct_style_bridge_open_row_generator");
 const nested_workflow = @import("direct_style_bridge_nested_workflow");
 const optional_basic = @import("direct_style_bridge_optional_basic");
 const private_lowered_runtime = @import("private_lowered_runtime");
@@ -31,10 +31,10 @@ fn expectBridgeParity(comptime Fixture: type) !void {
 }
 
 test "direct-style bridge lowers the supported unchanged-body corpus" {
-    try expectBridgeParity(algebraic_abortive_validation);
-    try expectBridgeParity(algebraic_artifact_search);
+    try expectBridgeParity(open_row_abortive_validation);
+    try expectBridgeParity(open_row_artifact_search);
     try expectBridgeParity(early_exit);
-    try expectBridgeParity(generator);
+    try expectBridgeParity(open_row_generator);
     try expectBridgeParity(resume_or_return);
     try expectBridgeParity(nested_workflow);
     try expectBridgeParity(state_basic);

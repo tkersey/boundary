@@ -1,9 +1,9 @@
-const algebraic_abortive_validation = @import("example_algebraic_abortive_validation");
-const algebraic_artifact_search = @import("example_algebraic_artifact_search");
+const open_row_abortive_validation = @import("example_open_row_abortive_validation");
+const open_row_artifact_search = @import("example_open_row_artifact_search");
 const bridge_manifest = @import("direct_style_bridge_manifest");
 const early_exit = @import("example_early_exit");
 const exception_basic = @import("example_exception_basic");
-const generator = @import("example_generator");
+const open_row_generator = @import("example_open_row_generator");
 const nested_workflow = @import("example_nested_workflow");
 const optional_basic = @import("example_optional_basic");
 const reader_basic = @import("example_reader_basic");
@@ -30,10 +30,10 @@ pub fn runCaseId(writer: anytype, case_id: []const u8) anyerror!void {
         return;
     }
 
-    if (std.mem.eql(u8, case_id, "algebraic_abortive_validation")) return algebraic_abortive_validation.run(writer);
-    if (std.mem.eql(u8, case_id, "algebraic_artifact_search")) return algebraic_artifact_search.run(writer);
+    if (std.mem.eql(u8, case_id, "open_row_abortive_validation")) return open_row_abortive_validation.run(writer);
+    if (std.mem.eql(u8, case_id, "open_row_artifact_search")) return open_row_artifact_search.run(writer);
     if (std.mem.eql(u8, case_id, "early_exit")) return early_exit.run(writer);
-    if (std.mem.eql(u8, case_id, "generator")) return generator.run(writer);
+    if (std.mem.eql(u8, case_id, "open_row_generator")) return open_row_generator.run(writer);
     if (std.mem.eql(u8, case_id, "resume_or_return")) return resume_or_return.run(writer);
     if (std.mem.eql(u8, case_id, "nested_workflow")) return nested_workflow.run(writer);
     if (std.mem.eql(u8, case_id, "state_basic")) return state_basic.run(writer);

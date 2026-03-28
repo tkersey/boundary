@@ -1,4 +1,6 @@
 const formal_core = @import("formal_core_registry");
+const shipped_open_row_corpus = @import("shipped_open_row_corpus_registry");
+const std = @import("std");
 
 const canonical_note = "Canonical through the internal source-lowering toolchain with direct-source and canonical-scenario parity proof.";
 const witness_canonical_note = "Canonical through the internal source-lowering witness source with direct-source, canonical-scenario, evaluator, reference-machine, and runtime parity proof.";
@@ -28,6 +30,40 @@ pub const Row = struct {
     coverage_status: CoverageStatus = .gap,
     note: []const u8,
 };
+
+fn customLawAnchor(kind: shipped_open_row_corpus.CustomExampleKind) []const u8 {
+    return switch (kind) {
+        .transform_basic, .choice_basic, .abort_basic => formal_core.anchorPath(.strict_effect_capabilities),
+        .workflow, .abortive_validation, .artifact_search, .generator => formal_core.anchorPath(.practical_witnesses),
+    };
+}
+
+fn customExampleRow(comptime row: shipped_open_row_corpus.CustomExample) Row {
+    return .{
+        .coverage_id = row.example_case_id,
+        .category = .example,
+        .current_surface = std.fmt.comptimePrint("examples.{s}", .{row.name}),
+        .current_signal = std.fmt.comptimePrint("example_proof:{s}", .{row.fixture_name}),
+        .law_anchor = customLawAnchor(row.kind),
+        .source_label = std.fmt.comptimePrint("source.{s}", .{row.example_case_id}),
+        .coverage_status = .covered,
+        .note = canonical_note,
+    };
+}
+
+fn customUserDefinedRow(comptime row: shipped_open_row_corpus.CustomExample) ?Row {
+    const user_defined_case_id = row.user_defined_case_id orelse return null;
+    return .{
+        .coverage_id = user_defined_case_id,
+        .category = .user_defined_effect,
+        .current_surface = std.fmt.comptimePrint("shift.Row.helper_op.{s}", .{row.name}),
+        .current_signal = std.fmt.comptimePrint("example_proof:{s}", .{row.fixture_name}),
+        .law_anchor = formal_core.anchorPath(.strict_effect_capabilities),
+        .source_label = std.fmt.comptimePrint("source.{s}", .{user_defined_case_id}),
+        .coverage_status = .covered,
+        .note = canonical_note,
+    };
+}
 
 /// Generator-owned source-lowering coverage registry.
 pub const rows = [_]Row{
@@ -191,4 +227,14 @@ pub const rows = [_]Row{
         .coverage_status = .covered,
         .note = canonical_note,
     },
+    customExampleRow(shipped_open_row_corpus.custom_examples[0]),
+    customExampleRow(shipped_open_row_corpus.custom_examples[1]),
+    customExampleRow(shipped_open_row_corpus.custom_examples[2]),
+    customExampleRow(shipped_open_row_corpus.custom_examples[3]),
+    customExampleRow(shipped_open_row_corpus.custom_examples[4]),
+    customExampleRow(shipped_open_row_corpus.custom_examples[5]),
+    customExampleRow(shipped_open_row_corpus.custom_examples[6]),
+    customUserDefinedRow(shipped_open_row_corpus.custom_examples[0]).?,
+    customUserDefinedRow(shipped_open_row_corpus.custom_examples[1]).?,
+    customUserDefinedRow(shipped_open_row_corpus.custom_examples[2]).?,
 };

@@ -2,6 +2,7 @@ const bridge_manifest = @import("direct_style_bridge_manifest");
 const lowered_machine = @import("lowered_machine");
 const parity_scenarios = @import("parity_scenarios");
 const program_bridge = @import("program_bridge");
+const shipped_open_row_corpus = @import("shipped_open_row_corpus_registry");
 const source_coverage = @import("source_lowering_coverage_registry");
 const source_lowering = @import("source_lowering");
 const source_registry = @import("source_lowering_registry");
@@ -39,6 +40,16 @@ const source_specs = [_]ReportSpec{
 };
 
 const promoted_specs = [_]ReportSpec{
+    .{ .case_id = shipped_open_row_corpus.custom_examples[0].example_case_id, .source_path = shipped_open_row_corpus.custom_examples[0].source_path, .surface_kind = .example },
+    .{ .case_id = shipped_open_row_corpus.custom_examples[1].example_case_id, .source_path = shipped_open_row_corpus.custom_examples[1].source_path, .surface_kind = .example },
+    .{ .case_id = shipped_open_row_corpus.custom_examples[2].example_case_id, .source_path = shipped_open_row_corpus.custom_examples[2].source_path, .surface_kind = .example },
+    .{ .case_id = shipped_open_row_corpus.custom_examples[3].example_case_id, .source_path = shipped_open_row_corpus.custom_examples[3].source_path, .surface_kind = .example },
+    .{ .case_id = shipped_open_row_corpus.custom_examples[4].example_case_id, .source_path = shipped_open_row_corpus.custom_examples[4].source_path, .surface_kind = .example },
+    .{ .case_id = shipped_open_row_corpus.custom_examples[5].example_case_id, .source_path = shipped_open_row_corpus.custom_examples[5].source_path, .surface_kind = .example },
+    .{ .case_id = shipped_open_row_corpus.custom_examples[6].example_case_id, .source_path = shipped_open_row_corpus.custom_examples[6].source_path, .surface_kind = .example },
+    .{ .case_id = shipped_open_row_corpus.custom_examples[0].user_defined_case_id.?, .source_path = shipped_open_row_corpus.custom_examples[0].source_path, .surface_kind = .user_defined_effect },
+    .{ .case_id = shipped_open_row_corpus.custom_examples[1].user_defined_case_id.?, .source_path = shipped_open_row_corpus.custom_examples[1].source_path, .surface_kind = .user_defined_effect },
+    .{ .case_id = shipped_open_row_corpus.custom_examples[2].user_defined_case_id.?, .source_path = shipped_open_row_corpus.custom_examples[2].source_path, .surface_kind = .user_defined_effect },
     .{ .case_id = "example.early_exit", .source_path = "examples/early_exit.zig", .surface_kind = .example },
     .{ .case_id = "example.resume_or_return", .source_path = "examples/resume_or_return.zig", .surface_kind = .example },
     .{ .case_id = "example.nested_workflow", .source_path = "examples/nested_workflow.zig", .surface_kind = .example },
@@ -160,7 +171,7 @@ fn bridgeProofSpec(allocator: std.mem.Allocator, case: bridge_manifest.Case) !?P
             .surface_kind = .witness,
         },
         .example => {
-            if (std.mem.eql(u8, case.case_id, "generator")) {
+            if (std.mem.eql(u8, case.case_id, "open_row_generator")) {
                 return .{
                     .case_id = try allocator.dupe(u8, "witness.generator"),
                     .source_path = "src/witness_sources.zig",

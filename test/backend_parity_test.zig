@@ -1,9 +1,9 @@
-const algebraic_abortive_validation = @import("example_algebraic_abortive_validation");
-const algebraic_artifact_search = @import("example_algebraic_artifact_search");
+const open_row_abortive_validation = @import("example_open_row_abortive_validation");
+const open_row_artifact_search = @import("example_open_row_artifact_search");
 const backend_manifest = @import("backend_parity_manifest");
 const early_exit = @import("example_early_exit");
 const exception_basic = @import("example_exception_basic");
-const generator = @import("example_generator");
+const open_row_generator = @import("example_open_row_generator");
 const nested_workflow = @import("example_nested_workflow");
 const optional_basic = @import("example_optional_basic");
 const parity_kernel = @import("parity_kernel");
@@ -31,8 +31,8 @@ fn stackfulTranscript(buffer: anytype, case_id: []const u8) ![]const u8 {
         try witnesses.runWitness(&writer, case_id);
     } else if (std.mem.eql(u8, case_id, "multi_prompt")) {
         try witnesses.runWitness(&writer, case_id);
-    } else if (std.mem.eql(u8, case_id, "generator")) {
-        try generator.run(&writer);
+    } else if (std.mem.eql(u8, case_id, "open_row_generator")) {
+        try open_row_generator.run(&writer);
     } else if (std.mem.eql(u8, case_id, "early_exit")) {
         try early_exit.run(&writer);
     } else if (std.mem.eql(u8, case_id, "resume_or_return")) {
@@ -51,10 +51,10 @@ fn stackfulTranscript(buffer: anytype, case_id: []const u8) ![]const u8 {
         try writer_basic.run(&writer);
     } else if (std.mem.eql(u8, case_id, "state_basic")) {
         try state_basic.run(&writer);
-    } else if (std.mem.eql(u8, case_id, "algebraic_abortive_validation")) {
-        try algebraic_abortive_validation.run(&writer);
-    } else if (std.mem.eql(u8, case_id, "algebraic_artifact_search")) {
-        try algebraic_artifact_search.run(&writer);
+    } else if (std.mem.eql(u8, case_id, "open_row_abortive_validation")) {
+        try open_row_abortive_validation.run(&writer);
+    } else if (std.mem.eql(u8, case_id, "open_row_artifact_search")) {
+        try open_row_artifact_search.run(&writer);
     } else {
         return error.UnknownParityCase;
     }
