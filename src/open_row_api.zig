@@ -412,24 +412,34 @@ test "bind order does not change open-row handler semantics" {
         }),
     });
     const workflow = struct {
+        /// Capability bundle for the bind-order test workflow.
         pub const uses = Uses(WorkflowRow);
 
+        /// Execute both handlers so row ordering is observable in the answer.
         pub fn body(eff: anytype) anyerror!i32 {
             try eff.alpha.tick.perform();
             try eff.beta.tick.perform();
             return 0;
         }
     };
-    const AlphaHandler = struct {
-        pub fn tick(_: *@This()) void {}
+    const alpha_handler = struct {
+        /// Record the alpha branch in the final answer.
+        pub fn tick(_: *@This()) void {
+            // Intentionally empty: the after hook carries the observable effect.
+        }
 
+        /// Encode the alpha branch after the continuation resumes.
         pub fn afterTick(_: *@This(), answer: i32) i32 {
             return answer * 10 + 1;
         }
     };
-    const BetaHandler = struct {
-        pub fn tick(_: *@This()) void {}
+    const beta_handler = struct {
+        /// Record the beta branch in the final answer.
+        pub fn tick(_: *@This()) void {
+            // Intentionally empty: the after hook carries the observable effect.
+        }
 
+        /// Encode the beta branch after the continuation resumes.
         pub fn afterTick(_: *@This(), answer: i32) i32 {
             return answer * 10 + 2;
         }
@@ -439,12 +449,12 @@ test "bind order does not change open-row handler semantics" {
     defer runtime.deinit();
 
     const canonical = try runBound(&runtime, bind(workflow, .{
-        .alpha = AlphaHandler{},
-        .beta = BetaHandler{},
+        .alpha = alpha_handler{},
+        .beta = beta_handler{},
     }));
     const reordered = try runBound(&runtime, bind(workflow, .{
-        .beta = BetaHandler{},
-        .alpha = AlphaHandler{},
+        .beta = beta_handler{},
+        .alpha = alpha_handler{},
     }));
 
     try @import("std").testing.expectEqual(canonical.value, reordered.value);
@@ -457,8 +467,10 @@ test "runBound adapts non-zeroable plain handlers" {
         },
     });
     const workflow = struct {
+        /// Capability bundle for the non-zeroable handler adaptation test.
         pub const uses = Uses(WorkflowRow);
 
+        /// Trigger the search op once through the adapted handler bundle.
         pub fn body(eff: anytype) anyerror!i32 {
             return try eff.search.query.perform("artifact-search");
         }
@@ -466,6 +478,7 @@ test "runBound adapts non-zeroable plain handlers" {
     const SearchHandler = struct {
         allocator: @import("std").mem.Allocator,
 
+        /// Return the canonical search total while proving the allocator survives adaptation.
         pub fn query(self: *@This(), payload: []const u8) i32 {
             _ = self.allocator;
             return if (@import("std").mem.eql(u8, payload, "artifact-search")) 3 else 0;

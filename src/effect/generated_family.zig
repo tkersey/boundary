@@ -1021,12 +1021,14 @@ pub fn Build(comptime spec: anytype) type {
         /// Descriptor value used by `shift.with(...)` for generated families.
         pub fn LexicalDescriptor(comptime HandlerType: type) type {
             return struct {
+                const produces_output = mode == .resume_then_transform and !isEmptyStructType(StateType);
+
                 /// Shared error set carried by the generated lexical descriptor.
                 pub const ErrorSet = ErrorSetType;
                 /// State type threaded through the generated lexical context.
                 pub const State = StateType;
                 /// Final generated descriptor output; transform families emit final state and control families emit no extra output.
-                pub const Output = if (mode == .resume_then_transform) StateType else void;
+                pub const Output = if (produces_output) StateType else void;
 
                 handler: HandlerType,
 
@@ -1080,9 +1082,15 @@ pub fn Build(comptime spec: anytype) type {
                     var instance = Instance.init();
                     const ActualRunErrorSet = RunErrorSetType || InferHandlerOperationErrorSet(mode, op_specs, HandlerType);
                     const result = try self_type.handleWithErrorSet(AnswerType, ActualRunErrorSet, runtime, &instance, self.handler, Body);
-                    if (mode == .resume_then_transform) {
+                    if (produces_output) {
                         return .{
                             .output = result.state,
+                            .value = result.value,
+                        };
+                    }
+                    if (mode == .resume_then_transform) {
+                        return .{
+                            .output = {},
                             .value = result.value,
                         };
                     }

@@ -441,7 +441,14 @@ pub fn main() anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
+    const WorkflowRow = shift.mergeRows(.{
+        shift.effects.state(i32),
+        shift.effects.writer([]const u8),
+    });
+
     const Workflow = struct {
+        pub const Uses = shift.Uses(WorkflowRow);
+
         pub fn body(eff: anytype) ![]const u8 {
             const before = try eff.state.get();
             try eff.state.set(before + 1);

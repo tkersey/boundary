@@ -295,13 +295,13 @@ pub fn adaptHandlersForBody(comptime Body: type, handlers: anytype) AdaptedHandl
     inline for (rowForBody(Body).requirements) |requirement| {
         const field_name = requirement.label;
         const field_value = @field(handlers, field_name);
-        const field_type = @TypeOf(field_value);
-        if (comptime isDescriptorLike(field_type)) {
+        const FieldType = @TypeOf(field_value);
+        if (comptime isDescriptorLike(FieldType)) {
             @field(adapted_ptr.*, field_name) = field_value;
         } else {
             @field(adapted_ptr.*, field_name) = adaptedHandlerValue(
                 requirement,
-                field_type,
+                FieldType,
                 DeclaredBodyAnswerType(Body),
                 field_value,
             );
@@ -412,8 +412,10 @@ test "plain user-defined handlers adapt non-zeroable stateful fields" {
         },
     });
     const workflow = struct {
+        /// Capability bundle for the non-zeroable state adaptation test.
         pub const uses = shift.Uses(WorkflowRow);
 
+        /// Trigger the adapted search op once.
         pub fn body(eff: anytype) anyerror!i32 {
             return try eff.search.query.perform("artifact-search");
         }
@@ -421,6 +423,7 @@ test "plain user-defined handlers adapt non-zeroable stateful fields" {
     const SearchHandler = struct {
         allocator: std.mem.Allocator,
 
+        /// Return the canonical search total while proving non-zeroable state is preserved.
         pub fn query(self: *@This(), payload: []const u8) i32 {
             _ = self.allocator;
             return if (std.mem.eql(u8, payload, "artifact-search")) 3 else 0;
@@ -433,6 +436,39 @@ test "plain user-defined handlers adapt non-zeroable stateful fields" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     const result = try with_api.with(&runtime, adapted, workflow);
+    try std.testing.expectEqual(@as(i32, 3), result.value);
+}
+
+test "plain stateless transform handlers do not synthesize output fields" {
+    const WorkflowRow = effect_ir.rowFromSpec(.{
+        .search = .{
+            .query = effect_ir.Transform([]const u8, i32),
+        },
+    });
+    const workflow = struct {
+        /// Capability bundle for the stateless-transform regression test.
+        pub const uses = shift.Uses(WorkflowRow);
+
+        /// Trigger the stateless search op once.
+        pub fn body(eff: anytype) anyerror!i32 {
+            return try eff.search.query.perform("artifact-search");
+        }
+    };
+    const search_handler = struct {
+        /// Return the canonical stateless search total.
+        pub fn query(_: *@This(), payload: []const u8) i32 {
+            return if (std.mem.eql(u8, payload, "artifact-search")) 3 else 0;
+        }
+    };
+
+    const adapted = adaptHandlersForBody(workflow, .{
+        .search = search_handler{},
+    });
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    const result = try with_api.with(&runtime, adapted, workflow);
+
+    try std.testing.expect(!@hasField(@TypeOf(result.outputs), "search"));
     try std.testing.expectEqual(@as(i32, 3), result.value);
 }
 
@@ -450,36 +486,46 @@ test "adapted plain handlers follow row order instead of caller field order" {
         }),
     });
     const workflow = struct {
+        /// Capability bundle for the row-order adaptation test.
         pub const uses = shift.Uses(WorkflowRow);
 
+        /// Trigger both handlers so their after hooks can prove row-order stability.
         pub fn body(eff: anytype) anyerror!i32 {
             try eff.alpha.tick.perform();
             try eff.beta.tick.perform();
             return 0;
         }
     };
-    const AlphaHandler = struct {
-        pub fn tick(_: *@This()) void {}
+    const alpha_handler = struct {
+        /// Mark the alpha branch without changing control flow directly.
+        pub fn tick(_: *@This()) void {
+            // Intentionally empty: the after hook carries the observable effect.
+        }
 
+        /// Encode the alpha branch into the answer.
         pub fn afterTick(_: *@This(), answer: i32) i32 {
             return answer * 10 + 1;
         }
     };
-    const BetaHandler = struct {
-        pub fn tick(_: *@This()) void {}
+    const beta_handler = struct {
+        /// Mark the beta branch without changing control flow directly.
+        pub fn tick(_: *@This()) void {
+            // Intentionally empty: the after hook carries the observable effect.
+        }
 
+        /// Encode the beta branch into the answer.
         pub fn afterTick(_: *@This(), answer: i32) i32 {
             return answer * 10 + 2;
         }
     };
 
     const canonical = adaptHandlersForBody(workflow, .{
-        .alpha = AlphaHandler{},
-        .beta = BetaHandler{},
+        .alpha = alpha_handler{},
+        .beta = beta_handler{},
     });
     const reordered = adaptHandlersForBody(workflow, .{
-        .beta = BetaHandler{},
-        .alpha = AlphaHandler{},
+        .beta = beta_handler{},
+        .alpha = alpha_handler{},
     });
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -502,8 +548,10 @@ test "plain user-defined handlers adapt requirements with up to eight ops" {
         },
     });
     const workflow = struct {
+        /// Capability bundle for the eight-op adaptation test.
         pub const uses = shift.Uses(WorkflowRow);
 
+        /// Trigger every adapted op once and sum the results.
         pub fn body(eff: anytype) anyerror!i32 {
             return (try eff.multi.one.perform()) +
                 (try eff.multi.two.perform()) +
@@ -516,34 +564,42 @@ test "plain user-defined handlers adapt requirements with up to eight ops" {
         }
     };
     const handler = struct {
+        /// Return the first canonical test value.
         pub fn one(_: *@This()) i32 {
             return 1;
         }
 
+        /// Return the second canonical test value.
         pub fn two(_: *@This()) i32 {
             return 2;
         }
 
+        /// Return the third canonical test value.
         pub fn three(_: *@This()) i32 {
             return 3;
         }
 
+        /// Return the fourth canonical test value.
         pub fn four(_: *@This()) i32 {
             return 4;
         }
 
+        /// Return the fifth canonical test value.
         pub fn five(_: *@This()) i32 {
             return 5;
         }
 
+        /// Return the sixth canonical test value.
         pub fn six(_: *@This()) i32 {
             return 6;
         }
 
+        /// Return the seventh canonical test value.
         pub fn seven(_: *@This()) i32 {
             return 7;
         }
 
+        /// Return the eighth canonical test value.
         pub fn eight(_: *@This()) i32 {
             return 8;
         }
