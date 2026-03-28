@@ -7,7 +7,7 @@ const witness_admission = @import("witness_admission_registry");
 
 test "direct-style bridge manifest stays aligned with witness admission truth" {
     for (witness_admission.entries) |entry| {
-        const case = bridge_manifest.find(entry.witness_id).?;
+        const case = bridge_manifest.findWitnessCase(entry.witness_id).?;
         const expected_supported = entry.bridge_status == .supported;
         try std.testing.expectEqual(expected_supported, case.status == .supported);
         if (!expected_supported) {

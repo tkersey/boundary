@@ -18,6 +18,7 @@ pub const SourceKind = enum {
 /// One internal proof fixture case tied to its canonical source module and scenario.
 pub const Case = struct {
     case_id: []const u8,
+    witness_id: ?[]const u8 = null,
     label: []const u8,
     source_kind: SourceKind,
     source_module: []const u8,
@@ -27,6 +28,10 @@ pub const Case = struct {
     status: Status,
     blocked_reason: ?[]const u8 = null,
 };
+
+fn caseWitnessId(case: *const Case) []const u8 {
+    return case.witness_id orelse case.case_id;
+}
 
 fn fixtureModulePath(comptime case_id: []const u8) []const u8 {
     return "test/direct_style_bridge/" ++ case_id ++ ".zig";
@@ -149,6 +154,7 @@ pub const cases = [_]Case{
     },
     .{
         .case_id = "open_row_generator",
+        .witness_id = "generator",
         .label = "bridge.open_row_generator",
         .source_kind = .example,
         .source_module = "examples/open_row_generator.zig",
@@ -244,6 +250,14 @@ pub const cases = [_]Case{
 pub fn find(case_id: []const u8) ?*const Case {
     for (&cases) |*case| {
         if (std.mem.eql(u8, case.case_id, case_id)) return case;
+    }
+    return null;
+}
+
+/// Look up one internal proof case by witness admission id.
+pub fn findWitnessCase(witness_id: []const u8) ?*const Case {
+    for (&cases) |*case| {
+        if (std.mem.eql(u8, caseWitnessId(case), witness_id)) return case;
     }
     return null;
 }
