@@ -1,12 +1,6 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const picker_row = shift.Row(.{
-    .picker = .{
-        .pick = shift.Choice(i32, i32),
-    },
-});
-
 const transcript = struct {
     threadlocal var items = [_][]const u8{ "", "", "", "", "", "", "", "" };
     threadlocal var len: usize = 0;
@@ -41,10 +35,16 @@ const PickerHandler = struct {
     }
 };
 
-const picker_workflow = struct {
-    /// Capability bundle for the choice example.
-    pub const Uses = shift.Uses(picker_row);
+const PickerDecl = shift.Decl.family(.{
+    .state_type = void,
+    .ops = .{
+        shift.Op.Choice("pick", i32, i32),
+    },
+}, PickerHandler);
 
+const PickerProgram = shift.Program(.{
+    .picker = PickerDecl,
+}, struct {
     /// Trigger the choice point and complete the configured branch.
     pub fn body(eff: anytype) ![]const u8 {
         return try eff.picker.pick.perform(41, struct {
@@ -56,7 +56,7 @@ const picker_workflow = struct {
             }
         });
     }
-};
+});
 
 /// Render the choice example transcript.
 pub fn run(writer: anytype) anyerror!void {
@@ -65,10 +65,9 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=return_now\n");
     transcript.len = 0;
-    const return_now_closed = shift.bind(picker_workflow, .{
+    const early = try shift.run(&runtime, PickerProgram, .{
         .picker = PickerHandler{ .branch = .return_now },
     });
-    const early = try shift.run(&runtime, return_now_closed);
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }
@@ -76,10 +75,9 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=resume_with\n");
     transcript.len = 0;
-    const resume_closed = shift.bind(picker_workflow, .{
+    const resumed = try shift.run(&runtime, PickerProgram, .{
         .picker = PickerHandler{ .branch = .resume_with },
     });
-    const resumed = try shift.run(&runtime, resume_closed);
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }

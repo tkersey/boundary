@@ -1,10 +1,10 @@
 /// Current execution frontier for one public or proof-facing surface.
 pub const Frontier = enum {
     compile_boundary,
-    lowered_bridge,
-    lowered_source_validated,
-    lowered_structured,
+    internal_adapter,
+    kernel_runtime,
     reference_only,
+    source_validated_kernel,
 };
 
 /// One shipped-surface frontier record.
@@ -19,39 +19,39 @@ pub const Surface = struct {
 /// Generator-owned frontier truth for shipped and proof-facing surfaces.
 pub const surfaces = [_]Surface{
     .{
-        .surface_id = "root.prompt_runtime",
-        .surface = "canonical_root",
-        .frontier = .lowered_structured,
+        .surface_id = "root.public_kernel",
+        .surface = "public_kernel",
+        .frontier = .kernel_runtime,
         .source = "src/root.zig",
-        .note = "The canonical root now executes on the lowered runtime path directly.",
+        .note = "The public root authors against one shared runtime kernel.",
     },
     .{
         .surface_id = "decl.public_families",
-        .surface = "canonical_decl",
-        .frontier = .lowered_structured,
+        .surface = "public_decl_families",
+        .frontier = .kernel_runtime,
         .source = "src/program_api.zig",
-        .note = "Public declaration families, including custom `shift.Decl.family(...)` declarations, now execute on top of the lowered runtime surface.",
+        .note = "Public declaration families, including custom `shift.Decl.family(...)` declarations, lower into the shared runtime kernel.",
     },
     .{
         .surface_id = "decl.custom_families",
-        .surface = "canonical_family",
-        .frontier = .lowered_structured,
+        .surface = "public_custom_families",
+        .frontier = .kernel_runtime,
         .source = "src/program_api.zig",
-        .note = "Public custom family declarations now execute on top of the lowered runtime surface.",
+        .note = "Public custom family declarations lower into the shared runtime kernel.",
     },
     .{
-        .surface_id = "bridge.supported_corpus",
-        .surface = "direct_style_bridge",
-        .frontier = .lowered_bridge,
+        .surface_id = "proof.unchanged_body_corpus",
+        .surface = "unchanged_body_proof_corpus",
+        .frontier = .kernel_runtime,
         .source = "src/private_lowered_runtime.zig",
-        .note = "The supported bridge corpus already executes through the lowered machine seam.",
+        .note = "The retained unchanged-body proof corpus executes through the shared runtime kernel.",
     },
     .{
-        .surface_id = "source_lowering.internal_surface",
-        .surface = "source_lowering_internal",
-        .frontier = .lowered_source_validated,
+        .surface_id = "proof.source_validated_corpus",
+        .surface = "source_validated_proof_corpus",
+        .frontier = .source_validated_kernel,
         .source = "src/source_lowering.zig",
-        .note = "The internal source-lowering surface validates the repo-owned source corpus before projecting it onto canonical lowered scenarios.",
+        .note = "The internal source-validation corpus lowers repo-owned proof labels into canonical kernel scenarios.",
     },
     .{
         .surface_id = "compile_fail.public_misuse",
@@ -63,22 +63,22 @@ pub const surfaces = [_]Surface{
     .{
         .surface_id = "one_shot_survey.runtime_success",
         .surface = "one_shot_survey",
-        .frontier = .lowered_structured,
+        .frontier = .kernel_runtime,
         .source = "test/one_shot_survey/protocol_resume_transform_executes.zig",
-        .note = "The runtime-success survey case now executes through the lowered runtime seam.",
+        .note = "The runtime-success survey case executes through the shared runtime kernel.",
     },
     .{
-        .surface_id = "structured.internal_frontend",
-        .surface = "structured_programs",
-        .frontier = .lowered_structured,
+        .surface_id = "frontend.internal_adapters",
+        .surface = "internal_frontend_adapters",
+        .frontier = .internal_adapter,
         .source = "src/program_frontend.zig",
-        .note = "Structured internal programs already lower into the canonical scenario IR.",
+        .note = "Internal frontend adapters lower retained proof labels into canonical kernel scenarios.",
     },
     .{
-        .surface_id = "runtime.stack_baseline",
+        .surface_id = "runtime.reference_stack_baseline",
         .surface = "reference_runtime",
         .frontier = .reference_only,
         .source = "src/runtime_stack_baseline.zig",
-        .note = "The stack runtime baseline is reference-only and should never be part of the shipped path.",
+        .note = "The stack-runtime baseline is reference-only and not part of the published kernel story.",
     },
 };

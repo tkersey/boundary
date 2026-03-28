@@ -1,13 +1,13 @@
 const example = @import("example_open_row_artifact_search");
 
-/// Stable bridge case id for the open-row artifact search example.
+/// Stable internal proof case id; the legacy `bridge_case_id` name stays for the private seam.
 pub const bridge_case_id = "open_row_artifact_search";
-/// Canonical path for this bridge fixture wrapper.
+/// Canonical path for this internal proof fixture wrapper.
 pub const source_path = "test/direct_style_bridge/open_row_artifact_search.zig";
-/// Embedded source text consumed by fail-closed bridge fixture admission.
+/// Embedded fixture source consumed by fail-closed internal proof admission.
 pub const source = @embedFile("open_row_artifact_search.zig");
 
-/// Run the canonical open-row artifact search example through the current public surface.
+/// Replay the canonical open-row artifact search example through the internal proof fixture seam.
 pub fn run(writer: anytype) anyerror!void {
     try example.run(writer);
 }

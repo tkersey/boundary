@@ -13,28 +13,22 @@ const catch_policy = struct {
     }
 };
 
-const EarlyExitRow = shift.effects.exception([]const u8);
-
-const early_exit_workflow = struct {
-    /// Capability bundle for the early-exit example.
-    pub const Uses = shift.Uses(EarlyExitRow);
-
-    /// Abort immediately through the front-door exception surface.
+const EarlyExitProgram = shift.Program(.{
+    .exception = shift.Decl.exception([]const u8, catch_policy),
+}, struct {
+    /// Abort immediately through the program exception surface.
     pub fn body(eff: anytype) ![]const u8 {
         try eff.exception.throw("result=early");
     }
-};
+});
 
-/// Write the direct-return transcript through the root front door.
+/// Write the direct-return transcript through the program kernel.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.handler_line = "";
 
-    const closed = shift.bind(early_exit_workflow, .{
-        .exception = shift.handlers.exception([]const u8, catch_policy),
-    });
-    const result = try shift.run(&runtime, closed);
+    const result = try shift.run(&runtime, EarlyExitProgram, .{});
 
     try writer.print("{s}\n", .{transcript.handler_line});
     try writer.print("final={s}\n", .{result.value});

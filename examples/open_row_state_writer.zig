@@ -1,16 +1,11 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const WorkflowRow = shift.mergeRows(.{
-    shift.effects.state(i32),
-    shift.effects.writer([]const u8),
-});
-
-const workflow = struct {
-    /// Capability bundle for the state-plus-writer example.
-    pub const Uses = shift.Uses(WorkflowRow);
-
-    /// Run one open-row state-plus-writer workflow through the migration bridge.
+const WorkflowProgram = shift.Program(.{
+    .state = shift.Decl.state(i32),
+    .writer = shift.Decl.writer([]const u8),
+}, struct {
+    /// Run one state-plus-writer workflow through the program kernel.
     pub fn body(eff: anytype) ![]const u8 {
         const before = try eff.state.get();
         try eff.state.set(before + 1);
@@ -18,17 +13,13 @@ const workflow = struct {
         try eff.writer.tell("workflow=queued");
         return "done";
     }
-};
+});
 
 fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
     var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
-    const closed = shift.bind(workflow, .{
-        .state = shift.handlers.state(@as(i32, 5)),
-        .writer = shift.handlers.writer([]const u8, allocator),
-    });
-    const result = try shift.run(&runtime, closed);
+    const result = try shift.run(&runtime, WorkflowProgram, .{ .state = 5 });
     defer allocator.free(result.outputs.writer);
 
     for (result.outputs.writer) |item| {

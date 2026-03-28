@@ -55,8 +55,8 @@ fn sourceLoweringStatus() []const u8 {
 fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     const has_blocked_cases = bridge_manifest.blockedCount() != 0;
     try list.appendSlice(allocator, "{\n");
-    try list.appendSlice(allocator, "  \"public_surface\": {\n");
-    try list.appendSlice(allocator, "    \"contract\": \"shift.Program and shift.run are the only public authored-body surface, with internal source-lowering scaffolding beneath them\",\n");
+    try list.appendSlice(allocator, "  \"public_kernel\": {\n");
+    try list.appendSlice(allocator, "    \"contract\": \"shift.Decl and shift.Program author against one public runtime kernel rooted at shift.Runtime and shift.run\",\n");
     try list.appendSlice(allocator, "    \"status\": \"canonical\"\n");
     try list.appendSlice(allocator, "  },\n");
     try list.appendSlice(allocator, "  \"benchmark_stability\": {\n");
@@ -64,12 +64,12 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, "    \"lane_policy\": \"evidence-backed retiering only\",\n");
     try list.appendSlice(allocator, "    \"status\": \"published_clean_refresh\"\n");
     try list.appendSlice(allocator, "  },\n");
-    try list.appendSlice(allocator, "  \"lowered_engine\": {\n");
-    try list.appendSlice(allocator, "    \"surface\": \"parity_scenarios + parity_kernel\",\n");
+    try list.appendSlice(allocator, "  \"kernel_proof_engine\": {\n");
+    try list.appendSlice(allocator, "    \"proof_kernel\": \"parity_scenarios + parity_kernel\",\n");
     try list.appendSlice(allocator, "    \"status\": \"canonical_backed\"\n");
     try list.appendSlice(allocator, "  },\n");
-    try list.appendSlice(allocator, "  \"structured_programs\": {\n");
-    try list.appendSlice(allocator, "    \"role\": \"internal_scaffolding\",\n");
+    try list.appendSlice(allocator, "  \"frontend_adapters\": {\n");
+    try list.appendSlice(allocator, "    \"role\": \"internal_adapter_scaffolding\",\n");
     try list.appendSlice(allocator, "    \"labels\": ");
     var labels = std.ArrayList([]const u8).empty;
     defer labels.deinit(std.heap.page_allocator);
@@ -78,28 +78,28 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, ",\n");
     try list.appendSlice(allocator, "    \"status\": \"implemented\"\n");
     try list.appendSlice(allocator, "  },\n");
-    try list.appendSlice(allocator, "  \"source_lowering_surface\": {\n");
-    try list.appendSlice(allocator, "    \"contract\": \"canonical source-validated lowering for the source corpus, witness set, generated/user-defined examples, algebraic examples, and remaining built-in declaration rows\",\n");
+    try list.appendSlice(allocator, "  \"source_validated_proof_corpus\": {\n");
+    try list.appendSlice(allocator, "    \"contract\": \"canonical source-validated lowering for retained proof labels, witness sources, source corpora, and declaration-backed proof rows\",\n");
     try list.appendSlice(allocator, "    \"status\": \"");
     try list.appendSlice(allocator, sourceLoweringStatus());
     try list.appendSlice(allocator, "\"\n");
     try list.appendSlice(allocator, "  },\n");
-    try list.appendSlice(allocator, "  \"direct_style_bridge\": {\n");
-    try list.appendSlice(allocator, "    \"supported_cases\": ");
+    try list.appendSlice(allocator, "  \"unchanged_body_proof_corpus\": {\n");
+    try list.appendSlice(allocator, "    \"supported_proof_cases\": ");
     try appendCaseIdsByStatus(list, allocator, .supported);
     try list.appendSlice(allocator, ",\n");
-    try list.appendSlice(allocator, "    \"blocked_cases\": ");
+    try list.appendSlice(allocator, "    \"blocked_proof_cases\": ");
     try appendCaseIdsByStatus(list, allocator, .blocked);
     try list.appendSlice(allocator, ",\n");
-    try list.appendSlice(allocator, if (has_blocked_cases) "    \"status\": \"partial\"\n" else "    \"status\": \"supported_core_examples\"\n");
+    try list.appendSlice(allocator, if (has_blocked_cases) "    \"status\": \"partial\"\n" else "    \"status\": \"canonical\"\n");
     try list.appendSlice(allocator, "  },\n");
-    try list.appendSlice(allocator, "  \"private_lowered_runtime_seam\": {\n");
-    try list.appendSlice(allocator, if (has_blocked_cases) "    \"decision\": \"not_worth_finishing\",\n" else "    \"decision\": \"worth_finishing\",\n");
-    try list.appendSlice(allocator, if (has_blocked_cases) "    \"status\": \"not_started\",\n" else "    \"status\": \"implemented_for_supported_bridge_cases\",\n");
+    try list.appendSlice(allocator, "  \"kernel_runtime_seam\": {\n");
+    try list.appendSlice(allocator, "    \"surface\": \"src/private_lowered_runtime.zig\",\n");
+    try list.appendSlice(allocator, if (has_blocked_cases) "    \"status\": \"partial_proof_runtime\",\n" else "    \"status\": \"published_internal_runtime\",\n");
     try list.appendSlice(allocator, if (has_blocked_cases)
-        "    \"rationale\": \"unchanged-body bridge coverage is still incomplete\"\n"
+        "    \"rationale\": \"The unchanged-body proof corpus is still incomplete.\"\n"
     else
-        "    \"rationale\": \"supported bridge cases now execute through src/private_lowered_runtime.zig without public API changes\"\n");
+        "    \"rationale\": \"The retained unchanged-body proof corpus executes through the shared kernel runtime without introducing a public bridge surface.\"\n");
     try list.appendSlice(allocator, "  }\n");
     try list.appendSlice(allocator, "}\n");
 }

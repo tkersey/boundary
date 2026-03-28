@@ -1,12 +1,12 @@
 /// Current migration status for one public-runtime obligation.
 pub const Status = enum {
     compile_time_only,
-    lowered_backend_ready,
+    kernel_runtime_ready,
+    legacy_runtime_required,
     removed_from_shipped_path,
-    stack_backend_required,
 };
 
-/// One public-runtime obligation outside the currently supported route-matrix corpus.
+/// One public-runtime obligation outside the retained route-matrix corpus.
 pub const Obligation = struct {
     obligation_id: []const u8,
     surface: []const u8,
@@ -20,9 +20,9 @@ pub const obligations = [_]Obligation{
     .{
         .obligation_id = "one_shot_survey.protocol_runtime_success",
         .surface = "one_shot_survey",
-        .status = .lowered_backend_ready,
+        .status = .kernel_runtime_ready,
         .source = "test/one_shot_survey/protocol_resume_transform_executes.zig",
-        .note = "The runtime-positive survey fixture now executes through the lowered runtime seam instead of the raw stack runtime.",
+        .note = "The runtime-positive survey fixture now executes through the shared kernel runtime.",
     },
     .{
         .obligation_id = "one_shot_survey.protocol_compile_shape",
@@ -43,13 +43,13 @@ pub const obligations = [_]Obligation{
         .surface = "size_check",
         .status = .compile_time_only,
         .source = "test/size_check.zig",
-        .note = "Prompt shell compactness is already independent of the runtime backend.",
+        .note = "Prompt shell compactness is already independent of the public kernel runtime.",
     },
     .{
         .obligation_id = "build.assembly_host_gate",
         .surface = "build_runtime",
         .status = .removed_from_shipped_path,
         .source = "build.zig",
-        .note = "Default build/test wiring no longer adds stack-switch assembly files for the shipped or retained proof paths.",
+        .note = "Default build/test wiring no longer adds stack-switch assembly files to the published kernel or retained proof lanes.",
     },
 };

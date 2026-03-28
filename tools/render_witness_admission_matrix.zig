@@ -17,7 +17,7 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
         if (idx != 0) try list.appendSlice(allocator, ",\n");
         const line = try std.fmt.allocPrint(
             allocator,
-            "    {{\"witness_id\":\"{s}\",\"current_surface\":\"{s}\",\"lexical_target\":\"{s}\",\"law_anchor\":\"{s}\",\"lexical_status\":\"{s}\",\"bridge_status\":\"{s}\",\"canonical_status\":\"{s}\",\"note\":\"{s}\"}}",
+            "    {{\"witness_id\":\"{s}\",\"proof_label\":\"{s}\",\"lexical_proof_label\":\"{s}\",\"law_anchor\":\"{s}\",\"lexical_status\":\"{s}\",\"unchanged_body_status\":\"{s}\",\"canonical_status\":\"{s}\",\"note\":\"{s}\"}}",
             .{
                 entry.witness_id,
                 entry.current_surface,

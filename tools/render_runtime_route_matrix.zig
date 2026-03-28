@@ -12,13 +12,13 @@ fn usage() noreturn {
 
 fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, "{\n");
-    try list.appendSlice(allocator, "  \"supported_cases\": [\n");
+    try list.appendSlice(allocator, "  \"retained_proof_cases\": [\n");
     for (runtime_routes.cases, 0..) |case, idx| {
         if (idx != 0) try list.appendSlice(allocator, ",\n");
         const route_text = @tagName(case.route);
         const line = try std.fmt.allocPrint(
             allocator,
-            "    {{\"case_id\":\"{s}\",\"route\":\"{s}\",\"source\":\"{s}\",\"note\":\"{s}\"}}",
+            "    {{\"proof_case_id\":\"{s}\",\"route\":\"{s}\",\"source\":\"{s}\",\"note\":\"{s}\"}}",
             .{ case.case_id, route_text, case.source, case.note },
         );
         defer allocator.free(line);

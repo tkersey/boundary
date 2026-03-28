@@ -1,8 +1,8 @@
 const error_witness = @import("error_witness");
 const lowered_machine = @import("lowered_machine");
-const open_row_api = @import("open_row_api.zig");
-const open_row_handlers = @import("open_row_handlers.zig");
+const op_compat = @import("op_compat.zig");
 const program_api = @import("program_api.zig");
+const root_decl_api = @import("root_decl_api.zig");
 
 /// Canonical lowered-first runtime handle.
 pub const Runtime = lowered_machine.Runtime;
@@ -10,43 +10,26 @@ pub const Runtime = lowered_machine.Runtime;
 pub const RuntimeError = lowered_machine.RuntimeError;
 /// Stable public error-witness schema.
 pub const ErrorWitnessV1 = error_witness.ErrorWitnessV1;
-/// Open-row transform descriptor.
-pub const Transform = open_row_api.Transform;
-/// Open-row choice descriptor.
-pub const Choice = open_row_api.Choice;
-/// Open-row abort descriptor.
-pub const Abort = open_row_api.Abort;
-/// Open-row run result wrapper.
-pub const RunResult = open_row_api.RunResult;
-/// Canonical open-row row builder.
-pub const Row = open_row_api.Row;
-/// Canonical open-row row merge helper.
-pub const mergeRows = open_row_api.mergeRows;
-/// Canonical builtin open-row fragments.
-pub const effects = open_row_api.effects;
-/// Canonical builtin handler bridge constructors.
-pub const handlers = open_row_handlers;
-/// Open-row capability-bundle carrier.
-pub const Uses = open_row_api.Uses;
-/// Canonical partial discharge helper.
-pub const handle = open_row_api.handle;
-/// Canonical full bind helper.
-pub const bind = open_row_api.bind;
+/// Public declaration namespace.
+pub const Decl = root_decl_api.Decl;
+/// Public op-descriptor namespace.
+pub const Op = op_compat.Op;
 /// Root-level choice-decision helper for the front-door API.
 pub const Decision = program_api.Decision;
-/// Run one closed root with explicit runtime ownership.
-pub fn run(runtime: *Runtime, closed_root: anytype) @TypeOf(open_row_api.runBound(runtime, closed_root)) {
-    return open_row_api.runBound(runtime, closed_root);
+/// Public program builder.
+pub const Program = program_api.Program;
+/// Run one program with explicit runtime ownership and bindings.
+pub fn run(runtime: *Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) program_api.RunReturnType(ProgramType) {
+    return program_api.run(runtime, ProgramType, bindings);
 }
 
 test {
+    _ = Decl;
     _ = Decision;
     _ = ErrorWitnessV1;
-    _ = Row;
+    _ = Op;
+    _ = Program;
     _ = Runtime;
     _ = RuntimeError;
-    _ = bind;
-    _ = handle;
-    _ = mergeRows;
     _ = run;
 }

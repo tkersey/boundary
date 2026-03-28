@@ -12,7 +12,7 @@ const transcript = struct {
 };
 
 const approval_policy = struct {
-    /// Approve publication through the open-row choice surface.
+    /// Approve publication through the program optional surface.
     pub fn resumeOrReturn() shift.Decision([]const u8, []const u8) {
         transcript.note("approval=publish");
         return shift.Decision([]const u8, []const u8).returnNow("completed");
@@ -24,12 +24,9 @@ const approval_policy = struct {
     }
 };
 
-const ApprovalRow = shift.effects.optional([]const u8);
-
-const workflow = struct {
-    /// Capability bundle for the nested workflow example.
-    pub const Uses = shift.Uses(ApprovalRow);
-
+const WorkflowProgram = shift.Program(.{
+    .optional = shift.Decl.optional([]const u8, approval_policy),
+}, struct {
     /// Queue the workflow, request approval, and finish on the resumed branch.
     pub fn body(eff: anytype) ![]const u8 {
         transcript.note("workflow=queued");
@@ -44,18 +41,15 @@ const workflow = struct {
         transcript.note("workflow=done");
         return approved;
     }
-};
+});
 
-/// Write the nested workflow transcript through the root front door.
+/// Write the nested workflow transcript through the program kernel.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.len = 0;
 
-    const closed = shift.bind(workflow, .{
-        .optional = shift.handlers.optional([]const u8, approval_policy),
-    });
-    const result = try shift.run(&runtime, closed);
+    const result = try shift.run(&runtime, WorkflowProgram, .{});
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }

@@ -6,18 +6,10 @@ const expected_snapshot =
     \\    "Runtime",
     \\    "RuntimeError",
     \\    "ErrorWitnessV1",
-    \\    "Transform",
-    \\    "Choice",
-    \\    "Abort",
-    \\    "RunResult",
-    \\    "Row",
-    \\    "mergeRows",
-    \\    "effects",
-    \\    "handlers",
-    \\    "Uses",
-    \\    "handle",
-    \\    "bind",
+    \\    "Decl",
+    \\    "Op",
     \\    "Decision",
+    \\    "Program",
     \\    "run"
     \\  ]
     \\}
@@ -107,7 +99,7 @@ pub fn main() anyerror!void {
 
     const actual = try buildSnapshot(allocator);
     if (!std.mem.eql(u8, trimAll(actual), trimAll(expected_snapshot))) {
-        std.debug.print("open-row public root contract snapshot mismatch\nexpected:\n{s}\nactual:\n{s}\n", .{ expected_snapshot, actual });
+        std.debug.print("public root contract snapshot mismatch\nexpected:\n{s}\nactual:\n{s}\n", .{ expected_snapshot, actual });
         return SnapshotError.SnapshotMismatch;
     }
 }

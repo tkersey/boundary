@@ -1,5 +1,5 @@
 const shift = @import("shift");
 
 comptime {
-    _ = shift.RowSpec;
+    _ = shift.effects;
 }

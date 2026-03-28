@@ -17,7 +17,7 @@ const example_reader_basic = @import("promoted_example_reader_basic");
 const example_resume_or_return = @import("promoted_example_resume_or_return");
 const example_state_basic = @import("promoted_example_state_basic");
 
-const PromotedCase = struct {
+const PublicExampleCase = struct {
     case_id: []const u8,
     source_path: []const u8,
     surface_kind: source_lowering.SurfaceKind,
@@ -26,125 +26,128 @@ const PromotedCase = struct {
     Runner: type,
 };
 
-fn expectPromotedCase(comptime promoted: PromotedCase) !void {
+fn expectPublicExampleCase(comptime public_example: PublicExampleCase) !void {
     var direct_buffer: [2048]u8 = undefined;
     var direct_writer = std.Io.Writer.fixed(&direct_buffer);
-    try promoted.Runner.run(&direct_writer);
+    try public_example.Runner.run(&direct_writer);
+
+    try std.testing.expect(std.mem.startsWith(u8, public_example.source_path, "examples/"));
 
     var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
-        .case_id = promoted.case_id,
-        .source_path = promoted.source_path,
-        .entry_symbol = promoted.entry_symbol,
-        .surface_kind = promoted.surface_kind,
+        .case_id = public_example.case_id,
+        .source_path = public_example.source_path,
+        .entry_symbol = public_example.entry_symbol,
+        .surface_kind = public_example.surface_kind,
     });
     defer lowered.deinit(std.testing.allocator);
 
     try std.testing.expect(lowered.isAccepted());
     try std.testing.expect(lowered.status == .canonical);
-    try std.testing.expectEqual(promoted.scenario_id, lowered.canonical_scenario_id.?);
+    try std.testing.expect(lowered.surface_kind == .example);
+    try std.testing.expectEqual(public_example.scenario_id, lowered.canonical_scenario_id.?);
 
     var lowered_buffer: [2048]u8 = undefined;
     var lowered_writer = std.Io.Writer.fixed(&lowered_buffer);
     try source_lowering.runLowered(&lowered_writer, &lowered);
 
-    const scenario = parity_scenarios.byId(promoted.scenario_id);
+    const scenario = parity_scenarios.byId(public_example.scenario_id);
     try std.testing.expectEqualStrings(scenario.expected_transcript, direct_writer.buffered());
     try std.testing.expectEqualStrings(scenario.expected_transcript, lowered_writer.buffered());
 }
 
-test "promoted source-lowering example and effect cohort stays source-backed and canonical" {
-    try expectPromotedCase(.{
+test "public example source-lowering cohort stays source-backed and canonical" {
+    try expectPublicExampleCase(.{
         .case_id = "example.open_row_transform_basic",
         .source_path = "examples/open_row_transform_basic.zig",
         .surface_kind = .example,
         .scenario_id = .define_basic,
         .Runner = example_open_row_transform_basic,
     });
-    try expectPromotedCase(.{
+    try expectPublicExampleCase(.{
         .case_id = "example.open_row_choice_basic",
         .source_path = "examples/open_row_choice_basic.zig",
         .surface_kind = .example,
         .scenario_id = .define_choice_basic,
         .Runner = example_open_row_choice_basic,
     });
-    try expectPromotedCase(.{
+    try expectPublicExampleCase(.{
         .case_id = "example.open_row_abort_basic",
         .source_path = "examples/open_row_abort_basic.zig",
         .surface_kind = .example,
         .scenario_id = .define_abort_basic,
         .Runner = example_open_row_abort_basic,
     });
-    try expectPromotedCase(.{
+    try expectPublicExampleCase(.{
         .case_id = "example.open_row_workflow",
         .source_path = "examples/open_row_workflow.zig",
         .surface_kind = .example,
         .scenario_id = .front_door_workflow,
         .Runner = example_open_row_workflow,
     });
-    try expectPromotedCase(.{
+    try expectPublicExampleCase(.{
         .case_id = "example.open_row_abortive_validation",
         .source_path = "examples/open_row_abortive_validation.zig",
         .surface_kind = .example,
         .scenario_id = .algebraic_abortive_validation,
         .Runner = example_open_row_abortive_validation,
     });
-    try expectPromotedCase(.{
+    try expectPublicExampleCase(.{
         .case_id = "example.open_row_artifact_search",
         .source_path = "examples/open_row_artifact_search.zig",
         .surface_kind = .example,
         .scenario_id = .algebraic_artifact_search,
         .Runner = example_open_row_artifact_search,
     });
-    try expectPromotedCase(.{
+    try expectPublicExampleCase(.{
         .case_id = "example.open_row_generator",
         .source_path = "examples/open_row_generator.zig",
         .surface_kind = .example,
         .scenario_id = .generator,
         .Runner = example_open_row_generator,
     });
-    try expectPromotedCase(.{
+    try expectPublicExampleCase(.{
         .case_id = "example.early_exit",
         .source_path = "examples/early_exit.zig",
         .surface_kind = .example,
         .scenario_id = .early_exit,
         .Runner = example_early_exit,
     });
-    try expectPromotedCase(.{
+    try expectPublicExampleCase(.{
         .case_id = "example.resume_or_return",
         .source_path = "examples/resume_or_return.zig",
         .surface_kind = .example,
         .scenario_id = .resume_or_return,
         .Runner = example_resume_or_return,
     });
-    try expectPromotedCase(.{
+    try expectPublicExampleCase(.{
         .case_id = "example.nested_workflow",
         .source_path = "examples/nested_workflow.zig",
         .surface_kind = .example,
         .scenario_id = .nested_workflow_publish,
         .Runner = example_nested_workflow,
     });
-    try expectPromotedCase(.{
+    try expectPublicExampleCase(.{
         .case_id = "example.state_basic",
         .source_path = "examples/state_basic.zig",
         .surface_kind = .example,
         .scenario_id = .state_basic,
         .Runner = example_state_basic,
     });
-    try expectPromotedCase(.{
+    try expectPublicExampleCase(.{
         .case_id = "example.reader_basic",
         .source_path = "examples/reader_basic.zig",
         .surface_kind = .example,
         .scenario_id = .reader_basic,
         .Runner = example_reader_basic,
     });
-    try expectPromotedCase(.{
+    try expectPublicExampleCase(.{
         .case_id = "example.optional_basic",
         .source_path = "examples/optional_basic.zig",
         .surface_kind = .example,
         .scenario_id = .optional_basic,
         .Runner = example_optional_basic,
     });
-    try expectPromotedCase(.{
+    try expectPublicExampleCase(.{
         .case_id = "example.exception_basic",
         .source_path = "examples/exception_basic.zig",
         .surface_kind = .example,

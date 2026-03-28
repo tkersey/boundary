@@ -64,6 +64,17 @@ pub const LoweredAuthoring = struct {
     feature_flags: []const []const u8,
     diagnostics: []const Diagnostic,
 
+    /// Return the executable kernel program artifact carried by this lowering.
+    pub fn kernelProgramArtifact(self: *const LoweredAuthoring) KernelProgramArtifact {
+        return .{
+            .status = self.status,
+            .canonical_scenario_id = self.canonical_scenario_id,
+            .expected_transcript = self.expected_transcript,
+            .steps = self.steps,
+            .feature_flags = self.feature_flags,
+        };
+    }
+
     /// Release owned slices captured in a lowered authoring result.
     pub fn deinit(self: *LoweredAuthoring, allocator: std.mem.Allocator) void {
         allocator.free(self.source_path);
@@ -71,6 +82,20 @@ pub const LoweredAuthoring = struct {
         allocator.free(self.feature_flags);
         allocator.free(self.diagnostics);
         self.* = undefined;
+    }
+};
+
+/// Executable kernel program artifact produced by the structural authoring lowerer.
+pub const KernelProgramArtifact = struct {
+    status: LowerStatus,
+    canonical_scenario_id: ?parity_scenarios.ScenarioId,
+    expected_transcript: []const u8,
+    steps: []const lowered_machine.Step,
+    feature_flags: []const []const u8,
+
+    /// Return whether this artifact can execute through the lowered kernel.
+    pub fn isExecutable(self: KernelProgramArtifact) bool {
+        return self.status != .rejected;
     }
 };
 

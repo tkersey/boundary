@@ -17,7 +17,7 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
         if (idx != 0) try list.appendSlice(allocator, ",\n");
         const line = try std.fmt.allocPrint(
             allocator,
-            "    {{\"surface_id\":\"{s}\",\"surface\":\"{s}\",\"frontier\":\"{s}\",\"source\":\"{s}\",\"note\":\"{s}\"}}",
+            "    {{\"surface_id\":\"{s}\",\"surface_label\":\"{s}\",\"kernel_frontier\":\"{s}\",\"source\":\"{s}\",\"note\":\"{s}\"}}",
             .{ surface.surface_id, surface.surface, @tagName(surface.frontier), surface.source, surface.note },
         );
         defer allocator.free(line);

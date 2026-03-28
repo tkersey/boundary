@@ -4,37 +4,57 @@
 
 This file is the small implementation-derived core for the current `shift`
 surface. It is generator-owned and checked by the build so the law surface
-cannot drift independently from the witness and contract registries.
+cannot drift independently from the witness and contract registries. The public
+story is the root-level runtime kernel; witness ids, bridge ids, and frontend
+spellings remain proof-facing internal detail.
 
 <a id="atm-resume-transform"></a>
 ## ATM Resume Transform
 
-`atm_resume_transform` is the single-resume semantic witness behind the transform-style branch of the current open-row story built from `shift.Row`, `shift.effects.*`, explicit handler bundles, `shift.bind(...)`, and `shift.run(&runtime, closed)`. The corresponding prompt protocol still exists in `src/frontend.zig` and `src/lowered_machine.zig`, but canonical docs treat it as hidden implementation scaffolding rather than a public root API.
+`atm_resume_transform` is the single-resume semantic witness behind one branch
+of the current root-level execution kernel. The corresponding prompt protocol
+still exists in `src/frontend.zig` and `src/lowered_machine.zig`, but canonical
+docs treat frontend spellings as lowered implementation scaffolding rather than
+the public product surface.
 
 <a id="construction-coverage"></a>
 ## Construction Coverage
 
-The open-row surface routes through one shared internal construction substrate instead of embedding bespoke prompt-mode runner logic. `zig build effect-construction-boundary` remains the explicit proof gate for that claim.
+The public kernel routes through one shared lowered runtime substrate instead of
+embedding bespoke runner logic per frontend. `zig build
+effect-construction-boundary` remains the explicit proof gate for that claim.
 
 <a id="direct-return"></a>
 ## Direct Return
 
-`direct_return` is the abortive semantic witness behind the current open-row exception and abortive control behavior. The corresponding prompt protocol remains hidden implementation scaffolding in `src/frontend.zig` and `src/lowered_machine.zig`, not a public root API.
+`direct_return` is the abortive semantic witness behind the current public
+kernel's exception and abortive control behavior. The corresponding prompt
+protocol remains hidden implementation scaffolding in `src/frontend.zig` and
+`src/lowered_machine.zig`, not a public root API.
 
 <a id="effect-mode-coverage"></a>
 ## Effect Mode Coverage
 
-The shipped surface exposes open-row control builders at the root. The hidden internal control classes are still transform-style, choice-style, and abortive; the current open-row branch exercises them through `shift.Transform`, `shift.Choice`, `shift.Abort`, `shift.effects.*`, and explicit handler bundles.
+The shipped surface exposes one root execution kernel backed by transform-style,
+choice-style, and abortive internal control classes. Frontend builders still
+exercise those classes, but the docs treat them as adapters over the lowered
+runtime rather than as the product definition.
 
 <a id="exception-effect"></a>
 ## Exception Effect
 
-The open-row exception fragment and handler bridge enforce abortive control: `shift.effects.exception(Payload)` provides the fragment, and `eff.exception.throw(payload)` does not resume after `throw`. The handler bridge converts the payload into the enclosing answer through `shift.handlers.exception(Payload, CatchPolicy)` and `directReturn(payload)`.
+Abortive exception behavior remains part of the lowered runtime kernel. Current
+frontend adapters still model it with a fragment plus handler bridge, and
+`directReturn(payload)` remains the semantic hinge, but those adapter spellings
+are not the public product claim.
 
 <a id="optional-resumption"></a>
 ## Optional Resumption
 
-The open-row optional fragment and handler bridge model zero-or-one resume: `shift.effects.optional(T)` exposes `eff.optional.request(...)`, `shift.handlers.optional(...)` supplies the policy, and the canonical witnesses `resume_or_return_return_now` and `resume_or_return_resume` keep the one-shot continuation boundary explicit.
+Optional resumption remains the zero-or-one resume branch of the lowered kernel.
+Current frontend adapters still expose the relevant request/policy shape, and
+the canonical witnesses `resume_or_return_return_now` and
+`resume_or_return_resume` keep the one-shot continuation boundary explicit.
 
 <a id="performance-coverage"></a>
 ## Performance Coverage
@@ -51,26 +71,43 @@ The current execution classes are `direct_frame` for `state`/`reader`, `abortive
 <a id="practical-witnesses"></a>
 ## Practical Witnesses
 
-The repo keeps one shipped example, `open_row_state_writer`, plus the lowered proof engine and exact-output fixture pipeline behind `zig build backend-parity`, `zig build proof-fixtures-write`, and `zig build proof-fixtures-check`.
+The repo keeps one shipped checked example, `open_row_state_writer`, plus the
+lowered proof engine and exact-output fixture pipeline behind `zig build
+kernel-parity-check`, `zig build proof-fixtures-write`, and `zig build
+proof-fixtures-check`. The example id persists as proof nomenclature, not as
+the public product vocabulary.
 
-The lowered proof engine is checked by `zig build backend-parity`. `src/parity_scenarios.zig` is the canonical lowered proof registry, `src/parity_kernel.zig` interprets it, and `src/parity_machine.zig` is only a facade over that kernel. The exact-output fixture artifacts are rendered from the same registry by `zig build proof-fixtures-write` and checked by `zig build proof-fixtures-check`. This remains hidden internal infrastructure beneath the canonical public `shift/reset` surface, not a public fallback runtime.
+The lowered proof engine is checked by `zig build kernel-parity-check`.
+`src/parity_scenarios.zig` is the canonical lowered proof registry,
+`src/parity_kernel.zig` interprets it, and `src/parity_machine.zig` is only a
+facade over that kernel. The exact-output fixture artifacts are rendered from
+the same registry by `zig build proof-fixtures-write` and checked by `zig build
+proof-fixtures-check`. This remains hidden internal infrastructure beneath the
+canonical public `shift/reset` surface, not a public fallback runtime.
 
 <a id="retired-algebraic-builders"></a>
 ## Retired Algebraic Builders
 
-The old algebraic and generated-family root-builder surface is retired from the shipped package. Its remaining rows are tracked only as internal proof labels while the open-row public surface becomes the only shipped story.
+The old algebraic and generated-family root-builder surface is retired from the
+shipped package. Its remaining rows are tracked only as internal proof labels
+while the public docs stay centered on the root-level kernel.
 
 <a id="retired-surface-tombstones"></a>
 ## Retired Surface Tombstones
 
 The retired root spellings are tombstoned by `public-root-contract-snapshot-check` and `public-error-api-ban`, and retired vocabulary stays out of proof-facing files through `retired-lane-inventory-check`.
 
-The shipped example corpus is open-row-only; the retired declaration-style and algebraic proof surfaces are no longer part of the public story.
+Legacy example ids, witness ids, and bridge ids remain proof-facing internal
+labels; retired declaration-style and algebraic proof surfaces are no longer
+part of the public story.
 
 <a id="resource-bracketing"></a>
 ## Bracketed Resource Cleanup
 
-The open-row resource fragment and handler bridge preserve bracketed cleanup semantics: `shift.effects.resource(Resource)` exposes `eff.resource.acquire()`, `shift.handlers.resource(Resource, Manager)` installs the manager, acquired resources release in LIFO order, and outer exception or return-now exits still trigger cleanup before they win publicly.
+Bracketed resource cleanup remains part of the lowered runtime kernel. Current
+frontend adapters still expose acquire/install manager hooks, acquired
+resources release in LIFO order, and outer exception or return-now exits still
+trigger cleanup before they win publicly.
 
 Release errors are attempted for every acquired resource; the first release error becomes public only when no earlier body or reset error already won.
 
@@ -87,7 +124,11 @@ Distinct prompt values do not alias each other, even when they share the same ha
 <a id="strict-effect-capabilities"></a>
 ## Strict Effect Capabilities
 
-The active root surface exposes `shift.Row`, `shift.mergeRows`, `shift.effects.*`, `shift.handlers.*`, `shift.Transform`, `shift.Choice`, `shift.Abort`, `shift.Decision`, `shift.bind(...)`, and `shift.run(&runtime, closed)`. The public caller surface is the body handle bundle: `eff.state.get()` / `eff.state.set(value)`, `eff.reader.ask()`, `eff.optional.request(...)`, `eff.exception.throw(payload)`, `eff.resource.acquire()`, and `eff.writer.tell(item)`.
+The active public kernel is the explicit runtime boundary: `shift.Runtime`,
+`shift.RuntimeError`, `shift.ErrorWitnessV1`, `shift.Decision(...)`,
+`shift.Decl`, `shift.Op`, `shift.Program(...)`, and `shift.run(...)`.
+Current frontend caller bundles still lower into that kernel, but they are not
+the public product contract.
 
 Retired root spellings stay absent from the shipped surface and are checked by tombstone proofs instead of compatibility narratives.
 

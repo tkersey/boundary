@@ -1,5 +1,5 @@
 const shift = @import("shift");
 
 comptime {
-    _ = shift.runWith;
+    _ = shift.mergeRows;
 }

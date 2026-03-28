@@ -1,12 +1,6 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const validation_row = shift.Row(.{
-    .guard = .{
-        .fail = shift.Abort([]const u8),
-    },
-});
-
 const transcript = struct {
     threadlocal var abort_line: []const u8 = "";
 };
@@ -19,15 +13,21 @@ const guard_handler = struct {
     }
 };
 
-const validation_workflow = struct {
-    /// Capability bundle for the validation example.
-    pub const Uses = shift.Uses(validation_row);
+const GuardDecl = shift.Decl.family(.{
+    .state_type = void,
+    .ops = .{
+        shift.Op.Abort("fail", []const u8),
+    },
+}, guard_handler);
 
+const ValidationProgram = shift.Program(.{
+    .guard = GuardDecl,
+}, struct {
     /// Trigger the validation abort directly.
     pub fn body(eff: anytype) ![]const u8 {
         try eff.guard.fail.abort("missing-name");
     }
-};
+});
 
 /// Render the abortive-validation transcript.
 pub fn run(writer: anytype) anyerror!void {
@@ -36,10 +36,7 @@ pub fn run(writer: anytype) anyerror!void {
 
     transcript.abort_line = "";
     try writer.writeAll("validate=name\n");
-    const closed = shift.bind(validation_workflow, .{
-        .guard = guard_handler{},
-    });
-    const result = try shift.run(&runtime, closed);
+    const result = try shift.run(&runtime, ValidationProgram, .{ .guard = guard_handler{} });
     try writer.print("abort={s}\n", .{transcript.abort_line});
     try writer.print("final={s}\n", .{result.value});
 }

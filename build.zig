@@ -502,7 +502,7 @@ pub fn build(b: *std.Build) void {
         .root_module = backend_parity_mod,
     });
     const run_backend_parity_tests = b.addRunArtifact(backend_parity_tests);
-    const backend_parity_step = b.step("backend-parity", "Run proof-only parity checks against the lowered runtime parity surface.");
+    const backend_parity_step = b.step("kernel-parity-check", "Check the hidden lowered proof engine beneath the root execution kernel.");
     backend_parity_step.dependOn(&run_backend_parity_tests.step);
 
     const proof_fixture_mod = b.createModule(.{
@@ -556,7 +556,7 @@ pub fn build(b: *std.Build) void {
     });
     const formal_core_cmd = b.addRunArtifact(formal_core_render_exe);
     formal_core_cmd.addArg("check");
-    const formal_core_step = b.step("formal-core", "Check the implementation-derived formal core anchors.");
+    const formal_core_step = b.step("formal-core", "Check the implementation-derived formal core against the root-kernel contract.");
     formal_core_step.dependOn(&formal_core_cmd.step);
     test_step.dependOn(&formal_core_cmd.step);
 
@@ -566,7 +566,7 @@ pub fn build(b: *std.Build) void {
     formal_core_write_step.dependOn(&formal_core_write_cmd.step);
 
     const readme_contract_cmd = b.addSystemCommand(&.{ "sh", "test/readme_contract/run.sh" });
-    const readme_contract_step = b.step("readme-contract", "Check README contract anchors, open-row story, and tombstone coverage.");
+    const readme_contract_step = b.step("readme-contract", "Check README kernel-contract anchors and tombstone coverage.");
     readme_contract_step.dependOn(&readme_contract_cmd.step);
     test_step.dependOn(&readme_contract_cmd.step);
 
@@ -694,7 +694,7 @@ pub fn build(b: *std.Build) void {
     const boundary_step = b.step("direct-style-boundary", "Run explicit boundary checks for unsupported raw direct-style lowering.");
     boundary_step.dependOn(&run_boundary_tests.step);
     boundary_step.dependOn(&run_bridge_boundary_tests.step);
-    const bridge_parity_step = b.step("direct-style-bridge-parity", "Run unchanged-body parity checks for the supported direct-style bridge corpus.");
+    const bridge_parity_step = b.step("internal-direct-style-bridge-parity", "Run unchanged-body parity checks for the internal direct-style bridge corpus.");
     bridge_parity_step.dependOn(&run_bridge_tests.step);
 
     const source_lowering_corpus_mod = b.createModule(.{
@@ -857,11 +857,11 @@ pub fn build(b: *std.Build) void {
     source_lowering_tool_step.dependOn(&source_lowering_tool_install.step);
     const src_lower_tool_contract = b.addSystemCommand(&.{ "sh", "test/source_lowering_tool_contract/run.sh" });
     src_lower_tool_contract.step.dependOn(&source_lowering_tool_install.step);
-    const src_lower_tool_contract_step = b.step("source-lowering-tool-contract", "Check source-lowering tool rejected and accepted emission contracts.");
+    const src_lower_tool_contract_step = b.step("source-lowering-tool-contract", "Check internal source-lowering tool rejected and accepted emission contracts.");
     src_lower_tool_contract_step.dependOn(&src_lower_tool_contract.step);
     const src_lower_err_wit_cmd = b.addSystemCommand(&.{ "sh", "test/source_lowering_error_witness/run.sh" });
     src_lower_err_wit_cmd.step.dependOn(&source_lowering_tool_install.step);
-    const src_lower_err_wit_step = b.step("source-lowering-error-witness-check", "Check that the source-lowering tool emits the checked error witness surface.");
+    const src_lower_err_wit_step = b.step("source-lowering-error-witness-check", "Check that the source-lowering tool emits the checked public witness surface.");
     src_lower_err_wit_step.dependOn(&src_lower_err_wit_cmd.step);
     const public_error_api_ban_cmd = b.addSystemCommand(&.{ "sh", "test/public_error_api_ban/run.sh" });
     const public_error_api_ban_step = b.step("public-error-api-ban", "Fail closed if retired public root spellings reappear.");
@@ -876,7 +876,7 @@ pub fn build(b: *std.Build) void {
         .root_module = public_root_snapshot_mod,
     });
     const public_root_snapshot_cmd = b.addRunArtifact(public_root_snapshot_exe);
-    const public_root_snapshot_step = b.step("public-root-contract-snapshot-check", "Check the open-row public root tombstone snapshot.");
+    const public_root_snapshot_step = b.step("public-root-contract-snapshot-check", "Check the root-kernel public tombstone snapshot.");
     public_root_snapshot_step.dependOn(&public_root_snapshot_cmd.step);
     const retired_lane_inventory_mod = b.createModule(.{
         .root_source_file = b.path("tools/check_retired_lane_inventory.zig"),
@@ -992,7 +992,7 @@ pub fn build(b: *std.Build) void {
     const witness_admission_write_step = b.step("witness-admission-matrix-write", "Refresh the witness admission matrix.");
     witness_admission_write_step.dependOn(&witness_admission_write_cmd.step);
 
-    const source_lowering_gauntlet_step = b.step("source-lowering-gauntlet", "Run the internal source-lowering proof surface.");
+    const source_lowering_gauntlet_step = b.step("kernel-source-lowering-check", "Check the internal source-lowering proof surface beneath the root execution kernel.");
     source_lowering_gauntlet_step.dependOn(&run_src_lower_corpus_tests.step);
     source_lowering_gauntlet_step.dependOn(&run_src_lower_boundary_tests.step);
     source_lowering_gauntlet_step.dependOn(&run_src_lower_promoted_tests.step);
@@ -1040,11 +1040,11 @@ pub fn build(b: *std.Build) void {
     });
     const route_matrix_check_cmd = b.addRunArtifact(route_matrix_exe);
     route_matrix_check_cmd.addArg("check");
-    const route_matrix_check_step = b.step("runtime-route-matrix-check", "Check the runtime route matrix for the supported lowered runtime corpus.");
+    const route_matrix_check_step = b.step("internal-runtime-route-matrix-check", "Check the internal runtime route matrix for the supported lowered runtime corpus.");
     route_matrix_check_step.dependOn(&route_matrix_check_cmd.step);
     const route_matrix_write_cmd = b.addRunArtifact(route_matrix_exe);
     route_matrix_write_cmd.addArg("write");
-    const route_matrix_write_step = b.step("runtime-route-matrix-write", "Refresh the runtime route matrix for the supported lowered runtime corpus.");
+    const route_matrix_write_step = b.step("internal-runtime-route-matrix-write", "Refresh the internal runtime route matrix for the supported lowered runtime corpus.");
     route_matrix_write_step.dependOn(&route_matrix_write_cmd.step);
 
     const obligation_matrix_registry_mod = b.createModule(.{
@@ -1064,11 +1064,11 @@ pub fn build(b: *std.Build) void {
     });
     const obligation_matrix_check_cmd = b.addRunArtifact(obligation_matrix_exe);
     obligation_matrix_check_cmd.addArg("check");
-    const obligation_matrix_check_step = b.step("runtime-obligation-matrix-check", "Check the runtime obligation matrix for remaining stack-runtime dependencies.");
+    const obligation_matrix_check_step = b.step("internal-runtime-obligation-matrix-check", "Check the internal runtime obligation matrix for remaining stack-runtime dependencies.");
     obligation_matrix_check_step.dependOn(&obligation_matrix_check_cmd.step);
     const obligation_matrix_write_cmd = b.addRunArtifact(obligation_matrix_exe);
     obligation_matrix_write_cmd.addArg("write");
-    const obligation_matrix_write_step = b.step("runtime-obligation-matrix-write", "Refresh the runtime obligation matrix for remaining stack-runtime dependencies.");
+    const obligation_matrix_write_step = b.step("internal-runtime-obligation-matrix-write", "Refresh the internal runtime obligation matrix for remaining stack-runtime dependencies.");
     obligation_matrix_write_step.dependOn(&obligation_matrix_write_cmd.step);
 
     const error_surface_registry_mod = b.createModule(.{
@@ -1216,7 +1216,7 @@ pub fn build(b: *std.Build) void {
     frontend_feature_write_step.dependOn(&frontend_feature_write_cmd.step);
 
     const shipped_backend_cmd = b.addSystemCommand(&.{ "sh", "test/shipped_backend_contract/run.sh" });
-    const shipped_backend_step = b.step("shipped-backend-check", "Check that the shipped path no longer depends on the stackful backend.");
+    const shipped_backend_step = b.step("internal-shipped-backend-check", "Check that the internal shipped-path proof no longer depends on the stackful backend.");
     shipped_backend_step.dependOn(&shipped_backend_cmd.step);
 
     test_step.dependOn(&authoring_lower_check_cmd.step);
@@ -1278,13 +1278,13 @@ pub fn build(b: *std.Build) void {
         path: []const u8,
         expected: []const u8,
     }{
-        .{ .name = "cf-retired-program", .path = "test/compile_fail/retired_program_fails.zig", .expected = "has no member named 'Program'" },
-        .{ .name = "cf-retired-decl", .path = "test/compile_fail/retired_decl_fails.zig", .expected = "has no member named 'Decl'" },
-        .{ .name = "cf-retired-op", .path = "test/compile_fail/retired_op_fails.zig", .expected = "has no member named 'Op'" },
-        .{ .name = "cf-retired-ops", .path = "test/compile_fail/retired_ops_fails.zig", .expected = "has no member named 'Ops'" },
-        .{ .name = "cf-retired-runwith", .path = "test/compile_fail/retired_runwith_fails.zig", .expected = "has no member named 'runWith'" },
-        .{ .name = "cf-retired-rowspec", .path = "test/compile_fail/retired_rowspec_fails.zig", .expected = "has no member named 'RowSpec'" },
-        .{ .name = "cf-retired-mergerowspecs", .path = "test/compile_fail/retired_mergerowspecs_fails.zig", .expected = "has no member named 'MergeRowSpecs'" },
+        .{ .name = "cf-retired-program", .path = "test/compile_fail/retired_program_fails.zig", .expected = "has no member named 'Transform'" },
+        .{ .name = "cf-retired-decl", .path = "test/compile_fail/retired_decl_fails.zig", .expected = "has no member named 'Choice'" },
+        .{ .name = "cf-retired-op", .path = "test/compile_fail/retired_op_fails.zig", .expected = "has no member named 'Abort'" },
+        .{ .name = "cf-retired-ops", .path = "test/compile_fail/retired_ops_fails.zig", .expected = "has no member named 'Row'" },
+        .{ .name = "cf-retired-runwith", .path = "test/compile_fail/retired_runwith_fails.zig", .expected = "has no member named 'mergeRows'" },
+        .{ .name = "cf-retired-rowspec", .path = "test/compile_fail/retired_rowspec_fails.zig", .expected = "has no member named 'effects'" },
+        .{ .name = "cf-retired-mergerowspecs", .path = "test/compile_fail/retired_mergerowspecs_fails.zig", .expected = "has no member named 'handlers'" },
         .{ .name = "cf-resume-value-mismatch", .path = "test/compile_fail/resume_value_mismatch.zig", .expected = ".resumeValue must have type fn () Resume or fn () ResetError(ErrorSet)!Resume" },
         .{ .name = "cf-one-shot-missing-after-resume", .path = "test/one_shot_survey/missing_after_resume_fails.zig", .expected = "must declare afterResume" },
         .{ .name = "cf-one-shot-missing-resume-or-return", .path = "test/one_shot_survey/missing_resume_or_return_fails.zig", .expected = "must declare resumeOrReturn" },
@@ -1327,7 +1327,7 @@ pub fn build(b: *std.Build) void {
         .root_module = example_proof_mod,
     });
     const run_example_proof_tests = b.addRunArtifact(example_proof_tests);
-    const example_proof_step = b.step("example-proof", "Run exact-output proof for the shipped open-row example corpus.");
+    const example_proof_step = b.step("example-proof", "Run exact-output proof for the shipped checked example corpus.");
     example_proof_step.dependOn(&proof_fixture_check_cmd.step);
     example_proof_step.dependOn(&run_example_proof_tests.step);
     test_step.dependOn(&proof_fixture_check_cmd.step);
@@ -1373,7 +1373,7 @@ pub fn build(b: *std.Build) void {
             .name = "open_row_state_writer",
             .src = "examples/open_row_state_writer.zig",
             .step_name = "run-open-row-state-writer",
-            .step_desc = "Run the open-row state-plus-writer vertical-slice example.",
+            .step_desc = "Run the checked state-plus-writer example (legacy proof label).",
         },
         .{
             .name = "reader_basic",

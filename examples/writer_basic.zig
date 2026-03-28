@@ -1,28 +1,22 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const WriterRow = shift.effects.writer([]const u8);
-
-const writer_workflow = struct {
-    /// Capability bundle for the writer example.
-    pub const Uses = shift.Uses(WriterRow);
-
+const WriterProgram = shift.Program(.{
+    .writer = shift.Decl.writer([]const u8),
+}, struct {
     /// Append two items and return the canonical writer answer.
     pub fn body(eff: anytype) ![]const u8 {
         try eff.writer.tell("a");
         try eff.writer.tell("b");
         return "done";
     }
-};
+});
 
 fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
     var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
-    const closed = shift.bind(writer_workflow, .{
-        .writer = shift.handlers.writer([]const u8, allocator),
-    });
-    const result = try shift.run(&runtime, closed);
+    const result = try shift.run(&runtime, WriterProgram, .{});
     defer allocator.free(result.outputs.writer);
 
     for (result.outputs.writer) |item| {
@@ -31,7 +25,7 @@ fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void
     try writer.print("value={s}\n", .{result.value});
 }
 
-/// Write the writer-effect transcript through the root front door.
+/// Write the writer-effect transcript through the program kernel.
 pub fn run(writer: anytype) anyerror!void {
     try runWithAllocator(writer, std.heap.page_allocator);
 }

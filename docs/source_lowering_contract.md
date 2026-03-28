@@ -4,20 +4,24 @@
 
 This track is an internal source-lowering contract for the repo-owned source
 corpus and the promoted example and witness rows backed by the
-`shift-source-lower` toolchain. It is not a public root API lane.
+`shift-source-lower` toolchain. The CLI name stays unchanged for tooling
+continuity, but the track is not a public root API lane.
 
 ## Public Boundary
 
-The public authored-body surface remains:
+The public docs now frame `shift` around the root-level runtime kernel:
 
-- `shift.Row(.{ ... })` / `shift.mergeRows(.{ ... })`
-- `shift.effects.*`, `shift.handlers.*`, and `shift.Decision(...)`
-- `const closed = shift.bind(...); try shift.run(&runtime, closed)`
+- declaration authoring through `shift.Program(...)`, `shift.Decl`, and
+  `shift.Op`
+- explicit `shift.Runtime` ownership
+- root execution through `shift.run(...)`
+- public result/error/decision carriers at the root
 
-The source-lowering toolchain exists only as internal proof scaffolding beneath
-that public boundary. Its current implementation now compares covered rows
-against the canonical repo-owned structural shape rather than exact source-text
-hashes, then projects accepted rows onto canonical lowered scenarios.
+Current authored frontends lower into that public boundary, but the
+source-lowering toolchain exists only as internal proof scaffolding beneath it.
+Its current implementation compares covered rows against the canonical
+repo-owned structural shape rather than exact source-text hashes, then projects
+accepted rows onto canonical lowered scenarios.
 
 ## Preserved Semantic Invariants
 
@@ -39,8 +43,9 @@ The checked source corpus uses these stable source-lowering case ids:
 - `source.defer_resume`
 - `source.errdefer_error`
 
-These cases cover the structural subset promised by the internal source-lowering
-track:
+These cases cover the structural subset promised by the internal
+source-lowering track. The ids themselves are internal-only proof names and are
+not part of the public documentation contract:
 
 - local variables and mutation
 - `if` / `else`
@@ -65,7 +70,7 @@ track:
 ## Covered Rows
 
 The internal source-lowering track currently covers these repo-owned authored
-rows:
+rows and proof ids:
 
 - `example.early_exit`
 - `example.resume_or_return`
@@ -78,6 +83,9 @@ rows:
 - `example.writer_basic`
 - `open_row_state_writer`
 - witness rows
+
+These ids remain internal-only proof names. They are not part of the public
+root vocabulary or the public API story.
 
 Every covered row must stay backed by:
 
@@ -95,7 +103,8 @@ docs/source_lowering_coverage_matrix.json
 ```
 
 It records the current source-lowering label, law anchor, current proof signal,
-and `coverage_status` for each covered witness and shipped open-row example/effect row.
+and `coverage_status` for each covered internal witness row, legacy fixture id,
+and checked declaration/effect row.
 
 The checked admission/replay artifact is stored at the legacy path:
 
@@ -125,7 +134,7 @@ The source-lowering contract is only considered maintained when all of these
 remain green:
 
 ```text
-zig build source-lowering-gauntlet
+zig build kernel-source-lowering-check
 zig build source-lowering-coverage-check
 zig build lowering-equivalence-report-check
 zig build lowering-rejection-report-check
@@ -136,6 +145,9 @@ The gauntlet proves every source corpus case in two ways:
 
 1. direct source fixture execution
 2. execution through the internal restricted source-lowering path and canonical lowered engine
+
+Witness rows, unchanged-body bridge rows, and source corpus ids remain
+repo-internal proof lanes throughout this contract.
 
 The checked corpus artifact is `docs/source_lowering_matrix.json`.
 The checked coverage artifact is `docs/source_lowering_coverage_matrix.json`.

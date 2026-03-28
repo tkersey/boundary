@@ -1,12 +1,6 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const search_row = shift.Row(.{
-    .search = .{
-        .search = shift.Transform([]const u8, i32),
-    },
-});
-
 const transcript = struct {
     threadlocal var items = [_][]const u8{ "", "", "", "", "", "" };
     threadlocal var len: usize = 0;
@@ -31,10 +25,16 @@ const search_handler = struct {
     }
 };
 
-const artifact_search_workflow = struct {
-    /// Capability bundle for the artifact search example.
-    pub const Uses = shift.Uses(search_row);
+const SearchDecl = shift.Decl.family(.{
+    .state_type = struct {},
+    .ops = .{
+        shift.Op.Transform("search", []const u8, i32),
+    },
+}, search_handler);
 
+const ArtifactSearchProgram = shift.Program(.{
+    .search = SearchDecl,
+}, struct {
     /// Trigger the search operation and emit the canonical transcript fields.
     pub fn body(eff: anytype) anyerror!i32 {
         const total = try eff.search.search.perform("artifact-search");
@@ -45,7 +45,7 @@ const artifact_search_workflow = struct {
         transcript.note("opencode_source=jsonl");
         return total;
     }
-};
+});
 
 /// Render the artifact-search transcript.
 pub fn run(writer: anytype) anyerror!void {
@@ -53,10 +53,7 @@ pub fn run(writer: anytype) anyerror!void {
     defer runtime.deinit();
 
     transcript.len = 0;
-    const closed = shift.bind(artifact_search_workflow, .{
-        .search = search_handler{},
-    });
-    const result = try shift.run(&runtime, closed);
+    const result = try shift.run(&runtime, ArtifactSearchProgram, .{ .search = search_handler{} });
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }

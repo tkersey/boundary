@@ -1,21 +1,6 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const workflow_row = shift.mergeRows(.{
-    shift.effects.state(i32),
-    shift.effects.writer([]const u8),
-    shift.Row(.{
-        .search = .{
-            .search = shift.Transform([]const u8, i32),
-        },
-    }),
-    shift.Row(.{
-        .approval = .{
-            .publish = shift.Choice(void, []const u8),
-        },
-    }),
-});
-
 const transcript = struct {
     threadlocal var approval_line: []const u8 = "";
     threadlocal var search_line: []const u8 = "";
@@ -48,10 +33,26 @@ const approval_handler = struct {
     }
 };
 
-const workflow = struct {
-    /// Capability bundle for the workflow example.
-    pub const Uses = shift.Uses(workflow_row);
+const SearchDecl = shift.Decl.family(.{
+    .state_type = struct {},
+    .ops = .{
+        shift.Op.Transform("search", []const u8, i32),
+    },
+}, search_handler);
 
+const ApprovalDecl = shift.Decl.family(.{
+    .state_type = void,
+    .ops = .{
+        shift.Op.Choice("publish", void, []const u8),
+    },
+}, approval_handler);
+
+const WorkflowProgram = shift.Program(.{
+    .state = shift.Decl.state(i32),
+    .writer = shift.Decl.writer([]const u8),
+    .search = SearchDecl,
+    .approval = ApprovalDecl,
+}, struct {
     /// Run the composite workflow.
     pub fn body(eff: anytype) ![]const u8 {
         const total = try eff.search.search.perform("artifact-search");
@@ -66,7 +67,7 @@ const workflow = struct {
             }
         });
     }
-};
+});
 
 fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
     var runtime = shift.Runtime.init(allocator);
@@ -74,13 +75,11 @@ fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void
 
     transcript.search_line = "";
     transcript.approval_line = "";
-    const closed = shift.bind(workflow, .{
-        .state = shift.handlers.state(@as(i32, 0)),
-        .writer = shift.handlers.writer([]const u8, allocator),
+    const result = try shift.run(&runtime, WorkflowProgram, .{
+        .state = 0,
         .search = search_handler{},
         .approval = approval_handler{},
     });
-    const result = try shift.run(&runtime, closed);
     defer allocator.free(result.outputs.writer);
 
     try writer.print("{s}\n", .{transcript.search_line});

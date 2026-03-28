@@ -1,15 +1,10 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const generator_row = shift.mergeRows(.{
-    shift.effects.state(i32),
-    shift.effects.writer([]const u8),
-});
-
-const generator_workflow = struct {
-    /// Capability bundle for the generator example.
-    pub const Uses = shift.Uses(generator_row);
-
+const GeneratorProgram = shift.Program(.{
+    .state = shift.Decl.state(i32),
+    .writer = shift.Decl.writer([]const u8),
+}, struct {
     /// Emit three yielded values and return the final counter.
     pub fn body(eff: anytype) anyerror!i32 {
         while (true) {
@@ -26,17 +21,13 @@ const generator_workflow = struct {
             try eff.writer.tell(line);
         }
     }
-};
+});
 
 fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
     var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
-    const closed = shift.bind(generator_workflow, .{
-        .state = shift.handlers.state(@as(i32, 0)),
-        .writer = shift.handlers.writer([]const u8, allocator),
-    });
-    const result = try shift.run(&runtime, closed);
+    const result = try shift.run(&runtime, GeneratorProgram, .{ .state = 0 });
     defer allocator.free(result.outputs.writer);
 
     for (result.outputs.writer) |item| {

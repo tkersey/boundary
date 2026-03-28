@@ -1,8 +1,6 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const ResourceRow = shift.effects.resource([]const u8);
-
 const transcript = struct {
     threadlocal var items = [_][]const u8{ "", "", "", "", "", "" };
     threadlocal var len: usize = 0;
@@ -33,11 +31,10 @@ const resource_manager = struct {
     }
 };
 
-const resource_program = struct {
-    /// Capability bundle for the resource example.
-    pub const Uses = shift.Uses(ResourceRow);
-
-    /// Acquire and use two resources through the open-row scope.
+const ResourceProgram = shift.Program(.{
+    .resource = shift.Decl.resource([]const u8, resource_manager),
+}, struct {
+    /// Acquire and use two resources through the program scope.
     pub fn body(eff: anytype) ![]const u8 {
         const first = try eff.resource.acquire();
         transcript.note(if (std.mem.eql(u8, first, "a")) "use=a" else "use=b");
@@ -47,18 +44,16 @@ const resource_program = struct {
 
         return "done";
     }
-};
+});
 
-/// Write the resource-effect transcript through the open-row front door.
+/// Write the resource-effect transcript through the program kernel.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     resource_manager.next_index = 0;
     transcript.len = 0;
 
-    const result = try shift.run(&runtime, shift.bind(resource_program, .{
-        .resource = shift.handlers.resource([]const u8, resource_manager),
-    }));
+    const result = try shift.run(&runtime, ResourceProgram, .{});
 
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});

@@ -2,19 +2,20 @@ const parity_scenarios = @import("parity_scenarios");
 const std = @import("std");
 const witness_admission = @import("witness_admission_registry");
 
-/// Support state for one unchanged-body bridge case.
+/// Internal-only proof state for one unchanged-body case.
+/// The legacy `bridge` terminology remains because the private seam still keys on it.
 pub const Status = enum {
     blocked,
     supported,
 };
 
-/// Source category for one unchanged-body bridge case.
+/// Canonical authored-source category for one internal proof case.
 pub const SourceKind = enum {
     example,
     witness,
 };
 
-/// One direct-style bridge case tied to its canonical source module and scenario.
+/// One internal proof fixture case tied to its canonical source module and scenario.
 pub const Case = struct {
     case_id: []const u8,
     label: []const u8,
@@ -44,11 +45,11 @@ fn resolvedWitnessReason(witness_id: []const u8) ?[]const u8 {
     return switch (entry.bridge_status) {
         .supported => null,
         .blocked => entry.note,
-        .unknown => "Witness bridge admission is not resolved yet; treat this case as blocked until the admission matrix is updated.",
+        .unknown => "Internal witness proof admission is not resolved yet; treat this case as blocked until the admission matrix is updated.",
     };
 }
 
-/// Canonical bridge support registry for unchanged-body direct-style cases.
+/// Canonical internal proof-fixture registry for unchanged-body direct-style cases.
 pub const cases = [_]Case{
     .{
         .case_id = "atm_resume_transform",
@@ -239,7 +240,7 @@ pub const cases = [_]Case{
     },
 };
 
-/// Look up one bridge case by stable case id.
+/// Look up one internal proof case by stable case id.
 pub fn find(case_id: []const u8) ?*const Case {
     for (&cases) |*case| {
         if (std.mem.eql(u8, case.case_id, case_id)) return case;
@@ -247,7 +248,7 @@ pub fn find(case_id: []const u8) ?*const Case {
     return null;
 }
 
-/// Count blocked bridge cases in the current manifest.
+/// Count blocked internal proof cases in the current manifest.
 pub fn blockedCount() usize {
     var count: usize = 0;
     for (cases) |case| {

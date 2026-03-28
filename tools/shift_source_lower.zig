@@ -94,6 +94,25 @@ fn writeJsonContributors(writer: anytype, contributors: anytype) !void {
     try writer.writeByte(']');
 }
 
+fn writeJsonKernelProgramArtifact(
+    writer: anytype,
+    artifact: source_lowering.KernelProgramArtifact,
+) !void {
+    try writer.writeAll("{\"executable\":");
+    try writer.writeAll(if (artifact.isExecutable()) "true" else "false");
+    try writer.writeAll(",\"canonical_scenario_id\":");
+    if (artifact.canonical_scenario_id) |id| {
+        try writeJsonStringLiteral(writer, @tagName(id));
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.writeAll(",\"expected_transcript\":");
+    try writeJsonStringLiteral(writer, artifact.expected_transcript);
+    try writer.writeAll(",\"step_count\":");
+    try writer.print("{d}", .{artifact.steps.len});
+    try writer.writeByte('}');
+}
+
 fn writeZigStringArray(writer: anytype, values: []const []const u8) !void {
     try writer.writeAll("&.{");
     for (values, 0..) |value, idx| {
@@ -121,24 +140,27 @@ fn writeZigContributors(writer: anytype, contributors: anytype) !void {
 }
 
 fn writeJson(program: source_lowering.GeneratedProgram, writer: anytype) !void {
+    const artifact = program.kernelProgramArtifact();
     try writer.writeAll("{\"case_id\":");
     try writeJsonStringLiteral(writer, program.case_id);
     try writer.writeAll(",\"surface_kind\":");
     try writeJsonStringLiteral(writer, @tagName(program.surface_kind));
     try writer.writeAll(",\"status\":");
-    try writeJsonStringLiteral(writer, @tagName(program.status));
+    try writeJsonStringLiteral(writer, @tagName(artifact.status));
     try writer.writeAll(",\"canonical_scenario_id\":");
-    if (program.canonical_scenario_id) |id| {
+    if (artifact.canonical_scenario_id) |id| {
         try writeJsonStringLiteral(writer, @tagName(id));
     } else {
         try writer.writeAll("null");
     }
     try writer.writeAll(",\"feature_flags\":[");
-    for (program.feature_flags, 0..) |flag, idx| {
+    for (artifact.feature_flags, 0..) |flag, idx| {
         if (idx != 0) try writer.writeAll(",");
         try writer.print("\"{s}\"", .{flag});
     }
-    try writer.writeAll("],\"error_witness\":{");
+    try writer.writeAll("],\"kernel_program_artifact\":");
+    try writeJsonKernelProgramArtifact(writer, artifact);
+    try writer.writeAll(",\"error_witness\":{");
     try writer.print("\"schema_version\":{d},\"surface\":\"{s}\",\"support_status\":\"{s}\",", .{
         program.error_witness.schema_version,
         @tagName(program.error_witness.surface),
@@ -226,15 +248,17 @@ fn writeStepLiteral(writer: anytype, step: lowered_machine.Step) !void {
 }
 
 fn writeZig(program: source_lowering.GeneratedProgram, writer: anytype) !void {
+    const artifact = program.kernelProgramArtifact();
     try writer.writeAll(
         "const source_lowering = @import(\"source_lowering\");\n" ++
-            "const std = @import(\"std\");\n\n",
+            "const std = @import(\"std\");\n\n" ++
+            "// Executable kernel program artifact emitted by shift-source-lower.\n\n",
     );
     try writer.writeAll("const generated_program_steps = [_]source_lowering.Step{\n");
-    for (program.steps) |step| try writeStepLiteral(writer, step);
+    for (artifact.steps) |step| try writeStepLiteral(writer, step);
     try writer.writeAll("};\n");
     try writer.writeAll("\nconst generated_program_feature_flags = [_][]const u8{");
-    for (program.feature_flags, 0..) |flag, idx| {
+    for (artifact.feature_flags, 0..) |flag, idx| {
         if (idx != 0) try writer.writeAll(", ");
         try writeZigStringLiteral(writer, flag);
     }
@@ -276,14 +300,14 @@ fn writeZig(program: source_lowering.GeneratedProgram, writer: anytype) !void {
     try writeZigStringLiteral(writer, program.source_path);
     try writer.writeAll("),\n");
     try writer.print("        .surface_kind = .{s},\n", .{@tagName(program.surface_kind)});
-    try writer.print("        .status = .{s},\n", .{@tagName(program.status)});
-    if (program.canonical_scenario_id) |id| {
+    try writer.print("        .status = .{s},\n", .{@tagName(artifact.status)});
+    if (artifact.canonical_scenario_id) |id| {
         try writer.print("        .canonical_scenario_id = .{s},\n", .{@tagName(id)});
     } else {
         try writer.writeAll("        .canonical_scenario_id = null,\n");
     }
     try writer.writeAll("        .expected_transcript = ");
-    try writeZigStringLiteral(writer, program.expected_transcript);
+    try writeZigStringLiteral(writer, artifact.expected_transcript);
     try writer.writeAll(",\n");
     try writer.writeAll("        .steps = try allocator.dupe(source_lowering.Step, &generated_program_steps),\n");
     try writer.writeAll("        .feature_flags = try allocator.dupe([]const u8, &generated_program_feature_flags),\n");
@@ -320,7 +344,7 @@ fn writeZig(program: source_lowering.GeneratedProgram, writer: anytype) !void {
     );
 }
 
-/// Build or inspect one internal source-lowering artifact.
+/// Build or inspect one internal source-lowering kernel program artifact.
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
