@@ -420,6 +420,7 @@ fn InferHandlerErrorSet(
     comptime op_specs: anytype,
     comptime HandlerType: type,
 ) type {
+    comptime @setEvalBranchQuota(20_000);
     var ErrorSet = error{};
     inline for (op_specs) |Op| {
         switch (mode) {
@@ -455,6 +456,7 @@ fn InferHandlerOperationErrorSet(
     comptime op_specs: anytype,
     comptime HandlerType: type,
 ) type {
+    comptime @setEvalBranchQuota(20_000);
     var ErrorSet = error{};
     inline for (op_specs) |Op| {
         const OperationReturnType = switch (mode) {

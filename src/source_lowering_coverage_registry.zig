@@ -65,6 +65,25 @@ fn customUserDefinedRow(comptime row: shipped_open_row_corpus.CustomExample) ?Ro
     };
 }
 
+fn builtInEffectRow(
+    comptime coverage_id: []const u8,
+    comptime current_surface: []const u8,
+    comptime current_signal: []const u8,
+    comptime law_anchor: []const u8,
+    comptime source_label: []const u8,
+) Row {
+    return .{
+        .coverage_id = coverage_id,
+        .category = .built_in_effect,
+        .current_surface = current_surface,
+        .current_signal = current_signal,
+        .law_anchor = law_anchor,
+        .source_label = source_label,
+        .coverage_status = .covered,
+        .note = canonical_note,
+    };
+}
+
 /// Generator-owned source-lowering coverage registry.
 pub const rows = [_]Row{
     .{
@@ -234,7 +253,65 @@ pub const rows = [_]Row{
     customExampleRow(shipped_open_row_corpus.custom_examples[4]),
     customExampleRow(shipped_open_row_corpus.custom_examples[5]),
     customExampleRow(shipped_open_row_corpus.custom_examples[6]),
+    builtInEffectRow(
+        "effect.state_basic",
+        "shift.effects.state",
+        "example_proof:state_basic.txt",
+        formal_core.anchorPath(.strict_effect_capabilities),
+        "source.effect.state_basic",
+    ),
+    builtInEffectRow(
+        "effect.reader_basic",
+        "shift.effects.reader",
+        "example_proof:reader_basic.txt",
+        formal_core.anchorPath(.strict_effect_capabilities),
+        "source.effect.reader_basic",
+    ),
+    builtInEffectRow(
+        "effect.optional_basic",
+        "shift.effects.optional",
+        "example_proof:optional_basic.txt",
+        formal_core.anchorPath(.optional_resumption),
+        "source.effect.optional_basic",
+    ),
+    builtInEffectRow(
+        "effect.exception_basic",
+        "shift.effects.exception",
+        "example_proof:exception_basic.txt",
+        formal_core.anchorPath(.exception_effect),
+        "source.effect.exception_basic",
+    ),
+    builtInEffectRow(
+        "effect.resource_basic",
+        "shift.effects.resource",
+        "example_proof:resource_basic.txt",
+        formal_core.anchorPath(.resource_bracketing),
+        "source.effect.resource_basic",
+    ),
+    builtInEffectRow(
+        "effect.writer_basic",
+        "shift.effects.writer",
+        "example_proof:writer_basic.txt",
+        formal_core.anchorPath(.construction_coverage),
+        "source.effect.writer_basic",
+    ),
     customUserDefinedRow(shipped_open_row_corpus.custom_examples[0]).?,
     customUserDefinedRow(shipped_open_row_corpus.custom_examples[1]).?,
     customUserDefinedRow(shipped_open_row_corpus.custom_examples[2]).?,
 };
+
+fn hasCoverageId(comptime coverage_id: []const u8) bool {
+    inline for (rows) |row| {
+        if (comptime std.mem.eql(u8, row.coverage_id, coverage_id)) return true;
+    }
+    return false;
+}
+
+test "coverage registry keeps built-in effect rows" {
+    try std.testing.expect(hasCoverageId("effect.state_basic"));
+    try std.testing.expect(hasCoverageId("effect.reader_basic"));
+    try std.testing.expect(hasCoverageId("effect.optional_basic"));
+    try std.testing.expect(hasCoverageId("effect.exception_basic"));
+    try std.testing.expect(hasCoverageId("effect.resource_basic"));
+    try std.testing.expect(hasCoverageId("effect.writer_basic"));
+}

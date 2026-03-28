@@ -112,7 +112,53 @@ fn FamilyTypeForRequirement(comptime requirement: effect_ir.Requirement, comptim
                 GeneratedOpType(requirement.ops[3]),
             },
         }),
-        else => @compileError("plain user-defined open-row adapter currently supports between 1 and 4 ops"),
+        5 => generated_family.Build(.{
+            .state_type = StateTypeForPlainHandler(requirement, PlainHandler),
+            .ops = .{
+                GeneratedOpType(requirement.ops[0]),
+                GeneratedOpType(requirement.ops[1]),
+                GeneratedOpType(requirement.ops[2]),
+                GeneratedOpType(requirement.ops[3]),
+                GeneratedOpType(requirement.ops[4]),
+            },
+        }),
+        6 => generated_family.Build(.{
+            .state_type = StateTypeForPlainHandler(requirement, PlainHandler),
+            .ops = .{
+                GeneratedOpType(requirement.ops[0]),
+                GeneratedOpType(requirement.ops[1]),
+                GeneratedOpType(requirement.ops[2]),
+                GeneratedOpType(requirement.ops[3]),
+                GeneratedOpType(requirement.ops[4]),
+                GeneratedOpType(requirement.ops[5]),
+            },
+        }),
+        7 => generated_family.Build(.{
+            .state_type = StateTypeForPlainHandler(requirement, PlainHandler),
+            .ops = .{
+                GeneratedOpType(requirement.ops[0]),
+                GeneratedOpType(requirement.ops[1]),
+                GeneratedOpType(requirement.ops[2]),
+                GeneratedOpType(requirement.ops[3]),
+                GeneratedOpType(requirement.ops[4]),
+                GeneratedOpType(requirement.ops[5]),
+                GeneratedOpType(requirement.ops[6]),
+            },
+        }),
+        8 => generated_family.Build(.{
+            .state_type = StateTypeForPlainHandler(requirement, PlainHandler),
+            .ops = .{
+                GeneratedOpType(requirement.ops[0]),
+                GeneratedOpType(requirement.ops[1]),
+                GeneratedOpType(requirement.ops[2]),
+                GeneratedOpType(requirement.ops[3]),
+                GeneratedOpType(requirement.ops[4]),
+                GeneratedOpType(requirement.ops[5]),
+                GeneratedOpType(requirement.ops[6]),
+                GeneratedOpType(requirement.ops[7]),
+            },
+        }),
+        else => @compileError("plain user-defined open-row adapter currently supports between 1 and 8 ops"),
     };
 }
 
@@ -294,4 +340,74 @@ test "plain user-defined handlers adapt arbitrary op names and payload types" {
     const result = try with_api.with(&runtime, adapted, workflow);
     try std.testing.expectEqual(@as(u64, 18), result.outputs.counter);
     try std.testing.expectEqual(@as(u64, 18), result.value);
+}
+
+test "plain user-defined handlers adapt requirements with up to eight ops" {
+    const WorkflowRow = effect_ir.rowFromSpec(.{
+        .multi = .{
+            .one = effect_ir.Transform(void, i32),
+            .two = effect_ir.Transform(void, i32),
+            .three = effect_ir.Transform(void, i32),
+            .four = effect_ir.Transform(void, i32),
+            .five = effect_ir.Transform(void, i32),
+            .six = effect_ir.Transform(void, i32),
+            .seven = effect_ir.Transform(void, i32),
+            .eight = effect_ir.Transform(void, i32),
+        },
+    });
+    const workflow = struct {
+        pub const uses = shift.Uses(WorkflowRow);
+
+        pub fn body(eff: anytype) anyerror!i32 {
+            return (try eff.multi.one.perform()) +
+                (try eff.multi.two.perform()) +
+                (try eff.multi.three.perform()) +
+                (try eff.multi.four.perform()) +
+                (try eff.multi.five.perform()) +
+                (try eff.multi.six.perform()) +
+                (try eff.multi.seven.perform()) +
+                (try eff.multi.eight.perform());
+        }
+    };
+    const handler = struct {
+        pub fn one(_: *@This()) i32 {
+            return 1;
+        }
+
+        pub fn two(_: *@This()) i32 {
+            return 2;
+        }
+
+        pub fn three(_: *@This()) i32 {
+            return 3;
+        }
+
+        pub fn four(_: *@This()) i32 {
+            return 4;
+        }
+
+        pub fn five(_: *@This()) i32 {
+            return 5;
+        }
+
+        pub fn six(_: *@This()) i32 {
+            return 6;
+        }
+
+        pub fn seven(_: *@This()) i32 {
+            return 7;
+        }
+
+        pub fn eight(_: *@This()) i32 {
+            return 8;
+        }
+    };
+
+    const adapted = adaptHandlersForBody(workflow, .{
+        .multi = handler{},
+    });
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    const result = try with_api.with(&runtime, adapted, workflow);
+    try std.testing.expectEqual(@as(i32, 36), result.value);
 }
