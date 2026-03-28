@@ -1,6 +1,5 @@
-const shipped_open_row_corpus = @import("src/shipped_open_row_corpus_registry.zig");
 const std = @import("std");
-const zlinter = @import("zlinter");
+const shipped_open_row_corpus = @import("src/shipped_open_row_corpus_registry.zig");
 
 const ShiftConsumerDeps = struct {
     lowered_runtime_mod: ?*std.Build.Module,
@@ -1574,26 +1573,8 @@ pub fn build(b: *std.Build) void {
     const runtime_backend_stability_step = b.step("bench-runtime-backends-stability", "Run repeated clean-tree lowered-vs-stack backend stability characterization.");
     runtime_backend_stability_step.dependOn(&runtime_backend_stability_cmd.step);
 
-    const lint_step = b.step("lint", "Lint source code.");
-    lint_step.dependOn(step: {
-        const saved_verbose = b.verbose;
-        b.verbose = true;
-        defer b.verbose = saved_verbose;
-        var builder = zlinter.builder(b, .{});
-        builder.addPaths(.{
-            .exclude = &.{
-                b.path(".zig-cache"),
-                b.path(".zig-global-cache"),
-                b.path("src/error_witness.zig"),
-                b.path("src/op_compat.zig"),
-                b.path("src/program_api_compat.zig"),
-                b.path("src/program_api.zig"),
-            },
-        });
-        inline for (@typeInfo(zlinter.BuiltinLintRule).@"enum".fields) |field| {
-            const rule: zlinter.BuiltinLintRule = @enumFromInt(field.value);
-            builder.addRule(.{ .builtin = rule }, .{});
-        }
-        break :step builder.build();
-    });
+    const lint_cmd = b.addSystemCommand(&.{ "sh", "tools/run_lint.sh" });
+    if (b.args) |args| lint_cmd.addArgs(args);
+    const lint_step = b.step("lint", "Run repo-local Zig lint checks.");
+    lint_step.dependOn(&lint_cmd.step);
 }

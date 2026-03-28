@@ -5,6 +5,7 @@
         .zlinter = .{
             .url = "git+https://github.com/kurtwagner/zlinter?ref=0.15.x#59129bb0ca1efecd3b6625def6dc527cead4caac",
             .hash = "zlinter-0.0.1-OjQ08ZOnCwBx9meqm2cUjOkYUBeTUpKhQ3ERnVPg6ARc",
+            .lazy = true,
         },
     },
     .minimum_zig_version = "0.15.2",
