@@ -10,6 +10,7 @@ const ShiftConsumerDeps = struct {
 const ShiftPromptFixtureDeps = struct {
     prompt_support_mod: *std.Build.Module,
     shift_mod: *std.Build.Module,
+    with_api_mod: *std.Build.Module,
 };
 
 fn absolutizeGraphDirPath(b: *std.Build, maybe_path: ?[]const u8) ?[]const u8 {
@@ -55,6 +56,7 @@ fn createShiftPromptFixtureModule(
     });
     mod.addImport("shift", deps.shift_mod);
     mod.addImport("prompt_support", deps.prompt_support_mod);
+    mod.addImport("with_api", deps.with_api_mod);
     return mod;
 }
 
@@ -298,6 +300,14 @@ pub fn build(b: *std.Build) void {
     });
     prompt_support_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
     prompt_support_mod.addImport("frontend_support", frontend_support_mod);
+    const with_api_mod = b.createModule(.{
+        .root_source_file = b.path("src/with_api.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    with_api_mod.addImport("frontend_support", frontend_support_mod);
+    with_api_mod.addImport("lowered_machine", lowered_machine_mod);
+    with_api_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
     const program_frontend_mod = b.createModule(.{
         .root_source_file = b.path("src/program_frontend.zig"),
         .target = target,
@@ -1257,6 +1267,7 @@ pub fn build(b: *std.Build) void {
         const fixture_mod = createShiftPromptFixtureModule(b, fixture.path, target, optimize, .{
             .shift_mod = shift_mod,
             .prompt_support_mod = prompt_support_mod,
+            .with_api_mod = with_api_mod,
         });
         const fixture_check = b.addObject(.{
             .name = fixture.name,
@@ -1280,6 +1291,7 @@ pub fn build(b: *std.Build) void {
         const fixture_mod = createShiftPromptFixtureModule(b, fixture.path, target, optimize, .{
             .shift_mod = shift_mod,
             .prompt_support_mod = prompt_support_mod,
+            .with_api_mod = with_api_mod,
         });
         const fixture_check = b.addObject(.{
             .name = fixture.name ++ "-aggregate",
@@ -1304,6 +1316,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "cf-retired-rowspec", .path = "test/compile_fail/retired_rowspec_fails.zig", .expected = "has no member named 'effects'" },
         .{ .name = "cf-retired-mergerowspecs", .path = "test/compile_fail/retired_mergerowspecs_fails.zig", .expected = "has no member named 'handlers'" },
         .{ .name = "cf-resume-value-mismatch", .path = "test/compile_fail/resume_value_mismatch.zig", .expected = ".resumeValue must have type fn () Resume or fn () ResetError(ErrorSet)!Resume" },
+        .{ .name = "cf-collect-closed-outputs-const-mutating-finish", .path = "test/compile_fail/collect_closed_outputs_const_mutating_finish_fails.zig", .expected = "cast discards const qualifier" },
         .{ .name = "cf-one-shot-missing-after-resume", .path = "test/one_shot_survey/missing_after_resume_fails.zig", .expected = "must declare afterResume" },
         .{ .name = "cf-one-shot-missing-resume-or-return", .path = "test/one_shot_survey/missing_resume_or_return_fails.zig", .expected = "must declare resumeOrReturn" },
         .{ .name = "cf-one-shot-wrong-after-resume", .path = "test/one_shot_survey/wrong_after_resume_type_fails.zig", .expected = ".afterResume must have type fn (InAnswer) OutAnswer or fn (InAnswer) ResetError(ErrorSet)!OutAnswer" },
@@ -1318,6 +1331,7 @@ pub fn build(b: *std.Build) void {
         const fixture_mod = createShiftPromptFixtureModule(b, fixture.path, target, optimize, .{
             .shift_mod = shift_mod,
             .prompt_support_mod = prompt_support_mod,
+            .with_api_mod = with_api_mod,
         });
         const fixture_check = b.addObject(.{
             .name = fixture.name,

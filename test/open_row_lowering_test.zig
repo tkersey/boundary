@@ -7,8 +7,9 @@ test "open-row state-writer workflow lowers through the new source-lowering path
     const program = program_frontend.open_rows.stateWriterWorkflow();
     const lowered = try source_lowering.lowerOpenRowProgram(program);
 
-    try std.testing.expectEqualStrings("example.open_row.state_writer_workflow", lowered.label);
+    try std.testing.expectEqualStrings("example.open_row_state_writer", lowered.label);
     try std.testing.expectEqual(@as(usize, 1), lowered.program.functions.len);
+    try std.testing.expectEqualStrings("run", lowered.program.functions[0].symbol.symbol_name);
     try std.testing.expectEqual(@as(usize, 2), lowered.normalization.requirement_count);
     try std.testing.expectEqual(@as(usize, 3), lowered.normalization.op_count);
     try std.testing.expectEqual(@as(usize, 2), lowered.normalization.output_count);

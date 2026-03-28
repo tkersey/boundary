@@ -78,11 +78,11 @@ pub const open_rows = struct {
             }),
         });
         return .{
-            .label = "example.open_row.state_writer_workflow",
+            .label = "example.open_row_state_writer",
             .function = .{
                 .symbol = .{
                     .module_path = "examples/open_row_state_writer.zig",
-                    .symbol_name = "workflow",
+                    .symbol_name = "run",
                 },
                 .row = row,
                 .outputs = &.{

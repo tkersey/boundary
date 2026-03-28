@@ -125,7 +125,7 @@ test "lowerOpenRowProgram preserves label and normalization digest" {
         .function = .{
             .symbol = .{
                 .module_path = "examples/open_row_state_writer.zig",
-                .symbol_name = "workflow",
+                .symbol_name = "run",
             },
             .row = row,
             .outputs = &.{

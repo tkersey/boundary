@@ -140,7 +140,7 @@ pub fn collectClosedOutputs(handlers_ptr: anytype) ClosedOutputBundleType(std.me
     inline for (@typeInfo(HandlersType).@"struct".fields) |field| {
         const HandlerType = field.type;
         if (ClosedOutputType(HandlerType) == void) continue;
-        const handler_ptr: *@FieldType(HandlersType, field.name) = @ptrFromInt(@intFromPtr(&@field(handlers_ptr.*, field.name)));
+        const handler_ptr = &@field(handlers_ptr.*, field.name);
         @field(outputs, field.name) = handler_ptr.finish();
     }
     return outputs;
@@ -1027,4 +1027,26 @@ test "collectClosedOutputs finalizes the owned handler fields" {
     try std.testing.expectEqualSlices(u8, "done", outputs.writer);
     handlers.writer.storage[0] = 't';
     try std.testing.expectEqual(@as(u8, 't'), outputs.writer[0]);
+}
+
+test "collectClosedOutputs preserves const handler pointers for const-safe finish" {
+    const ReaderHandler = struct {
+        value: i32,
+        /// Explicit output type carried by this read-only state handler.
+        pub const Output = i32;
+
+        /// Finalize through a const pointer when the handler state is immutable.
+        pub fn finish(self: *const @This()) i32 {
+            return self.value;
+        }
+    };
+    const Handlers = struct {
+        reader: ReaderHandler,
+    };
+    const handlers: Handlers = .{
+        .reader = .{ .value = 9 },
+    };
+
+    const outputs = collectClosedOutputs(&handlers);
+    try std.testing.expectEqual(@as(i32, 9), outputs.reader);
 }
