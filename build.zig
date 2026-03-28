@@ -1,5 +1,6 @@
-const std = @import("std");
 const shipped_open_row_corpus = @import("src/shipped_open_row_corpus_registry.zig");
+const std = @import("std");
+const zlinter = @import("zlinter");
 
 const ShiftConsumerDeps = struct {
     lowered_runtime_mod: ?*std.Build.Module,
@@ -10,6 +11,18 @@ const ShiftPromptFixtureDeps = struct {
     prompt_support_mod: *std.Build.Module,
     shift_mod: *std.Build.Module,
 };
+
+fn absolutizeGraphDirPath(b: *std.Build, maybe_path: ?[]const u8) ?[]const u8 {
+    const path = maybe_path orelse return null;
+    if (std.fs.path.isAbsolute(path)) return path;
+    return std.fs.path.resolve(b.allocator, &.{path}) catch |err|
+        std.process.fatal("failed to resolve build graph path '{s}': {s}", .{ path, @errorName(err) });
+}
+
+fn absolutizeZlinterRuntimePaths(b: *std.Build) void {
+    b.graph.global_cache_root.path = absolutizeGraphDirPath(b, b.graph.global_cache_root.path);
+    b.graph.zig_lib_directory.path = absolutizeGraphDirPath(b, b.graph.zig_lib_directory.path);
+}
 
 fn createShiftConsumerModule(
     b: *std.Build,
@@ -156,6 +169,8 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
+
+    absolutizeZlinterRuntimePaths(b);
 
     const shift_mod = b.addModule("shift", .{
         .root_source_file = b.path("src/root.zig"),
@@ -1573,8 +1588,26 @@ pub fn build(b: *std.Build) void {
     const runtime_backend_stability_step = b.step("bench-runtime-backends-stability", "Run repeated clean-tree lowered-vs-stack backend stability characterization.");
     runtime_backend_stability_step.dependOn(&runtime_backend_stability_cmd.step);
 
-    const lint_cmd = b.addSystemCommand(&.{ "sh", "tools/run_lint.sh" });
-    if (b.args) |args| lint_cmd.addArgs(args);
-    const lint_step = b.step("lint", "Run repo-local Zig lint checks.");
-    lint_step.dependOn(&lint_cmd.step);
+    const lint_step = b.step("lint", "Lint source code.");
+    lint_step.dependOn(step: {
+        const saved_verbose = b.verbose;
+        b.verbose = true;
+        defer b.verbose = saved_verbose;
+        var builder = zlinter.builder(b, .{});
+        builder.addPaths(.{
+            .exclude = &.{
+                b.path(".zig-cache"),
+                b.path(".zig-global-cache"),
+                b.path("src/error_witness.zig"),
+                b.path("src/op_compat.zig"),
+                b.path("src/program_api_compat.zig"),
+                b.path("src/program_api.zig"),
+            },
+        });
+        inline for (@typeInfo(zlinter.BuiltinLintRule).@"enum".fields) |field| {
+            const rule: zlinter.BuiltinLintRule = @enumFromInt(field.value);
+            builder.addRule(.{ .builtin = rule }, .{});
+        }
+        break :step builder.build();
+    });
 }

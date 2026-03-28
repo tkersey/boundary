@@ -487,7 +487,7 @@ fn BodyRunFnType(comptime Body: type) type {
     };
 }
 
-fn BodyRunSelfValue(comptime Body: type) Body {
+fn bodyRunSelfValue(comptime Body: type) Body {
     if (@sizeOf(Body) != 0) {
         @compileError("shift.with body run(self, eff) requires a zero-sized body type; use run(eff) for stateful bodies");
     }
@@ -500,11 +500,11 @@ fn BodyReturnType(comptime Body: type, comptime EffType: type) type {
         const params = @typeInfo(BodyRunFnType(Body)).@"fn".params;
         if (params.len == 1) return @TypeOf(Body.run(dummyValue(EffType)));
         if (params.len == 2) {
-            const first_param = params[0].type orelse @compileError("shift.with body run must type every parameter");
-            if (first_param == type) return @TypeOf(Body.run(Body, dummyValue(EffType)));
-            if (first_param == Body) return @TypeOf(Body.run(BodyRunSelfValue(Body), dummyValue(EffType)));
-            if (first_param == *Body or first_param == *const Body) {
-                var self = BodyRunSelfValue(Body);
+            const FirstParam = params[0].type orelse @compileError("shift.with body run must type every parameter");
+            if (FirstParam == type) return @TypeOf(Body.run(Body, dummyValue(EffType)));
+            if (FirstParam == Body) return @TypeOf(Body.run(bodyRunSelfValue(Body), dummyValue(EffType)));
+            if (FirstParam == *Body or FirstParam == *const Body) {
+                var self = bodyRunSelfValue(Body);
                 return @TypeOf(Body.run(&self, dummyValue(EffType)));
             }
         }
@@ -555,22 +555,22 @@ fn callBody(
             return Body.run(eff);
         }
         if (params.len == 2) {
-            const first_param = params[0].type orelse @compileError("shift.with body run must type every parameter");
-            if (first_param == type) {
+            const FirstParam = params[0].type orelse @compileError("shift.with body run must type every parameter");
+            if (FirstParam == type) {
                 if (@typeInfo(ReturnType) == .error_union) {
                     return Body.run(Body, eff) catch |err| return @errorCast(err);
                 }
                 return Body.run(Body, eff);
             }
-            if (first_param == Body) {
-                const self = BodyRunSelfValue(Body);
+            if (FirstParam == Body) {
+                const self = bodyRunSelfValue(Body);
                 if (@typeInfo(ReturnType) == .error_union) {
                     return Body.run(self, eff) catch |err| return @errorCast(err);
                 }
                 return Body.run(self, eff);
             }
-            if (first_param == *Body or first_param == *const Body) {
-                var self = BodyRunSelfValue(Body);
+            if (FirstParam == *Body or FirstParam == *const Body) {
+                var self = bodyRunSelfValue(Body);
                 if (@typeInfo(ReturnType) == .error_union) {
                     return Body.run(&self, eff) catch |err| return @errorCast(err);
                 }
@@ -1003,21 +1003,23 @@ test "collectClosedOutputs mirrors finish results" {
 }
 
 test "collectClosedOutputs finalizes the owned handler fields" {
-    const writer_handler = struct {
+    const WriterHandler = struct {
         finished: bool = false,
         storage: [4]u8 = .{ 'd', 'o', 'n', 'e' },
+        /// Explicit output type carried by this owned writer handler.
         pub const Output = []const u8;
 
+        /// Finalize the owned writer handler output.
         pub fn finish(self: *@This()) []const u8 {
             self.finished = true;
             return self.storage[0..];
         }
     };
     const Handlers = struct {
-        writer: writer_handler,
+        writer: WriterHandler,
     };
     var handlers: Handlers = .{
-        .writer = writer_handler{},
+        .writer = WriterHandler{},
     };
 
     const outputs = collectClosedOutputs(&handlers);

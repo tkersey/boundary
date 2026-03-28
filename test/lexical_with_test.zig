@@ -1032,6 +1032,7 @@ test "shift.with accepts body run(eff)" {
     const result = try shift.with(&runtime, .{
         .state = shift.effect.state.use(@as(i32, 9)),
     }, struct {
+        /// Run the body through the declared one-argument `run` hook.
         pub fn run(eff: anytype) ExecResult(i32) {
             return try eff.state.get();
         }
@@ -1047,6 +1048,7 @@ test "shift.with accepts body run(self, eff)" {
     const result = try shift.with(&runtime, .{
         .state = shift.effect.state.use(@as(i32, 11)),
     }, struct {
+        /// Run the body through the declared self-plus-eff `run` hook.
         pub fn run(self: @This(), eff: anytype) ExecResult(i32) {
             _ = self;
             return try eff.state.get();

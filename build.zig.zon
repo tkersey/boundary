@@ -3,9 +3,8 @@
     .version = "0.0.1",
     .dependencies = .{
         .zlinter = .{
-            .url = "git+https://github.com/kurtwagner/zlinter?ref=0.15.x#59129bb0ca1efecd3b6625def6dc527cead4caac",
-            .hash = "zlinter-0.0.1-OjQ08ZOnCwBx9meqm2cUjOkYUBeTUpKhQ3ERnVPg6ARc",
-            .lazy = true,
+            .url = "git+https://github.com/tkersey/zlinter.git?ref=zig015-fixes#42461509e68f2f947f7594fdf4d63f46db40ab87",
+            .hash = "zlinter-0.0.1-OjQ08dCnCwBINQWXHHWuaDi4eSx9hRXBbJUtySTqfcU3",
         },
     },
     .minimum_zig_version = "0.15.2",
