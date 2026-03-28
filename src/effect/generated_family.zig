@@ -312,10 +312,20 @@ fn dummyValue(comptime T: type) T {
     };
 }
 
+fn isEmptyStructType(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .@"struct" => |info| info.fields.len == 0,
+        else => false,
+    };
+}
+
 fn assertTransformHandlerBundle(comptime HandlerType: type, comptime StateType: type, comptime AnswerType: type, comptime ErrorSetType: type, comptime Op: type) void {
     _ = ErrorSetType;
-    if (!@hasField(HandlerType, "state")) @compileError("generated transform handler must declare state");
-    if (@FieldType(HandlerType, "state") != StateType) @compileError("generated transform handler state field must match state_type");
+    if (!@hasField(HandlerType, "state")) {
+        if (!isEmptyStructType(StateType)) @compileError("generated transform handler must declare state");
+    } else if (@FieldType(HandlerType, "state") != StateType) {
+        @compileError("generated transform handler state field must match state_type");
+    }
     if (!@hasDecl(HandlerType, opName(Op))) @compileError("generated transform handler is missing op method");
 
     const ResumeFn = @TypeOf(@field(HandlerType, opName(Op)));
@@ -330,7 +340,7 @@ fn assertTransformHandlerBundle(comptime HandlerType: type, comptime StateType: 
     }
 
     const after_name = comptime afterMethodName(opName(Op));
-    if (!@hasDecl(HandlerType, after_name)) @compileError("generated transform handler is missing after_<op> method");
+    if (!@hasDecl(HandlerType, after_name)) return;
     const AfterFn = @TypeOf(@field(HandlerType, after_name));
     if (!fnParamsMatch(AfterFn, &.{ *HandlerType, AnswerType }) or !returnTypeMatches(AfterHandlerReturnType(HandlerType, Op), AnswerType)) {
         @compileError("generated transform handler after_<op> must have type fn (*Handler, Answer) Answer or fn (*Handler, Answer) ResetError(ErrorSet)!Answer");
@@ -353,7 +363,7 @@ fn assertChoiceHandlerBundle(comptime HandlerType: type, comptime AnswerType: ty
     }
 
     const after_name = comptime afterMethodName(opName(Op));
-    if (!@hasDecl(HandlerType, after_name)) @compileError("generated choice handler is missing after_<op> method");
+    if (!@hasDecl(HandlerType, after_name)) return;
     const AfterFn = @TypeOf(@field(HandlerType, after_name));
     if (!fnParamsMatch(AfterFn, &.{ *HandlerType, AnswerType }) or !returnTypeMatches(AfterHandlerReturnType(HandlerType, Op), AnswerType)) {
         @compileError("generated choice handler after_<op> must have type fn (*Handler, Answer) Answer or fn (*Handler, Answer) ResetError(ErrorSet)!Answer");
@@ -415,17 +425,21 @@ fn InferHandlerErrorSet(
         switch (mode) {
             .resume_then_transform => {
                 const ResumeReturnType = HandlerReturnType(HandlerType, Op);
-                const AfterReturnType = AfterHandlerReturnType(HandlerType, Op);
                 ErrorSet = ErrorSet ||
-                    ReturnTypeErrorSet(ResumeReturnType) ||
-                    ReturnTypeErrorSet(AfterReturnType);
+                    ReturnTypeErrorSet(ResumeReturnType);
+                if (@hasDecl(HandlerType, afterMethodName(opName(Op)))) {
+                    const AfterReturnType = AfterHandlerReturnType(HandlerType, Op);
+                    ErrorSet = ErrorSet || ReturnTypeErrorSet(AfterReturnType);
+                }
             },
             .resume_or_return => {
                 const DecideReturnType = HandlerReturnType(HandlerType, Op);
-                const AfterReturnType = AfterHandlerReturnType(HandlerType, Op);
                 ErrorSet = ErrorSet ||
-                    ReturnTypeErrorSet(DecideReturnType) ||
-                    ReturnTypeErrorSet(AfterReturnType);
+                    ReturnTypeErrorSet(DecideReturnType);
+                if (@hasDecl(HandlerType, afterMethodName(opName(Op)))) {
+                    const AfterReturnType = AfterHandlerReturnType(HandlerType, Op);
+                    ErrorSet = ErrorSet || ReturnTypeErrorSet(AfterReturnType);
+                }
             },
             .direct_return => {
                 const DirectReturnType = HandlerReturnType(HandlerType, Op);
@@ -449,8 +463,10 @@ fn InferHandlerOperationErrorSet(
         ErrorSet = ErrorSet || ReturnTypeErrorSet(OperationReturnType);
         switch (mode) {
             .resume_then_transform, .resume_or_return => {
-                const AfterReturnType = AfterHandlerReturnType(HandlerType, Op);
-                ErrorSet = ErrorSet || ReturnTypeErrorSet(AfterReturnType);
+                if (@hasDecl(HandlerType, afterMethodName(opName(Op)))) {
+                    const AfterReturnType = AfterHandlerReturnType(HandlerType, Op);
+                    ErrorSet = ErrorSet || ReturnTypeErrorSet(AfterReturnType);
+                }
             },
             .direct_return => {},
         }
@@ -694,6 +710,7 @@ pub fn Build(comptime spec: anytype) type {
                     /// Convert one resumed answer into the enclosing generated answer.
                     pub fn afterResume(self: HandlerPtrType, answer: AnswerType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
                         const after_name = comptime afterMethodName(opName(op_type));
+                        if (!@hasDecl(HandlerType, after_name)) return answer;
                         const AfterReturnType = AfterHandlerReturnType(HandlerType, op_type);
                         if (comptime ReturnTypeErrorSet(AfterReturnType) == error{}) return @field(HandlerType, after_name)(self, answer);
                         return try @field(HandlerType, after_name)(self, answer);
@@ -714,6 +731,7 @@ pub fn Build(comptime spec: anytype) type {
                     /// Convert one resumed choice answer into the enclosing generated answer.
                     pub fn afterResume(self: HandlerPtrType, answer: AnswerType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
                         const after_name = comptime afterMethodName(opName(op_type));
+                        if (!@hasDecl(HandlerType, after_name)) return answer;
                         const AfterReturnType = AfterHandlerReturnType(HandlerType, op_type);
                         if (comptime ReturnTypeErrorSet(AfterReturnType) == error{}) return @field(HandlerType, after_name)(self, answer);
                         return try @field(HandlerType, after_name)(self, answer);
@@ -1121,7 +1139,10 @@ pub fn Build(comptime spec: anytype) type {
                 Body,
             );
             if (mode == .resume_then_transform) {
-                return .{ .state = handler_value.state, .value = value };
+                return .{
+                    .state = if (@hasField(HandlerType, "state")) handler_value.state else std.mem.zeroInit(StateType, .{}),
+                    .value = value,
+                };
             }
             return value;
         }

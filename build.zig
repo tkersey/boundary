@@ -592,6 +592,7 @@ pub fn build(b: *std.Build) void {
     });
     const run_size_tests = b.addRunArtifact(size_tests);
     const size_step = b.step("size-check", "Run size and layout invariants.");
+    test_step.dependOn(&run_size_tests.step);
     size_step.dependOn(&run_size_tests.step);
 
     const structured_program_mod = b.createModule(.{
@@ -1571,6 +1572,9 @@ pub fn build(b: *std.Build) void {
 
     const lint_step = b.step("lint", "Lint source code.");
     lint_step.dependOn(step: {
+        const saved_verbose = b.verbose;
+        b.verbose = true;
+        defer b.verbose = saved_verbose;
         var builder = zlinter.builder(b, .{});
         builder.addPaths(.{
             .exclude = &.{

@@ -63,6 +63,7 @@ grep -q 'bench-family-builder-decompose' "$build_file"
 grep -q 'public-root-contract-snapshot-check' "$build_file"
 grep -q 'public-error-api-ban' "$build_file"
 grep -q 'retired-lane-inventory-check' "$build_file"
+grep -q 'test_step.dependOn(&run_size_tests.step);' "$build_file"
 
 ! grep -q 'ordinary-zig-gauntlet' "$build_file"
 ! grep -q 'ordinary-lower' "$build_file"
