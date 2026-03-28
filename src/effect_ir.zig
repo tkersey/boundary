@@ -843,7 +843,7 @@ test "row digest counts requirements ops and outputs" {
     };
     const digest = try rowDigest(row, &.{
         .{ .label = "state", .OutputType = i32 },
-        .{ .label = "writer", .OutputType = []const []const u8 },
+        .{ .label = "writer", .OutputType = [][]const u8 },
     });
     try std.testing.expectEqual(@as(usize, 2), digest.requirement_count);
     try std.testing.expectEqual(@as(usize, 3), digest.op_count);

@@ -3,6 +3,7 @@ const shipped_open_row_corpus = @import("shipped_open_row_corpus_registry");
 const std = @import("std");
 
 const canonical_note = "Canonical through the internal source-lowering toolchain with direct-source and canonical-scenario parity proof.";
+const open_row_frontend_note = "Canonical through the open-row frontend lowering test plus the exact-output shipped example fixture proof.";
 const witness_canonical_note = "Canonical through the internal source-lowering witness source with direct-source, canonical-scenario, evaluator, reference-machine, and runtime parity proof.";
 
 /// Coverage category for the steady-state source-lowering proof surface.
@@ -246,6 +247,16 @@ pub const rows = [_]Row{
         .coverage_status = .covered,
         .note = canonical_note,
     },
+    .{
+        .coverage_id = "example.open_row_state_writer",
+        .category = .example,
+        .current_surface = "examples.open_row_state_writer",
+        .current_signal = "example_proof:open_row_state_writer.txt",
+        .law_anchor = formal_core.anchorPath(.construction_coverage),
+        .source_label = "source.example.open_row_state_writer",
+        .coverage_status = .covered,
+        .note = open_row_frontend_note,
+    },
     customExampleRow(shipped_open_row_corpus.custom_examples[0]),
     customExampleRow(shipped_open_row_corpus.custom_examples[1]),
     customExampleRow(shipped_open_row_corpus.custom_examples[2]),
@@ -308,6 +319,7 @@ fn hasCoverageId(comptime coverage_id: []const u8) bool {
 }
 
 test "coverage registry keeps built-in effect rows" {
+    try std.testing.expect(hasCoverageId("example.open_row_state_writer"));
     try std.testing.expect(hasCoverageId("effect.state_basic"));
     try std.testing.expect(hasCoverageId("effect.reader_basic"));
     try std.testing.expect(hasCoverageId("effect.optional_basic"));

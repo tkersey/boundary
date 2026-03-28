@@ -398,6 +398,89 @@ test "runBound executes handled targets bound with remaining handlers" {
     try @import("std").testing.expectEqualStrings("done", result.value);
 }
 
+test "bind order does not change open-row handler semantics" {
+    const WorkflowRow = mergeRows(.{
+        Row(.{
+            .alpha = .{
+                .tick = Transform(void, void),
+            },
+        }),
+        Row(.{
+            .beta = .{
+                .tick = Transform(void, void),
+            },
+        }),
+    });
+    const workflow = struct {
+        pub const uses = Uses(WorkflowRow);
+
+        pub fn body(eff: anytype) anyerror!i32 {
+            try eff.alpha.tick.perform();
+            try eff.beta.tick.perform();
+            return 0;
+        }
+    };
+    const AlphaHandler = struct {
+        pub fn tick(_: *@This()) void {}
+
+        pub fn afterTick(_: *@This(), answer: i32) i32 {
+            return answer * 10 + 1;
+        }
+    };
+    const BetaHandler = struct {
+        pub fn tick(_: *@This()) void {}
+
+        pub fn afterTick(_: *@This(), answer: i32) i32 {
+            return answer * 10 + 2;
+        }
+    };
+
+    var runtime = @import("root.zig").Runtime.init(@import("std").testing.allocator);
+    defer runtime.deinit();
+
+    const canonical = try runBound(&runtime, bind(workflow, .{
+        .alpha = AlphaHandler{},
+        .beta = BetaHandler{},
+    }));
+    const reordered = try runBound(&runtime, bind(workflow, .{
+        .beta = BetaHandler{},
+        .alpha = AlphaHandler{},
+    }));
+
+    try @import("std").testing.expectEqual(canonical.value, reordered.value);
+}
+
+test "runBound adapts non-zeroable plain handlers" {
+    const WorkflowRow = Row(.{
+        .search = .{
+            .query = Transform([]const u8, i32),
+        },
+    });
+    const workflow = struct {
+        pub const uses = Uses(WorkflowRow);
+
+        pub fn body(eff: anytype) anyerror!i32 {
+            return try eff.search.query.perform("artifact-search");
+        }
+    };
+    const SearchHandler = struct {
+        allocator: @import("std").mem.Allocator,
+
+        pub fn query(self: *@This(), payload: []const u8) i32 {
+            _ = self.allocator;
+            return if (@import("std").mem.eql(u8, payload, "artifact-search")) 3 else 0;
+        }
+    };
+
+    var runtime = @import("root.zig").Runtime.init(@import("std").testing.allocator);
+    defer runtime.deinit();
+
+    const result = try runBound(&runtime, bind(workflow, .{
+        .search = SearchHandler{ .allocator = @import("std").testing.allocator },
+    }));
+    try @import("std").testing.expectEqual(@as(i32, 3), result.value);
+}
+
 test "builtin row fragments normalize to one requirement each" {
     const workflow = mergeRows(.{
         effects.state(i32),

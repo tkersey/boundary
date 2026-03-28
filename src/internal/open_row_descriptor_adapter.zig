@@ -73,6 +73,37 @@ fn opNameSentinel(comptime name: []const u8) [:0]const u8 {
     return name[0..name.len :0];
 }
 
+fn dummyPointer(comptime PtrType: type) PtrType {
+    const pointer = @typeInfo(PtrType).pointer;
+    const Child = std.meta.Child(PtrType);
+    return switch (pointer.size) {
+        .slice => blk: {
+            const base = std.mem.alignForward(usize, 1, @alignOf(Child));
+            const many = @as([*]Child, @ptrFromInt(base));
+            const slice = many[0..1];
+            if (pointer.is_const) break :blk @as(PtrType, slice);
+            break :blk @as(PtrType, @constCast(slice));
+        },
+        else => @as(PtrType, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(Child)))),
+    };
+}
+
+fn dummyValue(comptime T: type) T {
+    return switch (@typeInfo(T)) {
+        .pointer => dummyPointer(T),
+        .optional => |optional| dummyValue(optional.child),
+        .@"struct" => |info| blk: {
+            var value_buffer: T = undefined;
+            inline for (info.fields) |field| {
+                @field(value_buffer, field.name) = dummyValue(field.type);
+            }
+            break :blk value_buffer;
+        },
+        .void => {},
+        else => dummyPointer(*T).*,
+    };
+}
+
 fn GeneratedOpType(comptime op: effect_ir.OpSpec) type {
     return switch (op.mode) {
         .transform => generated_family.ops.Transform(opNameSentinel(op.op_name), op.PayloadType, op.ResumeType),
@@ -165,7 +196,7 @@ fn FamilyTypeForRequirement(comptime requirement: effect_ir.Requirement, comptim
 fn AdaptedDescriptorType(comptime requirement: effect_ir.Requirement, comptime PlainHandler: type, comptime AnswerType: type) type {
     const Family = FamilyTypeForRequirement(requirement, PlainHandler, AnswerType);
     return @TypeOf(Family.use(.{
-        .handler = std.mem.zeroInit(PlainHandler, .{}),
+        .handler = dummyValue(PlainHandler),
     }));
 }
 
@@ -192,10 +223,39 @@ fn AdaptedFieldType(comptime Body: type, comptime label: []const u8, comptime Ha
     return AdaptedDescriptorType(requirement, HandlerType, DeclaredBodyAnswerType(Body));
 }
 
+fn hasHandlerField(comptime HandlersType: type, comptime label: []const u8) bool {
+    inline for (@typeInfo(HandlersType).@"struct".fields) |field| {
+        if (comptime std.mem.eql(u8, field.name, label)) return true;
+    }
+    return false;
+}
+
+fn HandlerFieldType(comptime HandlersType: type, comptime label: []const u8) type {
+    inline for (@typeInfo(HandlersType).@"struct".fields) |field| {
+        if (comptime std.mem.eql(u8, field.name, label)) return field.type;
+    }
+    @compileError(std.fmt.comptimePrint("closed-root handlers are missing required label '{s}'", .{label}));
+}
+
+fn validateHandlersForBody(comptime Body: type, comptime HandlersType: type) void {
+    const row = rowForBody(Body);
+    inline for (row.requirements) |requirement| {
+        if (!hasHandlerField(HandlersType, requirement.label)) {
+            @compileError(std.fmt.comptimePrint("closed-root handlers are missing required label '{s}'", .{requirement.label}));
+        }
+    }
+    inline for (@typeInfo(HandlersType).@"struct".fields) |field| {
+        _ = requirementForLabel(row, field.name);
+    }
+}
+
 /// Resolve the descriptor-adapted handler bundle type for one open-row body.
 pub fn AdaptedHandlersType(comptime Body: type, comptime HandlersType: type) type {
     const info = @typeInfo(HandlersType);
     if (info != .@"struct") @compileError("closed-root handlers must be a struct literal or struct value");
+    validateHandlersForBody(Body, HandlersType);
+
+    const row = rowForBody(Body);
 
     var fields = [_]std.builtin.Type.StructField{.{
         .name = "",
@@ -203,12 +263,13 @@ pub fn AdaptedHandlersType(comptime Body: type, comptime HandlersType: type) typ
         .default_value_ptr = null,
         .is_comptime = false,
         .alignment = @alignOf(void),
-    }} ** info.@"struct".fields.len;
+    }} ** row.requirements.len;
 
-    inline for (info.@"struct".fields, 0..) |field, index| {
-        const FieldType = AdaptedFieldType(Body, field.name, field.type);
+    inline for (row.requirements, 0..) |requirement, index| {
+        const RawFieldType = HandlerFieldType(HandlersType, requirement.label);
+        const FieldType = AdaptedFieldType(Body, requirement.label, RawFieldType);
         fields[index] = .{
-            .name = field.name,
+            .name = opNameSentinel(requirement.label),
             .type = FieldType,
             .default_value_ptr = null,
             .is_comptime = false,
@@ -231,16 +292,18 @@ pub fn adaptHandlersForBody(comptime Body: type, handlers: anytype) AdaptedHandl
     const Adapted = AdaptedHandlersType(Body, @TypeOf(handlers));
     var storage: [@sizeOf(Adapted)]u8 align(@alignOf(Adapted)) = [_]u8{0} ** @sizeOf(Adapted);
     const adapted_ptr: *Adapted = @ptrCast(&storage);
-    inline for (@typeInfo(@TypeOf(handlers)).@"struct".fields) |field| {
-        if (comptime isDescriptorLike(field.type)) {
-            @field(adapted_ptr.*, field.name) = @field(handlers, field.name);
+    inline for (rowForBody(Body).requirements) |requirement| {
+        const field_name = requirement.label;
+        const field_value = @field(handlers, field_name);
+        const field_type = @TypeOf(field_value);
+        if (comptime isDescriptorLike(field_type)) {
+            @field(adapted_ptr.*, field_name) = field_value;
         } else {
-            const requirement = requirementForLabel(rowForBody(Body), field.name);
-            @field(adapted_ptr.*, field.name) = adaptedHandlerValue(
+            @field(adapted_ptr.*, field_name) = adaptedHandlerValue(
                 requirement,
-                field.type,
+                field_type,
                 DeclaredBodyAnswerType(Body),
-                @field(handlers, field.name),
+                field_value,
             );
         }
     }
@@ -340,6 +403,89 @@ test "plain user-defined handlers adapt arbitrary op names and payload types" {
     const result = try with_api.with(&runtime, adapted, workflow);
     try std.testing.expectEqual(@as(u64, 18), result.outputs.counter);
     try std.testing.expectEqual(@as(u64, 18), result.value);
+}
+
+test "plain user-defined handlers adapt non-zeroable stateful fields" {
+    const WorkflowRow = effect_ir.rowFromSpec(.{
+        .search = .{
+            .query = effect_ir.Transform([]const u8, i32),
+        },
+    });
+    const workflow = struct {
+        pub const uses = shift.Uses(WorkflowRow);
+
+        pub fn body(eff: anytype) anyerror!i32 {
+            return try eff.search.query.perform("artifact-search");
+        }
+    };
+    const SearchHandler = struct {
+        allocator: std.mem.Allocator,
+
+        pub fn query(self: *@This(), payload: []const u8) i32 {
+            _ = self.allocator;
+            return if (std.mem.eql(u8, payload, "artifact-search")) 3 else 0;
+        }
+    };
+
+    const adapted = adaptHandlersForBody(workflow, .{
+        .search = SearchHandler{ .allocator = std.testing.allocator },
+    });
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    const result = try with_api.with(&runtime, adapted, workflow);
+    try std.testing.expectEqual(@as(i32, 3), result.value);
+}
+
+test "adapted plain handlers follow row order instead of caller field order" {
+    const WorkflowRow = effect_ir.mergeRows(.{
+        effect_ir.rowFromSpec(.{
+            .alpha = .{
+                .tick = effect_ir.Transform(void, void),
+            },
+        }),
+        effect_ir.rowFromSpec(.{
+            .beta = .{
+                .tick = effect_ir.Transform(void, void),
+            },
+        }),
+    });
+    const workflow = struct {
+        pub const uses = shift.Uses(WorkflowRow);
+
+        pub fn body(eff: anytype) anyerror!i32 {
+            try eff.alpha.tick.perform();
+            try eff.beta.tick.perform();
+            return 0;
+        }
+    };
+    const AlphaHandler = struct {
+        pub fn tick(_: *@This()) void {}
+
+        pub fn afterTick(_: *@This(), answer: i32) i32 {
+            return answer * 10 + 1;
+        }
+    };
+    const BetaHandler = struct {
+        pub fn tick(_: *@This()) void {}
+
+        pub fn afterTick(_: *@This(), answer: i32) i32 {
+            return answer * 10 + 2;
+        }
+    };
+
+    const canonical = adaptHandlersForBody(workflow, .{
+        .alpha = AlphaHandler{},
+        .beta = BetaHandler{},
+    });
+    const reordered = adaptHandlersForBody(workflow, .{
+        .beta = BetaHandler{},
+        .alpha = AlphaHandler{},
+    });
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    const canonical_result = try with_api.with(&runtime, canonical, workflow);
+    const reordered_result = try with_api.with(&runtime, reordered, workflow);
+    try std.testing.expectEqual(canonical_result.value, reordered_result.value);
 }
 
 test "plain user-defined handlers adapt requirements with up to eight ops" {
