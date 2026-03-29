@@ -1757,6 +1757,7 @@ pub fn build(b: *std.Build) void {
                 b.path("src/error_witness.zig"),
                 b.path("src/op_compat.zig"),
                 // Public API intentionally exposes lower-case type-callable entrypoints here.
+                b.path("src/public_ir.zig"),
                 b.path("src/public_lowering.zig"),
                 b.path("src/program_api_compat.zig"),
                 b.path("src/program_api.zig"),

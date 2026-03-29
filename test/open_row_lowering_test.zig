@@ -28,7 +28,7 @@ test "open-row state-writer workflow exposes the generated same-module runtime p
 }
 
 test "explicit ir compilation matches the generated runtime plan shape" {
-    const ExplicitIrProgramType = shift.lowering.CompileIr(
+    const ExplicitIrProgramType = shift.ir.compile(
         "example.open_row_state_writer",
         example_open_row_state_writer.irProgram(),
     );

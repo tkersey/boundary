@@ -25,6 +25,7 @@ test "public root keeps the lexical surface, additive lowering, and compatibilit
     try std.testing.expect(@hasDecl(shift, "With"));
     try std.testing.expect(@hasDecl(shift, "with"));
     try std.testing.expect(@hasDecl(shift, "ir"));
+    try std.testing.expect(@hasDecl(shift.ir, "compile"));
 
     try std.testing.expect(@hasDecl(shift, "Runtime"));
     try std.testing.expect(@hasDecl(shift, "RuntimeError"));
@@ -108,7 +109,7 @@ test "public additive lowering exposes the retained runtime-owned plan" {
     };
 
     const lowered = shift.lowerAt("examples/open_row_state_writer.zig", spec);
-    const explicit = shift.lowering.CompileIr(spec.label, shift.lowering.irProgramAt("examples/open_row_state_writer.zig", spec));
+    const explicit = shift.ir.compile(spec.label, shift.lowering.irProgramAt("examples/open_row_state_writer.zig", spec));
 
     try std.testing.expectEqualStrings("example.open_row_state_writer", lowered.label);
     try std.testing.expectEqualStrings("runBody", lowered.entry_symbol);
