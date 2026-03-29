@@ -3,6 +3,7 @@ const effect_ir = @import("effect_ir");
 const lowered_machine = @import("lowered_machine");
 const parity_scenarios = @import("parity_scenarios");
 const program_frontend = @import("program_frontend");
+const source_analysis = @import("source_analysis.zig");
 const std = @import("std");
 
 /// Internal lowering surfaces that share the canonical authoring lowerer.
@@ -37,6 +38,20 @@ pub const Diagnostic = struct {
     line: usize,
     column: usize,
 };
+
+/// Public file-backed source validation error surface shared by additive and future public lowering.
+pub const SourceValidationError = error{
+    EntryMissing,
+    OutOfMemory,
+    ParseError,
+    SourceUnreadable,
+};
+/// Generic same-module source analysis result shared by public lowering and proof adapters.
+pub const SameModuleSourceAnalysis = source_analysis.ModuleAnalysis;
+/// One top-level function discovered in generic same-module analysis.
+pub const SameModuleTopLevelFunction = source_analysis.TopLevelFunction;
+/// One same-module helper-call edge discovered in generic same-module analysis.
+pub const SameModuleHelperCallEdge = source_analysis.HelperCallEdge;
 
 /// One canonical row that can be checked and lowered through the shared core.
 pub const CanonicalCase = struct {
@@ -114,6 +129,23 @@ pub fn lowerOpenRowProgram(program: program_frontend.OpenRowProgram) effect_ir.N
         .normalization = try effect_ir.rowDigest(program.function.row, program.function.outputs),
         .program = lowered,
     };
+}
+
+test "analyzeSameModuleSourceText exposes generic helper metadata" {
+    var analysis = try analyzeSameModuleSourceText(std.testing.allocator,
+        \\fn helper() void {}
+        \\pub fn run() void {
+        \\    helper();
+        \\}
+    );
+    defer analysis.deinit(std.testing.allocator);
+
+    try std.testing.expect(analysis.isParseClean());
+    try std.testing.expect(analysis.hasTopLevelFunctionNamed("run"));
+    try std.testing.expectEqual(@as(usize, 2), analysis.top_level_functions.len);
+    try std.testing.expectEqual(@as(usize, 1), analysis.helper_call_edges.len);
+    try std.testing.expectEqualStrings("run", analysis.helper_call_edges[0].caller_name);
+    try std.testing.expectEqualStrings("helper", analysis.helper_call_edges[0].callee_name);
 }
 
 /// One machine-readable accepted-row equivalence record.
@@ -370,25 +402,6 @@ fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8)
     return try out.toOwnedSlice(allocator);
 }
 
-fn hasTopLevelFunctionNamed(tree: std.zig.Ast, name: []const u8) bool {
-    var container_buffer: [2]std.zig.Ast.Node.Index = undefined;
-    const root = tree.fullContainerDecl(&container_buffer, .root) orelse return false;
-    for (root.ast.members) |member| {
-        var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
-        const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse continue;
-        const name_token = fn_proto.name_token orelse continue;
-        if (std.mem.eql(u8, tree.tokenSlice(name_token), name)) return true;
-    }
-    return false;
-}
-
-fn topLevelFunctionName(tree: std.zig.Ast, member: std.zig.Ast.Node.Index) ?[]const u8 {
-    var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
-    const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse return null;
-    const name_token = fn_proto.name_token orelse return null;
-    return tree.tokenSlice(name_token);
-}
-
 fn isSharedWitnessSourceEntryName(name: []const u8) bool {
     return std.mem.eql(u8, name, "runAtmResumeTransform") or
         std.mem.eql(u8, name, "runDirectReturn") or
@@ -400,7 +413,7 @@ fn isSharedWitnessSourceEntryName(name: []const u8) bool {
 }
 
 fn includeEntryCompareMember(tree: std.zig.Ast, member: std.zig.Ast.Node.Index, entry_symbol: []const u8) bool {
-    const fn_name = topLevelFunctionName(tree, member) orelse return true;
+    const fn_name = source_analysis.topLevelFunctionName(tree, member) orelse return true;
     if (!isSharedWitnessSourceEntryName(fn_name)) return true;
     return std.mem.eql(u8, fn_name, entry_symbol);
 }
@@ -457,6 +470,46 @@ fn parseFailureDiagnostic(
         .line = loc.line + 1,
         .column = loc.column + 1,
     });
+}
+
+/// Validate that one file-backed source parses and exposes the requested top-level entry symbol.
+pub fn validateFileBackedSourceEntry(
+    allocator: std.mem.Allocator,
+    actual_path: []const u8,
+    entry_symbol: []const u8,
+) SourceValidationError!void {
+    var analysis = try analyzeFileBackedSource(allocator, actual_path);
+    defer analysis.deinit(allocator);
+    try requireEntrySymbol(&analysis, entry_symbol);
+}
+
+/// Analyze one same-module source buffer without any proof-corpus admission checks.
+pub fn analyzeSameModuleSourceText(
+    allocator: std.mem.Allocator,
+    source_text: []const u8,
+) SourceValidationError!SameModuleSourceAnalysis {
+    return try source_analysis.analyzeModuleSource(allocator, source_text);
+}
+
+/// Analyze one file-backed same-module source file without proof-corpus admission checks.
+pub fn analyzeFileBackedSource(
+    allocator: std.mem.Allocator,
+    actual_path: []const u8,
+) SourceValidationError!SameModuleSourceAnalysis {
+    const source = std.fs.cwd().readFileAlloc(allocator, actual_path, 1 << 20) catch {
+        return error.SourceUnreadable;
+    };
+    defer allocator.free(source);
+
+    return try analyzeSameModuleSourceText(allocator, source);
+}
+
+fn requireEntrySymbol(
+    analysis: *const SameModuleSourceAnalysis,
+    entry_symbol: []const u8,
+) SourceValidationError!void {
+    if (!analysis.isParseClean()) return error.ParseError;
+    if (!analysis.hasTopLevelFunctionNamed(entry_symbol)) return error.EntryMissing;
 }
 
 fn tokenLiteralKind(tag: std.zig.Token.Tag) bool {
@@ -622,19 +675,14 @@ pub fn lowerFileBackedSourceText(input: LowerFileBackedSourceTextInput) anyerror
             .column = 1,
         }));
     }
-    const source_z = try allocator.dupeZ(u8, source_text);
-    defer allocator.free(source_z);
-    var tree = try std.zig.Ast.parse(allocator, source_z, .zig);
-    defer tree.deinit(allocator);
-    if (tree.errors.len != 0) {
-        return rejectedResult(allocator, case, display_path, try parseFailureDiagnostic(allocator, display_path, source_z, tree));
-    }
-    return lowerSourceText(allocator, case, .{
+    var analysis = try analyzeSameModuleSourceText(allocator, source_text);
+    defer analysis.deinit(allocator);
+    return lowerAnalyzedSourceText(allocator, case, .{
         .display_path = display_path,
         .actual_path = actual_path,
         .source_text = source_text,
         .expected_status = expected_status,
-    });
+    }, &analysis);
 }
 
 fn rejectedResult(
@@ -693,6 +741,17 @@ pub fn lowerSourceText(
     case: CanonicalCase,
     input: LowerSourceInput,
 ) anyerror!LoweredAuthoring {
+    var analysis = try analyzeSameModuleSourceText(allocator, input.source_text);
+    defer analysis.deinit(allocator);
+    return lowerAnalyzedSourceText(allocator, case, input, &analysis);
+}
+
+fn lowerAnalyzedSourceText(
+    allocator: std.mem.Allocator,
+    case: CanonicalCase,
+    input: LowerSourceInput,
+    analysis: *const SameModuleSourceAnalysis,
+) anyerror!LoweredAuthoring {
     if (!sourcePathMatchesExpected(allocator, input.actual_path, case.source_path)) {
         return rejectedResult(allocator, case, input.display_path, try diagnosticAt(.{
             .allocator = allocator,
@@ -704,15 +763,15 @@ pub fn lowerSourceText(
         }));
     }
 
-    const source_z = try allocator.dupeZ(u8, input.source_text);
-    defer allocator.free(source_z);
-    var tree = try std.zig.Ast.parse(allocator, source_z, .zig);
-    defer tree.deinit(allocator);
-
-    if (tree.errors.len != 0) {
-        return rejectedResult(allocator, case, input.display_path, try parseFailureDiagnostic(allocator, input.display_path, source_z, tree));
+    if (!analysis.isParseClean()) {
+        return rejectedResult(allocator, case, input.display_path, try parseFailureDiagnostic(
+            allocator,
+            input.display_path,
+            analysis.parsed.source_z,
+            analysis.parsed.tree,
+        ));
     }
-    if (!hasTopLevelFunctionNamed(tree, case.entry_symbol)) {
+    if (!analysis.hasTopLevelFunctionNamed(case.entry_symbol)) {
         return rejectedResult(allocator, case, input.display_path, try diagnosticAt(.{
             .allocator = allocator,
             .display_path = input.display_path,
@@ -753,14 +812,14 @@ pub fn lowerSourceText(
         return error.InvalidCanonicalSource;
     }
 
-    const actual_tokens = try normalizedComparisonTokensAlloc(allocator, case, source_z, &tree);
+    const actual_tokens = try normalizedComparisonTokensAlloc(allocator, case, analysis.parsed.source_z, &analysis.parsed.tree);
     defer freeNormalizedTokens(allocator, actual_tokens);
     const canonical_tokens = try normalizedComparisonTokensAlloc(allocator, case, canonical_z, &canonical_tree);
     defer freeNormalizedTokens(allocator, canonical_tokens);
 
     if (findMismatch(actual_tokens, canonical_tokens)) |mismatch| {
         const loc: std.zig.Ast.Location = if (mismatch.token_index) |token_index|
-            tree.tokenLocation(0, token_index)
+            analysis.parsed.tree.tokenLocation(0, token_index)
         else
             .{ .line = 0, .column = 0, .line_start = 0, .line_end = 0 };
         return rejectedResult(allocator, case, input.display_path, try diagnosticAt(.{

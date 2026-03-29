@@ -1,12 +1,20 @@
 const shift = @import("shift");
 const std = @import("std");
 
+/// Run one state-plus-writer workflow through the program kernel.
+pub fn runBody(eff: anytype) ![]const u8 {
+    const before = try eff.state.get();
+    try eff.state.set(before + 1);
+    try eff.writer.tell("query=artifact-search");
+    try eff.writer.tell("workflow=queued");
+    return "done";
+}
+
 /// Return the additive public lowering spec for this workflow.
 pub fn loweringSpec() shift.lowering.LowerSpec {
     return .{
         .label = "example.open_row_state_writer",
-        .module_path = "examples/open_row_state_writer.zig",
-        .symbol_name = "body",
+        .entry_symbol = "runBody",
         .row = shift.ir.mergeRows(.{
             shift.ir.rowFromSpec(.{
                 .state = .{
@@ -29,21 +37,32 @@ pub fn loweringSpec() shift.lowering.LowerSpec {
 
 /// Return the additive public lowered artifact for this workflow.
 pub fn loweredProgram() anyerror!shift.lowering.LoweredProgram {
-    return try shift.lowering.lowerOpenRow(loweringSpec());
+    return try shift.lowering.lowerOpenRowAt(loweringSourcePath(), loweringSpec());
 }
+
+/// Return the explicit IR view paired with this same-module lowering request.
+pub fn irProgram() shift.ir.Program {
+    return shift.lowering.irProgramAt(loweringSourcePath(), loweringSpec());
+}
+
+/// Return the source path captured by this example module.
+pub fn loweringSourcePath() []const u8 {
+    return "examples/open_row_state_writer.zig";
+}
+
+fn CompiledProgramType() type {
+    return shift.lowerAt(loweringSourcePath(), loweringSpec());
+}
+
+/// Generated additive program type exposing the runtime-owned plan bridge.
+pub const CompiledProgram = CompiledProgramType();
 
 const WorkflowProgram = shift.Program(.{
     .state = shift.Decl.state(i32),
     .writer = shift.Decl.writer([]const u8),
 }, struct {
-    /// Run one state-plus-writer workflow through the program kernel.
-    pub fn body(eff: anytype) ![]const u8 {
-        const before = try eff.state.get();
-        try eff.state.set(before + 1);
-        try eff.writer.tell("query=artifact-search");
-        try eff.writer.tell("workflow=queued");
-        return "done";
-    }
+    /// Reuse the top-level workflow body through the retained kernel-facing alias.
+    pub const body = runBody;
 });
 
 fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {

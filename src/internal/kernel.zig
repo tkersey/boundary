@@ -1,3 +1,4 @@
+const program_plan = @import("internal_program_plan");
 const scenarios = @import("parity_scenarios");
 const std = @import("std");
 
@@ -27,6 +28,34 @@ pub const PendingFrame = scenarios.PendingFrame;
 pub const TraceCheckpoint = scenarios.TraceCheckpoint;
 /// Lowered proof steps re-exported from the canonical scenario registry.
 pub const Step = scenarios.Step;
+/// Runtime-owned executable plan re-export.
+pub const ProgramPlan = program_plan.ProgramPlan;
+/// Runtime-owned function descriptor re-export.
+pub const FunctionPlan = program_plan.FunctionPlan;
+/// Runtime-owned requirement descriptor re-export.
+pub const RequirementPlan = program_plan.RequirementPlan;
+/// Runtime-owned op descriptor re-export.
+pub const OpPlan = program_plan.OpPlan;
+/// Runtime-owned output descriptor re-export.
+pub const OutputPlan = program_plan.OutputPlan;
+/// Runtime-owned instruction descriptor re-export.
+pub const Instruction = program_plan.Instruction;
+/// Runtime-owned instruction-tag descriptor re-export.
+pub const InstructionKind = program_plan.InstructionKind;
+/// Runtime-owned value codec re-export.
+pub const ValueCodec = program_plan.ValueCodec;
+/// Runtime-owned control-mode tag re-export.
+pub const PlanControlMode = program_plan.ControlMode;
+/// Runtime-owned plan validation error re-export.
+pub const ProgramPlanValidationError = program_plan.ValidationError;
+/// Runtime-owned plan compiler re-export.
+pub const planFromProgram = program_plan.planFromProgram;
+/// Runtime-owned full-program identity hash helper re-export.
+pub const irHashForProgram = program_plan.irHashForProgram;
+/// Value codec helper re-export.
+pub const codecForType = program_plan.codecForType;
+/// Value codec payload helper re-export.
+pub const hasPlanPayload = program_plan.hasPayload;
 
 const empty_checkpoint = TraceCheckpoint{
     .tag = .atm_resume_prepared,

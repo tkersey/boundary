@@ -234,12 +234,19 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const internal_program_plan_mod = b.createModule(.{
+        .root_source_file = b.path("src/internal/program_plan.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    internal_program_plan_mod.addImport("effect_ir", effect_ir_mod);
     const internal_kernel_mod = b.createModule(.{
         .root_source_file = b.path("src/internal/kernel.zig"),
         .target = target,
         .optimize = optimize,
     });
     internal_kernel_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    internal_kernel_mod.addImport("internal_program_plan", internal_program_plan_mod);
     const interpreter_mod = b.createModule(.{
         .root_source_file = b.path("src/interpreter.zig"),
         .target = target,
@@ -249,6 +256,7 @@ pub fn build(b: *std.Build) void {
     interpreter_mod.addImport("internal_kernel", internal_kernel_mod);
     shift_mod.addImport("effect_ir", effect_ir_mod);
     shift_mod.addImport("internal_kernel", internal_kernel_mod);
+    shift_mod.addImport("internal_program_plan", internal_program_plan_mod);
     shift_mod.addImport("interpreter", interpreter_mod);
     lowered_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
     lowered_machine_mod.addImport("internal_kernel", internal_kernel_mod);
@@ -305,12 +313,13 @@ pub fn build(b: *std.Build) void {
     authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_state_basic", canonicalSourceHash(b, "test/direct_style_bridge/state_basic.zig"));
     authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_static_redelim", canonicalSourceHash(b, "test/direct_style_bridge/static_redelim.zig"));
     authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_writer_basic", canonicalSourceHash(b, "test/direct_style_bridge/writer_basic.zig"));
+    const authoring_build_options_mod = authoring_lowerer_options.createModule();
     const authoring_lowerer_mod = b.createModule(.{
         .root_source_file = b.path("src/internal/authoring_lowerer.zig"),
         .target = target,
         .optimize = optimize,
     });
-    authoring_lowerer_mod.addImport("authoring_build_options", authoring_lowerer_options.createModule());
+    authoring_lowerer_mod.addImport("authoring_build_options", authoring_build_options_mod);
     authoring_lowerer_mod.addImport("effect_ir", effect_ir_mod);
     authoring_lowerer_mod.addImport("lowered_machine", lowered_machine_mod);
     authoring_lowerer_mod.addImport("parity_scenarios", parity_scenarios_mod);
@@ -343,8 +352,10 @@ pub fn build(b: *std.Build) void {
     });
     program_frontend_mod.addImport("effect_ir", effect_ir_mod);
     program_frontend_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    internal_program_plan_mod.addImport("program_frontend", program_frontend_mod);
     shift_mod.addImport("program_frontend", program_frontend_mod);
     authoring_lowerer_mod.addImport("program_frontend", program_frontend_mod);
+    shift_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
     const lexical_runtime_internal_mod = b.createModule(.{
         .root_source_file = b.path("src/lexical_runtime_internal.zig"),
         .target = target,
@@ -464,6 +475,8 @@ pub fn build(b: *std.Build) void {
     lib_check.root_module.addImport("portable_core", portable_core_mod);
     lib_check.root_module.addImport("parity_scenarios", parity_scenarios_mod);
     lib_check.root_module.addImport("internal_kernel", internal_kernel_mod);
+    lib_check.root_module.addImport("internal_program_plan", internal_program_plan_mod);
+    lib_check.root_module.addImport("authoring_lowerer", authoring_lowerer_mod);
     lib_check.root_module.addImport("program_frontend", program_frontend_mod);
     lib_check.root_module.addImport("source_lowering", source_lowering_mod);
     lib_check.root_module.addImport("error_witness", error_witness_mod);
@@ -482,6 +495,8 @@ pub fn build(b: *std.Build) void {
     root_tests.root_module.addImport("portable_core", portable_core_mod);
     root_tests.root_module.addImport("parity_scenarios", parity_scenarios_mod);
     root_tests.root_module.addImport("internal_kernel", internal_kernel_mod);
+    root_tests.root_module.addImport("internal_program_plan", internal_program_plan_mod);
+    root_tests.root_module.addImport("authoring_lowerer", authoring_lowerer_mod);
     root_tests.root_module.addImport("program_frontend", program_frontend_mod);
     root_tests.root_module.addImport("source_lowering", source_lowering_mod);
     root_tests.root_module.addImport("error_witness", error_witness_mod);
@@ -1741,8 +1756,12 @@ pub fn build(b: *std.Build) void {
                 b.path(".zig-global-cache"),
                 b.path("src/error_witness.zig"),
                 b.path("src/op_compat.zig"),
+                // Public API intentionally exposes lower-case type-callable entrypoints here.
+                b.path("src/public_lowering.zig"),
                 b.path("src/program_api_compat.zig"),
                 b.path("src/program_api.zig"),
+                // Root re-exports the same lower-case public entrypoints.
+                b.path("src/root.zig"),
             },
         });
         inline for (@typeInfo(zlinter.BuiltinLintRule).@"enum".fields) |field| {

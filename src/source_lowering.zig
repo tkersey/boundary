@@ -29,6 +29,15 @@ pub const Step = lowered_machine.Step;
 /// Executable kernel program artifact carried by a source-lowering result.
 pub const KernelProgramArtifact = authoring_lowerer.KernelProgramArtifact;
 
+/// Generic same-module source analysis seam exposed without proof-corpus coupling.
+pub const SourceValidationError = authoring_lowerer.SourceValidationError;
+/// Generic same-module source analysis result exposed without proof-corpus coupling.
+pub const SameModuleSourceAnalysis = authoring_lowerer.SameModuleSourceAnalysis;
+/// One top-level function discovered by the generic same-module source analyzer.
+pub const SameModuleTopLevelFunction = authoring_lowerer.SameModuleTopLevelFunction;
+/// One same-module helper-call edge discovered by the generic same-module source analyzer.
+pub const SameModuleHelperCallEdge = authoring_lowerer.SameModuleHelperCallEdge;
+
 /// Input specification for one restricted source-lowering request.
 pub const Spec = struct {
     case_id: []const u8,
@@ -37,7 +46,6 @@ pub const Spec = struct {
     surface_kind: SurfaceKind,
     expected_status: LowerStatus = .canonical,
 };
-
 /// Generated source-lowering result plus one executable kernel program artifact.
 pub const GeneratedProgram = struct {
     case_id: []const u8,
@@ -96,6 +104,31 @@ pub fn lowerOpenRowProgram(program: program_frontend.OpenRowProgram) effect_ir.N
     };
 }
 
+/// Analyze one same-module source buffer without proof-corpus admission checks.
+pub fn analyzeSameModuleSourceText(
+    allocator: std.mem.Allocator,
+    source_text: []const u8,
+) SourceValidationError!SameModuleSourceAnalysis {
+    return try authoring_lowerer.analyzeSameModuleSourceText(allocator, source_text);
+}
+
+/// Analyze one file-backed same-module source file without proof-corpus admission checks.
+pub fn analyzeFileBackedSource(
+    allocator: std.mem.Allocator,
+    actual_path: []const u8,
+) SourceValidationError!SameModuleSourceAnalysis {
+    return try authoring_lowerer.analyzeFileBackedSource(allocator, actual_path);
+}
+
+/// Validate that one file-backed source parses and exposes the requested top-level entry symbol.
+pub fn validateFileBackedSourceEntry(
+    allocator: std.mem.Allocator,
+    actual_path: []const u8,
+    entry_symbol: []const u8,
+) SourceValidationError!void {
+    return try authoring_lowerer.validateFileBackedSourceEntry(allocator, actual_path, entry_symbol);
+}
+
 /// Error surface for source-lowering entrypoints.
 pub const LowerError = anyerror;
 
@@ -125,7 +158,7 @@ test "lowerOpenRowProgram preserves label and normalization digest" {
         .function = .{
             .symbol = .{
                 .module_path = "examples/open_row_state_writer.zig",
-                .symbol_name = "body",
+                .symbol_name = "runBody",
             },
             .row = row,
             .outputs = &.{
@@ -141,8 +174,24 @@ test "lowerOpenRowProgram preserves label and normalization digest" {
     try std.testing.expectEqual(@as(usize, 3), program.normalization.op_count);
     try std.testing.expectEqual(@as(usize, 2), program.normalization.output_count);
     try std.testing.expectEqual(@as(usize, 1), program.program.functions.len);
-    try std.testing.expectEqualStrings("body", program.program.functions[0].symbol.symbol_name);
+    try std.testing.expectEqualStrings("runBody", program.program.functions[0].symbol.symbol_name);
     _ = program_frontend;
+}
+
+test "analyzeSameModuleSourceText stays generic and same-module only" {
+    var analysis = try analyzeSameModuleSourceText(std.testing.allocator,
+        \\fn helper() void {}
+        \\pub fn run() void {
+        \\    helper();
+        \\}
+    );
+    defer analysis.deinit(std.testing.allocator);
+
+    try std.testing.expect(analysis.isParseClean());
+    try std.testing.expect(analysis.hasTopLevelFunctionNamed("run"));
+    try std.testing.expectEqual(@as(usize, 1), analysis.helper_call_edges.len);
+    try std.testing.expectEqualStrings("run", analysis.helper_call_edges[0].caller_name);
+    try std.testing.expectEqualStrings("helper", analysis.helper_call_edges[0].callee_name);
 }
 
 fn sourceCaseFeatureFlags(case_id: []const u8) []const []const u8 {

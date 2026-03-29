@@ -18,6 +18,8 @@ pub const ir = effect_ir;
 pub const interpreter = interpreter_api;
 /// Public additive lowering namespace over the retained open-row/effect-ir path.
 pub const lowering = public_lowering;
+/// Public explicit-path additive lowering entrypoint.
+pub const lowerAt = public_lowering.lowerAt;
 
 /// Build the public lexical metadata type.
 pub fn With(comptime HandlersType: type, comptime Body: type) type {
@@ -64,6 +66,7 @@ test {
     _ = effect;
     _ = interpreter;
     _ = ir;
+    _ = lowerAt;
     _ = lowering;
     _ = with;
     _ = run;
