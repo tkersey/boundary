@@ -12,33 +12,33 @@ spellings remain proof-facing internal detail.
 ## ATM Resume Transform
 
 `atm_resume_transform` is the single-resume semantic witness behind one branch
-of the current root-level execution kernel. The corresponding prompt protocol
-still exists in `src/frontend.zig` and `src/lowered_machine.zig`, but canonical
-docs treat frontend spellings as lowered implementation scaffolding rather than
-the public product surface.
+of the current public effects-library surface. The corresponding prompt
+protocol still exists in `src/frontend.zig` and `src/lowered_machine.zig`, but
+canonical docs treat those lower-level spellings as shared execution
+scaffolding rather than as the public product surface.
 
 <a id="construction-coverage"></a>
 ## Construction Coverage
 
-The public kernel routes through one shared lowered runtime substrate instead of
-embedding bespoke runner logic per frontend. `zig build
+The public effects-library surface routes through one shared lowered runtime
+substrate instead of embedding bespoke runner logic per frontend. `zig build
 effect-construction-boundary` remains the explicit proof gate for that claim.
 
 <a id="direct-return"></a>
 ## Direct Return
 
 `direct_return` is the abortive semantic witness behind the current public
-kernel's exception and abortive control behavior. The corresponding prompt
-protocol remains hidden implementation scaffolding in `src/frontend.zig` and
-`src/lowered_machine.zig`, not a public root API.
+effects-library surface's exception and abortive control behavior. The
+corresponding prompt protocol remains hidden implementation scaffolding in
+`src/frontend.zig` and `src/lowered_machine.zig`, not a public root API.
 
 <a id="effect-mode-coverage"></a>
 ## Effect Mode Coverage
 
-The shipped surface exposes one root execution kernel backed by transform-style,
-choice-style, and abortive internal control classes. Frontend builders still
-exercise those classes, but the docs treat them as adapters over the lowered
-runtime rather than as the product definition.
+The shipped surface exposes one effects-library surface backed by
+transform-style, choice-style, and abortive internal control classes.
+Frontend builders still exercise those classes, but the docs treat them as
+adapters over the lowered runtime rather than as the product definition.
 
 <a id="exception-effect"></a>
 ## Exception Effect
@@ -124,11 +124,12 @@ Distinct prompt values do not alias each other, even when they share the same ha
 <a id="strict-effect-capabilities"></a>
 ## Strict Effect Capabilities
 
-The active public kernel is the explicit runtime boundary: `shift.Runtime`,
-`shift.RuntimeError`, `shift.ErrorWitnessV1`, `shift.Decision(...)`,
-`shift.Decl`, `shift.Op`, `shift.Program(...)`, and `shift.run(...)`.
-Current frontend caller bundles still lower into that kernel, but they are not
-the public product contract.
+The active public surface is the effects-library layer: `shift.with(...)`,
+`shift.effect.*`, `shift.effect.Define(...)`, and `shift.ir`. Explicit
+`shift.Runtime` ownership still underpins execution beneath those lanes, while
+`shift.Program(...)`, `shift.Decl`, `shift.Op`, `shift.Decision(...)`, and
+`shift.run(...)` remain supported compatibility surfaces over the same
+substrate.
 
 Retired root spellings stay absent from the shipped surface and are checked by tombstone proofs instead of compatibility narratives.
 

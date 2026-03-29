@@ -3,6 +3,11 @@ const std = @import("std");
 const expected_snapshot =
     \\{
     \\  "root_exports": [
+    \\    "compat",
+    \\    "effect",
+    \\    "ir",
+    \\    "With",
+    \\    "with",
     \\    "Runtime",
     \\    "RuntimeError",
     \\    "ErrorWitnessV1",

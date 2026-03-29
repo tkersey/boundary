@@ -9,17 +9,19 @@ continuity, but the track is not a public root API lane.
 
 ## Public Boundary
 
-The public docs now frame `shift` around the root-level runtime kernel:
+The public docs now frame `shift` around the effects-library surface:
 
-- declaration authoring through `shift.Program(...)`, `shift.Decl`, and
-  `shift.Op`
-- explicit `shift.Runtime` ownership
-- root execution through `shift.run(...)`
-- public result/error/decision carriers at the root
+- lexical authoring through `shift.with(...)`
+- built-in and custom families through `shift.effect.*` and
+  `shift.effect.Define(...)`
+- structural row vocabulary through `shift.ir`
+- explicit `shift.Runtime` ownership beneath those public lanes
+- `shift.Program(...)`, `shift.Decl`, `shift.Op`, `shift.Decision(...)`, and
+  `shift.run(...)` as supported compatibility surfaces over the same substrate
 
 Current authored frontends lower into that public boundary, but the
-source-lowering toolchain exists only as internal proof scaffolding beneath it.
-Its current implementation compares covered rows against the canonical
+source-lowering toolchain remains restricted internal proof scaffolding beneath
+it. Its current implementation compares covered rows against the canonical
 repo-owned structural shape rather than exact source-text hashes, then projects
 accepted rows onto canonical lowered scenarios.
 

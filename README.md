@@ -7,43 +7,52 @@
 
 In the repo's current state, that means two things:
 
-- the public story is a root-level execution kernel built around explicit
-  `shift.Runtime` ownership, `shift.run(...)`, and the public result/error
-  boundary exposed from the root
-- the runtime remains explicit, thread-affine, and user-owned, without exposing
-  a public continuation handle
+- the public story is the effects-library surface: lexical execution through
+  `shift.with(...)`, built-in and custom families through `shift.effect.*` and
+  `shift.effect.Define(...)`, and structural row vocabulary through
+  `shift.ir`
+- explicit `shift.Runtime` ownership remains the shared execution boundary
+  beneath those public surfaces, without exposing a public continuation handle
 
-The docs no longer treat any particular authoring vocabulary as the product
-story. Frontend spellings, lowered fixtures, witness registries, unchanged-body
-bridge cases, and source corpus ids are all repo-internal proof scaffolding
-beneath that kernel. Retired root spellings are gone from the shipped root and
-are only guarded by tombstone proofs.
+`shift.Program(...)`, `shift.Decl`, `shift.Op`, `shift.Decision(...)`, and
+`shift.run(...)` still ship, but README now treats them as compatibility-only
+front doors over the same substrate. They stay in the proof bundle because the
+repo still carries checked compatibility examples, size gates, and runtime
+contract suites for them.
 
-The repo therefore treats runtime code as the last rung of a semantics ladder,
-not as the source of truth:
+Frontend spellings, lowered fixtures, witness registries, unchanged-body bridge
+cases, and source corpus ids remain repo-internal proof scaffolding beneath the
+public effects-library surface. Retired root spellings are gone from the
+shipped package and are only guarded by tombstone proofs.
 
-1. law
-2. executable reference witness
-3. executable reference machine
-4. CPS account
-5. authored-body lowered runtime
+The repo therefore treats the user-facing surface and the runtime/proof
+substrates as separate layers:
+
+1. public effects-library authoring
+2. shared runtime substrate
+3. law
+4. executable reference witness
+5. executable reference machine
+6. CPS account
+7. authored-body lowered runtime
 
 The shipped runtime backend is the canonical authored-body lowered runtime.
 
 The current public product claim is:
 
-- explicit runtime ownership is the public boundary: callers construct and own
-  `shift.Runtime`, then execute one closed root through `shift.run(...)`
-- the active root exports are `shift.Runtime`, `shift.RuntimeError`,
-  `shift.ErrorWitnessV1`, `shift.Decl`, `shift.Op`, `shift.Decision(...)`,
-  `shift.Program(...)`, and `shift.run(...)`
-- older docs said "`shift.RunResult`, `shift.RuntimeError`, `shift.ErrorWitnessV1`, and
-  `shift.Decision(...)` are the public semantic/result carriers that define the
-  root contract"; that wording is stale because the current shipped root does
-  not export `shift.RunResult`
+- `shift.with(...)` is the canonical public authoring entrypoint
+- `shift.effect.*` and `shift.effect.Define(...)` are the canonical public
+  effect-family surfaces
+- `shift.ir` is the public structural vocabulary for transform, choice,
+  abort, normalized rows, and resolved programs
+- explicit runtime ownership remains real: callers still construct and own
+  `shift.Runtime` beneath every public lane
+- `shift.Program(...)`, `shift.Decl`, `shift.Op`, `shift.Decision(...)`, and
+  `shift.run(...)` remain supported compatibility surfaces over that same
+  runtime substrate
 - the shipped execution path is the lowered runtime in `src/lowered_machine.zig`
-- current authoring frontends lower into that kernel; they are implementation
-  surfaces, not the product identity
+- compatibility examples and proof fixtures still exercise the retained
+  `Program/run` lane, but it is no longer the product identity
 - witness ids, bridge case ids, source corpus ids, and legacy fixture names are
   stable proof labels only
 - no public continuation handle is exported
@@ -51,9 +60,12 @@ The current public product claim is:
 ## Semantic Commitments
 
 - static `shift/reset`, not `control/prompt`
-- one root-level public kernel over the lowered runtime
-- internal typed prompt discipline beneath that kernel
-- authored frontends are adapters, not the public product claim
+- one public effects-library surface over the lowered runtime
+- `shift.with(...)` plus typed effect families are the canonical user-facing
+  authoring story
+- `shift.ir` is the public structural account of control modes and rows
+- internal typed prompt discipline beneath that surface
+- `Program/run` remains a compatibility lane, not the public product center
 - one-shot continuation use
 - honest answer-type pressure if the kernel requires it
 - typed user errors in the host-language embedding
@@ -180,16 +192,18 @@ one of these proof surfaces:
 - `zig build bench-state-effect-check` for the checked benchmark artifact on a
   clean tree
 
-The current public kernel contract is now:
+The current public effects-library contract is now:
 
-- callers own the runtime boundary through `shift.Runtime`
-- declaration authoring is rooted in `shift.Program(...)`, `shift.Decl`, and
-  `shift.Op`
-- execution crosses one root entrypoint through `shift.run(...)`
-- public runtime/error/decision types live at the root and are backed by the
-  lowered runtime
+- callers own the shared execution boundary through `shift.Runtime`
+- lexical authoring is rooted in `shift.with(...)`
+- typed built-in and custom families are rooted in `shift.effect.*` and
+  `shift.effect.Define(...)`
+- structural rows and resolved programs are inspectable through `shift.ir`
+- `shift.Program(...)`, `shift.Decl`, `shift.Op`, `shift.Decision(...)`, and
+  `shift.run(...)` remain supported compatibility surfaces over that same
+  lowered runtime substrate
 - authored frontends, witness corpora, bridge cases, and source-lowering cases
-  remain internal proof infrastructure
+  remain internal proof infrastructure unless explicitly documented otherwise
 - retired root spellings are checked by tombstone proofs instead of
   compatibility narratives
 

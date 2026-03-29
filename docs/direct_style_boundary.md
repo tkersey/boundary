@@ -1,8 +1,9 @@
 # Direct-Style Boundary
 
-`shift` now treats the root `Program/run` front door as the only supported
-public authored-body story. The source-lowering toolchain remains internal
-scaffolding beneath that public story.
+`shift` now treats the effects-library surface built around `shift.with(...)`,
+`shift.effect.*`, and `shift.ir` as the supported public authored-body story.
+The source-lowering toolchain remains restricted internal scaffolding beneath
+that public story, and the retained `Program/run` lane is compatibility-only.
 
 The lowered path is only acceptable as hidden support infrastructure beneath
 that surface. Today, that support comes in two internal forms:
@@ -27,8 +28,8 @@ The current limit is structural:
   admission/rejection artifacts
 - the current proof-facing source-lowering scope is tracked separately in
   `docs/source_lowering_coverage_matrix.json`
-- arbitrary public-style `fn body() ...` code still relies on host-language
-  control flow and the stackful runtime
+- arbitrary unchanged public-style `fn body() ...` code still relies on
+  host-language control flow and the stackful runtime
 - there is no general body-to-IR transformation, capture pass, or compiler/plugin
   layer that can recover arbitrary direct-style control structure from ordinary
   Zig code
@@ -40,6 +41,8 @@ So the current answer is:
 - the canonical source-lowering restricted surface is supported for the full
   repo-owned source-lowering coverage matrix
 - arbitrary unchanged direct-style bodies are not
+- the public product story is still the lexical effects-library surface rather
+  than the lowering toolchain
 
 This document is backed by `test/program_frontend_boundary_test.zig`,
 `test/direct_style_bridge_boundary_test.zig`, `test/source_lowering_boundary_test.zig`,

@@ -1,29 +1,48 @@
-const error_witness = @import("error_witness");
-const lowered_machine = @import("lowered_machine");
-const op_compat = @import("op_compat.zig");
-const program_api = @import("program_api.zig");
-const root_decl_api = @import("root_decl_api.zig");
+const compat_api = @import("compat.zig");
+const effect_ir = @import("effect_ir");
+const effect_root = @import("effect/root.zig");
+const with_api = @import("with_api.zig");
 
-/// Canonical lowered-first runtime handle.
-pub const Runtime = lowered_machine.Runtime;
-/// Public runtime misuse and semantic-contract errors surfaced by `shift`.
-pub const RuntimeError = lowered_machine.RuntimeError;
-/// Stable public error-witness schema.
-pub const ErrorWitnessV1 = error_witness.ErrorWitnessV1;
-/// Public declaration namespace.
-pub const Decl = root_decl_api.Decl;
-/// Public op-descriptor namespace.
-pub const Op = op_compat.Op;
-/// Root-level choice-decision helper for the front-door API.
-pub const Decision = program_api.Decision;
-/// Public program builder.
-pub const Program = program_api.Program;
-/// Run one program with explicit runtime ownership and bindings.
-pub fn run(runtime: *Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) program_api.RunReturnType(ProgramType) {
-    return program_api.run(runtime, ProgramType, bindings);
+/// Transitional compatibility namespace for the prior root-kernel front door.
+pub const compat = compat_api;
+/// Public lexical effect namespace.
+pub const effect = effect_root;
+/// Public Effect IR helpers.
+pub const ir = effect_ir;
+
+/// Build the public lexical metadata type.
+pub fn With(comptime HandlersType: type, comptime Body: type) type {
+    return with_api.With(HandlersType, Body);
 }
 
+/// Run the public lexical handler entrypoint.
+pub fn with(
+    runtime: *Runtime,
+    handlers: anytype,
+    comptime Body: type,
+) with_api.WithFnReturnType(@TypeOf(handlers), Body) {
+    return with_api.with(runtime, handlers, Body);
+}
+
+/// Transitional top-level compatibility alias.
+pub const Runtime = compat.Runtime;
+/// Transitional top-level compatibility alias.
+pub const RuntimeError = compat.RuntimeError;
+/// Transitional top-level compatibility alias.
+pub const ErrorWitnessV1 = compat.ErrorWitnessV1;
+/// Transitional top-level compatibility alias.
+pub const Decl = compat.Decl;
+/// Transitional top-level compatibility alias.
+pub const Op = compat.Op;
+/// Transitional top-level compatibility alias.
+pub const Decision = compat.Decision;
+/// Transitional top-level compatibility alias.
+pub const Program = compat.Program;
+/// Transitional top-level compatibility alias.
+pub const run = compat.run;
+
 test {
+    _ = With;
     _ = Decl;
     _ = Decision;
     _ = ErrorWitnessV1;
@@ -31,5 +50,9 @@ test {
     _ = Program;
     _ = Runtime;
     _ = RuntimeError;
+    _ = compat;
+    _ = effect;
+    _ = ir;
+    _ = with;
     _ = run;
 }

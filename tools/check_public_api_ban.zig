@@ -1,6 +1,11 @@
 const std = @import("std");
 
 const allowed_exports = &[_][]const u8{
+    "compat",
+    "effect",
+    "ir",
+    "With",
+    "with",
     "Runtime",
     "RuntimeError",
     "ErrorWitnessV1",

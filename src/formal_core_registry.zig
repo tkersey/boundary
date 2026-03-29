@@ -29,19 +29,19 @@ pub const Section = struct {
 };
 
 const atm_paragraphs = [_][]const u8{
-    "`atm_resume_transform` is the single-resume semantic witness behind one branch\nof the current root-level execution kernel. The corresponding prompt protocol\nstill exists in `src/frontend.zig` and `src/lowered_machine.zig`, but canonical\ndocs treat frontend spellings as lowered implementation scaffolding rather than\nthe public product surface.",
+    "`atm_resume_transform` is the single-resume semantic witness behind one branch\nof the current public effects-library surface. The corresponding prompt\nprotocol still exists in `src/frontend.zig` and `src/lowered_machine.zig`, but\ncanonical docs treat those lower-level spellings as shared execution\nscaffolding rather than as the public product surface.",
 };
 
 const construction_paragraphs = [_][]const u8{
-    "The public kernel routes through one shared lowered runtime substrate instead of\nembedding bespoke runner logic per frontend. `zig build\neffect-construction-boundary` remains the explicit proof gate for that claim.",
+    "The public effects-library surface routes through one shared lowered runtime\nsubstrate instead of embedding bespoke runner logic per frontend. `zig build\neffect-construction-boundary` remains the explicit proof gate for that claim.",
 };
 
 const direct_return_paragraphs = [_][]const u8{
-    "`direct_return` is the abortive semantic witness behind the current public\nkernel's exception and abortive control behavior. The corresponding prompt\nprotocol remains hidden implementation scaffolding in `src/frontend.zig` and\n`src/lowered_machine.zig`, not a public root API.",
+    "`direct_return` is the abortive semantic witness behind the current public\neffects-library surface's exception and abortive control behavior. The\ncorresponding prompt protocol remains hidden implementation scaffolding in\n`src/frontend.zig` and `src/lowered_machine.zig`, not a public root API.",
 };
 
 const mode_coverage_paragraphs = [_][]const u8{
-    "The shipped surface exposes one root execution kernel backed by transform-style,\nchoice-style, and abortive internal control classes. Frontend builders still\nexercise those classes, but the docs treat them as adapters over the lowered\nruntime rather than as the product definition.",
+    "The shipped surface exposes one effects-library surface backed by\ntransform-style, choice-style, and abortive internal control classes.\nFrontend builders still exercise those classes, but the docs treat them as\nadapters over the lowered runtime rather than as the product definition.",
 };
 
 const exception_effect_paragraphs = [_][]const u8{
@@ -86,7 +86,7 @@ const multi_prompt_paragraphs = [_][]const u8{
 };
 
 const effect_capability_paragraphs = [_][]const u8{
-    "The active public kernel is the explicit runtime boundary: `shift.Runtime`,\n`shift.RuntimeError`, `shift.ErrorWitnessV1`, `shift.Decision(...)`,\n`shift.Decl`, `shift.Op`, `shift.Program(...)`, and `shift.run(...)`.\nCurrent frontend caller bundles still lower into that kernel, but they are not\nthe public product contract.",
+    "The active public surface is the effects-library layer: `shift.with(...)`,\n`shift.effect.*`, `shift.effect.Define(...)`, and `shift.ir`. Explicit\n`shift.Runtime` ownership still underpins execution beneath those lanes, while\n`shift.Program(...)`, `shift.Decl`, `shift.Op`, `shift.Decision(...)`, and\n`shift.run(...)` remain supported compatibility surfaces over the same\nsubstrate.",
     "Retired root spellings stay absent from the shipped surface and are checked by tombstone proofs instead of compatibility narratives.",
 };
 

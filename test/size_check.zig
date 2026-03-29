@@ -15,7 +15,13 @@ test "prompt shell stays compact" {
     try std.testing.expect(@sizeOf(DemoPrompt) <= @sizeOf(usize));
 }
 
-test "public root exposes only the current front door" {
+test "public root exposes the lexical surface plus kernel compatibility aliases" {
+    try std.testing.expect(@hasDecl(shift, "compat"));
+    try std.testing.expect(@hasDecl(shift, "effect"));
+    try std.testing.expect(@hasDecl(shift, "With"));
+    try std.testing.expect(@hasDecl(shift, "with"));
+    try std.testing.expect(@hasDecl(shift, "ir"));
+
     try std.testing.expect(@hasDecl(shift, "Runtime"));
     try std.testing.expect(@hasDecl(shift, "RuntimeError"));
     try std.testing.expect(@hasDecl(shift, "ErrorWitnessV1"));
@@ -41,11 +47,21 @@ test "public root exposes only the current front door" {
     try std.testing.expect(!@hasDecl(shift, "Continuation"));
     try std.testing.expect(!@hasDecl(shift, "parity_machine"));
     try std.testing.expect(!@hasDecl(shift, "ResumeOrReturn"));
-    try std.testing.expect(!@hasDecl(shift, "effect"));
     try std.testing.expect(!@hasDecl(shift, "algebraic"));
     try std.testing.expect(!@hasDecl(shift, "ordinary"));
-    try std.testing.expect(!@hasDecl(shift, "with"));
-    try std.testing.expect(!@hasDecl(shift, "With"));
+
+    try std.testing.expect(@hasDecl(shift.compat, "Runtime"));
+    try std.testing.expect(@hasDecl(shift.compat, "RuntimeError"));
+    try std.testing.expect(@hasDecl(shift.compat, "ErrorWitnessV1"));
+    try std.testing.expect(@hasDecl(shift.compat, "Decl"));
+    try std.testing.expect(@hasDecl(shift.compat, "Op"));
+    try std.testing.expect(@hasDecl(shift.compat, "Decision"));
+    try std.testing.expect(@hasDecl(shift.compat, "Program"));
+    try std.testing.expect(@hasDecl(shift.compat, "run"));
+    try std.testing.expect(!@hasDecl(shift.compat, "effect"));
+    try std.testing.expect(!@hasDecl(shift.compat, "With"));
+    try std.testing.expect(!@hasDecl(shift.compat, "with"));
+    try std.testing.expect(!@hasDecl(shift.compat, "ir"));
 }
 
 test "public runtime error surface still exposes the current contract" {
@@ -70,12 +86,36 @@ test "front-door op shells stay compact" {
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(Abort));
 }
 
-test "program root stays executable through Program plus run" {
-    const WorkflowProgram = shift.Program(.{
-        .state = shift.Decl.state(i32),
-        .writer = shift.Decl.writer([]const u8),
+test "lexical root stays executable through shift.effect plus shift.with" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(&runtime, .{
+        .state = shift.effect.state.use(@as(i32, 3)),
+        .writer = shift.effect.writer.use([]const u8, std.testing.allocator),
     }, struct {
-        /// Execute the size-check workflow through the public program surface.
+        /// Execute the size-check workflow through the public lexical surface.
+        pub fn body(eff: anytype) anyerror![]const u8 {
+            const before = try eff.state.get();
+            try eff.state.set(before + 1);
+            try eff.writer.tell("queued");
+            return "done";
+        }
+    });
+    defer std.testing.allocator.free(result.outputs.writer);
+
+    try std.testing.expectEqual(@as(i32, 4), result.outputs.state);
+    try std.testing.expectEqual(@as(usize, 1), result.outputs.writer.len);
+    try std.testing.expectEqualStrings("queued", result.outputs.writer[0]);
+    try std.testing.expectEqualStrings("done", result.value);
+}
+
+test "compat kernel stays executable through shift.compat.Program plus shift.compat.run" {
+    const WorkflowProgram = shift.compat.Program(.{
+        .state = shift.compat.Decl.state(i32),
+        .writer = shift.compat.Decl.writer([]const u8),
+    }, struct {
+        /// Execute the size-check workflow through the compatibility kernel surface.
         pub fn body(eff: anytype) anyerror![]const u8 {
             const before = try eff.state.get();
             try eff.state.set(before + 1);
@@ -84,10 +124,10 @@ test "program root stays executable through Program plus run" {
         }
     });
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift.compat.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.run(&runtime, WorkflowProgram, .{ .state = 3 });
+    const result = try shift.compat.run(&runtime, WorkflowProgram, .{ .state = 3 });
     defer std.testing.allocator.free(result.outputs.writer);
 
     try std.testing.expectEqual(@as(i32, 4), result.outputs.state);
