@@ -1045,6 +1045,7 @@ pub fn build(b: *std.Build) void {
     source_lowering_gauntlet_step.dependOn(&src_lower_tool_contract.step);
     source_lowering_gauntlet_step.dependOn(lower_eq_chk_step);
     source_lowering_gauntlet_step.dependOn(lower_reject_chk_step);
+    test_step.dependOn(source_lowering_gauntlet_step);
 
     const scorecard_mod = b.createModule(.{
         .root_source_file = b.path("tools/render_surface_truth_scorecard.zig"),
@@ -1262,6 +1263,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&authoring_lower_check_cmd.step);
     test_step.dependOn(&run_bridge_tests.step);
     test_step.dependOn(&run_boundary_tests.step);
+    test_step.dependOn(&run_bridge_boundary_tests.step);
     test_step.dependOn(&run_structured_program_tests.step);
     test_step.dependOn(&shipped_backend_cmd.step);
 
