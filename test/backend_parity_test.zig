@@ -2,9 +2,13 @@ const backend_manifest = @import("backend_parity_manifest");
 const early_exit = @import("example_early_exit");
 const exception_basic = @import("example_exception_basic");
 const nested_workflow = @import("example_nested_workflow");
+const open_row_abort_basic = @import("example_open_row_abort_basic");
 const open_row_abortive_validation = @import("example_open_row_abortive_validation");
 const open_row_artifact_search = @import("example_open_row_artifact_search");
+const open_row_choice_basic = @import("example_open_row_choice_basic");
 const open_row_generator = @import("example_open_row_generator");
+const open_row_transform_basic = @import("example_open_row_transform_basic");
+const open_row_workflow = @import("example_open_row_workflow");
 const optional_basic = @import("example_optional_basic");
 const parity_kernel = @import("parity_kernel");
 const parity_machine = @import("parity_machine");
@@ -18,12 +22,20 @@ const writer_basic = @import("example_writer_basic");
 
 fn stackfulTranscript(buffer: anytype, case_id: []const u8) ![]const u8 {
     var writer = std.Io.Writer.fixed(buffer);
-    if (std.mem.eql(u8, case_id, "open_row_generator")) {
+    if (std.mem.eql(u8, case_id, "open_row_transform_basic")) {
+        try open_row_transform_basic.run(&writer);
+    } else if (std.mem.eql(u8, case_id, "open_row_choice_basic")) {
+        try open_row_choice_basic.run(&writer);
+    } else if (std.mem.eql(u8, case_id, "open_row_abort_basic")) {
+        try open_row_abort_basic.run(&writer);
+    } else if (std.mem.eql(u8, case_id, "open_row_generator")) {
         try open_row_generator.run(&writer);
     } else if (std.mem.eql(u8, case_id, "early_exit")) {
         try early_exit.run(&writer);
     } else if (std.mem.eql(u8, case_id, "resume_or_return")) {
         try resume_or_return.run(&writer);
+    } else if (std.mem.eql(u8, case_id, "open_row_workflow")) {
+        try open_row_workflow.run(&writer);
     } else if (std.mem.eql(u8, case_id, "nested_workflow")) {
         try nested_workflow.run(&writer);
     } else if (std.mem.eql(u8, case_id, "reader_basic")) {

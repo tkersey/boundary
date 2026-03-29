@@ -522,11 +522,15 @@ pub fn build(b: *std.Build) void {
     parity_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
     backend_parity_mod.addImport("parity_machine", parity_machine_mod);
     backend_parity_mod.addImport("witnesses_src", witnesses_mod);
+    backend_parity_mod.addImport("example_open_row_abort_basic", createShiftConsumerModule(b, "examples/open_row_abort_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     backend_parity_mod.addImport("example_open_row_abortive_validation", createShiftConsumerModule(b, "examples/open_row_abortive_validation.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     backend_parity_mod.addImport("example_open_row_artifact_search", createShiftConsumerModule(b, "examples/open_row_artifact_search.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    backend_parity_mod.addImport("example_open_row_choice_basic", createShiftConsumerModule(b, "examples/open_row_choice_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     backend_parity_mod.addImport("example_early_exit", createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     backend_parity_mod.addImport("example_exception_basic", createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     backend_parity_mod.addImport("example_open_row_generator", createShiftConsumerModule(b, "examples/open_row_generator.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    backend_parity_mod.addImport("example_open_row_transform_basic", createShiftConsumerModule(b, "examples/open_row_transform_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    backend_parity_mod.addImport("example_open_row_workflow", createShiftConsumerModule(b, "examples/open_row_workflow.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     backend_parity_mod.addImport("example_nested_workflow", createShiftConsumerModule(b, "examples/nested_workflow.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     backend_parity_mod.addImport("example_optional_basic", createShiftConsumerModule(b, "examples/optional_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     backend_parity_mod.addImport("example_reader_basic", createShiftConsumerModule(b, "examples/reader_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));

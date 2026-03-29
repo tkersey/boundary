@@ -27,6 +27,10 @@ fn makeTranscriptCase(scenario: *const parity_scenarios.Scenario) TranscriptCase
     };
 }
 
+fn makeTranscriptCaseByCaseId(case_id: []const u8) TranscriptCase {
+    return makeTranscriptCase(parity_scenarios.find(case_id).?);
+}
+
 /// The exact-output corpus derived from the canonical scenario registry.
 pub const transcript_cases = [_]TranscriptCase{
     makeTranscriptCase(parity_scenarios.byId(.atm_resume_transform)),
@@ -36,8 +40,12 @@ pub const transcript_cases = [_]TranscriptCase{
     makeTranscriptCase(parity_scenarios.byId(.static_redelim)),
     makeTranscriptCase(parity_scenarios.byId(.multi_prompt)),
     makeTranscriptCase(parity_scenarios.byId(.generator)),
+    makeTranscriptCaseByCaseId("open_row_transform_basic"),
+    makeTranscriptCaseByCaseId("open_row_choice_basic"),
+    makeTranscriptCaseByCaseId("open_row_abort_basic"),
     makeTranscriptCase(parity_scenarios.byId(.early_exit)),
     makeTranscriptCase(parity_scenarios.byId(.resume_or_return)),
+    makeTranscriptCaseByCaseId("open_row_workflow"),
     makeTranscriptCase(parity_scenarios.byId(.nested_workflow_publish)),
     makeTranscriptCase(parity_scenarios.byId(.reader_basic)),
     makeTranscriptCase(parity_scenarios.byId(.exception_basic)),
