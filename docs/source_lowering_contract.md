@@ -81,11 +81,14 @@ rows and proof ids:
 - `example.exception_basic`
 - `example.resource_basic`
 - `example.writer_basic`
-- `open_row_state_writer`
 - witness rows
 
 These ids remain internal-only proof names. They are not part of the public
 root vocabulary or the public API story.
+
+`open_row_state_writer` remains a checked exact-output proof label, but it is
+not an admitted source-lowering row. The coverage matrix records it as a gap
+until the repo grows a real lowering-kernel case for that walkthrough.
 
 Every covered row must stay backed by:
 

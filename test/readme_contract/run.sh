@@ -26,6 +26,11 @@ grep -q 'retired root spellings are checked by tombstone proofs instead of' "$re
 grep -q 'compatibility narratives' "$readme"
 grep -q 'Retired root spellings are gone from the shipped root' "$readme"
 grep -q 'no public continuation handle is exported' "$readme"
+grep -q 'item=query=artifact-search' "$readme"
+grep -q 'item=workflow=queued' "$readme"
+grep -q 'final_state=6' "$readme"
+grep -q 'value=done' "$readme"
+grep -q 'open_row_state_writer` is still a retained proof label only' "$readme"
 
 ! grep -q '`Program.Manifest`' "$readme"
 ! grep -q 'shift.with(' "$readme"

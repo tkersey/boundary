@@ -204,7 +204,8 @@ zig build run-open-row-state-writer
 Expected output:
 
 ```text
-item=queued
+item=query=artifact-search
+item=workflow=queued
 final_state=6
 value=done
 ```
@@ -213,6 +214,8 @@ The step id is intentionally unchanged because it is a stable proof handle.
 Treat `run-open-row-state-writer` as a checked legacy fixture name, not as
 documentation of the public product vocabulary. Retired root spellings are
 guarded by tombstone proofs instead of compatibility narratives.
+`open_row_state_writer` is still a retained proof label only; it is not counted
+as an admitted source-lowering row in the coverage matrix.
 
 The generalized construction boundary is checked by:
 

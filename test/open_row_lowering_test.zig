@@ -14,7 +14,7 @@ const DynamicOpenRowSpec = struct {
     callee_symbol_name: []const u8,
 };
 
-test "open-row state-writer workflow lowers through the new source-lowering path" {
+test "open-row state-writer workflow lowers through the retained effect-ir path" {
     const program = program_frontend.open_rows.stateWriterWorkflow();
     const lowered = try source_lowering.lowerOpenRowProgram(program);
 

@@ -3,7 +3,7 @@ const shipped_open_row_corpus = @import("shipped_open_row_corpus_registry");
 const std = @import("std");
 
 const canonical_note = "Canonical through the internal source-validated lowering corpus with direct-source and canonical-scenario parity proof.";
-const open_row_frontend_note = "Canonical through the retained state-writer proof label plus the exact-output shipped example fixture proof.";
+const open_row_frontend_note = "Retained exact-output state-writer proof label only; source-lowering admission is still absent and tracked as a coverage gap.";
 const witness_canonical_note = "Canonical through the retained witness proof corpus with source-validated lowering, canonical-scenario, evaluator, reference-machine, and runtime parity proof.";
 
 /// Coverage category for the steady-state source-lowering proof surface.
@@ -401,7 +401,7 @@ pub const rows = [_]Row{
         .current_signal = "example_proof:open_row_state_writer.txt",
         .law_anchor = formal_core.anchorPath(.construction_coverage),
         .source_label = "source.example.open_row_state_writer",
-        .coverage_status = .covered,
+        .coverage_status = .gap,
         .note = open_row_frontend_note,
     },
     customExampleRow(shipped_open_row_corpus.custom_examples[0]),
@@ -503,6 +503,7 @@ test "coverage registry keeps built-in effect rows" {
 
 test "coverage registry exposes lowering-kernel rows only where source lowering is admitted" {
     const open_row_frontend = find("example.open_row_state_writer").?;
+    try std.testing.expectEqual(CoverageStatus.gap, open_row_frontend.coverage_status);
     try std.testing.expect(open_row_frontend.lowering_kernel == null);
 
     const open_row_example = findLoweringKernelCase("example.open_row_transform_basic").?;
