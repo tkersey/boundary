@@ -12,12 +12,12 @@ fn usage() noreturn {
 
 fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, "{\n");
-    try list.appendSlice(allocator, "  \"entries\": [\n");
+    try list.appendSlice(allocator, "  \"kernel_witnesses\": [\n");
     for (admission.entries, 0..) |entry, idx| {
         if (idx != 0) try list.appendSlice(allocator, ",\n");
         const line = try std.fmt.allocPrint(
             allocator,
-            "    {{\"witness_id\":\"{s}\",\"current_surface\":\"{s}\",\"lexical_target\":\"{s}\",\"law_anchor\":\"{s}\",\"lexical_status\":\"{s}\",\"bridge_status\":\"{s}\",\"canonical_status\":\"{s}\",\"note\":\"{s}\"}}",
+            "    {{\"witness_id\":\"{s}\",\"kernel_witness_label\":\"{s}\",\"lexical_witness_label\":\"{s}\",\"law_anchor\":\"{s}\",\"lexical_status\":\"{s}\",\"kernel_admission\":\"{s}\",\"canonical_status\":\"{s}\",\"note\":\"{s}\"}}",
             .{
                 entry.witness_id,
                 entry.current_surface,
@@ -35,7 +35,7 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, "\n  ]\n}\n");
 }
 
-/// Render or check the canonical witness admission matrix artifact.
+/// Render or check the retained kernel witness artifact stored at the legacy admission path.
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();

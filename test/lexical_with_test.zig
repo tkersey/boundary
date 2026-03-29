@@ -564,6 +564,36 @@ test "generated lexical handlers infer after-hook errors when error_set_type is 
     try std.testing.expect(hasErrorName(ErrorSet, "AfterOops"));
 }
 
+test "generated lexical transform handlers accept void state without a state field" {
+    const Search = shift.effect.Define(.{
+        .state_type = void,
+        .ops = .{
+            shift.effect.ops.Transform("query", []const u8, i32),
+        },
+    });
+
+    const handler = struct {
+        /// Return the canonical stateless search result.
+        pub fn query(_: *@This(), payload: []const u8) i32 {
+            return if (std.mem.eql(u8, payload, "artifact-search")) 3 else 0;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(&runtime, .{
+        .search = Search.use(.{ .handler = handler{} }),
+    }, struct {
+        /// Execute one stateless generated transform through the lexical surface.
+        pub fn body(eff: anytype) ExecResult(i32) {
+            return try eff.search.query.perform("artifact-search");
+        }
+    });
+
+    try std.testing.expectEqual(@as(i32, 3), result.value);
+}
+
 test "shift.with composes state and reader through lexical handles" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -947,7 +977,7 @@ test "generated abort families use the lexical abort form" {
         },
     });
 
-    try expectFixtureTranscript("example_proof/fixtures/algebraic_abortive_validation.txt", struct {
+    try expectFixtureTranscript("example_proof/fixtures/open_row_abortive_validation.txt", struct {
         fn run(writer: anytype) anyerror!void {
             const transcript = struct {
                 threadlocal var active_writer: ?@TypeOf(writer) = null;
@@ -1023,4 +1053,37 @@ test "generated zero-payload choice fields stay ergonomic" {
     });
 
     try std.testing.expectEqualStrings("answer=7", result.value);
+}
+
+test "shift.with accepts body run(eff)" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(&runtime, .{
+        .state = shift.effect.state.use(@as(i32, 9)),
+    }, struct {
+        /// Run the body through the declared one-argument `run` hook.
+        pub fn run(eff: anytype) ExecResult(i32) {
+            return try eff.state.get();
+        }
+    });
+
+    try std.testing.expectEqual(@as(i32, 9), result.value);
+}
+
+test "shift.with accepts body run(self, eff)" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(&runtime, .{
+        .state = shift.effect.state.use(@as(i32, 11)),
+    }, struct {
+        /// Run the body through the declared self-plus-eff `run` hook.
+        pub fn run(self: @This(), eff: anytype) ExecResult(i32) {
+            _ = self;
+            return try eff.state.get();
+        }
+    });
+
+    try std.testing.expectEqual(@as(i32, 11), result.value);
 }

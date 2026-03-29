@@ -2,8 +2,8 @@ const shift = @import("shift");
 const std = @import("std");
 
 const GeneratorProgram = shift.Program(.{
-    .writer = shift.Decl.writer([]const u8),
     .state = shift.Decl.state(i32),
+    .writer = shift.Decl.writer([]const u8),
 }, struct {
     /// Emit three yielded values and return the final counter.
     pub fn body(eff: anytype) anyerror!i32 {
@@ -27,9 +27,7 @@ fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void
     var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
-    const result = try shift.run(&runtime, GeneratorProgram, .{
-        .state = @as(i32, 0),
-    });
+    const result = try shift.run(&runtime, GeneratorProgram, .{ .state = 0 });
     defer allocator.free(result.outputs.writer);
 
     for (result.outputs.writer) |item| {
@@ -38,12 +36,12 @@ fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void
     try writer.print("done={d}\n", .{result.value});
 }
 
-/// Write the generator transcript through the root front door.
+/// Render the generator transcript.
 pub fn run(writer: anytype) anyerror!void {
     try runWithAllocator(writer, std.heap.page_allocator);
 }
 
-/// Run the generator example.
+/// Run the generator example on stdout.
 pub fn main() anyerror!void {
     var stdout_buffer: [256]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);

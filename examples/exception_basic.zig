@@ -14,39 +14,39 @@ const transcript = struct {
     threadlocal var caught_payload: []const u8 = "";
 };
 
-const ExceptionProgram = shift.Program(.{
+const ThrowProgram = shift.Program(.{
     .exception = shift.Decl.exception([]const u8, catch_policy),
 }, struct {
-    /// Throw once through the front-door exception scope.
+    /// Throw once through the program exception scope.
     pub fn body(eff: anytype) ![]const u8 {
         transcript.body_before_throw = true;
         try eff.exception.throw("result=boom");
     }
 });
 
-const ExceptionPassProgram = shift.Program(.{
+const PassProgram = shift.Program(.{
     .exception = shift.Decl.exception([]const u8, catch_policy),
 }, struct {
-    /// Return normally through the front-door exception scope.
+    /// Return normally through the program exception scope.
     pub fn body(_: anytype) ![]const u8 {
         return "result=ok";
     }
 });
 
-/// Write the exception-family transcript through the root front door.
+/// Write the exception-family transcript through the program kernel.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
     try writer.writeAll("branch=pass\n");
-    const ok = try shift.run(&runtime, ExceptionPassProgram, .{});
+    const ok = try shift.run(&runtime, PassProgram, .{});
     try writer.writeAll("body-pass\n");
     try writer.print("final={s}\n", .{ok.value});
 
     try writer.writeAll("branch=throw\n");
     transcript.body_before_throw = false;
     transcript.caught_payload = "";
-    const thrown = try shift.run(&runtime, ExceptionProgram, .{});
+    const thrown = try shift.run(&runtime, ThrowProgram, .{});
     if (transcript.body_before_throw) try writer.writeAll("body-before-throw\n");
     try writer.print("catch={s}\n", .{transcript.caught_payload});
     try writer.print("final={s}\n", .{thrown.value});

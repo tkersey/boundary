@@ -40,15 +40,15 @@ trap 'rm -f "$typed_out" "$errdefer_out" "$with_out" "$program_out"' EXIT INT TE
 (
   cd "$repo_root/examples"
   "$tool" \
-    --id example.define_basic \
-    --source define_basic.zig \
+    --id example.open_row_transform_basic \
+    --source open_row_transform_basic.zig \
     --entry run \
     --surface example \
     --emit json \
     --out "$with_out"
   "$tool" \
-    --id example.algebraic_artifact_search \
-    --source algebraic_artifact_search.zig \
+    --id example.open_row_artifact_search \
+    --source open_row_artifact_search.zig \
     --entry run \
     --surface example \
     --emit json \

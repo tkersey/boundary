@@ -1,6 +1,6 @@
 {
-  "public_surface": {
-    "contract": "shift.Program and shift.run are the only public authored-body surface, with internal source-lowering scaffolding beneath them",
+  "public_kernel": {
+    "contract": "shift.Decl and shift.Program author against one public runtime kernel rooted at shift.Runtime and shift.run",
     "status": "canonical"
   },
   "benchmark_stability": {
@@ -8,27 +8,27 @@
     "lane_policy": "evidence-backed retiering only",
     "status": "published_clean_refresh"
   },
-  "lowered_engine": {
-    "surface": "parity_scenarios + parity_kernel",
+  "kernel_proof_engine": {
+    "proof_kernel": "parity_scenarios + parity_kernel",
     "status": "canonical_backed"
   },
-  "structured_programs": {
-    "role": "internal_scaffolding",
+  "frontend_adapters": {
+    "role": "internal_adapter_scaffolding",
     "labels": ["witness.atm_resume_transform","witness.direct_return","witness.multi_prompt","witness.resume_or_return_resume","witness.resume_or_return_return_now","witness.static_redelim","example.early_exit","example.resume_or_return","example.nested_workflow_publish","effect.state_basic","effect.reader_basic","effect.optional_basic","effect.exception_basic"],
     "status": "implemented"
   },
-  "source_lowering_surface": {
-    "contract": "canonical source-validated lowering for the source corpus, witness set, generated/user-defined examples, algebraic examples, and remaining built-in declaration rows",
+  "source_validated_proof_corpus": {
+    "contract": "canonical source-validated lowering for retained proof labels, witness sources, source corpora, and declaration-backed proof rows",
     "status": "canonical"
   },
-  "direct_style_bridge": {
-    "supported_cases": ["atm_resume_transform","direct_return","multi_prompt","resume_or_return_resume","resume_or_return_return_now","static_redelim","early_exit","resume_or_return","nested_workflow","generator","state_basic","reader_basic","optional_basic","exception_basic","resource_basic","writer_basic","algebraic_abortive_validation","algebraic_artifact_search"],
-    "blocked_cases": [],
-    "status": "supported_core_examples"
+  "unchanged_body_proof_corpus": {
+    "supported_proof_cases": ["atm_resume_transform","direct_return","multi_prompt","resume_or_return_resume","resume_or_return_return_now","static_redelim","early_exit","resume_or_return","nested_workflow","open_row_generator","state_basic","reader_basic","optional_basic","exception_basic","resource_basic","writer_basic","open_row_abortive_validation","open_row_artifact_search"],
+    "blocked_proof_cases": [],
+    "status": "canonical"
   },
-  "private_lowered_runtime_seam": {
-    "decision": "worth_finishing",
-    "status": "implemented_for_supported_bridge_cases",
-    "rationale": "supported bridge cases now execute through src/private_lowered_runtime.zig without public API changes"
+  "kernel_runtime_seam": {
+    "surface": "src/private_lowered_runtime.zig",
+    "status": "published_internal_runtime",
+    "rationale": "The retained unchanged-body proof corpus executes through the shared kernel runtime without introducing a public bridge surface."
   }
 }

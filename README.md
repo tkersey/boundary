@@ -7,14 +7,17 @@
 
 In the repo's current state, that means two things:
 
-- the public front door is rooted in `shift.Program(.{ ... }, Body)` and
-  `shift.run(&runtime, Program, bindings)`
+- the public story is a root-level execution kernel built around explicit
+  `shift.Runtime` ownership, `shift.run(...)`, and the public result/error
+  boundary exposed from the root
 - the runtime remains explicit, thread-affine, and user-owned, without exposing
   a public continuation handle
 
-The root front door is the only documented public authoring surface. For
-existing callers, `shift.Op.transform` / `shift.Op.choice` / `shift.Op.abort`
-remain available as compatibility aliases beneath that front door.
+The docs no longer treat any particular authoring vocabulary as the product
+story. Frontend spellings, lowered fixtures, witness registries, unchanged-body
+bridge cases, and source corpus ids are all repo-internal proof scaffolding
+beneath that kernel. Retired root spellings are gone from the shipped root and
+are only guarded by tombstone proofs.
 
 The repo therefore treats runtime code as the last rung of a semantics ladder,
 not as the source of truth:
@@ -29,27 +32,28 @@ The shipped runtime backend is the canonical authored-body lowered runtime.
 
 The current public product claim is:
 
-- `shift.Program(.{ ... }, Body)` is the reusable authored-body surface
-- `shift.run(&runtime, Program, bindings)` is the explicit root execution entrypoint
-- built-in declarations are installed through `shift.Decl.state`,
-  `shift.Decl.reader`, `shift.Decl.optional`, `shift.Decl.exception`,
-  `shift.Decl.resource`, and `shift.Decl.writer`
-- custom closed-world families are declared through `shift.Decl.family(.{ ... })`
-  and `shift.Ops.Transform` / `shift.Ops.Choice` / `shift.Ops.Abort`
-  (`shift.Op.transform` / `shift.Op.choice` / `shift.Op.abort` remain supported
-  as compatibility aliases)
-- `shift.Decision(...)` is the public choice-decision type for front-door
-  optional and generated choice handlers
-- prompt descriptors, `PromptMode`, `ResumeOrReturn`, `reset`, and `frontend`
-  no longer live at the top level; repo-owned proof surfaces now reach them
-  only through direct imports of `src/internal/prompt_support.zig`
+- explicit runtime ownership is the public boundary: callers construct and own
+  `shift.Runtime`, then execute one closed root through `shift.run(...)`
+- the active root exports are `shift.Runtime`, `shift.RuntimeError`,
+  `shift.ErrorWitnessV1`, `shift.Decl`, `shift.Op`, `shift.Decision(...)`,
+  `shift.Program(...)`, and `shift.run(...)`
+- older docs said "`shift.RunResult`, `shift.RuntimeError`, `shift.ErrorWitnessV1`, and
+  `shift.Decision(...)` are the public semantic/result carriers that define the
+  root contract"; that wording is stale because the current shipped root does
+  not export `shift.RunResult`
+- the shipped execution path is the lowered runtime in `src/lowered_machine.zig`
+- current authoring frontends lower into that kernel; they are implementation
+  surfaces, not the product identity
+- witness ids, bridge case ids, source corpus ids, and legacy fixture names are
+  stable proof labels only
 - no public continuation handle is exported
 
 ## Semantic Commitments
 
 - static `shift/reset`, not `control/prompt`
-- one root-front-door authoring story with a legacy `shift.Op.*` compatibility shim
-- internal typed prompt discipline beneath that story
+- one root-level public kernel over the lowered runtime
+- internal typed prompt discipline beneath that kernel
+- authored frontends are adapters, not the public product claim
 - one-shot continuation use
 - honest answer-type pressure if the kernel requires it
 - typed user errors in the host-language embedding
@@ -74,25 +78,20 @@ zig build size-check
 zig build compile-fail
 zig build one-shot-survey
 zig build example-proof
-zig build backend-parity
+zig build kernel-parity-check
 zig build proof-fixtures-write
 zig build proof-fixtures-check
 zig build authoring-lowering-write
 zig build authoring-lowering-check
 zig build structured-program-suite
-zig build direct-style-bridge-parity
 zig build direct-style-boundary
-zig build source-lowering-gauntlet
+zig build kernel-source-lowering-check
 zig build source-lower
 zig build source-lowering-error-witness-check
 zig build source-lowering-coverage-matrix-write
 zig build source-lowering-coverage-check
 zig build witness-admission-matrix-write
 zig build witness-admission-matrix-check
-zig build runtime-route-matrix-write
-zig build runtime-route-matrix-check
-zig build runtime-obligation-matrix-write
-zig build runtime-obligation-matrix-check
 zig build runtime-contract-suite
 zig build public-error-api-ban
 zig build retired-lane-inventory-check
@@ -104,7 +103,6 @@ zig build shipped-surface-frontier-matrix-check
 zig build frontend-feature-matrix-write
 zig build frontend-feature-matrix-check
 zig build no-raw-repo-refs-check
-zig build shipped-backend-check
 zig build surface-truth-scorecard-write
 zig build surface-truth-scorecard-check
 zig build effect-construction-boundary
@@ -124,7 +122,6 @@ zig build bench-runtime-backends-check
 zig build bench-state-effect
 zig build bench-state-effect-write
 zig build bench-state-effect-check
-zig build shared-declaration-engine-boundary
 ```
 
 ## Executable Contract
@@ -135,11 +132,14 @@ one of these proof surfaces:
 - `zig build test` for the combined runtime, witness, compile-fail, README, and
   formal-core gates
 - `zig build effect-construction-boundary` for the generalized construction boundary
-- `zig build shared-declaration-engine-boundary` for the checked claim that the surviving declaration surfaces now share one internal declaration engine
+- `zig build public-root-contract-snapshot-check` for the open-row root tombstone snapshot
+- `zig build public-error-api-ban` for the fail-closed proof that retired root spellings stay out of shipped docs/examples/root surfaces
+- `zig build retired-lane-inventory-check` for the fail-closed proof that retired vocabulary stays out of proof-facing files
 - `zig build compile-fail` for hidden continuation/context surfaces and forged
   capability misuse
-- `zig build example-proof` for exact-output public example transcripts
-- `zig build backend-parity` for the hidden lowered proof engine over the
+- `zig build example-proof` for the exact-output fixture corpus that still
+  carries legacy example ids while proving the lowered runtime path
+- `zig build kernel-parity-check` for the hidden lowered proof engine over the
   canonical scenario IR, kept strictly beneath the canonical public
   `shift/reset` surface
 - `zig build proof-fixtures-check` for generator-owned exact-output fixture
@@ -148,28 +148,19 @@ one of these proof surfaces:
   internal structured-program front end into the canonical lowered IR
 - `zig build structured-program-suite` for internal scaffolding coverage of the
   lowered proof engine
-- `zig build direct-style-bridge-parity` for unchanged-body parity checks over
-  the supported direct-style bridge corpus
 - `zig build direct-style-boundary` for explicit boundary checks around
   unsupported unchanged direct-style shapes
-- `zig build source-lowering-gauntlet` for the internal source-lowering corpus
+- `zig build kernel-source-lowering-check` for the internal source-lowering
+  corpus
 - `zig build source-lowering-coverage-check` for the checked source-lowering
   coverage matrix that proves every current witness/example/declaration target
   is covered by the internal source-lowering track
-- `zig build runtime-route-matrix-check` for the checked execution-route matrix
-  that records whether supported cases are still replayed or now run through
-  the shared lowered machine
-- `zig build runtime-obligation-matrix-check` for the checked obligation matrix
-  that records which public-runtime obligations still depend on the stackful
-  backend
 - `zig build runtime-contract-suite` for executable public-runtime contract
   cases that still guard the final stackful-backed behaviors
-- `zig build public-error-api-ban` for the fail-closed proof that banned legacy
-  public error spellings are gone from shipped docs/examples/root surfaces
 - `zig build runtime-error-surface-matrix-check` for the checked retained-vs-retired
   public runtime error surface
-- `zig build source-lowering-error-witness-check` for the checked source-lowering-tool witness
-  JSON surface over the canonical example corpus
+- `zig build source-lowering-error-witness-check` for the checked
+  source-lowering-tool witness JSON surface over the canonical internal corpus
 - `zig build error-witness-equivalence-check` for the checked witness equivalence
   of the exported public runtime/setup witness surface across canonical source-lowering
   example cases
@@ -180,8 +171,6 @@ one of these proof surfaces:
   surface
 - `zig build no-raw-repo-refs-check` for the fail-closed proof that the repo no
   longer references the deleted raw runtime tree
-- `zig build shipped-backend-check` for the checked guarantee that the shipped
-  path no longer depends on deleted stackful runtime components
 - `zig build surface-truth-scorecard-check` for the machine-readable
   maintainers' scorecard that summarizes whether the lowered path can honestly
   stay hidden beneath the canonical public surface
@@ -191,245 +180,42 @@ one of these proof surfaces:
 - `zig build bench-state-effect-check` for the checked benchmark artifact on a
   clean tree
 
-The surviving declaration-family contract is now:
+The current public kernel contract is now:
 
-- programs are authored as `shift.Program(.{ ... }, Body)` and executed with `shift.run(...)`
-- built-in declarations expose named handles such as `eff.state.get()`,
-  `eff.reader.ask()`, `eff.optional.request(...)`,
-  `eff.exception.throw(...)`, `eff.resource.acquire()`, and
-  `eff.writer.tell(...)`
-- custom closed-world families are declared through `shift.Decl.family(.{ ... })`
-  and `shift.Ops.*`, then surfaced through named op handles like
-  `eff.counter.get.perform(...)`, `eff.picker.pick.perform(...)`, and
-  `eff.guard.fail.abort(...)`
-- forged or cross-instance contexts still fail at compile time; see:
-  - `decl_family_duplicate_op_name_fails.zig`
-  - `decl_family_explicit_mode_mismatch_fails.zig`
-  - `decl_family_missing_after_hook_fails.zig`
-  - `decl_family_mixed_mode_fails.zig`
-  - `decl_family_reserved_name_fails.zig`
-  - `exception_policy_missing_direct_return.zig`
-  - `optional_policy_missing_resume_or_return.zig`
-  - `resource_manager_missing_acquire.zig`
-
-The root front door absorbs the old algebraic and effect-oriented public stories.
-Only `shift.Program`, `shift.run`, `shift.Decl`, `shift.Ops`, legacy-compatible
-`shift.Op`, and `shift.Decision` remain public.
+- callers own the runtime boundary through `shift.Runtime`
+- declaration authoring is rooted in `shift.Program(...)`, `shift.Decl`, and
+  `shift.Op`
+- execution crosses one root entrypoint through `shift.run(...)`
+- public runtime/error/decision types live at the root and are backed by the
+  lowered runtime
+- authored frontends, witness corpora, bridge cases, and source-lowering cases
+  remain internal proof infrastructure
+- retired root spellings are checked by tombstone proofs instead of
+  compatibility narratives
 
 ## Examples
 
-### `algebraic_abortive_validation`
+### State Writer Walkthrough
 
 ```bash
-zig build run-algebraic-abortive-validation
+zig build run-open-row-state-writer
 ```
 
 Expected output:
 
 ```text
-validate=name
-abort=missing-name
-final=error=missing-name
-```
-
-### `algebraic_artifact_search`
-
-```bash
-zig build run-algebraic-artifact-search
-```
-
-Expected output:
-
-```text
-query=artifact-search
-messages=1
-tool_calls=0
-memory_blocks=1
-opencode_source=jsonl
-total=3
-```
-
-### `direct_return`
-
-```bash
-zig build run-early-exit
-```
-
-Expected output:
-
-```text
-handler-direct-return
-final=result=early
-```
-
-### `resume_or_return`
-
-```bash
-zig build run-resume-or-return
-```
-
-Expected output:
-
-```text
-branch=return_now
-handler-return-now
-final=result=early
-branch=resume_with
-handler-decide-resume
-body-after-shift
-handler-after-resume
-final=answer=42
-```
-
-### `resume_then_transform`
-
-```bash
-zig build run-nested-workflow
-```
-
-Expected output:
-
-```text
-workflow=queued
-audit=entered
-audit=after
-approval=publish
-workflow=done
-result=completed
-```
-
-### Extra `resume_then_transform` Example
-
-```bash
-zig build run-generator
-```
-
-Expected output:
-
-```text
-yield=1
-yield=2
-yield=3
-done=3
-```
-
-### `define_basic`
-
-```bash
-zig build run-define-basic
-```
-
-Expected output:
-
-```text
-counter=6
-```
-
-### `reader_effect`
-
-```bash
-zig build run-reader-basic
-```
-
-Expected output:
-
-```text
-env=21
-value=42
-```
-
-### `exception_effect`
-
-```bash
-zig build run-exception-basic
-```
-
-Expected output:
-
-```text
-branch=pass
-body-pass
-final=result=ok
-branch=throw
-body-before-throw
-catch=result=boom
-final=result=boom
-```
-
-### `optional_effect`
-
-```bash
-zig build run-optional-basic
-```
-
-Expected output:
-
-```text
-branch=return_now
-policy-return-now
-final=result=early
-branch=resume_with
-policy-resume
-body-after-request
-policy-after-resume
-final=answer=42
-```
-
-### `resource_effect`
-
-```bash
-zig build run-resource-basic
-```
-
-Expected output:
-
-```text
-acquire=a
-use=a
-acquire=b
-use=b
-release=b
-release=a
-final=done
-```
-
-### `writer_effect`
-
-```bash
-zig build run-writer-basic
-```
-
-Expected output:
-
-```text
-item=a
-item=b
+item=query=artifact-search
+item=workflow=queued
+final_state=6
 value=done
 ```
 
-### `state_effect`
-
-```bash
-zig build run-state-basic
-```
-
-Expected output:
-
-```text
-before=5
-after=6
-final_state=6
-value=11
-```
-
-The surviving declaration families use `shift.Program(.{ ... }, Body)` and
-`shift.run(...)` with named handles such as `eff.reader.ask()`,
-`eff.state.get()` / `eff.state.set(...)`, `eff.optional.request(...)`,
-`eff.exception.throw(...)`, `eff.resource.acquire()`, and
-`eff.writer.tell(...)`. User-defined sealed families are declared through
-`shift.Decl.family(.{ ... })` and expose named op fields such as
-`eff.<binding>.<op>.perform(...)` and `eff.<binding>.<op>.abort(...)` over the
-same exact-context boundary.
+The step id is intentionally unchanged because it is a stable proof handle.
+Treat `run-open-row-state-writer` as a checked legacy fixture name, not as
+documentation of the public product vocabulary. Retired root spellings are
+guarded by tombstone proofs instead of compatibility narratives.
+`open_row_state_writer` is still a retained proof label only; it is not counted
+as an admitted source-lowering row in the coverage matrix.
 
 The generalized construction boundary is checked by:
 
@@ -440,12 +226,9 @@ zig build effect-construction-boundary
 The current hidden internal control-class coverage at the effect layer is:
 
 - transform-style (`.resume_then_transform` internally): `state`, `reader`,
-  `resource`, `writer`
+  `writer`
 - choice-style (`.resume_or_return` internally): `optional`
 - abortive (`.direct_return` internally): `exception`
-- `shift.Decl.family(.{ ... })`: user-defined sealed families for one chosen
-  non-resource mode per family (`.resume_then_transform`, `.resume_or_return`,
-  or `.direct_return`)
 
 ## Benchmark Contract
 
@@ -562,13 +345,13 @@ zig build formal-core
 ```
 
 The generated artifact preserves the live law anchors for semantic witnesses,
-strict effect-capability claims, the additive public algebraic builders, and
-the optional-resumption family without turning into a second README.
+the root-kernel contract, and the optional-resumption family without turning
+into a second README.
 
 The hidden lowered proof engine is exercised by:
 
 ```bash
-zig build backend-parity
+zig build kernel-parity-check
 ```
 
 The typed kernel in `src/parity_kernel.zig` now owns the hard witness core plus
@@ -589,47 +372,32 @@ direct-style boundary is documented in `docs/direct_style_boundary.md` and
 checked by `zig build direct-style-boundary`.
 
 `docs/source_lowering_contract.md` is the versioned contract for the internal
-source-lowering track. `zig build source-lowering-gauntlet` is the
+source-lowering track. `zig build kernel-source-lowering-check` is the
 green-only gate for the currently promised source-lowering wave, and
 `tools/render_source_lowering_coverage_matrix.zig` renders the checked
 `docs/source_lowering_coverage_matrix.json` matrix that records the current
-source-lowering coverage for witnesses, examples, built-in declarations, and
-user-defined effect rows.
+source-lowering coverage for internal witnesses, internal fixture/example ids,
+current proof labels, and user-defined effect rows.
 
 `tools/render_witness_admission_matrix.zig` renders the checked
 `docs/witness_admission_matrix.json` ledger that separates lexical witness proof
-from unchanged-body bridge admission.
+from unchanged-body bridge admission. Both lanes are internal-only proof
+surfaces.
 
-`src/program_bridge.zig` is the current hidden-backend bridge for the supported
-unchanged direct-style subset, and `src/private_lowered_runtime.zig` is the
-internal lowered-runtime seam that executes that supported subset without
-changing the public API. `zig build direct-style-bridge-parity` proves
-that subset against the canonical lowered scenarios, and
-`tools/render_runtime_route_matrix.zig` renders the machine-readable route
-matrix showing that those supported cases now execute through the shared
-lowered machine instead of direct scenario replay.
-The generated artifact lives at `docs/runtime_route_matrix.json`.
+`src/program_bridge.zig` and `src/private_lowered_runtime.zig` remain
+implementation-only proof infrastructure for the retained unchanged-body subset.
+They are no longer part of the public proof contract described here.
 
 `src/lowered_machine.zig` is now the shared executable machine core, while
 `src/parity_kernel.zig` acts as a proof façade over that core.
 
 `src/internal/algebraic_engine.zig` now owns the shared internal
-operation, binding, and prompt machinery used by the surviving declaration
-surfaces. `zig build shared-declaration-engine-boundary` is the architectural
-truth gate for that claim.
+operation, binding, and prompt machinery used beneath the public kernel.
+`zig build public-root-contract-snapshot-check` and `zig build public-error-api-ban`
+are the tombstone truth gates for retired root spellings.
 
-`zig build runtime-route-matrix-check` is the architectural truth gate for that
-claim, and
-`zig build runtime-obligation-matrix-check` is the remaining-contract truth
-gate for the parts of the public runtime surface that are now compat-only or
-otherwise outside the shipped backend path.
-`tools/render_runtime_obligation_matrix.zig` renders that artifact, which lives
-at `docs/runtime_obligation_matrix.json`.
-
-`zig build runtime-contract-suite` is the executable complement to that
-artifact: it runs the remaining public-runtime contract cases through the
-current public API so the remaining runtime obligations are tracked by tests,
-not just by documentation.
+`zig build runtime-contract-suite` remains the executable proof lane for the
+remaining public-runtime contract cases that still matter at the shipped API.
 
 `tools/render_runtime_error_surface_matrix.zig` renders the checked public
 runtime error surface policy, which lives at
@@ -647,40 +415,15 @@ shipped-vs-reference routing map, which lives at
 scorecard used by the final hidden-backend recommendation gate. The generated
 artifact lives at `docs/surface_truth_scorecard.json`.
 
-## Minimal Example
+## Current Frontend Examples
 
-```zig
-const shift = @import("shift");
-const std = @import("std");
+Repo-owned authored frontends and checked examples still live under `examples/`,
+but they are not the public contract described here. The public story is the
+root-level kernel exported from `src/root.zig`: `shift.Runtime`,
+`shift.RuntimeError`, `shift.ErrorWitnessV1`, `shift.Decl`, `shift.Op`,
+`shift.Decision(...)`, `shift.Program(...)`, and `shift.run(...)`.
 
-const NoError = error{};
-
-pub fn main() anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
-
-    const Program = shift.Program(.{
-        .state = shift.Decl.state(i32),
-        .reader = shift.Decl.reader(i32),
-    }, struct {
-        pub fn body(eff: anytype) !i32 {
-            const env = try eff.reader.ask();
-            const before = try eff.state.get();
-            try eff.state.set(before + env);
-            return try eff.state.get();
-        }
-    });
-
-    const result = try shift.run(&runtime, Program, .{
-        .state = @as(i32, 5),
-        .reader = @as(i32, 21),
-    });
-
-    std.debug.print("value={d} state={d}\n", .{ result.value, result.outputs.state });
-}
-```
-
-See `src/root.zig` for the public surface, `src/witnesses.zig` for executable
-witnesses, `test/witness_corpus_test.zig` and `test/semantic_manifest.zig` for
-the locked semantic evidence, `FORMAL_CORE.md` for the implementation-derived
-law anchors, and `examples/` for runnable usage.
+`FORMAL_CORE.md` tracks the implementation-derived law anchors.
+`docs/source_lowering_contract.md` tracks the internal source-lowering lane.
+Witnesses, bridge lanes, example ids, and source corpus ids remain
+repo-internal proof infrastructure.

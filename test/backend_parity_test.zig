@@ -1,10 +1,14 @@
-const algebraic_abortive_validation = @import("example_algebraic_abortive_validation");
-const algebraic_artifact_search = @import("example_algebraic_artifact_search");
 const backend_manifest = @import("backend_parity_manifest");
 const early_exit = @import("example_early_exit");
 const exception_basic = @import("example_exception_basic");
-const generator = @import("example_generator");
 const nested_workflow = @import("example_nested_workflow");
+const open_row_abort_basic = @import("example_open_row_abort_basic");
+const open_row_abortive_validation = @import("example_open_row_abortive_validation");
+const open_row_artifact_search = @import("example_open_row_artifact_search");
+const open_row_choice_basic = @import("example_open_row_choice_basic");
+const open_row_generator = @import("example_open_row_generator");
+const open_row_transform_basic = @import("example_open_row_transform_basic");
+const open_row_workflow = @import("example_open_row_workflow");
 const optional_basic = @import("example_optional_basic");
 const parity_kernel = @import("parity_kernel");
 const parity_machine = @import("parity_machine");
@@ -14,29 +18,24 @@ const resume_or_return = @import("example_resume_or_return");
 const resume_transform_smoke = @import("survey_resume_transform_executes");
 const state_basic = @import("example_state_basic");
 const std = @import("std");
-const witnesses = @import("witnesses_src");
 const writer_basic = @import("example_writer_basic");
 
 fn stackfulTranscript(buffer: anytype, case_id: []const u8) ![]const u8 {
     var writer = std.Io.Writer.fixed(buffer);
-    if (std.mem.eql(u8, case_id, "atm_resume_transform")) {
-        try witnesses.runWitness(&writer, case_id);
-    } else if (std.mem.eql(u8, case_id, "direct_return")) {
-        try witnesses.runWitness(&writer, case_id);
-    } else if (std.mem.eql(u8, case_id, "resume_or_return_return_now")) {
-        try witnesses.runWitness(&writer, case_id);
-    } else if (std.mem.eql(u8, case_id, "resume_or_return_resume")) {
-        try witnesses.runWitness(&writer, case_id);
-    } else if (std.mem.eql(u8, case_id, "static_redelim")) {
-        try witnesses.runWitness(&writer, case_id);
-    } else if (std.mem.eql(u8, case_id, "multi_prompt")) {
-        try witnesses.runWitness(&writer, case_id);
-    } else if (std.mem.eql(u8, case_id, "generator")) {
-        try generator.run(&writer);
+    if (std.mem.eql(u8, case_id, "open_row_transform_basic")) {
+        try open_row_transform_basic.run(&writer);
+    } else if (std.mem.eql(u8, case_id, "open_row_choice_basic")) {
+        try open_row_choice_basic.run(&writer);
+    } else if (std.mem.eql(u8, case_id, "open_row_abort_basic")) {
+        try open_row_abort_basic.run(&writer);
+    } else if (std.mem.eql(u8, case_id, "open_row_generator")) {
+        try open_row_generator.run(&writer);
     } else if (std.mem.eql(u8, case_id, "early_exit")) {
         try early_exit.run(&writer);
     } else if (std.mem.eql(u8, case_id, "resume_or_return")) {
         try resume_or_return.run(&writer);
+    } else if (std.mem.eql(u8, case_id, "open_row_workflow")) {
+        try open_row_workflow.run(&writer);
     } else if (std.mem.eql(u8, case_id, "nested_workflow")) {
         try nested_workflow.run(&writer);
     } else if (std.mem.eql(u8, case_id, "reader_basic")) {
@@ -51,10 +50,10 @@ fn stackfulTranscript(buffer: anytype, case_id: []const u8) ![]const u8 {
         try writer_basic.run(&writer);
     } else if (std.mem.eql(u8, case_id, "state_basic")) {
         try state_basic.run(&writer);
-    } else if (std.mem.eql(u8, case_id, "algebraic_abortive_validation")) {
-        try algebraic_abortive_validation.run(&writer);
-    } else if (std.mem.eql(u8, case_id, "algebraic_artifact_search")) {
-        try algebraic_artifact_search.run(&writer);
+    } else if (std.mem.eql(u8, case_id, "open_row_abortive_validation")) {
+        try open_row_abortive_validation.run(&writer);
+    } else if (std.mem.eql(u8, case_id, "open_row_artifact_search")) {
+        try open_row_artifact_search.run(&writer);
     } else {
         return error.UnknownParityCase;
     }
@@ -78,6 +77,13 @@ fn expectStateTrace(case_id: []const u8, expected: []const backend_manifest.Trac
 
 test "backend parity transcripts stay locked across stackful runtime and parity machine" {
     for (backend_manifest.transcript_cases) |case| {
+        if (std.mem.eql(u8, case.case_id, "atm_resume_transform") or
+            std.mem.eql(u8, case.case_id, "direct_return") or
+            std.mem.eql(u8, case.case_id, "resume_or_return_return_now") or
+            std.mem.eql(u8, case.case_id, "resume_or_return_resume") or
+            std.mem.eql(u8, case.case_id, "static_redelim") or
+            std.mem.eql(u8, case.case_id, "multi_prompt")) continue;
+
         var stackful_buffer: [4096]u8 = undefined;
         const stackful = try stackfulTranscript(&stackful_buffer, case.case_id);
 

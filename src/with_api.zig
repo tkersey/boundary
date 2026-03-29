@@ -54,6 +54,98 @@ pub fn WithResult(comptime HandlersType: type, comptime Answer: type) type {
     };
 }
 
+fn hasClosedOutputDecl(comptime HandlerType: type) bool {
+    return hasDeclSafe(HandlerType, "Output");
+}
+
+fn ClosedOutputType(comptime HandlerType: type) type {
+    if (!hasClosedOutputDecl(HandlerType)) return void;
+    return HandlerType.Output;
+}
+
+fn assertClosedFinishShape(comptime HandlerType: type) void {
+    if (ClosedOutputType(HandlerType) == void) return;
+    if (!hasDeclSafe(HandlerType, "finish")) {
+        @compileError(@typeName(HandlerType) ++ " must declare finish(self) when Output is non-void");
+    }
+    const FinishFn = @TypeOf(HandlerType.finish);
+    const FnType = switch (@typeInfo(FinishFn)) {
+        .@"fn" => FinishFn,
+        .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn") pointer.child else @compileError(@typeName(HandlerType) ++ ".finish must be callable"),
+        else => @compileError(@typeName(HandlerType) ++ ".finish must be callable"),
+    };
+    const params = @typeInfo(FnType).@"fn".params;
+    if (params.len != 1) {
+        @compileError(@typeName(HandlerType) ++ ".finish must have exactly one self parameter");
+    }
+    const SelfParam = params[0].type orelse @compileError(@typeName(HandlerType) ++ ".finish must type its self parameter");
+    if (SelfParam != *HandlerType and SelfParam != *const HandlerType) {
+        @compileError(@typeName(HandlerType) ++ ".finish must accept *Self or *const Self");
+    }
+    const ReturnType = @typeInfo(FnType).@"fn".return_type orelse @compileError(@typeName(HandlerType) ++ ".finish must return Output");
+    if (ReturnType != ClosedOutputType(HandlerType)) {
+        @compileError(@typeName(HandlerType) ++ ".finish must return Output exactly");
+    }
+}
+
+/// Output bundle that mirrors only the non-void outputs on a closed root handler bundle.
+pub fn ClosedOutputBundleType(comptime HandlersType: type) type {
+    const info = @typeInfo(HandlersType);
+    if (info != .@"struct") @compileError("closed-root handlers must be a struct literal or struct value");
+    const handler_fields = info.@"struct".fields;
+    var fields = [_]std.builtin.Type.StructField{.{
+        .name = "",
+        .type = void,
+        .default_value_ptr = null,
+        .is_comptime = false,
+        .alignment = @alignOf(void),
+    }} ** handler_fields.len;
+    var field_count: usize = 0;
+    inline for (handler_fields) |field| {
+        comptime assertClosedFinishShape(field.type);
+        const OutputType = ClosedOutputType(field.type);
+        if (OutputType == void) continue;
+        fields[field_count] = .{
+            .name = field.name,
+            .type = OutputType,
+            .default_value_ptr = null,
+            .is_comptime = false,
+            .alignment = @alignOf(OutputType),
+        };
+        field_count += 1;
+    }
+    return @Type(.{
+        .@"struct" = .{
+            .layout = .auto,
+            .fields = fields[0..field_count],
+            .decls = &.{},
+            .is_tuple = false,
+        },
+    });
+}
+
+/// Canonical closed-root result: final outputs plus answer.
+pub fn ClosedRunResult(comptime HandlersType: type, comptime Answer: type) type {
+    return struct {
+        outputs: ClosedOutputBundleType(HandlersType),
+        value: Answer,
+    };
+}
+
+/// Extract outputs from one closed handler bundle after the root has run.
+pub fn collectClosedOutputs(handlers_ptr: anytype) ClosedOutputBundleType(std.meta.Child(@TypeOf(handlers_ptr))) {
+    const HandlersType = std.meta.Child(@TypeOf(handlers_ptr));
+    const OutputsType = ClosedOutputBundleType(HandlersType);
+    var outputs = std.mem.zeroInit(OutputsType, .{});
+    inline for (@typeInfo(HandlersType).@"struct".fields) |field| {
+        const HandlerType = field.type;
+        if (ClosedOutputType(HandlerType) == void) continue;
+        const handler_ptr = &@field(handlers_ptr.*, field.name);
+        @field(outputs, field.name) = handler_ptr.finish();
+    }
+    return outputs;
+}
+
 fn ReturnTypeErrorSet(comptime ReturnType: type) type {
     return switch (@typeInfo(ReturnType)) {
         .error_union => |err_union| err_union.error_set,
@@ -382,11 +474,42 @@ fn BodyFunctionType(comptime Body: type) type {
         else => false,
     }) return Body;
     if (@hasDecl(Body, "body")) return @TypeOf(Body.body);
+    if (@hasDecl(Body, "run")) return @TypeOf(Body.run);
     @compileError("shift.with body must be a function or a type declaring body(eff)");
+}
+
+fn BodyRunFnType(comptime Body: type) type {
+    const RunFn = @TypeOf(Body.run);
+    return switch (@typeInfo(RunFn)) {
+        .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn") pointer.child else @compileError("shift.with body run must be callable"),
+        .@"fn" => RunFn,
+        else => @compileError("shift.with body run must be callable"),
+    };
+}
+
+fn bodyRunSelfValue(comptime Body: type) Body {
+    if (@sizeOf(Body) != 0) {
+        @compileError("shift.with body run(self, eff) requires a zero-sized body type; use run(eff) for stateful bodies");
+    }
+    return .{};
 }
 
 fn BodyReturnType(comptime Body: type, comptime EffType: type) type {
     if (@hasDecl(Body, "body")) return @TypeOf(Body.body(dummyValue(EffType)));
+    if (@hasDecl(Body, "run")) {
+        const params = @typeInfo(BodyRunFnType(Body)).@"fn".params;
+        if (params.len == 1) return @TypeOf(Body.run(dummyValue(EffType)));
+        if (params.len == 2) {
+            const FirstParam = params[0].type orelse @compileError("shift.with body run must type every parameter");
+            if (FirstParam == type) return @TypeOf(Body.run(Body, dummyValue(EffType)));
+            if (FirstParam == Body) return @TypeOf(Body.run(bodyRunSelfValue(Body), dummyValue(EffType)));
+            if (FirstParam == *Body or FirstParam == *const Body) {
+                var self = bodyRunSelfValue(Body);
+                return @TypeOf(Body.run(&self, dummyValue(EffType)));
+            }
+        }
+        @compileError("shift.with body run must accept either (eff), (self, eff), (*self, eff), or (BodyType, eff)");
+    }
     return @TypeOf(Body(dummyValue(EffType)));
 }
 
@@ -421,6 +544,40 @@ fn callBody(
             return Body.body(eff) catch |err| return @errorCast(err);
         }
         return Body.body(eff);
+    }
+
+    if (@hasDecl(Body, "run")) {
+        const params = @typeInfo(BodyRunFnType(Body)).@"fn".params;
+        if (params.len == 1) {
+            if (@typeInfo(ReturnType) == .error_union) {
+                return Body.run(eff) catch |err| return @errorCast(err);
+            }
+            return Body.run(eff);
+        }
+        if (params.len == 2) {
+            const FirstParam = params[0].type orelse @compileError("shift.with body run must type every parameter");
+            if (FirstParam == type) {
+                if (@typeInfo(ReturnType) == .error_union) {
+                    return Body.run(Body, eff) catch |err| return @errorCast(err);
+                }
+                return Body.run(Body, eff);
+            }
+            if (FirstParam == Body) {
+                const self = bodyRunSelfValue(Body);
+                if (@typeInfo(ReturnType) == .error_union) {
+                    return Body.run(self, eff) catch |err| return @errorCast(err);
+                }
+                return Body.run(self, eff);
+            }
+            if (FirstParam == *Body or FirstParam == *const Body) {
+                var self = bodyRunSelfValue(Body);
+                if (@typeInfo(ReturnType) == .error_union) {
+                    return Body.run(&self, eff) catch |err| return @errorCast(err);
+                }
+                return Body.run(&self, eff);
+            }
+        }
+        @compileError("shift.with body run must accept either (eff), (self, eff), (*self, eff), or (BodyType, eff)");
     }
 
     if (@typeInfo(ReturnType) == .error_union) {
@@ -777,4 +934,119 @@ pub fn with(
         .outputs = outputs,
         .value = value,
     };
+}
+
+test "closed output bundle keeps only handlers with Output" {
+    const Handlers = struct {
+        state: struct {
+            /// Explicit output type used by this test state handler.
+            pub const Output = i32;
+
+            /// Finalize the test state handler output.
+            pub fn finish(_: *@This()) i32 {
+                return 7;
+            }
+        },
+        reader: struct {},
+        writer: struct {
+            /// Explicit output type used by this test writer handler.
+            pub const Output = [4]u8;
+
+            /// Finalize the test writer handler output.
+            pub fn finish(_: *@This()) [4]u8 {
+                return .{ 'd', 'o', 'n', 'e' };
+            }
+        },
+    };
+
+    const Outputs = ClosedOutputBundleType(Handlers);
+    try std.testing.expect(@hasField(Outputs, "state"));
+    try std.testing.expect(!@hasField(Outputs, "reader"));
+    try std.testing.expect(@hasField(Outputs, "writer"));
+}
+
+test "collectClosedOutputs mirrors finish results" {
+    const StateHandler = struct {
+        value: i32,
+        /// Explicit output type carried by this test state handler.
+        pub const Output = i32;
+
+        /// Finalize the test state handler output.
+        pub fn finish(self: *@This()) i32 {
+            return self.value;
+        }
+    };
+    const reader_handler = struct {};
+    const writer_handler = struct {
+        /// Explicit output type carried by this test writer handler.
+        pub const Output = [4]u8;
+
+        /// Finalize the test writer handler output.
+        pub fn finish(_: *@This()) [4]u8 {
+            return .{ 'd', 'o', 'n', 'e' };
+        }
+    };
+    const Handlers = struct {
+        state: StateHandler,
+        reader: reader_handler,
+        writer: writer_handler,
+    };
+    var handlers: Handlers = .{
+        .state = .{ .value = 9 },
+        .reader = .{},
+        .writer = .{},
+    };
+
+    const outputs = collectClosedOutputs(&handlers);
+    try std.testing.expectEqual(@as(i32, 9), outputs.state);
+    try std.testing.expectEqualSlices(u8, "done", outputs.writer[0..]);
+}
+
+test "collectClosedOutputs finalizes the owned handler fields" {
+    const WriterHandler = struct {
+        finished: bool = false,
+        storage: [4]u8 = .{ 'd', 'o', 'n', 'e' },
+        /// Explicit output type carried by this owned writer handler.
+        pub const Output = []const u8;
+
+        /// Finalize the owned writer handler output.
+        pub fn finish(self: *@This()) []const u8 {
+            self.finished = true;
+            return self.storage[0..];
+        }
+    };
+    const Handlers = struct {
+        writer: WriterHandler,
+    };
+    var handlers: Handlers = .{
+        .writer = WriterHandler{},
+    };
+
+    const outputs = collectClosedOutputs(&handlers);
+    try std.testing.expect(handlers.writer.finished);
+    try std.testing.expectEqualSlices(u8, "done", outputs.writer);
+    handlers.writer.storage[0] = 't';
+    try std.testing.expectEqual(@as(u8, 't'), outputs.writer[0]);
+}
+
+test "collectClosedOutputs preserves const handler pointers for const-safe finish" {
+    const ReaderHandler = struct {
+        value: i32,
+        /// Explicit output type carried by this read-only state handler.
+        pub const Output = i32;
+
+        /// Finalize through a const pointer when the handler state is immutable.
+        pub fn finish(self: *const @This()) i32 {
+            return self.value;
+        }
+    };
+    const Handlers = struct {
+        reader: ReaderHandler,
+    };
+    const handlers: Handlers = .{
+        .reader = .{ .value = 9 },
+    };
+
+    const outputs = collectClosedOutputs(&handlers);
+    try std.testing.expectEqual(@as(i32, 9), outputs.reader);
 }

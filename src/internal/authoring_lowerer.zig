@@ -1,6 +1,8 @@
 const build_options = @import("authoring_build_options");
+const effect_ir = @import("effect_ir");
 const lowered_machine = @import("lowered_machine");
 const parity_scenarios = @import("parity_scenarios");
+const program_frontend = @import("program_frontend");
 const std = @import("std");
 
 /// Internal lowering surfaces that share the canonical authoring lowerer.
@@ -62,6 +64,17 @@ pub const LoweredAuthoring = struct {
     feature_flags: []const []const u8,
     diagnostics: []const Diagnostic,
 
+    /// Return the executable kernel program artifact carried by this lowering.
+    pub fn kernelProgramArtifact(self: *const LoweredAuthoring) KernelProgramArtifact {
+        return .{
+            .status = self.status,
+            .canonical_scenario_id = self.canonical_scenario_id,
+            .expected_transcript = self.expected_transcript,
+            .steps = self.steps,
+            .feature_flags = self.feature_flags,
+        };
+    }
+
     /// Release owned slices captured in a lowered authoring result.
     pub fn deinit(self: *LoweredAuthoring, allocator: std.mem.Allocator) void {
         allocator.free(self.source_path);
@@ -71,6 +84,37 @@ pub const LoweredAuthoring = struct {
         self.* = undefined;
     }
 };
+
+/// Executable kernel program artifact produced by the structural authoring lowerer.
+pub const KernelProgramArtifact = struct {
+    status: LowerStatus,
+    canonical_scenario_id: ?parity_scenarios.ScenarioId,
+    expected_transcript: []const u8,
+    steps: []const lowered_machine.Step,
+    feature_flags: []const []const u8,
+
+    /// Return whether this artifact can execute through the lowered kernel.
+    pub fn isExecutable(self: KernelProgramArtifact) bool {
+        return self.status != .rejected;
+    }
+};
+
+/// One open-row lowering record lowered through the shared authoring-lowering seam.
+pub const OpenRowLoweredAuthoring = struct {
+    label: []const u8,
+    normalization: effect_ir.NormalizationDigest,
+    program: program_frontend.LoweredOpenRowProgram,
+};
+
+/// Lower one open-row frontend payload through the shared semantic center.
+pub fn lowerOpenRowProgram(program: program_frontend.OpenRowProgram) effect_ir.NormalizeError!OpenRowLoweredAuthoring {
+    const lowered = try program_frontend.lowerOpenRow(program);
+    return .{
+        .label = program.label,
+        .normalization = try effect_ir.rowDigest(program.function.row, program.function.outputs),
+        .program = lowered,
+    };
+}
 
 /// One machine-readable accepted-row equivalence record.
 pub const EquivalenceRecord = struct {
@@ -235,13 +279,13 @@ fn canonicalSourceHash(expected_path: []const u8) ?[32]u8 {
     if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/typed_error_try.zig")) return build_options.hash_typed_error_try;
     if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/defer_resume.zig")) return build_options.hash_defer_resume;
     if (std.mem.eql(u8, expected_path, "test/source_lowering_corpus/fixtures/errdefer_error.zig")) return build_options.hash_errdefer_error;
-    if (std.mem.eql(u8, expected_path, "examples/define_basic.zig")) return build_options.hash_define_basic;
-    if (std.mem.eql(u8, expected_path, "examples/define_choice_basic.zig")) return build_options.hash_define_choice_basic;
-    if (std.mem.eql(u8, expected_path, "examples/define_abort_basic.zig")) return build_options.hash_define_abort_basic;
+    if (std.mem.eql(u8, expected_path, "examples/open_row_transform_basic.zig")) return build_options.hash_define_basic;
+    if (std.mem.eql(u8, expected_path, "examples/open_row_choice_basic.zig")) return build_options.hash_define_choice_basic;
+    if (std.mem.eql(u8, expected_path, "examples/open_row_abort_basic.zig")) return build_options.hash_define_abort_basic;
     if (std.mem.eql(u8, expected_path, "examples/early_exit.zig")) return build_options.hash_early_exit;
-    if (std.mem.eql(u8, expected_path, "examples/generator.zig")) return build_options.hash_generator;
+    if (std.mem.eql(u8, expected_path, "examples/open_row_generator.zig")) return build_options.hash_generator;
     if (std.mem.eql(u8, expected_path, "examples/resume_or_return.zig")) return build_options.hash_resume_or_return;
-    if (std.mem.eql(u8, expected_path, "examples/front_door_workflow.zig")) return build_options.hash_front_door_workflow;
+    if (std.mem.eql(u8, expected_path, "examples/open_row_workflow.zig")) return build_options.hash_front_door_workflow;
     if (std.mem.eql(u8, expected_path, "examples/nested_workflow.zig")) return build_options.hash_nested_workflow;
     if (std.mem.eql(u8, expected_path, "examples/state_basic.zig")) return build_options.hash_state_basic;
     if (std.mem.eql(u8, expected_path, "examples/reader_basic.zig")) return build_options.hash_reader_basic;
@@ -249,17 +293,17 @@ fn canonicalSourceHash(expected_path: []const u8) ?[32]u8 {
     if (std.mem.eql(u8, expected_path, "examples/exception_basic.zig")) return build_options.hash_exception_basic;
     if (std.mem.eql(u8, expected_path, "examples/resource_basic.zig")) return build_options.hash_resource_basic;
     if (std.mem.eql(u8, expected_path, "examples/writer_basic.zig")) return build_options.hash_writer_basic;
-    if (std.mem.eql(u8, expected_path, "examples/algebraic_abortive_validation.zig")) return build_options.hash_algebraic_abortive_validation;
-    if (std.mem.eql(u8, expected_path, "examples/algebraic_artifact_search.zig")) return build_options.hash_algebraic_artifact_search;
+    if (std.mem.eql(u8, expected_path, "examples/open_row_abortive_validation.zig")) return build_options.hash_algebraic_abortive_validation;
+    if (std.mem.eql(u8, expected_path, "examples/open_row_artifact_search.zig")) return build_options.hash_algebraic_artifact_search;
     if (std.mem.eql(u8, expected_path, "src/witness_sources.zig")) return build_options.hash_witness_sources;
     if (std.mem.eql(u8, expected_path, "src/witnesses.zig")) return build_options.hash_witnesses;
-    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/algebraic_abortive_validation.zig")) return build_options.hash_bridge_fixture_algebraic_abortive_validation;
-    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/algebraic_artifact_search.zig")) return build_options.hash_bridge_fixture_algebraic_artifact_search;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/open_row_abortive_validation.zig")) return build_options.hash_bridge_fixture_algebraic_abortive_validation;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/open_row_artifact_search.zig")) return build_options.hash_bridge_fixture_algebraic_artifact_search;
     if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/atm_resume_transform.zig")) return build_options.hash_bridge_fixture_atm_resume_transform;
     if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/direct_return.zig")) return build_options.hash_bridge_fixture_direct_return;
     if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/early_exit.zig")) return build_options.hash_bridge_fixture_early_exit;
     if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/exception_basic.zig")) return build_options.hash_bridge_fixture_exception_basic;
-    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/generator.zig")) return build_options.hash_bridge_fixture_generator;
+    if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/open_row_generator.zig")) return build_options.hash_bridge_fixture_generator;
     if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/multi_prompt.zig")) return build_options.hash_bridge_fixture_multi_prompt;
     if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/nested_workflow.zig")) return build_options.hash_bridge_fixture_nested_workflow;
     if (std.mem.eql(u8, expected_path, "test/direct_style_bridge/optional_basic.zig")) return build_options.hash_bridge_fixture_optional_basic;

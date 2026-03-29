@@ -34,7 +34,7 @@ const resource_manager = struct {
 const ResourceProgram = shift.Program(.{
     .resource = shift.Decl.resource([]const u8, resource_manager),
 }, struct {
-    /// Acquire and use two resources through the front-door scope.
+    /// Acquire and use two resources through the program scope.
     pub fn body(eff: anytype) ![]const u8 {
         const first = try eff.resource.acquire();
         transcript.note(if (std.mem.eql(u8, first, "a")) "use=a" else "use=b");
@@ -46,7 +46,7 @@ const ResourceProgram = shift.Program(.{
     }
 });
 
-/// Write the resource-effect transcript through the root front door.
+/// Write the resource-effect transcript through the program kernel.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();

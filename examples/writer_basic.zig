@@ -25,7 +25,7 @@ fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void
     try writer.print("value={s}\n", .{result.value});
 }
 
-/// Write the writer-effect transcript through the root front door.
+/// Write the writer-effect transcript through the program kernel.
 pub fn run(writer: anytype) anyerror!void {
     try runWithAllocator(writer, std.heap.page_allocator);
 }

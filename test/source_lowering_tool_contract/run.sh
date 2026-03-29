@@ -76,21 +76,21 @@ grep -F -q '.diagnostics = try allocator.dupe(WitnessDiagnostic, &generated_prog
 (
   cd "$external_cwd"
   "$tool" \
-    --id example.algebraic_abortive_validation \
-    --source "$repo_root/examples/algebraic_abortive_validation.zig" \
+    --id example.resource_basic \
+    --source "$repo_root/examples/resource_basic.zig" \
     --entry run \
     --surface example \
     --emit zig \
     --out "$accepted_out"
 )
 
-grep -F -q 'expected_transcript = "validate=name\nabort=missing-name\nfinal=error=missing-name\n"' "$accepted_out"
+grep -F -q 'expected_transcript = "acquire=a\nuse=a\nacquire=b\nuse=b\nrelease=b\nrelease=a\nfinal=done\n"' "$accepted_out"
 
 (
   cd "$repo_root/examples"
   "$tool" \
-    --id example.define_basic \
-    --source define_basic.zig \
+    --id example.state_basic \
+    --source state_basic.zig \
     --entry run \
     --surface example \
     --emit json \
@@ -101,7 +101,7 @@ uv run python - <<'PY' "$json_out"
 import json, sys
 
 doc = json.load(open(sys.argv[1]))
-assert doc["case_id"] == "example.define_basic"
+assert doc["case_id"] == "example.state_basic"
 assert doc["status"] == "canonical"
 ew = doc["error_witness"]
 assert ew["public_runtime_errors"] == []

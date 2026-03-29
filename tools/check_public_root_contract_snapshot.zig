@@ -6,10 +6,9 @@ const expected_snapshot =
     \\    "Runtime",
     \\    "RuntimeError",
     \\    "ErrorWitnessV1",
-    \\    "Decision",
     \\    "Decl",
     \\    "Op",
-    \\    "Ops",
+    \\    "Decision",
     \\    "Program",
     \\    "run"
     \\  ]
@@ -44,17 +43,28 @@ fn readIdentifier(line: []const u8, start: usize) []const u8 {
     return line[start..idx];
 }
 
+fn braceDelta(line: []const u8) isize {
+    var delta: isize = 0;
+    for (line) |c| switch (c) {
+        '{' => delta += 1,
+        '}' => delta -= 1,
+        else => {},
+    };
+    return delta;
+}
+
 fn buildSnapshot(allocator: std.mem.Allocator) anyerror![]u8 {
     const content = try std.fs.cwd().readFileAlloc(allocator, "src/root.zig", std.math.maxInt(usize));
     var exports = std.ArrayList([]const u8).empty;
     defer exports.deinit(allocator);
 
     var offset: usize = 0;
+    var depth: isize = 0;
     while (offset <= content.len) {
         var line_end = offset;
         while (line_end < content.len and content[line_end] != '\n') : (line_end += 1) {}
         const trimmed = trimWhitespace(content[offset..line_end]);
-        if (trimmed.len != 0) {
+        if (depth == 0 and trimmed.len != 0) {
             const pub_const = "pub const ";
             const pub_fn = "pub fn ";
             if (trimmed.len > pub_const.len and std.mem.startsWith(u8, trimmed, pub_const)) {
@@ -63,6 +73,7 @@ fn buildSnapshot(allocator: std.mem.Allocator) anyerror![]u8 {
                 try exports.append(allocator, try allocator.dupe(u8, readIdentifier(trimmed, pub_fn.len)));
             }
         }
+        depth += braceDelta(content[offset..line_end]);
         if (line_end >= content.len) break;
         offset = line_end + 1;
     }

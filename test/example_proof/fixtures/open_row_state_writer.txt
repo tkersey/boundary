@@ -1,0 +1,4 @@
+item=query=artifact-search
+item=workflow=queued
+final_state=6
+value=done

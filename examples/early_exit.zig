@@ -16,13 +16,13 @@ const catch_policy = struct {
 const EarlyExitProgram = shift.Program(.{
     .exception = shift.Decl.exception([]const u8, catch_policy),
 }, struct {
-    /// Abort immediately through the front-door exception surface.
+    /// Abort immediately through the program exception surface.
     pub fn body(eff: anytype) ![]const u8 {
         try eff.exception.throw("result=early");
     }
 });
 
-/// Write the direct-return transcript through the root front door.
+/// Write the direct-return transcript through the program kernel.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();

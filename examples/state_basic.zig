@@ -4,7 +4,7 @@ const std = @import("std");
 const StateProgram = shift.Program(.{
     .state = shift.Decl.state(i32),
 }, struct {
-    /// Increment the front-door state once and return the canonical value witness.
+    /// Increment the program state once and return the canonical value witness.
     pub fn body(eff: anytype) anyerror!i32 {
         const before = try eff.state.get();
         try eff.state.set(before + 1);
@@ -12,14 +12,12 @@ const StateProgram = shift.Program(.{
     }
 });
 
-/// Write the state-effect transcript through the root front door.
+/// Write the state-effect transcript through the program kernel.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
-    const result = try shift.run(&runtime, StateProgram, .{
-        .state = @as(i32, 5),
-    });
+    const result = try shift.run(&runtime, StateProgram, .{ .state = 5 });
 
     try writer.print("before=5\nafter=6\nfinal_state={d}\nvalue={d}\n", .{ result.outputs.state, result.value });
 }

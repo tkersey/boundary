@@ -14,7 +14,7 @@ const transcript = struct {
 const PickerHandler = struct {
     branch: enum { resume_with, return_now },
 
-    /// Choose the configured generated lexical choice branch.
+    /// Choose the configured branch.
     pub fn pick(self: *@This(), payload: i32) !shift.Decision(i32, []const u8) {
         return switch (self.branch) {
             .return_now => blk: {
@@ -28,27 +28,27 @@ const PickerHandler = struct {
         };
     }
 
-    /// Finalize the configured generated choice answer.
+    /// Finalize the configured choice answer.
     pub fn afterPick(self: *@This(), answer: []const u8) ![]const u8 {
         if (self.branch == .resume_with) transcript.note("policy-after-resume");
         return answer;
     }
 };
 
-const Picker = shift.Decl.family(.{
-    .state_type = struct {},
+const PickerDecl = shift.Decl.family(.{
+    .state_type = void,
     .ops = .{
-        shift.Ops.Choice("pick", i32, i32),
+        shift.Op.Choice("pick", i32, i32),
     },
 }, PickerHandler);
 
 const PickerProgram = shift.Program(.{
-    .picker = Picker,
+    .picker = PickerDecl,
 }, struct {
-    /// Trigger the generated lexical choice point and complete the configured branch.
+    /// Trigger the choice point and complete the configured branch.
     pub fn body(eff: anytype) ![]const u8 {
         return try eff.picker.pick.perform(41, struct {
-            /// Resume the generated lexical choice continuation with the canonical final answer.
+            /// Resume the continuation with the canonical final answer.
             pub fn apply(value: i32, _: anytype) ![]const u8 {
                 if (value != 41) unreachable;
                 transcript.note("body-after-pick");
@@ -58,7 +58,7 @@ const PickerProgram = shift.Program(.{
     }
 });
 
-/// Render the generated lexical choice-family example transcript through the root front door.
+/// Render the choice example transcript.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
@@ -84,7 +84,7 @@ pub fn run(writer: anytype) anyerror!void {
     try writer.print("final={s}\n", .{resumed.value});
 }
 
-/// Run the generated lexical choice-family example on stdout.
+/// Run the choice example on stdout.
 pub fn main() anyerror!void {
     var stdout_buffer: [256]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);

@@ -2,21 +2,23 @@ const parity_scenarios = @import("parity_scenarios");
 const std = @import("std");
 const witness_admission = @import("witness_admission_registry");
 
-/// Support state for one unchanged-body bridge case.
+/// Internal-only proof state for one unchanged-body case.
+/// The legacy `bridge` terminology remains because the private seam still keys on it.
 pub const Status = enum {
     blocked,
     supported,
 };
 
-/// Source category for one unchanged-body bridge case.
+/// Canonical authored-source category for one internal proof case.
 pub const SourceKind = enum {
     example,
     witness,
 };
 
-/// One direct-style bridge case tied to its canonical source module and scenario.
+/// One internal proof fixture case tied to its canonical source module and scenario.
 pub const Case = struct {
     case_id: []const u8,
+    witness_id: ?[]const u8 = null,
     label: []const u8,
     source_kind: SourceKind,
     source_module: []const u8,
@@ -26,6 +28,10 @@ pub const Case = struct {
     status: Status,
     blocked_reason: ?[]const u8 = null,
 };
+
+fn caseWitnessId(case: *const Case) []const u8 {
+    return case.witness_id orelse case.case_id;
+}
 
 fn fixtureModulePath(comptime case_id: []const u8) []const u8 {
     return "test/direct_style_bridge/" ++ case_id ++ ".zig";
@@ -44,11 +50,11 @@ fn resolvedWitnessReason(witness_id: []const u8) ?[]const u8 {
     return switch (entry.bridge_status) {
         .supported => null,
         .blocked => entry.note,
-        .unknown => "Witness bridge admission is not resolved yet; treat this case as blocked until the admission matrix is updated.",
+        .unknown => "Internal witness proof admission is not resolved yet; treat this case as blocked until the admission matrix is updated.",
     };
 }
 
-/// Canonical bridge support registry for unchanged-body direct-style cases.
+/// Canonical internal proof-fixture registry for unchanged-body direct-style cases.
 pub const cases = [_]Case{
     .{
         .case_id = "atm_resume_transform",
@@ -147,11 +153,12 @@ pub const cases = [_]Case{
         .status = .supported,
     },
     .{
-        .case_id = "generator",
-        .label = "bridge.generator",
+        .case_id = "open_row_generator",
+        .witness_id = "generator",
+        .label = "bridge.open_row_generator",
         .source_kind = .example,
-        .source_module = "examples/generator.zig",
-        .fixture_module = fixtureModulePath("generator"),
+        .source_module = "examples/open_row_generator.zig",
+        .fixture_module = fixtureModulePath("open_row_generator"),
         .entry_symbol = "run",
         .scenario_id = .generator,
         .status = resolvedWitnessStatus("generator"),
@@ -218,28 +225,28 @@ pub const cases = [_]Case{
         .status = .supported,
     },
     .{
-        .case_id = "algebraic_abortive_validation",
-        .label = "bridge.algebraic_abortive_validation",
+        .case_id = "open_row_abortive_validation",
+        .label = "bridge.open_row_abortive_validation",
         .source_kind = .example,
-        .source_module = "examples/algebraic_abortive_validation.zig",
-        .fixture_module = fixtureModulePath("algebraic_abortive_validation"),
+        .source_module = "examples/open_row_abortive_validation.zig",
+        .fixture_module = fixtureModulePath("open_row_abortive_validation"),
         .entry_symbol = "run",
         .scenario_id = .algebraic_abortive_validation,
         .status = .supported,
     },
     .{
-        .case_id = "algebraic_artifact_search",
-        .label = "bridge.algebraic_artifact_search",
+        .case_id = "open_row_artifact_search",
+        .label = "bridge.open_row_artifact_search",
         .source_kind = .example,
-        .source_module = "examples/algebraic_artifact_search.zig",
-        .fixture_module = fixtureModulePath("algebraic_artifact_search"),
+        .source_module = "examples/open_row_artifact_search.zig",
+        .fixture_module = fixtureModulePath("open_row_artifact_search"),
         .entry_symbol = "run",
         .scenario_id = .algebraic_artifact_search,
         .status = .supported,
     },
 };
 
-/// Look up one bridge case by stable case id.
+/// Look up one internal proof case by stable case id.
 pub fn find(case_id: []const u8) ?*const Case {
     for (&cases) |*case| {
         if (std.mem.eql(u8, case.case_id, case_id)) return case;
@@ -247,7 +254,15 @@ pub fn find(case_id: []const u8) ?*const Case {
     return null;
 }
 
-/// Count blocked bridge cases in the current manifest.
+/// Look up one internal proof case by witness admission id.
+pub fn findWitnessCase(witness_id: []const u8) ?*const Case {
+    for (&cases) |*case| {
+        if (std.mem.eql(u8, caseWitnessId(case), witness_id)) return case;
+    }
+    return null;
+}
+
+/// Count blocked internal proof cases in the current manifest.
 pub fn blockedCount() usize {
     var count: usize = 0;
     for (cases) |case| {

@@ -8,12 +8,30 @@ pub const Status = enum {
     parity_green,
 };
 
+/// Lowering-kernel surface kind for one source-owned report row.
+pub const KernelSurface = enum {
+    effect,
+    example,
+    source_case,
+    user_defined_effect,
+    witness,
+};
+
+/// One registry-owned lowering-kernel case consumed by reports.
+pub const KernelCase = struct {
+    case_id: []const u8,
+    source_path: []const u8,
+    entry_symbol: []const u8 = "run",
+    surface: KernelSurface,
+};
+
 /// One source-lowering experimental case proven by direct source execution and the lowered path.
 pub const Case = struct {
     case_id: []const u8,
     label: []const u8,
     scenario_id: parity_scenarios.ScenarioId,
     fixture_path: []const u8,
+    entry_symbol: []const u8 = "run",
     forbidden_transcript: ?[]const u8,
     note: []const u8,
     status: Status = .canonical,
@@ -93,4 +111,23 @@ pub fn find(case_id: []const u8) ?*const Case {
         if (std.mem.eql(u8, case.case_id, case_id)) return case;
     }
     return null;
+}
+
+/// Convert one source-lowering case into its lowering-kernel report row.
+pub fn loweringKernelCase(case: Case) KernelCase {
+    return .{
+        .case_id = case.case_id,
+        .source_path = case.fixture_path,
+        .entry_symbol = case.entry_symbol,
+        .surface = .source_case,
+    };
+}
+
+test "source registry exposes lowering-kernel rows" {
+    const case = find("source.branch_resume").?;
+    const kernel = loweringKernelCase(case.*);
+    try std.testing.expectEqualStrings("source.branch_resume", kernel.case_id);
+    try std.testing.expectEqualStrings("test/source_lowering_corpus/fixtures/branch_resume.zig", kernel.source_path);
+    try std.testing.expectEqualStrings("run", kernel.entry_symbol);
+    try std.testing.expectEqual(KernelSurface.source_case, kernel.surface);
 }

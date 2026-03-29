@@ -12,18 +12,18 @@ fn usage() noreturn {
 
 fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, "{\n");
-    try list.appendSlice(allocator, "  \"obligations\": [\n");
-    for (obligations.obligations, 0..) |obligation, idx| {
+    try list.appendSlice(allocator, "  \"kernel_story_surfaces\": [\n");
+    for (obligations.surfaces, 0..) |surface, idx| {
         if (idx != 0) try list.appendSlice(allocator, ",\n");
         const line = try std.fmt.allocPrint(
             allocator,
-            "    {{\"obligation_id\":\"{s}\",\"surface\":\"{s}\",\"status\":\"{s}\",\"source\":\"{s}\",\"note\":\"{s}\"}}",
+            "    {{\"surface_id\":\"{s}\",\"proof_surface\":\"{s}\",\"proof_mode\":\"{s}\",\"source\":\"{s}\",\"note\":\"{s}\"}}",
             .{
-                obligation.obligation_id,
-                obligation.surface,
-                @tagName(obligation.status),
-                obligation.source,
-                obligation.note,
+                surface.surface_id,
+                surface.proof_surface,
+                @tagName(surface.proof_mode),
+                surface.source,
+                surface.note,
             },
         );
         defer allocator.free(line);
@@ -32,7 +32,7 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, "\n  ]\n}\n");
 }
 
-/// Render or check the runtime-obligation matrix artifact.
+/// Render or check the kernel-story surface artifact stored at the legacy runtime-obligation path.
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();

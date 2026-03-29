@@ -106,9 +106,9 @@ test "source-lowering rejection corpus stays fail-closed" {
     try std.testing.expect(renamed_helper.diagnostics[0].line > 1);
 
     var wrong_entry = try source_lowering.inspectSource(std.testing.allocator, .{
-        .case_id = "example.define_basic",
-        .source_path = "examples/define_basic.zig",
-        .entry_symbol = "runCounter",
+        .case_id = "example.open_row_transform_basic",
+        .source_path = "examples/open_row_transform_basic.zig",
+        .entry_symbol = "run_counter",
         .surface_kind = .example,
     });
     defer wrong_entry.deinit(std.testing.allocator);

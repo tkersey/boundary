@@ -12,14 +12,14 @@ fn usage() noreturn {
 
 fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, "{\n");
-    try list.appendSlice(allocator, "  \"supported_cases\": [\n");
+    try list.appendSlice(allocator, "  \"kernel_proof_cases\": [\n");
     for (runtime_routes.cases, 0..) |case, idx| {
         if (idx != 0) try list.appendSlice(allocator, ",\n");
-        const route_text = @tagName(case.route);
+        const proof_lane_text = @tagName(case.proof_lane);
         const line = try std.fmt.allocPrint(
             allocator,
-            "    {{\"case_id\":\"{s}\",\"route\":\"{s}\",\"source\":\"{s}\",\"note\":\"{s}\"}}",
-            .{ case.case_id, route_text, case.source, case.note },
+            "    {{\"proof_case_id\":\"{s}\",\"kernel_proof_lane\":\"{s}\",\"source\":\"{s}\",\"note\":\"{s}\"}}",
+            .{ case.case_id, proof_lane_text, case.source, case.note },
         );
         defer allocator.free(line);
         try list.appendSlice(allocator, line);
@@ -27,7 +27,7 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     try list.appendSlice(allocator, "\n  ]\n}\n");
 }
 
-/// Render or check the runtime route matrix artifact.
+/// Render or check the kernel proof-case artifact stored at the legacy runtime-route path.
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();

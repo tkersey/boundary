@@ -1,4 +1,6 @@
+const effect_ir = @import("effect_ir");
 const parity_scenarios = @import("parity_scenarios");
+const std = @import("std");
 
 /// Witness programs exposed through the internal structured-program front end.
 pub const WitnessProgram = enum {
@@ -36,6 +38,61 @@ pub const Program = union(enum) {
 pub const LoweredProgram = struct {
     label: []const u8,
     scenario: *const parity_scenarios.Scenario,
+};
+
+/// One open-row program payload lowered through the new Effect IR semantic center.
+pub const OpenRowProgram = struct {
+    label: []const u8,
+    function: effect_ir.Function,
+    call_edges: []const effect_ir.CallEdge = &.{},
+};
+
+/// One lowered open-row program that owns its single-function storage.
+pub const LoweredOpenRowProgram = struct {
+    functions: [1]effect_ir.Function,
+    call_edges: []const effect_ir.CallEdge = &.{},
+
+    /// Project the owned single-function storage back into the generic Effect IR view.
+    pub fn asEffectProgram(self: *const @This()) effect_ir.Program {
+        return .{
+            .functions = self.functions[0..],
+            .call_edges = self.call_edges,
+        };
+    }
+};
+
+/// Open-row frontend constructors for the new lowering path.
+pub const open_rows = struct {
+    /// Lower one state-plus-writer workflow through the open-row frontend.
+    pub fn stateWriterWorkflow() OpenRowProgram {
+        const row = effect_ir.mergeRows(.{
+            effect_ir.rowFromSpec(.{
+                .state = .{
+                    .get = effect_ir.Transform(void, i32),
+                    .set = effect_ir.Transform(i32, void),
+                },
+            }),
+            effect_ir.rowFromSpec(.{
+                .writer = .{
+                    .tell = effect_ir.Transform([]const u8, void),
+                },
+            }),
+        });
+        return .{
+            .label = "example.open_row_state_writer",
+            .function = .{
+                .symbol = .{
+                    .module_path = "examples/open_row_state_writer.zig",
+                    .symbol_name = "body",
+                },
+                .row = row,
+                .outputs = &.{
+                    .{ .label = "state", .OutputType = i32 },
+                    .{ .label = "writer", .OutputType = [][]const u8 },
+                },
+            },
+        };
+    }
 };
 
 /// Structured-program constructors for witness cases.
@@ -180,4 +237,207 @@ pub fn lower(program: Program) LoweredProgram {
             }),
         },
     };
+}
+
+fn cloneBytes(comptime bytes: []const u8) []const u8 {
+    return std.fmt.comptimePrint("{s}", .{bytes});
+}
+
+fn cloneSymbolRef(comptime symbol: effect_ir.SymbolRef) effect_ir.SymbolRef {
+    return .{
+        .module_path = cloneBytes(symbol.module_path),
+        .symbol_name = cloneBytes(symbol.symbol_name),
+    };
+}
+
+fn cloneOutputSpecs(comptime outputs: []const effect_ir.OutputSpec) []const effect_ir.OutputSpec {
+    return comptime blk: {
+        var buffer: [outputs.len]effect_ir.OutputSpec = undefined;
+        for (outputs, 0..) |output, index| {
+            buffer[index] = .{
+                .label = cloneBytes(output.label),
+                .OutputType = output.OutputType,
+            };
+        }
+        break :blk buffer[0..];
+    };
+}
+
+fn cloneOps(comptime ops: []const effect_ir.OpSpec) []const effect_ir.OpSpec {
+    return comptime blk: {
+        var buffer: [ops.len]effect_ir.OpSpec = undefined;
+        for (ops, 0..) |op, index| {
+            buffer[index] = .{
+                .requirement_label = cloneBytes(op.requirement_label),
+                .op_name = cloneBytes(op.op_name),
+                .mode = op.mode,
+                .PayloadType = op.PayloadType,
+                .ResumeType = op.ResumeType,
+            };
+        }
+        break :blk buffer[0..];
+    };
+}
+
+fn cloneRequirements(comptime requirements: []const effect_ir.Requirement) []const effect_ir.Requirement {
+    return comptime blk: {
+        var buffer: [requirements.len]effect_ir.Requirement = undefined;
+        for (requirements, 0..) |requirement, index| {
+            buffer[index] = .{
+                .label = cloneBytes(requirement.label),
+                .ops = cloneOps(requirement.ops),
+            };
+        }
+        break :blk buffer[0..];
+    };
+}
+
+fn cloneRow(comptime row: effect_ir.Row) effect_ir.Row {
+    return .{
+        .requirements = cloneRequirements(row.requirements),
+    };
+}
+
+fn cloneCallEdges(comptime call_edges: []const effect_ir.CallEdge) []const effect_ir.CallEdge {
+    return comptime blk: {
+        var buffer: [call_edges.len]effect_ir.CallEdge = undefined;
+        for (call_edges, 0..) |edge, index| {
+            buffer[index] = .{
+                .caller = cloneSymbolRef(edge.caller),
+                .callee = cloneSymbolRef(edge.callee),
+            };
+        }
+        break :blk buffer[0..];
+    };
+}
+
+fn cloneFunction(comptime function: effect_ir.Function) effect_ir.Function {
+    return .{
+        .symbol = cloneSymbolRef(function.symbol),
+        .row = cloneRow(function.row),
+        .outputs = cloneOutputSpecs(function.outputs),
+    };
+}
+
+fn validateOpenRowCallEdges(
+    comptime function: effect_ir.Function,
+    comptime call_edges: []const effect_ir.CallEdge,
+) effect_ir.NormalizeError!void {
+    for (call_edges) |edge| {
+        if (!edge.caller.eql(function.symbol) or !edge.callee.eql(function.symbol)) {
+            return error.UnsupportedHelperCallEdge;
+        }
+    }
+}
+
+/// Lower one open-row frontend payload into stable single-function storage.
+/// The returned Effect IR owns one function, so only self-call edges are admissible.
+pub fn lowerOpenRow(program: OpenRowProgram) effect_ir.NormalizeError!LoweredOpenRowProgram {
+    try validateOpenRowCallEdges(program.function, program.call_edges);
+    return .{
+        .functions = .{cloneFunction(program.function)},
+        .call_edges = cloneCallEdges(program.call_edges),
+    };
+}
+
+test "lowerOpenRow preserves the function payload" {
+    const row = effect_ir.rowFromSpec(.{
+        .state = .{
+            .get = effect_ir.Transform(void, i32),
+            .set = effect_ir.Transform(i32, void),
+        },
+    });
+    const function = effect_ir.Function{
+        .symbol = .{
+            .module_path = "examples/open_row.zig",
+            .symbol_name = "workflow",
+        },
+        .row = row,
+        .outputs = &.{
+            .{ .label = "state", .OutputType = i32 },
+        },
+    };
+    const program = try lowerOpenRow(.{
+        .label = "example.open_row.workflow",
+        .function = function,
+    });
+
+    try @import("std").testing.expectEqual(@as(usize, 1), program.functions.len);
+    try @import("std").testing.expectEqualStrings("workflow", program.functions[0].symbol.symbol_name);
+    const digest = try effect_ir.rowDigest(program.functions[0].row, program.functions[0].outputs);
+    try @import("std").testing.expectEqual(@as(usize, 1), digest.requirement_count);
+    try @import("std").testing.expectEqual(@as(usize, 2), digest.op_count);
+    try @import("std").testing.expectEqual(@as(usize, 1), digest.output_count);
+}
+
+test "open row state-writer workflow carries both requirements and outputs" {
+    const program = try lowerOpenRow(open_rows.stateWriterWorkflow());
+    try @import("std").testing.expectEqual(@as(usize, 1), program.functions.len);
+    try @import("std").testing.expectEqualStrings("body", program.functions[0].symbol.symbol_name);
+    const digest = try effect_ir.rowDigest(program.functions[0].row, program.functions[0].outputs);
+    try @import("std").testing.expectEqual(@as(usize, 2), digest.requirement_count);
+    try @import("std").testing.expectEqual(@as(usize, 3), digest.op_count);
+    try @import("std").testing.expectEqual(@as(usize, 2), digest.output_count);
+}
+
+test "lowerOpenRow keeps prior lowered functions stable across later calls" {
+    const alpha = try lowerOpenRow(.{
+        .label = "example.alpha",
+        .function = .{
+            .symbol = .{
+                .module_path = "examples/alpha.zig",
+                .symbol_name = "alpha",
+            },
+            .row = effect_ir.rowFromSpec(.{
+                .state = .{
+                    .get = effect_ir.Transform(void, i32),
+                },
+            }),
+        },
+    });
+    const beta = try lowerOpenRow(.{
+        .label = "example.beta",
+        .function = .{
+            .symbol = .{
+                .module_path = "examples/beta.zig",
+                .symbol_name = "beta",
+            },
+            .row = effect_ir.rowFromSpec(.{
+                .writer = .{
+                    .tell = effect_ir.Transform([]const u8, void),
+                },
+            }),
+        },
+    });
+
+    try @import("std").testing.expectEqualStrings("alpha", alpha.functions[0].symbol.symbol_name);
+    try @import("std").testing.expectEqualStrings("beta", beta.functions[0].symbol.symbol_name);
+    try @import("std").testing.expectEqualStrings("alpha", alpha.asEffectProgram().functions[0].symbol.symbol_name);
+}
+
+test "lowerOpenRow rejects helper call edges that cannot be materialized" {
+    try @import("std").testing.expectError(error.UnsupportedHelperCallEdge, lowerOpenRow(.{
+        .label = "example.helper_edge",
+        .function = .{
+            .symbol = .{
+                .module_path = "examples/open_row.zig",
+                .symbol_name = "workflow",
+            },
+            .row = effect_ir.rowFromSpec(.{
+                .state = .{
+                    .get = effect_ir.Transform(void, i32),
+                },
+            }),
+        },
+        .call_edges = &.{.{
+            .caller = .{
+                .module_path = "examples/open_row.zig",
+                .symbol_name = "workflow",
+            },
+            .callee = .{
+                .module_path = "examples/helper.zig",
+                .symbol_name = "helper",
+            },
+        }},
+    }));
 }

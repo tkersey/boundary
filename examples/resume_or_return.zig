@@ -41,7 +41,7 @@ const resume_policy = struct {
 const ReturnNowProgram = shift.Program(.{
     .optional = shift.Decl.optional(i32, return_now_policy),
 }, struct {
-    /// Trigger the front-door choice point and prove the return-now branch skips the continuation.
+    /// Trigger the program choice point and prove the return-now branch skips the continuation.
     pub fn body(eff: anytype) ![]const u8 {
         return try eff.optional.request(struct {
             /// Apply this public continuation hook.
@@ -55,7 +55,7 @@ const ReturnNowProgram = shift.Program(.{
 const ResumeProgram = shift.Program(.{
     .optional = shift.Decl.optional(i32, resume_policy),
 }, struct {
-    /// Trigger the front-door choice point and complete the resumed continuation.
+    /// Trigger the program choice point and complete the resumed continuation.
     pub fn body(eff: anytype) ![]const u8 {
         return try eff.optional.request(struct {
             /// Apply this public continuation hook.
@@ -68,7 +68,7 @@ const ResumeProgram = shift.Program(.{
     }
 });
 
-/// Write the optional-resumption transcript through the root front door.
+/// Write the optional-resumption transcript through the program kernel.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();

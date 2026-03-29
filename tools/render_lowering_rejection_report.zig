@@ -201,10 +201,10 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
         },
         .source_text = renamed_helper_source,
     }, &first);
-    try appendFileRow(list, allocator, "example.define_basic.wrong_entry", .{
-        .case_id = "example.define_basic",
-        .source_path = "examples/define_basic.zig",
-        .entry_symbol = "runCounter",
+    try appendFileRow(list, allocator, "example.open_row_transform_basic.wrong_entry", .{
+        .case_id = "example.open_row_transform_basic",
+        .source_path = "examples/open_row_transform_basic.zig",
+        .entry_symbol = "run_counter",
         .surface_kind = .example,
     }, &first);
     try list.appendSlice(allocator, "\n  ]\n}\n");
