@@ -234,15 +234,24 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const internal_kernel_mod = b.createModule(.{
+        .root_source_file = b.path("src/internal/kernel.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    internal_kernel_mod.addImport("parity_scenarios", parity_scenarios_mod);
     const interpreter_mod = b.createModule(.{
         .root_source_file = b.path("src/interpreter.zig"),
         .target = target,
         .optimize = optimize,
     });
     interpreter_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    interpreter_mod.addImport("internal_kernel", internal_kernel_mod);
     shift_mod.addImport("effect_ir", effect_ir_mod);
+    shift_mod.addImport("internal_kernel", internal_kernel_mod);
     shift_mod.addImport("interpreter", interpreter_mod);
     lowered_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    lowered_machine_mod.addImport("internal_kernel", internal_kernel_mod);
     lowered_machine_mod.addImport("interpreter", interpreter_mod);
     const authoring_lowerer_options = b.addOptions();
     const lowerer_opts_marker = true;
@@ -431,6 +440,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    parity_kernel_mod.addImport("internal_kernel", internal_kernel_mod);
     parity_kernel_mod.addImport("interpreter", interpreter_mod);
     parity_kernel_mod.addImport("lowered_machine", lowered_machine_mod);
     parity_kernel_mod.addImport("parity_scenarios", parity_scenarios_mod);

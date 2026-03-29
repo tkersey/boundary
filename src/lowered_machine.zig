@@ -1,4 +1,4 @@
-const interpreter = @import("interpreter");
+const kernel = @import("internal_kernel");
 const portable_core = @import("portable_core");
 const std = @import("std");
 
@@ -103,37 +103,37 @@ pub fn endExecution(runtime: *Runtime) void {
 }
 
 /// Stable scenario ids re-exported from the canonical scenario registry.
-pub const ScenarioId = interpreter.ScenarioId;
+pub const ScenarioId = kernel.ScenarioId;
 /// Stable prompt ids re-exported from the canonical scenario registry.
-pub const PromptId = interpreter.PromptId;
+pub const PromptId = kernel.PromptId;
 /// Pending continuation kinds re-exported from the canonical scenario registry.
-pub const PendingKind = interpreter.PendingKind;
+pub const PendingKind = kernel.PendingKind;
 /// Typed proof values re-exported from the canonical scenario registry.
-pub const Value = interpreter.Value;
+pub const Value = kernel.Value;
 /// Narrow typed program values used by the explicit canonical program path.
-pub const ProgramValue = interpreter.ProgramValue;
+pub const ProgramValue = kernel.ProgramValue;
 /// Transcript events re-exported from the canonical scenario registry.
-pub const Event = interpreter.Event;
+pub const Event = kernel.Event;
 /// Checkpoint tags re-exported from the canonical scenario registry.
-pub const CheckpointTag = interpreter.CheckpointTag;
+pub const CheckpointTag = kernel.CheckpointTag;
 /// Pending frames re-exported from the canonical scenario registry.
-pub const PendingFrame = interpreter.PendingFrame;
+pub const PendingFrame = kernel.PendingFrame;
 /// Trace checkpoints re-exported from the canonical scenario registry.
-pub const TraceCheckpoint = interpreter.TraceCheckpoint;
+pub const TraceCheckpoint = kernel.TraceCheckpoint;
 /// Lowered proof steps re-exported from the canonical scenario registry.
-pub const Step = interpreter.Step;
+pub const Step = kernel.Step;
 /// Full typed execution state for one lowered-machine execution.
-pub const MachineState = interpreter.MachineState;
+pub const MachineState = kernel.State;
 /// Pure interpreter state alias for new callers.
-pub const InterpreterState = interpreter.State;
+pub const InterpreterState = kernel.State;
 /// Execute one sequence of lowered machine steps to completion.
-pub const runSteps = interpreter.runSteps;
+pub const runSteps = kernel.runSteps;
 /// Return the captured checkpoints for one machine execution.
-pub const checkpoints = interpreter.checkpoints;
+pub const checkpoints = kernel.checkpoints;
 /// Return the transcript-projection events for one machine execution.
-pub const events = interpreter.events;
+pub const events = kernel.events;
 /// Render the exact-output transcript for one machine execution.
-pub const writeTranscript = interpreter.writeTranscript;
+pub const writeTranscript = kernel.writeTranscript;
 
 /// Execute one explicit typed-value pure program to completion.
 pub fn runExplicitPure(
