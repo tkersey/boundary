@@ -1080,8 +1080,12 @@ pub fn build(b: *std.Build) void {
     });
     const route_matrix_check_cmd = b.addRunArtifact(route_matrix_exe);
     route_matrix_check_cmd.addArg("check");
+    const route_matrix_check_step = b.step("runtime-route-matrix-check", "Check the runtime route matrix artifact.");
+    route_matrix_check_step.dependOn(&route_matrix_check_cmd.step);
     const route_matrix_write_cmd = b.addRunArtifact(route_matrix_exe);
     route_matrix_write_cmd.addArg("write");
+    const route_matrix_write_step = b.step("runtime-route-matrix-write", "Refresh the runtime route matrix artifact.");
+    route_matrix_write_step.dependOn(&route_matrix_write_cmd.step);
 
     const obligation_matrix_registry_mod = b.createModule(.{
         .root_source_file = b.path("src/runtime_obligation_registry.zig"),
@@ -1100,8 +1104,12 @@ pub fn build(b: *std.Build) void {
     });
     const obligation_matrix_check_cmd = b.addRunArtifact(obligation_matrix_exe);
     obligation_matrix_check_cmd.addArg("check");
+    const obligation_matrix_check_step = b.step("runtime-obligation-matrix-check", "Check the runtime obligation matrix artifact.");
+    obligation_matrix_check_step.dependOn(&obligation_matrix_check_cmd.step);
     const obligation_matrix_write_cmd = b.addRunArtifact(obligation_matrix_exe);
     obligation_matrix_write_cmd.addArg("write");
+    const obligation_matrix_write_step = b.step("runtime-obligation-matrix-write", "Refresh the runtime obligation matrix artifact.");
+    obligation_matrix_write_step.dependOn(&obligation_matrix_write_cmd.step);
 
     const error_surface_registry_mod = b.createModule(.{
         .root_source_file = b.path("src/runtime_error_surface_registry.zig"),

@@ -319,8 +319,21 @@ fn cloneFunction(comptime function: effect_ir.Function) effect_ir.Function {
     };
 }
 
+fn validateOpenRowCallEdges(
+    comptime function: effect_ir.Function,
+    comptime call_edges: []const effect_ir.CallEdge,
+) effect_ir.NormalizeError!void {
+    for (call_edges) |edge| {
+        if (!edge.caller.eql(function.symbol) or !edge.callee.eql(function.symbol)) {
+            return error.UnsupportedHelperCallEdge;
+        }
+    }
+}
+
 /// Lower one open-row frontend payload into stable single-function storage.
-pub fn lowerOpenRow(program: OpenRowProgram) LoweredOpenRowProgram {
+/// The returned Effect IR owns one function, so only self-call edges are admissible.
+pub fn lowerOpenRow(program: OpenRowProgram) effect_ir.NormalizeError!LoweredOpenRowProgram {
+    try validateOpenRowCallEdges(program.function, program.call_edges);
     return .{
         .functions = .{cloneFunction(program.function)},
         .call_edges = cloneCallEdges(program.call_edges),
@@ -344,7 +357,7 @@ test "lowerOpenRow preserves the function payload" {
             .{ .label = "state", .OutputType = i32 },
         },
     };
-    const program = lowerOpenRow(.{
+    const program = try lowerOpenRow(.{
         .label = "example.open_row.workflow",
         .function = function,
     });
@@ -358,7 +371,7 @@ test "lowerOpenRow preserves the function payload" {
 }
 
 test "open row state-writer workflow carries both requirements and outputs" {
-    const program = lowerOpenRow(open_rows.stateWriterWorkflow());
+    const program = try lowerOpenRow(open_rows.stateWriterWorkflow());
     try @import("std").testing.expectEqual(@as(usize, 1), program.functions.len);
     try @import("std").testing.expectEqualStrings("body", program.functions[0].symbol.symbol_name);
     const digest = try effect_ir.rowDigest(program.functions[0].row, program.functions[0].outputs);
@@ -368,7 +381,7 @@ test "open row state-writer workflow carries both requirements and outputs" {
 }
 
 test "lowerOpenRow keeps prior lowered functions stable across later calls" {
-    const alpha = lowerOpenRow(.{
+    const alpha = try lowerOpenRow(.{
         .label = "example.alpha",
         .function = .{
             .symbol = .{
@@ -382,7 +395,7 @@ test "lowerOpenRow keeps prior lowered functions stable across later calls" {
             }),
         },
     });
-    const beta = lowerOpenRow(.{
+    const beta = try lowerOpenRow(.{
         .label = "example.beta",
         .function = .{
             .symbol = .{
@@ -400,4 +413,31 @@ test "lowerOpenRow keeps prior lowered functions stable across later calls" {
     try @import("std").testing.expectEqualStrings("alpha", alpha.functions[0].symbol.symbol_name);
     try @import("std").testing.expectEqualStrings("beta", beta.functions[0].symbol.symbol_name);
     try @import("std").testing.expectEqualStrings("alpha", alpha.asEffectProgram().functions[0].symbol.symbol_name);
+}
+
+test "lowerOpenRow rejects helper call edges that cannot be materialized" {
+    try @import("std").testing.expectError(error.UnsupportedHelperCallEdge, lowerOpenRow(.{
+        .label = "example.helper_edge",
+        .function = .{
+            .symbol = .{
+                .module_path = "examples/open_row.zig",
+                .symbol_name = "workflow",
+            },
+            .row = effect_ir.rowFromSpec(.{
+                .state = .{
+                    .get = effect_ir.Transform(void, i32),
+                },
+            }),
+        },
+        .call_edges = &.{.{
+            .caller = .{
+                .module_path = "examples/open_row.zig",
+                .symbol_name = "workflow",
+            },
+            .callee = .{
+                .module_path = "examples/helper.zig",
+                .symbol_name = "helper",
+            },
+        }},
+    }));
 }

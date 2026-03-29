@@ -74,8 +74,8 @@ test "open-row lowering deep-copies caller-owned slices" {
         .requirement_label = "state",
         .op_name = "get",
         .output_label = "state",
-        .callee_module_path = "helper_alpha.zig",
-        .callee_symbol_name = "helperAlpha",
+        .callee_module_path = "examples/alpha.zig",
+        .callee_symbol_name = "alpha",
     }));
     const beta = try source_lowering.lowerOpenRowProgram(dynamicOpenRowProgram(.{
         .module_path = "examples/beta.zig",
@@ -83,8 +83,8 @@ test "open-row lowering deep-copies caller-owned slices" {
         .requirement_label = "writer",
         .op_name = "tell",
         .output_label = "writer",
-        .callee_module_path = "helper_beta.zig",
-        .callee_symbol_name = "helperBeta",
+        .callee_module_path = "examples/beta.zig",
+        .callee_symbol_name = "beta",
     }));
 
     try std.testing.expectEqualStrings("examples/alpha.zig", alpha.program.functions[0].symbol.module_path);
@@ -92,14 +92,26 @@ test "open-row lowering deep-copies caller-owned slices" {
     try std.testing.expectEqualStrings("state", alpha.program.functions[0].row.requirements[0].label);
     try std.testing.expectEqualStrings("get", alpha.program.functions[0].row.requirements[0].ops[0].op_name);
     try std.testing.expectEqualStrings("state", alpha.program.functions[0].outputs[0].label);
-    try std.testing.expectEqualStrings("helperAlpha", alpha.program.call_edges[0].callee.symbol_name);
+    try std.testing.expectEqualStrings("alpha", alpha.program.call_edges[0].callee.symbol_name);
 
     try std.testing.expectEqualStrings("examples/beta.zig", beta.program.functions[0].symbol.module_path);
     try std.testing.expectEqualStrings("beta", beta.program.functions[0].symbol.symbol_name);
     try std.testing.expectEqualStrings("writer", beta.program.functions[0].row.requirements[0].label);
     try std.testing.expectEqualStrings("tell", beta.program.functions[0].row.requirements[0].ops[0].op_name);
     try std.testing.expectEqualStrings("writer", beta.program.functions[0].outputs[0].label);
-    try std.testing.expectEqualStrings("helperBeta", beta.program.call_edges[0].callee.symbol_name);
+    try std.testing.expectEqualStrings("beta", beta.program.call_edges[0].callee.symbol_name);
+}
+
+test "open-row lowering rejects helper call edges that would leave dangling callees" {
+    try std.testing.expectError(error.UnsupportedHelperCallEdge, source_lowering.lowerOpenRowProgram(dynamicOpenRowProgram(.{
+        .module_path = "examples/alpha.zig",
+        .symbol_name = "alpha",
+        .requirement_label = "state",
+        .op_name = "get",
+        .output_label = "state",
+        .callee_module_path = "helper_alpha.zig",
+        .callee_symbol_name = "helperAlpha",
+    })));
 }
 
 test "open-row state-writer example stays transcript-backed" {

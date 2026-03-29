@@ -271,6 +271,7 @@ pub const NormalizeError = error{
     OutputWithoutRequirement,
     DuplicateSymbol,
     UnknownSymbol,
+    UnsupportedHelperCallEdge,
     OutOfMemory,
 };
 
