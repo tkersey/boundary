@@ -147,6 +147,89 @@ fn callResumeOrReturn(comptime Resume: type, comptime PromptType: type, comptime
     return Handler.resumeOrReturn() catch |err| return @errorCast(err);
 }
 
+fn assertHandlerProtocolWithContext(
+    comptime Resume: type,
+    comptime PromptType: type,
+    comptime ContextPtrType: type,
+    comptime Handler: type,
+) void {
+    switch (PromptType.mode) {
+        .resume_or_return => {
+            if (!hasDeclSafe(Handler, "resumeOrReturn")) @compileError(@typeName(Handler) ++ " must declare resumeOrReturn");
+            if (!fnParamsMatch(@TypeOf(Handler.resumeOrReturn), &.{ContextPtrType}) or !fnReturnMatches(@TypeOf(Handler.resumeOrReturn), ResumeOrReturnType(Resume, PromptType))) {
+                @compileError(@typeName(Handler) ++ ".resumeOrReturn must have type fn (Ctx) ResumeOrReturn or fn (Ctx) ResetError(ErrorSet)!ResumeOrReturn");
+            }
+            if (!hasDeclSafe(Handler, "afterResume")) @compileError(@typeName(Handler) ++ " must declare afterResume");
+            if (!fnParamsMatch(@TypeOf(Handler.afterResume), &.{ ContextPtrType, PromptType.InAnswer }) or !fnReturnMatches(@TypeOf(Handler.afterResume), PromptType.OutAnswer)) {
+                @compileError(@typeName(Handler) ++ ".afterResume must have type fn (Ctx, InAnswer) OutAnswer or fn (Ctx, InAnswer) ResetError(ErrorSet)!OutAnswer");
+            }
+        },
+        .resume_then_transform => {
+            if (!hasDeclSafe(Handler, "resumeValue")) @compileError(@typeName(Handler) ++ " must declare resumeValue");
+            if (!fnParamsMatch(@TypeOf(Handler.resumeValue), &.{ContextPtrType}) or !fnReturnMatches(@TypeOf(Handler.resumeValue), Resume)) {
+                @compileError(@typeName(Handler) ++ ".resumeValue must have type fn (Ctx) Resume or fn (Ctx) ResetError(ErrorSet)!Resume");
+            }
+            if (!hasDeclSafe(Handler, "afterResume")) @compileError(@typeName(Handler) ++ " must declare afterResume");
+            if (!fnParamsMatch(@TypeOf(Handler.afterResume), &.{ ContextPtrType, PromptType.InAnswer }) or !fnReturnMatches(@TypeOf(Handler.afterResume), PromptType.OutAnswer)) {
+                @compileError(@typeName(Handler) ++ ".afterResume must have type fn (Ctx, InAnswer) OutAnswer or fn (Ctx, InAnswer) ResetError(ErrorSet)!OutAnswer");
+            }
+        },
+        .direct_return => {
+            if (!hasDeclSafe(Handler, "directReturn")) @compileError(@typeName(Handler) ++ " must declare directReturn");
+            if (!fnParamsMatch(@TypeOf(Handler.directReturn), &.{ContextPtrType}) or !fnReturnMatches(@TypeOf(Handler.directReturn), PromptType.OutAnswer)) {
+                @compileError(@typeName(Handler) ++ ".directReturn must have type fn (Ctx) OutAnswer or fn (Ctx) ResetError(ErrorSet)!OutAnswer");
+            }
+        },
+    }
+}
+
+fn callResumeValueWithContext(
+    comptime Resume: type,
+    comptime PromptType: type,
+    comptime ContextPtrType: type,
+    comptime Handler: type,
+    ctx: ContextPtrType,
+) lowered_machine.ControlError(PromptType.ErrorSet)!Resume {
+    const ResumeFn = @TypeOf(Handler.resumeValue);
+    if (ResumeFn == fn (ContextPtrType) Resume) return Handler.resumeValue(ctx);
+    return Handler.resumeValue(ctx) catch |err| return @errorCast(err);
+}
+
+fn callAfterResumeWithContext(
+    comptime PromptType: type,
+    comptime ContextPtrType: type,
+    comptime Handler: type,
+    ctx: ContextPtrType,
+    value: PromptType.InAnswer,
+) lowered_machine.ControlError(PromptType.ErrorSet)!PromptType.OutAnswer {
+    const AfterFn = @TypeOf(Handler.afterResume);
+    if (AfterFn == fn (ContextPtrType, PromptType.InAnswer) PromptType.OutAnswer) return Handler.afterResume(ctx, value);
+    return Handler.afterResume(ctx, value) catch |err| return @errorCast(err);
+}
+
+fn callDirectReturnWithContext(
+    comptime PromptType: type,
+    comptime ContextPtrType: type,
+    comptime Handler: type,
+    ctx: ContextPtrType,
+) lowered_machine.ControlError(PromptType.ErrorSet)!PromptType.OutAnswer {
+    const DirectFn = @TypeOf(Handler.directReturn);
+    if (DirectFn == fn (ContextPtrType) PromptType.OutAnswer) return Handler.directReturn(ctx);
+    return Handler.directReturn(ctx) catch |err| return @errorCast(err);
+}
+
+fn callResumeOrReturnWithContext(
+    comptime Resume: type,
+    comptime PromptType: type,
+    comptime ContextPtrType: type,
+    comptime Handler: type,
+    ctx: ContextPtrType,
+) lowered_machine.ControlError(PromptType.ErrorSet)!ResumeOrReturnType(Resume, PromptType) {
+    const ResumeOrReturnFn = @TypeOf(Handler.resumeOrReturn);
+    if (ResumeOrReturnFn == fn (ContextPtrType) ResumeOrReturnType(Resume, PromptType)) return Handler.resumeOrReturn(ctx);
+    return Handler.resumeOrReturn(ctx) catch |err| return @errorCast(err);
+}
+
 fn assertContinuationType(
     comptime Input: type,
     comptime PromptType: type,
@@ -220,10 +303,12 @@ fn DecisionValue(comptime PromptType: type) type {
 pub fn Program(comptime PromptType: type) type {
     return union(enum) {
         abort: struct {
-            directReturnFn: *const fn () lowered_machine.ControlError(PromptType.ErrorSet)!PromptType.OutAnswer,
+            handler_ctx: ?*anyopaque,
+            directReturnFn: *const fn (?*anyopaque) lowered_machine.ControlError(PromptType.ErrorSet)!PromptType.OutAnswer,
         },
         choice: struct {
-            decisionFn: *const fn () lowered_machine.ControlError(PromptType.ErrorSet)!DecisionValue(PromptType),
+            handler_ctx: ?*anyopaque,
+            decisionFn: *const fn (?*anyopaque) lowered_machine.ControlError(PromptType.ErrorSet)!DecisionValue(PromptType),
             continue_ctx: ?*anyopaque,
             continueFn: *const fn (?*anyopaque, EncodedValue) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
             afterResumeFn: AfterResumeFn(PromptType),
@@ -234,7 +319,8 @@ pub fn Program(comptime PromptType: type) type {
         },
         pure: PromptType.InAnswer,
         transform: struct {
-            resumeValueFn: *const fn () lowered_machine.ControlError(PromptType.ErrorSet)!EncodedValue,
+            handler_ctx: ?*anyopaque,
+            resumeValueFn: *const fn (?*anyopaque) lowered_machine.ControlError(PromptType.ErrorSet)!EncodedValue,
             continueFn: *const fn (EncodedValue) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
             afterResumeFn: AfterResumeFn(PromptType),
         },
@@ -330,8 +416,9 @@ pub fn transformProgram(
     comptime assertContinuationType(Resume, PromptType, Continuation);
     return .{
         .transform = .{
+            .handler_ctx = null,
             .resumeValueFn = struct {
-                fn invoke() lowered_machine.ControlError(PromptType.ErrorSet)!EncodedValue {
+                fn invoke(_: ?*anyopaque) lowered_machine.ControlError(PromptType.ErrorSet)!EncodedValue {
                     return try encodeValue(Resume, try callResumeValue(Resume, PromptType, Handler));
                 }
             }.invoke,
@@ -341,6 +428,42 @@ pub fn transformProgram(
                 }
             }.invoke,
             .afterResumeFn = afterResumeThunk(PromptType, Handler),
+        },
+    };
+}
+
+/// Build one explicit transform program whose handler receives one explicit runtime context pointer.
+pub fn transformProgramWithContext(
+    comptime PromptType: type,
+    comptime Resume: type,
+    handler_ctx: anytype,
+    comptime Handler: type,
+    comptime Continuation: anytype,
+) Program(PromptType) {
+    const ContextPtrType = @TypeOf(handler_ctx);
+    comptime assertPromptTypeMode(PromptType, .resume_then_transform, "transformProgramWithContext");
+    comptime assertHandlerProtocolWithContext(Resume, PromptType, ContextPtrType, Handler);
+    comptime assertContinuationType(Resume, PromptType, Continuation);
+    return .{
+        .transform = .{
+            .handler_ctx = @ptrCast(handler_ctx),
+            .resumeValueFn = struct {
+                fn invoke(raw_ctx: ?*anyopaque) lowered_machine.ControlError(PromptType.ErrorSet)!EncodedValue {
+                    const typed_ctx: ContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
+                    return try encodeValue(Resume, try callResumeValueWithContext(Resume, PromptType, ContextPtrType, Handler, typed_ctx));
+                }
+            }.invoke,
+            .continueFn = struct {
+                fn invoke(value: EncodedValue) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
+                    return try callContinuation(Resume, PromptType, Continuation, decodeValue(Resume, value));
+                }
+            }.invoke,
+            .afterResumeFn = struct {
+                fn invoke(raw_ctx: ?*anyopaque, value: PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer {
+                    const typed_ctx: ContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
+                    return try callAfterResumeWithContext(PromptType, ContextPtrType, Handler, typed_ctx, value);
+                }
+            }.invoke,
         },
     };
 }
@@ -365,8 +488,9 @@ pub fn choiceProgramWithContext(
     }
     return .{
         .choice = .{
+            .handler_ctx = null,
             .decisionFn = struct {
-                fn invoke() lowered_machine.ControlError(PromptType.ErrorSet)!DecisionValue(PromptType) {
+                fn invoke(_: ?*anyopaque) lowered_machine.ControlError(PromptType.ErrorSet)!DecisionValue(PromptType) {
                     const decision = try callResumeOrReturn(Resume, PromptType, Handler);
                     return switch (decision) {
                         .resume_with => |value| .{ .resume_with = try encodeValue(Resume, value) },
@@ -390,6 +514,101 @@ pub fn choiceProgramWithContext(
     };
 }
 
+/// Build one explicit choice program whose handler receives one explicit runtime context pointer.
+pub fn choiceProgramWithHandlerContext(
+    comptime PromptType: type,
+    comptime Resume: type,
+    handler_ctx: anytype,
+    comptime Handler: type,
+    comptime Continuation: anytype,
+) Program(PromptType) {
+    const ContextPtrType = @TypeOf(handler_ctx);
+    comptime assertPromptTypeMode(PromptType, .resume_or_return, "choiceProgramWithHandlerContext");
+    comptime assertHandlerProtocolWithContext(Resume, PromptType, ContextPtrType, Handler);
+    comptime assertContinuationType(Resume, PromptType, Continuation);
+    return .{
+        .choice = .{
+            .handler_ctx = @ptrCast(handler_ctx),
+            .decisionFn = struct {
+                fn invoke(raw_ctx: ?*anyopaque) lowered_machine.ControlError(PromptType.ErrorSet)!DecisionValue(PromptType) {
+                    const typed_ctx: ContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
+                    const decision = try callResumeOrReturnWithContext(Resume, PromptType, ContextPtrType, Handler, typed_ctx);
+                    return switch (decision) {
+                        .resume_with => |value| .{ .resume_with = try encodeValue(Resume, value) },
+                        .return_now => |answer| .{ .return_now = answer },
+                    };
+                }
+            }.invoke,
+            .continue_ctx = null,
+            .continueFn = struct {
+                fn invoke(_: ?*anyopaque, value: EncodedValue) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
+                    return try callContinuation(Resume, PromptType, Continuation, decodeValue(Resume, value));
+                }
+            }.invoke,
+            .afterResumeFn = struct {
+                fn invoke(raw_ctx: ?*anyopaque, value: PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer {
+                    const typed_ctx: ContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
+                    return try callAfterResumeWithContext(PromptType, ContextPtrType, Handler, typed_ctx, value);
+                }
+            }.invoke,
+        },
+    };
+}
+
+/// Build one explicit choice program whose handler and continuation each receive explicit runtime context pointers.
+pub fn choiceProgramWithContexts(
+    comptime PromptType: type,
+    comptime Resume: type,
+    handler_ctx: anytype,
+    comptime Handler: type,
+    continuation_ctx: anytype,
+    comptime Continuation: type,
+) Program(PromptType) {
+    const HandlerContextPtrType = @TypeOf(handler_ctx);
+    const ContinuationContextPtrType = @TypeOf(continuation_ctx);
+    const ContextFn = @TypeOf(Continuation.apply);
+    comptime assertPromptTypeMode(PromptType, .resume_or_return, "choiceProgramWithContexts");
+    comptime assertHandlerProtocolWithContext(Resume, PromptType, HandlerContextPtrType, Handler);
+    comptime {
+        if (!@hasDecl(Continuation, "apply")) @compileError("contextual lexical choice continuation must declare apply(ctx, value)");
+        if (!fnParamsMatch(ContextFn, &.{ ContinuationContextPtrType, Resume }) or !fnReturnMatches(ContextFn, PromptType.InAnswer)) {
+            @compileError("contextual lexical choice continuation apply must have type fn (Ctx, Resume) InAnswer or fn (Ctx, Resume) ResetError(ErrorSet)!InAnswer");
+        }
+    }
+    return .{
+        .choice = .{
+            .handler_ctx = @ptrCast(handler_ctx),
+            .decisionFn = struct {
+                fn invoke(raw_ctx: ?*anyopaque) lowered_machine.ControlError(PromptType.ErrorSet)!DecisionValue(PromptType) {
+                    const typed_ctx: HandlerContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
+                    const decision = try callResumeOrReturnWithContext(Resume, PromptType, HandlerContextPtrType, Handler, typed_ctx);
+                    return switch (decision) {
+                        .resume_with => |value| .{ .resume_with = try encodeValue(Resume, value) },
+                        .return_now => |answer| .{ .return_now = answer },
+                    };
+                }
+            }.invoke,
+            .continue_ctx = @ptrCast(continuation_ctx),
+            .continueFn = struct {
+                fn invoke(raw_ctx: ?*anyopaque, value: EncodedValue) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
+                    const typed_ctx: ContinuationContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
+                    const ReturnType = @TypeOf(Continuation.apply(typed_ctx, decodeValue(Resume, value)));
+                    if (@typeInfo(ReturnType) == .error_union) {
+                        return Continuation.apply(typed_ctx, decodeValue(Resume, value)) catch |err| return @errorCast(err);
+                    }
+                    return Continuation.apply(typed_ctx, decodeValue(Resume, value));
+                }
+            }.invoke,
+            .afterResumeFn = struct {
+                fn invoke(raw_ctx: ?*anyopaque, value: PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer {
+                    const typed_ctx: HandlerContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
+                    return try callAfterResumeWithContext(PromptType, HandlerContextPtrType, Handler, typed_ctx, value);
+                }
+            }.invoke,
+        },
+    };
+}
+
 /// Build one explicit choice program with a single zero-or-one-resume operation.
 pub fn choiceProgram(
     comptime PromptType: type,
@@ -402,8 +621,9 @@ pub fn choiceProgram(
     comptime assertContinuationType(Resume, PromptType, Continuation);
     return .{
         .choice = .{
+            .handler_ctx = null,
             .decisionFn = struct {
-                fn invoke() lowered_machine.ControlError(PromptType.ErrorSet)!DecisionValue(PromptType) {
+                fn invoke(_: ?*anyopaque) lowered_machine.ControlError(PromptType.ErrorSet)!DecisionValue(PromptType) {
                     const decision = try callResumeOrReturn(Resume, PromptType, Handler);
                     return switch (decision) {
                         .resume_with => |value| .{ .resume_with = try encodeValue(Resume, value) },
@@ -431,9 +651,32 @@ pub fn abortProgram(
     comptime assertHandlerProtocol(void, PromptType, Handler);
     return .{
         .abort = .{
+            .handler_ctx = null,
             .directReturnFn = struct {
-                fn invoke() lowered_machine.ControlError(PromptType.ErrorSet)!PromptType.OutAnswer {
+                fn invoke(_: ?*anyopaque) lowered_machine.ControlError(PromptType.ErrorSet)!PromptType.OutAnswer {
                     return try callDirectReturn(PromptType, Handler);
+                }
+            }.invoke,
+        },
+    };
+}
+
+/// Build one explicit abortive program whose handler receives one explicit runtime context pointer.
+pub fn abortProgramWithContext(
+    comptime PromptType: type,
+    handler_ctx: anytype,
+    comptime Handler: type,
+) Program(PromptType) {
+    const ContextPtrType = @TypeOf(handler_ctx);
+    comptime assertPromptTypeMode(PromptType, .direct_return, "abortProgramWithContext");
+    comptime assertHandlerProtocolWithContext(void, PromptType, ContextPtrType, Handler);
+    return .{
+        .abort = .{
+            .handler_ctx = @ptrCast(handler_ctx),
+            .directReturnFn = struct {
+                fn invoke(raw_ctx: ?*anyopaque) lowered_machine.ControlError(PromptType.ErrorSet)!PromptType.OutAnswer {
+                    const typed_ctx: ContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
+                    return try callDirectReturnWithContext(PromptType, ContextPtrType, Handler, typed_ctx);
                 }
             }.invoke,
         },
@@ -464,16 +707,24 @@ fn normalizeBodyFn(
 }
 
 fn AfterResumeFn(comptime PromptType: type) type {
-    return *const fn (PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer;
+    return *const fn (?*anyopaque, PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer;
 }
 
 fn ResumeRecord(comptime PromptType: type) type {
     return union(enum) {
         resumed: struct {
             storage: []u8,
+            after_resume_ctx: ?*anyopaque,
             afterResumeFn: AfterResumeFn(PromptType),
         },
         terminal: PromptType.OutAnswer,
+    };
+}
+
+fn AppliedAfterRecord(comptime PromptType: type) type {
+    return struct {
+        ctx: ?*anyopaque,
+        afterResumeFn: AfterResumeFn(PromptType),
     };
 }
 
@@ -482,7 +733,7 @@ fn Frame(comptime PromptType: type) type {
         base: FrameBase,
         allocator: std.mem.Allocator,
         records: std.ArrayList(ResumeRecord(PromptType)) = .empty,
-        applied_after: std.ArrayList(AfterResumeFn(PromptType)) = .empty,
+        applied_after: std.ArrayList(AppliedAfterRecord(PromptType)) = .empty,
         cursor: usize = 0,
         terminal: ?PromptType.OutAnswer = null,
 
@@ -550,7 +801,7 @@ fn decodeResume(comptime Resume: type, storage: []const u8) Resume {
 
 fn afterResumeThunk(comptime PromptType: type, comptime Handler: type) AfterResumeFn(PromptType) {
     return struct {
-        fn invoke(value: PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer {
+        fn invoke(_: ?*anyopaque, value: PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer {
             return try callAfterResume(PromptType, Handler, value);
         }
     }.invoke;
@@ -571,13 +822,13 @@ fn finalizeAnswer(
         var index = frame.applied_after.items.len;
         while (index != 0) {
             index -= 1;
-            current = try frame.applied_after.items[index](current);
+            current = try frame.applied_after.items[index].afterResumeFn(frame.applied_after.items[index].ctx, current);
         }
         return current;
     }
 
     if (frame.applied_after.items.len != 1) return error.ProgramContractViolation;
-    return try frame.applied_after.items[0](value);
+    return try frame.applied_after.items[0].afterResumeFn(frame.applied_after.items[0].ctx, value);
 }
 
 /// Execute one authored body or first-class program under the supplied prompt.
@@ -630,7 +881,10 @@ pub fn perform(
         frame.cursor += 1;
         switch (record) {
             .resumed => |recorded| {
-                frame.applied_after.append(frame.allocator, recorded.afterResumeFn) catch return error.ProgramContractViolation;
+                frame.applied_after.append(frame.allocator, .{
+                    .ctx = recorded.after_resume_ctx,
+                    .afterResumeFn = recorded.afterResumeFn,
+                }) catch return error.ProgramContractViolation;
                 return decodeResume(Resume, recorded.storage);
             },
             .terminal => |answer| {
@@ -647,6 +901,7 @@ pub fn perform(
             frame.records.append(frame.allocator, .{
                 .resumed = .{
                     .storage = storage,
+                    .after_resume_ctx = null,
                     .afterResumeFn = afterResumeThunk(PromptType, Handler),
                 },
             }) catch return error.ProgramContractViolation;
@@ -660,6 +915,7 @@ pub fn perform(
                     frame.records.append(frame.allocator, .{
                         .resumed = .{
                             .storage = storage,
+                            .after_resume_ctx = null,
                             .afterResumeFn = afterResumeThunk(PromptType, Handler),
                         },
                     }) catch return error.ProgramContractViolation;
@@ -690,6 +946,54 @@ pub fn transform(
     return perform(Resume, prompt, Handler);
 }
 
+/// Perform one resumptive transform operation whose handler receives one explicit runtime context pointer.
+pub fn transformWithContext(
+    comptime Resume: type,
+    prompt: anytype,
+    handler_ctx: anytype,
+    comptime Handler: type,
+) lowered_machine.InternalControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
+    const PromptType = PromptTypeFromPtr(@TypeOf(prompt));
+    const ContextPtrType = @TypeOf(handler_ctx);
+    comptime assertPromptMode(@TypeOf(prompt), .resume_then_transform, "transformWithContext");
+    comptime assertHandlerProtocolWithContext(Resume, PromptType, ContextPtrType, Handler);
+
+    const frame = findFrame(PromptType, prompt) orelse return error.MissingPrompt;
+    if (frame.cursor < frame.records.items.len) {
+        const record = frame.records.items[frame.cursor];
+        frame.cursor += 1;
+        switch (record) {
+            .resumed => |recorded| {
+                frame.applied_after.append(frame.allocator, .{
+                    .ctx = recorded.after_resume_ctx,
+                    .afterResumeFn = recorded.afterResumeFn,
+                }) catch return error.ProgramContractViolation;
+                return decodeResume(Resume, recorded.storage);
+            },
+            .terminal => |answer| {
+                frame.terminal = answer;
+                return error.FrontendSuspend;
+            },
+        }
+    }
+
+    const resume_value = try callResumeValueWithContext(Resume, PromptType, ContextPtrType, Handler, handler_ctx);
+    const storage = try encodeResume(frame.allocator, Resume, resume_value);
+    frame.records.append(frame.allocator, .{
+        .resumed = .{
+            .storage = storage,
+            .after_resume_ctx = @ptrCast(handler_ctx),
+            .afterResumeFn = struct {
+                fn invoke(raw_ctx: ?*anyopaque, value: PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer {
+                    const typed_ctx: ContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
+                    return try callAfterResumeWithContext(PromptType, ContextPtrType, Handler, typed_ctx, value);
+                }
+            }.invoke,
+        },
+    }) catch return error.ProgramContractViolation;
+    return error.FrontendSuspend;
+}
+
 /// Perform one zero-or-one-resume choice operation.
 pub fn choice(
     comptime Resume: type,
@@ -700,6 +1004,62 @@ pub fn choice(
     return perform(Resume, prompt, Handler);
 }
 
+/// Perform one zero-or-one-resume choice operation whose handler receives one explicit runtime context pointer.
+pub fn choiceWithContext(
+    comptime Resume: type,
+    prompt: anytype,
+    handler_ctx: anytype,
+    comptime Handler: type,
+) lowered_machine.InternalControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
+    const PromptType = PromptTypeFromPtr(@TypeOf(prompt));
+    const ContextPtrType = @TypeOf(handler_ctx);
+    comptime assertPromptMode(@TypeOf(prompt), .resume_or_return, "choiceWithContext");
+    comptime assertHandlerProtocolWithContext(Resume, PromptType, ContextPtrType, Handler);
+
+    const frame = findFrame(PromptType, prompt) orelse return error.MissingPrompt;
+    if (frame.cursor < frame.records.items.len) {
+        const record = frame.records.items[frame.cursor];
+        frame.cursor += 1;
+        switch (record) {
+            .resumed => |recorded| {
+                frame.applied_after.append(frame.allocator, .{
+                    .ctx = recorded.after_resume_ctx,
+                    .afterResumeFn = recorded.afterResumeFn,
+                }) catch return error.ProgramContractViolation;
+                return decodeResume(Resume, recorded.storage);
+            },
+            .terminal => |answer| {
+                frame.terminal = answer;
+                return error.FrontendSuspend;
+            },
+        }
+    }
+
+    const decision = try callResumeOrReturnWithContext(Resume, PromptType, ContextPtrType, Handler, handler_ctx);
+    switch (decision) {
+        .resume_with => |resume_value| {
+            const storage = try encodeResume(frame.allocator, Resume, resume_value);
+            frame.records.append(frame.allocator, .{
+                .resumed = .{
+                    .storage = storage,
+                    .after_resume_ctx = @ptrCast(handler_ctx),
+                    .afterResumeFn = struct {
+                        fn invoke(raw_ctx: ?*anyopaque, value: PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer {
+                            const typed_ctx: ContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
+                            return try callAfterResumeWithContext(PromptType, ContextPtrType, Handler, typed_ctx, value);
+                        }
+                    }.invoke,
+                },
+            }) catch return error.ProgramContractViolation;
+        },
+        .return_now => |answer| {
+            frame.terminal = answer;
+            frame.records.append(frame.allocator, .{ .terminal = answer }) catch return error.ProgramContractViolation;
+        },
+    }
+    return error.FrontendSuspend;
+}
+
 /// Perform one direct-return abort operation.
 pub fn abort(
     prompt: anytype,
@@ -708,4 +1068,22 @@ pub fn abort(
     comptime assertPromptMode(@TypeOf(prompt), .direct_return, "abort");
     _ = try perform(void, prompt, Handler);
     unreachable;
+}
+
+/// Perform one direct-return abort operation whose handler receives one explicit runtime context pointer.
+pub fn abortWithContext(
+    prompt: anytype,
+    handler_ctx: anytype,
+    comptime Handler: type,
+) lowered_machine.InternalControlError(PromptErrorSetType(@TypeOf(prompt)))!noreturn {
+    const PromptType = PromptTypeFromPtr(@TypeOf(prompt));
+    const ContextPtrType = @TypeOf(handler_ctx);
+    comptime assertPromptMode(@TypeOf(prompt), .direct_return, "abortWithContext");
+    comptime assertHandlerProtocolWithContext(void, PromptType, ContextPtrType, Handler);
+
+    const frame = findFrame(PromptType, prompt) orelse return error.MissingPrompt;
+    const answer = try callDirectReturnWithContext(PromptType, ContextPtrType, Handler, handler_ctx);
+    frame.terminal = answer;
+    frame.records.append(frame.allocator, .{ .terminal = answer }) catch return error.ProgramContractViolation;
+    return error.FrontendSuspend;
 }

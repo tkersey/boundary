@@ -378,15 +378,8 @@ fn Binding(
     const Impl = SpecType.ImplType;
     const PromptType = PromptTypeForOp(Op, ContinueAnswer, Answer, ErrorSet);
     return struct {
+        const Self = @This();
         const Prompt = PromptType;
-        threadlocal var active_binding: ?*@This() = null;
-        threadlocal var active_payload: ?Op.Payload = null;
-        threadlocal var direct_binding: ?*@This() = null;
-        threadlocal var direct_payload: ?Op.Payload = null;
-        threadlocal var pending_binding: ?*@This() = null;
-        threadlocal var pending_payload: ?Op.Payload = null;
-        threadlocal var previous_active_binding: ?*@This() = null;
-        threadlocal var previous_active_payload: ?Op.Payload = null;
 
         spec: SpecType,
         prompt: PromptType,
@@ -440,23 +433,65 @@ fn Binding(
             };
         }
 
-        fn currentPayload() Op.Payload {
-            if (comptime Op.Payload == void) return {};
-            return active_payload.?;
+        fn HandlerCarrier() type {
+            return struct {
+                binding: *Self,
+                payload: Op.Payload,
+            };
         }
 
-        fn activatePending() void {
-            previous_active_binding = active_binding;
-            previous_active_payload = active_payload;
-            active_binding = pending_binding;
-            active_payload = pending_payload;
+        fn AuthoredProgramType(comptime Continuation: anytype) type {
+            const ProgramPrompt = ProgramPromptType(Continuation);
+            return struct {
+                carrier: HandlerCarrier(),
+                prompt: *const ProgramPrompt,
+                program: frontend.Program(ProgramPrompt),
+
+                /// Install the explicit handler carrier onto the authored program before execution.
+                pub fn activate(self: *@This()) void {
+                    switch (self.program) {
+                        .transform => |*node| node.handler_ctx = @ptrCast(&self.carrier),
+                        .choice => |*node| node.handler_ctx = @ptrCast(&self.carrier),
+                        .abort => |*node| node.handler_ctx = @ptrCast(&self.carrier),
+                        else => {},
+                    }
+                }
+
+                /// Clear the explicit handler carrier after authored execution completes.
+                pub fn deactivate(self: *@This()) void {
+                    switch (self.program) {
+                        .transform => |*node| node.handler_ctx = null,
+                        .choice => |*node| node.handler_ctx = null,
+                        .abort => |*node| node.handler_ctx = null,
+                        else => {},
+                    }
+                }
+            };
         }
 
-        fn deactivatePending() void {
-            active_binding = previous_active_binding;
-            active_payload = previous_active_payload;
-            pending_binding = null;
-            pending_payload = null;
+        fn AuthoredProgramWithContextType(comptime ContextPtrType: type, comptime Continuation: type) type {
+            const ProgramPrompt = ProgramPromptTypeWithContext(ContextPtrType, Continuation);
+            return struct {
+                carrier: HandlerCarrier(),
+                prompt: *const ProgramPrompt,
+                program: frontend.Program(ProgramPrompt),
+
+                /// Install the explicit handler carrier onto the authored choice program before execution.
+                pub fn activate(self: *@This()) void {
+                    switch (self.program) {
+                        .choice => |*node| node.handler_ctx = @ptrCast(&self.carrier),
+                        else => {},
+                    }
+                }
+
+                /// Clear the explicit handler carrier after authored choice execution completes.
+                pub fn deactivate(self: *@This()) void {
+                    switch (self.program) {
+                        .choice => |*node| node.handler_ctx = null,
+                        else => {},
+                    }
+                }
+            };
         }
 
         fn callResumeValue(spec: SpecType, payload: Op.Payload) lowered_machine.ResetError(ErrorSet)!Op.Resume {
@@ -489,200 +524,149 @@ fn Binding(
             return switch (SpecType.builder_kind) {
                 .direct_transform => try BindingType.callResumeValue(self.spec, payload),
                 .transform => blk: {
+                    const Carrier = HandlerCarrier();
+                    var carrier = Carrier{ .binding = self, .payload = payload };
                     const handler = struct {
-                        /// Supply the resumptive transform value from the active binding.
-                        pub fn resumeValue() lowered_machine.ResetError(ErrorSet)!Op.Resume {
-                            return try BindingType.callResumeValue(BindingType.active_binding.?.spec, BindingType.currentPayload());
+                        /// Supply the resumptive transform value from the explicit carrier.
+                        pub fn resumeValue(ctx: *Carrier) lowered_machine.ResetError(ErrorSet)!Op.Resume {
+                            return try BindingType.callResumeValue(ctx.binding.spec, ctx.payload);
                         }
 
-                        /// Complete the enclosing answer after one transform resume.
-                        pub fn afterResume(answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
-                            return try BindingType.callAfterResume(BindingType.active_binding.?.spec, answer);
+                        /// Complete the enclosing answer after one transform resume from the explicit carrier.
+                        pub fn afterResume(ctx: *Carrier, answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
+                            return try BindingType.callAfterResume(ctx.binding.spec, answer);
                         }
                     };
 
-                    const previous_binding = BindingType.active_binding;
-                    const previous_payload = BindingType.active_payload;
-                    BindingType.active_binding = self;
-                    BindingType.active_payload = payload;
-                    defer {
-                        BindingType.active_binding = previous_binding;
-                        BindingType.active_payload = previous_payload;
-                    }
-                    break :blk try frontend.transform(Op.Resume, &self.prompt, handler);
+                    break :blk try frontend.transformWithContext(Op.Resume, &self.prompt, &carrier, handler);
                 },
                 .choice => blk: {
+                    const Carrier = HandlerCarrier();
+                    var carrier = Carrier{ .binding = self, .payload = payload };
                     const handler = struct {
-                        /// Choose the next action for the active choice binding.
-                        pub fn resumeOrReturn() lowered_machine.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
-                            return try BindingType.callResumeOrReturn(BindingType.active_binding.?.spec, BindingType.currentPayload());
+                        /// Choose the next action for the explicit choice carrier.
+                        pub fn resumeOrReturn(ctx: *Carrier) lowered_machine.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
+                            return try BindingType.callResumeOrReturn(ctx.binding.spec, ctx.payload);
                         }
 
-                        /// Complete the enclosing answer after one choice resume.
-                        pub fn afterResume(answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
-                            return try BindingType.callAfterResume(BindingType.active_binding.?.spec, answer);
+                        /// Complete the enclosing answer after one choice resume from the explicit carrier.
+                        pub fn afterResume(ctx: *Carrier, answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
+                            return try BindingType.callAfterResume(ctx.binding.spec, answer);
                         }
                     };
 
-                    const previous_binding = BindingType.active_binding;
-                    const previous_payload = BindingType.active_payload;
-                    BindingType.active_binding = self;
-                    BindingType.active_payload = payload;
-                    defer {
-                        BindingType.active_binding = previous_binding;
-                        BindingType.active_payload = previous_payload;
-                    }
-                    break :blk try frontend.choice(Op.Resume, &self.prompt, handler);
+                    break :blk try frontend.choiceWithContext(Op.Resume, &self.prompt, &carrier, handler);
                 },
                 .abort => {
+                    const Carrier = HandlerCarrier();
+                    var carrier = Carrier{ .binding = self, .payload = payload };
                     const handler = struct {
-                        /// Convert the active abort payload into the enclosing answer.
-                        pub fn directReturn() lowered_machine.ResetError(ErrorSet)!Answer {
-                            return try BindingType.callDirectReturn(BindingType.active_binding.?.spec, BindingType.currentPayload());
+                        /// Convert the explicit abort carrier into the enclosing answer.
+                        pub fn directReturn(ctx: *Carrier) lowered_machine.ResetError(ErrorSet)!Answer {
+                            return try BindingType.callDirectReturn(ctx.binding.spec, ctx.payload);
                         }
                     };
 
-                    const previous_binding = BindingType.active_binding;
-                    const previous_payload = BindingType.active_payload;
-                    BindingType.active_binding = self;
-                    BindingType.active_payload = payload;
-                    defer {
-                        BindingType.active_binding = previous_binding;
-                        BindingType.active_payload = previous_payload;
-                    }
-                    return try frontend.abort(&self.prompt, handler);
+                    return try frontend.abortWithContext(&self.prompt, &carrier, handler);
                 },
             };
         }
 
         /// Build one explicit frontend program for the bound operation and continuation.
-        pub fn program(self: *@This(), payload: Op.Payload, comptime Continuation: anytype) frontend.Program(ProgramPromptType(Continuation)) {
+        pub fn program(self: *@This(), payload: Op.Payload, comptime Continuation: anytype) AuthoredProgramType(Continuation) {
             const BindingType = @This();
             return switch (SpecType.builder_kind) {
                 .direct_transform => @compileError("direct transform bindings do not support explicit program construction"),
                 .transform => blk: {
                     const ProgramPrompt = ProgramPromptType(Continuation);
+                    const Carrier = HandlerCarrier();
                     const handler = struct {
-                        /// Supply the resumptive value for one explicit transform op.
-                        pub fn resumeValue() lowered_machine.ResetError(ErrorSet)!Op.Resume {
-                            return try BindingType.callResumeValue(BindingType.active_binding.?.spec, BindingType.currentPayload());
+                        /// Supply the resumptive value for one explicit transform op from the explicit carrier.
+                        pub fn resumeValue(ctx: *Carrier) lowered_machine.ResetError(ErrorSet)!Op.Resume {
+                            return try BindingType.callResumeValue(ctx.binding.spec, ctx.payload);
                         }
 
-                        /// Complete the enclosing answer after one explicit transform resume.
-                        pub fn afterResume(answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
-                            return try BindingType.callAfterResume(BindingType.active_binding.?.spec, answer);
+                        /// Complete the enclosing answer after one explicit transform resume from the explicit carrier.
+                        pub fn afterResume(ctx: *Carrier, answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
+                            return try BindingType.callAfterResume(ctx.binding.spec, answer);
                         }
                     };
-
-                    BindingType.pending_binding = self;
-                    BindingType.pending_payload = payload;
-                    break :blk frontend.transformProgram(ProgramPrompt, Op.Resume, handler, Continuation);
+                    break :blk .{
+                        .carrier = .{ .binding = self, .payload = payload },
+                        .prompt = self.promptRef(Continuation),
+                        .program = frontend.transformProgramWithContext(ProgramPrompt, Op.Resume, dummyPointer(*Carrier), handler, Continuation),
+                    };
                 },
                 .choice => blk: {
                     const ProgramPrompt = ProgramPromptType(Continuation);
+                    const Carrier = HandlerCarrier();
                     const handler = struct {
-                        /// Decide whether one explicit choice op resumes or returns now.
-                        pub fn resumeOrReturn() lowered_machine.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
-                            return try BindingType.callResumeOrReturn(BindingType.active_binding.?.spec, BindingType.currentPayload());
+                        /// Decide whether one explicit choice op resumes or returns now from the explicit carrier.
+                        pub fn resumeOrReturn(ctx: *Carrier) lowered_machine.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
+                            return try BindingType.callResumeOrReturn(ctx.binding.spec, ctx.payload);
                         }
 
-                        /// Complete the enclosing answer after one explicit choice resume.
-                        pub fn afterResume(answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
-                            return try BindingType.callAfterResume(BindingType.active_binding.?.spec, answer);
+                        /// Complete the enclosing answer after one explicit choice resume from the explicit carrier.
+                        pub fn afterResume(ctx: *Carrier, answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
+                            return try BindingType.callAfterResume(ctx.binding.spec, answer);
                         }
                     };
-
-                    BindingType.pending_binding = self;
-                    BindingType.pending_payload = payload;
-                    break :blk frontend.choiceProgram(ProgramPrompt, Op.Resume, handler, Continuation);
+                    break :blk .{
+                        .carrier = .{ .binding = self, .payload = payload },
+                        .prompt = self.promptRef(Continuation),
+                        .program = frontend.choiceProgramWithHandlerContext(ProgramPrompt, Op.Resume, dummyPointer(*Carrier), handler, Continuation),
+                    };
                 },
                 .abort => blk: {
+                    const Carrier = HandlerCarrier();
                     const handler = struct {
-                        /// Convert one explicit abort payload into the enclosing answer.
-                        pub fn directReturn() lowered_machine.ResetError(ErrorSet)!Answer {
-                            return try BindingType.callDirectReturn(BindingType.active_binding.?.spec, BindingType.currentPayload());
+                        /// Convert one explicit abort payload into the enclosing answer from the explicit carrier.
+                        pub fn directReturn(ctx: *Carrier) lowered_machine.ResetError(ErrorSet)!Answer {
+                            return try BindingType.callDirectReturn(ctx.binding.spec, ctx.payload);
                         }
                     };
-
-                    BindingType.pending_binding = self;
-                    BindingType.pending_payload = payload;
-                    break :blk frontend.abortProgram(PromptType, handler);
+                    break :blk .{
+                        .carrier = .{ .binding = self, .payload = payload },
+                        .prompt = self.promptRef(Continuation),
+                        .program = frontend.abortProgramWithContext(PromptType, dummyPointer(*Carrier), handler),
+                    };
                 },
             };
         }
 
         /// Build one explicit frontend choice program with one runtime continuation context.
-        pub fn programWithContext(self: *@This(), payload: Op.Payload, continuation_ctx: anytype, comptime Continuation: type) frontend.Program(ProgramPromptTypeWithContext(@TypeOf(continuation_ctx), Continuation)) {
+        pub fn programWithContext(self: *@This(), payload: Op.Payload, continuation_ctx: anytype, comptime Continuation: type) AuthoredProgramWithContextType(@TypeOf(continuation_ctx), Continuation) {
             const BindingType = @This();
             if (SpecType.builder_kind != .choice) @compileError("programWithContext currently supports only choice bindings");
-            const ProgramPrompt = ProgramPromptTypeWithContext(@TypeOf(continuation_ctx), Continuation);
+            const Carrier = HandlerCarrier();
             const handler = struct {
-                /// Decide whether one explicit choice op resumes or returns now.
-                pub fn resumeOrReturn() lowered_machine.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
-                    return try BindingType.callResumeOrReturn(BindingType.active_binding.?.spec, BindingType.currentPayload());
+                /// Decide whether one explicit choice op resumes or returns now from the explicit carrier.
+                pub fn resumeOrReturn(ctx: *Carrier) lowered_machine.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
+                    return try BindingType.callResumeOrReturn(ctx.binding.spec, ctx.payload);
                 }
 
-                /// Complete the enclosing answer after one explicit choice resume.
-                pub fn afterResume(answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
-                    return try BindingType.callAfterResume(BindingType.active_binding.?.spec, answer);
+                /// Complete the enclosing answer after one explicit choice resume from the explicit carrier.
+                pub fn afterResume(ctx: *Carrier, answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
+                    return try BindingType.callAfterResume(ctx.binding.spec, answer);
                 }
             };
-
-            BindingType.pending_binding = self;
-            BindingType.pending_payload = payload;
-            return frontend.choiceProgramWithContext(ProgramPrompt, Op.Resume, handler, continuation_ctx, Continuation);
+            return .{
+                .carrier = .{ .binding = self, .payload = payload },
+                .prompt = self.promptRefWithContext(@TypeOf(continuation_ctx), Continuation),
+                .program = frontend.choiceProgramWithContexts(
+                    ProgramPromptTypeWithContext(@TypeOf(continuation_ctx), Continuation),
+                    Op.Resume,
+                    dummyPointer(*Carrier),
+                    handler,
+                    continuation_ctx,
+                    Continuation,
+                ),
+            };
         }
 
         /// Build one explicit frontend program that closes over this binding directly.
-        pub fn directProgram(self: *@This(), payload: Op.Payload, comptime Continuation: anytype) frontend.Program(ProgramPromptType(Continuation)) {
-            const BindingType = @This();
-            BindingType.direct_binding = self;
-            BindingType.direct_payload = payload;
-            return switch (SpecType.builder_kind) {
-                .direct_transform => @compileError("direct transform bindings do not support explicit program construction"),
-                .transform => blk: {
-                    const ProgramPrompt = ProgramPromptType(Continuation);
-                    const handler = struct {
-                        /// Supply the resumptive value for one direct explicit transform op.
-                        pub fn resumeValue() lowered_machine.ResetError(ErrorSet)!Op.Resume {
-                            return try BindingType.callResumeValue(BindingType.direct_binding.?.spec, BindingType.direct_payload.?);
-                        }
-
-                        /// Complete the enclosing answer after one direct explicit transform resume.
-                        pub fn afterResume(answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
-                            return try BindingType.callAfterResume(BindingType.direct_binding.?.spec, answer);
-                        }
-                    };
-
-                    break :blk frontend.transformProgram(ProgramPrompt, Op.Resume, handler, Continuation);
-                },
-                .choice => blk: {
-                    const ProgramPrompt = ProgramPromptType(Continuation);
-                    const handler = struct {
-                        /// Decide whether one direct explicit choice op resumes or returns now.
-                        pub fn resumeOrReturn() lowered_machine.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
-                            return try BindingType.callResumeOrReturn(BindingType.direct_binding.?.spec, BindingType.direct_payload.?);
-                        }
-
-                        /// Complete the enclosing answer after one direct explicit choice resume.
-                        pub fn afterResume(answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
-                            return try BindingType.callAfterResume(BindingType.direct_binding.?.spec, answer);
-                        }
-                    };
-
-                    break :blk frontend.choiceProgram(ProgramPrompt, Op.Resume, handler, Continuation);
-                },
-                .abort => blk: {
-                    const handler = struct {
-                        /// Convert one direct explicit abort payload into the enclosing answer.
-                        pub fn directReturn() lowered_machine.ResetError(ErrorSet)!Answer {
-                            return try BindingType.callDirectReturn(BindingType.direct_binding.?.spec, BindingType.direct_payload.?);
-                        }
-                    };
-
-                    break :blk frontend.abortProgram(PromptType, handler);
-                },
-            };
+        pub fn directProgram(self: *@This(), payload: Op.Payload, comptime Continuation: anytype) AuthoredProgramType(Continuation) {
+            return self.program(payload, Continuation);
         }
     };
 }
@@ -836,15 +820,10 @@ pub fn Program(
                         comptime Op: type,
                         payload: Op.Payload,
                         comptime Continuation: anytype,
-                    ) frontend.BoundProgram(BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, findOpIndex(Op)).ProgramPromptType(Continuation)) {
+                    ) BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, findOpIndex(Op)).AuthoredProgramType(Continuation) {
                         const index = comptime findOpIndex(Op);
                         const binding = self.bindings.bindingPtr(index);
-                        return .{
-                            .prompt = binding.promptRef(Continuation),
-                            .program = binding.program(payload, Continuation),
-                            .activateFn = BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, index).activatePending,
-                            .deactivateFn = BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, index).deactivatePending,
-                        };
+                        return binding.program(payload, Continuation);
                     }
 
                     /// Build one explicit program for a declared choice operation and one runtime continuation context.
@@ -854,15 +833,10 @@ pub fn Program(
                         payload: Op.Payload,
                         continuation_ctx: anytype,
                         comptime Continuation: type,
-                    ) frontend.BoundProgram(BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, findOpIndex(Op)).ProgramPromptTypeWithContext(@TypeOf(continuation_ctx), Continuation)) {
+                    ) BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, findOpIndex(Op)).AuthoredProgramWithContextType(@TypeOf(continuation_ctx), Continuation) {
                         const index = comptime findOpIndex(Op);
                         const binding = self.bindings.bindingPtr(index);
-                        return .{
-                            .prompt = binding.promptRefWithContext(@TypeOf(continuation_ctx), Continuation),
-                            .program = binding.programWithContext(payload, continuation_ctx, Continuation),
-                            .activateFn = BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, index).activatePending,
-                            .deactivateFn = BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, index).deactivatePending,
-                        };
+                        return binding.programWithContext(payload, continuation_ctx, Continuation);
                     }
                 };
 
@@ -876,7 +850,7 @@ pub fn Program(
                     var bindings = BindingsType.init(self.specs);
                     var ctx = Context{ .bindings = &bindings };
                     if (comptime @hasDecl(Body, "program")) {
-                        const authored = Body.program(&ctx);
+                        var authored = Body.program(&ctx);
                         authored.activate();
                         defer authored.deactivate();
                         return try frontend.run(runtime, authored.prompt, authored.program);
@@ -992,7 +966,7 @@ test "binding payload storage stays pointer-based" {
     });
     const BindingType = Binding(@TypeOf(spec), usize, usize, error{});
 
-    try std.testing.expectEqual(?ping.Payload, @TypeOf(BindingType.active_payload));
+    try std.testing.expectEqual(ping.Payload, @FieldType(BindingType.HandlerCarrier(), "payload"));
 }
 
 test "transform program resumes and observes final answer" {

@@ -68,7 +68,7 @@ pub fn LexicalHandle(
             };
 
             var current_handle = self;
-            const authored = algebraic.activeEngineContext(Cap, self.ctx.?).performProgramWithContext(Cap.RequestOp(), {}, &current_handle, request_state);
+            var authored = algebraic.activeEngineContext(Cap, self.ctx.?).performProgramWithContext(Cap.RequestOp(), {}, &current_handle, request_state);
             authored.activate();
             defer authored.deactivate();
             return try frontend.run(self.runtime.?, authored.prompt, authored.program);

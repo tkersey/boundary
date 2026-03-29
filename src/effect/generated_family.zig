@@ -645,7 +645,7 @@ fn runWithSealedEngine(comptime Contract: type, config: anytype, comptime Body: 
             if (comptime family.hasDeclSafe(Body, "program")) {
                 const AuthoredType = @TypeOf(Body.program(Cap, ctx));
                 if (@typeInfo(AuthoredType) == .@"struct") {
-                    const authored = Body.program(Cap, ctx);
+                    var authored = Body.program(Cap, ctx);
                     authored.activate();
                     defer authored.deactivate();
                     return try frontend.run(state.runtime, authored.prompt, authored.program);
@@ -909,7 +909,7 @@ pub fn Build(comptime spec: anytype) type {
                         };
 
                         var current_handle = self;
-                        const authored = activeEngineContext(Config.Capability, self.ctx.?).performProgramWithContext(OpTypeValue, {}, &current_handle, request_state);
+                        var authored = activeEngineContext(Config.Capability, self.ctx.?).performProgramWithContext(OpTypeValue, {}, &current_handle, request_state);
                         authored.activate();
                         defer authored.deactivate();
                         return try frontend.run(self.runtime.?, authored.prompt, authored.program);
@@ -946,7 +946,7 @@ pub fn Build(comptime spec: anytype) type {
                         };
 
                         var current_handle = self;
-                        const authored = activeEngineContext(Config.Capability, self.ctx.?).performProgramWithContext(OpTypeValue, payload, &current_handle, request_state);
+                        var authored = activeEngineContext(Config.Capability, self.ctx.?).performProgramWithContext(OpTypeValue, payload, &current_handle, request_state);
                         authored.activate();
                         defer authored.deactivate();
                         return try frontend.run(self.runtime.?, authored.prompt, authored.program);

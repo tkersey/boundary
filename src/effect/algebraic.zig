@@ -100,6 +100,13 @@ fn runWithSealedEngine(
         pub fn run(state: RunnerState, comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSetType)!AnswerType {
             var prompt = PromptType{ .token = state.prompt_token };
             if (comptime family.hasDeclSafe(Body, "program")) {
+                const AuthoredType = @TypeOf(Body.program(Cap, ctx));
+                if (@typeInfo(AuthoredType) == .@"struct") {
+                    var authored = Body.program(Cap, ctx);
+                    authored.activate();
+                    defer authored.deactivate();
+                    return try frontend.run(state.runtime, authored.prompt, authored.program);
+                }
                 return try frontend.run(state.runtime, &prompt, Body.program(Cap, ctx));
             }
             if (comptime family.hasDeclSafe(Body, "body")) {
@@ -648,12 +655,7 @@ pub inline fn optionalRequestProgram(
     comptime Cap: type,
     ctx: anytype,
     comptime Continuation: anytype,
-) frontend.Program(prompt_contract.Prompt(
-    .resume_or_return,
-    family.ContextStateType(@TypeOf(ctx)),
-    family.ContextAnswerType(@TypeOf(ctx)),
-    family.ContextErrorSetType(@TypeOf(ctx)),
-)) {
+) @TypeOf(activeEngineContext(Cap, ctx).bindings.bindingPtr(0).directProgram({}, Continuation)) {
     comptime family.assertContextType(Cap, @TypeOf(ctx));
     return activeEngineContext(Cap, ctx).bindings.bindingPtr(0).directProgram({}, Continuation);
 }
@@ -1010,12 +1012,12 @@ pub inline fn throwExceptionProgram(
     comptime Cap: type,
     ctx: anytype,
     payload: family.ContextStateType(@TypeOf(ctx)),
-) frontend.Program(prompt_contract.Prompt(
-    .direct_return,
-    family.ContextAnswerType(@TypeOf(ctx)),
-    family.ContextAnswerType(@TypeOf(ctx)),
-    family.ContextErrorSetType(@TypeOf(ctx)),
-)) {
+) @TypeOf(activeEngineContext(Cap, ctx).bindings.bindingPtr(0).directProgram(payload, struct {
+    /// Unreachable continuation placeholder for direct-return effect programs.
+    pub fn apply(_: noreturn) family.ContextAnswerType(@TypeOf(ctx)) {
+        unreachable;
+    }
+})) {
     comptime family.assertContextType(Cap, @TypeOf(ctx));
     const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
     return activeEngineContext(Cap, ctx).bindings.bindingPtr(0).directProgram(payload, struct {

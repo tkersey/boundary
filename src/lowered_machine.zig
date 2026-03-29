@@ -147,9 +147,9 @@ pub fn runExplicitTransform(
     comptime PromptType: type,
     node: anytype,
 ) anyerror!PromptType.OutAnswer {
-    const resume_value = try node.resumeValueFn();
+    const resume_value = try node.resumeValueFn(node.handler_ctx);
     const in_answer = try node.continueFn(resume_value);
-    return try node.afterResumeFn(in_answer);
+    return try node.afterResumeFn(node.handler_ctx, in_answer);
 }
 
 /// Execute one explicit typed-value choice program to completion.
@@ -157,11 +157,11 @@ pub fn runExplicitChoice(
     comptime PromptType: type,
     node: anytype,
 ) anyerror!PromptType.OutAnswer {
-    const decision = try node.decisionFn();
+    const decision = try node.decisionFn(node.handler_ctx);
     return switch (decision) {
         .resume_with => |resume_value| blk: {
             const in_answer = try node.continueFn(node.continue_ctx, resume_value);
-            break :blk try node.afterResumeFn(in_answer);
+            break :blk try node.afterResumeFn(node.handler_ctx, in_answer);
         },
         .return_now => |answer| answer,
     };
@@ -172,5 +172,5 @@ pub fn runExplicitAbort(
     comptime PromptType: type,
     node: anytype,
 ) anyerror!PromptType.OutAnswer {
-    return try node.directReturnFn();
+    return try node.directReturnFn(node.handler_ctx);
 }
