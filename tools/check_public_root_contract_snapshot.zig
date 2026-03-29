@@ -5,6 +5,7 @@ const expected_snapshot =
     \\  "root_exports": [
     \\    "compat",
     \\    "effect",
+    \\    "durable",
     \\    "ir",
     \\    "interpreter",
     \\    "With",

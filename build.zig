@@ -222,6 +222,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     parity_scenarios_mod.addImport("formal_core_registry", formal_core_registry_mod);
+    shift_mod.addImport("parity_scenarios", parity_scenarios_mod);
     const lowered_machine_mod = b.createModule(.{
         .root_source_file = b.path("src/lowered_machine.zig"),
         .target = target,
@@ -450,6 +451,7 @@ pub fn build(b: *std.Build) void {
     lib_check.root_module.addImport("interpreter", interpreter_mod);
     lib_check.root_module.addImport("lowered_machine", lowered_machine_mod);
     lib_check.root_module.addImport("portable_core", portable_core_mod);
+    lib_check.root_module.addImport("parity_scenarios", parity_scenarios_mod);
     lib_check.root_module.addImport("source_lowering", source_lowering_mod);
     lib_check.root_module.addImport("error_witness", error_witness_mod);
     check_step.dependOn(&lib_check.step);
@@ -465,6 +467,7 @@ pub fn build(b: *std.Build) void {
     root_tests.root_module.addImport("interpreter", interpreter_mod);
     root_tests.root_module.addImport("lowered_machine", lowered_machine_mod);
     root_tests.root_module.addImport("portable_core", portable_core_mod);
+    root_tests.root_module.addImport("parity_scenarios", parity_scenarios_mod);
     root_tests.root_module.addImport("source_lowering", source_lowering_mod);
     root_tests.root_module.addImport("error_witness", error_witness_mod);
     root_tests.root_module.addImport("prompt_contract_support", prompt_contract_support_mod);
@@ -532,6 +535,19 @@ pub fn build(b: *std.Build) void {
     const prompt_token_contract_step = b.step("prompt-token-contract-check", "Check explicit prompt-token construction and source-backed token allocation.");
     prompt_token_contract_step.dependOn(&run_prompt_token_tests.step);
     test_step.dependOn(&run_prompt_token_tests.step);
+    const durable_session_mod = b.createModule(.{
+        .root_source_file = b.path("test/durable_session_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    durable_session_mod.addImport("shift", shift_mod);
+    const durable_session_tests = b.addTest(.{
+        .root_module = durable_session_mod,
+    });
+    const run_durable_session_tests = b.addRunArtifact(durable_session_tests);
+    const durable_session_resume_step = b.step("durable-session-resume-check", "Check append-only durable session replay over the interpreter core.");
+    durable_session_resume_step.dependOn(&run_durable_session_tests.step);
+    test_step.dependOn(&run_durable_session_tests.step);
 
     const backend_parity_mod = b.createModule(.{
         .root_source_file = b.path("test/backend_parity_test.zig"),
@@ -1460,6 +1476,12 @@ pub fn build(b: *std.Build) void {
         step_name: []const u8,
         step_desc: []const u8,
     }{
+        .{
+            .name = "durable_session_demo",
+            .src = "examples/durable_session_demo.zig",
+            .step_name = "durable-session-demo",
+            .step_desc = "Run the append-only durable session demo.",
+        },
         .{
             .name = "early_exit",
             .src = "examples/early_exit.zig",

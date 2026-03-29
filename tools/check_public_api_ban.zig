@@ -2,6 +2,7 @@ const std = @import("std");
 
 const allowed_exports = &[_][]const u8{
     "compat",
+    "durable",
     "effect",
     "interpreter",
     "ir",

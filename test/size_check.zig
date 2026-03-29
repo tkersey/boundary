@@ -17,6 +17,7 @@ test "prompt shell stays compact" {
 
 test "public root exposes the lexical surface plus kernel compatibility aliases" {
     try std.testing.expect(@hasDecl(shift, "compat"));
+    try std.testing.expect(@hasDecl(shift, "durable"));
     try std.testing.expect(@hasDecl(shift, "effect"));
     try std.testing.expect(@hasDecl(shift, "interpreter"));
     try std.testing.expect(@hasDecl(shift, "With"));
@@ -61,6 +62,7 @@ test "public root exposes the lexical surface plus kernel compatibility aliases"
     try std.testing.expect(@hasDecl(shift.compat, "run"));
     try std.testing.expect(!@hasDecl(shift.compat, "effect"));
     try std.testing.expect(!@hasDecl(shift.compat, "interpreter"));
+    try std.testing.expect(!@hasDecl(shift.compat, "durable"));
     try std.testing.expect(!@hasDecl(shift.compat, "With"));
     try std.testing.expect(!@hasDecl(shift.compat, "with"));
     try std.testing.expect(!@hasDecl(shift.compat, "ir"));
