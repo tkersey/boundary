@@ -5,6 +5,7 @@ const allowed_exports = &[_][]const u8{
     "durable",
     "effect",
     "interpreter",
+    "lowering",
     "ir",
     "With",
     "with",

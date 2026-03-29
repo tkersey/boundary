@@ -1,6 +1,37 @@
 const shift = @import("shift");
 const std = @import("std");
 
+/// Return the additive public lowering spec for this workflow.
+pub fn loweringSpec() shift.lowering.LowerSpec {
+    return .{
+        .label = "example.open_row_state_writer",
+        .module_path = "examples/open_row_state_writer.zig",
+        .symbol_name = "body",
+        .row = shift.ir.mergeRows(.{
+            shift.ir.rowFromSpec(.{
+                .state = .{
+                    .get = shift.ir.Transform(void, i32),
+                    .set = shift.ir.Transform(i32, void),
+                },
+            }),
+            shift.ir.rowFromSpec(.{
+                .writer = .{
+                    .tell = shift.ir.Transform([]const u8, void),
+                },
+            }),
+        }),
+        .outputs = &.{
+            .{ .label = "state", .OutputType = i32 },
+            .{ .label = "writer", .OutputType = [][]const u8 },
+        },
+    };
+}
+
+/// Return the additive public lowered artifact for this workflow.
+pub fn loweredProgram() anyerror!shift.lowering.LoweredProgram {
+    return try shift.lowering.lowerOpenRow(loweringSpec());
+}
+
 const WorkflowProgram = shift.Program(.{
     .state = shift.Decl.state(i32),
     .writer = shift.Decl.writer([]const u8),

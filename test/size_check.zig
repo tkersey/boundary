@@ -20,6 +20,7 @@ test "public root exposes the lexical surface plus kernel compatibility aliases"
     try std.testing.expect(@hasDecl(shift, "durable"));
     try std.testing.expect(@hasDecl(shift, "effect"));
     try std.testing.expect(@hasDecl(shift, "interpreter"));
+    try std.testing.expect(@hasDecl(shift, "lowering"));
     try std.testing.expect(@hasDecl(shift, "With"));
     try std.testing.expect(@hasDecl(shift, "with"));
     try std.testing.expect(@hasDecl(shift, "ir"));
@@ -63,6 +64,7 @@ test "public root exposes the lexical surface plus kernel compatibility aliases"
     try std.testing.expect(!@hasDecl(shift.compat, "effect"));
     try std.testing.expect(!@hasDecl(shift.compat, "interpreter"));
     try std.testing.expect(!@hasDecl(shift.compat, "durable"));
+    try std.testing.expect(!@hasDecl(shift.compat, "lowering"));
     try std.testing.expect(!@hasDecl(shift.compat, "With"));
     try std.testing.expect(!@hasDecl(shift.compat, "with"));
     try std.testing.expect(!@hasDecl(shift.compat, "ir"));
@@ -78,6 +80,35 @@ test "public interpreter runs pure step data without host runtime ownership" {
     try std.testing.expectEqual(@as(usize, 1), shift.interpreter.events(&state).len);
     try std.testing.expectEqual(@as(usize, 0), shift.interpreter.checkpoints(&state).len);
     try std.testing.expectEqual(@as(?shift.interpreter.PromptId, .primary), state.active_prompt);
+}
+
+test "public additive lowering exposes the retained open-row lowering path" {
+    const lowered = try shift.lowering.lowerOpenRow(.{
+        .label = "example.open_row_state_writer",
+        .module_path = "examples/open_row_state_writer.zig",
+        .symbol_name = "body",
+        .row = shift.ir.mergeRows(.{
+            shift.ir.rowFromSpec(.{
+                .state = .{
+                    .get = shift.ir.Transform(void, i32),
+                    .set = shift.ir.Transform(i32, void),
+                },
+            }),
+            shift.ir.rowFromSpec(.{
+                .writer = .{
+                    .tell = shift.ir.Transform([]const u8, void),
+                },
+            }),
+        }),
+        .outputs = &.{
+            .{ .label = "state", .OutputType = i32 },
+            .{ .label = "writer", .OutputType = [][]const u8 },
+        },
+    });
+
+    try std.testing.expectEqualStrings("example.open_row_state_writer", lowered.label);
+    try std.testing.expectEqual(@as(usize, 2), lowered.normalization.requirement_count);
+    try std.testing.expectEqual(@as(usize, 3), lowered.normalization.op_count);
 }
 
 test "public runtime error surface still exposes the current contract" {

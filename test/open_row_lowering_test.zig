@@ -1,22 +1,17 @@
-const effect_ir = @import("effect_ir");
 const example_open_row_state_writer = @import("example_open_row_state_writer");
-const program_frontend = @import("program_frontend");
-const source_lowering = @import("source_lowering");
+const shift = @import("shift");
 const std = @import("std");
 
 const DynamicOpenRowSpec = struct {
     module_path: []const u8,
     symbol_name: []const u8,
-    requirement_label: []const u8,
-    op_name: []const u8,
-    output_label: []const u8,
-    callee_module_path: []const u8,
-    callee_symbol_name: []const u8,
+    row: shift.ir.Row,
+    outputs: []const shift.ir.OutputSpec,
+    call_edges: []const shift.ir.CallEdge = &.{},
 };
 
-test "open-row state-writer workflow lowers through the retained effect-ir path" {
-    const program = program_frontend.open_rows.stateWriterWorkflow();
-    const lowered = try source_lowering.lowerOpenRowProgram(program);
+test "open-row state-writer workflow lowers through the public additive lowering path" {
+    const lowered = try example_open_row_state_writer.loweredProgram();
 
     try std.testing.expectEqualStrings("example.open_row_state_writer", lowered.label);
     try std.testing.expectEqual(@as(usize, 1), lowered.program.functions.len);
@@ -26,65 +21,45 @@ test "open-row state-writer workflow lowers through the retained effect-ir path"
     try std.testing.expectEqual(@as(usize, 2), lowered.normalization.output_count);
 }
 
-fn dynamicOpenRowProgram(comptime spec: DynamicOpenRowSpec) program_frontend.OpenRowProgram {
-    const ops = [_]effect_ir.OpSpec{.{
-        .requirement_label = spec.requirement_label,
-        .op_name = spec.op_name,
-        .mode = .transform,
-        .PayloadType = void,
-        .ResumeType = i32,
-    }};
-    const requirements = [_]effect_ir.Requirement{.{
-        .label = spec.requirement_label,
-        .ops = ops[0..],
-    }};
-    const outputs = [_]effect_ir.OutputSpec{.{
-        .label = spec.output_label,
-        .OutputType = i32,
-    }};
-    const call_edges = [_]effect_ir.CallEdge{.{
-        .caller = .{
-            .module_path = spec.module_path,
-            .symbol_name = spec.symbol_name,
-        },
-        .callee = .{
-            .module_path = spec.callee_module_path,
-            .symbol_name = spec.callee_symbol_name,
-        },
-    }};
-
+fn dynamicLowerSpec(comptime spec: DynamicOpenRowSpec) shift.lowering.LowerSpec {
     return .{
         .label = "example.dynamic_open_row",
-        .function = .{
-            .symbol = .{
-                .module_path = spec.module_path,
-                .symbol_name = spec.symbol_name,
-            },
-            .row = .{ .requirements = requirements[0..] },
-            .outputs = outputs[0..],
-        },
-        .call_edges = call_edges[0..],
+        .module_path = spec.module_path,
+        .symbol_name = spec.symbol_name,
+        .row = spec.row,
+        .outputs = spec.outputs,
+        .call_edges = spec.call_edges,
     };
 }
 
 test "open-row lowering deep-copies caller-owned slices" {
-    const alpha = try source_lowering.lowerOpenRowProgram(dynamicOpenRowProgram(.{
+    const alpha = try shift.lowering.lowerOpenRow(dynamicLowerSpec(.{
         .module_path = "examples/alpha.zig",
         .symbol_name = "alpha",
-        .requirement_label = "state",
-        .op_name = "get",
-        .output_label = "state",
-        .callee_module_path = "examples/alpha.zig",
-        .callee_symbol_name = "alpha",
+        .row = shift.ir.rowFromSpec(.{
+            .state = .{
+                .get = shift.ir.Transform(void, i32),
+            },
+        }),
+        .outputs = &.{.{ .label = "state", .OutputType = i32 }},
+        .call_edges = &.{.{
+            .caller = .{ .module_path = "examples/alpha.zig", .symbol_name = "alpha" },
+            .callee = .{ .module_path = "examples/alpha.zig", .symbol_name = "alpha" },
+        }},
     }));
-    const beta = try source_lowering.lowerOpenRowProgram(dynamicOpenRowProgram(.{
+    const beta = try shift.lowering.lowerOpenRow(dynamicLowerSpec(.{
         .module_path = "examples/beta.zig",
         .symbol_name = "beta",
-        .requirement_label = "writer",
-        .op_name = "tell",
-        .output_label = "writer",
-        .callee_module_path = "examples/beta.zig",
-        .callee_symbol_name = "beta",
+        .row = shift.ir.rowFromSpec(.{
+            .writer = .{
+                .tell = shift.ir.Transform(void, i32),
+            },
+        }),
+        .outputs = &.{.{ .label = "writer", .OutputType = i32 }},
+        .call_edges = &.{.{
+            .caller = .{ .module_path = "examples/beta.zig", .symbol_name = "beta" },
+            .callee = .{ .module_path = "examples/beta.zig", .symbol_name = "beta" },
+        }},
     }));
 
     try std.testing.expectEqualStrings("examples/alpha.zig", alpha.program.functions[0].symbol.module_path);
@@ -103,14 +78,19 @@ test "open-row lowering deep-copies caller-owned slices" {
 }
 
 test "open-row lowering rejects helper call edges that would leave dangling callees" {
-    try std.testing.expectError(error.UnsupportedHelperCallEdge, source_lowering.lowerOpenRowProgram(dynamicOpenRowProgram(.{
+    try std.testing.expectError(error.UnsupportedHelperCallEdge, shift.lowering.lowerOpenRow(dynamicLowerSpec(.{
         .module_path = "examples/alpha.zig",
         .symbol_name = "alpha",
-        .requirement_label = "state",
-        .op_name = "get",
-        .output_label = "state",
-        .callee_module_path = "helper_alpha.zig",
-        .callee_symbol_name = "helperAlpha",
+        .row = shift.ir.rowFromSpec(.{
+            .state = .{
+                .get = shift.ir.Transform(void, i32),
+            },
+        }),
+        .outputs = &.{.{ .label = "state", .OutputType = i32 }},
+        .call_edges = &.{.{
+            .caller = .{ .module_path = "examples/alpha.zig", .symbol_name = "alpha" },
+            .callee = .{ .module_path = "helper_alpha.zig", .symbol_name = "helperAlpha" },
+        }},
     })));
 }
 

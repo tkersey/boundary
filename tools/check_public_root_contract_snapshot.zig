@@ -8,6 +8,7 @@ const expected_snapshot =
     \\    "durable",
     \\    "ir",
     \\    "interpreter",
+    \\    "lowering",
     \\    "With",
     \\    "with",
     \\    "Runtime",
