@@ -1,11 +1,19 @@
 const shift = @import("shift");
 const std = @import("std");
 
-/// Run one state-plus-writer workflow through the program kernel.
-pub fn runBody(eff: anytype) ![]const u8 {
+fn queueQuery(eff: anytype) !void {
+    try eff.writer.tell("query=artifact-search");
+}
+
+fn advanceState(eff: anytype) !void {
     const before = try eff.state.get();
     try eff.state.set(before + 1);
-    try eff.writer.tell("query=artifact-search");
+    try queueQuery(eff);
+}
+
+/// Run one state-plus-writer workflow through the program kernel.
+pub fn runBody(eff: anytype) ![]const u8 {
+    try advanceState(eff);
     try eff.writer.tell("workflow=queued");
     return "done";
 }

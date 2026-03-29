@@ -124,9 +124,10 @@ pub const OpenRowLoweredAuthoring = struct {
 /// Lower one open-row frontend payload through the shared semantic center.
 pub fn lowerOpenRowProgram(program: program_frontend.OpenRowProgram) effect_ir.NormalizeError!OpenRowLoweredAuthoring {
     const lowered = try program_frontend.lowerOpenRow(program);
+    const entry_function = lowered.functions[lowered.entry_index];
     return .{
         .label = program.label,
-        .normalization = try effect_ir.rowDigest(program.function.row, program.function.outputs),
+        .normalization = try effect_ir.rowDigest(entry_function.row, entry_function.outputs),
         .program = lowered,
     };
 }

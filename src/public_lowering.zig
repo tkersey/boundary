@@ -1,6 +1,8 @@
 const effect_ir = @import("effect_ir");
 const program_frontend = @import("program_frontend");
 const program_plan = @import("internal_program_plan");
+const source_graph_embed = @import("source_graph_embed");
+const source_graph_comptime = @import("source_graph_comptime");
 const source_lowering = @import("source_lowering");
 const std = @import("std");
 
@@ -23,6 +25,7 @@ pub const ValidationError = error{
     ParseError,
     SourceUnreadable,
     UnsupportedHelperGraph,
+    UnsupportedEffectAccess,
 };
 /// Public additive lowering error surface.
 pub const LowerError = effect_ir.NormalizeError || ValidationError;
@@ -96,7 +99,247 @@ fn cloneProgram(comptime program: effect_ir.Program) effect_ir.Program {
     };
     return .{
         .functions = &functions,
-        .call_edges = &.{},
+        .call_edges = cloneCallEdges(program.call_edges),
+    };
+}
+
+fn cloneCallEdges(comptime call_edges: []const effect_ir.CallEdge) []const effect_ir.CallEdge {
+    return comptime blk: {
+        var buffer: [call_edges.len]effect_ir.CallEdge = undefined;
+        for (call_edges, 0..) |edge, index| {
+            buffer[index] = .{
+                .caller = .{
+                    .module_path = cloneBytes(edge.caller.module_path),
+                    .symbol_name = cloneBytes(edge.caller.symbol_name),
+                },
+                .callee = .{
+                    .module_path = cloneBytes(edge.callee.module_path),
+                    .symbol_name = cloneBytes(edge.callee.symbol_name),
+                },
+            };
+        }
+        break :blk &buffer;
+    };
+}
+
+const FlatOp = struct {
+    requirement_label: []const u8,
+    op_name: []const u8,
+    mode: effect_ir.ControlMode,
+    PayloadType: type,
+    ResumeType: type,
+};
+
+fn flatOpsForRow(comptime row: effect_ir.Row) []const FlatOp {
+    return comptime blk: {
+        const total = count: {
+            var count_ops: usize = 0;
+            for (row.requirements) |requirement| count_ops += requirement.ops.len;
+            break :count count_ops;
+        };
+        var buffer: [total]FlatOp = undefined;
+        var index: usize = 0;
+        for (row.requirements) |requirement| {
+            for (requirement.ops) |op| {
+                buffer[index] = .{
+                    .requirement_label = cloneBytes(requirement.label),
+                    .op_name = cloneBytes(op.op_name),
+                    .mode = op.mode,
+                    .PayloadType = op.PayloadType,
+                    .ResumeType = op.ResumeType,
+                };
+                index += 1;
+            }
+        }
+        break :blk &buffer;
+    };
+}
+
+fn reachableFunctions(comptime graph: source_graph_comptime.ModuleGraph) [graph.functions.len]bool {
+    var reachable = [_]bool{false} ** graph.functions.len;
+    reachable[graph.entry_index] = true;
+
+    var changed = true;
+    while (changed) {
+        changed = false;
+        for (graph.helper_edges) |edge| {
+            if (!reachable[edge.caller_index] or reachable[edge.callee_index]) continue;
+            reachable[edge.callee_index] = true;
+            changed = true;
+        }
+    }
+
+    return reachable;
+}
+
+fn inferUsedOps(
+    comptime graph: source_graph_comptime.ModuleGraph,
+    comptime flat_ops: []const FlatOp,
+) [graph.functions.len][flat_ops.len]bool {
+    var used = [_][flat_ops.len]bool{[_]bool{false} ** flat_ops.len} ** graph.functions.len;
+
+    for (graph.direct_op_uses) |direct_use| {
+        for (flat_ops, 0..) |op, op_index| {
+            if (!std.mem.eql(u8, op.requirement_label, direct_use.requirement_label)) continue;
+            if (!std.mem.eql(u8, op.op_name, direct_use.op_name)) continue;
+            used[direct_use.function_index][op_index] = true;
+        }
+    }
+
+    var changed = true;
+    while (changed) {
+        changed = false;
+        for (graph.helper_edges) |edge| {
+            for (flat_ops, 0..) |_, op_index| {
+                if (used[edge.caller_index][op_index] or !used[edge.callee_index][op_index]) continue;
+                used[edge.caller_index][op_index] = true;
+                changed = true;
+            }
+        }
+    }
+
+    return used;
+}
+
+fn helperRowFromUsage(
+    comptime row: effect_ir.Row,
+    comptime flat_ops: []const FlatOp,
+    comptime used_ops: []const bool,
+) effect_ir.Row {
+    return comptime blk: {
+        var requirement_buffer: [row.requirements.len]effect_ir.Requirement = undefined;
+        var requirement_count: usize = 0;
+        var flat_index: usize = 0;
+
+        for (row.requirements) |requirement| {
+            var op_buffer: [requirement.ops.len]effect_ir.OpSpec = undefined;
+            var op_count: usize = 0;
+            for (requirement.ops) |_| {
+                if (used_ops[flat_index]) {
+                    const flat_op = flat_ops[flat_index];
+                    op_buffer[op_count] = .{
+                        .requirement_label = flat_op.requirement_label,
+                        .op_name = flat_op.op_name,
+                        .mode = flat_op.mode,
+                        .PayloadType = flat_op.PayloadType,
+                        .ResumeType = flat_op.ResumeType,
+                    };
+                    op_count += 1;
+                }
+                flat_index += 1;
+            }
+
+            if (op_count != 0) {
+                const exact_ops = exact: {
+                    var exact_buffer: [op_count]effect_ir.OpSpec = undefined;
+                    for (0..op_count) |index| exact_buffer[index] = op_buffer[index];
+                    break :exact exact_buffer;
+                };
+                requirement_buffer[requirement_count] = .{
+                    .label = cloneBytes(requirement.label),
+                    .ops = &exact_ops,
+                };
+                requirement_count += 1;
+            }
+        }
+
+        const exact_requirements = exact: {
+            var exact_buffer: [requirement_count]effect_ir.Requirement = undefined;
+            for (0..requirement_count) |index| exact_buffer[index] = requirement_buffer[index];
+            break :exact exact_buffer;
+        };
+        break :blk .{ .requirements = &exact_requirements };
+    };
+}
+
+fn buildFunctionsAt(comptime source_path: []const u8, comptime spec: LowerSpec) []const effect_ir.Function {
+    const graph = source_graph_embed.analyzeModuleAt(source_path, spec.entry_symbol) catch |err| switch (err) {
+        error.EntryMissing => @compileError("public lowering could not find the requested entry symbol in the embedded source"),
+        error.RecursiveHelpers => @compileError("public lowering does not yet support recursive helper graphs"),
+        error.TooManyFunctions => @compileError("public lowering source graph exceeded the supported function limit"),
+        error.TooManyHelperEdges => @compileError("public lowering source graph exceeded the supported helper-edge limit"),
+        error.TooManyOpUses => @compileError("public lowering source graph exceeded the supported op-use limit"),
+        error.UnsupportedEffectAccess => @compileError("public lowering helper inference only supports direct eff.requirement.op(...) access"),
+    };
+    const reachable = reachableFunctions(graph);
+    const flat_ops = flatOpsForRow(spec.row);
+    const used_ops = inferUsedOps(graph, flat_ops);
+
+    const function_count = count: {
+        var count_functions: usize = 0;
+        for (reachable) |is_reachable| {
+            if (is_reachable) count_functions += 1;
+        }
+        break :count count_functions;
+    };
+
+    return comptime blk: {
+        var buffer: [function_count]effect_ir.Function = undefined;
+        var index: usize = 0;
+
+        buffer[index] = .{
+            .symbol = .{
+                .module_path = cloneBytes(source_path),
+                .symbol_name = cloneBytes(spec.entry_symbol),
+            },
+            .row = cloneRow(spec.row),
+            .outputs = cloneOutputSpecs(spec.outputs),
+        };
+        index += 1;
+
+        for (graph.functions, 0..) |function, function_index| {
+            if (!reachable[function_index] or function_index == graph.entry_index) continue;
+            buffer[index] = .{
+                .symbol = .{
+                    .module_path = cloneBytes(source_path),
+                    .symbol_name = cloneBytes(function.name),
+                },
+                .row = helperRowFromUsage(spec.row, flat_ops, &used_ops[function_index]),
+                .outputs = &.{},
+            };
+            index += 1;
+        }
+
+        break :blk &buffer;
+    };
+}
+
+fn buildCallEdgesAt(comptime source_path: []const u8, comptime spec: LowerSpec) []const effect_ir.CallEdge {
+    const graph = source_graph_embed.analyzeModuleAt(source_path, spec.entry_symbol) catch |err| switch (err) {
+        error.EntryMissing => @compileError("public lowering could not find the requested entry symbol in the embedded source"),
+        error.RecursiveHelpers => @compileError("public lowering does not yet support recursive helper graphs"),
+        error.TooManyFunctions => @compileError("public lowering source graph exceeded the supported function limit"),
+        error.TooManyHelperEdges => @compileError("public lowering source graph exceeded the supported helper-edge limit"),
+        error.TooManyOpUses => @compileError("public lowering source graph exceeded the supported op-use limit"),
+        error.UnsupportedEffectAccess => @compileError("public lowering helper inference only supports direct eff.requirement.op(...) access"),
+    };
+    const reachable = reachableFunctions(graph);
+    const edge_count = comptime count: {
+        var count_edges: usize = 0;
+        for (graph.helper_edges) |edge| {
+            if (reachable[edge.caller_index] and reachable[edge.callee_index]) count_edges += 1;
+        }
+        break :count count_edges;
+    };
+
+    return comptime blk: {
+        var buffer: [edge_count]effect_ir.CallEdge = undefined;
+        var index: usize = 0;
+        for (graph.helper_edges) |edge| {
+            if (!reachable[edge.caller_index] or !reachable[edge.callee_index]) continue;
+            buffer[index] = .{
+                .caller = .{
+                    .module_path = cloneBytes(source_path),
+                    .symbol_name = cloneBytes(graph.functions[edge.caller_index].name),
+                },
+                .callee = .{
+                    .module_path = cloneBytes(source_path),
+                    .symbol_name = cloneBytes(graph.functions[edge.callee_index].name),
+                },
+            };
+            index += 1;
+        }
+        break :blk &buffer;
     };
 }
 
@@ -104,21 +347,10 @@ fn cloneProgram(comptime program: effect_ir.Program) effect_ir.Program {
 pub fn openRowAt(comptime source_path: []const u8, comptime spec: LowerSpec) OpenRowProgram {
     return .{
         .label = spec.label,
-        .function = .{
-            .symbol = .{
-                .module_path = source_path,
-                .symbol_name = spec.entry_symbol,
-            },
-            .row = spec.row,
-            .outputs = spec.outputs,
-        },
-        .call_edges = &.{},
+        .entry_symbol = spec.entry_symbol,
+        .functions = buildFunctionsAt(source_path, spec),
+        .call_edges = buildCallEdgesAt(source_path, spec),
     };
-}
-
-/// Build one public additive open-row payload from a same-module source location.
-pub fn openRow(comptime source: std.builtin.SourceLocation, comptime spec: LowerSpec) OpenRowProgram {
-    return openRowAt(source.file, spec);
 }
 
 /// Lower one public additive open-row payload into the retained effect-ir shell.
@@ -126,24 +358,13 @@ pub fn lowerOpenRowAt(comptime source_path: []const u8, comptime spec: LowerSpec
     return try source_lowering.lowerOpenRowProgram(openRowAt(source_path, spec));
 }
 
-/// Lower one public additive open-row payload from a same-module source location.
-pub fn lowerOpenRow(comptime source: std.builtin.SourceLocation, comptime spec: LowerSpec) LowerError!LoweredProgram {
-    return try lowerOpenRowAt(source.file, spec);
-}
-
 /// Rebuild the public effect-ir program view for one additive lowering request.
 pub fn irProgramAt(comptime source_path: []const u8, comptime spec: LowerSpec) effect_ir.Program {
     const payload = openRowAt(source_path, spec);
-    const functions = comptime [_]effect_ir.Function{payload.function};
     return .{
-        .functions = &functions,
-        .call_edges = &.{},
+        .functions = payload.functions,
+        .call_edges = payload.call_edges,
     };
-}
-
-/// Rebuild the public effect-ir program view from a same-module source location.
-pub fn irProgram(comptime source: std.builtin.SourceLocation, comptime spec: LowerSpec) effect_ir.Program {
-    return irProgramAt(source.file, spec);
 }
 
 fn readSourceAlloc(allocator: std.mem.Allocator, path: []const u8) ValidationError![]u8 {
@@ -171,18 +392,6 @@ pub fn validateFileBackedOpenRowAt(
 
     if (!analysis.isParseClean()) return error.ParseError;
     if (!analysis.hasTopLevelFunctionNamed(entry_symbol)) return error.EntryMissing;
-    for (analysis.helper_call_edges) |edge| {
-        if (std.mem.eql(u8, edge.caller_name, entry_symbol)) return error.UnsupportedHelperGraph;
-    }
-}
-
-/// Validate one additive lowering request from a same-module source location.
-pub fn validateFileBackedOpenRow(
-    allocator: std.mem.Allocator,
-    comptime source: std.builtin.SourceLocation,
-    comptime spec: LowerSpec,
-) ValidationError!void {
-    return try validateFileBackedOpenRowAt(allocator, source.file, spec.entry_symbol);
 }
 
 const ValidationSpec = struct {
@@ -279,9 +488,9 @@ fn CompileIrType(comptime label: []const u8, comptime program: effect_ir.Program
 pub const CompileIr = CompileIrType;
 
 test "same-module lowerAt preserves caller-provided source ownership" {
-    const ProgramType = lowerAt(@src().file, .{
+    const ProgramType = lowerAt("examples/open_row_state_writer.zig", .{
         .label = "public_lowering.self",
-        .entry_symbol = "openRowAt",
+        .entry_symbol = "runBody",
         .row = effect_ir.rowFromSpec(.{
             .state = .{
                 .get = effect_ir.Transform(void, i32),
@@ -289,7 +498,7 @@ test "same-module lowerAt preserves caller-provided source ownership" {
         }),
     });
 
-    try std.testing.expectEqualStrings(@src().file, ProgramType.source_path);
-    try std.testing.expectEqualStrings("openRowAt", ProgramType.entry_symbol);
-    try std.testing.expectEqual(@as(usize, 1), ProgramType.runtime_plan.functions.len);
+    try std.testing.expectEqualStrings("examples/open_row_state_writer.zig", ProgramType.source_path);
+    try std.testing.expectEqualStrings("runBody", ProgramType.entry_symbol);
+    try std.testing.expectEqual(@as(usize, 3), ProgramType.runtime_plan.functions.len);
 }

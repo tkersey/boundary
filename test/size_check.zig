@@ -21,6 +21,7 @@ test "public root keeps the lexical surface, additive lowering, and compatibilit
     try std.testing.expect(@hasDecl(shift, "effect"));
     try std.testing.expect(@hasDecl(shift, "interpreter"));
     try std.testing.expect(@hasDecl(shift, "lowering"));
+    try std.testing.expect(!@hasDecl(shift, "lower"));
     try std.testing.expect(@hasDecl(shift, "lowerAt"));
     try std.testing.expect(@hasDecl(shift, "With"));
     try std.testing.expect(@hasDecl(shift, "with"));
@@ -66,11 +67,17 @@ test "public root keeps the lexical surface, additive lowering, and compatibilit
     try std.testing.expect(!@hasDecl(shift.compat, "effect"));
     try std.testing.expect(!@hasDecl(shift.compat, "interpreter"));
     try std.testing.expect(!@hasDecl(shift.compat, "durable"));
+    try std.testing.expect(!@hasDecl(shift.compat, "lower"));
     try std.testing.expect(!@hasDecl(shift.compat, "lowerAt"));
     try std.testing.expect(!@hasDecl(shift.compat, "lowering"));
     try std.testing.expect(!@hasDecl(shift.compat, "With"));
     try std.testing.expect(!@hasDecl(shift.compat, "with"));
     try std.testing.expect(!@hasDecl(shift.compat, "ir"));
+
+    try std.testing.expect(!@hasDecl(shift.lowering, "openRow"));
+    try std.testing.expect(!@hasDecl(shift.lowering, "lowerOpenRow"));
+    try std.testing.expect(!@hasDecl(shift.lowering, "irProgram"));
+    try std.testing.expect(!@hasDecl(shift.lowering, "validateFileBackedOpenRow"));
 }
 
 test "public interpreter runs pure step data without host runtime ownership" {
@@ -114,9 +121,9 @@ test "public additive lowering exposes the retained runtime-owned plan" {
     try std.testing.expectEqualStrings("example.open_row_state_writer", lowered.label);
     try std.testing.expectEqualStrings("runBody", lowered.entry_symbol);
     try std.testing.expectEqualStrings("examples/open_row_state_writer.zig", lowered.source_path);
-    try std.testing.expectEqual(@as(usize, 1), lowered.runtime_plan.functions.len);
-    try std.testing.expectEqual(@as(usize, 2), lowered.runtime_plan.requirements.len);
-    try std.testing.expectEqual(@as(usize, 3), lowered.runtime_plan.ops.len);
+    try std.testing.expectEqual(@as(usize, 3), lowered.runtime_plan.functions.len);
+    try std.testing.expectEqual(@as(usize, 5), lowered.runtime_plan.requirements.len);
+    try std.testing.expectEqual(@as(usize, 7), lowered.runtime_plan.ops.len);
 
     try std.testing.expectEqual(lowered.ir_hash, explicit.ir_hash);
     try std.testing.expectEqual(@as(usize, lowered.runtime_plan.functions.len), explicit.runtime_plan.functions.len);

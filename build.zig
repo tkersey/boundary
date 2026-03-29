@@ -240,6 +240,16 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     internal_program_plan_mod.addImport("effect_ir", effect_ir_mod);
+    const source_graph_comptime_mod = b.createModule(.{
+        .root_source_file = b.path("src/internal/source_graph_comptime.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const source_graph_embed_mod = b.createModule(.{
+        .root_source_file = b.path("source_graph_embed.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const internal_kernel_mod = b.createModule(.{
         .root_source_file = b.path("src/internal/kernel.zig"),
         .target = target,
@@ -258,6 +268,7 @@ pub fn build(b: *std.Build) void {
     shift_mod.addImport("internal_kernel", internal_kernel_mod);
     shift_mod.addImport("internal_program_plan", internal_program_plan_mod);
     shift_mod.addImport("interpreter", interpreter_mod);
+    shift_mod.addImport("source_graph_comptime", source_graph_comptime_mod);
     lowered_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
     lowered_machine_mod.addImport("internal_kernel", internal_kernel_mod);
     lowered_machine_mod.addImport("interpreter", interpreter_mod);
@@ -314,6 +325,8 @@ pub fn build(b: *std.Build) void {
     authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_static_redelim", canonicalSourceHash(b, "test/direct_style_bridge/static_redelim.zig"));
     authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_writer_basic", canonicalSourceHash(b, "test/direct_style_bridge/writer_basic.zig"));
     const authoring_build_options_mod = authoring_lowerer_options.createModule();
+    source_graph_embed_mod.addImport("authoring_build_options", authoring_build_options_mod);
+    source_graph_embed_mod.addImport("source_graph_comptime", source_graph_comptime_mod);
     const authoring_lowerer_mod = b.createModule(.{
         .root_source_file = b.path("src/internal/authoring_lowerer.zig"),
         .target = target,
@@ -354,6 +367,8 @@ pub fn build(b: *std.Build) void {
     program_frontend_mod.addImport("parity_scenarios", parity_scenarios_mod);
     internal_program_plan_mod.addImport("program_frontend", program_frontend_mod);
     shift_mod.addImport("program_frontend", program_frontend_mod);
+    shift_mod.addImport("authoring_build_options", authoring_build_options_mod);
+    shift_mod.addImport("source_graph_embed", source_graph_embed_mod);
     authoring_lowerer_mod.addImport("program_frontend", program_frontend_mod);
     shift_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
     const lexical_runtime_internal_mod = b.createModule(.{
@@ -477,7 +492,10 @@ pub fn build(b: *std.Build) void {
     lib_check.root_module.addImport("internal_kernel", internal_kernel_mod);
     lib_check.root_module.addImport("internal_program_plan", internal_program_plan_mod);
     lib_check.root_module.addImport("authoring_lowerer", authoring_lowerer_mod);
+    lib_check.root_module.addImport("authoring_build_options", authoring_build_options_mod);
     lib_check.root_module.addImport("program_frontend", program_frontend_mod);
+    lib_check.root_module.addImport("source_graph_comptime", source_graph_comptime_mod);
+    lib_check.root_module.addImport("source_graph_embed", source_graph_embed_mod);
     lib_check.root_module.addImport("source_lowering", source_lowering_mod);
     lib_check.root_module.addImport("error_witness", error_witness_mod);
     check_step.dependOn(&lib_check.step);
@@ -497,7 +515,10 @@ pub fn build(b: *std.Build) void {
     root_tests.root_module.addImport("internal_kernel", internal_kernel_mod);
     root_tests.root_module.addImport("internal_program_plan", internal_program_plan_mod);
     root_tests.root_module.addImport("authoring_lowerer", authoring_lowerer_mod);
+    root_tests.root_module.addImport("authoring_build_options", authoring_build_options_mod);
     root_tests.root_module.addImport("program_frontend", program_frontend_mod);
+    root_tests.root_module.addImport("source_graph_comptime", source_graph_comptime_mod);
+    root_tests.root_module.addImport("source_graph_embed", source_graph_embed_mod);
     root_tests.root_module.addImport("source_lowering", source_lowering_mod);
     root_tests.root_module.addImport("error_witness", error_witness_mod);
     root_tests.root_module.addImport("prompt_contract_support", prompt_contract_support_mod);

@@ -6,9 +6,10 @@ test "open-row state-writer workflow lowers through the public same-module path"
     const lowered = try example_open_row_state_writer.loweredProgram();
 
     try std.testing.expectEqualStrings("example.open_row_state_writer", lowered.label);
-    try std.testing.expectEqual(@as(usize, 1), lowered.program.functions.len);
-    try std.testing.expectEqualStrings("runBody", lowered.program.functions[0].symbol.symbol_name);
-    try std.testing.expect(std.mem.endsWith(u8, lowered.program.functions[0].symbol.module_path, "open_row_state_writer.zig"));
+    try std.testing.expectEqual(@as(usize, 3), lowered.program.functions.len);
+    try std.testing.expectEqual(@as(usize, 2), lowered.program.call_edges.len);
+    try std.testing.expectEqualStrings("runBody", lowered.program.functions[lowered.program.entry_index].symbol.symbol_name);
+    try std.testing.expect(std.mem.endsWith(u8, lowered.program.functions[lowered.program.entry_index].symbol.module_path, "open_row_state_writer.zig"));
     try std.testing.expectEqual(@as(usize, 2), lowered.normalization.requirement_count);
     try std.testing.expectEqual(@as(usize, 3), lowered.normalization.op_count);
     try std.testing.expectEqual(@as(usize, 2), lowered.normalization.output_count);
@@ -18,9 +19,9 @@ test "open-row state-writer workflow exposes the generated same-module runtime p
     try std.testing.expectEqualStrings("example.open_row_state_writer", example_open_row_state_writer.CompiledProgram.label);
     try std.testing.expect(std.mem.endsWith(u8, example_open_row_state_writer.CompiledProgram.source_path, "open_row_state_writer.zig"));
     try std.testing.expectEqualStrings("runBody", example_open_row_state_writer.CompiledProgram.entry_symbol);
-    try std.testing.expectEqual(@as(usize, 1), example_open_row_state_writer.CompiledProgram.runtime_plan.functions.len);
-    try std.testing.expectEqual(@as(usize, 2), example_open_row_state_writer.CompiledProgram.runtime_plan.requirements.len);
-    try std.testing.expectEqual(@as(usize, 3), example_open_row_state_writer.CompiledProgram.runtime_plan.ops.len);
+    try std.testing.expectEqual(@as(usize, 3), example_open_row_state_writer.CompiledProgram.runtime_plan.functions.len);
+    try std.testing.expectEqual(@as(usize, 5), example_open_row_state_writer.CompiledProgram.runtime_plan.requirements.len);
+    try std.testing.expectEqual(@as(usize, 7), example_open_row_state_writer.CompiledProgram.runtime_plan.ops.len);
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -34,9 +35,9 @@ test "explicit ir compilation matches the generated runtime plan shape" {
     );
 
     try std.testing.expectEqual(example_open_row_state_writer.CompiledProgram.ir_hash, ExplicitIrProgramType.ir_hash);
-    try std.testing.expectEqual(@as(usize, 1), ExplicitIrProgramType.runtime_plan.functions.len);
-    try std.testing.expectEqual(@as(usize, 2), ExplicitIrProgramType.runtime_plan.requirements.len);
-    try std.testing.expectEqual(@as(usize, 3), ExplicitIrProgramType.runtime_plan.ops.len);
+    try std.testing.expectEqual(@as(usize, 3), ExplicitIrProgramType.runtime_plan.functions.len);
+    try std.testing.expectEqual(@as(usize, 5), ExplicitIrProgramType.runtime_plan.requirements.len);
+    try std.testing.expectEqual(@as(usize, 7), ExplicitIrProgramType.runtime_plan.ops.len);
 }
 
 test "root lowerAt matches the example-owned same-module lowering" {
@@ -56,7 +57,7 @@ test "root lowerAt matches the example-owned same-module lowering" {
     );
 }
 
-test "same-module validation rejects helper graphs that cannot yet lower" {
+test "same-module validation accepts helper graphs for explicit-path lowering" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -75,10 +76,7 @@ test "same-module validation rejects helper graphs that cannot yet lower" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    try std.testing.expectError(
-        error.UnsupportedHelperGraph,
-        shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody"),
-    );
+    try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
 }
 
 test "open-row state-writer example stays transcript-backed" {

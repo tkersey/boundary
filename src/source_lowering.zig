@@ -155,7 +155,8 @@ test "lowerOpenRowProgram preserves label and normalization digest" {
     });
     const program = try lowerOpenRowProgram(.{
         .label = "example.open_row_state_writer",
-        .function = .{
+        .entry_symbol = "runBody",
+        .functions = &.{.{
             .symbol = .{
                 .module_path = "examples/open_row_state_writer.zig",
                 .symbol_name = "runBody",
@@ -165,7 +166,7 @@ test "lowerOpenRowProgram preserves label and normalization digest" {
                 .{ .label = "state", .OutputType = i32 },
                 .{ .label = "writer", .OutputType = [][]const u8 },
             },
-        },
+        }},
         .call_edges = &.{},
     });
 
@@ -174,6 +175,7 @@ test "lowerOpenRowProgram preserves label and normalization digest" {
     try std.testing.expectEqual(@as(usize, 3), program.normalization.op_count);
     try std.testing.expectEqual(@as(usize, 2), program.normalization.output_count);
     try std.testing.expectEqual(@as(usize, 1), program.program.functions.len);
+    try std.testing.expectEqual(@as(usize, 0), program.program.entry_index);
     try std.testing.expectEqualStrings("runBody", program.program.functions[0].symbol.symbol_name);
     _ = program_frontend;
 }
