@@ -713,10 +713,12 @@ pub fn handleOptional(
     const hidden_program = internal.Program(ResumeType, AnswerType, ErrorSetType, .{optional_request_op});
     const OptionalState = struct {
         cleanup_marker: ?*cleanup.Frame,
+        cleanup_stack: *cleanup.Stack,
     };
-    const cleanup_marker = cleanup.checkpoint();
+    const cleanup_stack = &runtime.core.cleanup;
+    const cleanup_marker = cleanup_stack.checkpoint();
     const specs = .{
-        internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker }, struct {
+        internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker, .cleanup_stack = cleanup_stack }, struct {
             /// Choose whether the optional request resumes or returns now.
             pub fn resumeOrReturn(_: OptionalState, _: void) lowered_machine.ResetError(ErrorSetType)!choice.Decision(ResumeType, AnswerType) {
                 const DecisionFn = @TypeOf(Policy.resumeOrReturn);
@@ -725,8 +727,8 @@ pub fn handleOptional(
             }
             /// Finish the optional request by applying cleanup and the policy's after-resume path.
             pub fn afterResume(state: OptionalState, value: ResumeType) lowered_machine.ResetError(ErrorSetType)!AnswerType {
-                if (cleanup.checkpoint() != state.cleanup_marker) {
-                    cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
+                if (state.cleanup_stack.checkpoint() != state.cleanup_marker) {
+                    state.cleanup_stack.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
                 }
                 const AfterFn = @TypeOf(Policy.afterResume);
                 if (AfterFn == fn (ResumeType) AnswerType) return Policy.afterResume(value);
@@ -786,10 +788,12 @@ pub fn handleOptionalWithErrorSet(
     const hidden_program = internal.Program(ResumeType, AnswerType, RunErrorSetType, .{optional_request_op});
     const OptionalState = struct {
         cleanup_marker: ?*cleanup.Frame,
+        cleanup_stack: *cleanup.Stack,
     };
-    const cleanup_marker = cleanup.checkpoint();
+    const cleanup_stack = &runtime.core.cleanup;
+    const cleanup_marker = cleanup_stack.checkpoint();
     const specs = .{
-        internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker }, struct {
+        internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker, .cleanup_stack = cleanup_stack }, struct {
             /// Decide whether this public hook resumes or returns.
             pub fn resumeOrReturn(_: OptionalState, _: void) lowered_machine.ResetError(RunErrorSetType)!choice.Decision(ResumeType, AnswerType) {
                 const DecisionFn = @TypeOf(Policy.resumeOrReturn);
@@ -798,8 +802,8 @@ pub fn handleOptionalWithErrorSet(
             }
             /// Finish this public resumed path.
             pub fn afterResume(state: OptionalState, value: ResumeType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-                if (cleanup.checkpoint() != state.cleanup_marker) {
-                    cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
+                if (state.cleanup_stack.checkpoint() != state.cleanup_marker) {
+                    state.cleanup_stack.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
                 }
                 const AfterFn = @TypeOf(Policy.afterResume);
                 if (AfterFn == fn (ResumeType) AnswerType) return Policy.afterResume(value);
@@ -859,7 +863,7 @@ pub fn handleOptionalLexical(
     const OptionalState = struct {
         cleanup_marker: ?*cleanup.Frame,
     };
-    const cleanup_marker = cleanup.checkpoint();
+    const cleanup_marker = runtime.core.cleanup.checkpoint();
     const specs = .{
         internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker }, struct {
             /// Choose whether the lexical optional request resumes or returns now.
@@ -870,8 +874,8 @@ pub fn handleOptionalLexical(
             }
             /// Finish one resumed lexical optional answer by applying cleanup and the policy's final answer transform.
             pub fn afterResume(state: OptionalState, answer: AnswerType) lowered_machine.ResetError(ErrorSetType)!AnswerType {
-                if (cleanup.checkpoint() != state.cleanup_marker) {
-                    cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
+                if (runtime.core.cleanup.checkpoint() != state.cleanup_marker) {
+                    runtime.core.cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
                 }
                 const AfterFn = @TypeOf(Policy.afterResume);
                 if (AfterFn == fn (AnswerType) AnswerType) return Policy.afterResume(answer);
@@ -930,10 +934,12 @@ pub fn handleOptionalLexicalWithErrorSet(
     const hidden_program = internal.Program(AnswerType, AnswerType, RunErrorSetType, .{optional_request_op});
     const OptionalState = struct {
         cleanup_marker: ?*cleanup.Frame,
+        cleanup_stack: *cleanup.Stack,
     };
-    const cleanup_marker = cleanup.checkpoint();
+    const cleanup_stack = &config.runtime.core.cleanup;
+    const cleanup_marker = cleanup_stack.checkpoint();
     const specs = .{
-        internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker }, struct {
+        internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker, .cleanup_stack = cleanup_stack }, struct {
             /// Decide whether this public hook resumes or returns.
             pub fn resumeOrReturn(_: OptionalState, _: void) lowered_machine.ResetError(RunErrorSetType)!choice.Decision(ResumeType, AnswerType) {
                 const DecisionFn = @TypeOf(Policy.resumeOrReturn);
@@ -942,8 +948,8 @@ pub fn handleOptionalLexicalWithErrorSet(
             }
             /// Finish this public resumed path.
             pub fn afterResume(state: OptionalState, answer: AnswerType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-                if (cleanup.checkpoint() != state.cleanup_marker) {
-                    cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
+                if (state.cleanup_stack.checkpoint() != state.cleanup_marker) {
+                    state.cleanup_stack.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
                 }
                 const AfterFn = @TypeOf(Policy.afterResume);
                 if (AfterFn == fn (AnswerType) AnswerType) return Policy.afterResume(answer);
@@ -1060,13 +1066,15 @@ pub fn handleException(
     const hidden_program = internal.Program(AnswerType, AnswerType, ErrorSetType, .{exception_throw_op});
     const ExceptionState = struct {
         cleanup_marker: ?*cleanup.Frame,
+        cleanup_stack: *cleanup.Stack,
     };
-    const cleanup_marker = cleanup.checkpoint();
+    const cleanup_stack = &runtime.core.cleanup;
+    const cleanup_marker = cleanup_stack.checkpoint();
     const specs = .{
-        internal.handleAbort(exception_throw_op, ExceptionState{ .cleanup_marker = cleanup_marker }, struct {
+        internal.handleAbort(exception_throw_op, ExceptionState{ .cleanup_marker = cleanup_marker, .cleanup_stack = cleanup_stack }, struct {
             /// Convert one thrown payload into the caught answer while unwinding cleanup.
             pub fn directReturn(state: ExceptionState, payload: PayloadType) lowered_machine.ResetError(ErrorSetType)!AnswerType {
-                cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
+                state.cleanup_stack.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
                 const DirectFn = @TypeOf(Catch.directReturn);
                 if (DirectFn == fn (PayloadType) AnswerType) return Catch.directReturn(payload);
                 return try Catch.directReturn(payload);
@@ -1140,13 +1148,15 @@ pub fn handleExceptionWithErrorSetLexical(
     const hidden_program = internal.Program(AnswerType, AnswerType, RunErrorSetType, .{exception_throw_op});
     const ExceptionState = struct {
         cleanup_marker: ?*cleanup.Frame,
+        cleanup_stack: *cleanup.Stack,
     };
-    const cleanup_marker = cleanup.checkpoint();
+    const cleanup_stack = &config.runtime.core.cleanup;
+    const cleanup_marker = cleanup_stack.checkpoint();
     const specs = .{
-        internal.handleAbort(exception_throw_op, ExceptionState{ .cleanup_marker = cleanup_marker }, struct {
+        internal.handleAbort(exception_throw_op, ExceptionState{ .cleanup_marker = cleanup_marker, .cleanup_stack = cleanup_stack }, struct {
             /// Return directly through this public hook.
             pub fn directReturn(state: ExceptionState, payload: PayloadType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-                cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
+                state.cleanup_stack.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
                 const DirectFn = @TypeOf(Catch.directReturn);
                 if (DirectFn == fn (PayloadType) AnswerType) return Catch.directReturn(payload);
                 return try Catch.directReturn(payload);
@@ -1321,7 +1331,7 @@ pub fn handleResource(
         }
     };
 
-    cleanup.push(&frame.cleanup_frame);
+    runtime.core.cleanup.push(&frame.cleanup_frame);
     var body_error: ?lowered_machine.ResetError(ErrorSetType) = null;
     const contract = struct {
         const PromptTypeV = prompt_contract.Prompt(.resume_then_transform, AnswerType, AnswerType, ErrorSetType);
@@ -1337,7 +1347,7 @@ pub fn handleResource(
 
     const cleanup_marker = frame.cleanup_frame.previous;
     var cleanup_error: ?lowered_machine.ResetError(ErrorSetType) = null;
-    cleanup.unwindTo(cleanup_marker) catch |err| {
+    runtime.core.cleanup.unwindTo(cleanup_marker) catch |err| {
         cleanup_error = @errorCast(err);
     };
 
@@ -1450,7 +1460,7 @@ pub fn handleResourceWithErrorSetLexical(
         }
     };
 
-    cleanup.push(&frame.cleanup_frame);
+    config.runtime.core.cleanup.push(&frame.cleanup_frame);
     var body_error: ?lowered_machine.ResetError(RunErrorSetType) = null;
     const contract = struct {
         const PromptTypeV = prompt_contract.Prompt(.resume_then_transform, AnswerType, AnswerType, RunErrorSetType);
@@ -1466,7 +1476,7 @@ pub fn handleResourceWithErrorSetLexical(
 
     const cleanup_marker = frame.cleanup_frame.previous;
     var cleanup_error: ?lowered_machine.ResetError(RunErrorSetType) = null;
-    cleanup.unwindTo(cleanup_marker) catch |err| {
+    config.runtime.core.cleanup.unwindTo(cleanup_marker) catch |err| {
         cleanup_error = @errorCast(err);
     };
 

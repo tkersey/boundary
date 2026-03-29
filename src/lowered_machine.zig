@@ -1,4 +1,5 @@
 const interpreter = @import("interpreter");
+const portable_core = @import("portable_core");
 const std = @import("std");
 
 /// Public runtime misuse and semantic-contract errors surfaced by `shift`.
@@ -47,17 +48,14 @@ pub fn ResetError(comptime ErrorSet: type) type {
 /// Canonical thread-affine runtime backed by the lowered execution backend.
 pub const Runtime = struct {
     allocator: std.mem.Allocator,
+    core: portable_core.ExecutionCore,
     thread_id: std.Thread.Id,
-    state: enum {
-        alive,
-        destroyed,
-    } = .alive,
-    active_reset_count: usize = 0,
 
     /// Initialize a runtime on the current thread.
     pub fn init(allocator: std.mem.Allocator) Runtime {
         return .{
             .allocator = allocator,
+            .core = portable_core.ExecutionCore.init(allocator),
             .thread_id = std.Thread.getCurrentId(),
         };
     }
@@ -73,31 +71,35 @@ pub const Runtime = struct {
     /// Release runtime resources, returning an error on misuse.
     pub fn deinitChecked(self: *Runtime) RuntimeError!void {
         try self.ensureThread();
-        if (self.active_reset_count != 0) return error.RuntimeBusy;
-        self.state = .destroyed;
+        if (self.core.active_reset_count != 0) return error.RuntimeBusy;
+        self.core.state = .destroyed;
+        self.core.deinit();
+        if (portable_core.compatFrameRegistry().map.count() == 0) {
+            portable_core.compatFrameRegistry().deinit(self.allocator);
+        }
     }
 
     /// Confirm the runtime is live and accessed from the owning thread.
     pub fn ensureThread(self: *Runtime) RuntimeError!void {
         if (self.thread_id != std.Thread.getCurrentId()) return error.CrossThread;
-        if (self.state == .destroyed) return error.RuntimeDestroyed;
+        if (self.core.state == .destroyed) return error.RuntimeDestroyed;
     }
 };
 
 /// Return the allocator owned by the host runtime.
 pub fn runtimeAllocator(runtime: *const Runtime) std.mem.Allocator {
-    return runtime.allocator;
+    return runtime.core.allocator;
 }
 
 /// Enter one frontend execution against the host runtime.
 pub fn beginExecution(runtime: *Runtime) RuntimeError!void {
     try runtime.ensureThread();
-    runtime.active_reset_count += 1;
+    runtime.core.active_reset_count += 1;
 }
 
 /// Leave one frontend execution against the host runtime.
 pub fn endExecution(runtime: *Runtime) void {
-    runtime.active_reset_count -= 1;
+    runtime.core.active_reset_count -= 1;
 }
 
 /// Stable scenario ids re-exported from the canonical scenario registry.

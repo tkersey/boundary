@@ -1,17 +1,10 @@
-const std = @import("std");
+const portable_core = @import("portable_core");
 
 /// Opaque prompt-identity token shared by canonical and compat prompt values.
-pub const PromptToken = usize;
-
-var prompt_token_mutex: std.Thread.Mutex = .{};
-var next_prompt_token: PromptToken = 1;
+pub const PromptToken = portable_core.PromptToken;
 
 fn allocatePromptToken() PromptToken {
-    prompt_token_mutex.lock();
-    defer prompt_token_mutex.unlock();
-    const token = next_prompt_token;
-    next_prompt_token += 1;
-    return token;
+    return portable_core.compatPromptTokens().allocate();
 }
 
 /// Comptime-selected handler protocol attached to a prompt value.
@@ -64,6 +57,16 @@ pub fn Prompt(
         /// Create a fresh prompt value with distinct delimiter identity.
         pub fn init() @This() {
             return .{ .token = allocatePromptToken() };
+        }
+
+        /// Create one prompt value from an already allocated token.
+        pub fn initWithToken(token: PromptToken) @This() {
+            return .{ .token = token };
+        }
+
+        /// Create a fresh prompt value from an explicit token source.
+        pub fn initWithSource(source: *portable_core.PromptTokenSource) @This() {
+            return .{ .token = source.allocate() };
         }
     };
 }

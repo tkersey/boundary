@@ -179,6 +179,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const portable_core_mod = b.createModule(.{
+        .root_source_file = b.path("src/portable_core.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const error_witness_mod = b.createModule(.{
         .root_source_file = b.path("src/error_witness.zig"),
         .target = target,
@@ -194,7 +199,10 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    prompt_contract_support_mod.addImport("portable_core", portable_core_mod);
     frontend_support_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
+    frontend_support_mod.addImport("portable_core", portable_core_mod);
+    shift_mod.addImport("portable_core", portable_core_mod);
     shift_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
     shift_mod.addImport("frontend_support", frontend_support_mod);
     shift_mod.addImport("error_witness", error_witness_mod);
@@ -219,6 +227,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    lowered_machine_mod.addImport("portable_core", portable_core_mod);
     const effect_ir_mod = b.createModule(.{
         .root_source_file = b.path("src/effect_ir.zig"),
         .target = target,
@@ -313,6 +322,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    with_api_mod.addImport("portable_core", portable_core_mod);
     with_api_mod.addImport("frontend_support", frontend_support_mod);
     with_api_mod.addImport("lowered_machine", lowered_machine_mod);
     with_api_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
@@ -329,6 +339,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    lexical_runtime_internal_mod.addImport("portable_core", portable_core_mod);
     lexical_runtime_internal_mod.addImport("frontend_support", frontend_support_mod);
     lexical_runtime_internal_mod.addImport("lowered_machine", lowered_machine_mod);
     lexical_runtime_internal_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
@@ -438,6 +449,7 @@ pub fn build(b: *std.Build) void {
     lib_check.root_module.addImport("effect_ir", effect_ir_mod);
     lib_check.root_module.addImport("interpreter", interpreter_mod);
     lib_check.root_module.addImport("lowered_machine", lowered_machine_mod);
+    lib_check.root_module.addImport("portable_core", portable_core_mod);
     lib_check.root_module.addImport("source_lowering", source_lowering_mod);
     lib_check.root_module.addImport("error_witness", error_witness_mod);
     check_step.dependOn(&lib_check.step);
@@ -452,6 +464,7 @@ pub fn build(b: *std.Build) void {
     root_tests.root_module.addImport("effect_ir", effect_ir_mod);
     root_tests.root_module.addImport("interpreter", interpreter_mod);
     root_tests.root_module.addImport("lowered_machine", lowered_machine_mod);
+    root_tests.root_module.addImport("portable_core", portable_core_mod);
     root_tests.root_module.addImport("source_lowering", source_lowering_mod);
     root_tests.root_module.addImport("error_witness", error_witness_mod);
     root_tests.root_module.addImport("prompt_contract_support", prompt_contract_support_mod);
@@ -502,6 +515,23 @@ pub fn build(b: *std.Build) void {
     const runtime_contract_step = b.step("runtime-contract-suite", "Run executable lowered-runtime contract cases for the remaining runtime obligations.");
     runtime_contract_step.dependOn(&run_runtime_contract_tests.step);
     test_step.dependOn(&run_runtime_contract_tests.step);
+    const compat_runtime_contract_step = b.step("compat-runtime-contract-check", "Check that legacy Runtime misuse semantics still hold through the compat shell.");
+    compat_runtime_contract_step.dependOn(&run_runtime_contract_tests.step);
+
+    const prompt_token_contract_mod = b.createModule(.{
+        .root_source_file = b.path("test/prompt_token_contract_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    prompt_token_contract_mod.addImport("portable_core", portable_core_mod);
+    prompt_token_contract_mod.addImport("prompt_support", prompt_support_mod);
+    const prompt_token_tests = b.addTest(.{
+        .root_module = prompt_token_contract_mod,
+    });
+    const run_prompt_token_tests = b.addRunArtifact(prompt_token_tests);
+    const prompt_token_contract_step = b.step("prompt-token-contract-check", "Check explicit prompt-token construction and source-backed token allocation.");
+    prompt_token_contract_step.dependOn(&run_prompt_token_tests.step);
+    test_step.dependOn(&run_prompt_token_tests.step);
 
     const backend_parity_mod = b.createModule(.{
         .root_source_file = b.path("test/backend_parity_test.zig"),
@@ -945,6 +975,18 @@ pub fn build(b: *std.Build) void {
     const interpreter_portability_cmd = b.addRunArtifact(interpreter_portability_exe);
     const interpreter_portability_step = b.step("interpreter-portability-check", "Fail closed if the interpreter core takes on TLS or thread-affinity assumptions.");
     interpreter_portability_step.dependOn(&interpreter_portability_cmd.step);
+    const portable_core_mod_check = b.createModule(.{
+        .root_source_file = b.path("tools/check_portable_core.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const portable_core_exe = b.addExecutable(.{
+        .name = "shift-portable-core-check",
+        .root_module = portable_core_mod_check,
+    });
+    const portable_core_cmd = b.addRunArtifact(portable_core_exe);
+    const portable_core_step = b.step("portable-core-check", "Fail closed if the portable core takes on TLS or thread-affinity assumptions.");
+    portable_core_step.dependOn(&portable_core_cmd.step);
     const retired_lane_inventory_mod = b.createModule(.{
         .root_source_file = b.path("tools/check_retired_lane_inventory.zig"),
         .target = target,
@@ -966,6 +1008,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(public_error_api_ban_step);
     test_step.dependOn(public_root_snapshot_step);
     test_step.dependOn(interpreter_portability_step);
+    test_step.dependOn(portable_core_step);
     test_step.dependOn(retired_lane_inventory_step);
     test_step.dependOn(error_witness_equivalence_step);
 
@@ -1230,6 +1273,8 @@ pub fn build(b: *std.Build) void {
     const lexical_with_step = b.step("lexical-with-suite", "Run the lexical descriptor/runtime helper proof surface.");
     lexical_with_step.dependOn(&run_lexical_with_tests.step);
     test_step.dependOn(&run_lexical_with_tests.step);
+    const cleanup_contract_step = b.step("cleanup-contract-check", "Check cleanup-stack and resource cleanup contracts through the existing lexical/resource proof surface.");
+    cleanup_contract_step.dependOn(&run_lexical_with_tests.step);
 
     const shipped_frontier_registry_mod = b.createModule(.{
         .root_source_file = b.path("src/shipped_surface_frontier_registry.zig"),

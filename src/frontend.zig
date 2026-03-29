@@ -1,4 +1,5 @@
 const lowered_machine = @import("lowered_machine");
+const portable_core = @import("portable_core");
 const prompt_contract = @import("prompt_contract_support");
 const std = @import("std");
 
@@ -8,9 +9,6 @@ const FrameBase = struct {
     prompt_token: prompt_contract.PromptToken,
     previous_for_token: ?*FrameBase = null,
 };
-
-var active_frame_registry_mutex: std.Thread.Mutex = .{};
-var active_frame_registry: std.AutoHashMapUnmanaged(prompt_contract.PromptToken, *FrameBase) = .empty;
 
 fn PromptTypeFromPtr(comptime PromptPtrType: type) type {
     return switch (@typeInfo(PromptPtrType)) {
@@ -756,29 +754,20 @@ fn Frame(comptime PromptType: type) type {
 }
 
 fn findFrame(comptime PromptType: type, prompt: *const PromptType) ?*Frame(PromptType) {
-    active_frame_registry_mutex.lock();
-    defer active_frame_registry_mutex.unlock();
-    const base = active_frame_registry.get(prompt.token) orelse return null;
+    const base = portable_core.compatFrameRegistry().find(*FrameBase, prompt.token) orelse return null;
     return @fieldParentPtr("base", base);
 }
 
-fn pushActiveFrame(base: *FrameBase) lowered_machine.Error!void {
-    active_frame_registry_mutex.lock();
-    defer active_frame_registry_mutex.unlock();
-
-    base.previous_for_token = active_frame_registry.get(base.prompt_token);
-    active_frame_registry.put(std.heap.page_allocator, base.prompt_token, base) catch return error.ProgramContractViolation;
+fn pushActiveFrame(runtime: *lowered_machine.Runtime, base: *FrameBase) lowered_machine.Error!void {
+    const previous = runtime.core.frames.push(runtime.core.allocator, base.prompt_token, base) catch return error.ProgramContractViolation;
+    base.previous_for_token = if (previous) |raw| @ptrCast(@alignCast(raw)) else null;
+    _ = portable_core.compatFrameRegistry().push(runtime.core.allocator, base.prompt_token, base) catch return error.ProgramContractViolation;
 }
 
-fn popActiveFrame(base: *FrameBase) void {
-    active_frame_registry_mutex.lock();
-    defer active_frame_registry_mutex.unlock();
-
-    if (base.previous_for_token) |previous| {
-        active_frame_registry.getPtr(base.prompt_token).?.* = previous;
-    } else {
-        _ = active_frame_registry.remove(base.prompt_token);
-    }
+fn popActiveFrame(runtime: *lowered_machine.Runtime, base: *FrameBase) void {
+    const previous: ?*anyopaque = if (base.previous_for_token) |prior| @ptrCast(prior) else null;
+    runtime.core.frames.pop(base.prompt_token, previous);
+    portable_core.compatFrameRegistry().pop(base.prompt_token, previous);
     base.previous_for_token = null;
 }
 
@@ -848,8 +837,8 @@ pub fn run(
         .compute => |node| {
             var frame = Frame(PromptType).init(lowered_machine.runtimeAllocator(runtime), prompt);
             defer frame.deinit();
-            try pushActiveFrame(&frame.base);
-            defer popActiveFrame(&frame.base);
+            try pushActiveFrame(runtime, &frame.base);
+            defer popActiveFrame(runtime, &frame.base);
 
             const value = node.invokeFn(node.ctx) catch |err| switch (err) {
                 error.FrontendSuspend => {
