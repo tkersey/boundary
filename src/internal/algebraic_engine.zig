@@ -402,8 +402,25 @@ fn Binding(
             return PromptTypeForOp(Op, ContinueAnswer, Answer, ProgramErrorSet(Continuation));
         }
 
+        fn ProgramErrorSetWithContext(comptime ContextPtrType: type, comptime Continuation: type) type {
+            return ErrorSet || ReturnTypeErrorSet(@TypeOf(Continuation.apply(dummyValue(ContextPtrType), dummyValue(Op.Resume))));
+        }
+
+        fn ProgramPromptTypeWithContext(comptime ContextPtrType: type, comptime Continuation: type) type {
+            const ReturnType = @TypeOf(Continuation.apply(dummyValue(ContextPtrType), dummyValue(Op.Resume)));
+            const ContinueAnswerType = switch (@typeInfo(ReturnType)) {
+                .error_union => |err_union| err_union.payload,
+                else => ReturnType,
+            };
+            return PromptTypeForOp(Op, ContinueAnswerType, Answer, ProgramErrorSetWithContext(ContextPtrType, Continuation));
+        }
+
         fn promptRef(self: *@This(), comptime Continuation: anytype) *const ProgramPromptType(Continuation) {
             // Prompt layout is token-only, so reusing the active delimiter identity across widened error sets is safe.
+            return @ptrCast(&self.prompt);
+        }
+
+        fn promptRefWithContext(self: *@This(), comptime ContextPtrType: type, comptime Continuation: type) *const ProgramPromptTypeWithContext(ContextPtrType, Continuation) {
             return @ptrCast(&self.prompt);
         }
 
@@ -592,6 +609,28 @@ fn Binding(
                     break :blk frontend.abortProgram(PromptType, handler);
                 },
             };
+        }
+
+        /// Build one explicit frontend choice program with one runtime continuation context.
+        pub fn programWithContext(self: *@This(), payload: Op.Payload, continuation_ctx: anytype, comptime Continuation: type) frontend.Program(ProgramPromptTypeWithContext(@TypeOf(continuation_ctx), Continuation)) {
+            const BindingType = @This();
+            if (SpecType.builder_kind != .choice) @compileError("programWithContext currently supports only choice bindings");
+            const ProgramPrompt = ProgramPromptTypeWithContext(@TypeOf(continuation_ctx), Continuation);
+            const handler = struct {
+                /// Decide whether one explicit choice op resumes or returns now.
+                pub fn resumeOrReturn() lowered_machine.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
+                    return try BindingType.callResumeOrReturn(BindingType.active_binding.?.spec, BindingType.currentPayload());
+                }
+
+                /// Complete the enclosing answer after one explicit choice resume.
+                pub fn afterResume(answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
+                    return try BindingType.callAfterResume(BindingType.active_binding.?.spec, answer);
+                }
+            };
+
+            BindingType.pending_binding = self;
+            BindingType.pending_payload = payload;
+            return frontend.choiceProgramWithContext(ProgramPrompt, Op.Resume, handler, continuation_ctx, Continuation);
         }
 
         /// Build one explicit frontend program that closes over this binding directly.
@@ -807,6 +846,24 @@ pub fn Program(
                             .deactivateFn = BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, index).deactivatePending,
                         };
                     }
+
+                    /// Build one explicit program for a declared choice operation and one runtime continuation context.
+                    pub fn performProgramWithContext(
+                        self: *Context,
+                        comptime Op: type,
+                        payload: Op.Payload,
+                        continuation_ctx: anytype,
+                        comptime Continuation: type,
+                    ) frontend.BoundProgram(BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, findOpIndex(Op)).ProgramPromptTypeWithContext(@TypeOf(continuation_ctx), Continuation)) {
+                        const index = comptime findOpIndex(Op);
+                        const binding = self.bindings.bindingPtr(index);
+                        return .{
+                            .prompt = binding.promptRefWithContext(@TypeOf(continuation_ctx), Continuation),
+                            .program = binding.programWithContext(payload, continuation_ctx, Continuation),
+                            .activateFn = BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, index).activatePending,
+                            .deactivateFn = BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, index).deactivatePending,
+                        };
+                    }
                 };
 
                 /// Run the configured program under the supplied runtime.
@@ -831,18 +888,12 @@ pub fn Program(
                         bindings = BindingsType.initWithToken(self.specs, prompt.token);
                         ctx = .{ .bindings = &bindings };
                     }
-                    const body_ctx_shim = struct {
-                        threadlocal var active_ctx: ?*Context = null;
-                    };
-                    const previous_ctx = body_ctx_shim.active_ctx;
-                    body_ctx_shim.active_ctx = &ctx;
-                    defer body_ctx_shim.active_ctx = previous_ctx;
-                    return try frontend.run(runtime, &prompt, frontend.computeProgram(PromptType, struct {
-                        fn invoke() lowered_machine.ResetError(ErrorSet)!Answer {
+                    return try frontend.run(runtime, &prompt, frontend.computeProgramWithContext(PromptType, &ctx, struct {
+                        fn invoke(active_ctx: *Context) lowered_machine.ResetError(ErrorSet)!Answer {
                             const BodyFn = @TypeOf(Body.body);
                             const ReturnType = @typeInfo(BodyFn).@"fn".return_type.?;
-                            if (@typeInfo(ReturnType) != .error_union) return Body.body(body_ctx_shim.active_ctx.?);
-                            return try Body.body(body_ctx_shim.active_ctx.?);
+                            if (@typeInfo(ReturnType) != .error_union) return Body.body(active_ctx);
+                            return try Body.body(active_ctx);
                         }
                     }.invoke));
                 }

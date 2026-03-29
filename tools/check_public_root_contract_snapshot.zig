@@ -6,6 +6,7 @@ const expected_snapshot =
     \\    "compat",
     \\    "effect",
     \\    "ir",
+    \\    "interpreter",
     \\    "With",
     \\    "with",
     \\    "Runtime",

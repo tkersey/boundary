@@ -18,6 +18,7 @@ test "prompt shell stays compact" {
 test "public root exposes the lexical surface plus kernel compatibility aliases" {
     try std.testing.expect(@hasDecl(shift, "compat"));
     try std.testing.expect(@hasDecl(shift, "effect"));
+    try std.testing.expect(@hasDecl(shift, "interpreter"));
     try std.testing.expect(@hasDecl(shift, "With"));
     try std.testing.expect(@hasDecl(shift, "with"));
     try std.testing.expect(@hasDecl(shift, "ir"));
@@ -59,9 +60,22 @@ test "public root exposes the lexical surface plus kernel compatibility aliases"
     try std.testing.expect(@hasDecl(shift.compat, "Program"));
     try std.testing.expect(@hasDecl(shift.compat, "run"));
     try std.testing.expect(!@hasDecl(shift.compat, "effect"));
+    try std.testing.expect(!@hasDecl(shift.compat, "interpreter"));
     try std.testing.expect(!@hasDecl(shift.compat, "With"));
     try std.testing.expect(!@hasDecl(shift.compat, "with"));
     try std.testing.expect(!@hasDecl(shift.compat, "ir"));
+}
+
+test "public interpreter runs pure step data without host runtime ownership" {
+    const state = shift.interpreter.runSteps(&.{
+        .{ .set_active_prompt = .primary },
+        .{ .emit = .{ .note = "queued" } },
+        .{ .set_final = .{ .string = "done" } },
+    });
+
+    try std.testing.expectEqual(@as(usize, 1), shift.interpreter.events(&state).len);
+    try std.testing.expectEqual(@as(usize, 0), shift.interpreter.checkpoints(&state).len);
+    try std.testing.expectEqual(@as(?shift.interpreter.PromptId, .primary), state.active_prompt);
 }
 
 test "public runtime error surface still exposes the current contract" {

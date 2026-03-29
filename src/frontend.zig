@@ -6,10 +6,11 @@ const EncodedValue = lowered_machine.ProgramValue;
 
 const FrameBase = struct {
     prompt_token: prompt_contract.PromptToken,
-    parent: ?*FrameBase = null,
+    previous_for_token: ?*FrameBase = null,
 };
 
-threadlocal var active_frame: ?*FrameBase = null;
+var active_frame_registry_mutex: std.Thread.Mutex = .{};
+var active_frame_registry: std.AutoHashMapUnmanaged(prompt_contract.PromptToken, *FrameBase) = .empty;
 
 fn PromptTypeFromPtr(comptime PromptPtrType: type) type {
     return switch (@typeInfo(PromptPtrType)) {
@@ -223,10 +224,14 @@ pub fn Program(comptime PromptType: type) type {
         },
         choice: struct {
             decisionFn: *const fn () lowered_machine.ControlError(PromptType.ErrorSet)!DecisionValue(PromptType),
-            continueFn: *const fn (EncodedValue) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
+            continue_ctx: ?*anyopaque,
+            continueFn: *const fn (?*anyopaque, EncodedValue) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
             afterResumeFn: AfterResumeFn(PromptType),
         },
-        compute: *const fn () lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
+        compute: struct {
+            ctx: ?*anyopaque,
+            invokeFn: *const fn (?*anyopaque) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer,
+        },
         pure: PromptType.InAnswer,
         transform: struct {
             resumeValueFn: *const fn () lowered_machine.ControlError(PromptType.ErrorSet)!EncodedValue,
@@ -281,7 +286,36 @@ pub fn computeProgram(
     comptime PromptType: type,
     thunk: anytype,
 ) Program(PromptType) {
-    return .{ .compute = normalizeBodyFn(PromptType, thunk) };
+    return .{
+        .compute = .{
+            .ctx = null,
+            .invokeFn = struct {
+                fn invoke(_: ?*anyopaque) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
+                    return try normalizeBodyFn(PromptType, thunk)();
+                }
+            }.invoke,
+        },
+    };
+}
+
+/// Build an explicit compute program whose thunk receives one explicit context pointer.
+pub fn computeProgramWithContext(
+    comptime PromptType: type,
+    ctx: anytype,
+    thunk: anytype,
+) Program(PromptType) {
+    const ContextPtrType = @TypeOf(ctx);
+    return .{
+        .compute = .{
+            .ctx = @ptrCast(ctx),
+            .invokeFn = struct {
+                fn invoke(raw_ctx: ?*anyopaque) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
+                    const typed_ctx: ContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
+                    return try thunk(typed_ctx);
+                }
+            }.invoke,
+        },
+    };
 }
 
 /// Build one explicit transform program with a single resumptive operation.
@@ -311,6 +345,51 @@ pub fn transformProgram(
     };
 }
 
+/// Build one explicit choice program whose continuation receives one explicit runtime context pointer.
+pub fn choiceProgramWithContext(
+    comptime PromptType: type,
+    comptime Resume: type,
+    comptime Handler: type,
+    continuation_ctx: anytype,
+    comptime Continuation: type,
+) Program(PromptType) {
+    const ContextPtrType = @TypeOf(continuation_ctx);
+    const ContextFn = @TypeOf(Continuation.apply);
+    comptime assertPromptTypeMode(PromptType, .resume_or_return, "choiceProgramWithContext");
+    comptime assertHandlerProtocol(Resume, PromptType, Handler);
+    comptime {
+        if (!@hasDecl(Continuation, "apply")) @compileError("contextual lexical choice continuation must declare apply(ctx, value)");
+        if (!fnParamsMatch(ContextFn, &.{ ContextPtrType, Resume }) or !fnReturnMatches(ContextFn, PromptType.InAnswer)) {
+            @compileError("contextual lexical choice continuation apply must have type fn (Ctx, Resume) InAnswer or fn (Ctx, Resume) ResetError(ErrorSet)!InAnswer");
+        }
+    }
+    return .{
+        .choice = .{
+            .decisionFn = struct {
+                fn invoke() lowered_machine.ControlError(PromptType.ErrorSet)!DecisionValue(PromptType) {
+                    const decision = try callResumeOrReturn(Resume, PromptType, Handler);
+                    return switch (decision) {
+                        .resume_with => |value| .{ .resume_with = try encodeValue(Resume, value) },
+                        .return_now => |answer| .{ .return_now = answer },
+                    };
+                }
+            }.invoke,
+            .continue_ctx = @ptrCast(continuation_ctx),
+            .continueFn = struct {
+                fn invoke(raw_ctx: ?*anyopaque, value: EncodedValue) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
+                    const typed_ctx: ContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
+                    const ReturnType = @TypeOf(Continuation.apply(typed_ctx, decodeValue(Resume, value)));
+                    if (@typeInfo(ReturnType) == .error_union) {
+                        return Continuation.apply(typed_ctx, decodeValue(Resume, value)) catch |err| return @errorCast(err);
+                    }
+                    return Continuation.apply(typed_ctx, decodeValue(Resume, value));
+                }
+            }.invoke,
+            .afterResumeFn = afterResumeThunk(PromptType, Handler),
+        },
+    };
+}
+
 /// Build one explicit choice program with a single zero-or-one-resume operation.
 pub fn choiceProgram(
     comptime PromptType: type,
@@ -332,8 +411,9 @@ pub fn choiceProgram(
                     };
                 }
             }.invoke,
+            .continue_ctx = null,
             .continueFn = struct {
-                fn invoke(value: EncodedValue) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
+                fn invoke(_: ?*anyopaque, value: EncodedValue) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.InAnswer {
                     return try callContinuation(Resume, PromptType, Continuation, decodeValue(Resume, value));
                 }
             }.invoke,
@@ -383,24 +463,6 @@ fn normalizeBodyFn(
     @compileError("expected authored body with type fn () InAnswer or fn () ResetError(ErrorSet)!InAnswer");
 }
 
-/// Read the allocator from any runtime-like pointer that carries the canonical lifecycle fields.
-fn runtimeAllocator(runtime: anytype) std.mem.Allocator {
-    const RuntimePtrType = @TypeOf(runtime);
-    const RuntimeType = switch (@typeInfo(RuntimePtrType)) {
-        .pointer => |pointer| pointer.child,
-        else => @compileError("expected a pointer to a runtime value"),
-    };
-    if (!@hasField(RuntimeType, "allocator") or !@hasField(RuntimeType, "thread_id") or !@hasField(RuntimeType, "state") or !@hasField(RuntimeType, "active_reset_count")) {
-        @compileError("expected a runtime-like pointer with allocator/thread_id/state/active_reset_count");
-    }
-    return runtime.allocator;
-}
-
-fn ensureRuntime(runtime: anytype) lowered_machine.Error!void {
-    if (runtime.thread_id != std.Thread.getCurrentId()) return error.CrossThread;
-    if (runtime.state == .destroyed) return error.RuntimeDestroyed;
-}
-
 fn AfterResumeFn(comptime PromptType: type) type {
     return *const fn (PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer;
 }
@@ -443,22 +505,30 @@ fn Frame(comptime PromptType: type) type {
 }
 
 fn findFrame(comptime PromptType: type, prompt: *const PromptType) ?*Frame(PromptType) {
-    var base = active_frame;
-    while (base) |current| : (base = current.parent) {
-        if (current.prompt_token == prompt.token) {
-            return @fieldParentPtr("base", current);
-        }
-    }
-    return null;
+    active_frame_registry_mutex.lock();
+    defer active_frame_registry_mutex.unlock();
+    const base = active_frame_registry.get(prompt.token) orelse return null;
+    return @fieldParentPtr("base", base);
 }
 
-fn pushActiveFrame(base: *FrameBase) void {
-    base.parent = active_frame;
-    active_frame = base;
+fn pushActiveFrame(base: *FrameBase) lowered_machine.Error!void {
+    active_frame_registry_mutex.lock();
+    defer active_frame_registry_mutex.unlock();
+
+    base.previous_for_token = active_frame_registry.get(base.prompt_token);
+    active_frame_registry.put(std.heap.page_allocator, base.prompt_token, base) catch return error.ProgramContractViolation;
 }
 
 fn popActiveFrame(base: *FrameBase) void {
-    active_frame = base.parent;
+    active_frame_registry_mutex.lock();
+    defer active_frame_registry_mutex.unlock();
+
+    if (base.previous_for_token) |previous| {
+        active_frame_registry.getPtr(base.prompt_token).?.* = previous;
+    } else {
+        _ = active_frame_registry.remove(base.prompt_token);
+    }
+    base.previous_for_token = null;
 }
 
 fn encodeResume(
@@ -512,26 +582,25 @@ fn finalizeAnswer(
 
 /// Execute one authored body or first-class program under the supplied prompt.
 pub fn run(
-    runtime: anytype,
+    runtime: *lowered_machine.Runtime,
     prompt: anytype,
     program: Program(PromptTypeFromPtr(@TypeOf(prompt))),
 ) lowered_machine.ResetError(PromptErrorSetType(@TypeOf(prompt)))!PromptOutAnswerType(@TypeOf(prompt)) {
     const PromptType = PromptTypeFromPtr(@TypeOf(prompt));
 
-    try ensureRuntime(runtime);
-    runtime.active_reset_count += 1;
-    defer runtime.active_reset_count -= 1;
+    try lowered_machine.beginExecution(runtime);
+    defer lowered_machine.endExecution(runtime);
 
     switch (program) {
         .abort => |node| return lowered_machine.runExplicitAbort(PromptType, node) catch |err| return @errorCast(err),
         .choice => |node| return lowered_machine.runExplicitChoice(PromptType, node) catch |err| return @errorCast(err),
         .compute => |node| {
-            var frame = Frame(PromptType).init(runtimeAllocator(runtime), prompt);
+            var frame = Frame(PromptType).init(lowered_machine.runtimeAllocator(runtime), prompt);
             defer frame.deinit();
-            pushActiveFrame(&frame.base);
+            try pushActiveFrame(&frame.base);
             defer popActiveFrame(&frame.base);
 
-            const value = node() catch |err| switch (err) {
+            const value = node.invokeFn(node.ctx) catch |err| switch (err) {
                 error.FrontendSuspend => {
                     if (frame.terminal) |answer| return answer;
                     return error.FrontendSuspend;

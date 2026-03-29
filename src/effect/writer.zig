@@ -102,13 +102,22 @@ pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) t
         }
 
         /// Run one lexical writer descriptor through the existing writer family.
-        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, lexical_state: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             var instance = family.Instance(WriterState(ItemType), ErrorSetType).init();
-            const result = try handleWithErrorSet(.{
-                .Item = ItemType,
-                .Answer = AnswerType,
-                .ErrorSet = RunErrorSetType,
-            }, runtime, &instance, self.allocator, Body);
+            const writer_contract = struct {
+                /// Item type carried by this lexical writer helper.
+                pub const Item = ItemType;
+                /// Answer type carried by this lexical writer helper.
+                pub const Answer = AnswerType;
+                /// Writer state type carried by this lexical writer helper.
+                pub const WriterStateType = WriterState(ItemType);
+            };
+            const result = try algebraic.handleWriterWithErrorSetLexical(writer_contract, RunErrorSetType, .{
+                .runtime = runtime,
+                .instance = &instance,
+                .allocator = self.allocator,
+                .lexical_state = @constCast(lexical_state),
+            }, Body);
             return .{
                 .output = result.items,
                 .value = result.value,

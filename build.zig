@@ -224,8 +224,16 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const interpreter_mod = b.createModule(.{
+        .root_source_file = b.path("src/interpreter.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    interpreter_mod.addImport("parity_scenarios", parity_scenarios_mod);
     shift_mod.addImport("effect_ir", effect_ir_mod);
+    shift_mod.addImport("interpreter", interpreter_mod);
     lowered_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    lowered_machine_mod.addImport("interpreter", interpreter_mod);
     const authoring_lowerer_options = b.addOptions();
     const lowerer_opts_marker = true;
     authoring_lowerer_options.addOption([]const u8, "package_root", b.pathFromRoot("."));
@@ -411,6 +419,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    parity_kernel_mod.addImport("interpreter", interpreter_mod);
     parity_kernel_mod.addImport("lowered_machine", lowered_machine_mod);
     parity_kernel_mod.addImport("parity_scenarios", parity_scenarios_mod);
     reference_machine_mod.addImport("parity_kernel", parity_kernel_mod);
@@ -427,6 +436,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     lib_check.root_module.addImport("effect_ir", effect_ir_mod);
+    lib_check.root_module.addImport("interpreter", interpreter_mod);
     lib_check.root_module.addImport("lowered_machine", lowered_machine_mod);
     lib_check.root_module.addImport("source_lowering", source_lowering_mod);
     lib_check.root_module.addImport("error_witness", error_witness_mod);
@@ -440,6 +450,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     root_tests.root_module.addImport("effect_ir", effect_ir_mod);
+    root_tests.root_module.addImport("interpreter", interpreter_mod);
     root_tests.root_module.addImport("lowered_machine", lowered_machine_mod);
     root_tests.root_module.addImport("source_lowering", source_lowering_mod);
     root_tests.root_module.addImport("error_witness", error_witness_mod);
@@ -922,6 +933,18 @@ pub fn build(b: *std.Build) void {
     const public_root_snapshot_cmd = b.addRunArtifact(public_root_snapshot_exe);
     const public_root_snapshot_step = b.step("public-root-contract-snapshot-check", "Check the root-kernel public tombstone snapshot.");
     public_root_snapshot_step.dependOn(&public_root_snapshot_cmd.step);
+    const interpreter_portability_mod = b.createModule(.{
+        .root_source_file = b.path("tools/check_interpreter_portability.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const interpreter_portability_exe = b.addExecutable(.{
+        .name = "shift-interpreter-portability-check",
+        .root_module = interpreter_portability_mod,
+    });
+    const interpreter_portability_cmd = b.addRunArtifact(interpreter_portability_exe);
+    const interpreter_portability_step = b.step("interpreter-portability-check", "Fail closed if the interpreter core takes on TLS or thread-affinity assumptions.");
+    interpreter_portability_step.dependOn(&interpreter_portability_cmd.step);
     const retired_lane_inventory_mod = b.createModule(.{
         .root_source_file = b.path("tools/check_retired_lane_inventory.zig"),
         .target = target,
@@ -942,6 +965,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(src_lower_err_wit_step);
     test_step.dependOn(public_error_api_ban_step);
     test_step.dependOn(public_root_snapshot_step);
+    test_step.dependOn(interpreter_portability_step);
     test_step.dependOn(retired_lane_inventory_step);
     test_step.dependOn(error_witness_equivalence_step);
 

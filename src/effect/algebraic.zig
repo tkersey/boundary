@@ -8,13 +8,11 @@ const prompt_contract = @import("prompt_contract_support");
 const shift = @import("../root.zig");
 const std = @import("std");
 
-fn activeEngineContext(comptime Cap: type, ctx: anytype) *Cap.EngineContextType() {
+/// Resolve the shared engine context carried by one exact effect capability.
+pub fn activeEngineContext(comptime Cap: type, ctx: anytype) *Cap.EngineContextType() {
     comptime family.assertContextType(Cap, @TypeOf(ctx));
-    const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
-    const EngineContextType = Cap.EngineContextType();
-    const shim = family.EngineShim(ContextType, EngineContextType);
     _ = ctx._cap;
-    return shim.active_engine.?;
+    return @ptrCast(@alignCast(ctx._cap.engine_ctx.?));
 }
 
 fn computeProgramForPrompt(
@@ -25,11 +23,10 @@ fn computeProgramForPrompt(
 ) frontend.Program(PromptType) {
     comptime family.assertContextType(Cap, @TypeOf(ctx));
     const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
-    const shim = family.ProgramShimFor(ContextType);
     const ThunkType = @TypeOf(thunk);
     _ = ctx._cap;
-    return frontend.computeProgram(PromptType, struct {
-        fn invoke() lowered_machine.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
+    return frontend.computeProgramWithContext(PromptType, ctx, struct {
+        fn invoke(program_ctx: @TypeOf(ctx)) lowered_machine.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
             switch (@typeInfo(ThunkType)) {
                 .@"fn" => {
                     const params = @typeInfo(ThunkType).@"fn".params;
@@ -38,8 +35,8 @@ fn computeProgramForPrompt(
                         if (@typeInfo(ReturnType) != .error_union) return thunk();
                         return try thunk();
                     }
-                    if (@typeInfo(ReturnType) != .error_union) return thunk(Cap, shim.active_context.?);
-                    return try thunk(Cap, shim.active_context.?);
+                    if (@typeInfo(ReturnType) != .error_union) return thunk(Cap, program_ctx);
+                    return try thunk(Cap, program_ctx);
                 },
                 .pointer => |pointer| {
                     if (@typeInfo(pointer.child) == .@"fn") {
@@ -49,8 +46,8 @@ fn computeProgramForPrompt(
                             if (@typeInfo(ReturnType) != .error_union) return thunk();
                             return try thunk();
                         }
-                        if (@typeInfo(ReturnType) != .error_union) return thunk(Cap, shim.active_context.?);
-                        return try thunk(Cap, shim.active_context.?);
+                        if (@typeInfo(ReturnType) != .error_union) return thunk(Cap, program_ctx);
+                        return try thunk(Cap, program_ctx);
                     }
                 },
                 else => {},
@@ -63,8 +60,8 @@ fn computeProgramForPrompt(
                 if (@typeInfo(ReturnType) != .error_union) return thunk.run();
                 return try thunk.run();
             }
-            if (@typeInfo(ReturnType) != .error_union) return thunk.run(Cap, shim.active_context.?);
-            return try thunk.run(Cap, shim.active_context.?);
+            if (@typeInfo(ReturnType) != .error_union) return thunk.run(Cap, program_ctx);
+            return try thunk.run(Cap, program_ctx);
         }
     }.invoke);
 }
@@ -85,48 +82,33 @@ fn runWithSealedEngine(
         else => @compileError("expected engine context pointer"),
     };
 
+    const RunnerState = struct {
+        runtime: *shift.Runtime,
+        prompt_token: prompt_contract.PromptToken,
+        engine_ctx: *EngineContextType,
+        lexical_state: ?*anyopaque = null,
+    };
+    const runner_state = RunnerState{
+        .runtime = config.runtime,
+        .prompt_token = config.prompt_token,
+        .engine_ctx = config.engine_ctx,
+        .lexical_state = if (@hasField(@TypeOf(config), "lexical_state")) config.lexical_state else null,
+    };
+
     const runner = struct {
-        threadlocal var active_runtime: ?*shift.Runtime = null;
-        threadlocal var active_prompt_token: prompt_contract.PromptToken = 0;
-        threadlocal var active_engine_ctx: ?*EngineContextType = null;
-
         /// Run one sealed effect body with both exact context and shared engine context installed.
-        pub fn run(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSetType)!AnswerType {
-            const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
-            const context_shim = family.ProgramShimFor(ContextType);
-            const engine_shim = family.EngineShim(ContextType, EngineContextType);
-            var prompt = PromptType{ .token = active_prompt_token };
-
-            const previous_context = context_shim.active_context;
-            const previous_engine = engine_shim.active_engine;
-            context_shim.active_context = ctx;
-            engine_shim.active_engine = active_engine_ctx;
-            defer {
-                context_shim.active_context = previous_context;
-                engine_shim.active_engine = previous_engine;
-            }
-
+        pub fn run(state: RunnerState, comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSetType)!AnswerType {
+            var prompt = PromptType{ .token = state.prompt_token };
             if (comptime family.hasDeclSafe(Body, "program")) {
-                return try frontend.run(active_runtime.?, &prompt, Body.program(Cap, ctx));
+                return try frontend.run(state.runtime, &prompt, Body.program(Cap, ctx));
             }
             if (comptime family.hasDeclSafe(Body, "body")) {
-                return try frontend.run(active_runtime.?, &prompt, computeProgramForPrompt(Cap, ctx, PromptType, Body.body));
+                return try frontend.run(state.runtime, &prompt, computeProgramForPrompt(Cap, ctx, PromptType, Body.body));
             }
             @compileError("effect body must declare program or body");
         }
     };
-
-    const previous_runtime = runner.active_runtime;
-    const previous_prompt_token = runner.active_prompt_token;
-    const previous_engine_ctx = runner.active_engine_ctx;
-    runner.active_runtime = config.runtime;
-    runner.active_prompt_token = config.prompt_token;
-    runner.active_engine_ctx = config.engine_ctx;
-    defer runner.active_runtime = previous_runtime;
-    defer runner.active_prompt_token = previous_prompt_token;
-    defer runner.active_engine_ctx = previous_engine_ctx;
-
-    return try family.withCapability(family.ContextSpec(StateType, AnswerType, ErrorSetType), capability_decls, AnswerType, runner);
+    return try family.withCapability(family.ContextSpec(StateType, AnswerType, ErrorSetType), capability_decls, runner_state, AnswerType, runner);
 }
 
 /// Read the current state value through the shared algebraic engine.
@@ -236,12 +218,30 @@ pub fn handleStateWithErrorSet(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
-    const StateType = family.InstanceStateType(@TypeOf(instance));
+    return try handleStateWithErrorSetLexical(AnswerType, RunErrorSetType, .{
+        .runtime = runtime,
+        .instance = instance,
+        .initial_state = initial_state,
+        .lexical_state = null,
+    }, Body);
+}
+
+/// Handle the public state capability with an explicit lexical-state carrier.
+pub fn handleStateWithErrorSetLexical(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    config: anytype,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!family.HandleResult(
+    family.InstanceStateType(@TypeOf(config.instance)),
+    AnswerType,
+) {
+    const StateType = family.InstanceStateType(@TypeOf(config.instance));
     const get_state_op = internal.TransformOp("__effect_state_get", void, StateType);
     const set_state_op = internal.TransformOp("__effect_state_set", StateType, void);
     const hidden_program = internal.Program(AnswerType, AnswerType, RunErrorSetType, .{ get_state_op, set_state_op });
 
-    var state_cell = initial_state;
+    var state_cell = config.initial_state;
     const specs = .{
         internal.handleDirectTransform(get_state_op, &state_cell, struct {
             /// Provide the resumptive value for this public hook.
@@ -267,7 +267,7 @@ pub fn handleStateWithErrorSet(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithToken(specs, config.instance.prompt.token);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -296,7 +296,7 @@ pub fn handleStateWithErrorSet(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    const value = try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    const value = try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_token = config.instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
     return .{ .state = state_cell, .value = value };
 }
 
@@ -374,11 +374,26 @@ pub fn handleReaderWithErrorSet(
     environment: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    const StateType = family.InstanceStateType(@TypeOf(instance));
+    return try handleReaderWithErrorSetLexical(AnswerType, RunErrorSetType, .{
+        .runtime = runtime,
+        .instance = instance,
+        .environment = environment,
+        .lexical_state = null,
+    }, Body);
+}
+
+/// Handle the public reader capability with an explicit lexical-state carrier.
+pub fn handleReaderWithErrorSetLexical(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    config: anytype,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    const StateType = family.InstanceStateType(@TypeOf(config.instance));
     const reader_ask_op = internal.TransformOp("__effect_reader_ask", void, StateType);
     const hidden_program = internal.Program(AnswerType, AnswerType, RunErrorSetType, .{reader_ask_op});
 
-    var env_value = environment;
+    var env_value = config.environment;
     const specs = .{
         internal.handleDirectTransform(reader_ask_op, &env_value, struct {
             /// Provide the resumptive value for this public hook.
@@ -394,7 +409,7 @@ pub fn handleReaderWithErrorSet(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithToken(specs, config.instance.prompt.token);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -418,7 +433,7 @@ pub fn handleReaderWithErrorSet(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_token = config.instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
 }
 
 /// Append one item through the shared algebraic engine.
@@ -507,13 +522,31 @@ pub fn handleWriterWithErrorSet(
     items: []WriterContract.Item,
     value: WriterContract.Answer,
 } {
+    return try handleWriterWithErrorSetLexical(WriterContract, RunErrorSetType, .{
+        .runtime = runtime,
+        .instance = instance,
+        .allocator = allocator,
+        .lexical_state = null,
+    }, Body);
+}
+
+/// Handle the public writer capability with an explicit lexical-state carrier.
+pub fn handleWriterWithErrorSetLexical(
+    comptime WriterContract: type,
+    comptime RunErrorSetType: type,
+    config: anytype,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!struct {
+    items: []WriterContract.Item,
+    value: WriterContract.Answer,
+} {
     const ItemType = WriterContract.Item;
     const AnswerType = WriterContract.Answer;
     const WriterStateType = WriterContract.WriterStateType;
     const writer_tell_op = internal.TransformOp("__effect_writer_tell", ItemType, void);
     const hidden_program = internal.Program(AnswerType, AnswerType, RunErrorSetType, .{writer_tell_op});
 
-    var writer_state = WriterStateType.init(allocator);
+    var writer_state = WriterStateType.init(config.allocator);
     errdefer writer_state.deinit();
     const specs = .{
         internal.handleDirectTransform(writer_tell_op, &writer_state, struct {
@@ -530,7 +563,7 @@ pub fn handleWriterWithErrorSet(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithToken(specs, config.instance.prompt.token);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -554,7 +587,7 @@ pub fn handleWriterWithErrorSet(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    const value = try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    const value = try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_token = config.instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
     const items = try writer_state.intoOwnedSlice();
     return .{ .items = items, .value = value };
 }
@@ -633,6 +666,17 @@ pub inline fn optionalRequestBoundProgram(
 ) @TypeOf(activeEngineContext(Cap, ctx).performProgram(Cap.RequestOp(), {}, Continuation)) {
     comptime family.assertContextType(Cap, @TypeOf(ctx));
     return activeEngineContext(Cap, ctx).performProgram(Cap.RequestOp(), {}, Continuation);
+}
+
+/// Build one bound optional request program for the supplied capability, runtime continuation context, and continuation type.
+pub inline fn optionalRequestBoundProgramWithContext(
+    comptime Cap: type,
+    ctx: anytype,
+    continuation_ctx: anytype,
+    comptime Continuation: type,
+) @TypeOf(activeEngineContext(Cap, ctx).performProgramWithContext(Cap.RequestOp(), {}, continuation_ctx, Continuation)) {
+    comptime family.assertContextType(Cap, @TypeOf(ctx));
+    return activeEngineContext(Cap, ctx).performProgramWithContext(Cap.RequestOp(), {}, continuation_ctx, Continuation);
 }
 
 /// Build one explicit optional body program with no request operation.
@@ -872,13 +916,12 @@ pub fn handleOptionalLexical(
 pub fn handleOptionalLexicalWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
-    runtime: *shift.Runtime,
-    instance: anytype,
+    config: anytype,
     comptime Policy: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    const ResumeType = family.InstanceStateType(@TypeOf(instance));
-    const ErrorSetType = family.InstanceErrorSetType(@TypeOf(instance));
+    const ResumeType = family.InstanceStateType(@TypeOf(config.instance));
+    const ErrorSetType = family.InstanceErrorSetType(@TypeOf(config.instance));
     comptime assertOptionalLexicalPolicyType(ResumeType, AnswerType, ErrorSetType, Policy);
 
     const optional_request_op = internal.ChoiceOp("__effect_optional_request", void, ResumeType);
@@ -909,7 +952,7 @@ pub fn handleOptionalLexicalWithErrorSet(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithToken(specs, config.instance.prompt.token);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -938,7 +981,7 @@ pub fn handleOptionalLexicalWithErrorSet(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_token = config.instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
 }
 
 /// Assert the catch policy shape required by an exception family.
@@ -1072,8 +1115,23 @@ pub fn handleExceptionWithErrorSet(
     comptime Catch: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    const PayloadType = family.InstanceStateType(@TypeOf(instance));
-    const ErrorSetType = family.InstanceErrorSetType(@TypeOf(instance));
+    return try handleExceptionWithErrorSetLexical(AnswerType, RunErrorSetType, .{
+        .runtime = runtime,
+        .instance = instance,
+        .lexical_state = null,
+    }, Catch, Body);
+}
+
+/// Handle the public exception capability with an explicit lexical-state carrier.
+pub fn handleExceptionWithErrorSetLexical(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    config: anytype,
+    comptime Catch: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    const PayloadType = family.InstanceStateType(@TypeOf(config.instance));
+    const ErrorSetType = family.InstanceErrorSetType(@TypeOf(config.instance));
     comptime assertCatchType(PayloadType, AnswerType, ErrorSetType, Catch);
 
     const exception_throw_op = internal.AbortOp("__effect_exception_throw", PayloadType);
@@ -1096,7 +1154,7 @@ pub fn handleExceptionWithErrorSet(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithToken(specs, config.instance.prompt.token);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -1125,7 +1183,7 @@ pub fn handleExceptionWithErrorSet(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_token = config.instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
 }
 
 /// Assert the manager shape required by a bracketed resource family.
@@ -1295,8 +1353,23 @@ pub fn handleResourceWithErrorSet(
     comptime Manager: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    const ResourceType = family.InstanceStateType(@TypeOf(instance));
-    const ErrorSetType = family.InstanceErrorSetType(@TypeOf(instance));
+    return try handleResourceWithErrorSetLexical(AnswerType, RunErrorSetType, .{
+        .runtime = runtime,
+        .instance = instance,
+        .lexical_state = null,
+    }, Manager, Body);
+}
+
+/// Handle the public resource capability with an explicit lexical-state carrier.
+pub fn handleResourceWithErrorSetLexical(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    config: anytype,
+    comptime Manager: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    const ResourceType = family.InstanceStateType(@TypeOf(config.instance));
+    const ErrorSetType = family.InstanceErrorSetType(@TypeOf(config.instance));
     comptime assertManagerType(ResourceType, ErrorSetType, Manager);
 
     const resource_acquire_op = internal.TransformOp("__effect_resource_acquire", void, ResourceType);
@@ -1333,7 +1406,7 @@ pub fn handleResourceWithErrorSet(
         }
     };
 
-    var frame = Frame{ .allocator = runtime.allocator };
+    var frame = Frame{ .allocator = config.runtime.allocator };
     defer frame.deinit();
     const specs = .{
         internal.handleDirectTransform(resource_acquire_op, &frame, struct {
@@ -1353,7 +1426,7 @@ pub fn handleResourceWithErrorSet(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithToken(specs, config.instance.prompt.token);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -1384,7 +1457,7 @@ pub fn handleResourceWithErrorSet(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    const answer = runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body) catch |err| blk: {
+    const answer = runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_token = config.instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body) catch |err| blk: {
         body_error = err;
         break :blk null;
     };

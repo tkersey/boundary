@@ -54,6 +54,16 @@ pub fn WithResult(comptime HandlersType: type, comptime Answer: type) type {
     };
 }
 
+/// Explicit lexical rebinding packet threaded through `shift.with(...)` continuations.
+pub fn LexicalState(comptime HandlersType: type, comptime EffType: type) type {
+    return struct {
+        runtime: *lowered_machine.Runtime,
+        handlers_ptr: *HandlersType,
+        eff_value: EffType,
+        outputs_ptr: *OutputBundleType(HandlersType),
+    };
+}
+
 fn hasClosedOutputDecl(comptime HandlerType: type) bool {
     return hasDeclSafe(HandlerType, "Output");
 }
@@ -294,6 +304,25 @@ fn PreviewEngineContext(comptime ErrorSet: type) type {
         )) {
             unreachable;
         }
+
+        /// Build this public explicit program with one runtime continuation context.
+        pub fn performProgramWithContext(
+            _: *@This(),
+            comptime Op: type,
+            _: Op.Payload,
+            _: anytype,
+            comptime Continuation: type,
+        ) frontend.BoundProgram(prompt_contract.Prompt(
+            Op.mode,
+            Op.Resume,
+            switch (@typeInfo(@TypeOf(Continuation.apply(dummyValue(@typeInfo(@TypeOf(Continuation.apply)).@"fn".params[0].type.?), dummyValue(Op.Resume))))) {
+                .error_union => |err_union| err_union.payload,
+                else => @TypeOf(Continuation.apply(dummyValue(@typeInfo(@TypeOf(Continuation.apply)).@"fn".params[0].type.?), dummyValue(Op.Resume))),
+            },
+            ErrorSet || ReturnTypeErrorSet(@TypeOf(Continuation.apply(dummyValue(@typeInfo(@TypeOf(Continuation.apply)).@"fn".params[0].type.?), dummyValue(Op.Resume)))),
+        )) {
+            unreachable;
+        }
     };
 }
 
@@ -308,6 +337,8 @@ fn PreviewCapabilityType(comptime DescriptorType: type, comptime ErrorSet: type)
     const StateType = DescriptorType.State;
     const WriterItemType = PreviewWriterItemType(DescriptorType);
     return struct {
+        engine_ctx: ?*anyopaque = null,
+
         /// Return the engine context type for this public helper.
         pub fn EngineContextType() type {
             return PreviewEngineContext(ErrorSet);
@@ -400,8 +431,8 @@ fn PreviewCapabilityType(comptime DescriptorType: type, comptime ErrorSet: type)
 }
 
 fn PreviewContextPtrType(comptime DescriptorType: type, comptime ErrorSet: type) type {
-    const preview_capability = PreviewCapabilityType(DescriptorType, ErrorSet);
-    return *family.Context(preview_capability, DescriptorType.State, void, ErrorSet);
+    const PreviewCapability = PreviewCapabilityType(DescriptorType, ErrorSet);
+    return *family.Context(PreviewCapability, DescriptorType.State, void, ErrorSet);
 }
 
 fn PreviewHandleType(
@@ -413,14 +444,14 @@ fn PreviewHandleType(
 ) type {
     const HandleFn = @TypeOf(DescriptorType.HandleType);
     const params = @typeInfo(HandleFn).@"fn".params;
-    const preview_capability = PreviewCapabilityType(DescriptorType, ErrorSet);
+    const PreviewCapability = PreviewCapabilityType(DescriptorType, ErrorSet);
     return switch (params.len) {
         2 => DescriptorType.HandleType(
-            preview_capability,
+            PreviewCapability,
             PreviewContextPtrType(DescriptorType, ErrorSet),
         ),
         5 => DescriptorType.HandleType(
-            preview_capability,
+            PreviewCapability,
             PreviewContextPtrType(DescriptorType, ErrorSet),
             HandlersType,
             PreviousEffType,
@@ -710,21 +741,20 @@ fn callChoiceContinuation(
 }
 
 fn CollectedRunState(comptime HandlersType: type, comptime EffType: type) type {
-    return struct {
-        runtime: *lowered_machine.Runtime,
-        handlers_ptr: *HandlersType,
-        eff_value: EffType,
-        outputs_ptr: *OutputBundleType(HandlersType),
-    };
+    return LexicalState(HandlersType, EffType);
 }
 
 fn ChoiceRunState(comptime HandlersType: type, comptime EffType: type) type {
-    return struct {
-        runtime: *lowered_machine.Runtime,
-        handlers_ptr: *HandlersType,
-        eff_value: EffType,
-        outputs_ptr: *OutputBundleType(HandlersType),
-    };
+    return LexicalState(HandlersType, EffType);
+}
+
+/// Recover the active lexical rebinding packet from the exact context capability.
+pub fn activeLexicalState(
+    ctx: anytype,
+    comptime HandlersType: type,
+    comptime EffType: type,
+) *LexicalState(HandlersType, EffType) {
+    return @ptrCast(@alignCast(ctx._cap.lexical_state.?));
 }
 
 fn runChainCollected(
@@ -747,47 +777,30 @@ fn runChainCollected(
     const desc_value: DescriptorType = @field(state.handlers_ptr.*, field.name);
 
     const step_ctx = struct {
-        threadlocal var active_handlers: ?*HandlersType = null;
-        threadlocal var runtime_ptr: ?*lowered_machine.Runtime = null;
-        threadlocal var previous_eff: ?EffType = null;
-        threadlocal var outputs_ptr: ?*OutputBundleType(HandlersType) = null;
-
         /// Extend the lexical effect bundle with one bound handle, thread the shared outputs bundle, and continue inward.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSet)!Answer {
-            const current_desc: DescriptorType = @field(active_handlers.?.*, field.name);
+            const lexical_state = activeLexicalState(ctx, HandlersType, EffType);
+            const current_desc: DescriptorType = @field(lexical_state.handlers_ptr.*, field.name);
             const handle = blk: {
                 const BindFn = @TypeOf(DescriptorType.bindLexical);
                 const params = @typeInfo(BindFn).@"fn".params;
                 switch (params.len) {
                     3 => break :blk current_desc.bindLexical(Cap, ctx),
-                    8 => break :blk current_desc.bindLexical(Cap, ctx, runtime_ptr.?, active_handlers.?, previous_eff.?, outputs_ptr.?, index),
-                    else => @compileError("shift.with descriptor bindLexical must accept either (self, Cap, ctx) or (self, Cap, ctx, runtime, handlers_ptr, previous_eff, outputs_ptr, index)"),
+                    6 => break :blk current_desc.bindLexical(Cap, ctx, HandlersType, EffType, index),
+                    else => @compileError("shift.with descriptor bindLexical must accept either (self, Cap, ctx) or (self, Cap, ctx, HandlersType, PreviousEffType, index)"),
                 }
             };
-            const next_eff = extendBundle(EffType, previous_eff.?, field.name, handle);
+            const next_eff = extendBundle(EffType, lexical_state.eff_value, field.name, handle);
             return try runChainCollected(HandlersType, Body, index + 1, @TypeOf(next_eff), .{
-                .runtime = runtime_ptr.?,
-                .handlers_ptr = active_handlers.?,
+                .runtime = lexical_state.runtime,
+                .handlers_ptr = lexical_state.handlers_ptr,
                 .eff_value = next_eff,
-                .outputs_ptr = outputs_ptr.?,
+                .outputs_ptr = lexical_state.outputs_ptr,
             });
         }
     };
 
-    const previous_handlers = step_ctx.active_handlers;
-    const previous_runtime = step_ctx.runtime_ptr;
-    const previous_eff = step_ctx.previous_eff;
-    const previous_outputs = step_ctx.outputs_ptr;
-    step_ctx.active_handlers = state.handlers_ptr;
-    step_ctx.runtime_ptr = state.runtime;
-    step_ctx.previous_eff = state.eff_value;
-    step_ctx.outputs_ptr = state.outputs_ptr;
-    defer step_ctx.active_handlers = previous_handlers;
-    defer step_ctx.runtime_ptr = previous_runtime;
-    defer step_ctx.previous_eff = previous_eff;
-    defer step_ctx.outputs_ptr = previous_outputs;
-
-    const result = desc_value.run(Answer, ErrorSet, state.runtime, step_ctx) catch |err| return @errorCast(err);
+    const result = desc_value.run(Answer, ErrorSet, state.runtime, &state, step_ctx) catch |err| return @errorCast(err);
     if (DescriptorType.Output != void) {
         @field(state.outputs_ptr.*, field.name) = result.output;
     }
@@ -814,47 +827,30 @@ fn runChoiceChain(
     const desc_value: DescriptorType = @field(state.handlers_ptr.*, field.name);
 
     const step_ctx = struct {
-        threadlocal var active_handlers: ?*HandlersType = null;
-        threadlocal var runtime_ptr: ?*lowered_machine.Runtime = null;
-        threadlocal var previous_eff: ?EffType = null;
-        threadlocal var outputs_ptr: ?*OutputBundleType(HandlersType) = null;
-
         /// Extend the lexical bundle during choice continuation re-entry and continue inward.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSet)!ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), EffType) {
-            const current_desc: DescriptorType = @field(active_handlers.?.*, field.name);
+            const lexical_state = activeLexicalState(ctx, HandlersType, EffType);
+            const current_desc: DescriptorType = @field(lexical_state.handlers_ptr.*, field.name);
             const handle = blk: {
                 const BindFn = @TypeOf(DescriptorType.bindLexical);
                 const params = @typeInfo(BindFn).@"fn".params;
                 switch (params.len) {
                     3 => break :blk current_desc.bindLexical(Cap, ctx),
-                    8 => break :blk current_desc.bindLexical(Cap, ctx, runtime_ptr.?, active_handlers.?, previous_eff.?, outputs_ptr.?, index),
-                    else => @compileError("shift.with descriptor bindLexical must accept either (self, Cap, ctx) or (self, Cap, ctx, runtime, handlers_ptr, previous_eff, outputs_ptr, index)"),
+                    6 => break :blk current_desc.bindLexical(Cap, ctx, HandlersType, EffType, index),
+                    else => @compileError("shift.with descriptor bindLexical must accept either (self, Cap, ctx) or (self, Cap, ctx, HandlersType, PreviousEffType, index)"),
                 }
             };
-            const next_eff = extendBundle(EffType, previous_eff.?, field.name, handle);
+            const next_eff = extendBundle(EffType, lexical_state.eff_value, field.name, handle);
             return try runChoiceChain(HandlersType, index + 1, @TypeOf(next_eff), .{
-                .runtime = runtime_ptr.?,
-                .handlers_ptr = active_handlers.?,
+                .runtime = lexical_state.runtime,
+                .handlers_ptr = lexical_state.handlers_ptr,
                 .eff_value = next_eff,
-                .outputs_ptr = outputs_ptr.?,
+                .outputs_ptr = lexical_state.outputs_ptr,
             }, Continuation, resume_value);
         }
     };
 
-    const previous_handlers = step_ctx.active_handlers;
-    const previous_runtime = step_ctx.runtime_ptr;
-    const previous_eff = step_ctx.previous_eff;
-    const previous_outputs = step_ctx.outputs_ptr;
-    step_ctx.active_handlers = state.handlers_ptr;
-    step_ctx.runtime_ptr = state.runtime;
-    step_ctx.previous_eff = state.eff_value;
-    step_ctx.outputs_ptr = state.outputs_ptr;
-    defer step_ctx.active_handlers = previous_handlers;
-    defer step_ctx.runtime_ptr = previous_runtime;
-    defer step_ctx.previous_eff = previous_eff;
-    defer step_ctx.outputs_ptr = previous_outputs;
-
-    const result = desc_value.run(ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), EffType), ErrorSet, state.runtime, step_ctx) catch |err| return @errorCast(err);
+    const result = desc_value.run(ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), EffType), ErrorSet, state.runtime, &state, step_ctx) catch |err| return @errorCast(err);
     if (DescriptorType.Output != void) {
         @field(state.outputs_ptr.*, field.name) = result.output;
     }

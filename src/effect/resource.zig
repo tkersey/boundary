@@ -57,10 +57,14 @@ pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: typ
         }
 
         /// Run one lexical resource descriptor through the existing resource family.
-        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, lexical_state: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
             var instance = family.InstanceWithMode(.resume_then_transform, ResourceType, ErrorSetType).init();
-            const result = try handleWithErrorSet(AnswerType, RunErrorSetType, runtime, &instance, Manager, Body);
+            const result = try algebraic.handleResourceWithErrorSetLexical(AnswerType, RunErrorSetType, .{
+                .runtime = runtime,
+                .instance = &instance,
+                .lexical_state = @constCast(lexical_state),
+            }, Manager, Body);
             return .{
                 .output = {},
                 .value = result,

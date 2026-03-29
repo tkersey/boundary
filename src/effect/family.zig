@@ -127,27 +127,6 @@ pub fn ContextSpec(comptime StateType: type, comptime AnswerType: type, comptime
     };
 }
 
-fn ProgramShim(comptime ContextType: type) type {
-    return struct {
-        /// Active exact effect context while one authored body is running.
-        pub threadlocal var active_context: ?*ContextType = null;
-    };
-}
-
-/// Resolve the threadlocal exact-context shim used by `computeProgram` bodies.
-pub fn ProgramShimFor(comptime ContextType: type) type {
-    return ProgramShim(ContextType);
-}
-
-/// Build a threadlocal shim that exposes the active internal engine bindings for one exact context type.
-pub fn EngineShim(comptime ContextType: type, comptime EngineContextType: type) type {
-    _ = ContextType;
-    return struct {
-        /// Active shared-engine context while one exact effect context is running.
-        pub threadlocal var active_engine: ?*EngineContextType = null;
-    };
-}
-
 /// Build one explicit family body program with no prompt operation.
 pub inline fn computeProgram(
     comptime Cap: type,
@@ -157,14 +136,13 @@ pub inline fn computeProgram(
     comptime assertContextType(Cap, @TypeOf(ctx));
     const ContextType = ContextTypeFromPtr(@TypeOf(ctx));
     const PromptType = prompt_contract.Prompt(.resume_then_transform, ContextType.AnswerType, ContextType.AnswerType, ContextType.ErrorSetType);
-    const shim = ProgramShim(ContextType);
     _ = ctx._cap;
-    return frontend.computeProgram(PromptType, struct {
-        fn invoke() lowered_machine.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
+    return frontend.computeProgramWithContext(PromptType, ctx, struct {
+        fn invoke(program_ctx: @TypeOf(ctx)) lowered_machine.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
             const RunFn = @TypeOf(Thunk.run);
             const ReturnType = @typeInfo(RunFn).@"fn".return_type.?;
-            if (@typeInfo(ReturnType) != .error_union) return Thunk.run(Cap, shim.active_context.?);
-            return try Thunk.run(Cap, shim.active_context.?);
+            if (@typeInfo(ReturnType) != .error_union) return Thunk.run(Cap, program_ctx);
+            return try Thunk.run(Cap, program_ctx);
         }
     }.invoke);
 }
@@ -173,12 +151,15 @@ pub inline fn computeProgram(
 pub fn withCapability(
     comptime context_spec: type,
     comptime capability_decls: type,
+    runner_state: anytype,
     comptime ResultType: type,
     comptime Runner: type,
 ) lowered_machine.ResetError(context_spec.error_set_type)!ResultType {
     const seal = struct {};
     const Cap = struct {
         _seal: seal,
+        engine_ctx: ?*anyopaque = null,
+        lexical_state: ?*anyopaque = null,
         const capability_tag = capability_decls;
 
         /// Opaque metadata bundle for effect-family-specific internal wiring.
@@ -255,6 +236,12 @@ pub fn withCapability(
     const ContextType = Context(Cap, context_spec.state_type, context_spec.answer_type, context_spec.error_set_type);
 
     var cap_token = Cap{ ._seal = .{} };
+    if (@hasField(@TypeOf(runner_state), "engine_ctx")) {
+        cap_token.engine_ctx = @ptrCast(runner_state.engine_ctx);
+    }
+    if (@hasField(@TypeOf(runner_state), "lexical_state")) {
+        cap_token.lexical_state = @ptrCast(runner_state.lexical_state);
+    }
     var context = ContextType{ ._cap = &cap_token };
-    return try Runner.run(Cap, &context);
+    return try Runner.run(runner_state, Cap, &context);
 }

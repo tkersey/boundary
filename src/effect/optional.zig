@@ -49,11 +49,8 @@ pub fn LexicalHandle(
             const ExecutionError = lexical_with.ChoiceExecutionErrorSet(family.ContextErrorSetType(ContextPtrType), Continuation, ResumeType, ContinuationEff);
 
             const request_state = struct {
-                threadlocal var active_handle: ?Handle = null;
-
                 /// Re-enter the lexical continuation after one optional resume.
-                pub fn apply(value: ResumeType) lowered_machine.ResetError(ExecutionError)!AnswerType {
-                    const current_handle = active_handle.?;
+                pub fn apply(current_handle: *Handle, value: ResumeType) lowered_machine.ResetError(ExecutionError)!AnswerType {
                     return try lexical_with.continueChoice(
                         HandlersType,
                         binder_index,
@@ -61,7 +58,7 @@ pub fn LexicalHandle(
                             .runtime = current_handle.runtime.?,
                             .handlers_ptr = current_handle.handlers_ptr.?,
                             .previous_eff = current_handle.previous_eff,
-                            .current_handle = current_handle,
+                            .current_handle = current_handle.*,
                             .outputs_ptr = current_handle.outputs_ptr.?,
                         },
                         Continuation,
@@ -70,11 +67,8 @@ pub fn LexicalHandle(
                 }
             };
 
-            const previous_handle = request_state.active_handle;
-            request_state.active_handle = self;
-            defer request_state.active_handle = previous_handle;
-
-            const authored = algebraic.optionalRequestBoundProgram(Cap, self.ctx.?, request_state);
+            var current_handle = self;
+            const authored = algebraic.activeEngineContext(Cap, self.ctx.?).performProgramWithContext(Cap.RequestOp(), {}, &current_handle, request_state);
             authored.activate();
             defer authored.deactivate();
             return try frontend.run(self.runtime.?, authored.prompt, authored.program);
@@ -108,27 +102,30 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
             self: @This(),
             comptime Cap: type,
             ctx: anytype,
-            runtime: *shift.Runtime,
-            handlers_ptr: anytype,
-            previous_eff: anytype,
-            outputs_ptr: anytype,
+            comptime HandlersType: type,
+            comptime PreviousEffType: type,
             comptime index: usize,
-        ) HandleType(Cap, @TypeOf(ctx), @TypeOf(handlers_ptr.*), @TypeOf(previous_eff), index) {
+        ) HandleType(Cap, @TypeOf(ctx), HandlersType, PreviousEffType, index) {
             _ = self;
+            const lexical_state = lexical_with.activeLexicalState(ctx, HandlersType, PreviousEffType);
             return .{
                 .ctx = ctx,
-                .runtime = runtime,
-                .handlers_ptr = handlers_ptr,
-                .previous_eff = previous_eff,
-                .outputs_ptr = outputs_ptr,
+                .runtime = lexical_state.runtime,
+                .handlers_ptr = lexical_state.handlers_ptr,
+                .previous_eff = lexical_state.eff_value,
+                .outputs_ptr = lexical_state.outputs_ptr,
             };
         }
 
         /// Run one lexical optional descriptor through the continuation-taking lexical optional family.
-        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, lexical_state: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
             var instance = family.InstanceWithMode(.resume_or_return, ResumeType, ErrorSetType).init();
-            const result = try algebraic.handleOptionalLexicalWithErrorSet(AnswerType, RunErrorSetType, runtime, &instance, Policy, Body);
+            const result = try algebraic.handleOptionalLexicalWithErrorSet(AnswerType, RunErrorSetType, .{
+                .runtime = runtime,
+                .instance = &instance,
+                .lexical_state = @constCast(lexical_state),
+            }, Policy, Body);
             return .{
                 .output = {},
                 .value = result,

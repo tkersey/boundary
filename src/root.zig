@@ -1,6 +1,7 @@
 const compat_api = @import("compat.zig");
 const effect_ir = @import("effect_ir");
 const effect_root = @import("effect/root.zig");
+const interpreter_api = @import("interpreter");
 const with_api = @import("with_api.zig");
 
 /// Transitional compatibility namespace for the prior root-kernel front door.
@@ -9,6 +10,8 @@ pub const compat = compat_api;
 pub const effect = effect_root;
 /// Public Effect IR helpers.
 pub const ir = effect_ir;
+/// Public explicit interpreter state and step helpers.
+pub const interpreter = interpreter_api;
 
 /// Build the public lexical metadata type.
 pub fn With(comptime HandlersType: type, comptime Body: type) type {
@@ -52,6 +55,7 @@ test {
     _ = RuntimeError;
     _ = compat;
     _ = effect;
+    _ = interpreter;
     _ = ir;
     _ = with;
     _ = run;

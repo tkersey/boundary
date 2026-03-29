@@ -515,6 +515,25 @@ fn PreviewBodyErrorSet(
         )) {
             unreachable;
         }
+
+        /// Build this public explicit program with one runtime continuation context.
+        pub fn performProgramWithContext(
+            _: *@This(),
+            comptime Op: type,
+            _: Op.Payload,
+            _: anytype,
+            comptime Continuation: type,
+        ) frontend.BoundProgram(prompt_contract.Prompt(
+            Op.mode,
+            Op.Resume,
+            switch (@typeInfo(@TypeOf(Continuation.apply(dummyValue(@typeInfo(@TypeOf(Continuation.apply)).@"fn".params[0].type.?), dummyValue(Op.Resume))))) {
+                .error_union => |err_union| err_union.payload,
+                else => @TypeOf(Continuation.apply(dummyValue(@typeInfo(@TypeOf(Continuation.apply)).@"fn".params[0].type.?), dummyValue(Op.Resume))),
+            },
+            BaseErrorSet || ReturnTypeErrorSet(@TypeOf(Continuation.apply(dummyValue(@typeInfo(@TypeOf(Continuation.apply)).@"fn".params[0].type.?), dummyValue(Op.Resume)))),
+        )) {
+            unreachable;
+        }
     };
 
     const preview_capability = struct {
@@ -551,11 +570,10 @@ fn computeProgramForPrompt(
 ) frontend.Program(PromptType) {
     comptime family.assertContextType(Cap, @TypeOf(ctx));
     const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
-    const shim = family.ProgramShimFor(ContextType);
     const ThunkType = @TypeOf(thunk);
     _ = ctx._cap;
-    return frontend.computeProgram(PromptType, struct {
-        fn invoke() lowered_machine.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
+    return frontend.computeProgramWithContext(PromptType, ctx, struct {
+        fn invoke(program_ctx: @TypeOf(ctx)) lowered_machine.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
             switch (@typeInfo(ThunkType)) {
                 .@"fn" => {
                     const params = @typeInfo(ThunkType).@"fn".params;
@@ -564,8 +582,8 @@ fn computeProgramForPrompt(
                         if (@typeInfo(ReturnType) != .error_union) return thunk();
                         return try thunk();
                     }
-                    if (@typeInfo(ReturnType) != .error_union) return thunk(Cap, shim.active_context.?);
-                    return try thunk(Cap, shim.active_context.?);
+                    if (@typeInfo(ReturnType) != .error_union) return thunk(Cap, program_ctx);
+                    return try thunk(Cap, program_ctx);
                 },
                 .pointer => |pointer| {
                     if (@typeInfo(pointer.child) == .@"fn") {
@@ -575,8 +593,8 @@ fn computeProgramForPrompt(
                             if (@typeInfo(ReturnType) != .error_union) return thunk();
                             return try thunk();
                         }
-                        if (@typeInfo(ReturnType) != .error_union) return thunk(Cap, shim.active_context.?);
-                        return try thunk(Cap, shim.active_context.?);
+                        if (@typeInfo(ReturnType) != .error_union) return thunk(Cap, program_ctx);
+                        return try thunk(Cap, program_ctx);
                     }
                 },
                 else => {},
@@ -589,8 +607,8 @@ fn computeProgramForPrompt(
                 if (@typeInfo(ReturnType) != .error_union) return thunk.run();
                 return try thunk.run();
             }
-            if (@typeInfo(ReturnType) != .error_union) return thunk.run(Cap, shim.active_context.?);
-            return try thunk.run(Cap, shim.active_context.?);
+            if (@typeInfo(ReturnType) != .error_union) return thunk.run(Cap, program_ctx);
+            return try thunk.run(Cap, program_ctx);
         }
     }.invoke);
 }
@@ -607,55 +625,40 @@ fn runWithSealedEngine(comptime Contract: type, config: anytype, comptime Body: 
         else => @compileError("expected engine context pointer"),
     };
 
+    const RunnerState = struct {
+        runtime: *shift.Runtime,
+        prompt_token: prompt_contract.PromptToken,
+        engine_ctx: *EngineContextType,
+        lexical_state: ?*anyopaque = null,
+    };
+    const runner_state = RunnerState{
+        .runtime = config.runtime,
+        .prompt_token = config.prompt_token,
+        .engine_ctx = config.engine_ctx,
+        .lexical_state = if (@hasField(@TypeOf(config), "lexical_state")) config.lexical_state else null,
+    };
+
     const runner = struct {
-        threadlocal var active_runtime: ?*shift.Runtime = null;
-        threadlocal var active_prompt_token: prompt_contract.PromptToken = 0;
-        threadlocal var active_engine_ctx: ?*EngineContextType = null;
-
         /// Execute one generated-family body under the installed exact context and engine bindings.
-        pub fn run(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSetType)!AnswerType {
-            const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
-            const context_shim = family.ProgramShimFor(ContextType);
-            const engine_shim = family.EngineShim(ContextType, EngineContextType);
-            var prompt = PromptType{ .token = active_prompt_token };
-
-            const previous_context = context_shim.active_context;
-            const previous_engine = engine_shim.active_engine;
-            context_shim.active_context = ctx;
-            engine_shim.active_engine = active_engine_ctx;
-            defer {
-                context_shim.active_context = previous_context;
-                engine_shim.active_engine = previous_engine;
-            }
-
+        pub fn run(state: RunnerState, comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSetType)!AnswerType {
+            var prompt = PromptType{ .token = state.prompt_token };
             if (comptime family.hasDeclSafe(Body, "program")) {
                 const AuthoredType = @TypeOf(Body.program(Cap, ctx));
                 if (@typeInfo(AuthoredType) == .@"struct") {
                     const authored = Body.program(Cap, ctx);
                     authored.activate();
                     defer authored.deactivate();
-                    return try frontend.run(active_runtime.?, authored.prompt, authored.program);
+                    return try frontend.run(state.runtime, authored.prompt, authored.program);
                 }
-                return try frontend.run(active_runtime.?, &prompt, Body.program(Cap, ctx));
+                return try frontend.run(state.runtime, &prompt, Body.program(Cap, ctx));
             }
             if (comptime family.hasDeclSafe(Body, "body")) {
-                return try frontend.run(active_runtime.?, &prompt, computeProgramForPrompt(Cap, ctx, PromptType, Body.body));
+                return try frontend.run(state.runtime, &prompt, computeProgramForPrompt(Cap, ctx, PromptType, Body.body));
             }
             @compileError("generated effect body must declare program or body");
         }
     };
-
-    const previous_runtime = runner.active_runtime;
-    const previous_prompt_token = runner.active_prompt_token;
-    const previous_engine_ctx = runner.active_engine_ctx;
-    runner.active_runtime = config.runtime;
-    runner.active_prompt_token = config.prompt_token;
-    runner.active_engine_ctx = config.engine_ctx;
-    defer runner.active_runtime = previous_runtime;
-    defer runner.active_prompt_token = previous_prompt_token;
-    defer runner.active_engine_ctx = previous_engine_ctx;
-
-    return try family.withCapability(family.ContextSpec(StateType, AnswerType, ErrorSetType), capability_decls, AnswerType, runner);
+    return try family.withCapability(family.ContextSpec(StateType, AnswerType, ErrorSetType), capability_decls, runner_state, AnswerType, runner);
 }
 
 /// Build one sealed generated effect family from a declarative comptime spec.
@@ -829,11 +832,8 @@ pub fn Build(comptime spec: anytype) type {
 
         fn activeEngineContext(comptime Cap: type, ctx: anytype) *Cap.EngineContextType() {
             comptime family.assertContextType(Cap, @TypeOf(ctx));
-            const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
-            const EngineContextType = Cap.EngineContextType();
-            const shim = family.EngineShim(ContextType, EngineContextType);
             _ = ctx._cap;
-            return shim.active_engine.?;
+            return @ptrCast(@alignCast(ctx._cap.engine_ctx.?));
         }
 
         fn LexicalFieldConfig(
@@ -890,11 +890,8 @@ pub fn Build(comptime spec: anytype) type {
                     /// Perform one zero-payload generated lexical choice op.
                     pub fn perform(self: Handle, comptime Continuation: anytype) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
                         const request_state = struct {
-                            threadlocal var active_handle: ?Handle = null;
-
                             /// Re-enter the lexical continuation after one generated choice resume.
-                            pub fn apply(value: OpResumeType(OpTypeValue)) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
-                                const current_handle = active_handle.?;
+                            pub fn apply(current_handle: *Handle, value: OpResumeType(OpTypeValue)) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
                                 return try lexical_with.continueChoice(
                                     Config.Handlers,
                                     Config.binder_index,
@@ -902,7 +899,7 @@ pub fn Build(comptime spec: anytype) type {
                                         .runtime = current_handle.runtime.?,
                                         .handlers_ptr = current_handle.handlers_ptr.?,
                                         .previous_eff = current_handle.previous_eff,
-                                        .current_handle = current_handle,
+                                        .current_handle = current_handle.*,
                                         .outputs_ptr = current_handle.outputs_ptr.?,
                                     },
                                     Continuation,
@@ -911,11 +908,8 @@ pub fn Build(comptime spec: anytype) type {
                             }
                         };
 
-                        const previous_handle = request_state.active_handle;
-                        request_state.active_handle = self;
-                        defer request_state.active_handle = previous_handle;
-
-                        const authored = Op(tag).program(Config.Capability, self.ctx.?, request_state);
+                        var current_handle = self;
+                        const authored = activeEngineContext(Config.Capability, self.ctx.?).performProgramWithContext(OpTypeValue, {}, &current_handle, request_state);
                         authored.activate();
                         defer authored.deactivate();
                         return try frontend.run(self.runtime.?, authored.prompt, authored.program);
@@ -933,11 +927,8 @@ pub fn Build(comptime spec: anytype) type {
                     /// Perform one payload-carrying generated lexical choice op.
                     pub fn perform(self: Handle, payload: OpPayloadType(OpTypeValue), comptime Continuation: anytype) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
                         const request_state = struct {
-                            threadlocal var active_handle: ?Handle = null;
-
                             /// Re-enter the lexical continuation after one generated choice resume.
-                            pub fn apply(value: OpResumeType(OpTypeValue)) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
-                                const current_handle = active_handle.?;
+                            pub fn apply(current_handle: *Handle, value: OpResumeType(OpTypeValue)) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
                                 return try lexical_with.continueChoice(
                                     Config.Handlers,
                                     Config.binder_index,
@@ -945,7 +936,7 @@ pub fn Build(comptime spec: anytype) type {
                                         .runtime = current_handle.runtime.?,
                                         .handlers_ptr = current_handle.handlers_ptr.?,
                                         .previous_eff = current_handle.previous_eff,
-                                        .current_handle = current_handle,
+                                        .current_handle = current_handle.*,
                                         .outputs_ptr = current_handle.outputs_ptr.?,
                                     },
                                     Continuation,
@@ -954,11 +945,8 @@ pub fn Build(comptime spec: anytype) type {
                             }
                         };
 
-                        const previous_handle = request_state.active_handle;
-                        request_state.active_handle = self;
-                        defer request_state.active_handle = previous_handle;
-
-                        const authored = Op(tag).program(Config.Capability, self.ctx.?, payload, request_state);
+                        var current_handle = self;
+                        const authored = activeEngineContext(Config.Capability, self.ctx.?).performProgramWithContext(OpTypeValue, payload, &current_handle, request_state);
                         authored.activate();
                         defer authored.deactivate();
                         return try frontend.run(self.runtime.?, authored.prompt, authored.program);
@@ -1060,27 +1048,26 @@ pub fn Build(comptime spec: anytype) type {
                     self: @This(),
                     comptime Cap: type,
                     ctx: anytype,
-                    runtime: *shift.Runtime,
-                    handlers_ptr: anytype,
-                    previous_eff: anytype,
-                    outputs_ptr: anytype,
+                    comptime HandlersType: type,
+                    comptime PreviousEffType: type,
                     comptime index: usize,
-                ) HandleType(Cap, @TypeOf(ctx), @TypeOf(handlers_ptr.*), @TypeOf(previous_eff), index) {
+                ) HandleType(Cap, @TypeOf(ctx), HandlersType, PreviousEffType, index) {
                     _ = self;
-                    var field_container = std.mem.zeroInit(HandleType(Cap, @TypeOf(ctx), @TypeOf(handlers_ptr.*), @TypeOf(previous_eff), index), .{});
+                    const lexical_state = lexical_with.activeLexicalState(ctx, HandlersType, PreviousEffType);
+                    var field_container = std.mem.zeroInit(HandleType(Cap, @TypeOf(ctx), HandlersType, PreviousEffType, index), .{});
                     inline for (op_specs) |SpecOp| {
                         const field_handle = switch (mode) {
-                            .resume_then_transform => LexicalOpFieldHandle(@field(OpTag, opName(SpecOp)), LexicalFieldConfig(Cap, @TypeOf(ctx), @TypeOf(handlers_ptr.*), @TypeOf(previous_eff), index)){
+                            .resume_then_transform => LexicalOpFieldHandle(@field(OpTag, opName(SpecOp)), LexicalFieldConfig(Cap, @TypeOf(ctx), HandlersType, PreviousEffType, index)){
                                 .ctx = ctx,
                             },
-                            .resume_or_return => LexicalOpFieldHandle(@field(OpTag, opName(SpecOp)), LexicalFieldConfig(Cap, @TypeOf(ctx), @TypeOf(handlers_ptr.*), @TypeOf(previous_eff), index)){
+                            .resume_or_return => LexicalOpFieldHandle(@field(OpTag, opName(SpecOp)), LexicalFieldConfig(Cap, @TypeOf(ctx), HandlersType, PreviousEffType, index)){
                                 .ctx = ctx,
-                                .runtime = runtime,
-                                .handlers_ptr = handlers_ptr,
-                                .previous_eff = previous_eff,
-                                .outputs_ptr = outputs_ptr,
+                                .runtime = lexical_state.runtime,
+                                .handlers_ptr = lexical_state.handlers_ptr,
+                                .previous_eff = lexical_state.eff_value,
+                                .outputs_ptr = lexical_state.outputs_ptr,
                             },
-                            .direct_return => LexicalOpFieldHandle(@field(OpTag, opName(SpecOp)), LexicalFieldConfig(Cap, @TypeOf(ctx), @TypeOf(handlers_ptr.*), @TypeOf(previous_eff), index)){
+                            .direct_return => LexicalOpFieldHandle(@field(OpTag, opName(SpecOp)), LexicalFieldConfig(Cap, @TypeOf(ctx), HandlersType, PreviousEffType, index)){
                                 .ctx = ctx,
                             },
                         };
@@ -1090,10 +1077,10 @@ pub fn Build(comptime spec: anytype) type {
                 }
 
                 /// Run one generated lexical descriptor through the existing generated-family handler path.
-                pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(RunErrorSetType || InferHandlerOperationErrorSet(mode, op_specs, HandlerType))!lexical_with.DescriptorResult(Output, AnswerType) {
+                pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, lexical_state: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType || InferHandlerOperationErrorSet(mode, op_specs, HandlerType))!lexical_with.DescriptorResult(Output, AnswerType) {
                     var instance = Instance.init();
                     const ActualRunErrorSet = RunErrorSetType || InferHandlerOperationErrorSet(mode, op_specs, HandlerType);
-                    const result = try self_type.handleWithErrorSet(AnswerType, ActualRunErrorSet, runtime, &instance, self.handler, Body);
+                    const result = try self_type.handleWithLexicalState(AnswerType, ActualRunErrorSet, runtime, &instance, self.handler, @constCast(lexical_state), Body);
                     if (produces_output) {
                         return .{
                             .output = result.state,
@@ -1128,6 +1115,10 @@ pub fn Build(comptime spec: anytype) type {
 
         /// Public `handleWithErrorSet` helper.
         pub fn handleWithErrorSet(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body);
+        }
+
+        fn handleWithLexicalState(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, lexical_state: ?*anyopaque, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
             var handler_value = handler;
             const handler_ptr = &handler_value;
             const HandlerType = @TypeOf(handler_value);
@@ -1157,7 +1148,7 @@ pub fn Build(comptime spec: anytype) type {
             };
             const value = try runWithSealedEngine(
                 sealed_contract,
-                .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx },
+                .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = lexical_state },
                 Body,
             );
             if (mode == .resume_then_transform) {

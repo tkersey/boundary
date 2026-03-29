@@ -1,33 +1,33 @@
-const lowered_machine = @import("lowered_machine");
+const interpreter = @import("interpreter");
 const scenarios = @import("parity_scenarios");
 
 /// Stable scenario ids re-exported from the shared lowered machine.
-pub const ScenarioId = lowered_machine.ScenarioId;
+pub const ScenarioId = interpreter.ScenarioId;
 /// Stable prompt ids re-exported from the shared lowered machine.
-pub const PromptId = lowered_machine.PromptId;
+pub const PromptId = interpreter.PromptId;
 /// Pending continuation kinds re-exported from the shared lowered machine.
-pub const PendingKind = lowered_machine.PendingKind;
+pub const PendingKind = interpreter.PendingKind;
 /// Typed proof values re-exported from the shared lowered machine.
-pub const Value = lowered_machine.Value;
+pub const Value = interpreter.Value;
 /// Transcript events re-exported from the shared lowered machine.
-pub const Event = lowered_machine.Event;
+pub const Event = interpreter.Event;
 /// Checkpoint tags re-exported from the shared lowered machine.
-pub const CheckpointTag = lowered_machine.CheckpointTag;
+pub const CheckpointTag = interpreter.CheckpointTag;
 /// Pending frames re-exported from the shared lowered machine.
-pub const PendingFrame = lowered_machine.PendingFrame;
+pub const PendingFrame = interpreter.PendingFrame;
 /// Trace checkpoints re-exported from the shared lowered machine.
-pub const TraceCheckpoint = lowered_machine.TraceCheckpoint;
+pub const TraceCheckpoint = interpreter.TraceCheckpoint;
 /// Lowered proof steps re-exported from the shared lowered machine.
-pub const Step = lowered_machine.Step;
+pub const Step = interpreter.Step;
 /// Full typed execution state re-exported from the shared lowered machine.
-pub const MachineState = lowered_machine.MachineState;
+pub const MachineState = interpreter.MachineState;
 
 /// Return the captured checkpoints for one lowered machine execution.
-pub const checkpoints = lowered_machine.checkpoints;
+pub const checkpoints = interpreter.checkpoints;
 /// Return the transcript-projection events for one lowered machine execution.
-pub const events = lowered_machine.events;
+pub const events = interpreter.events;
 /// Render the exact-output transcript for one lowered machine execution.
-pub const writeTranscript = lowered_machine.writeTranscript;
+pub const writeTranscript = interpreter.writeTranscript;
 
 /// Map a parity case id to the scenario id that owns it.
 pub fn scenarioForCaseId(case_id: []const u8) ?ScenarioId {
@@ -44,5 +44,5 @@ pub fn runCaseId(case_id: []const u8) error{UnknownScenario}!MachineState {
 /// Execute one canonical proof scenario to completion.
 pub fn runScenario(id: ScenarioId) MachineState {
     const scenario = scenarios.byId(id);
-    return lowered_machine.runSteps(scenario.steps);
+    return interpreter.runSteps(scenario.steps);
 }

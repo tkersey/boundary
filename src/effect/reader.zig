@@ -44,9 +44,14 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
         }
 
         /// Run one lexical reader descriptor through the existing reader family.
-        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, lexical_state: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             var instance = family.Instance(StateType, ErrorSetType).init();
-            const result = try handleWithErrorSet(AnswerType, RunErrorSetType, runtime, &instance, self.environment, Body);
+            const result = try algebraic.handleReaderWithErrorSetLexical(AnswerType, RunErrorSetType, .{
+                .runtime = runtime,
+                .instance = &instance,
+                .environment = self.environment,
+                .lexical_state = @constCast(lexical_state),
+            }, Body);
             return .{
                 .output = {},
                 .value = result,

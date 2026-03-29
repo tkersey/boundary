@@ -1,4 +1,4 @@
-const scenarios = @import("parity_scenarios");
+const interpreter = @import("interpreter");
 const std = @import("std");
 
 /// Public runtime misuse and semantic-contract errors surfaced by `shift`.
@@ -84,116 +84,54 @@ pub const Runtime = struct {
     }
 };
 
+/// Return the allocator owned by the host runtime.
+pub fn runtimeAllocator(runtime: *const Runtime) std.mem.Allocator {
+    return runtime.allocator;
+}
+
+/// Enter one frontend execution against the host runtime.
+pub fn beginExecution(runtime: *Runtime) RuntimeError!void {
+    try runtime.ensureThread();
+    runtime.active_reset_count += 1;
+}
+
+/// Leave one frontend execution against the host runtime.
+pub fn endExecution(runtime: *Runtime) void {
+    runtime.active_reset_count -= 1;
+}
+
 /// Stable scenario ids re-exported from the canonical scenario registry.
-pub const ScenarioId = scenarios.ScenarioId;
+pub const ScenarioId = interpreter.ScenarioId;
 /// Stable prompt ids re-exported from the canonical scenario registry.
-pub const PromptId = scenarios.PromptId;
+pub const PromptId = interpreter.PromptId;
 /// Pending continuation kinds re-exported from the canonical scenario registry.
-pub const PendingKind = scenarios.PendingKind;
+pub const PendingKind = interpreter.PendingKind;
 /// Typed proof values re-exported from the canonical scenario registry.
-pub const Value = scenarios.Value;
+pub const Value = interpreter.Value;
 /// Narrow typed program values used by the explicit canonical program path.
-pub const ProgramValue = union(enum) {
-    bool: bool,
-    i32: i32,
-    none,
-    string: []const u8,
-    usize: usize,
-};
+pub const ProgramValue = interpreter.ProgramValue;
 /// Transcript events re-exported from the canonical scenario registry.
-pub const Event = scenarios.Event;
+pub const Event = interpreter.Event;
 /// Checkpoint tags re-exported from the canonical scenario registry.
-pub const CheckpointTag = scenarios.CheckpointTag;
+pub const CheckpointTag = interpreter.CheckpointTag;
 /// Pending frames re-exported from the canonical scenario registry.
-pub const PendingFrame = scenarios.PendingFrame;
+pub const PendingFrame = interpreter.PendingFrame;
 /// Trace checkpoints re-exported from the canonical scenario registry.
-pub const TraceCheckpoint = scenarios.TraceCheckpoint;
+pub const TraceCheckpoint = interpreter.TraceCheckpoint;
 /// Lowered proof steps re-exported from the canonical scenario registry.
-pub const Step = scenarios.Step;
-
-const empty_checkpoint = TraceCheckpoint{
-    .tag = .atm_resume_prepared,
-    .active_prompt = null,
-    .pending_depth = 0,
-    .top_pending_kind = null,
-    .top_pending_prompt = null,
-    .top_resume_value = .none,
-    .final_result = .none,
-};
-
-const empty_event = Event{ .note = "" };
-
-const empty_pending = PendingFrame{
-    .kind = .resume_then_transform,
-    .prompt = .primary,
-    .resume_value = .none,
-};
-
+pub const Step = interpreter.Step;
 /// Full typed execution state for one lowered-machine execution.
-pub const MachineState = struct {
-    active_prompt: ?PromptId = null,
-    checkpoints: [16]TraceCheckpoint = [_]TraceCheckpoint{empty_checkpoint} ** 16,
-    checkpoint_len: usize = 0,
-    events: [16]Event = [_]Event{empty_event} ** 16,
-    event_len: usize = 0,
-    final_result: Value = .none,
-    pending: [8]PendingFrame = [_]PendingFrame{empty_pending} ** 8,
-    pending_len: usize = 0,
-
-    fn appendCheckpoint(self: *MachineState, tag: CheckpointTag) void {
-        const top_pending = if (self.pending_len == 0) null else self.pending[self.pending_len - 1];
-        self.checkpoints[self.checkpoint_len] = .{
-            .tag = tag,
-            .active_prompt = self.active_prompt,
-            .pending_depth = self.pending_len,
-            .top_pending_kind = if (top_pending) |frame| frame.kind else null,
-            .top_pending_prompt = if (top_pending) |frame| frame.prompt else null,
-            .top_resume_value = if (top_pending) |frame| frame.resume_value else .none,
-            .final_result = self.final_result,
-        };
-        self.checkpoint_len += 1;
-    }
-
-    fn appendEvent(self: *MachineState, event: Event) void {
-        self.events[self.event_len] = event;
-        self.event_len += 1;
-    }
-
-    fn popPending(self: *MachineState) void {
-        self.pending_len -= 1;
-    }
-
-    fn pushPending(self: *MachineState, frame: PendingFrame) void {
-        self.pending[self.pending_len] = frame;
-        self.pending_len += 1;
-    }
-};
-
+pub const MachineState = interpreter.MachineState;
+/// Pure interpreter state alias for new callers.
+pub const InterpreterState = interpreter.State;
 /// Execute one sequence of lowered machine steps to completion.
-pub fn runSteps(steps: []const Step) MachineState {
-    var state = MachineState{};
-    for (steps) |step| applyStep(&state, step);
-    return state;
-}
-
+pub const runSteps = interpreter.runSteps;
 /// Return the captured checkpoints for one machine execution.
-pub fn checkpoints(state: *const MachineState) []const TraceCheckpoint {
-    return state.checkpoints[0..state.checkpoint_len];
-}
-
+pub const checkpoints = interpreter.checkpoints;
 /// Return the transcript-projection events for one machine execution.
-pub fn events(state: *const MachineState) []const Event {
-    return state.events[0..state.event_len];
-}
-
+pub const events = interpreter.events;
 /// Render the exact-output transcript for one machine execution.
-pub fn writeTranscript(writer: anytype, state: *const MachineState) anyerror!void {
-    for (events(state)) |event| switch (event) {
-        .note => |line| try writer.print("{s}\n", .{line}),
-        .final_i32 => |value| try writer.print("final={d}\n", .{value}),
-        .final_string => |value| try writer.print("final={s}\n", .{value}),
-    };
-}
+pub const writeTranscript = interpreter.writeTranscript;
 
 /// Execute one explicit typed-value pure program to completion.
 pub fn runExplicitPure(
@@ -222,7 +160,7 @@ pub fn runExplicitChoice(
     const decision = try node.decisionFn();
     return switch (decision) {
         .resume_with => |resume_value| blk: {
-            const in_answer = try node.continueFn(resume_value);
+            const in_answer = try node.continueFn(node.continue_ctx, resume_value);
             break :blk try node.afterResumeFn(in_answer);
         },
         .return_now => |answer| answer,
@@ -235,15 +173,4 @@ pub fn runExplicitAbort(
     node: anytype,
 ) anyerror!PromptType.OutAnswer {
     return try node.directReturnFn();
-}
-
-fn applyStep(state: *MachineState, step: Step) void {
-    switch (step) {
-        .checkpoint => |tag| state.appendCheckpoint(tag),
-        .emit => |event| state.appendEvent(event),
-        .pop_pending => state.popPending(),
-        .push_pending => |frame| state.pushPending(frame),
-        .set_active_prompt => |prompt| state.active_prompt = prompt,
-        .set_final => |value| state.final_result = value,
-    }
 }
