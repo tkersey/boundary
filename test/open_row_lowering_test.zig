@@ -79,6 +79,58 @@ test "same-module validation accepts helper graphs for explicit-path lowering" {
     try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
 }
 
+test "same-module validation rejects unsupported effect access for explicit-path lowering" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{
+        .sub_path = "unsupported_effect_access.zig",
+        .data =
+        \\fn consume(_: anytype) void {}
+        \\pub fn runBody(eff: anytype) void {
+        \\    consume(eff.state);
+        \\}
+        ,
+    });
+
+    const tmp_path = try tmp.dir.realpathAlloc(std.testing.allocator, "unsupported_effect_access.zig");
+    defer std.testing.allocator.free(tmp_path);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try std.testing.expectError(
+        error.UnsupportedEffectAccess,
+        shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody"),
+    );
+}
+
+test "same-module validation rejects recursive helper graphs for explicit-path lowering" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{
+        .sub_path = "recursive_helpers.zig",
+        .data =
+        \\fn helper() void {
+        \\    runBody();
+        \\}
+        \\pub fn runBody() void {
+        \\    helper();
+        \\}
+        ,
+    });
+
+    const tmp_path = try tmp.dir.realpathAlloc(std.testing.allocator, "recursive_helpers.zig");
+    defer std.testing.allocator.free(tmp_path);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try std.testing.expectError(
+        error.UnsupportedHelperGraph,
+        shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody"),
+    );
+}
+
 test "open-row state-writer example stays transcript-backed" {
     var writer_buffer: [256]u8 = undefined;
     var writer = std.Io.Writer.fixed(&writer_buffer);

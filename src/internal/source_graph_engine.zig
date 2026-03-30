@@ -14,6 +14,7 @@ pub const Error = error{
 pub const AnalyzeOptions = struct {
     entry_symbol: ?[]const u8 = null,
     reject_recursive_helpers: bool = false,
+    reject_indirect_effect_access: bool = false,
 };
 
 /// One top-level function discovered in a Zig source module.
@@ -57,13 +58,15 @@ const PendingIdentifier = struct {
 const TokenItem = struct {
     tag: std.zig.Token.Tag,
     lexeme: []const u8,
+    offset: usize,
 };
 
 const TokenWindow = struct {
-    items: [6]TokenItem = [_]TokenItem{.{
+    items: [8]TokenItem = [_]TokenItem{.{
         .tag = .invalid,
         .lexeme = "",
-    }} ** 6,
+        .offset = 0,
+    }} ** 8,
     count: usize = 0,
 
     fn push(self: *@This(), item: TokenItem) void {
@@ -78,26 +81,21 @@ const TokenWindow = struct {
         }
         self.items[self.items.len - 1] = item;
     }
-
-    fn matchesDirectOpUse(self: *const @This(), effect_param: []const u8) ?DirectOpUseMatch {
-        if (self.count < self.items.len) return null;
-        const tail = self.items[self.count - self.items.len .. self.count];
-        if (tail[0].tag != .identifier or !std.mem.eql(u8, tail[0].lexeme, effect_param)) return null;
-        if (tail[1].tag != .period) return null;
-        if (tail[2].tag != .identifier) return null;
-        if (tail[3].tag != .period) return null;
-        if (tail[4].tag != .identifier) return null;
-        if (tail[5].tag != .l_paren) return null;
-        return .{
-            .requirement_label = tail[2].lexeme,
-            .op_name = tail[4].lexeme,
-        };
-    }
 };
 
 const DirectOpUseMatch = struct {
     requirement_label: []const u8,
     op_name: []const u8,
+};
+
+const AliasKind = union(enum) {
+    effect_root,
+    requirement: []const u8,
+};
+
+const Alias = struct {
+    name: []const u8,
+    kind: AliasKind,
 };
 
 const RuntimeCollector = struct {
@@ -265,6 +263,175 @@ fn locationForOffset(source: []const u8, offset: usize) struct { line: usize, co
     return .{ .line = line, .column = column };
 }
 
+fn aliasKind(effect_param: ?[]const u8, aliases: []const Alias, name: []const u8) ?AliasKind {
+    if (effect_param) |param| {
+        if (std.mem.eql(u8, param, name)) return .effect_root;
+    }
+    for (aliases) |alias| {
+        if (std.mem.eql(u8, alias.name, name)) return alias.kind;
+    }
+    return null;
+}
+
+fn upsertAlias(aliases: []Alias, alias_count: *usize, name: []const u8, kind: AliasKind) Error!void {
+    for (aliases[0..alias_count.*]) |*alias| {
+        if (!std.mem.eql(u8, alias.name, name)) continue;
+        alias.kind = kind;
+        return;
+    }
+    if (alias_count.* >= aliases.len) return error.TooManyFunctions;
+    aliases[alias_count.*] = .{
+        .name = name,
+        .kind = kind,
+    };
+    alias_count.* += 1;
+}
+
+fn maybeAliasFromDeclaration(
+    effect_param: ?[]const u8,
+    aliases: []Alias,
+    token_window: *const TokenWindow,
+) ?struct {
+    name: []const u8,
+    kind: AliasKind,
+} {
+    if (token_window.count >= 5) {
+        const tail = token_window.items[token_window.count - 5 .. token_window.count];
+        if ((tail[0].tag == .keyword_const or tail[0].tag == .keyword_var) and
+            tail[1].tag == .identifier and
+            tail[2].tag == .equal and
+            tail[3].tag == .identifier and
+            tail[4].tag == .semicolon)
+        {
+            const source_kind = aliasKind(effect_param, aliases, tail[3].lexeme) orelse return null;
+            return .{
+                .name = tail[1].lexeme,
+                .kind = source_kind,
+            };
+        }
+    }
+
+    if (token_window.count >= 7) {
+        const tail = token_window.items[token_window.count - 7 .. token_window.count];
+        if ((tail[0].tag == .keyword_const or tail[0].tag == .keyword_var) and
+            tail[1].tag == .identifier and
+            tail[2].tag == .equal and
+            tail[3].tag == .identifier and
+            tail[4].tag == .period and
+            tail[5].tag == .identifier and
+            tail[6].tag == .semicolon)
+        {
+            const source_kind = aliasKind(effect_param, aliases, tail[3].lexeme) orelse return null;
+            return switch (source_kind) {
+                .effect_root => .{
+                    .name = tail[1].lexeme,
+                    .kind = .{ .requirement = tail[5].lexeme },
+                },
+                .requirement => null,
+            };
+        }
+    }
+
+    return null;
+}
+
+fn maybeRecordDirectOpUse(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    token_window: *const TokenWindow,
+) ?DirectOpUseMatch {
+    if (token_window.count >= 6) {
+        const tail = token_window.items[token_window.count - 6 .. token_window.count];
+        if (tail[0].tag == .identifier and
+            tail[1].tag == .period and
+            tail[2].tag == .identifier and
+            tail[3].tag == .period and
+            tail[4].tag == .identifier and
+            tail[5].tag == .l_paren)
+        {
+            const source_kind = aliasKind(effect_param, aliases, tail[0].lexeme) orelse return null;
+            return switch (source_kind) {
+                .effect_root => .{
+                    .requirement_label = tail[2].lexeme,
+                    .op_name = tail[4].lexeme,
+                },
+                .requirement => null,
+            };
+        }
+    }
+
+    if (token_window.count >= 4) {
+        const tail = token_window.items[token_window.count - 4 .. token_window.count];
+        if (tail[0].tag == .identifier and
+            tail[1].tag == .period and
+            tail[2].tag == .identifier and
+            tail[3].tag == .l_paren)
+        {
+            const source_kind = aliasKind(effect_param, aliases, tail[0].lexeme) orelse return null;
+            return switch (source_kind) {
+                .effect_root => null,
+                .requirement => |requirement_label| .{
+                    .requirement_label = requirement_label,
+                    .op_name = tail[2].lexeme,
+                },
+            };
+        }
+    }
+
+    return null;
+}
+
+fn isAllowedAccessFollowTag(tag: std.zig.Token.Tag) bool {
+    return switch (tag) {
+        .period, .semicolon => true,
+        else => false,
+    };
+}
+
+fn isAllowedRequirementAliasFollowTag(tag: std.zig.Token.Tag) bool {
+    return switch (tag) {
+        .period, .semicolon, .equal => true,
+        else => false,
+    };
+}
+
+fn isEffectParamName(name: []const u8) bool {
+    return std.mem.eql(u8, name, "eff");
+}
+
+fn maybeUnsupportedEffectAccess(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    token_window: *const TokenWindow,
+) bool {
+    if (token_window.count >= 4) {
+        const tail = token_window.items[token_window.count - 4 .. token_window.count];
+        if (tail[0].tag == .identifier and
+            tail[1].tag == .period and
+            tail[2].tag == .identifier)
+        {
+            const source_kind = aliasKind(effect_param, aliases, tail[0].lexeme) orelse return false;
+            return switch (source_kind) {
+                .effect_root => !isAllowedAccessFollowTag(tail[3].tag),
+                .requirement => false,
+            };
+        }
+    }
+
+    if (token_window.count >= 2) {
+        const tail = token_window.items[token_window.count - 2 .. token_window.count];
+        if (tail[0].tag == .identifier) {
+            const source_kind = aliasKind(effect_param, aliases, tail[0].lexeme) orelse return false;
+            return switch (source_kind) {
+                .effect_root => false,
+                .requirement => !isAllowedRequirementAliasFollowTag(tail[1].tag),
+            };
+        }
+    }
+
+    return false;
+}
+
 fn findFunctionIndex(functions: []const FunctionNode, name: []const u8) ?usize {
     for (functions, 0..) |function, index| {
         if (std.mem.eql(u8, function.name, name)) return index;
@@ -323,21 +490,28 @@ fn detectRecursiveHelpers(entry_index: usize, edges: []const HelperEdge) Error!v
     try visitCycle(entry_index, edges, visiting[0..], visited[0..]);
 }
 
-fn scanBody(
+const BodyScanContext = struct {
     source: [:0]const u8,
     tokenizer: *std.zig.Tokenizer,
     caller_index: usize,
     caller_name: []const u8,
     effect_param: ?[]const u8,
-    collector: anytype,
-) AnalysisError!void {
+    options: AnalyzeOptions,
+};
+
+fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!void {
+    var aliases = [_]Alias{.{
+        .name = "",
+        .kind = .effect_root,
+    }} ** 128;
+    var alias_count: usize = 0;
     var body_depth: usize = 1;
     var previous_kept_tag: ?std.zig.Token.Tag = null;
     var pending_identifier: ?PendingIdentifier = null;
     var token_window = TokenWindow{};
 
     while (body_depth != 0) {
-        const token = tokenizer.next();
+        const token = context.tokenizer.next();
         switch (token.tag) {
             .eof => break,
             .l_brace => body_depth += 1,
@@ -351,11 +525,11 @@ fn scanBody(
 
         if (pending_identifier) |candidate| {
             if (token.tag == .l_paren) {
-                const loc = locationForOffset(source, candidate.offset);
+                const loc = locationForOffset(context.source, candidate.offset);
                 try collector.pushHelperEdge(.{
-                    .caller_index = caller_index,
+                    .caller_index = context.caller_index,
                     .callee_index = 0,
-                    .caller_name = caller_name,
+                    .caller_name = context.caller_name,
                     .callee_name = candidate.lexeme,
                     .line = loc.line,
                     .column = loc.column,
@@ -366,17 +540,25 @@ fn scanBody(
 
         const current = TokenItem{
             .tag = token.tag,
-            .lexeme = tokenSlice(source, token),
+            .lexeme = tokenSlice(context.source, token),
+            .offset = token.loc.start,
         };
         token_window.push(current);
-        if (effect_param) |param| {
-            if (token_window.matchesDirectOpUse(param)) |match| {
-                try collector.pushDirectOpUse(.{
-                    .function_index = caller_index,
-                    .requirement_label = match.requirement_label,
-                    .op_name = match.op_name,
-                });
+        if (maybeRecordDirectOpUse(context.effect_param, aliases[0..alias_count], &token_window)) |match| {
+            try collector.pushDirectOpUse(.{
+                .function_index = context.caller_index,
+                .requirement_label = match.requirement_label,
+                .op_name = match.op_name,
+            });
+        }
+        if (current.tag == .semicolon) {
+            if (maybeAliasFromDeclaration(context.effect_param, aliases[0..alias_count], &token_window)) |alias| {
+                try upsertAlias(aliases[0..], &alias_count, alias.name, alias.kind);
             }
+        } else if (context.options.reject_indirect_effect_access and
+            maybeUnsupportedEffectAccess(context.effect_param, aliases[0..alias_count], &token_window))
+        {
+            return error.UnsupportedEffectAccess;
         }
 
         if (token.tag == .identifier and previous_kept_tag != .period) {
@@ -389,7 +571,7 @@ fn scanBody(
     }
 }
 
-fn scanSource(source: [:0]const u8, collector: anytype) AnalysisError!void {
+fn scanSource(source: [:0]const u8, collector: anytype, options: AnalyzeOptions) AnalysisError!void {
     var tokenizer = std.zig.Tokenizer.init(source);
     var depth: usize = 0;
 
@@ -411,6 +593,7 @@ fn scanSource(source: [:0]const u8, collector: anytype) AnalysisError!void {
 
                 var effect_param: ?[]const u8 = null;
                 var param_candidate: ?[]const u8 = null;
+                var pending_type_param: ?[]const u8 = null;
                 var param_depth: usize = 0;
 
                 while (true) {
@@ -429,13 +612,25 @@ fn scanSource(source: [:0]const u8, collector: anytype) AnalysisError!void {
                     if (isIgnorable(next.tag)) continue;
                     switch (next.tag) {
                         .l_paren => param_depth += 1,
-                        .r_paren => param_depth -= 1,
-                        .comma => param_candidate = null,
+                        .r_paren => {
+                            param_depth -= 1;
+                            pending_type_param = null;
+                        },
+                        .comma => {
+                            param_candidate = null;
+                            pending_type_param = null;
+                        },
                         .colon => if (param_depth == 1 and effect_param == null and param_candidate != null) {
-                            effect_param = param_candidate;
+                            pending_type_param = param_candidate;
+                        },
+                        .keyword_anytype => if (param_depth == 1 and effect_param == null and pending_type_param != null) {
+                            if (isEffectParamName(pending_type_param.?)) effect_param = pending_type_param;
+                            pending_type_param = null;
                         },
                         .identifier => if (param_depth == 1 and param_candidate == null) {
                             param_candidate = tokenSlice(source, next);
+                        } else if (param_depth == 1 and effect_param == null and pending_type_param != null) {
+                            pending_type_param = null;
                         },
                         else => {},
                     }
@@ -452,7 +647,15 @@ fn scanSource(source: [:0]const u8, collector: anytype) AnalysisError!void {
                     if (isIgnorable(next.tag)) continue;
                     switch (next.tag) {
                         .l_brace => {
-                            try scanBody(source, &tokenizer, function_index, name, effect_param, collector);
+                            var context: BodyScanContext = .{
+                                .source = source,
+                                .tokenizer = &tokenizer,
+                                .caller_index = function_index,
+                                .caller_name = name,
+                                .effect_param = effect_param,
+                                .options = options,
+                            };
+                            try scanBody(&context, collector);
                             break;
                         },
                         .semicolon => break,
@@ -466,7 +669,7 @@ fn scanSource(source: [:0]const u8, collector: anytype) AnalysisError!void {
 }
 
 fn finalizeGraph(source: [:0]const u8, collector: anytype, options: AnalyzeOptions) AnalysisError!?usize {
-    try scanSource(source, collector);
+    try scanSource(source, collector, options);
     resolveHelperEdges(collector);
 
     const entry_index: ?usize = if (options.entry_symbol) |entry_symbol|
@@ -503,7 +706,15 @@ pub fn analyzeComptime(
     }
 
     var collector = FixedCollector{};
-    const entry_index = try finalizeGraph(source, &collector, options);
+    const entry_index = finalizeGraph(source, &collector, options) catch |err| switch (err) {
+        error.OutOfMemory => unreachable,
+        error.EntryMissing => return error.EntryMissing,
+        error.RecursiveHelpers => return error.RecursiveHelpers,
+        error.TooManyFunctions => return error.TooManyFunctions,
+        error.TooManyHelperEdges => return error.TooManyHelperEdges,
+        error.TooManyOpUses => return error.TooManyOpUses,
+        error.UnsupportedEffectAccess => return error.UnsupportedEffectAccess,
+    };
     return collector.intoModuleGraph(entry_index);
 }
 
@@ -520,6 +731,7 @@ test "shared engine finds helper edges and direct op uses" {
         .{
             .entry_symbol = "runBody",
             .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
         },
     );
 
@@ -533,6 +745,48 @@ test "shared engine finds helper edges and direct op uses" {
     try std.testing.expectEqualStrings("tell", graph.direct_op_uses[0].op_name);
 }
 
+test "shared engine supports alias-based effect access" {
+    const graph = try analyzeComptime(
+        \\fn helper(eff: anytype) !void {
+        \\    const writer = eff.writer;
+        \\    try writer.tell("queued");
+        \\}
+        \\pub fn runBody(eff: anytype) !void {
+        \\    const e = eff;
+        \\    const state = e.state;
+        \\    _ = try state.get();
+        \\    try helper(eff);
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 2), graph.direct_op_uses.len);
+    try std.testing.expectEqualStrings("writer", graph.direct_op_uses[0].requirement_label);
+    try std.testing.expectEqualStrings("tell", graph.direct_op_uses[0].op_name);
+    try std.testing.expectEqualStrings("state", graph.direct_op_uses[1].requirement_label);
+    try std.testing.expectEqualStrings("get", graph.direct_op_uses[1].op_name);
+}
+
+test "shared engine rejects unsupported effect access" {
+    try std.testing.expectError(error.UnsupportedEffectAccess, analyzeComptime(
+        \\fn consume(_: anytype) void {}
+        \\pub fn runBody(eff: anytype) void {
+        \\    consume(eff.state);
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    ));
+}
+
 test "shared engine rejects recursive helper graphs" {
     try std.testing.expectError(error.RecursiveHelpers, analyzeComptime(
         \\fn helper() void { runBody(); }
@@ -541,6 +795,7 @@ test "shared engine rejects recursive helper graphs" {
         .{
             .entry_symbol = "runBody",
             .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
         },
     ));
 }

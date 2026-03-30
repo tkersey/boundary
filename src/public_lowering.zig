@@ -3,6 +3,7 @@ const program_frontend = @import("program_frontend");
 const program_plan = @import("internal_program_plan");
 const source_graph_embed = @import("source_graph_embed");
 const source_graph_comptime = @import("source_graph_comptime");
+const source_graph_engine = @import("source_graph_engine");
 const source_lowering = @import("source_lowering");
 const std = @import("std");
 
@@ -391,7 +392,22 @@ pub fn validateFileBackedOpenRowAt(
     defer analysis.deinit(allocator);
 
     if (!analysis.isParseClean()) return error.ParseError;
-    if (!analysis.hasTopLevelFunctionNamed(entry_symbol)) return error.EntryMissing;
+    const graph = source_graph_engine.analyzeRuntime(allocator, analysis.parsed.source_z, .{
+        .entry_symbol = entry_symbol,
+        .reject_recursive_helpers = true,
+        .reject_indirect_effect_access = true,
+    }) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.EntryMissing => return error.EntryMissing,
+        error.RecursiveHelpers => return error.UnsupportedHelperGraph,
+        error.TooManyFunctions => return error.UnsupportedHelperGraph,
+        error.TooManyHelperEdges => return error.UnsupportedHelperGraph,
+        error.TooManyOpUses => return error.UnsupportedHelperGraph,
+        error.UnsupportedEffectAccess => return error.UnsupportedEffectAccess,
+    };
+    defer allocator.free(graph.functions);
+    defer allocator.free(graph.helper_edges);
+    defer allocator.free(graph.direct_op_uses);
 }
 
 const ValidationSpec = struct {

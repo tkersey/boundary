@@ -2,12 +2,14 @@ const shift = @import("shift");
 const std = @import("std");
 
 fn queueQuery(eff: anytype) !void {
-    try eff.writer.tell("query=artifact-search");
+    const writer = eff.writer;
+    try writer.tell("query=artifact-search");
 }
 
 fn advanceState(eff: anytype) !void {
-    const before = try eff.state.get();
-    try eff.state.set(before + 1);
+    const state = eff.state;
+    const before = try state.get();
+    try state.set(before + 1);
     try queueQuery(eff);
 }
 

@@ -274,6 +274,7 @@ pub fn build(b: *std.Build) void {
     shift_mod.addImport("internal_kernel", internal_kernel_mod);
     shift_mod.addImport("internal_program_plan", internal_program_plan_mod);
     shift_mod.addImport("interpreter", interpreter_mod);
+    shift_mod.addImport("source_graph_engine", source_graph_engine_mod);
     shift_mod.addImport("source_graph_comptime", source_graph_comptime_mod);
     lowered_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
     lowered_machine_mod.addImport("internal_kernel", internal_kernel_mod);
@@ -501,6 +502,7 @@ pub fn build(b: *std.Build) void {
     lib_check.root_module.addImport("authoring_lowerer", authoring_lowerer_mod);
     lib_check.root_module.addImport("authoring_build_options", authoring_build_options_mod);
     lib_check.root_module.addImport("program_frontend", program_frontend_mod);
+    lib_check.root_module.addImport("source_graph_engine", source_graph_engine_mod);
     lib_check.root_module.addImport("source_graph_comptime", source_graph_comptime_mod);
     lib_check.root_module.addImport("source_graph_embed", source_graph_embed_mod);
     lib_check.root_module.addImport("source_lowering", source_lowering_mod);
@@ -524,6 +526,7 @@ pub fn build(b: *std.Build) void {
     root_tests.root_module.addImport("authoring_lowerer", authoring_lowerer_mod);
     root_tests.root_module.addImport("authoring_build_options", authoring_build_options_mod);
     root_tests.root_module.addImport("program_frontend", program_frontend_mod);
+    root_tests.root_module.addImport("source_graph_engine", source_graph_engine_mod);
     root_tests.root_module.addImport("source_graph_comptime", source_graph_comptime_mod);
     root_tests.root_module.addImport("source_graph_embed", source_graph_embed_mod);
     root_tests.root_module.addImport("source_lowering", source_lowering_mod);

@@ -17,6 +17,7 @@ pub fn analyzeModule(comptime source: [:0]const u8, comptime entry_symbol: []con
     return try shared.analyzeComptime(source, .{
         .entry_symbol = entry_symbol,
         .reject_recursive_helpers = true,
+        .reject_indirect_effect_access = true,
     });
 }
 
