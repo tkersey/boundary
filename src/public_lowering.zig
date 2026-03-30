@@ -1,3 +1,4 @@
+const build_options = @import("authoring_build_options");
 const effect_ir = @import("effect_ir");
 const helper_body_lowering = @import("internal/helper_body_lowering.zig");
 const lowered_machine = @import("lowered_machine");
@@ -1011,6 +1012,18 @@ fn findValidationImport(imports: []const ValidationImport, name: []const u8) ?Va
     return null;
 }
 
+fn packageRootRelativePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ValidationError![]u8 {
+    if (source_path.len == 0) return error.UnsupportedHelperGraph;
+    if (std.fs.path.isAbsolute(source_path)) {
+        if (!std.mem.startsWith(u8, source_path, build_options.package_root)) return error.UnsupportedHelperGraph;
+        if (source_path.len <= build_options.package_root.len) return error.UnsupportedHelperGraph;
+        const separator = source_path[build_options.package_root.len];
+        if (separator != '/' and separator != '\\') return error.UnsupportedHelperGraph;
+        return try allocator.dupe(u8, source_path[build_options.package_root.len + 1 ..]);
+    }
+    return try allocator.dupe(u8, source_path);
+}
+
 fn resolveValidationImportPathAlloc(
     allocator: std.mem.Allocator,
     source_path: []const u8,
@@ -1019,9 +1032,40 @@ fn resolveValidationImportPathAlloc(
     if (std.fs.path.isAbsolute(import_path)) return error.UnsupportedHelperGraph;
     if (!std.mem.endsWith(u8, import_path, ".zig")) return error.UnsupportedHelperGraph;
 
-    const base_dir = std.fs.path.dirname(source_path) orelse ".";
-    return std.fs.path.resolve(allocator, &.{ base_dir, import_path }) catch |err| switch (err) {
+    const repo_source_path = try packageRootRelativePathAlloc(allocator, source_path);
+    defer allocator.free(repo_source_path);
+    const base_dir = std.fs.path.dirname(repo_source_path) orelse "";
+
+    var joined = std.ArrayList(u8).empty;
+    defer joined.deinit(allocator);
+    if (base_dir.len != 0) {
+        try joined.appendSlice(allocator, base_dir);
+        try joined.append(allocator, '/');
+    }
+    try joined.appendSlice(allocator, import_path);
+
+    var segments = std.ArrayList([]const u8).empty;
+    defer segments.deinit(allocator);
+
+    var start: usize = 0;
+    var index: usize = 0;
+    while (index <= joined.items.len) : (index += 1) {
+        if (index != joined.items.len and joined.items[index] != '/') continue;
+        const segment = joined.items[start..index];
+        start = index + 1;
+        if (segment.len == 0 or std.mem.eql(u8, segment, ".")) continue;
+        if (std.mem.eql(u8, segment, "..")) {
+            if (segments.items.len == 0) return error.UnsupportedHelperGraph;
+            _ = segments.pop();
+            continue;
+        }
+        try segments.append(allocator, segment);
+    }
+    if (segments.items.len == 0) return error.UnsupportedHelperGraph;
+
+    return std.fs.path.join(allocator, segments.items) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
+        else => unreachable,
     };
 }
 
@@ -1062,29 +1106,30 @@ fn collectValidationModule(
     };
     defer deinitValidationGraph(state.allocator, graph);
 
+    var module_owned_by_state = false;
     const owned_path = try state.allocator.dupe(u8, source_path);
-    errdefer state.allocator.free(owned_path);
+    errdefer if (!module_owned_by_state) state.allocator.free(owned_path);
     const owned_functions = try cloneValidationFunctionsAlloc(state.allocator, graph.functions);
-    errdefer {
+    errdefer if (!module_owned_by_state) {
         for (owned_functions) |function| state.allocator.free(function.name);
         state.allocator.free(owned_functions);
-    }
+    };
     const owned_imports = try cloneValidationImportsAlloc(state.allocator, graph.imports);
-    errdefer {
+    errdefer if (!module_owned_by_state) {
         for (owned_imports) |import_alias| {
             state.allocator.free(import_alias.name);
             state.allocator.free(import_alias.import_path);
         }
         state.allocator.free(owned_imports);
-    }
+    };
     const owned_helper_uses = try cloneValidationHelperUsesAlloc(state.allocator, graph.helper_uses);
-    errdefer {
+    errdefer if (!module_owned_by_state) {
         for (owned_helper_uses) |helper_use| {
             state.allocator.free(helper_use.callee_name);
             if (helper_use.import_alias) |import_alias| state.allocator.free(import_alias);
         }
         state.allocator.free(owned_helper_uses);
-    }
+    };
 
     if (state.modules.items.len >= max_validation_modules) return error.UnsupportedHelperGraph;
     try state.modules.append(state.allocator, .{
@@ -1095,6 +1140,7 @@ fn collectValidationModule(
         .helper_edge_count = graph.helper_edges.len,
         .direct_op_use_count = graph.direct_op_uses.len,
     });
+    module_owned_by_state = true;
     const module_index = state.modules.items.len - 1;
     const module = state.modules.items[module_index];
 
@@ -1112,7 +1158,9 @@ fn collectValidationModule(
         if (!module.functions[helper_use.caller_index].effect_param_present) continue;
 
         const import_row = findValidationImport(module.imports, import_alias) orelse return error.UnsupportedHelperGraph;
-        const imported_path = try resolveValidationImportPathAlloc(state.allocator, source_path, import_row.import_path);
+        const imported_repo_path = try resolveValidationImportPathAlloc(state.allocator, source_path, import_row.import_path);
+        defer state.allocator.free(imported_repo_path);
+        const imported_path = try std.fs.path.join(state.allocator, &.{ build_options.package_root, imported_repo_path });
         defer state.allocator.free(imported_path);
 
         const imported_index = try collectValidationModule(state, imported_path, null);
@@ -1288,10 +1336,18 @@ test "same-module lowerAt preserves caller-provided source ownership" {
     const ProgramType = lowerAt("examples/open_row_state_writer.zig", .{
         .label = "public_lowering.self",
         .entry_symbol = "runBody",
-        .row = effect_ir.rowFromSpec(.{
-            .state = .{
-                .get = effect_ir.Transform(void, i32),
-            },
+        .row = effect_ir.mergeRows(.{
+            effect_ir.rowFromSpec(.{
+                .state = .{
+                    .get = effect_ir.Transform(void, i32),
+                    .set = effect_ir.Transform(i32, void),
+                },
+            }),
+            effect_ir.rowFromSpec(.{
+                .writer = .{
+                    .tell = effect_ir.Transform([]const u8, void),
+                },
+            }),
         }),
     });
 

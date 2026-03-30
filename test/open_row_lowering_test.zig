@@ -609,6 +609,18 @@ test "file-backed validation resolves cross-file helper imports for explicit-pat
     try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
 }
 
+test "file-backed validation rejects helper imports that escape the package root" {
+    const entry_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, "test/open_row_validation_boundary/entry_escape_import.zig");
+    defer std.testing.allocator.free(entry_path);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try std.testing.expectError(
+        error.UnsupportedHelperGraph,
+        shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), entry_path, "runBody"),
+    );
+}
+
 test "recursive same-file workflow lowers through the public root surface" {
     const lowered = try example_open_row_recursive_writer.loweredProgram();
 

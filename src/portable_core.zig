@@ -116,7 +116,6 @@ pub const CleanupStack = struct {
 const SharedFrameRegistry = struct {
     lock_state: SpinLock = .{},
     registry: FrameRegistry = .{},
-    owner_allocator: ?std.mem.Allocator = null,
 
     fn find(self: *const @This(), comptime FramePtrType: type, token: PromptToken) ?FramePtrType {
         const mutable_self: *@This() = @constCast(self);
@@ -126,13 +125,10 @@ const SharedFrameRegistry = struct {
     }
 
     fn push(self: *@This(), allocator: std.mem.Allocator, token: PromptToken, frame: anytype) std.mem.Allocator.Error!?*anyopaque {
+        _ = allocator;
         self.lock_state.lock();
         defer self.lock_state.unlock();
-        const owner_allocator = self.owner_allocator orelse blk: {
-            self.owner_allocator = allocator;
-            break :blk allocator;
-        };
-        return try self.registry.push(owner_allocator, token, frame);
+        return try self.registry.push(std.heap.page_allocator, token, frame);
     }
 
     fn pop(self: *@This(), token: PromptToken, previous: ?*anyopaque) void {
@@ -152,9 +148,7 @@ const SharedFrameRegistry = struct {
         self.lock_state.lock();
         defer self.lock_state.unlock();
         if (self.registry.map.count() != 0) return;
-        const allocator = self.owner_allocator orelse return;
-        self.registry.deinit(allocator);
-        self.owner_allocator = null;
+        self.registry.deinit(std.heap.page_allocator);
     }
 };
 
@@ -195,7 +189,7 @@ pub fn compatFrameFind(comptime FramePtrType: type, token: PromptToken) ?FramePt
     return compat_frames.find(FramePtrType, token);
 }
 
-/// Install one compat frame using the shared global allocator owner.
+/// Install one compat frame using the shared global page-backed registry.
 pub fn compatFramePush(allocator: std.mem.Allocator, token: PromptToken, frame: anytype) std.mem.Allocator.Error!?*anyopaque {
     return try compat_frames.push(allocator, token, frame);
 }
@@ -220,7 +214,7 @@ pub fn compatCleanupStack() *CleanupStack {
     return &compat_cleanup;
 }
 
-test "compat frame registry keeps its owner allocator until idle deinit" {
+test "compat frame registry ignores runtime allocators and deinitializes through page allocator" {
     const CountingAllocator = struct {
         child: std.mem.Allocator,
         alloc_calls: usize = 0,
@@ -285,6 +279,8 @@ test "compat frame registry keeps its owner allocator until idle deinit" {
     try std.testing.expect(compatFrameCount() == 0);
 
     compatFrameDeinitIfIdle();
-    try std.testing.expect(owner.free_calls != 0);
+    try std.testing.expectEqual(@as(usize, 0), owner.alloc_calls);
+    try std.testing.expectEqual(@as(usize, 0), owner.free_calls);
+    try std.testing.expectEqual(@as(usize, 0), other.alloc_calls);
     try std.testing.expectEqual(@as(usize, 0), other.free_calls);
 }

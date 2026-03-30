@@ -57,38 +57,11 @@ fn cloneBytes(comptime bytes: []const u8) []const u8 {
     return std.fmt.comptimePrint("{s}", .{bytes});
 }
 
-fn functionRowHasOpUse(
-    comptime functions: []const effect_ir.Function,
-    comptime function_index: usize,
-    comptime requirement_label: []const u8,
-    comptime op_name: []const u8,
-) bool {
-    for (functions[function_index].row.requirements) |requirement| {
-        if (!std.mem.eql(u8, requirement.label, requirement_label)) continue;
-        for (requirement.ops) |op| {
-            if (std.mem.eql(u8, op.op_name, op_name)) return true;
-        }
-    }
-    return false;
-}
-
-fn canBuildRealBodyForFunction(
-    comptime graph: source_graph_embed.ProgramGraph,
-    comptime functions: []const effect_ir.Function,
-    comptime lowered_index_map: [graph.functions.len]u16,
-    comptime graph_function_index: usize,
-) bool {
-    const lowered_function_index: usize = lowered_index_map[graph_function_index];
-    for (graph.direct_op_uses) |direct_use| {
-        if (direct_use.function_index != graph_function_index) continue;
-        if (!functionRowHasOpUse(
-            functions,
-            lowered_function_index,
-            direct_use.requirement_label,
-            direct_use.op_name,
-        )) return false;
-    }
-    return true;
+fn failUnsupportedBodyLowering(comptime function: source_graph_embed.ProgramFunction) noreturn {
+    @compileError(std.fmt.comptimePrint(
+        "public lowering cannot synthesize unsupported helper or entry bodies; {s}:{s} must stay within the retained lowered-body subset",
+        .{ function.module_path, function.name },
+    ));
 }
 
 fn isBodyIgnorable(tag: std.zig.Token.Tag) bool {
@@ -1456,47 +1429,6 @@ fn buildRecursiveGuardBodyForFunction(
     };
 }
 
-fn synthesizeBodyForFunction(
-    comptime graph: source_graph_embed.ProgramGraph,
-    comptime lowered_index_map: [graph.functions.len]u16,
-    comptime graph_function_index: usize,
-    comptime has_outputs: bool,
-) program_frontend.FunctionBody {
-    const instruction_count = comptime count: {
-        var total: usize = 0;
-        for (graph.helper_edges) |edge| {
-            if (edge.caller_index == graph_function_index) total += 1;
-        }
-        break :count total;
-    };
-
-    const instructions = comptime blk: {
-        var buffer: [instruction_count]program_frontend.BodyInstruction = undefined;
-        var index: usize = 0;
-        for (graph.helper_edges) |edge| {
-            if (edge.caller_index != graph_function_index) continue;
-            buffer[index] = .{
-                .kind = .call_helper,
-                .operand = lowered_index_map[edge.callee_index],
-            };
-            index += 1;
-        }
-        break :blk &buffer;
-    };
-    const blocks = [_]program_frontend.BodyBlock{.{
-        .instructions = instructions,
-        .terminator = .{
-            .kind = if (has_outputs) .return_value else .return_unit,
-        },
-    }};
-    return .{
-        .local_codecs = &.{},
-        .call_arg_locals = &.{},
-        .entry_block = 0,
-        .blocks = &blocks,
-    };
-}
-
 fn buildBodyInstructionsForFunction(
     comptime graph: source_graph_embed.ProgramGraph,
     comptime lowered_index_map: [graph.functions.len]u16,
@@ -1601,17 +1533,9 @@ pub fn buildFunctionBodiesForGraph(
             if (!reachable[graph_function_index]) continue;
             const lowered_function_index = lowered_index_map[graph_function_index];
             const lowered_function = functions[lowered_function_index];
-            const use_real_body = function.body_lowering_supported and
-                canBuildRealBodyForFunction(graph, functions, lowered_index_map, graph_function_index);
 
-            if (!use_real_body) {
-                buffer[lowered_function_index] = synthesizeBodyForFunction(
-                    graph,
-                    lowered_index_map,
-                    graph_function_index,
-                    lowered_function.outputs.len != 0,
-                );
-                continue;
+            if (!function.body_lowering_supported) {
+                failUnsupportedBodyLowering(function);
             }
 
             if (buildRecursiveGuardBodyForFunction(
