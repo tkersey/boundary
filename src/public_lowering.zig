@@ -441,6 +441,361 @@ fn canBuildRealBodyForFunction(
     return true;
 }
 
+const BodyToken = struct {
+    tag: std.zig.Token.Tag,
+    lexeme: []const u8,
+};
+
+const StatementRange = struct {
+    start: usize,
+    end: usize,
+};
+
+fn isBodyIgnorable(tag: std.zig.Token.Tag) bool {
+    return switch (tag) {
+        .doc_comment,
+        .container_doc_comment,
+        => true,
+        else => false,
+    };
+}
+
+fn bodyTokensForFunction(
+    comptime module_path: []const u8,
+    comptime body_start_offset: usize,
+    comptime body_end_offset: usize,
+) []const BodyToken {
+    const module_source = source_graph_embed.embeddedSource(module_path);
+    return comptime blk: {
+        var tokenizer = std.zig.Tokenizer.init(module_source);
+        var token_count: usize = 0;
+        while (true) {
+            const token = tokenizer.next();
+            if (token.tag == .eof or token.loc.start >= body_end_offset) break;
+            if (token.loc.end <= body_start_offset or isBodyIgnorable(token.tag)) continue;
+            token_count += 1;
+        }
+
+        var buffer: [token_count]BodyToken = undefined;
+        tokenizer = std.zig.Tokenizer.init(module_source);
+        var index: usize = 0;
+        while (true) {
+            const token = tokenizer.next();
+            if (token.tag == .eof or token.loc.start >= body_end_offset) break;
+            if (token.loc.end <= body_start_offset or isBodyIgnorable(token.tag)) continue;
+            buffer[index] = .{
+                .tag = token.tag,
+                .lexeme = module_source[token.loc.start..token.loc.end],
+            };
+            index += 1;
+        }
+        break :blk &buffer;
+    };
+}
+
+fn statementRangesForTokens(comptime tokens: []const BodyToken) []const StatementRange {
+    return comptime blk: {
+        var statement_count: usize = 0;
+        var start: usize = 0;
+        for (tokens, 0..) |token, index| {
+            if (token.tag != .semicolon) continue;
+            if (index + 1 > start) statement_count += 1;
+            start = index + 1;
+        }
+
+        var buffer: [statement_count]StatementRange = undefined;
+        var out_index: usize = 0;
+        start = 0;
+        for (tokens, 0..) |token, index| {
+            if (token.tag != .semicolon) continue;
+            if (index + 1 > start) {
+                buffer[out_index] = .{
+                    .start = start,
+                    .end = index + 1,
+                };
+                out_index += 1;
+            }
+            start = index + 1;
+        }
+        break :blk &buffer;
+    };
+}
+
+fn parseLocalFromOpStatement(
+    comptime statement: []const BodyToken,
+) ?struct {
+    local_name: []const u8,
+    requirement_label: []const u8,
+    op_name: []const u8,
+} {
+    if (statement.len != 12) return null;
+    if (statement[0].tag != .keyword_const) return null;
+    if (statement[1].tag != .identifier) return null;
+    if (statement[2].tag != .equal) return null;
+    if (statement[3].tag != .keyword_try) return null;
+    if (statement[4].tag != .identifier or !std.mem.eql(u8, statement[4].lexeme, "eff")) return null;
+    if (statement[5].tag != .period) return null;
+    if (statement[6].tag != .identifier) return null;
+    if (statement[7].tag != .period) return null;
+    if (statement[8].tag != .identifier) return null;
+    if (statement[9].tag != .l_paren) return null;
+    if (statement[10].tag != .r_paren) return null;
+    if (statement[11].tag != .semicolon) return null;
+    return .{
+        .local_name = statement[1].lexeme,
+        .requirement_label = statement[6].lexeme,
+        .op_name = statement[8].lexeme,
+    };
+}
+
+fn parseIfLocalEqZeroReturnStatement(
+    comptime statement: []const BodyToken,
+    comptime local_name: []const u8,
+) bool {
+    return statement.len == 8 and
+        statement[0].tag == .keyword_if and
+        statement[1].tag == .l_paren and
+        statement[2].tag == .identifier and
+        std.mem.eql(u8, statement[2].lexeme, local_name) and
+        statement[3].tag == .equal_equal and
+        statement[4].tag == .number_literal and
+        std.mem.eql(u8, statement[4].lexeme, "0") and
+        statement[5].tag == .r_paren and
+        statement[6].tag == .keyword_return and
+        statement[7].tag == .semicolon;
+}
+
+fn parseSimpleDirectOpStatement(comptime statement: []const BodyToken) ?struct {
+    requirement_label: []const u8,
+    op_name: []const u8,
+} {
+    if (statement.len != 10) return null;
+    if (statement[0].tag != .keyword_try) return null;
+    if (statement[1].tag != .identifier or !std.mem.eql(u8, statement[1].lexeme, "eff")) return null;
+    if (statement[2].tag != .period) return null;
+    if (statement[3].tag != .identifier) return null;
+    if (statement[4].tag != .period) return null;
+    if (statement[5].tag != .identifier) return null;
+    if (statement[6].tag != .l_paren) return null;
+    if (statement[8].tag != .r_paren) return null;
+    if (statement[9].tag != .semicolon) return null;
+    return .{
+        .requirement_label = statement[3].lexeme,
+        .op_name = statement[5].lexeme,
+    };
+}
+
+fn parseLocalDecrementOpStatement(
+    comptime statement: []const BodyToken,
+    comptime local_name: []const u8,
+) ?struct {
+    requirement_label: []const u8,
+    op_name: []const u8,
+} {
+    if (statement.len != 12) return null;
+    if (statement[0].tag != .keyword_try) return null;
+    if (statement[1].tag != .identifier or !std.mem.eql(u8, statement[1].lexeme, "eff")) return null;
+    if (statement[2].tag != .period) return null;
+    if (statement[3].tag != .identifier) return null;
+    if (statement[4].tag != .period) return null;
+    if (statement[5].tag != .identifier) return null;
+    if (statement[6].tag != .l_paren) return null;
+    if (statement[7].tag != .identifier or !std.mem.eql(u8, statement[7].lexeme, local_name)) return null;
+    if (statement[8].tag != .minus) return null;
+    if (statement[9].tag != .number_literal or !std.mem.eql(u8, statement[9].lexeme, "1")) return null;
+    if (statement[10].tag != .r_paren) return null;
+    if (statement[11].tag != .semicolon) return null;
+    return .{
+        .requirement_label = statement[3].lexeme,
+        .op_name = statement[5].lexeme,
+    };
+}
+
+fn parseHelperCallStatement(comptime statement: []const BodyToken) ?[]const u8 {
+    if (statement.len != 6) return null;
+    if (statement[0].tag != .keyword_try) return null;
+    if (statement[1].tag != .identifier) return null;
+    if (statement[2].tag != .l_paren) return null;
+    if (statement[3].tag != .identifier or !std.mem.eql(u8, statement[3].lexeme, "eff")) return null;
+    if (statement[4].tag != .r_paren) return null;
+    if (statement[5].tag != .semicolon) return null;
+    return statement[1].lexeme;
+}
+
+fn resumeCodecForFunctionUse(
+    comptime functions: []const effect_ir.Function,
+    comptime function_index: usize,
+    comptime requirement_label: []const u8,
+    comptime op_name: []const u8,
+) program_plan.ValueCodec {
+    for (functions[function_index].row.requirements) |requirement| {
+        if (!std.mem.eql(u8, requirement.label, requirement_label)) continue;
+        for (requirement.ops) |op| {
+            if (!std.mem.eql(u8, op.op_name, op_name)) continue;
+            return program_plan.codecForType(op.ResumeType) catch
+                @compileError("public lowering recursive helper subset produced an unsupported resume codec");
+        }
+    }
+    @compileError("public lowering recursive helper subset could not map one bound local to an op resume codec");
+}
+
+fn helperTargetIndexByName(
+    comptime graph: source_graph_embed.ProgramGraph,
+    comptime lowered_index_map: [graph.functions.len]u16,
+    comptime graph_function_index: usize,
+    comptime callee_name: []const u8,
+) u16 {
+    for (graph.helper_edges) |edge| {
+        if (edge.caller_index != graph_function_index) continue;
+        if (std.mem.eql(u8, graph.functions[edge.callee_index].name, callee_name)) {
+            return lowered_index_map[edge.callee_index];
+        }
+    }
+    @compileError("public lowering recursive helper subset could not resolve one helper call target");
+}
+
+fn buildRecursiveGuardBodyForFunction(
+    comptime source_path: []const u8,
+    comptime graph: source_graph_embed.ProgramGraph,
+    comptime lowered_index_map: [graph.functions.len]u16,
+    comptime functions: []const effect_ir.Function,
+    comptime graph_function_index: usize,
+    comptime lowered_function_index: usize,
+) ?program_frontend.FunctionBody {
+    const function = graph.functions[graph_function_index];
+    if (!std.mem.eql(u8, function.module_path, source_path)) return null;
+    if (function.body_end_offset <= function.body_start_offset) return null;
+
+    const tokens = bodyTokensForFunction(function.module_path, function.body_start_offset, function.body_end_offset);
+    const statement_ranges = statementRangesForTokens(tokens);
+    if (statement_ranges.len < 3) return null;
+
+    const bound = parseLocalFromOpStatement(tokens[statement_ranges[0].start..statement_ranges[0].end]) orelse return null;
+    if (!parseIfLocalEqZeroReturnStatement(tokens[statement_ranges[1].start..statement_ranges[1].end], bound.local_name)) return null;
+
+    const local_codec = resumeCodecForFunctionUse(
+        functions,
+        lowered_function_index,
+        bound.requirement_label,
+        bound.op_name,
+    );
+
+    const tail_instruction_count = comptime count: {
+        var total: usize = 0;
+        for (statement_ranges[2..]) |range| {
+            const statement = tokens[range.start..range.end];
+            if (parseSimpleDirectOpStatement(statement) != null) {
+                total += 1;
+                continue;
+            }
+            if (parseLocalDecrementOpStatement(statement, bound.local_name) != null) {
+                total += 2;
+                continue;
+            }
+            if (parseHelperCallStatement(statement) != null) {
+                total += 1;
+                continue;
+            }
+            return null;
+        }
+        break :count total;
+    };
+
+    const tail_instructions = comptime blk: {
+        var buffer: [tail_instruction_count]program_frontend.BodyInstruction = undefined;
+        var index: usize = 0;
+        for (statement_ranges[2..]) |range| {
+            const statement = tokens[range.start..range.end];
+            if (parseSimpleDirectOpStatement(statement)) |direct_op| {
+                buffer[index] = .{
+                    .kind = .call_op,
+                    .operand = opIndexForFunctionUse(
+                        functions,
+                        lowered_function_index,
+                        direct_op.requirement_label,
+                        direct_op.op_name,
+                    ),
+                };
+                index += 1;
+                continue;
+            }
+            if (parseLocalDecrementOpStatement(statement, bound.local_name)) |decrement_op| {
+                buffer[index] = .{
+                    .kind = .sub_one,
+                    .dst = 2,
+                    .operand = 0,
+                };
+                index += 1;
+                buffer[index] = .{
+                    .kind = .call_op,
+                    .operand = opIndexForFunctionUse(
+                        functions,
+                        lowered_function_index,
+                        decrement_op.requirement_label,
+                        decrement_op.op_name,
+                    ),
+                    .aux = 2,
+                };
+                index += 1;
+                continue;
+            }
+            const callee_name = parseHelperCallStatement(statement) orelse unreachable;
+            buffer[index] = .{
+                .kind = .call_helper,
+                .operand = helperTargetIndexByName(graph, lowered_index_map, graph_function_index, callee_name),
+            };
+            index += 1;
+        }
+        break :blk &buffer;
+    };
+
+    const entry_instructions = &[_]program_frontend.BodyInstruction{
+        .{
+            .kind = .call_op,
+            .dst = 0,
+            .operand = opIndexForFunctionUse(
+                functions,
+                lowered_function_index,
+                bound.requirement_label,
+                bound.op_name,
+            ),
+        },
+        .{
+            .kind = .compare_eq_zero,
+            .dst = 1,
+            .operand = 0,
+        },
+    };
+    const local_codecs = &[_]program_frontend.BodyLocalCodec{
+        local_codec,
+        .bool,
+        local_codec,
+    };
+    const blocks = &[_]program_frontend.BodyBlock{
+        .{
+            .instructions = entry_instructions,
+            .terminator = .{
+                .kind = .branch_if,
+                .primary = 1,
+                .secondary = 2,
+            },
+        },
+        .{
+            .instructions = &.{},
+            .terminator = .{ .kind = .return_unit },
+        },
+        .{
+            .instructions = tail_instructions,
+            .terminator = .{ .kind = .return_unit },
+        },
+    };
+    return .{
+        .local_codecs = local_codecs,
+        .entry_block = 0,
+        .blocks = blocks,
+    };
+}
+
 fn synthesizeBodyForFunction(
     comptime graph: source_graph_embed.ProgramGraph,
     comptime lowered_index_map: [graph.functions.len]u16,
@@ -570,8 +925,8 @@ fn buildBodyInstructionsForFunction(
 }
 
 fn buildFunctionBodiesForGraph(
+    comptime source_path: []const u8,
     comptime graph: source_graph_embed.ProgramGraph,
-    comptime spec: LowerSpec,
     comptime functions: []const effect_ir.Function,
 ) []const program_frontend.FunctionBody {
     const reachable = reachableFunctions(graph);
@@ -598,6 +953,19 @@ fn buildFunctionBodiesForGraph(
                 continue;
             }
 
+            const maybe_control_flow_body = buildRecursiveGuardBodyForFunction(
+                source_path,
+                graph,
+                lowered_index_map,
+                functions,
+                graph_function_index,
+                lowered_function_index,
+            );
+            if (maybe_control_flow_body) |control_flow_body| {
+                buffer[lowered_function_index] = control_flow_body;
+                continue;
+            }
+
             const instructions = buildBodyInstructionsForFunction(
                 graph,
                 lowered_index_map,
@@ -615,8 +983,6 @@ fn buildFunctionBodiesForGraph(
                 .blocks = &blocks,
             };
         }
-
-        _ = spec;
         break :blk &buffer;
     };
 }
@@ -630,7 +996,7 @@ fn openRowAt(comptime source_path: []const u8, comptime spec: LowerSpec) program
         .entry_symbol = spec.entry_symbol,
         .functions = functions,
         .call_edges = buildCallEdgesForGraph(graph),
-        .function_bodies = buildFunctionBodiesForGraph(graph, spec, functions),
+        .function_bodies = buildFunctionBodiesForGraph(source_path, graph, functions),
     };
 }
 

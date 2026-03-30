@@ -227,6 +227,32 @@ test "recursive same-file workflow lowers through the public root surface" {
     try std.testing.expectEqual(@as(usize, 2), lowered.normalization.output_count);
 }
 
+test "recursive same-file helper lowers into a real guarded control-flow body" {
+    const lowered = try example_open_row_recursive_writer.loweredProgram();
+
+    const countdown_index = comptime blk: {
+        for (lowered.program.functions, 0..) |function, function_index| {
+            if (std.mem.eql(u8, function.symbol.symbol_name, "countdown")) break :blk function_index;
+        }
+        unreachable;
+    };
+    const countdown_body = lowered.program.function_bodies[countdown_index];
+
+    try std.testing.expectEqual(@as(usize, 3), countdown_body.local_codecs.len);
+    try std.testing.expectEqual(@as(usize, 3), countdown_body.blocks.len);
+    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[0].instructions[0].kind), .call_op), countdown_body.blocks[0].instructions[0].kind);
+    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[0].instructions[1].kind), .compare_eq_zero), countdown_body.blocks[0].instructions[1].kind);
+    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[0].terminator.kind), .branch_if), countdown_body.blocks[0].terminator.kind);
+    try std.testing.expectEqual(@as(u16, 1), countdown_body.blocks[0].terminator.primary);
+    try std.testing.expectEqual(@as(u16, 2), countdown_body.blocks[0].terminator.secondary);
+    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[1].terminator.kind), .return_unit), countdown_body.blocks[1].terminator.kind);
+    try std.testing.expectEqual(@as(usize, 4), countdown_body.blocks[2].instructions.len);
+    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[2].instructions[0].kind), .call_op), countdown_body.blocks[2].instructions[0].kind);
+    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[2].instructions[1].kind), .sub_one), countdown_body.blocks[2].instructions[1].kind);
+    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[2].instructions[2].kind), .call_op), countdown_body.blocks[2].instructions[2].kind);
+    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[2].instructions[3].kind), .call_helper), countdown_body.blocks[2].instructions[3].kind);
+}
+
 test "recursive imported-helper workflow lowers through the public root surface" {
     const lowered = try example_open_row_recursive_cross_writer.loweredProgram();
 

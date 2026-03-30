@@ -78,7 +78,9 @@ pub const FunctionPlan = struct {
 pub const InstructionKind = enum {
     call_helper,
     call_op,
+    compare_eq_zero,
     return_value,
+    sub_one,
 };
 
 /// One serializable placeholder instruction in the runtime-owned executable plan.
@@ -176,6 +178,7 @@ pub const ProgramPlan = struct {
             .call_op => {
                 if (instruction.index >= self.ops.len) return error.InvalidCallOpTarget;
             },
+            .compare_eq_zero, .sub_one => {},
             .return_value => {
                 if (instruction.index != 0) return error.InvalidReturnValueIndex;
             },

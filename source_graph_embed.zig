@@ -11,6 +11,8 @@ pub const ProgramFunction = struct {
     module_path: []const u8,
     name: []const u8,
     body_lowering_supported: bool,
+    body_start_offset: usize,
+    body_end_offset: usize,
 };
 
 /// One helper edge in a flattened explicit-path program graph.
@@ -54,6 +56,8 @@ const Buffers = struct {
         .module_path = "",
         .name = "",
         .body_lowering_supported = false,
+        .body_start_offset = 0,
+        .body_end_offset = 0,
     }} ** 256,
     function_count: usize = 0,
     helper_edges: [1024]ProgramHelperEdge = [_]ProgramHelperEdge{.{
@@ -219,6 +223,8 @@ fn collectModule(comptime source_path: []const u8, buffers: *Buffers) Error!Modu
             .module_path = source_path,
             .name = function.name,
             .body_lowering_supported = function.body_lowering_supported,
+            .body_start_offset = function.body_start_offset,
+            .body_end_offset = function.body_end_offset,
         };
         buffers.function_count += 1;
     }
