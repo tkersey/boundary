@@ -15,6 +15,12 @@ pub const LowerSpec = struct {
     outputs: []const effect_ir.OutputSpec = &.{},
 };
 
+/// Public caller-supplied provenance witness for one lowering request.
+pub const SourceRef = struct {
+    repo_path: []const u8,
+    caller_file: []const u8,
+};
+
 /// Public additive validation error surface for file-backed same-module sources.
 pub const ValidationError = error{
     EntryMissing,
@@ -29,6 +35,16 @@ pub const LowerError = effect_ir.NormalizeError || ValidationError;
 
 fn cloneBytes(comptime bytes: []const u8) []const u8 {
     return std.fmt.comptimePrint("{s}", .{bytes});
+}
+
+/// Build one caller-owned lowering provenance witness from an explicit repo path plus `@src()`.
+pub fn source(comptime repo_path: []const u8, comptime caller: std.builtin.SourceLocation) SourceRef {
+    if (repo_path.len == 0) @compileError("public lowering source helper requires a non-empty repo-relative path");
+    if (caller.file.len == 0) @compileError("public lowering source helper requires a non-empty caller source file");
+    return .{
+        .repo_path = cloneBytes(repo_path),
+        .caller_file = cloneBytes(caller.file),
+    };
 }
 
 fn cloneOutputSpecs(comptime outputs: []const effect_ir.OutputSpec) []const effect_ir.OutputSpec {
@@ -383,10 +399,10 @@ pub fn validateFileBackedOpenRowAt(
     source_path: []const u8,
     entry_symbol: []const u8,
 ) ValidationError!void {
-    const source = try readSourceAlloc(allocator, source_path);
-    defer allocator.free(source);
+    const source_text = try readSourceAlloc(allocator, source_path);
+    defer allocator.free(source_text);
 
-    var analysis = try source_lowering.analyzeSameModuleSourceText(allocator, source);
+    var analysis = try source_lowering.analyzeSameModuleSourceText(allocator, source_text);
     defer analysis.deinit(allocator);
 
     if (!analysis.isParseClean()) return error.ParseError;
@@ -485,6 +501,13 @@ fn LowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) type {
         .entry_symbol = spec.entry_symbol,
     });
 }
+
+fn Lower(comptime source_ref: SourceRef, comptime spec: LowerSpec) type {
+    return LowerAt(source_ref.repo_path, spec);
+}
+
+/// Compile one lowering request from an explicit caller-owned provenance witness.
+pub const lower = Lower;
 
 /// Compile one explicit-path lowering request into a generated type using a caller-visible source path.
 pub const lowerAt = LowerAt;

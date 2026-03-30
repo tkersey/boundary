@@ -57,7 +57,24 @@ test "root lowerAt matches the example-owned same-module lowering" {
     );
 }
 
-test "example module proves why root shift.lower remains absent" {
+test "root lower matches the example-owned same-module lowering" {
+    const ExplicitProgramType = shift.lower(
+        example_open_row_state_writer.loweringSource(),
+        example_open_row_state_writer.loweringSpec(),
+    );
+
+    try std.testing.expectEqualStrings(
+        example_open_row_state_writer.CompiledProgram.source_path,
+        ExplicitProgramType.source_path,
+    );
+    try std.testing.expectEqual(example_open_row_state_writer.CompiledProgram.ir_hash, ExplicitProgramType.ir_hash);
+    try std.testing.expectEqual(
+        @as(usize, example_open_row_state_writer.CompiledProgram.runtime_plan.functions.len),
+        ExplicitProgramType.runtime_plan.functions.len,
+    );
+}
+
+test "example module proves why root shift.lower requires explicit caller participation" {
     try std.testing.expectEqualStrings("open_row_state_writer.zig", example_open_row_state_writer.callerSourceFile());
     try std.testing.expect(!std.mem.eql(
         u8,

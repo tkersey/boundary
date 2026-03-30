@@ -958,6 +958,17 @@ pub fn build(b: *std.Build) void {
     });
     const run_open_row_lowering_tests = b.addRunArtifact(open_row_lowering_tests);
 
+    const source_ownership_probe_mod = b.createModule(.{
+        .root_source_file = b.path("test/source_ownership_probe_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    source_ownership_probe_mod.addImport("shift", shift_mod);
+    const source_ownership_probe_tests = b.addTest(.{
+        .root_module = source_ownership_probe_mod,
+    });
+    const run_src_ownership_probe_tests = b.addRunArtifact(source_ownership_probe_tests);
+
     const src_lower_witness_mod = b.createModule(.{
         .root_source_file = b.path("test/source_lowering_witness_completion_test.zig"),
         .target = target,
@@ -1207,6 +1218,7 @@ pub fn build(b: *std.Build) void {
     source_lowering_gauntlet_step.dependOn(&run_src_lower_promoted_tests.step);
     source_lowering_gauntlet_step.dependOn(&run_src_lower_completion_tests.step);
     source_lowering_gauntlet_step.dependOn(&run_open_row_lowering_tests.step);
+    source_lowering_gauntlet_step.dependOn(&run_src_ownership_probe_tests.step);
     source_lowering_gauntlet_step.dependOn(&run_src_lower_witness_tests.step);
     source_lowering_gauntlet_step.dependOn(&run_src_lower_reject_tests.step);
     source_lowering_gauntlet_step.dependOn(&source_lowering_contract_cmd.step);

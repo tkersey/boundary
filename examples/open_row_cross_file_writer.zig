@@ -39,6 +39,11 @@ pub fn loweringSourcePath() []const u8 {
     return "examples/open_row_cross_file_writer.zig";
 }
 
+/// Return the explicit caller-owned lowering provenance witness for this module.
+pub fn loweringSource() shift.lowering.SourceRef {
+    return shift.lowering.source(loweringSourcePath(), @src());
+}
+
 /// Return the lowered artifact for this cross-file workflow.
 pub fn loweredProgram() @TypeOf(shift.lowering.lowerOpenRowAt(loweringSourcePath(), loweringSpec())) {
     return try shift.lowering.lowerOpenRowAt(loweringSourcePath(), loweringSpec());
@@ -50,7 +55,7 @@ pub fn irProgram() shift.ir.Program {
 }
 
 fn CompiledProgramType() type {
-    return shift.lowerAt(loweringSourcePath(), loweringSpec());
+    return shift.lower(loweringSource(), loweringSpec());
 }
 
 /// Generated additive program type exposing the runtime-owned plan bridge.

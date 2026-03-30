@@ -9,6 +9,7 @@ const expected_snapshot =
     \\    "ir",
     \\    "interpreter",
     \\    "lowering",
+    \\    "lower",
     \\    "lowerAt",
     \\    "With",
     \\    "with",

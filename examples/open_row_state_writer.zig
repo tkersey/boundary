@@ -60,13 +60,18 @@ pub fn loweringSourcePath() []const u8 {
     return "examples/open_row_state_writer.zig";
 }
 
+/// Return the explicit caller-owned lowering provenance witness for this module.
+pub fn loweringSource() shift.lowering.SourceRef {
+    return shift.lowering.source(loweringSourcePath(), @src());
+}
+
 /// Return the raw caller file string reported by `@src()` inside this module.
 pub fn callerSourceFile() []const u8 {
     return @src().file;
 }
 
 fn CompiledProgramType() type {
-    return shift.lowerAt(loweringSourcePath(), loweringSpec());
+    return shift.lower(loweringSource(), loweringSpec());
 }
 
 /// Generated additive program type exposing the runtime-owned plan bridge.

@@ -18,7 +18,8 @@ pub const ir = public_ir;
 pub const interpreter = interpreter_api;
 /// Public additive lowering namespace over the retained open-row/effect-ir path.
 pub const lowering = public_lowering;
-/// No top-level `shift.lower(...)` export exists yet because wrapper-level `@src()` capture does not preserve truthful caller source ownership.
+/// Public provenance-bearing additive lowering entrypoint requiring explicit caller-supplied source ownership.
+pub const lower = public_lowering.lower;
 /// Public explicit-path additive lowering entrypoint.
 pub const lowerAt = public_lowering.lowerAt;
 
@@ -67,6 +68,7 @@ test {
     _ = effect;
     _ = interpreter;
     _ = ir;
+    _ = lower;
     _ = lowerAt;
     _ = lowering;
     _ = with;
