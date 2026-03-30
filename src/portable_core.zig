@@ -3,6 +3,20 @@ const std = @import("std");
 /// Stable prompt token shape shared across compat and canonical paths.
 pub const PromptToken = usize;
 
+const SpinLock = struct {
+    state: u8 = 0,
+
+    fn lock(self: *@This()) void {
+        while (@cmpxchgWeak(u8, &self.state, 0, 1, .acquire, .monotonic) != null) {
+            std.atomic.spinLoopHint();
+        }
+    }
+
+    fn unlock(self: *@This()) void {
+        @atomicStore(u8, &self.state, 0, .release);
+    }
+};
+
 /// Core lifecycle state for one execution owner.
 pub const LifecycleState = enum {
     alive,
@@ -12,9 +26,12 @@ pub const LifecycleState = enum {
 /// Explicit prompt-token allocator used by canonical and compat shells.
 pub const PromptTokenSource = struct {
     next_token: PromptToken = 1,
+    lock_state: SpinLock = .{},
 
     /// Allocate one distinct prompt token, failing closed on overflow.
     pub fn allocate(self: *@This()) PromptToken {
+        self.lock_state.lock();
+        defer self.lock_state.unlock();
         const token = self.next_token;
         if (token == std.math.maxInt(PromptToken)) {
             std.debug.panic("prompt token overflow", .{});
@@ -96,6 +113,51 @@ pub const CleanupStack = struct {
     }
 };
 
+const SharedFrameRegistry = struct {
+    lock_state: SpinLock = .{},
+    registry: FrameRegistry = .{},
+    owner_allocator: ?std.mem.Allocator = null,
+
+    fn find(self: *const @This(), comptime FramePtrType: type, token: PromptToken) ?FramePtrType {
+        const mutable_self: *@This() = @constCast(self);
+        mutable_self.lock_state.lock();
+        defer mutable_self.lock_state.unlock();
+        return self.registry.find(FramePtrType, token);
+    }
+
+    fn push(self: *@This(), allocator: std.mem.Allocator, token: PromptToken, frame: anytype) std.mem.Allocator.Error!?*anyopaque {
+        self.lock_state.lock();
+        defer self.lock_state.unlock();
+        const owner_allocator = self.owner_allocator orelse blk: {
+            self.owner_allocator = allocator;
+            break :blk allocator;
+        };
+        return try self.registry.push(owner_allocator, token, frame);
+    }
+
+    fn pop(self: *@This(), token: PromptToken, previous: ?*anyopaque) void {
+        self.lock_state.lock();
+        defer self.lock_state.unlock();
+        self.registry.pop(token, previous);
+    }
+
+    fn count(self: *const @This()) usize {
+        const mutable_self: *@This() = @constCast(self);
+        mutable_self.lock_state.lock();
+        defer mutable_self.lock_state.unlock();
+        return self.registry.map.count();
+    }
+
+    fn deinitIfIdle(self: *@This()) void {
+        self.lock_state.lock();
+        defer self.lock_state.unlock();
+        if (self.registry.map.count() != 0) return;
+        const allocator = self.owner_allocator orelse return;
+        self.registry.deinit(allocator);
+        self.owner_allocator = null;
+    }
+};
+
 /// Canonical execution owner for lifecycle, prompt tokens, frames, and cleanup state.
 pub const ExecutionCore = struct {
     allocator: std.mem.Allocator,
@@ -120,7 +182,7 @@ pub const ExecutionCore = struct {
 };
 
 var compat_prompt_tokens = PromptTokenSource{};
-var compat_frames = FrameRegistry{};
+var compat_frames = SharedFrameRegistry{};
 var compat_cleanup = CleanupStack{};
 
 /// Return the compatibility prompt-token source used by legacy `Prompt.init()`.
@@ -128,12 +190,101 @@ pub fn compatPromptTokens() *PromptTokenSource {
     return &compat_prompt_tokens;
 }
 
-/// Return the compatibility frame registry used by prompt-only replay lookups.
-pub fn compatFrameRegistry() *FrameRegistry {
-    return &compat_frames;
+/// Resolve one active compat frame pointer by prompt token.
+pub fn compatFrameFind(comptime FramePtrType: type, token: PromptToken) ?FramePtrType {
+    return compat_frames.find(FramePtrType, token);
+}
+
+/// Install one compat frame using the shared global allocator owner.
+pub fn compatFramePush(allocator: std.mem.Allocator, token: PromptToken, frame: anytype) std.mem.Allocator.Error!?*anyopaque {
+    return try compat_frames.push(allocator, token, frame);
+}
+
+/// Restore the previous compat frame for this token or clear the entry.
+pub fn compatFramePop(token: PromptToken, previous: ?*anyopaque) void {
+    compat_frames.pop(token, previous);
+}
+
+/// Return the current compat frame count.
+pub fn compatFrameCount() usize {
+    return compat_frames.count();
+}
+
+/// Release compat-frame storage once the global registry is idle.
+pub fn compatFrameDeinitIfIdle() void {
+    compat_frames.deinitIfIdle();
 }
 
 /// Return the compatibility cleanup stack used by transitional zero-arg helpers.
 pub fn compatCleanupStack() *CleanupStack {
     return &compat_cleanup;
+}
+
+test "compat frame registry keeps its owner allocator until idle deinit" {
+    const CountingAllocator = struct {
+        child: std.mem.Allocator,
+        alloc_calls: usize = 0,
+        resize_calls: usize = 0,
+        remap_calls: usize = 0,
+        free_calls: usize = 0,
+
+        fn init(child: std.mem.Allocator) @This() {
+            return .{ .child = child };
+        }
+
+        fn allocator(self: *@This()) std.mem.Allocator {
+            return .{
+                .ptr = self,
+                .vtable = &.{
+                    .alloc = alloc,
+                    .resize = resize,
+                    .remap = remap,
+                    .free = free,
+                },
+            };
+        }
+
+        fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            self.alloc_calls += 1;
+            return self.child.rawAlloc(len, alignment, ret_addr);
+        }
+
+        fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            self.resize_calls += 1;
+            return self.child.rawResize(memory, alignment, new_len, ret_addr);
+        }
+
+        fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            self.remap_calls += 1;
+            return self.child.rawRemap(memory, alignment, new_len, ret_addr);
+        }
+
+        fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            self.free_calls += 1;
+            self.child.rawFree(memory, alignment, ret_addr);
+        }
+    };
+
+    compatFrameDeinitIfIdle();
+
+    var owner = CountingAllocator.init(std.testing.allocator);
+    var other = CountingAllocator.init(std.testing.allocator);
+    var frame_a: usize = 1;
+    var frame_b: usize = 2;
+
+    _ = try compatFramePush(owner.allocator(), 11, &frame_a);
+    _ = try compatFramePush(other.allocator(), 12, &frame_b);
+    try std.testing.expect(compatFrameCount() == 2);
+
+    compatFramePop(11, null);
+    compatFramePop(12, null);
+    try std.testing.expect(compatFrameCount() == 0);
+
+    compatFrameDeinitIfIdle();
+    try std.testing.expect(owner.free_calls != 0);
+    try std.testing.expectEqual(@as(usize, 0), other.free_calls);
 }

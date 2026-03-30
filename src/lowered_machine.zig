@@ -74,9 +74,7 @@ pub const Runtime = struct {
         if (self.core.active_reset_count != 0) return error.RuntimeBusy;
         self.core.state = .destroyed;
         self.core.deinit();
-        if (portable_core.compatFrameRegistry().map.count() == 0) {
-            portable_core.compatFrameRegistry().deinit(self.allocator);
-        }
+        portable_core.compatFrameDeinitIfIdle();
     }
 
     /// Confirm the runtime is live and accessed from the owning thread.

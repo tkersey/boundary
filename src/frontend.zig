@@ -789,20 +789,20 @@ fn persistHandlerContext(
 }
 
 fn findFrame(comptime PromptType: type, prompt: *const PromptType) ?*Frame(PromptType) {
-    const base = portable_core.compatFrameRegistry().find(*FrameBase, prompt.token) orelse return null;
+    const base = portable_core.compatFrameFind(*FrameBase, prompt.token) orelse return null;
     return @fieldParentPtr("base", base);
 }
 
 fn pushActiveFrame(runtime: *lowered_machine.Runtime, base: *FrameBase) lowered_machine.Error!void {
     const previous = runtime.core.frames.push(runtime.core.allocator, base.prompt_token, base) catch return error.ProgramContractViolation;
     base.previous_for_token = if (previous) |raw| @ptrCast(@alignCast(raw)) else null;
-    _ = portable_core.compatFrameRegistry().push(runtime.core.allocator, base.prompt_token, base) catch return error.ProgramContractViolation;
+    _ = portable_core.compatFramePush(runtime.core.allocator, base.prompt_token, base) catch return error.ProgramContractViolation;
 }
 
 fn popActiveFrame(runtime: *lowered_machine.Runtime, base: *FrameBase) void {
     const previous: ?*anyopaque = if (base.previous_for_token) |prior| @ptrCast(prior) else null;
     runtime.core.frames.pop(base.prompt_token, previous);
-    portable_core.compatFrameRegistry().pop(base.prompt_token, previous);
+    portable_core.compatFramePop(base.prompt_token, previous);
     base.previous_for_token = null;
 }
 
@@ -1118,6 +1118,18 @@ pub fn abortWithContext(
     comptime assertHandlerProtocolWithContext(void, PromptType, ContextPtrType, Handler);
 
     const frame = findFrame(PromptType, prompt) orelse return error.MissingPrompt;
+    if (frame.cursor < frame.records.items.len) {
+        const record = frame.records.items[frame.cursor];
+        frame.cursor += 1;
+        switch (record) {
+            .terminal => |answer| {
+                frame.terminal = answer;
+                return error.FrontendSuspend;
+            },
+            .resumed => return error.ProgramContractViolation,
+        }
+    }
+
     const answer = try callDirectReturnWithContext(PromptType, ContextPtrType, Handler, handler_ctx);
     frame.terminal = answer;
     frame.records.append(frame.allocator, .{ .terminal = answer }) catch return error.ProgramContractViolation;
@@ -1212,4 +1224,41 @@ test "choiceWithContext persists a copy of handler context for replay" {
     carrier.payload = 0;
     try std.testing.expectEqual(@as(usize, 11), stored.tag);
     try std.testing.expectEqual(@as(i32, 52), stored.payload);
+}
+
+test "abortWithContext reuses the recorded terminal during replay" {
+    const Prompt = prompt_contract.Prompt(.direct_return, void, i32, error{});
+    const Carrier = struct {
+        calls: usize = 0,
+        answer: i32,
+    };
+    const handler = struct {
+        pub fn directReturn(ctx: *Carrier) i32 {
+            ctx.calls += 1;
+            return ctx.answer;
+        }
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try lowered_machine.beginExecution(&runtime);
+    defer lowered_machine.endExecution(&runtime);
+
+    var prompt = Prompt.init();
+    var frame = Frame(Prompt).init(lowered_machine.runtimeAllocator(&runtime), &prompt);
+    defer frame.deinit();
+    try pushActiveFrame(&runtime, &frame.base);
+    defer popActiveFrame(&runtime, &frame.base);
+
+    var carrier = Carrier{ .answer = 41 };
+    try std.testing.expectError(error.FrontendSuspend, abortWithContext(&prompt, &carrier, handler));
+    try std.testing.expectEqual(@as(usize, 1), carrier.calls);
+    try std.testing.expectEqual(@as(usize, 1), frame.records.items.len);
+    try std.testing.expectEqual(@as(i32, 41), frame.terminal.?);
+
+    frame.terminal = null;
+    try std.testing.expectError(error.FrontendSuspend, abortWithContext(&prompt, &carrier, handler));
+    try std.testing.expectEqual(@as(usize, 1), carrier.calls);
+    try std.testing.expectEqual(@as(usize, 1), frame.records.items.len);
+    try std.testing.expectEqual(@as(i32, 41), frame.terminal.?);
 }

@@ -300,6 +300,13 @@ test "open-row state-writer workflow exposes the generated same-module runtime p
     try example_open_row_state_writer.CompiledProgram.validate(arena.allocator());
 }
 
+test "generated cross-file lowered programs validate through imported helper modules" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try example_open_row_cross_file_writer.CompiledProgram.validate(arena.allocator());
+    try example_open_row_helper_value_flow_cross.CompiledProgram.validate(arena.allocator());
+}
+
 test "explicit ir compilation matches the generated runtime plan shape" {
     const ExplicitIrProgramType = shift.ir.compile(
         "example.open_row_state_writer",
@@ -526,6 +533,37 @@ test "same-module validation accepts recursive helper graphs for explicit-path l
     });
 
     const tmp_path = try tmp.dir.realpathAlloc(std.testing.allocator, "recursive_helpers.zig");
+    defer std.testing.allocator.free(tmp_path);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
+}
+
+test "file-backed validation resolves cross-file helper imports for explicit-path lowering" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{
+        .sub_path = "helpers.zig",
+        .data =
+        \\pub fn helper(eff: anytype) !void {
+        \\    try eff.writer.tell("cross-file");
+        \\}
+        ,
+    });
+    try tmp.dir.writeFile(.{
+        .sub_path = "entry.zig",
+        .data =
+        \\const helpers = @import("helpers.zig");
+        \\
+        \\pub fn runBody(eff: anytype) !void {
+        \\    try helpers.helper(eff);
+        \\}
+        ,
+    });
+
+    const tmp_path = try tmp.dir.realpathAlloc(std.testing.allocator, "entry.zig");
     defer std.testing.allocator.free(tmp_path);
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

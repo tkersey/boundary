@@ -230,6 +230,10 @@ pub const ProgramPlan = struct {
             hasher.update(std.mem.asBytes(&function.requirement_count));
             hasher.update(std.mem.asBytes(&function.first_output));
             hasher.update(std.mem.asBytes(&function.output_count));
+            hasher.update(std.mem.asBytes(&function.first_local));
+            hasher.update(std.mem.asBytes(&function.local_count));
+            hasher.update(std.mem.asBytes(&function.first_block));
+            hasher.update(std.mem.asBytes(&function.block_count));
             hasher.update(std.mem.asBytes(&function.first_instruction));
             hasher.update(std.mem.asBytes(&function.instruction_count));
         }

@@ -561,6 +561,56 @@ test "durable restore reports rebuild required when the current plan drifts" {
     try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
+test "durable restore reports rebuild required when only function span layout drifts" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const saved = makePlanBackedArtifact(0x9234, 0x9234, "demo.plan", "runBody");
+    const saved_plan = saved.plan.?;
+    const drifted = shift.durable.ProgramArtifact{
+        .label = saved.label,
+        .program_hash = saved.program_hash,
+        .steps = saved.steps,
+        .plan = .{
+            .label = saved_plan.label,
+            .ir_hash = saved_plan.ir_hash,
+            .entry_index = saved_plan.entry_index,
+            .functions = &.{.{
+                .symbol_name = saved_plan.functions[0].symbol_name,
+                .value_codec = saved_plan.functions[0].value_codec,
+                .parameter_count = saved_plan.functions[0].parameter_count,
+                .first_requirement = saved_plan.functions[0].first_requirement,
+                .requirement_count = saved_plan.functions[0].requirement_count,
+                .first_output = saved_plan.functions[0].first_output,
+                .output_count = saved_plan.functions[0].output_count,
+                .first_local = saved_plan.functions[0].first_local,
+                .local_count = 1,
+                .first_block = saved_plan.functions[0].first_block,
+                .block_count = 2,
+                .first_instruction = saved_plan.functions[0].first_instruction,
+                .instruction_count = saved_plan.functions[0].instruction_count,
+            }},
+            .requirements = saved_plan.requirements,
+            .ops = saved_plan.ops,
+            .outputs = saved_plan.outputs,
+            .locals = saved_plan.locals,
+            .call_args = saved_plan.call_args,
+            .blocks = saved_plan.blocks,
+            .terminators = saved_plan.terminators,
+            .instructions = saved_plan.instructions,
+        },
+    };
+
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    _ = try store.saveArtifact(saved, null);
+
+    const restored = try store.restoreArtifact(drifted);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+}
+
 test "durable restore fails when plan.json is tampered" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
