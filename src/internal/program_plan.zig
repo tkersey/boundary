@@ -86,7 +86,9 @@ pub const InstructionKind = enum {
 /// One serializable placeholder instruction in the runtime-owned executable plan.
 pub const Instruction = struct {
     kind: InstructionKind,
-    index: u16,
+    dst: u16 = 0,
+    operand: u16 = 0,
+    aux: u16 = 0,
 };
 
 /// Serializable block terminator tags carried by the runtime-owned plan.
@@ -114,7 +116,7 @@ pub const BlockPlan = struct {
 /// Runtime-owned serializable executable plan for lowered or explicit IR programs.
 pub const ProgramPlan = struct {
     /// Stable schema version for JSON-serialized runtime plans.
-    pub const current_schema_version: u32 = 2;
+    pub const current_schema_version: u32 = 3;
 
     schema_version: u32 = current_schema_version,
     label: []const u8,
@@ -173,14 +175,14 @@ pub const ProgramPlan = struct {
 
         for (self.instructions) |instruction| switch (instruction.kind) {
             .call_helper => {
-                if (instruction.index >= self.functions.len) return error.InvalidCallHelperTarget;
+                if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
             },
             .call_op => {
-                if (instruction.index >= self.ops.len) return error.InvalidCallOpTarget;
+                if (instruction.operand >= self.ops.len) return error.InvalidCallOpTarget;
             },
             .compare_eq_zero, .sub_one => {},
             .return_value => {
-                if (instruction.index != 0) return error.InvalidReturnValueIndex;
+                if (instruction.operand != 0 or instruction.dst != 0 or instruction.aux != 0) return error.InvalidReturnValueIndex;
             },
         };
 
@@ -243,7 +245,9 @@ pub const ProgramPlan = struct {
         }
         for (self.instructions) |instruction| {
             hashBytes(&hasher, @tagName(instruction.kind));
-            hasher.update(std.mem.asBytes(&instruction.index));
+            hasher.update(std.mem.asBytes(&instruction.dst));
+            hasher.update(std.mem.asBytes(&instruction.operand));
+            hasher.update(std.mem.asBytes(&instruction.aux));
         }
         return hasher.final();
     }
@@ -296,53 +300,72 @@ fn hashBytes(hasher: *std.hash.Wyhash, value: []const u8) void {
     hasher.update(&.{0});
 }
 
-/// Upgrade a legacy schema-v1 plan in place by synthesizing one block and one return terminator per function.
+/// Upgrade a legacy plan in place up to the current schema.
 pub fn upgradeLegacyProgramPlan(allocator: std.mem.Allocator, plan: *ProgramPlan) LegacySchemaError!void {
     if (plan.schema_version == ProgramPlan.current_schema_version) return;
-    if (plan.schema_version != 1) return error.UnsupportedSchemaVersion;
+    if (plan.schema_version == 1) {
+        const functions = try allocator.alloc(FunctionPlan, plan.functions.len);
+        errdefer allocator.free(functions);
+        const blocks = try allocator.alloc(BlockPlan, plan.functions.len);
+        errdefer allocator.free(blocks);
+        const terminators = try allocator.alloc(Terminator, plan.functions.len);
+        errdefer allocator.free(terminators);
 
-    const functions = try allocator.alloc(FunctionPlan, plan.functions.len);
-    errdefer allocator.free(functions);
-    const blocks = try allocator.alloc(BlockPlan, plan.functions.len);
-    errdefer allocator.free(blocks);
-    const terminators = try allocator.alloc(Terminator, plan.functions.len);
-    errdefer allocator.free(terminators);
+        for (plan.functions, 0..) |function, index| {
+            functions[index] = .{
+                .symbol_name = function.symbol_name,
+                .first_requirement = function.first_requirement,
+                .requirement_count = function.requirement_count,
+                .first_output = function.first_output,
+                .output_count = function.output_count,
+                .first_local = 0,
+                .local_count = 0,
+                .first_block = @intCast(index),
+                .block_count = 1,
+                .first_instruction = function.first_instruction,
+                .instruction_count = function.instruction_count,
+            };
+            blocks[index] = .{
+                .first_instruction = function.first_instruction,
+                .instruction_count = function.instruction_count,
+                .terminator_index = @intCast(index),
+            };
+            terminators[index] = .{
+                .kind = .return_value,
+                .primary = 0,
+                .secondary = 0,
+            };
+        }
 
-    for (plan.functions, 0..) |function, index| {
-        functions[index] = .{
-            .symbol_name = function.symbol_name,
-            .first_requirement = function.first_requirement,
-            .requirement_count = function.requirement_count,
-            .first_output = function.first_output,
-            .output_count = function.output_count,
-            .first_local = 0,
-            .local_count = 0,
-            .first_block = @intCast(index),
-            .block_count = 1,
-            .first_instruction = function.first_instruction,
-            .instruction_count = function.instruction_count,
-        };
-        blocks[index] = .{
-            .first_instruction = function.first_instruction,
-            .instruction_count = function.instruction_count,
-            .terminator_index = @intCast(index),
-        };
-        terminators[index] = .{
-            .kind = .return_value,
-            .primary = 0,
-            .secondary = 0,
-        };
+        allocator.free(plan.functions);
+        allocator.free(plan.locals);
+        allocator.free(plan.blocks);
+        allocator.free(plan.terminators);
+        plan.functions = functions;
+        plan.locals = try allocator.alloc(LocalPlan, 0);
+        plan.blocks = blocks;
+        plan.terminators = terminators;
+        plan.schema_version = 2;
     }
 
-    allocator.free(plan.functions);
-    allocator.free(plan.locals);
-    allocator.free(plan.blocks);
-    allocator.free(plan.terminators);
-    plan.functions = functions;
-    plan.locals = try allocator.alloc(LocalPlan, 0);
-    plan.blocks = blocks;
-    plan.terminators = terminators;
-    plan.schema_version = ProgramPlan.current_schema_version;
+    if (plan.schema_version == 2) {
+        const instructions = try allocator.alloc(Instruction, plan.instructions.len);
+        errdefer allocator.free(instructions);
+        for (plan.instructions, 0..) |instruction, index| {
+            instructions[index] = .{
+                .kind = instruction.kind,
+                .dst = 0,
+                .operand = instruction.operand,
+                .aux = 0,
+            };
+        }
+        allocator.free(plan.instructions);
+        plan.instructions = instructions;
+        plan.schema_version = ProgramPlan.current_schema_version;
+        return;
+    }
+
+    if (plan.schema_version != ProgramPlan.current_schema_version) return error.UnsupportedSchemaVersion;
 }
 
 fn rangeEnd(start: u16, len: u16) ?usize {
@@ -617,13 +640,17 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
                 const callee_index = symbolIndex(program, edge.callee) orelse return error.UnknownSymbol;
                 buf[instruction_index] = .{
                     .kind = .call_helper,
-                    .index = callee_index,
+                    .dst = 0,
+                    .operand = callee_index,
+                    .aux = 0,
                 };
                 instruction_index += 1;
             }
             buf[instruction_index] = .{
                 .kind = .return_value,
-                .index = 0,
+                .dst = 0,
+                .operand = 0,
+                .aux = 0,
             };
             instruction_index += 1;
         }
@@ -833,7 +860,9 @@ pub fn planFromOpenRowProgram(
                 for (block.instructions) |instruction| {
                     buf[instruction_index] = .{
                         .kind = instruction.kind,
-                        .index = instruction.operand,
+                        .dst = instruction.dst,
+                        .operand = instruction.operand,
+                        .aux = instruction.aux,
                     };
                     instruction_index += 1;
                 }
@@ -964,7 +993,9 @@ test "planFromProgram hashes the whole program and makes helper calls self-conta
     try std.testing.expectEqual(@as(u16, 0), plan.functions[0].first_block);
     try std.testing.expectEqual(@as(u16, 1), plan.functions[0].block_count);
     try std.testing.expectEqual(InstructionKind.call_helper, plan.instructions[0].kind);
-    try std.testing.expectEqual(@as(u16, 1), plan.instructions[0].index);
+    try std.testing.expectEqual(@as(u16, 1), plan.instructions[0].operand);
+    try std.testing.expectEqual(@as(u16, 0), plan.instructions[0].dst);
+    try std.testing.expectEqual(@as(u16, 0), plan.instructions[0].aux);
     try std.testing.expectEqual(InstructionKind.return_value, plan.instructions[1].kind);
     try std.testing.expectEqual(InstructionKind.return_value, plan.instructions[2].kind);
     try std.testing.expectEqual(TerminatorKind.return_value, plan.terminators[0].kind);
@@ -1004,7 +1035,9 @@ test "ProgramPlan.validate rejects out-of-range helper targets" {
         }},
         .instructions = &.{.{
             .kind = .call_helper,
-            .index = 1,
+            .dst = 0,
+            .operand = 1,
+            .aux = 0,
         }},
     };
 
@@ -1056,7 +1089,9 @@ test "ProgramPlan hash survives JSON roundtrip" {
         }},
         .instructions = &.{.{
             .kind = .return_value,
-            .index = 0,
+            .dst = 0,
+            .operand = 0,
+            .aux = 0,
         }},
     };
 

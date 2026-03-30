@@ -253,6 +253,34 @@ test "recursive same-file helper lowers into a real guarded control-flow body" {
     try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[2].instructions[3].kind), .call_helper), countdown_body.blocks[2].instructions[3].kind);
 }
 
+test "recursive same-file helper runtime plan preserves full instruction operands" {
+    const runtime_plan = example_open_row_recursive_writer.CompiledProgram.runtime_plan;
+    const countdown_index = comptime blk: {
+        for (runtime_plan.functions, 0..) |function, function_index| {
+            if (std.mem.eql(u8, function.symbol_name, "countdown")) break :blk function_index;
+        }
+        unreachable;
+    };
+    const countdown = runtime_plan.functions[countdown_index];
+
+    try std.testing.expectEqual(@as(u32, 3), runtime_plan.schema_version);
+    try std.testing.expectEqual(@as(u16, 3), countdown.local_count);
+    try std.testing.expectEqual(@as(u16, 3), countdown.block_count);
+    try std.testing.expectEqual(@as(usize, 7), runtime_plan.instructions.len);
+    try std.testing.expectEqual(@as(u16, 6), countdown.instruction_count);
+    try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction].kind), .call_op), runtime_plan.instructions[countdown.first_instruction].kind);
+    try std.testing.expectEqual(@as(u16, 0), runtime_plan.instructions[countdown.first_instruction].dst);
+    try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction + 1].kind), .compare_eq_zero), runtime_plan.instructions[countdown.first_instruction + 1].kind);
+    try std.testing.expectEqual(@as(u16, 1), runtime_plan.instructions[countdown.first_instruction + 1].dst);
+    try std.testing.expectEqual(@as(u16, 0), runtime_plan.instructions[countdown.first_instruction + 1].operand);
+    try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction + 3].kind), .sub_one), runtime_plan.instructions[countdown.first_instruction + 3].kind);
+    try std.testing.expectEqual(@as(u16, 2), runtime_plan.instructions[countdown.first_instruction + 3].dst);
+    try std.testing.expectEqual(@as(u16, 0), runtime_plan.instructions[countdown.first_instruction + 3].operand);
+    try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction + 4].kind), .call_op), runtime_plan.instructions[countdown.first_instruction + 4].kind);
+    try std.testing.expectEqual(@as(u16, 2), runtime_plan.instructions[countdown.first_instruction + 4].aux);
+    try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction + 5].kind), .call_helper), runtime_plan.instructions[countdown.first_instruction + 5].kind);
+}
+
 test "recursive imported-helper workflow lowers through the public root surface" {
     const lowered = try example_open_row_recursive_cross_writer.loweredProgram();
 

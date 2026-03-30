@@ -3,7 +3,7 @@ const scenarios = @import("parity_scenarios");
 const std = @import("std");
 
 const current_manifest_schema: u32 = 5;
-const current_plan_schema: u32 = 3;
+const current_plan_schema: u32 = 4;
 const current_event_schema: u32 = 1;
 const current_artifact_schema: u32 = 1;
 
@@ -110,6 +110,32 @@ const LegacyPlanFileV1 = struct {
     plan: kernel.ProgramPlan,
 };
 
+const LegacyInstructionV2 = struct {
+    kind: kernel.InstructionKind,
+    index: u16,
+};
+
+const LegacyProgramPlanV2 = struct {
+    schema_version: u32 = 2,
+    label: []const u8,
+    ir_hash: u64,
+    entry_index: u16,
+    functions: []const kernel.FunctionPlan,
+    requirements: []const kernel.RequirementPlan,
+    ops: []const kernel.OpPlan,
+    outputs: []const kernel.OutputPlan,
+    locals: []const kernel.LocalPlan = &.{},
+    blocks: []const kernel.BlockPlan = &.{},
+    terminators: []const kernel.Terminator = &.{},
+    instructions: []const LegacyInstructionV2,
+};
+
+const LegacyPlanFileV3 = struct {
+    schema_version: u32 = 3,
+    plan_hash: u64,
+    plan: LegacyProgramPlanV2,
+};
+
 const LegacyEventRecordV0 = struct {
     seq: usize,
     event: kernel.Event,
@@ -205,6 +231,17 @@ const plan_file_migrators = [_]PlanFileMigrator{
                 try kernel.upgradeLegacyProgramPlan(allocator, &state.plan);
                 state.plan_hash = hashPlan(state.plan);
                 state.schema_version = 3;
+            }
+        }.run,
+    },
+    .{
+        .from = 3,
+        .to_schema = 4,
+        .migrate = struct {
+            fn run(allocator: std.mem.Allocator, state: *PlanFileState) !void {
+                try kernel.upgradeLegacyProgramPlan(allocator, &state.plan);
+                state.plan_hash = hashPlan(state.plan);
+                state.schema_version = 4;
             }
         }.run,
     },
@@ -863,6 +900,13 @@ fn readPlanFile(allocator: std.mem.Allocator, path: []const u8) !ReadPlanFileRes
             .plan_hash = parsed.value.plan_hash,
             .plan = try clonePlan(allocator, parsed.value.plan),
         };
+    } else |_| if (std.json.parseFromSlice(LegacyPlanFileV3, allocator, bytes, .{})) |parsed| blk: {
+        defer parsed.deinit();
+        break :blk PlanFileState{
+            .schema_version = parsed.value.schema_version,
+            .plan_hash = parsed.value.plan_hash,
+            .plan = try cloneLegacyProgramPlanV2(allocator, parsed.value.plan),
+        };
     } else |_| if (std.json.parseFromSlice(LegacyPlanFileV1, allocator, bytes, .{})) |parsed| blk: {
         defer parsed.deinit();
         break :blk PlanFileState{
@@ -871,13 +915,22 @@ fn readPlanFile(allocator: std.mem.Allocator, path: []const u8) !ReadPlanFileRes
             .plan = try clonePlan(allocator, parsed.value.plan),
         };
     } else |_| blk: {
-        const legacy = try std.json.parseFromSlice(kernel.ProgramPlan, allocator, bytes, .{});
-        defer legacy.deinit();
-        break :blk PlanFileState{
-            .schema_version = 0,
-            .plan_hash = null,
-            .plan = try clonePlan(allocator, legacy.value),
-        };
+        if (std.json.parseFromSlice(LegacyProgramPlanV2, allocator, bytes, .{})) |legacy_v2| {
+            defer legacy_v2.deinit();
+            break :blk PlanFileState{
+                .schema_version = 0,
+                .plan_hash = null,
+                .plan = try cloneLegacyProgramPlanV2(allocator, legacy_v2.value),
+            };
+        } else |_| {
+            const legacy = try std.json.parseFromSlice(kernel.ProgramPlan, allocator, bytes, .{});
+            defer legacy.deinit();
+            break :blk PlanFileState{
+                .schema_version = 0,
+                .plan_hash = null,
+                .plan = try clonePlan(allocator, legacy.value),
+            };
+        }
     };
     errdefer freePlan(allocator, &state.plan);
 
@@ -940,6 +993,131 @@ fn cloneValue(allocator: std.mem.Allocator, value: kernel.Value) !kernel.Value {
         .i32 => |number| .{ .i32 = number },
         .string => |line| .{ .string = try allocator.dupe(u8, line) },
     };
+}
+
+fn cloneLegacyInstructionV2IntoCurrent(instruction: LegacyInstructionV2) kernel.Instruction {
+    return .{
+        .kind = instruction.kind,
+        .dst = 0,
+        .operand = instruction.index,
+        .aux = 0,
+    };
+}
+
+fn cloneLegacyProgramPlanV2(allocator: std.mem.Allocator, plan: LegacyProgramPlanV2) !kernel.ProgramPlan {
+    var cloned = kernel.ProgramPlan{
+        .schema_version = plan.schema_version,
+        .label = try allocator.dupe(u8, plan.label),
+        .ir_hash = plan.ir_hash,
+        .entry_index = plan.entry_index,
+        .functions = try allocator.alloc(kernel.FunctionPlan, 0),
+        .requirements = try allocator.alloc(kernel.RequirementPlan, 0),
+        .ops = try allocator.alloc(kernel.OpPlan, 0),
+        .outputs = try allocator.alloc(kernel.OutputPlan, 0),
+        .locals = try allocator.alloc(kernel.LocalPlan, 0),
+        .blocks = try allocator.alloc(kernel.BlockPlan, 0),
+        .terminators = try allocator.alloc(kernel.Terminator, 0),
+        .instructions = try allocator.alloc(kernel.Instruction, 0),
+    };
+    errdefer freePlan(allocator, &cloned);
+
+    var functions = try allocator.alloc(kernel.FunctionPlan, plan.functions.len);
+    errdefer allocator.free(functions);
+    var function_count: usize = 0;
+    errdefer {
+        for (functions[0..function_count]) |function| allocator.free(function.symbol_name);
+    }
+    for (plan.functions, 0..) |function, index| {
+        functions[index] = .{
+            .symbol_name = try allocator.dupe(u8, function.symbol_name),
+            .first_requirement = function.first_requirement,
+            .requirement_count = function.requirement_count,
+            .first_output = function.first_output,
+            .output_count = function.output_count,
+            .first_local = function.first_local,
+            .local_count = function.local_count,
+            .first_block = function.first_block,
+            .block_count = function.block_count,
+            .first_instruction = function.first_instruction,
+            .instruction_count = function.instruction_count,
+        };
+        function_count += 1;
+    }
+    allocator.free(cloned.functions);
+    cloned.functions = functions;
+
+    var requirements = try allocator.alloc(kernel.RequirementPlan, plan.requirements.len);
+    errdefer allocator.free(requirements);
+    var requirement_count: usize = 0;
+    errdefer {
+        for (requirements[0..requirement_count]) |requirement| allocator.free(requirement.label);
+    }
+    for (plan.requirements, 0..) |requirement, index| {
+        requirements[index] = .{
+            .label = try allocator.dupe(u8, requirement.label),
+            .first_op = requirement.first_op,
+            .op_count = requirement.op_count,
+        };
+        requirement_count += 1;
+    }
+    allocator.free(cloned.requirements);
+    cloned.requirements = requirements;
+
+    var ops = try allocator.alloc(kernel.OpPlan, plan.ops.len);
+    errdefer allocator.free(ops);
+    var op_count: usize = 0;
+    errdefer {
+        for (ops[0..op_count]) |op| allocator.free(op.op_name);
+    }
+    for (plan.ops, 0..) |op, index| {
+        ops[index] = .{
+            .requirement_index = op.requirement_index,
+            .op_name = try allocator.dupe(u8, op.op_name),
+            .mode = op.mode,
+            .payload_codec = op.payload_codec,
+            .resume_codec = op.resume_codec,
+        };
+        op_count += 1;
+    }
+    allocator.free(cloned.ops);
+    cloned.ops = ops;
+
+    var outputs = try allocator.alloc(kernel.OutputPlan, plan.outputs.len);
+    errdefer allocator.free(outputs);
+    var output_count: usize = 0;
+    errdefer {
+        for (outputs[0..output_count]) |output| allocator.free(output.label);
+    }
+    for (plan.outputs, 0..) |output, index| {
+        outputs[index] = .{
+            .label = try allocator.dupe(u8, output.label),
+            .codec = output.codec,
+        };
+        output_count += 1;
+    }
+    allocator.free(cloned.outputs);
+    cloned.outputs = outputs;
+
+    const locals = try allocator.dupe(kernel.LocalPlan, plan.locals);
+    allocator.free(cloned.locals);
+    cloned.locals = locals;
+
+    const blocks = try allocator.dupe(kernel.BlockPlan, plan.blocks);
+    allocator.free(cloned.blocks);
+    cloned.blocks = blocks;
+
+    const terminators = try allocator.dupe(kernel.Terminator, plan.terminators);
+    allocator.free(cloned.terminators);
+    cloned.terminators = terminators;
+
+    var instructions = try allocator.alloc(kernel.Instruction, plan.instructions.len);
+    errdefer allocator.free(instructions);
+    for (plan.instructions, 0..) |instruction, index| {
+        instructions[index] = cloneLegacyInstructionV2IntoCurrent(instruction);
+    }
+    allocator.free(cloned.instructions);
+    cloned.instructions = instructions;
+    return cloned;
 }
 
 fn clonePlan(allocator: std.mem.Allocator, plan: kernel.ProgramPlan) !kernel.ProgramPlan {

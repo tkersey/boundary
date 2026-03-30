@@ -53,7 +53,9 @@ fn makeDemoPlanBackedArtifact() shift.durable.ProgramArtifact {
             }},
             .instructions = &.{.{
                 .kind = .return_value,
-                .index = 0,
+                .dst = 0,
+                .operand = 0,
+                .aux = 0,
             }},
         },
     };
