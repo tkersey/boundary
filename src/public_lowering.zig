@@ -123,6 +123,19 @@ fn encodeRuntimeValue(comptime codec: program_plan.ValueCodec, value: anytype) l
     };
 }
 
+fn assertExecutableCodecSupport(comptime compiled_plan: program_plan.ProgramPlan) void {
+    inline for (compiled_plan.functions) |function| switch (function.value_codec) {
+        .unit, .bool, .i32, .string, .usize => {},
+        .string_list => @compileError("public lowering runtime plan rejected string_list values across executable boundaries"),
+    };
+    inline for (compiled_plan.ops) |op| {
+        inline for ([_]program_plan.ValueCodec{ op.payload_codec, op.resume_codec }) |codec| switch (codec) {
+            .unit, .bool, .i32, .string, .usize => {},
+            .string_list => @compileError("public lowering runtime plan rejected string_list values across executable boundaries"),
+        };
+    }
+}
+
 fn callLoweredOp(
     comptime compiled_plan: program_plan.ProgramPlan,
     handlers_ptr: anytype,
@@ -174,7 +187,7 @@ fn executeLoweredFunction(
     for (args, 0..) |arg, arg_index| {
         setLocal(locals, @intCast(arg_index), arg);
     }
-    var current_block_index: u16 = function.first_block;
+    var current_block_index: u16 = function.first_block + function.entry_block;
     var return_local: u16 = 0;
 
     while (true) {
@@ -234,9 +247,14 @@ fn executeLoweredFunction(
         const terminator = compiled_plan.terminators[block.terminator_index];
         switch (terminator.kind) {
             .branch_if => {
-                const predicate = switch (getLocal(locals, 1)) {
+                if (instruction_end == block.first_instruction) return error.ProgramContractViolation;
+                const predicate_instruction = compiled_plan.instructions[instruction_end - 1];
+                if (predicate_instruction.kind != .compare_eq_zero or predicate_instruction.dst >= locals.len) {
+                    return error.ProgramContractViolation;
+                }
+                const predicate = switch (getLocal(locals, predicate_instruction.dst)) {
                     .bool => |typed| typed,
-                    else => unreachable,
+                    else => return error.ProgramContractViolation,
                 };
                 current_block_index = if (predicate) terminator.primary else terminator.secondary;
             },
@@ -298,6 +316,63 @@ fn resolveMaybeError(value: anytype) anyerror!switch (@typeInfo(@TypeOf(value)))
 
 fn cloneBytes(comptime bytes: []const u8) []const u8 {
     return std.fmt.comptimePrint("{s}", .{bytes});
+}
+
+fn pathTailMatches(comptime caller_file: []const u8, comptime repo_path: []const u8) bool {
+    if (caller_file.len < repo_path.len) return false;
+    const start = caller_file.len - repo_path.len;
+    inline for (repo_path, 0..) |expected, index| {
+        const actual = caller_file[start + index];
+        if (expected == '/') {
+            if (actual != '/' and actual != '\\') return false;
+            continue;
+        }
+        if (actual != expected) return false;
+    }
+    return start == 0 or caller_file[start - 1] == '/' or caller_file[start - 1] == '\\';
+}
+
+fn basename(comptime path: []const u8) []const u8 {
+    var start: usize = 0;
+    inline for (path, 0..) |byte, index| {
+        if (byte == '/' or byte == '\\') start = index + 1;
+    }
+    return path[start..];
+}
+
+const ambiguous_repo_basenames = [_][]const u8{
+    "algebraic.zig",
+    "early_exit.zig",
+    "exception_basic.zig",
+    "nested_workflow.zig",
+    "open_row_abortive_validation.zig",
+    "open_row_artifact_search.zig",
+    "open_row_generator.zig",
+    "optional_basic.zig",
+    "reader_basic.zig",
+    "resource_basic.zig",
+    "resume_or_return.zig",
+    "root.zig",
+    "state_basic.zig",
+    "writer_basic.zig",
+};
+
+fn basenameIsRepoUnique(comptime repo_path: []const u8) bool {
+    inline for (ambiguous_repo_basenames) |ambiguous| {
+        if (std.mem.eql(u8, basename(repo_path), ambiguous)) return false;
+    }
+    return true;
+}
+
+fn assertSourceOwnership(comptime source_ref: SourceRef) void {
+    if (source_ref.repo_path.len == 0) @compileError("public lowering source ownership requires a non-empty repo_path");
+    if (source_ref.caller_file.len == 0) @compileError("public lowering source ownership requires a non-empty caller_file");
+    if (!pathTailMatches(source_ref.caller_file, source_ref.repo_path) and
+        !(basenameIsRepoUnique(source_ref.repo_path) and
+            std.mem.eql(u8, basename(source_ref.caller_file), basename(source_ref.repo_path))))
+    {
+        @compileError("public lowering source ownership requires caller_file to end with repo_path");
+    }
 }
 
 /// Build one caller-owned lowering provenance witness from an explicit repo path plus `@src()`.
@@ -1150,6 +1225,7 @@ fn LowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) type {
         error.UnsupportedCodecType => @compileError("public lowering runtime plan rejected a type outside the first-wave codec set"),
         error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
     };
+    assertExecutableCodecSupport(compiled_plan);
     return GeneratedProgramType(spec.label, source_path, spec.entry_symbol, compiled_plan, .{
         .ValueType = spec.ValueType,
         .outputs = spec.outputs,
@@ -1160,6 +1236,7 @@ fn LowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) type {
 }
 
 fn Lower(comptime source_ref: SourceRef, comptime spec: LowerSpec) type {
+    assertSourceOwnership(source_ref);
     return LowerAt(source_ref.repo_path, spec);
 }
 
@@ -1200,6 +1277,7 @@ fn CompileIrType(comptime label: []const u8, comptime program: effect_ir.Program
     if (program.entry_index >= program.functions.len) {
         @compileError("public lowering rejected an effect-ir program with an out-of-range entry_index");
     }
+    assertExecutableCodecSupport(compiled_plan);
     return GeneratedProgramType(label, "<ir>", program.functions[program.entry_index].symbol.symbol_name, compiled_plan, null, null);
 }
 

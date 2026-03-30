@@ -1233,6 +1233,7 @@ test "abortWithContext reuses the recorded terminal during replay" {
         answer: i32,
     };
     const handler = struct {
+        /// Return the recorded terminal answer from the supplied carrier.
         pub fn directReturn(ctx: *Carrier) i32 {
             ctx.calls += 1;
             return ctx.answer;

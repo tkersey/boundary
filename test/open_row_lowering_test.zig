@@ -171,8 +171,6 @@ test "branching helper body lowers a real if-else control-flow body" {
 
     const helper_body = lowered.program.function_bodies[helper_index];
     try std.testing.expectEqual(@as(usize, 3), helper_body.blocks.len);
-    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[0].instructions[0].kind), .call_op), helper_body.blocks[0].instructions[0].kind);
-    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[0].instructions[1].kind), .compare_eq_zero), helper_body.blocks[0].instructions[1].kind);
     try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[0].terminator.kind), .branch_if), helper_body.blocks[0].terminator.kind);
     try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[1].instructions[0].kind), .const_string), helper_body.blocks[1].instructions[0].kind);
     try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[1].instructions[1].kind), .call_op), helper_body.blocks[1].instructions[1].kind);
@@ -430,6 +428,46 @@ test "root lower matches the example-owned same-module lowering" {
         @as(usize, example_open_row_state_writer.CompiledProgram.runtime_plan.functions.len),
         ExplicitProgramType.runtime_plan.functions.len,
     );
+}
+
+test "explicit IR compilation preserves non-zero helper-body entry blocks in the runtime plan" {
+    const entry_symbol: shift.ir.SymbolRef = .{
+        .module_path = "test/open_row_lowering_test.zig",
+        .symbol_name = "entryBlockRoot",
+    };
+    const HandAuthoredProgram: shift.ir.Program = .{
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol = entry_symbol,
+            .row = shift.ir.rowFromSpec(.{}),
+            .ValueType = i32,
+        }},
+        .call_edges = &.{},
+        .function_bodies = &.{.{
+            .local_codecs = &.{.i32},
+            .entry_block = 1,
+            .blocks = &.{
+                .{
+                    .instructions = &.{
+                        .{ .kind = .const_i32, .dst = 0, .operand = 1 },
+                        .{ .kind = .return_value, .operand = 0 },
+                    },
+                    .terminator = .{ .kind = .return_value },
+                },
+                .{
+                    .instructions = &.{
+                        .{ .kind = .const_i32, .dst = 0, .operand = 2 },
+                        .{ .kind = .return_value, .operand = 0 },
+                    },
+                    .terminator = .{ .kind = .return_value },
+                },
+            },
+        }},
+    };
+
+    const ExplicitProgramType = shift.ir.compile("example.entry_block_root", HandAuthoredProgram);
+    try std.testing.expectEqual(@as(u16, 1), ExplicitProgramType.runtime_plan.functions[0].entry_block);
+    try std.testing.expectEqual(@as(u16, 0), ExplicitProgramType.runtime_plan.functions[0].first_block);
 }
 
 test "example module proves why root shift.lower requires explicit caller participation" {

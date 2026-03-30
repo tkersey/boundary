@@ -240,6 +240,72 @@ test "durable restore and inspect use persisted non-scenario artifact provenance
     try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
 }
 
+test "durable restore preserves plan-backed helper ABI fields across persisted plan reload" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const artifact: shift.durable.ProgramArtifact = .{
+        .label = "plan_backed_helper_abi",
+        .program_hash = 0x9911,
+        .steps = &.{
+            .{ .emit = .{ .note = "plan-backed" } },
+            .{ .emit = .{ .final_i32 = 7 } },
+        },
+        .plan = .{
+            .label = "demo.plan",
+            .ir_hash = 0x5511,
+            .entry_index = 0,
+            .functions = &.{.{
+                .symbol_name = "runBody",
+                .value_codec = .i32,
+                .parameter_count = 1,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 1,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 1,
+            }},
+            .requirements = &.{},
+            .ops = &.{},
+            .outputs = &.{.{
+                .label = "result",
+                .codec = .i32,
+            }},
+            .locals = &.{.{ .codec = .i32 }},
+            .call_args = &.{0},
+            .blocks = &.{.{
+                .first_instruction = 0,
+                .instruction_count = 1,
+                .terminator_index = 0,
+            }},
+            .terminators = &.{.{
+                .kind = .return_value,
+            }},
+            .instructions = &.{.{
+                .kind = .return_value,
+                .dst = 0,
+                .operand = 0,
+                .aux = 0,
+            }},
+        },
+    };
+
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    _ = try store.saveArtifact(artifact, null);
+
+    const restored = try store.restore();
+    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
+    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
+}
+
 test "durable restore accepts a matching step bridge when persisted plan.json is valid" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();

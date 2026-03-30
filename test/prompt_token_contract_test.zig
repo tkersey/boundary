@@ -27,7 +27,7 @@ test "prompt token source keeps tokens distinct across concurrent allocation" {
     var tokens = [_]usize{0} ** 256;
     var threads: [8]std.Thread = undefined;
 
-    const Worker = struct {
+    const worker = struct {
         fn run(shared: *portable_core.PromptTokenSource, out: []usize) void {
             for (out) |*slot| {
                 slot.* = shared.allocate();
@@ -38,7 +38,7 @@ test "prompt token source keeps tokens distinct across concurrent allocation" {
 
     for (&threads, 0..) |*thread, index| {
         const start = index * 32;
-        thread.* = try std.Thread.spawn(.{}, Worker.run, .{ &source, tokens[start .. start + 32] });
+        thread.* = try std.Thread.spawn(.{}, worker.run, .{ &source, tokens[start .. start + 32] });
     }
     for (&threads) |thread| thread.join();
 

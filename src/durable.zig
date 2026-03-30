@@ -1015,6 +1015,7 @@ fn cloneLegacyProgramPlanV2(allocator: std.mem.Allocator, plan: LegacyProgramPla
         .ops = try allocator.alloc(kernel.OpPlan, 0),
         .outputs = try allocator.alloc(kernel.OutputPlan, 0),
         .locals = try allocator.alloc(kernel.LocalPlan, 0),
+        .call_args = try allocator.alloc(u16, 0),
         .blocks = try allocator.alloc(kernel.BlockPlan, 0),
         .terminators = try allocator.alloc(kernel.Terminator, 0),
         .instructions = try allocator.alloc(kernel.Instruction, 0),
@@ -1131,6 +1132,7 @@ fn clonePlan(allocator: std.mem.Allocator, plan: kernel.ProgramPlan) !kernel.Pro
         .ops = try allocator.alloc(kernel.OpPlan, 0),
         .outputs = try allocator.alloc(kernel.OutputPlan, 0),
         .locals = try allocator.alloc(kernel.LocalPlan, 0),
+        .call_args = try allocator.alloc(u16, 0),
         .blocks = try allocator.alloc(kernel.BlockPlan, 0),
         .terminators = try allocator.alloc(kernel.Terminator, 0),
         .instructions = try allocator.alloc(kernel.Instruction, 0),
@@ -1146,6 +1148,8 @@ fn clonePlan(allocator: std.mem.Allocator, plan: kernel.ProgramPlan) !kernel.Pro
     for (plan.functions, 0..) |function, index| {
         functions[index] = .{
             .symbol_name = try allocator.dupe(u8, function.symbol_name),
+            .value_codec = function.value_codec,
+            .parameter_count = function.parameter_count,
             .first_requirement = function.first_requirement,
             .requirement_count = function.requirement_count,
             .first_output = function.first_output,
@@ -1153,6 +1157,7 @@ fn clonePlan(allocator: std.mem.Allocator, plan: kernel.ProgramPlan) !kernel.Pro
             .first_local = function.first_local,
             .local_count = function.local_count,
             .first_block = function.first_block,
+            .entry_block = function.entry_block,
             .block_count = function.block_count,
             .first_instruction = function.first_instruction,
             .instruction_count = function.instruction_count,
@@ -1217,6 +1222,10 @@ fn clonePlan(allocator: std.mem.Allocator, plan: kernel.ProgramPlan) !kernel.Pro
     const locals = try allocator.dupe(kernel.LocalPlan, plan.locals);
     allocator.free(cloned.locals);
     cloned.locals = locals;
+
+    const call_args = try allocator.dupe(u16, plan.call_args);
+    allocator.free(cloned.call_args);
+    cloned.call_args = call_args;
 
     const blocks = try allocator.dupe(kernel.BlockPlan, plan.blocks);
     allocator.free(cloned.blocks);
@@ -1285,6 +1294,7 @@ fn freePlan(allocator: std.mem.Allocator, plan: *const kernel.ProgramPlan) void 
     for (plan.outputs) |output| allocator.free(output.label);
     allocator.free(plan.outputs);
     allocator.free(plan.locals);
+    allocator.free(plan.call_args);
     allocator.free(plan.blocks);
     allocator.free(plan.terminators);
     allocator.free(plan.instructions);

@@ -1531,6 +1531,8 @@ pub fn build(b: *std.Build) void {
         .{ .name = "cf-retired-rowspec", .path = "test/compile_fail/retired_rowspec_fails.zig", .expected = "has no member named 'effects'" },
         .{ .name = "cf-retired-mergerowspecs", .path = "test/compile_fail/retired_mergerowspecs_fails.zig", .expected = "has no member named 'handlers'" },
         .{ .name = "cf-resume-value-mismatch", .path = "test/compile_fail/resume_value_mismatch.zig", .expected = ".resumeValue must have type fn () Resume or fn () ResetError(ErrorSet)!Resume" },
+        .{ .name = "cf-source-ownership-mismatch", .path = "test/compile_fail/source_ownership_mismatch_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
+        .{ .name = "cf-string-list-codec", .path = "test/compile_fail/string_list_codec_fails.zig", .expected = "public lowering runtime plan rejected string_list values across executable boundaries" },
         .{ .name = "cf-collect-closed-outputs-const-mutating-finish", .path = "test/compile_fail/collect_closed_outputs_const_mutating_finish_fails.zig", .expected = "cast discards const qualifier" },
         .{ .name = "cf-one-shot-missing-after-resume", .path = "test/one_shot_survey/missing_after_resume_fails.zig", .expected = "must declare afterResume" },
         .{ .name = "cf-one-shot-missing-resume-or-return", .path = "test/one_shot_survey/missing_resume_or_return_fails.zig", .expected = "must declare resumeOrReturn" },

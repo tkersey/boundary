@@ -71,6 +71,7 @@ pub const FunctionPlan = struct {
     first_local: u16 = 0,
     local_count: u16 = 0,
     first_block: u16 = 0,
+    entry_block: u16 = 0,
     block_count: u16 = 0,
     first_instruction: u16,
     instruction_count: u16,
@@ -148,6 +149,7 @@ pub const ProgramPlan = struct {
         for (self.functions) |function| {
             if (function.symbol_name.len == 0) return error.EmptyFunctionSymbol;
             if (function.parameter_count > function.local_count) return error.InvalidFunctionLocalSpan;
+            if (function.entry_block >= function.block_count and function.block_count != 0) return error.InvalidFunctionEntryBlock;
             const requirement_end = rangeEnd(function.first_requirement, function.requirement_count) orelse return error.InvalidFunctionRequirementSpan;
             if (requirement_end > self.requirements.len) return error.InvalidFunctionRequirementSpan;
             const output_end = rangeEnd(function.first_output, function.output_count) orelse return error.InvalidFunctionOutputSpan;
@@ -233,6 +235,7 @@ pub const ProgramPlan = struct {
             hasher.update(std.mem.asBytes(&function.first_local));
             hasher.update(std.mem.asBytes(&function.local_count));
             hasher.update(std.mem.asBytes(&function.first_block));
+            hasher.update(std.mem.asBytes(&function.entry_block));
             hasher.update(std.mem.asBytes(&function.block_count));
             hasher.update(std.mem.asBytes(&function.first_instruction));
             hasher.update(std.mem.asBytes(&function.instruction_count));
@@ -295,6 +298,7 @@ pub const ValidationError = error{
     InvalidBlockTerminatorIndex,
     InvalidEntryIndex,
     InvalidFunctionBlockSpan,
+    InvalidFunctionEntryBlock,
     InvalidFunctionInstructionSpan,
     InvalidFunctionLocalSpan,
     InvalidFunctionOutputSpan,
@@ -490,6 +494,7 @@ fn invalidGeneratedPlan(err: ValidationError) noreturn {
         error.InvalidBlockTerminatorIndex => "runtime plan generator produced an invalid block terminator index",
         error.InvalidEntryIndex => "runtime plan generator produced an invalid entry index",
         error.InvalidFunctionBlockSpan => "runtime plan generator produced an invalid function block span",
+        error.InvalidFunctionEntryBlock => "runtime plan generator produced an invalid function entry block",
         error.InvalidFunctionInstructionSpan => "runtime plan generator produced an invalid function instruction span",
         error.InvalidFunctionLocalSpan => "runtime plan generator produced an invalid function local span",
         error.InvalidFunctionOutputSpan => "runtime plan generator produced an invalid function output span",
@@ -832,6 +837,7 @@ pub fn planFromOpenRowProgram(
                 .first_local = local_index,
                 .local_count = @intCast(body.local_codecs.len),
                 .first_block = block_index,
+                .entry_block = body.entry_block,
                 .block_count = @intCast(body.blocks.len),
                 .first_instruction = instruction_index,
                 .instruction_count = @intCast(instruction_count),
