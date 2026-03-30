@@ -251,6 +251,7 @@ pub fn build(b: *std.Build) void {
     });
     internal_program_plan_mod.addImport("effect_ir", effect_ir_mod);
     helper_body_ir_mod.addImport("internal_program_plan", internal_program_plan_mod);
+    helper_body_ir_mod.addImport("effect_ir", effect_ir_mod);
     const source_graph_comptime_mod = b.createModule(.{
         .root_source_file = b.path("src/internal/source_graph_comptime.zig"),
         .target = target,

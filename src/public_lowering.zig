@@ -106,6 +106,7 @@ fn cloneProgram(comptime program: effect_ir.Program) effect_ir.Program {
     return .{
         .functions = &functions,
         .call_edges = cloneCallEdges(program.call_edges),
+        .function_bodies = cloneFunctionBodies(program.function_bodies),
     };
 }
 
@@ -122,6 +123,49 @@ fn cloneCallEdges(comptime call_edges: []const effect_ir.CallEdge) []const effec
                     .module_path = cloneBytes(edge.callee.module_path),
                     .symbol_name = cloneBytes(edge.callee.symbol_name),
                 },
+            };
+        }
+        break :blk &buffer;
+    };
+}
+
+fn cloneBodyInstructions(comptime instructions: []const effect_ir.Instruction) []const effect_ir.Instruction {
+    return comptime blk: {
+        var buffer: [instructions.len]effect_ir.Instruction = undefined;
+        for (instructions, 0..) |instruction, index| buffer[index] = instruction;
+        break :blk &buffer;
+    };
+}
+
+fn cloneBodyBlocks(comptime blocks: []const effect_ir.Block) []const effect_ir.Block {
+    return comptime blk: {
+        var buffer: [blocks.len]effect_ir.Block = undefined;
+        for (blocks, 0..) |block, index| {
+            buffer[index] = .{
+                .instructions = cloneBodyInstructions(block.instructions),
+                .terminator = block.terminator,
+            };
+        }
+        break :blk &buffer;
+    };
+}
+
+fn cloneLocalCodecs(comptime codecs: []const effect_ir.LocalCodec) []const effect_ir.LocalCodec {
+    return comptime blk: {
+        var buffer: [codecs.len]effect_ir.LocalCodec = undefined;
+        for (codecs, 0..) |codec, index| buffer[index] = codec;
+        break :blk &buffer;
+    };
+}
+
+fn cloneFunctionBodies(comptime function_bodies: []const effect_ir.FunctionBody) []const effect_ir.FunctionBody {
+    return comptime blk: {
+        var buffer: [function_bodies.len]effect_ir.FunctionBody = undefined;
+        for (function_bodies, 0..) |body, index| {
+            buffer[index] = .{
+                .local_codecs = cloneLocalCodecs(body.local_codecs),
+                .entry_block = body.entry_block,
+                .blocks = cloneBodyBlocks(body.blocks),
             };
         }
         break :blk &buffer;
@@ -627,13 +671,18 @@ fn resumeCodecForFunctionUse(
     comptime function_index: usize,
     comptime requirement_label: []const u8,
     comptime op_name: []const u8,
-) program_plan.ValueCodec {
+) effect_ir.LocalCodec {
     for (functions[function_index].row.requirements) |requirement| {
         if (!std.mem.eql(u8, requirement.label, requirement_label)) continue;
         for (requirement.ops) |op| {
             if (!std.mem.eql(u8, op.op_name, op_name)) continue;
-            return program_plan.codecForType(op.ResumeType) catch
-                @compileError("public lowering recursive helper subset produced an unsupported resume codec");
+            if (op.ResumeType == void) return .unit;
+            if (op.ResumeType == bool) return .bool;
+            if (op.ResumeType == i32) return .i32;
+            if (op.ResumeType == usize) return .usize;
+            if (op.ResumeType == []const u8) return .string;
+            if (op.ResumeType == [][]const u8) return .string_list;
+            @compileError("public lowering recursive helper subset produced an unsupported resume codec");
         }
     }
     @compileError("public lowering recursive helper subset could not map one bound local to an op resume codec");
@@ -655,7 +704,6 @@ fn helperTargetIndexByName(
 }
 
 fn buildRecursiveGuardBodyForFunction(
-    comptime source_path: []const u8,
     comptime graph: source_graph_embed.ProgramGraph,
     comptime lowered_index_map: [graph.functions.len]u16,
     comptime functions: []const effect_ir.Function,
@@ -663,7 +711,6 @@ fn buildRecursiveGuardBodyForFunction(
     comptime lowered_function_index: usize,
 ) ?program_frontend.FunctionBody {
     const function = graph.functions[graph_function_index];
-    if (!std.mem.eql(u8, function.module_path, source_path)) return null;
     if (function.body_end_offset <= function.body_start_offset) return null;
 
     const tokens = bodyTokensForFunction(function.module_path, function.body_start_offset, function.body_end_offset);
@@ -925,7 +972,6 @@ fn buildBodyInstructionsForFunction(
 }
 
 fn buildFunctionBodiesForGraph(
-    comptime source_path: []const u8,
     comptime graph: source_graph_embed.ProgramGraph,
     comptime functions: []const effect_ir.Function,
 ) []const program_frontend.FunctionBody {
@@ -954,7 +1000,6 @@ fn buildFunctionBodiesForGraph(
             }
 
             const maybe_control_flow_body = buildRecursiveGuardBodyForFunction(
-                source_path,
                 graph,
                 lowered_index_map,
                 functions,
@@ -996,7 +1041,7 @@ fn openRowAt(comptime source_path: []const u8, comptime spec: LowerSpec) program
         .entry_symbol = spec.entry_symbol,
         .functions = functions,
         .call_edges = buildCallEdgesForGraph(graph),
-        .function_bodies = buildFunctionBodiesForGraph(source_path, graph, functions),
+        .function_bodies = buildFunctionBodiesForGraph(graph, functions),
     };
 }
 
@@ -1011,6 +1056,7 @@ pub fn irProgramAt(comptime source_path: []const u8, comptime spec: LowerSpec) e
     return .{
         .functions = payload.functions,
         .call_edges = payload.call_edges,
+        .function_bodies = payload.function_bodies,
     };
 }
 
@@ -1101,6 +1147,7 @@ fn LowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) type {
         error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
         error.EmptyRequirementLabel => @compileError("public lowering rejected an empty requirement label"),
         error.EmptyOpName => @compileError("public lowering rejected an empty op name"),
+        error.InvalidProgramBodyShape => @compileError("public lowering rejected a helper-body payload that does not align to its function list"),
         error.InvalidRequirementShape => @compileError("public lowering rejected an invalid requirement shape"),
         error.InvalidRowShape => @compileError("public lowering rejected an invalid row shape"),
         error.OutputWithoutRequirement => @compileError("public lowering rejected outputs without matching requirements"),
@@ -1116,6 +1163,7 @@ fn LowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) type {
         error.EmptyProgram => @compileError("public lowering rejected an empty effect-ir program"),
         error.EmptyRequirementLabel => @compileError("public lowering rejected an empty requirement label"),
         error.EmptyOpName => @compileError("public lowering rejected an empty op name"),
+        error.InvalidProgramBodyShape => @compileError("public lowering rejected a helper-body payload that does not align to its function list"),
         error.InvalidRequirementShape => @compileError("public lowering rejected an invalid requirement shape"),
         error.InvalidRowShape => @compileError("public lowering rejected an invalid row shape"),
         error.OutputWithoutRequirement => @compileError("public lowering rejected outputs without matching requirements"),
@@ -1154,6 +1202,7 @@ fn CompileIrType(comptime label: []const u8, comptime program: effect_ir.Program
         error.EmptyProgram => @compileError("public lowering rejected an empty effect-ir program"),
         error.EmptyRequirementLabel => @compileError("public lowering rejected an empty requirement label"),
         error.EmptyOpName => @compileError("public lowering rejected an empty op name"),
+        error.InvalidProgramBodyShape => @compileError("public lowering rejected an effect-ir program whose helper-body payload does not align to its function list"),
         error.InvalidRequirementShape => @compileError("public lowering rejected an invalid requirement shape"),
         error.InvalidRowShape => @compileError("public lowering rejected an invalid row shape"),
         error.OutputWithoutRequirement => @compileError("public lowering rejected outputs without matching requirements"),

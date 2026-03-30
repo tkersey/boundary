@@ -300,6 +300,36 @@ fn hashBytes(hasher: *std.hash.Wyhash, value: []const u8) void {
     hasher.update(&.{0});
 }
 
+fn codecFromEffectIrBody(codec: effect_ir.LocalCodec) ValueCodec {
+    return switch (codec) {
+        .bool => .bool,
+        .i32 => .i32,
+        .string => .string,
+        .string_list => .string_list,
+        .unit => .unit,
+        .usize => .usize,
+    };
+}
+
+fn instructionKindFromEffectIrBody(kind: effect_ir.InstructionKind) InstructionKind {
+    return switch (kind) {
+        .call_helper => .call_helper,
+        .call_op => .call_op,
+        .compare_eq_zero => .compare_eq_zero,
+        .return_value => .return_value,
+        .sub_one => .sub_one,
+    };
+}
+
+fn terminatorKindFromEffectIrBody(kind: effect_ir.TerminatorKind) TerminatorKind {
+    return switch (kind) {
+        .branch_if => .branch_if,
+        .jump => .jump,
+        .return_unit => .return_unit,
+        .return_value => .return_value,
+    };
+}
+
 /// Upgrade a legacy plan in place up to the current schema.
 pub fn upgradeLegacyProgramPlan(allocator: std.mem.Allocator, plan: *ProgramPlan) LegacySchemaError!void {
     if (plan.schema_version == ProgramPlan.current_schema_version) return;
@@ -407,15 +437,6 @@ fn countBodyInstructions(comptime program: program_frontend.LoweredOpenRowProgra
     return total;
 }
 
-fn terminatorKindFromBody(kind: @import("helper_body_ir").TerminatorKind) TerminatorKind {
-    return switch (kind) {
-        .branch_if => .branch_if,
-        .jump => .jump,
-        .return_unit => .return_unit,
-        .return_value => .return_value,
-    };
-}
-
 fn invalidGeneratedPlan(err: ValidationError) noreturn {
     @compileError(switch (err) {
         error.EmptyFunctionSymbol => "runtime plan generator produced an empty function symbol",
@@ -444,6 +465,9 @@ fn invalidGeneratedPlan(err: ValidationError) noreturn {
 
 /// Compute a stable hash for the full normalized IR program identity.
 pub fn irHashForProgram(comptime program: effect_ir.Program) PlanError!u64 {
+    if (program.function_bodies.len != 0 and program.function_bodies.len != program.functions.len) {
+        return error.InvalidProgramBodyShape;
+    }
     const symbols = comptime blk: {
         var buffer: [program.functions.len]effect_ir.SymbolRef = undefined;
         for (program.functions, 0..) |function, index| {
@@ -473,12 +497,36 @@ pub fn irHashForProgram(comptime program: effect_ir.Program) PlanError!u64 {
         hashBytes(&hasher, edge.callee.module_path);
         hashBytes(&hasher, edge.callee.symbol_name);
     }
+    for (program.function_bodies) |body| {
+        for (body.local_codecs) |codec| hashBytes(&hasher, @tagName(codec));
+        hasher.update(std.mem.asBytes(&body.entry_block));
+        for (body.blocks) |block| {
+            for (block.instructions) |instruction| {
+                hashBytes(&hasher, @tagName(instruction.kind));
+                hasher.update(std.mem.asBytes(&instruction.dst));
+                hasher.update(std.mem.asBytes(&instruction.operand));
+                hasher.update(std.mem.asBytes(&instruction.aux));
+            }
+            hashBytes(&hasher, @tagName(block.terminator.kind));
+            hasher.update(std.mem.asBytes(&block.terminator.primary));
+            hasher.update(std.mem.asBytes(&block.terminator.secondary));
+        }
+    }
     return hasher.final();
 }
 
 /// Lower one comptime effect-ir program into a runtime-owned executable plan shape.
 pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.Program) PlanError!ProgramPlan {
     if (program.functions.len == 0) return error.EmptyProgram;
+    if (program.function_bodies.len != 0) {
+        if (program.function_bodies.len != program.functions.len) return error.InvalidProgramBodyShape;
+        return try planFromOpenRowProgram(label, .{
+            .entry_index = 0,
+            .functions = program.functions,
+            .call_edges = program.call_edges,
+            .function_bodies = program.function_bodies,
+        });
+    }
 
     const symbols = comptime blk: {
         var buffer: [program.functions.len]effect_ir.SymbolRef = undefined;
@@ -801,7 +849,7 @@ pub fn planFromOpenRowProgram(
         var local_index: usize = 0;
         for (program.function_bodies) |body| {
             for (body.local_codecs) |codec| {
-                buf[local_index] = .{ .codec = codec };
+                buf[local_index] = .{ .codec = codecFromEffectIrBody(codec) };
                 local_index += 1;
             }
         }
@@ -835,7 +883,7 @@ pub fn planFromOpenRowProgram(
         for (program.function_bodies) |body| {
             for (body.blocks) |block| {
                 buf[terminator_index] = .{
-                    .kind = terminatorKindFromBody(block.terminator.kind),
+                    .kind = terminatorKindFromEffectIrBody(block.terminator.kind),
                     .primary = if (block.terminator.kind == .jump or block.terminator.kind == .branch_if)
                         block_base + block.terminator.primary
                     else
@@ -859,7 +907,7 @@ pub fn planFromOpenRowProgram(
             for (body.blocks) |block| {
                 for (block.instructions) |instruction| {
                     buf[instruction_index] = .{
-                        .kind = instruction.kind,
+                        .kind = instructionKindFromEffectIrBody(instruction.kind),
                         .dst = instruction.dst,
                         .operand = instruction.operand,
                         .aux = instruction.aux,

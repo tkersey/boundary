@@ -9,6 +9,20 @@ pub const Row = effect_ir.Row;
 pub const OutputSpec = effect_ir.OutputSpec;
 /// Public explicit Effect IR call-edge descriptor.
 pub const CallEdge = effect_ir.CallEdge;
+/// Public explicit Effect IR helper-body local codec.
+pub const LocalCodec = effect_ir.LocalCodec;
+/// Public explicit Effect IR helper-body instruction tag.
+pub const InstructionKind = effect_ir.InstructionKind;
+/// Public explicit Effect IR helper-body instruction.
+pub const Instruction = effect_ir.Instruction;
+/// Public explicit Effect IR helper-body terminator tag.
+pub const TerminatorKind = effect_ir.TerminatorKind;
+/// Public explicit Effect IR helper-body terminator.
+pub const Terminator = effect_ir.Terminator;
+/// Public explicit Effect IR helper-body block.
+pub const Block = effect_ir.Block;
+/// Public explicit Effect IR helper-body payload.
+pub const FunctionBody = effect_ir.FunctionBody;
 /// Public explicit transform-op descriptor constructor.
 pub const Transform = effect_ir.Transform;
 /// Public explicit choice-op descriptor constructor.

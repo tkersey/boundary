@@ -75,6 +75,7 @@ pub const LoweredOpenRowProgram = struct {
         return .{
             .functions = self.functions,
             .call_edges = self.call_edges,
+            .function_bodies = self.function_bodies,
         };
     }
 };

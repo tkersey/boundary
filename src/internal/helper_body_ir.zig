@@ -1,41 +1,25 @@
-const program_plan = @import("internal_program_plan");
+const effect_ir = @import("effect_ir");
 
 /// Stable local slot identifier inside one helper body.
-pub const LocalId = u16;
+pub const LocalId = effect_ir.LocalId;
 
 /// Stable basic-block identifier inside one helper body.
-pub const BlockId = u16;
+pub const BlockId = effect_ir.BlockId;
 
 /// Stable local codec used by one helper body slot.
-pub const LocalCodec = program_plan.ValueCodec;
+pub const LocalCodec = effect_ir.LocalCodec;
 
 /// One internal helper-body terminator kind.
-pub const TerminatorKind = program_plan.TerminatorKind;
+pub const TerminatorKind = effect_ir.TerminatorKind;
 
 /// One internal helper-body instruction.
-pub const Instruction = struct {
-    kind: program_plan.InstructionKind,
-    dst: LocalId = 0,
-    operand: u16 = 0,
-    aux: u16 = 0,
-};
+pub const Instruction = effect_ir.Instruction;
 
 /// One internal helper-body terminator.
-pub const Terminator = struct {
-    kind: TerminatorKind,
-    primary: u16 = 0,
-    secondary: u16 = 0,
-};
+pub const Terminator = effect_ir.Terminator;
 
 /// One internal helper-body basic block.
-pub const Block = struct {
-    instructions: []const Instruction,
-    terminator: Terminator,
-};
+pub const Block = effect_ir.Block;
 
 /// One internal helper-body payload aligned to one lowered function.
-pub const FunctionBody = struct {
-    local_codecs: []const LocalCodec = &.{},
-    entry_block: BlockId = 0,
-    blocks: []const Block = &.{},
-};
+pub const FunctionBody = effect_ir.FunctionBody;

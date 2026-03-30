@@ -281,6 +281,23 @@ test "recursive same-file helper runtime plan preserves full instruction operand
     try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction + 5].kind), .call_helper), runtime_plan.instructions[countdown.first_instruction + 5].kind);
 }
 
+test "explicit IR compilation matches recursive same-file lowered runtime plan" {
+    const ExplicitProgramType = shift.ir.compile(
+        "example.open_row_recursive_writer",
+        example_open_row_recursive_writer.irProgram(),
+    );
+
+    try std.testing.expectEqual(example_open_row_recursive_writer.CompiledProgram.ir_hash, ExplicitProgramType.ir_hash);
+    try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.functions, ExplicitProgramType.runtime_plan.functions);
+    try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.requirements, ExplicitProgramType.runtime_plan.requirements);
+    try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.ops, ExplicitProgramType.runtime_plan.ops);
+    try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.outputs, ExplicitProgramType.runtime_plan.outputs);
+    try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.locals, ExplicitProgramType.runtime_plan.locals);
+    try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.blocks, ExplicitProgramType.runtime_plan.blocks);
+    try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.terminators, ExplicitProgramType.runtime_plan.terminators);
+    try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.instructions, ExplicitProgramType.runtime_plan.instructions);
+}
+
 test "recursive imported-helper workflow lowers through the public root surface" {
     const lowered = try example_open_row_recursive_cross_writer.loweredProgram();
 
@@ -291,6 +308,64 @@ test "recursive imported-helper workflow lowers through the public root surface"
     try std.testing.expectEqual(@as(usize, 2), lowered.normalization.requirement_count);
     try std.testing.expectEqual(@as(usize, 3), lowered.normalization.op_count);
     try std.testing.expectEqual(@as(usize, 2), lowered.normalization.output_count);
+}
+
+test "recursive imported helper lowers into a real guarded control-flow body" {
+    const lowered = try example_open_row_recursive_cross_writer.loweredProgram();
+
+    const countdown_index = comptime blk: {
+        for (lowered.program.functions, 0..) |function, function_index| {
+            if (std.mem.eql(u8, function.symbol.symbol_name, "countdown")) break :blk function_index;
+        }
+        unreachable;
+    };
+    const countdown_body = lowered.program.function_bodies[countdown_index];
+
+    try std.testing.expectEqual(@as(usize, 3), countdown_body.local_codecs.len);
+    try std.testing.expectEqual(@as(usize, 3), countdown_body.blocks.len);
+    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[0].instructions[0].kind), .call_op), countdown_body.blocks[0].instructions[0].kind);
+    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[0].instructions[1].kind), .compare_eq_zero), countdown_body.blocks[0].instructions[1].kind);
+    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[0].terminator.kind), .branch_if), countdown_body.blocks[0].terminator.kind);
+    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[2].instructions[1].kind), .sub_one), countdown_body.blocks[2].instructions[1].kind);
+    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[2].instructions[3].kind), .call_helper), countdown_body.blocks[2].instructions[3].kind);
+}
+
+test "recursive imported helper runtime plan preserves full instruction operands" {
+    const runtime_plan = example_open_row_recursive_cross_writer.CompiledProgram.runtime_plan;
+    const countdown_index = comptime blk: {
+        for (runtime_plan.functions, 0..) |function, function_index| {
+            if (std.mem.eql(u8, function.symbol_name, "countdown")) break :blk function_index;
+        }
+        unreachable;
+    };
+    const countdown = runtime_plan.functions[countdown_index];
+
+    try std.testing.expectEqual(@as(u32, 3), runtime_plan.schema_version);
+    try std.testing.expectEqual(@as(u16, 3), countdown.local_count);
+    try std.testing.expectEqual(@as(u16, 3), countdown.block_count);
+    try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction + 1].kind), .compare_eq_zero), runtime_plan.instructions[countdown.first_instruction + 1].kind);
+    try std.testing.expectEqual(@as(u16, 1), runtime_plan.instructions[countdown.first_instruction + 1].dst);
+    try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction + 3].kind), .sub_one), runtime_plan.instructions[countdown.first_instruction + 3].kind);
+    try std.testing.expectEqual(@as(u16, 2), runtime_plan.instructions[countdown.first_instruction + 3].dst);
+    try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction + 4].kind), .call_op), runtime_plan.instructions[countdown.first_instruction + 4].kind);
+    try std.testing.expectEqual(@as(u16, 2), runtime_plan.instructions[countdown.first_instruction + 4].aux);
+}
+
+test "explicit IR compilation matches recursive imported-helper lowered runtime plan" {
+    const ExplicitProgramType = shift.ir.compile(
+        "example.open_row_recursive_cross_writer",
+        example_open_row_recursive_cross_writer.irProgram(),
+    );
+
+    try std.testing.expectEqual(example_open_row_recursive_cross_writer.CompiledProgram.ir_hash, ExplicitProgramType.ir_hash);
+    try std.testing.expectEqualDeep(example_open_row_recursive_cross_writer.CompiledProgram.runtime_plan.functions, ExplicitProgramType.runtime_plan.functions);
+    try std.testing.expectEqualDeep(example_open_row_recursive_cross_writer.CompiledProgram.runtime_plan.requirements, ExplicitProgramType.runtime_plan.requirements);
+    try std.testing.expectEqualDeep(example_open_row_recursive_cross_writer.CompiledProgram.runtime_plan.ops, ExplicitProgramType.runtime_plan.ops);
+    try std.testing.expectEqualDeep(example_open_row_recursive_cross_writer.CompiledProgram.runtime_plan.outputs, ExplicitProgramType.runtime_plan.outputs);
+    try std.testing.expectEqualDeep(example_open_row_recursive_cross_writer.CompiledProgram.runtime_plan.locals, ExplicitProgramType.runtime_plan.locals);
+    try std.testing.expectEqualDeep(example_open_row_recursive_cross_writer.CompiledProgram.runtime_plan.blocks, ExplicitProgramType.runtime_plan.blocks);
+    try std.testing.expectEqualDeep(example_open_row_recursive_cross_writer.CompiledProgram.runtime_plan.terminators, ExplicitProgramType.runtime_plan.terminators);
+    try std.testing.expectEqualDeep(example_open_row_recursive_cross_writer.CompiledProgram.runtime_plan.instructions, ExplicitProgramType.runtime_plan.instructions);
 }
 
 test "recursive same-file example stays transcript-backed" {

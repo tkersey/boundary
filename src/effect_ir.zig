@@ -210,6 +210,67 @@ pub const CallEdge = struct {
     callee: SymbolRef,
 };
 
+/// Stable local slot identifier inside one public helper body.
+pub const LocalId = u16;
+
+/// Stable basic-block identifier inside one public helper body.
+pub const BlockId = u16;
+
+/// Serializable local codec admitted by the public helper-body machine.
+pub const LocalCodec = enum {
+    bool,
+    i32,
+    string,
+    string_list,
+    unit,
+    usize,
+};
+
+/// Public helper-body instruction tags.
+pub const InstructionKind = enum {
+    call_helper,
+    call_op,
+    compare_eq_zero,
+    return_value,
+    sub_one,
+};
+
+/// Public helper-body instruction.
+pub const Instruction = struct {
+    kind: InstructionKind,
+    dst: LocalId = 0,
+    operand: u16 = 0,
+    aux: u16 = 0,
+};
+
+/// Public helper-body terminator tags.
+pub const TerminatorKind = enum {
+    branch_if,
+    jump,
+    return_unit,
+    return_value,
+};
+
+/// Public helper-body terminator.
+pub const Terminator = struct {
+    kind: TerminatorKind,
+    primary: u16 = 0,
+    secondary: u16 = 0,
+};
+
+/// Public helper-body basic block.
+pub const Block = struct {
+    instructions: []const Instruction,
+    terminator: Terminator,
+};
+
+/// Public helper-body payload aligned to one function.
+pub const FunctionBody = struct {
+    local_codecs: []const LocalCodec = &.{},
+    entry_block: BlockId = 0,
+    blocks: []const Block = &.{},
+};
+
 /// One graph owned by the symbol/SCC resolver.
 pub const ResolverGraph = struct {
     symbols: []const SymbolRef,
@@ -232,6 +293,7 @@ pub const Function = struct {
 pub const Program = struct {
     functions: []const Function,
     call_edges: []const CallEdge,
+    function_bodies: []const FunctionBody = &.{},
 };
 
 /// One strongly connected component over symbolic functions.
@@ -270,6 +332,7 @@ pub const NormalizeError = error{
     InvalidRowShape,
     OutputWithoutRequirement,
     DuplicateSymbol,
+    InvalidProgramBodyShape,
     UnknownSymbol,
     UnsupportedHelperCallEdge,
     OutOfMemory,
