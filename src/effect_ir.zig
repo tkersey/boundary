@@ -271,6 +271,7 @@ pub const Block = struct {
 /// Public helper-body payload aligned to one function.
 pub const FunctionBody = struct {
     local_codecs: []const LocalCodec = &.{},
+    call_arg_locals: []const LocalId = &.{},
     entry_block: BlockId = 0,
     blocks: []const Block = &.{},
 };
@@ -290,6 +291,7 @@ pub const SccGroup = struct {
 pub const Function = struct {
     symbol: SymbolRef,
     row: Row,
+    parameter_codecs: []const LocalCodec = &.{},
     ValueType: type = void,
     outputs: []const OutputSpec = &.{},
 };

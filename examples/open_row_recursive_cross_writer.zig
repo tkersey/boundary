@@ -1,6 +1,7 @@
 const helpers = @import("open_row_recursive_cross_helpers.zig");
 const shift = @import("shift");
 const std = @import("std");
+const runtime_support = shift.lowering.runtime_support;
 
 /// Run one recursive imported-helper workflow through the open-row kernel.
 pub fn runBody(eff: anytype) ![]const u8 {
@@ -61,19 +62,17 @@ fn CompiledProgramType() type {
 /// Generated additive program type exposing the runtime-owned plan bridge.
 pub const CompiledProgram = CompiledProgramType();
 
-const WorkflowProgram = shift.Program(.{
-    .state = shift.Decl.state(i32),
-    .writer = shift.Decl.writer([]const u8),
-}, struct {
-    /// Reuse the top-level imported recursive workflow body through the retained kernel-facing alias.
-    pub const body = runBody;
-});
-
 fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
     var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
-    const result = try shift.run(&runtime, WorkflowProgram, .{ .state = 2 });
+    var handlers: runtime_support.StateWriterHandlers = .{
+        .state = .{ .value = 2 },
+        .writer = .{ .allocator = allocator },
+    };
+    defer handlers.writer.deinit();
+
+    const result = try CompiledProgram.run(&runtime, &handlers);
     defer allocator.free(result.outputs.writer);
 
     for (result.outputs.writer) |item| {

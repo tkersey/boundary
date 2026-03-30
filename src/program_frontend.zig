@@ -365,12 +365,23 @@ fn cloneLocalCodecs(comptime codecs: []const helper_body_ir.LocalCodec) []const 
     };
 }
 
+fn cloneLocalIds(comptime local_ids: []const helper_body_ir.LocalId) []const helper_body_ir.LocalId {
+    return comptime blk: {
+        var buffer: [local_ids.len]helper_body_ir.LocalId = undefined;
+        for (local_ids, 0..) |local_id, index| {
+            buffer[index] = local_id;
+        }
+        break :blk buffer[0..];
+    };
+}
+
 fn cloneFunctionBodies(comptime function_bodies: []const helper_body_ir.FunctionBody) []const helper_body_ir.FunctionBody {
     return comptime blk: {
         var buffer: [function_bodies.len]helper_body_ir.FunctionBody = undefined;
         for (function_bodies, 0..) |body, index| {
             buffer[index] = .{
                 .local_codecs = cloneLocalCodecs(body.local_codecs),
+                .call_arg_locals = cloneLocalIds(body.call_arg_locals),
                 .entry_block = body.entry_block,
                 .blocks = cloneBodyBlocks(body.blocks),
             };
@@ -383,6 +394,7 @@ fn cloneFunction(comptime function: effect_ir.Function) effect_ir.Function {
     return .{
         .symbol = cloneSymbolRef(function.symbol),
         .row = cloneRow(function.row),
+        .parameter_codecs = cloneLocalCodecs(function.parameter_codecs),
         .ValueType = function.ValueType,
         .outputs = cloneOutputSpecs(function.outputs),
     };
@@ -450,6 +462,7 @@ fn synthesizeFunctionBodies(
             }};
             buffer[function_index] = .{
                 .local_codecs = &.{},
+                .call_arg_locals = &.{},
                 .entry_block = 0,
                 .blocks = &blocks,
             };
@@ -595,6 +608,7 @@ test "lowerOpenRow preserves attached helper body storage" {
         }},
         .function_bodies = &.{.{
             .local_codecs = &.{},
+            .call_arg_locals = &.{},
             .entry_block = 0,
             .blocks = &.{.{
                 .instructions = &.{},

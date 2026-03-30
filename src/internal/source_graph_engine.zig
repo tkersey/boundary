@@ -6,6 +6,7 @@ pub const Error = error{
     MissingImport,
     RecursiveHelpers,
     TooManyFunctions,
+    TooManyFunctionParams,
     TooManyImports,
     TooManyHelperUses,
     TooManyHelperEdges,
@@ -21,10 +22,24 @@ pub const AnalyzeOptions = struct {
     reject_indirect_effect_access: bool = false,
 };
 
+/// One supported scalar or string value shape discovered in a function signature.
+pub const ValueShape = enum {
+    i32,
+    string,
+    usize,
+};
+
+/// Maximum admitted ordinary helper parameters in the restricted source-lowering ABI.
+pub const max_function_params: usize = 8;
+
 /// One top-level function discovered in a Zig source module.
 pub const FunctionNode = struct {
     name: []const u8,
     effect_param: ?[]const u8,
+    value_param_names: [max_function_params][]const u8,
+    value_param_shapes: [max_function_params]ValueShape,
+    value_param_count: u8,
+    return_shape: ?ValueShape,
     body_lowering_supported: bool,
     body_start_offset: usize,
     body_end_offset: usize,
@@ -266,6 +281,10 @@ const FixedCollector = struct {
     functions: [128]FunctionNode = [_]FunctionNode{.{
         .name = "",
         .effect_param = null,
+        .value_param_names = [_][]const u8{""} ** max_function_params,
+        .value_param_shapes = [_]ValueShape{.i32} ** max_function_params,
+        .value_param_count = 0,
+        .return_shape = null,
         .body_lowering_supported = false,
         .body_start_offset = 0,
         .body_end_offset = 0,
@@ -539,7 +558,82 @@ fn isAllowedRequirementAliasFollowTag(tag: std.zig.Token.Tag) bool {
 }
 
 fn isEffectParamName(name: []const u8) bool {
-    return std.mem.eql(u8, name, "eff");
+    return std.mem.eql(u8, name, "eff") or std.mem.eql(u8, name, "_eff");
+}
+
+fn pushValueParam(
+    names: *[max_function_params][]const u8,
+    shapes: *[max_function_params]ValueShape,
+    count: *u8,
+    name: []const u8,
+    shape: ValueShape,
+) AnalysisError!void {
+    if (count.* >= max_function_params) return error.TooManyFunctionParams;
+    names[count.*] = name;
+    shapes[count.*] = shape;
+    count.* += 1;
+}
+
+const FunctionParamStorage = struct {
+    effect_param: *?[]const u8,
+    value_param_names: *[max_function_params][]const u8,
+    value_param_shapes: *[max_function_params]ValueShape,
+    value_param_count: *u8,
+};
+
+fn finalizeFunctionParam(
+    storage: FunctionParamStorage,
+    param_name: []const u8,
+    type_tokens: []const TokenItem,
+) AnalysisError!void {
+    if (type_tokens.len == 0) return;
+    if (type_tokens.len == 1 and type_tokens[0].tag == .keyword_anytype) {
+        if (storage.effect_param.* == null and isEffectParamName(param_name)) storage.effect_param.* = param_name;
+        return;
+    }
+    if (isEffectParamName(param_name)) return;
+    const parsed = parseValueShapeFromTypeTokens(type_tokens, 0) orelse return;
+    if (parsed.next_index != type_tokens.len) return;
+    try pushValueParam(storage.value_param_names, storage.value_param_shapes, storage.value_param_count, param_name, parsed.shape);
+}
+
+fn parseValueShapeFromTypeTokens(
+    tokens: []const TokenItem,
+    start_index: usize,
+) ?struct {
+    shape: ValueShape,
+    next_index: usize,
+} {
+    if (start_index >= tokens.len) return null;
+    if (tokens[start_index].tag == .identifier) {
+        if (std.mem.eql(u8, tokens[start_index].lexeme, "i32")) {
+            return .{ .shape = .i32, .next_index = start_index + 1 };
+        }
+        if (std.mem.eql(u8, tokens[start_index].lexeme, "usize")) {
+            return .{ .shape = .usize, .next_index = start_index + 1 };
+        }
+    }
+    if (start_index + 3 < tokens.len and
+        tokens[start_index].tag == .l_bracket and
+        tokens[start_index + 1].tag == .r_bracket and
+        tokens[start_index + 2].tag == .keyword_const and
+        tokens[start_index + 3].tag == .identifier and
+        std.mem.eql(u8, tokens[start_index + 3].lexeme, "u8"))
+    {
+        return .{ .shape = .string, .next_index = start_index + 4 };
+    }
+    return null;
+}
+
+fn parseReturnShape(tokens: []const TokenItem) ?ValueShape {
+    if (tokens.len == 0) return null;
+    const start_index: usize = if (tokens[0].tag == .bang) 1 else 0;
+    if (start_index >= tokens.len) return null;
+    if (tokens[start_index].tag == .identifier and std.mem.eql(u8, tokens[start_index].lexeme, "void")) {
+        return null;
+    }
+    const parsed = parseValueShapeFromTypeTokens(tokens, start_index) orelse return null;
+    return parsed.shape;
 }
 
 fn maybeUnsupportedEffectAccess(
@@ -586,6 +680,13 @@ fn statementIsLiteralReturn(statement: []const TokenItem) bool {
         statement[2].tag == .semicolon;
 }
 
+fn statementIsLocalReturn(statement: []const TokenItem) bool {
+    return statement.len == 3 and
+        statement[0].tag == .keyword_return and
+        statement[1].tag == .identifier and
+        statement[2].tag == .semicolon;
+}
+
 fn statementTrimSemicolon(statement: []const TokenItem) []const TokenItem {
     if (statement.len == 0) return statement;
     if (statement[statement.len - 1].tag != .semicolon) return statement;
@@ -605,6 +706,16 @@ fn statementArgsSupported(args: []const TokenItem) bool {
         else => return false,
     };
     return true;
+}
+
+fn helperCallArgsSupported(args: []const TokenItem) bool {
+    if (args.len == 1 and args[0].tag == .identifier and std.mem.eql(u8, args[0].lexeme, "eff")) {
+        return true;
+    }
+    if (args.len < 3) return false;
+    if (args[args.len - 1].tag != .identifier or !std.mem.eql(u8, args[args.len - 1].lexeme, "eff")) return false;
+    if (args[args.len - 2].tag != .comma) return false;
+    return statementArgsSupported(args[0 .. args.len - 2]);
 }
 
 fn statementMatchesSupportedDirectOp(
@@ -681,6 +792,17 @@ fn statementMatchesSupportedLocalFromDirectOp(
     };
 }
 
+fn statementMatchesSupportedLocalFromHelperCall(
+    imports: []const ImportAlias,
+    statement: []const TokenItem,
+) bool {
+    if (statement.len < 6) return false;
+    if (statement[0].tag != .keyword_const) return false;
+    if (statement[1].tag != .identifier) return false;
+    if (statement[2].tag != .equal) return false;
+    return statementMatchesSupportedHelperCall(imports, statement[3..]);
+}
+
 fn statementMatchesSupportedHelperCall(
     imports: []const ImportAlias,
     statement: []const TokenItem,
@@ -696,7 +818,7 @@ fn statementMatchesSupportedHelperCall(
         tokens[index + 1].tag == .l_paren and
         tokens[tokens.len - 1].tag == .r_paren)
     {
-        return statementArgsSupported(tokens[index + 2 .. tokens.len - 1]);
+        return helperCallArgsSupported(tokens[index + 2 .. tokens.len - 1]);
     }
 
     if (index + 4 > tokens.len) return false;
@@ -706,7 +828,7 @@ fn statementMatchesSupportedHelperCall(
     if (tokens[tokens.len - 1].tag != .r_paren) return false;
     const import_alias = findImportAlias(imports, tokens[index].lexeme) orelse return false;
     if (!std.mem.endsWith(u8, import_alias.import_path, ".zig")) return false;
-    return statementArgsSupported(tokens[index + 4 .. tokens.len - 1]);
+    return helperCallArgsSupported(tokens[index + 4 .. tokens.len - 1]);
 }
 
 fn statementMatchesSupportedIfLocalEqZeroReturn(statement: []const TokenItem) bool {
@@ -720,6 +842,41 @@ fn statementMatchesSupportedIfLocalEqZeroReturn(statement: []const TokenItem) bo
         statement[5].tag == .r_paren and
         statement[6].tag == .keyword_return and
         statement[7].tag == .semicolon;
+}
+
+fn statementMatchesSupportedIfLocalEqZeroBranch(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    imports: []const ImportAlias,
+    statement: []const TokenItem,
+) bool {
+    if (statement.len < 10) return false;
+    if (statement[0].tag != .keyword_if or
+        statement[1].tag != .l_paren or
+        statement[2].tag != .identifier or
+        statement[3].tag != .equal_equal or
+        statement[4].tag != .number_literal or
+        !std.mem.eql(u8, statement[4].lexeme, "0") or
+        statement[5].tag != .r_paren)
+    {
+        return false;
+    }
+
+    const else_index = for (statement[6..], 6..) |item, index| {
+        if (item.tag == .keyword_else) break index;
+    } else return false;
+
+    if (else_index == 6 or else_index + 1 >= statement.len) return false;
+
+    const then_branch = statement[6..else_index];
+    const else_branch = statement[(else_index + 1)..];
+    const then_supported = statementMatchesSupportedDirectOp(effect_param, aliases, then_branch) or
+        statementMatchesSupportedHelperCall(imports, then_branch) or
+        statementIsSimpleReturn(then_branch);
+    const else_supported = statementMatchesSupportedDirectOp(effect_param, aliases, else_branch) or
+        statementMatchesSupportedHelperCall(imports, else_branch) or
+        statementIsSimpleReturn(else_branch);
+    return then_supported and else_supported;
 }
 
 fn statementMatchesSupportedLocalDecrementOp(
@@ -762,12 +919,15 @@ fn statementSupportsBodyLowering(
     if (statement.len == 0) return true;
     if (statementIsSimpleReturn(statement)) return true;
     if (statementIsLiteralReturn(statement)) return true;
+    if (statementIsLocalReturn(statement)) return true;
 
     var token_window = TokenWindow{};
     for (statement) |item| token_window.push(item);
     if (maybeAliasFromDeclaration(effect_param, aliases, &token_window) != null) return true;
+    if (statementMatchesSupportedLocalFromHelperCall(imports, statement)) return true;
     if (statementMatchesSupportedLocalFromDirectOp(effect_param, aliases, statement)) return true;
     if (statementMatchesSupportedIfLocalEqZeroReturn(statement)) return true;
+    if (statementMatchesSupportedIfLocalEqZeroBranch(effect_param, aliases, imports, statement)) return true;
     if (statementMatchesSupportedDirectOp(effect_param, aliases, statement)) return true;
     if (statementMatchesSupportedLocalDecrementOp(effect_param, aliases, statement)) return true;
     if (statementMatchesSupportedHelperCall(imports, statement)) return true;
@@ -904,7 +1064,7 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
     }} ** 128;
     var alias_count: usize = 0;
     var body_depth: usize = 1;
-    var body_lowering_supported = context.effect_param != null;
+    var body_lowering_supported = true;
     var previous_kept_tag: ?std.zig.Token.Tag = null;
     var pending_identifier: ?PendingIdentifier = null;
     var token_window = TokenWindow{};
@@ -1026,8 +1186,17 @@ fn scanSource(source: [:0]const u8, collector: anytype, options: AnalyzeOptions)
                 const name = tokenSlice(source, name_token);
 
                 var effect_param: ?[]const u8 = null;
+                var value_param_names = [_][]const u8{""} ** max_function_params;
+                var value_param_shapes = [_]ValueShape{.i32} ** max_function_params;
+                var value_param_count: u8 = 0;
                 var param_candidate: ?[]const u8 = null;
                 var pending_type_param: ?[]const u8 = null;
+                var pending_type_tokens = [_]TokenItem{.{
+                    .tag = .invalid,
+                    .lexeme = "",
+                    .offset = 0,
+                }} ** 8;
+                var pending_type_token_count: usize = 0;
                 var param_depth: usize = 0;
 
                 while (true) {
@@ -1047,61 +1216,121 @@ fn scanSource(source: [:0]const u8, collector: anytype, options: AnalyzeOptions)
                     switch (next.tag) {
                         .l_paren => param_depth += 1,
                         .r_paren => {
+                            if (param_depth == 1 and pending_type_param != null) {
+                                try finalizeFunctionParam(
+                                    .{
+                                        .effect_param = &effect_param,
+                                        .value_param_names = &value_param_names,
+                                        .value_param_shapes = &value_param_shapes,
+                                        .value_param_count = &value_param_count,
+                                    },
+                                    pending_type_param.?,
+                                    pending_type_tokens[0..pending_type_token_count],
+                                );
+                            }
                             param_depth -= 1;
-                            pending_type_param = null;
-                        },
-                        .comma => {
                             param_candidate = null;
                             pending_type_param = null;
+                            pending_type_token_count = 0;
                         },
-                        .colon => if (param_depth == 1 and effect_param == null and param_candidate != null) {
+                        .comma => {
+                            if (param_depth == 1 and pending_type_param != null) {
+                                try finalizeFunctionParam(
+                                    .{
+                                        .effect_param = &effect_param,
+                                        .value_param_names = &value_param_names,
+                                        .value_param_shapes = &value_param_shapes,
+                                        .value_param_count = &value_param_count,
+                                    },
+                                    pending_type_param.?,
+                                    pending_type_tokens[0..pending_type_token_count],
+                                );
+                            }
+                            param_candidate = null;
+                            pending_type_param = null;
+                            pending_type_token_count = 0;
+                        },
+                        .colon => if (param_depth == 1 and param_candidate != null) {
                             pending_type_param = param_candidate;
+                            pending_type_token_count = 0;
                         },
-                        .keyword_anytype => if (param_depth == 1 and effect_param == null and pending_type_param != null) {
-                            if (isEffectParamName(pending_type_param.?)) effect_param = pending_type_param;
-                            pending_type_param = null;
-                        },
-                        .identifier => if (param_depth == 1 and param_candidate == null) {
+                        .identifier => if (param_depth == 1 and pending_type_param == null and param_candidate == null) {
                             param_candidate = tokenSlice(source, next);
-                        } else if (param_depth == 1 and effect_param == null and pending_type_param != null) {
-                            pending_type_param = null;
+                        } else if (param_depth == 1 and pending_type_param != null and pending_type_token_count < pending_type_tokens.len) {
+                            pending_type_tokens[pending_type_token_count] = .{
+                                .tag = next.tag,
+                                .lexeme = tokenSlice(source, next),
+                                .offset = next.loc.start,
+                            };
+                            pending_type_token_count += 1;
+                        },
+                        .keyword_anytype, .l_bracket, .r_bracket, .keyword_const => if (param_depth == 1 and pending_type_param != null and pending_type_token_count < pending_type_tokens.len) {
+                            pending_type_tokens[pending_type_token_count] = .{
+                                .tag = next.tag,
+                                .lexeme = tokenSlice(source, next),
+                                .offset = next.loc.start,
+                            };
+                            pending_type_token_count += 1;
                         },
                         else => {},
                     }
                 }
 
+                var return_tokens = [_]TokenItem{.{
+                    .tag = .invalid,
+                    .lexeme = "",
+                    .offset = 0,
+                }} ** 8;
+                var return_token_count: usize = 0;
+                var body_start: ?std.zig.Token = null;
+                while (body_start == null) {
+                    const next = tokenizer.next();
+                    if (next.tag == .eof) break;
+                    if (isIgnorable(next.tag)) continue;
+                    if (next.tag == .l_brace or next.tag == .semicolon) {
+                        body_start = next;
+                        break;
+                    }
+                    if (return_token_count < return_tokens.len) {
+                        return_tokens[return_token_count] = .{
+                            .tag = next.tag,
+                            .lexeme = tokenSlice(source, next),
+                            .offset = next.loc.start,
+                        };
+                        return_token_count += 1;
+                    }
+                }
+                const return_shape = parseReturnShape(return_tokens[0..return_token_count]);
+
                 const function_index = try collector.pushFunction(.{
                     .name = name,
                     .effect_param = effect_param,
+                    .value_param_names = value_param_names,
+                    .value_param_shapes = value_param_shapes,
+                    .value_param_count = value_param_count,
+                    .return_shape = return_shape,
                     .body_lowering_supported = false,
                     .body_start_offset = 0,
                     .body_end_offset = 0,
                 });
 
-                while (true) {
-                    const next = tokenizer.next();
-                    if (next.tag == .eof) break;
-                    if (isIgnorable(next.tag)) continue;
-                    switch (next.tag) {
-                        .l_brace => {
-                            var context: BodyScanContext = .{
-                                .source = source,
-                                .tokenizer = &tokenizer,
-                                .caller_index = function_index,
-                                .caller_name = name,
-                                .effect_param = effect_param,
-                                .imports = collector.importsSlice(),
-                                .options = options,
-                            };
-                            const body_scan = try scanBody(&context, collector);
-                            collector.setFunctionBodyLoweringSupported(function_index, body_scan.body_lowering_supported);
-                            collector.setFunctionBodyOffsets(function_index, next.loc.end, body_scan.body_end_offset);
-                            break;
-                        },
-                        .semicolon => break,
-                        else => {},
-                    }
-                }
+                if (body_start) |next| switch (next.tag) {
+                    .l_brace => {
+                        var context: BodyScanContext = .{
+                            .source = source,
+                            .tokenizer = &tokenizer,
+                            .caller_index = function_index,
+                            .caller_name = name,
+                            .effect_param = effect_param,
+                            .imports = collector.importsSlice(),
+                            .options = options,
+                        };
+                        const body_scan = try scanBody(&context, collector);
+                        collector.setFunctionBodyLoweringSupported(function_index, body_scan.body_lowering_supported);
+                        collector.setFunctionBodyOffsets(function_index, next.loc.end, body_scan.body_end_offset);
+                    },
+                    else => {},
+                };
             },
             else => {},
         }
@@ -1168,6 +1397,7 @@ pub fn analyzeComptime(
         error.MissingImport => return error.MissingImport,
         error.RecursiveHelpers => return error.RecursiveHelpers,
         error.TooManyFunctions => return error.TooManyFunctions,
+        error.TooManyFunctionParams => return error.TooManyFunctionParams,
         error.TooManyImports => return error.TooManyImports,
         error.TooManyHelperUses => return error.TooManyHelperUses,
         error.TooManyHelperEdges => return error.TooManyHelperEdges,

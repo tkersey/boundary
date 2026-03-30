@@ -1,3 +1,7 @@
+const example_open_row_branching_helper_body = @import("example_open_row_branching_helper_body");
+const example_open_row_cross_file_writer = @import("example_open_row_cross_file_writer");
+const example_open_row_helper_value_flow = @import("example_open_row_helper_value_flow");
+const example_open_row_helper_value_flow_cross = @import("example_open_row_helper_value_flow_cross");
 const example_open_row_linear_helper_body = @import("example_open_row_linear_helper_body");
 const example_open_row_recursive_cross_writer = @import("example_open_row_recursive_cross_writer");
 const example_open_row_recursive_writer = @import("example_open_row_recursive_writer");
@@ -82,6 +86,47 @@ test "public lowered runner executes same-file lowered program through runtime_p
     try std.testing.expectEqualStrings("done", result.value);
 }
 
+test "public lowered runner executes recursive same-file lowered program" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var handlers: LoweredStateWriterHandlers = .{
+        .state = LoweredStateHandler{ .value = 3 },
+        .writer = LoweredWriterHandler{ .allocator = std.testing.allocator },
+    };
+    defer handlers.writer.deinit();
+
+    const result = try example_open_row_recursive_writer.CompiledProgram.run(&runtime, &handlers);
+    defer std.testing.allocator.free(result.outputs.writer);
+
+    try std.testing.expectEqual(@as(i32, 0), result.outputs.state);
+    try std.testing.expectEqual(@as(usize, 3), result.outputs.writer.len);
+    try std.testing.expectEqualStrings("tick", result.outputs.writer[0]);
+    try std.testing.expectEqualStrings("tick", result.outputs.writer[1]);
+    try std.testing.expectEqualStrings("tick", result.outputs.writer[2]);
+    try std.testing.expectEqualStrings("done", result.value);
+}
+
+test "public lowered runner executes cross-file lowered program" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var handlers: LoweredStateWriterHandlers = .{
+        .state = LoweredStateHandler{ .value = 5 },
+        .writer = LoweredWriterHandler{ .allocator = std.testing.allocator },
+    };
+    defer handlers.writer.deinit();
+
+    const result = try example_open_row_cross_file_writer.CompiledProgram.run(&runtime, &handlers);
+    defer std.testing.allocator.free(result.outputs.writer);
+
+    try std.testing.expectEqual(@as(i32, 7), result.outputs.state);
+    try std.testing.expectEqual(@as(usize, 2), result.outputs.writer.len);
+    try std.testing.expectEqualStrings("query=cross-file-artifact-search", result.outputs.writer[0]);
+    try std.testing.expectEqualStrings("workflow=cross-file-queued", result.outputs.writer[1]);
+    try std.testing.expectEqualStrings("done", result.value);
+}
+
 test "straight-line helper bodies lower real source-owned call_op and call_helper instructions" {
     const lowered = try example_open_row_linear_helper_body.loweredProgram();
 
@@ -112,6 +157,134 @@ test "straight-line helper bodies lower real source-owned call_op and call_helpe
     try std.testing.expectEqual(@as(@TypeOf(leaf_body.blocks[0].instructions[0].kind), .const_string), leaf_body.blocks[0].instructions[0].kind);
     try std.testing.expectEqual(@as(@TypeOf(leaf_body.blocks[0].instructions[1].kind), .call_op), leaf_body.blocks[0].instructions[1].kind);
     try std.testing.expectEqual(@as(@TypeOf(leaf_body.blocks[0].terminator.kind), .return_unit), leaf_body.blocks[0].terminator.kind);
+}
+
+test "branching helper body lowers a real if-else control-flow body" {
+    const lowered = try example_open_row_branching_helper_body.loweredProgram();
+
+    const helper_index = comptime blk: {
+        for (lowered.program.functions, 0..) |function, function_index| {
+            if (std.mem.eql(u8, function.symbol.symbol_name, "choose")) break :blk function_index;
+        }
+        unreachable;
+    };
+
+    const helper_body = lowered.program.function_bodies[helper_index];
+    try std.testing.expectEqual(@as(usize, 3), helper_body.blocks.len);
+    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[0].instructions[0].kind), .call_op), helper_body.blocks[0].instructions[0].kind);
+    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[0].instructions[1].kind), .compare_eq_zero), helper_body.blocks[0].instructions[1].kind);
+    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[0].terminator.kind), .branch_if), helper_body.blocks[0].terminator.kind);
+    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[1].instructions[0].kind), .const_string), helper_body.blocks[1].instructions[0].kind);
+    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[1].instructions[1].kind), .call_op), helper_body.blocks[1].instructions[1].kind);
+    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[2].instructions[0].kind), .const_string), helper_body.blocks[2].instructions[0].kind);
+    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[2].instructions[1].kind), .call_op), helper_body.blocks[2].instructions[1].kind);
+}
+
+test "public lowered runner executes both branches of the branching helper body" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var zero_handlers: LoweredStateWriterHandlers = .{
+        .state = LoweredStateHandler{ .value = 0 },
+        .writer = LoweredWriterHandler{ .allocator = std.testing.allocator },
+    };
+    defer zero_handlers.writer.deinit();
+    const zero_result = try example_open_row_branching_helper_body.CompiledProgram.run(&runtime, &zero_handlers);
+    defer std.testing.allocator.free(zero_result.outputs.writer);
+    try std.testing.expectEqual(@as(usize, 1), zero_result.outputs.writer.len);
+    try std.testing.expectEqualStrings("zero", zero_result.outputs.writer[0]);
+    try std.testing.expectEqualStrings("done", zero_result.value);
+
+    var nonzero_handlers: LoweredStateWriterHandlers = .{
+        .state = LoweredStateHandler{ .value = 2 },
+        .writer = LoweredWriterHandler{ .allocator = std.testing.allocator },
+    };
+    defer nonzero_handlers.writer.deinit();
+    const nonzero_result = try example_open_row_branching_helper_body.CompiledProgram.run(&runtime, &nonzero_handlers);
+    defer std.testing.allocator.free(nonzero_result.outputs.writer);
+    try std.testing.expectEqual(@as(usize, 1), nonzero_result.outputs.writer.len);
+    try std.testing.expectEqualStrings("nonzero", nonzero_result.outputs.writer[0]);
+    try std.testing.expectEqualStrings("done", nonzero_result.value);
+}
+
+test "helper value-flow lowering exposes a multi-parameter helper ABI and local return" {
+    const lowered = try example_open_row_helper_value_flow.loweredProgram();
+
+    const helper_index = comptime blk: {
+        for (lowered.program.functions, 0..) |function, function_index| {
+            if (std.mem.eql(u8, function.symbol.symbol_name, "classify")) break :blk function_index;
+        }
+        unreachable;
+    };
+    const helper_function = lowered.program.functions[helper_index];
+    const helper_body = lowered.program.function_bodies[helper_index];
+    const entry_body = lowered.program.function_bodies[lowered.program.entry_index];
+
+    try std.testing.expectEqual(@as(usize, 2), helper_function.parameter_codecs.len);
+    try std.testing.expectEqual(@as(@TypeOf(helper_function.parameter_codecs[0]), .string), helper_function.parameter_codecs[0]);
+    try std.testing.expectEqual(@as(@TypeOf(helper_function.parameter_codecs[1]), .i32), helper_function.parameter_codecs[1]);
+    try std.testing.expectEqual(@as(usize, 2), helper_body.local_codecs.len);
+    try std.testing.expectEqual(@as(usize, 1), helper_body.blocks[0].instructions.len);
+    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[0].instructions[0].kind), .return_value), helper_body.blocks[0].instructions[0].kind);
+    try std.testing.expectEqual(@as(u16, 0), helper_body.blocks[0].instructions[0].operand);
+    try std.testing.expectEqual(@as(usize, 2), entry_body.call_arg_locals.len);
+}
+
+test "public lowered runner executes helper value flow through one helper parameter and return" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var handlers: LoweredStateWriterHandlers = .{
+        .state = LoweredStateHandler{ .value = 5 },
+        .writer = LoweredWriterHandler{ .allocator = std.testing.allocator },
+    };
+    defer handlers.writer.deinit();
+
+    const result = try example_open_row_helper_value_flow.CompiledProgram.run(&runtime, &handlers);
+    defer std.testing.allocator.free(result.outputs.writer);
+
+    try std.testing.expectEqual(@as(usize, 1), result.outputs.writer.len);
+    try std.testing.expectEqualStrings("selected", result.outputs.writer[0]);
+    try std.testing.expectEqualStrings("done", result.value);
+}
+
+test "cross-file helper value-flow lowering carries the same helper ABI through imported modules" {
+    const lowered = try example_open_row_helper_value_flow_cross.loweredProgram();
+
+    const helper_index = comptime blk: {
+        for (lowered.program.functions, 0..) |function, function_index| {
+            if (std.mem.eql(u8, function.symbol.symbol_name, "classify")) break :blk function_index;
+        }
+        unreachable;
+    };
+    const helper_function = lowered.program.functions[helper_index];
+    const helper_body = lowered.program.function_bodies[helper_index];
+    const entry_body = lowered.program.function_bodies[lowered.program.entry_index];
+
+    try std.testing.expectEqual(@as(usize, 2), helper_function.parameter_codecs.len);
+    try std.testing.expectEqual(@as(@TypeOf(helper_function.parameter_codecs[0]), .string), helper_function.parameter_codecs[0]);
+    try std.testing.expectEqual(@as(@TypeOf(helper_function.parameter_codecs[1]), .i32), helper_function.parameter_codecs[1]);
+    try std.testing.expectEqual(@as(usize, 1), helper_body.blocks[0].instructions.len);
+    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[0].instructions[0].kind), .return_value), helper_body.blocks[0].instructions[0].kind);
+    try std.testing.expectEqual(@as(usize, 2), entry_body.call_arg_locals.len);
+}
+
+test "public lowered runner executes cross-file helper value flow through the multi-parameter helper ABI" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var handlers: LoweredStateWriterHandlers = .{
+        .state = LoweredStateHandler{ .value = 5 },
+        .writer = LoweredWriterHandler{ .allocator = std.testing.allocator },
+    };
+    defer handlers.writer.deinit();
+
+    const result = try example_open_row_helper_value_flow_cross.CompiledProgram.run(&runtime, &handlers);
+    defer std.testing.allocator.free(result.outputs.writer);
+
+    try std.testing.expectEqual(@as(usize, 1), result.outputs.writer.len);
+    try std.testing.expectEqualStrings("cross-selected", result.outputs.writer[0]);
+    try std.testing.expectEqualStrings("done", result.value);
 }
 
 test "open-row state-writer workflow exposes the generated same-module runtime plan" {
@@ -194,6 +367,7 @@ test "explicit ir compilation respects an explicit non-zero entry index" {
                             .kind = .call_helper,
                             .dst = 0,
                             .operand = 0,
+                            .aux = std.math.maxInt(u16),
                         },
                         .{
                             .kind = .const_string,
@@ -480,6 +654,7 @@ test "hand-authored explicit IR matches recursive same-file lowered runtime plan
                         .{
                             .kind = .call_helper,
                             .operand = 1,
+                            .aux = std.math.maxInt(u16),
                         },
                         .{
                             .kind = .const_string,
@@ -515,7 +690,7 @@ test "hand-authored explicit IR matches recursive same-file lowered runtime plan
                             .{ .kind = .call_op, .dst = 0, .operand = 5, .aux = 3 },
                             .{ .kind = .sub_one, .dst = 2, .operand = 0 },
                             .{ .kind = .call_op, .operand = 4, .aux = 2 },
-                            .{ .kind = .call_helper, .operand = 1 },
+                            .{ .kind = .call_helper, .operand = 1, .aux = std.math.maxInt(u16) },
                         },
                         .terminator = .{ .kind = .return_unit },
                     },

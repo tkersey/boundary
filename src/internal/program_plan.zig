@@ -63,6 +63,7 @@ pub const RequirementPlan = struct {
 pub const FunctionPlan = struct {
     symbol_name: []const u8,
     value_codec: ValueCodec = .unit,
+    parameter_count: u16 = 0,
     first_requirement: u16,
     requirement_count: u16,
     first_output: u16,
@@ -132,6 +133,7 @@ pub const ProgramPlan = struct {
     ops: []const OpPlan,
     outputs: []const OutputPlan,
     locals: []const LocalPlan = &.{},
+    call_args: []const u16 = &.{},
     blocks: []const BlockPlan = &.{},
     terminators: []const Terminator = &.{},
     instructions: []const Instruction,
@@ -145,6 +147,7 @@ pub const ProgramPlan = struct {
 
         for (self.functions) |function| {
             if (function.symbol_name.len == 0) return error.EmptyFunctionSymbol;
+            if (function.parameter_count > function.local_count) return error.InvalidFunctionLocalSpan;
             const requirement_end = rangeEnd(function.first_requirement, function.requirement_count) orelse return error.InvalidFunctionRequirementSpan;
             if (requirement_end > self.requirements.len) return error.InvalidFunctionRequirementSpan;
             const output_end = rangeEnd(function.first_output, function.output_count) orelse return error.InvalidFunctionOutputSpan;
@@ -181,6 +184,14 @@ pub const ProgramPlan = struct {
         for (self.instructions) |instruction| switch (instruction.kind) {
             .call_helper => {
                 if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
+                const target_parameter_count = self.functions[instruction.operand].parameter_count;
+                if (target_parameter_count != 0) {
+                    const call_arg_end = rangeEnd(instruction.aux, target_parameter_count) orelse return error.InvalidCallHelperArgSpan;
+                    if (call_arg_end > self.call_args.len) return error.InvalidCallHelperArgSpan;
+                    for (self.call_args[instruction.aux..call_arg_end]) |local_id| {
+                        if (local_id >= self.locals.len) return error.InvalidCallHelperArgSpan;
+                    }
+                }
             },
             .call_op => {
                 if (instruction.operand >= self.ops.len) return error.InvalidCallOpTarget;
@@ -214,6 +225,7 @@ pub const ProgramPlan = struct {
         for (self.functions) |function| {
             hashBytes(&hasher, function.symbol_name);
             hashBytes(&hasher, @tagName(function.value_codec));
+            hasher.update(std.mem.asBytes(&function.parameter_count));
             hasher.update(std.mem.asBytes(&function.first_requirement));
             hasher.update(std.mem.asBytes(&function.requirement_count));
             hasher.update(std.mem.asBytes(&function.first_output));
@@ -240,6 +252,7 @@ pub const ProgramPlan = struct {
         for (self.locals) |local| {
             hashBytes(&hasher, @tagName(local.codec));
         }
+        for (self.call_args) |local_id| hasher.update(std.mem.asBytes(&local_id));
         for (self.blocks) |block| {
             hasher.update(std.mem.asBytes(&block.first_instruction));
             hasher.update(std.mem.asBytes(&block.instruction_count));
@@ -272,6 +285,7 @@ pub const ValidationError = error{
     EmptyProgram,
     EmptyRequirementLabel,
     InvalidCallHelperTarget,
+    InvalidCallHelperArgSpan,
     InvalidCallOpTarget,
     InvalidBlockInstructionSpan,
     InvalidBlockTerminatorIndex,
@@ -432,6 +446,12 @@ fn countBodyLocals(comptime program: program_frontend.LoweredOpenRowProgram) usi
     return total;
 }
 
+fn countBodyCallArgs(comptime program: program_frontend.LoweredOpenRowProgram) usize {
+    var total: usize = 0;
+    for (program.function_bodies) |body| total += body.call_arg_locals.len;
+    return total;
+}
+
 fn countBodyBlocks(comptime program: program_frontend.LoweredOpenRowProgram) usize {
     var total: usize = 0;
     for (program.function_bodies) |body| total += body.blocks.len;
@@ -503,6 +523,7 @@ pub fn irHashForProgram(comptime program: effect_ir.Program) PlanError!u64 {
         const digest = try effect_ir.rowDigest(function.row, function.outputs);
         hashBytes(&hasher, function.symbol.module_path);
         hashBytes(&hasher, function.symbol.symbol_name);
+        for (function.parameter_codecs) |codec| hashBytes(&hasher, @tagName(codec));
         hashBytes(&hasher, @typeName(function.ValueType));
         hasher.update(std.mem.asBytes(&digest.hash));
         hasher.update(std.mem.asBytes(&digest.requirement_count));
@@ -517,6 +538,7 @@ pub fn irHashForProgram(comptime program: effect_ir.Program) PlanError!u64 {
     }
     for (program.function_bodies) |body| {
         for (body.local_codecs) |codec| hashBytes(&hasher, @tagName(codec));
+        for (body.call_arg_locals) |local_id| hasher.update(std.mem.asBytes(&local_id));
         hasher.update(std.mem.asBytes(&body.entry_block));
         for (body.blocks) |block| {
             for (block.instructions) |instruction| {
@@ -606,6 +628,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
             buf[index] = .{
                 .symbol_name = function.symbol.symbol_name,
                 .value_codec = try valueCodecFromEffectType(function.ValueType),
+                .parameter_count = @intCast(function.parameter_codecs.len),
                 .first_requirement = requirement_index,
                 .requirement_count = @intCast(function.row.requirements.len),
                 .first_output = output_index,
@@ -774,6 +797,7 @@ pub fn planFromOpenRowProgram(
         break :blk total;
     };
     const local_total = countBodyLocals(program);
+    const call_arg_total = countBodyCallArgs(program);
     const block_total = countBodyBlocks(program);
     const terminator_total = countBodyTerminators(program);
     const instruction_total = countBodyInstructions(program);
@@ -796,6 +820,7 @@ pub fn planFromOpenRowProgram(
             buf[index] = .{
                 .symbol_name = function.symbol.symbol_name,
                 .value_codec = try valueCodecFromEffectType(function.ValueType),
+                .parameter_count = @intCast(function.parameter_codecs.len),
                 .first_requirement = requirement_index,
                 .requirement_count = @intCast(function.row.requirements.len),
                 .first_output = output_index,
@@ -883,6 +908,18 @@ pub fn planFromOpenRowProgram(
         break :blk buf;
     };
 
+    const call_args = comptime blk: {
+        var buf: [call_arg_total]u16 = undefined;
+        var call_arg_index: usize = 0;
+        for (program.function_bodies) |body| {
+            for (body.call_arg_locals) |local_id| {
+                buf[call_arg_index] = local_id;
+                call_arg_index += 1;
+            }
+        }
+        break :blk buf;
+    };
+
     const blocks = comptime blk: {
         var buf: [block_total]BlockPlan = undefined;
         var block_index: usize = 0;
@@ -930,19 +967,35 @@ pub fn planFromOpenRowProgram(
     const instructions = comptime blk: {
         var buf: [instruction_total]Instruction = undefined;
         var instruction_index: usize = 0;
+        var call_arg_base: u16 = 0;
         for (program.function_bodies) |body| {
             for (body.blocks) |block| {
                 for (block.instructions) |instruction| {
+                    const target_parameter_count: u16 = if (instruction.kind == .call_helper)
+                        @intCast(program.functions[instruction.operand].parameter_codecs.len)
+                    else
+                        0;
+                    const target_returns_value = instruction.kind == .call_helper and
+                        program.functions[instruction.operand].ValueType != void;
                     buf[instruction_index] = .{
                         .kind = instructionKindFromEffectIrBody(instruction.kind),
-                        .dst = instruction.dst,
+                        .dst = if (instruction.kind == .call_helper and !target_returns_value)
+                            std.math.maxInt(u16)
+                        else
+                            instruction.dst,
                         .operand = instruction.operand,
-                        .aux = instruction.aux,
+                        .aux = if (instruction.kind != .call_helper)
+                            instruction.aux
+                        else if (target_parameter_count == 0)
+                            std.math.maxInt(u16)
+                        else
+                            call_arg_base + instruction.aux,
                         .string_literal = instruction.string_literal,
                     };
                     instruction_index += 1;
                 }
             }
+            call_arg_base += @intCast(body.call_arg_locals.len);
         }
         break :blk buf;
     };
@@ -956,6 +1009,7 @@ pub fn planFromOpenRowProgram(
         .ops = &ops,
         .outputs = &outputs,
         .locals = &locals,
+        .call_args = &call_args,
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,

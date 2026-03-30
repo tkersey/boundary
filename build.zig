@@ -962,6 +962,10 @@ pub fn build(b: *std.Build) void {
     open_row_lowering_mod.addImport("program_frontend", program_frontend_mod);
     open_row_lowering_mod.addImport("shift", shift_mod);
     open_row_lowering_mod.addImport("example_open_row_linear_helper_body", createShiftConsumerModule(b, "examples/open_row_linear_helper_body.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    open_row_lowering_mod.addImport("example_open_row_branching_helper_body", createShiftConsumerModule(b, "examples/open_row_branching_helper_body.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    open_row_lowering_mod.addImport("example_open_row_cross_file_writer", createShiftConsumerModule(b, "examples/open_row_cross_file_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    open_row_lowering_mod.addImport("example_open_row_helper_value_flow", createShiftConsumerModule(b, "examples/open_row_helper_value_flow.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    open_row_lowering_mod.addImport("example_open_row_helper_value_flow_cross", createShiftConsumerModule(b, "examples/open_row_helper_value_flow_cross.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     open_row_lowering_mod.addImport("example_open_row_state_writer", createShiftConsumerModule(b, "examples/open_row_state_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     open_row_lowering_mod.addImport("example_open_row_recursive_writer", createShiftConsumerModule(b, "examples/open_row_recursive_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     open_row_lowering_mod.addImport("example_open_row_recursive_cross_writer", createShiftConsumerModule(b, "examples/open_row_recursive_cross_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));

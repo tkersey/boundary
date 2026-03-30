@@ -1,5 +1,6 @@
 const shift = @import("shift");
 const std = @import("std");
+const runtime_support = shift.lowering.runtime_support;
 
 fn queueQuery(eff: anytype) !void {
     const writer = eff.writer;
@@ -78,19 +79,17 @@ fn CompiledProgramType() type {
 /// Generated additive program type exposing the runtime-owned plan bridge.
 pub const CompiledProgram = CompiledProgramType();
 
-const WorkflowProgram = shift.Program(.{
-    .state = shift.Decl.state(i32),
-    .writer = shift.Decl.writer([]const u8),
-}, struct {
-    /// Reuse the top-level workflow body through the retained kernel-facing alias.
-    pub const body = runBody;
-});
-
 fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
     var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
-    const result = try shift.run(&runtime, WorkflowProgram, .{ .state = 5 });
+    var handlers: runtime_support.StateWriterHandlers = .{
+        .state = .{ .value = 5 },
+        .writer = .{ .allocator = allocator },
+    };
+    defer handlers.writer.deinit();
+
+    const result = try CompiledProgram.run(&runtime, &handlers);
     defer allocator.free(result.outputs.writer);
 
     for (result.outputs.writer) |item| {
