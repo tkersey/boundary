@@ -708,11 +708,14 @@ fn AfterResumeFn(comptime PromptType: type) type {
     return *const fn (?*anyopaque, PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer;
 }
 
+const ContextCleanupFn = *const fn (std.mem.Allocator, ?*anyopaque) void;
+
 fn ResumeRecord(comptime PromptType: type) type {
     return union(enum) {
         resumed: struct {
             storage: []u8,
             after_resume_ctx: ?*anyopaque,
+            afterResumeCleanup: ?ContextCleanupFn,
             afterResumeFn: AfterResumeFn(PromptType),
         },
         terminal: PromptType.OutAnswer,
@@ -744,12 +747,44 @@ fn Frame(comptime PromptType: type) type {
 
         fn deinit(self: *@This()) void {
             for (self.records.items) |record| switch (record) {
-                .resumed => |resumed| self.allocator.free(resumed.storage),
+                .resumed => |resumed| {
+                    self.allocator.free(resumed.storage);
+                    if (resumed.afterResumeCleanup) |cleanup| cleanup(self.allocator, resumed.after_resume_ctx);
+                },
                 .terminal => {},
             };
             self.records.deinit(self.allocator);
             self.applied_after.deinit(self.allocator);
         }
+    };
+}
+
+fn persistHandlerContext(
+    allocator: std.mem.Allocator,
+    comptime ContextPtrType: type,
+    handler_ctx: ContextPtrType,
+) lowered_machine.Error!struct {
+    ctx: ?*anyopaque,
+    cleanup: ?ContextCleanupFn,
+} {
+    const pointer_info = @typeInfo(ContextPtrType).pointer;
+    comptime {
+        if (@typeInfo(ContextPtrType) != .pointer or pointer_info.size != .one) {
+            @compileError("frontend contextual replay currently requires a single-item pointer handler context");
+        }
+    }
+
+    const Child = std.meta.Child(ContextPtrType);
+    const stored = allocator.create(Child) catch return error.ProgramContractViolation;
+    stored.* = handler_ctx.*;
+    return .{
+        .ctx = @ptrCast(stored),
+        .cleanup = struct {
+            fn cleanup(ctx_allocator: std.mem.Allocator, raw_ctx: ?*anyopaque) void {
+                const typed_ctx: *Child = @ptrCast(@alignCast(raw_ctx.?));
+                ctx_allocator.destroy(typed_ctx);
+            }
+        }.cleanup,
     };
 }
 
@@ -891,6 +926,7 @@ pub fn perform(
                 .resumed = .{
                     .storage = storage,
                     .after_resume_ctx = null,
+                    .afterResumeCleanup = null,
                     .afterResumeFn = afterResumeThunk(PromptType, Handler),
                 },
             }) catch return error.ProgramContractViolation;
@@ -905,6 +941,7 @@ pub fn perform(
                         .resumed = .{
                             .storage = storage,
                             .after_resume_ctx = null,
+                            .afterResumeCleanup = null,
                             .afterResumeFn = afterResumeThunk(PromptType, Handler),
                         },
                     }) catch return error.ProgramContractViolation;
@@ -968,10 +1005,12 @@ pub fn transformWithContext(
 
     const resume_value = try callResumeValueWithContext(Resume, PromptType, ContextPtrType, Handler, handler_ctx);
     const storage = try encodeResume(frame.allocator, Resume, resume_value);
+    const persisted_ctx = try persistHandlerContext(frame.allocator, ContextPtrType, handler_ctx);
     frame.records.append(frame.allocator, .{
         .resumed = .{
             .storage = storage,
-            .after_resume_ctx = @ptrCast(handler_ctx),
+            .after_resume_ctx = persisted_ctx.ctx,
+            .afterResumeCleanup = persisted_ctx.cleanup,
             .afterResumeFn = struct {
                 fn invoke(raw_ctx: ?*anyopaque, value: PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer {
                     const typed_ctx: ContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
@@ -979,7 +1018,10 @@ pub fn transformWithContext(
                 }
             }.invoke,
         },
-    }) catch return error.ProgramContractViolation;
+    }) catch {
+        if (persisted_ctx.cleanup) |cleanup| cleanup(frame.allocator, persisted_ctx.ctx);
+        return error.ProgramContractViolation;
+    };
     return error.FrontendSuspend;
 }
 
@@ -1028,10 +1070,12 @@ pub fn choiceWithContext(
     switch (decision) {
         .resume_with => |resume_value| {
             const storage = try encodeResume(frame.allocator, Resume, resume_value);
+            const persisted_ctx = try persistHandlerContext(frame.allocator, ContextPtrType, handler_ctx);
             frame.records.append(frame.allocator, .{
                 .resumed = .{
                     .storage = storage,
-                    .after_resume_ctx = @ptrCast(handler_ctx),
+                    .after_resume_ctx = persisted_ctx.ctx,
+                    .afterResumeCleanup = persisted_ctx.cleanup,
                     .afterResumeFn = struct {
                         fn invoke(raw_ctx: ?*anyopaque, value: PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer {
                             const typed_ctx: ContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
@@ -1039,7 +1083,10 @@ pub fn choiceWithContext(
                         }
                     }.invoke,
                 },
-            }) catch return error.ProgramContractViolation;
+            }) catch {
+                if (persisted_ctx.cleanup) |cleanup| cleanup(frame.allocator, persisted_ctx.ctx);
+                return error.ProgramContractViolation;
+            };
         },
         .return_now => |answer| {
             frame.terminal = answer;
@@ -1075,4 +1122,94 @@ pub fn abortWithContext(
     frame.terminal = answer;
     frame.records.append(frame.allocator, .{ .terminal = answer }) catch return error.ProgramContractViolation;
     return error.FrontendSuspend;
+}
+
+test "transformWithContext persists a copy of handler context for replay" {
+    const Prompt = prompt_contract.Prompt(.resume_then_transform, i32, i32, error{});
+    const Carrier = struct {
+        tag: usize,
+        payload: i32,
+    };
+    const handler = struct {
+        /// Return the resumptive transform payload from the persisted carrier copy.
+        pub fn resumeValue(ctx: *Carrier) i32 {
+            return ctx.payload;
+        }
+
+        /// Return one observable value from the persisted carrier copy after resume.
+        pub fn afterResume(ctx: *Carrier, answer: i32) i32 {
+            return answer + @as(i32, @intCast(ctx.tag));
+        }
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try lowered_machine.beginExecution(&runtime);
+    defer lowered_machine.endExecution(&runtime);
+
+    var prompt = Prompt.init();
+    var frame = Frame(Prompt).init(lowered_machine.runtimeAllocator(&runtime), &prompt);
+    defer frame.deinit();
+    try pushActiveFrame(&runtime, &frame.base);
+    defer popActiveFrame(&runtime, &frame.base);
+
+    var carrier = Carrier{ .tag = 7, .payload = 41 };
+    try std.testing.expectError(error.FrontendSuspend, transformWithContext(i32, &prompt, &carrier, handler));
+    try std.testing.expectEqual(@as(usize, 1), frame.records.items.len);
+
+    const resumed = frame.records.items[0].resumed;
+    try std.testing.expect(resumed.after_resume_ctx != @as(?*anyopaque, @ptrCast(&carrier)));
+    const stored: *Carrier = @ptrCast(@alignCast(resumed.after_resume_ctx.?));
+    try std.testing.expectEqual(@as(usize, 7), stored.tag);
+    try std.testing.expectEqual(@as(i32, 41), stored.payload);
+
+    carrier.tag = 99;
+    carrier.payload = 0;
+    try std.testing.expectEqual(@as(usize, 7), stored.tag);
+    try std.testing.expectEqual(@as(i32, 41), stored.payload);
+}
+
+test "choiceWithContext persists a copy of handler context for replay" {
+    const Prompt = prompt_contract.Prompt(.resume_or_return, i32, i32, error{});
+    const Carrier = struct {
+        tag: usize,
+        payload: i32,
+    };
+    const handler = struct {
+        /// Resume the choice with the carrier payload from the persisted copy.
+        pub fn resumeOrReturn(ctx: *Carrier) ResumeOrReturnType(i32, Prompt) {
+            return ResumeOrReturnType(i32, Prompt).resumeWith(ctx.payload);
+        }
+
+        /// Return one observable value from the persisted carrier copy after resume.
+        pub fn afterResume(ctx: *Carrier, answer: i32) i32 {
+            return answer + @as(i32, @intCast(ctx.tag));
+        }
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try lowered_machine.beginExecution(&runtime);
+    defer lowered_machine.endExecution(&runtime);
+
+    var prompt = Prompt.init();
+    var frame = Frame(Prompt).init(lowered_machine.runtimeAllocator(&runtime), &prompt);
+    defer frame.deinit();
+    try pushActiveFrame(&runtime, &frame.base);
+    defer popActiveFrame(&runtime, &frame.base);
+
+    var carrier = Carrier{ .tag = 11, .payload = 52 };
+    try std.testing.expectError(error.FrontendSuspend, choiceWithContext(i32, &prompt, &carrier, handler));
+    try std.testing.expectEqual(@as(usize, 1), frame.records.items.len);
+
+    const resumed = frame.records.items[0].resumed;
+    try std.testing.expect(resumed.after_resume_ctx != @as(?*anyopaque, @ptrCast(&carrier)));
+    const stored: *Carrier = @ptrCast(@alignCast(resumed.after_resume_ctx.?));
+    try std.testing.expectEqual(@as(usize, 11), stored.tag);
+    try std.testing.expectEqual(@as(i32, 52), stored.payload);
+
+    carrier.tag = 101;
+    carrier.payload = 0;
+    try std.testing.expectEqual(@as(usize, 11), stored.tag);
+    try std.testing.expectEqual(@as(i32, 52), stored.payload);
 }
