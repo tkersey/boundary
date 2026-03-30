@@ -145,9 +145,9 @@ fn flatOpsForRow(comptime row: effect_ir.Row) []const FlatOp {
     };
 }
 
-fn reachableFunctions(comptime graph: source_graph_comptime.ModuleGraph) [graph.functions.len]bool {
+fn reachableFunctions(comptime graph: source_graph_embed.ProgramGraph) [graph.functions.len]bool {
     var reachable = [_]bool{false} ** graph.functions.len;
-    reachable[graph.entry_index.?] = true;
+    reachable[graph.entry_index] = true;
 
     var changed = true;
     while (changed) {
@@ -163,7 +163,7 @@ fn reachableFunctions(comptime graph: source_graph_comptime.ModuleGraph) [graph.
 }
 
 fn inferUsedOps(
-    comptime graph: source_graph_comptime.ModuleGraph,
+    comptime graph: source_graph_embed.ProgramGraph,
     comptime flat_ops: []const FlatOp,
 ) [graph.functions.len][flat_ops.len]bool {
     var used = [_][flat_ops.len]bool{[_]bool{false} ** flat_ops.len} ** graph.functions.len;
@@ -243,13 +243,17 @@ fn helperRowFromUsage(
 }
 
 fn buildFunctionsAt(comptime source_path: []const u8, comptime spec: LowerSpec) []const effect_ir.Function {
-    const graph = source_graph_embed.analyzeModuleAt(source_path, spec.entry_symbol) catch |err| switch (err) {
+    const graph = source_graph_embed.analyzeProgramAt(source_path, spec.entry_symbol) catch |err| switch (err) {
         error.EntryMissing => @compileError("public lowering could not find the requested entry symbol in the embedded source"),
+        error.MissingImport => @compileError("public lowering could not resolve one imported helper module or helper symbol"),
         error.RecursiveHelpers => @compileError("public lowering does not yet support recursive helper graphs"),
         error.TooManyFunctions => @compileError("public lowering source graph exceeded the supported function limit"),
+        error.TooManyImports => @compileError("public lowering source graph exceeded the supported import limit"),
+        error.TooManyHelperUses => @compileError("public lowering source graph exceeded the supported helper-use limit"),
         error.TooManyHelperEdges => @compileError("public lowering source graph exceeded the supported helper-edge limit"),
         error.TooManyOpUses => @compileError("public lowering source graph exceeded the supported op-use limit"),
         error.UnsupportedEffectAccess => @compileError("public lowering helper inference only supports direct eff.requirement.op(...) access"),
+        error.UnsupportedImportPath => @compileError("public lowering currently supports only repo-relative .zig imports for cross-file helpers"),
     };
     const reachable = reachableFunctions(graph);
     const flat_ops = flatOpsForRow(spec.row);
@@ -267,10 +271,11 @@ fn buildFunctionsAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
         var buffer: [function_count]effect_ir.Function = undefined;
         var index: usize = 0;
 
+        const entry_function = graph.functions[graph.entry_index];
         buffer[index] = .{
             .symbol = .{
-                .module_path = cloneBytes(source_path),
-                .symbol_name = cloneBytes(spec.entry_symbol),
+                .module_path = cloneBytes(entry_function.module_path),
+                .symbol_name = cloneBytes(entry_function.name),
             },
             .row = cloneRow(spec.row),
             .outputs = cloneOutputSpecs(spec.outputs),
@@ -278,10 +283,10 @@ fn buildFunctionsAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
         index += 1;
 
         for (graph.functions, 0..) |function, function_index| {
-            if (!reachable[function_index] or function_index == graph.entry_index.?) continue;
+            if (!reachable[function_index] or function_index == graph.entry_index) continue;
             buffer[index] = .{
                 .symbol = .{
-                    .module_path = cloneBytes(source_path),
+                    .module_path = cloneBytes(function.module_path),
                     .symbol_name = cloneBytes(function.name),
                 },
                 .row = helperRowFromUsage(spec.row, flat_ops, &used_ops[function_index]),
@@ -295,13 +300,17 @@ fn buildFunctionsAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
 }
 
 fn buildCallEdgesAt(comptime source_path: []const u8, comptime spec: LowerSpec) []const effect_ir.CallEdge {
-    const graph = source_graph_embed.analyzeModuleAt(source_path, spec.entry_symbol) catch |err| switch (err) {
+    const graph = source_graph_embed.analyzeProgramAt(source_path, spec.entry_symbol) catch |err| switch (err) {
         error.EntryMissing => @compileError("public lowering could not find the requested entry symbol in the embedded source"),
+        error.MissingImport => @compileError("public lowering could not resolve one imported helper module or helper symbol"),
         error.RecursiveHelpers => @compileError("public lowering does not yet support recursive helper graphs"),
         error.TooManyFunctions => @compileError("public lowering source graph exceeded the supported function limit"),
+        error.TooManyImports => @compileError("public lowering source graph exceeded the supported import limit"),
+        error.TooManyHelperUses => @compileError("public lowering source graph exceeded the supported helper-use limit"),
         error.TooManyHelperEdges => @compileError("public lowering source graph exceeded the supported helper-edge limit"),
         error.TooManyOpUses => @compileError("public lowering source graph exceeded the supported op-use limit"),
         error.UnsupportedEffectAccess => @compileError("public lowering helper inference only supports direct eff.requirement.op(...) access"),
+        error.UnsupportedImportPath => @compileError("public lowering currently supports only repo-relative .zig imports for cross-file helpers"),
     };
     const reachable = reachableFunctions(graph);
     const edge_count = comptime count: {
@@ -319,11 +328,11 @@ fn buildCallEdgesAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
             if (!reachable[edge.caller_index] or !reachable[edge.callee_index]) continue;
             buffer[index] = .{
                 .caller = .{
-                    .module_path = cloneBytes(source_path),
+                    .module_path = cloneBytes(graph.functions[edge.caller_index].module_path),
                     .symbol_name = cloneBytes(graph.functions[edge.caller_index].name),
                 },
                 .callee = .{
-                    .module_path = cloneBytes(source_path),
+                    .module_path = cloneBytes(graph.functions[edge.callee_index].module_path),
                     .symbol_name = cloneBytes(graph.functions[edge.callee_index].name),
                 },
             };
@@ -388,11 +397,15 @@ pub fn validateFileBackedOpenRowAt(
     }) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.EntryMissing => return error.EntryMissing,
+        error.MissingImport => return error.UnsupportedHelperGraph,
         error.RecursiveHelpers => return error.UnsupportedHelperGraph,
         error.TooManyFunctions => return error.UnsupportedHelperGraph,
+        error.TooManyImports => return error.UnsupportedHelperGraph,
+        error.TooManyHelperUses => return error.UnsupportedHelperGraph,
         error.TooManyHelperEdges => return error.UnsupportedHelperGraph,
         error.TooManyOpUses => return error.UnsupportedHelperGraph,
         error.UnsupportedEffectAccess => return error.UnsupportedEffectAccess,
+        error.UnsupportedImportPath => return error.UnsupportedHelperGraph,
     };
     defer allocator.free(graph.functions);
     defer allocator.free(graph.helper_edges);

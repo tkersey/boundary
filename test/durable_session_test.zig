@@ -180,6 +180,7 @@ test "durable saveArtifact persists plan-backed identity and plan.json" {
 
     try std.testing.expectEqual(@as(u64, 0x1234), manifest.program_hash);
     try std.testing.expect(manifest.plan_hash != null);
+    try std.testing.expectEqual(@as(?u32, 1), manifest.plan_schema_version);
     _ = try std.fs.cwd().statFile(paths.plan_path);
 
     const restored = try store.restoreArtifact(artifact);
@@ -202,6 +203,135 @@ test "durable restore accepts a matching step bridge when persisted plan.json is
 
     const restored = try store.restoreArtifact(stripped);
     try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
+}
+
+test "durable restore accepts legacy schema manifest and raw plan.json" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const artifact = makePlanBackedArtifact(0x5234, 0x5234, "demo.plan", "runBody");
+    const legacy_manifest = shift.durable.SessionManifest{
+        .schema_version = 2,
+        .scenario_id = null,
+        .program_hash = artifact.plan.?.ir_hash,
+        .plan_hash = 0x0,
+        .plan_schema_version = null,
+        .last_seq = 2,
+    };
+
+    const raw_plan_hash = blk: {
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(artifact.plan.?.label);
+        hasher.update(std.mem.asBytes(&artifact.plan.?.ir_hash));
+        for (artifact.plan.?.functions) |function| {
+            hasher.update(function.symbol_name);
+            hasher.update(std.mem.asBytes(&function.first_requirement));
+            hasher.update(std.mem.asBytes(&function.requirement_count));
+            hasher.update(std.mem.asBytes(&function.first_output));
+            hasher.update(std.mem.asBytes(&function.output_count));
+            hasher.update(std.mem.asBytes(&function.first_instruction));
+            hasher.update(std.mem.asBytes(&function.instruction_count));
+        }
+        for (artifact.plan.?.requirements) |requirement| {
+            hasher.update(requirement.label);
+            hasher.update(std.mem.asBytes(&requirement.first_op));
+            hasher.update(std.mem.asBytes(&requirement.op_count));
+        }
+        for (artifact.plan.?.ops) |op| {
+            hasher.update(std.mem.asBytes(&op.requirement_index));
+            hasher.update(op.op_name);
+            hasher.update(@tagName(op.mode));
+            hasher.update(@tagName(op.payload_codec));
+            hasher.update(@tagName(op.resume_codec));
+        }
+        for (artifact.plan.?.outputs) |output| {
+            hasher.update(output.label);
+            hasher.update(@tagName(output.codec));
+        }
+        for (artifact.plan.?.instructions) |instruction| switch (instruction.kind) {
+            .call_op => {
+                hasher.update("call_op");
+                hasher.update(std.mem.asBytes(&instruction.index));
+            },
+            .call_helper => {
+                hasher.update("call_helper");
+                hasher.update(std.mem.asBytes(&instruction.index));
+            },
+            .return_value => {
+                hasher.update("return_value");
+                hasher.update(std.mem.asBytes(&instruction.index));
+            },
+        };
+        break :blk hasher.final();
+    };
+
+    {
+        const file = try std.fs.cwd().createFile(paths.manifest_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        var manifest = legacy_manifest;
+        manifest.plan_hash = raw_plan_hash;
+        try std.json.Stringify.value(manifest, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+    {
+        const file = try std.fs.cwd().createFile(paths.plan_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        try std.json.Stringify.value(artifact.plan.?, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+    {
+        const file = try std.fs.cwd().createFile(paths.events_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        try std.json.Stringify.value(shift.durable.EventRecord{ .seq = 0, .event = .{ .note = "plan-backed" } }, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try std.json.Stringify.value(shift.durable.EventRecord{ .seq = 1, .event = .{ .final_i32 = 7 } }, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    var stripped = artifact;
+    stripped.plan = null;
+
+    const restored = try store.restoreArtifact(stripped);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
+}
+
+test "durable restore reports rebuild required on unknown plan schema" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const artifact = makePlanBackedArtifact(0x6234, 0x6234, "demo.plan", "runBody");
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    var manifest = try store.saveArtifact(artifact, null);
+    manifest.plan_schema_version = 999;
+
+    {
+        const file = try std.fs.cwd().createFile(paths.manifest_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        try std.json.Stringify.value(manifest, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+
+    const restored = try store.restoreArtifact(artifact);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restore reports rebuild required when the current plan drifts" {
@@ -238,7 +368,10 @@ test "durable restore fails when plan.json is tampered" {
         var writer = file.writer(&buffer);
         var tampered = artifact.plan.?;
         tampered.label = "tampered.plan";
-        try std.json.Stringify.value(tampered, .{}, &writer.interface);
+        try std.json.Stringify.value(shift.durable.PlanFile{
+            .schema_version = 1,
+            .plan = tampered,
+        }, .{}, &writer.interface);
         try writer.interface.writeByte('\n');
         try writer.interface.flush();
     }

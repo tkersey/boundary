@@ -57,6 +57,15 @@ test "root lowerAt matches the example-owned same-module lowering" {
     );
 }
 
+test "example module proves why root shift.lower remains absent" {
+    try std.testing.expectEqualStrings("open_row_state_writer.zig", example_open_row_state_writer.callerSourceFile());
+    try std.testing.expect(!std.mem.eql(
+        u8,
+        example_open_row_state_writer.callerSourceFile(),
+        example_open_row_state_writer.loweringSourcePath(),
+    ));
+}
+
 test "same-module validation accepts helper graphs for explicit-path lowering" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -129,6 +138,39 @@ test "same-module validation rejects recursive helper graphs for explicit-path l
         error.UnsupportedHelperGraph,
         shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody"),
     );
+}
+
+test "explicit-path lowering supports cross-file helper modules" {
+    const spec: shift.lowering.LowerSpec = .{
+        .label = "example.open_row_cross_file_writer",
+        .entry_symbol = "runBody",
+        .row = shift.ir.mergeRows(.{
+            shift.ir.rowFromSpec(.{
+                .state = .{
+                    .get = shift.ir.Transform(void, i32),
+                    .set = shift.ir.Transform(i32, void),
+                },
+            }),
+            shift.ir.rowFromSpec(.{
+                .writer = .{
+                    .tell = shift.ir.Transform([]const u8, void),
+                },
+            }),
+        }),
+        .outputs = &.{
+            .{ .label = "state", .OutputType = i32 },
+            .{ .label = "writer", .OutputType = [][]const u8 },
+        },
+    };
+
+    const Lowered = shift.lowerAt("examples/open_row_cross_file_writer.zig", spec);
+    const Explicit = shift.ir.compile(spec.label, shift.lowering.irProgramAt("examples/open_row_cross_file_writer.zig", spec));
+
+    try std.testing.expectEqualStrings("example.open_row_cross_file_writer", Lowered.label);
+    try std.testing.expectEqual(@as(usize, 3), Lowered.runtime_plan.functions.len);
+    try std.testing.expectEqual(@as(usize, 5), Lowered.runtime_plan.requirements.len);
+    try std.testing.expectEqual(@as(usize, 7), Lowered.runtime_plan.ops.len);
+    try std.testing.expectEqual(Lowered.ir_hash, Explicit.ir_hash);
 }
 
 test "open-row state-writer example stays transcript-backed" {

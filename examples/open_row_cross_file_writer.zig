@@ -1,29 +1,18 @@
+const helpers = @import("open_row_cross_file_helpers.zig");
 const shift = @import("shift");
 const std = @import("std");
 
-fn queueQuery(eff: anytype) !void {
-    const writer = eff.writer;
-    try writer.tell("query=artifact-search");
-}
-
-fn advanceState(eff: anytype) !void {
-    const state = eff.state;
-    const before = try state.get();
-    try state.set(before + 1);
-    try queueQuery(eff);
-}
-
-/// Run one state-plus-writer workflow through the program kernel.
+/// Run one state-plus-writer workflow whose helpers live in a sibling module.
 pub fn runBody(eff: anytype) ![]const u8 {
-    try advanceState(eff);
-    try eff.writer.tell("workflow=queued");
+    try helpers.advanceState(eff);
+    try eff.writer.tell("workflow=cross-file-queued");
     return "done";
 }
 
 /// Return the additive public lowering spec for this workflow.
 pub fn loweringSpec() shift.lowering.LowerSpec {
     return .{
-        .label = "example.open_row_state_writer",
+        .label = "example.open_row_cross_file_writer",
         .entry_symbol = "runBody",
         .row = shift.ir.mergeRows(.{
             shift.ir.rowFromSpec(.{
@@ -45,24 +34,19 @@ pub fn loweringSpec() shift.lowering.LowerSpec {
     };
 }
 
-/// Return the additive public lowered artifact for this workflow.
+/// Return the source path captured by this example module.
+pub fn loweringSourcePath() []const u8 {
+    return "examples/open_row_cross_file_writer.zig";
+}
+
+/// Return the lowered artifact for this cross-file workflow.
 pub fn loweredProgram() @TypeOf(shift.lowering.lowerOpenRowAt(loweringSourcePath(), loweringSpec())) {
     return try shift.lowering.lowerOpenRowAt(loweringSourcePath(), loweringSpec());
 }
 
-/// Return the explicit IR view paired with this same-module lowering request.
+/// Return the explicit IR view paired with this cross-file lowering request.
 pub fn irProgram() shift.ir.Program {
     return shift.lowering.irProgramAt(loweringSourcePath(), loweringSpec());
-}
-
-/// Return the source path captured by this example module.
-pub fn loweringSourcePath() []const u8 {
-    return "examples/open_row_state_writer.zig";
-}
-
-/// Return the raw caller file string reported by `@src()` inside this module.
-pub fn callerSourceFile() []const u8 {
-    return @src().file;
 }
 
 fn CompiledProgramType() type {
@@ -94,16 +78,7 @@ fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void
     try writer.print("value={s}\n", .{result.value});
 }
 
-/// Write the open-row state-plus-writer transcript.
+/// Write the cross-file state-plus-writer transcript.
 pub fn run(writer: anytype) anyerror!void {
     try runWithAllocator(writer, std.heap.page_allocator);
-}
-
-/// Run the state-plus-writer example on stdout.
-pub fn main() anyerror!void {
-    var stdout_buffer: [256]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-    const stdout = &stdout_writer.interface;
-    try run(stdout);
-    try stdout.flush();
 }

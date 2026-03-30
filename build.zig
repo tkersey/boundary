@@ -333,6 +333,7 @@ pub fn build(b: *std.Build) void {
     authoring_lowerer_options.addOption([32]u8, "hash_bridge_fixture_writer_basic", canonicalSourceHash(b, "test/direct_style_bridge/writer_basic.zig"));
     const authoring_build_options_mod = authoring_lowerer_options.createModule();
     source_graph_embed_mod.addImport("authoring_build_options", authoring_build_options_mod);
+    source_graph_embed_mod.addImport("source_graph_engine", source_graph_engine_mod);
     source_graph_embed_mod.addImport("source_graph_comptime", source_graph_comptime_mod);
     const authoring_lowerer_mod = b.createModule(.{
         .root_source_file = b.path("src/internal/authoring_lowerer.zig"),

@@ -3,11 +3,15 @@ const std = @import("std");
 /// Shared error surface for same-module source graph extraction.
 pub const Error = error{
     EntryMissing,
+    MissingImport,
     RecursiveHelpers,
     TooManyFunctions,
+    TooManyImports,
+    TooManyHelperUses,
     TooManyHelperEdges,
     TooManyOpUses,
     UnsupportedEffectAccess,
+    UnsupportedImportPath,
 };
 
 /// Analysis options for the shared source-graph extractor.
@@ -21,6 +25,21 @@ pub const AnalyzeOptions = struct {
 pub const FunctionNode = struct {
     name: []const u8,
     effect_param: ?[]const u8,
+};
+
+/// One top-level import alias discovered in a Zig source module.
+pub const ImportAlias = struct {
+    name: []const u8,
+    import_path: []const u8,
+};
+
+/// One helper call discovered before same-file or cross-file resolution.
+pub const HelperUse = struct {
+    caller_index: usize,
+    callee_name: []const u8,
+    import_alias: ?[]const u8,
+    line: usize,
+    column: usize,
 };
 
 /// One helper-call edge between top-level functions in the same source file.
@@ -44,6 +63,8 @@ pub const DirectOpUse = struct {
 pub const ModuleGraph = struct {
     entry_index: ?usize,
     functions: []const FunctionNode,
+    imports: []const ImportAlias,
+    helper_uses: []const HelperUse,
     helper_edges: []const HelperEdge,
     direct_op_uses: []const DirectOpUse,
 };
@@ -98,14 +119,29 @@ const Alias = struct {
     kind: AliasKind,
 };
 
+const TopLevelImportMatch = struct {
+    name: []const u8,
+    import_path: []const u8,
+};
+
+fn unquoteImportPath(literal: []const u8) ?[]const u8 {
+    if (literal.len < 2) return null;
+    if (literal[0] != '"' or literal[literal.len - 1] != '"') return null;
+    return literal[1 .. literal.len - 1];
+}
+
 const RuntimeCollector = struct {
     allocator: std.mem.Allocator,
     functions: std.ArrayList(FunctionNode) = .empty,
+    imports: std.ArrayList(ImportAlias) = .empty,
+    helper_uses: std.ArrayList(HelperUse) = .empty,
     helper_edges: std.ArrayList(HelperEdge) = .empty,
     direct_op_uses: std.ArrayList(DirectOpUse) = .empty,
 
     fn deinit(self: *@This()) void {
         self.functions.deinit(self.allocator);
+        self.imports.deinit(self.allocator);
+        self.helper_uses.deinit(self.allocator);
         self.helper_edges.deinit(self.allocator);
         self.direct_op_uses.deinit(self.allocator);
     }
@@ -119,7 +155,24 @@ const RuntimeCollector = struct {
         return self.functions.items;
     }
 
+    fn pushImport(self: *@This(), import_alias: ImportAlias) AnalysisError!void {
+        try self.imports.append(self.allocator, import_alias);
+    }
+
+    fn importsSlice(self: *const @This()) []const ImportAlias {
+        return self.imports.items;
+    }
+
+    fn pushHelperUse(self: *@This(), helper_use: HelperUse) AnalysisError!void {
+        try self.helper_uses.append(self.allocator, helper_use);
+    }
+
+    fn helperUsesSlice(self: *const @This()) []const HelperUse {
+        return self.helper_uses.items;
+    }
+
     fn pushHelperEdge(self: *@This(), edge: HelperEdge) AnalysisError!void {
+        if (edgeExists(self.helper_edges.items, edge.caller_index, edge.callee_index)) return;
         try self.helper_edges.append(self.allocator, edge);
     }
 
@@ -127,12 +180,8 @@ const RuntimeCollector = struct {
         return self.helper_edges.items;
     }
 
-    fn helperEdgesSliceMut(self: *@This()) []HelperEdge {
-        return self.helper_edges.items;
-    }
-
-    fn setHelperEdgeCount(self: *@This(), count: usize) void {
-        self.helper_edges.items.len = count;
+    fn clearHelperEdges(self: *@This()) void {
+        self.helper_edges.items.len = 0;
     }
 
     fn pushDirectOpUse(self: *@This(), direct_op_use: DirectOpUse) AnalysisError!void {
@@ -148,6 +197,14 @@ const RuntimeCollector = struct {
         errdefer self.allocator.free(functions);
         self.functions = .empty;
 
+        const imports = try self.imports.toOwnedSlice(self.allocator);
+        errdefer self.allocator.free(imports);
+        self.imports = .empty;
+
+        const helper_uses = try self.helper_uses.toOwnedSlice(self.allocator);
+        errdefer self.allocator.free(helper_uses);
+        self.helper_uses = .empty;
+
         const helper_edges = try self.helper_edges.toOwnedSlice(self.allocator);
         errdefer self.allocator.free(helper_edges);
         self.helper_edges = .empty;
@@ -159,6 +216,8 @@ const RuntimeCollector = struct {
         return .{
             .entry_index = entry_index,
             .functions = functions,
+            .imports = imports,
+            .helper_uses = helper_uses,
             .helper_edges = helper_edges,
             .direct_op_uses = direct_op_uses,
         };
@@ -171,6 +230,19 @@ const FixedCollector = struct {
         .effect_param = null,
     }} ** 128,
     function_count: usize = 0,
+    imports: [64]ImportAlias = [_]ImportAlias{.{
+        .name = "",
+        .import_path = "",
+    }} ** 64,
+    import_count: usize = 0,
+    helper_uses: [1024]HelperUse = [_]HelperUse{.{
+        .caller_index = 0,
+        .callee_name = "",
+        .import_alias = null,
+        .line = 0,
+        .column = 0,
+    }} ** 1024,
+    helper_use_count: usize = 0,
     helper_edges: [512]HelperEdge = [_]HelperEdge{.{
         .caller_index = 0,
         .callee_index = 0,
@@ -198,7 +270,28 @@ const FixedCollector = struct {
         return self.functions[0..self.function_count];
     }
 
+    fn pushImport(self: *@This(), import_alias: ImportAlias) AnalysisError!void {
+        if (self.import_count >= self.imports.len) return error.TooManyImports;
+        self.imports[self.import_count] = import_alias;
+        self.import_count += 1;
+    }
+
+    fn importsSlice(self: *const @This()) []const ImportAlias {
+        return self.imports[0..self.import_count];
+    }
+
+    fn pushHelperUse(self: *@This(), helper_use: HelperUse) AnalysisError!void {
+        if (self.helper_use_count >= self.helper_uses.len) return error.TooManyHelperUses;
+        self.helper_uses[self.helper_use_count] = helper_use;
+        self.helper_use_count += 1;
+    }
+
+    fn helperUsesSlice(self: *const @This()) []const HelperUse {
+        return self.helper_uses[0..self.helper_use_count];
+    }
+
     fn pushHelperEdge(self: *@This(), edge: HelperEdge) AnalysisError!void {
+        if (edgeExists(self.helper_edges[0..self.helper_edge_count], edge.caller_index, edge.callee_index)) return;
         if (self.helper_edge_count >= self.helper_edges.len) return error.TooManyHelperEdges;
         self.helper_edges[self.helper_edge_count] = edge;
         self.helper_edge_count += 1;
@@ -208,12 +301,8 @@ const FixedCollector = struct {
         return self.helper_edges[0..self.helper_edge_count];
     }
 
-    fn helperEdgesSliceMut(self: *@This()) []HelperEdge {
-        return self.helper_edges[0..self.helper_edge_count];
-    }
-
-    fn setHelperEdgeCount(self: *@This(), count: usize) void {
-        self.helper_edge_count = count;
+    fn clearHelperEdges(self: *@This()) void {
+        self.helper_edge_count = 0;
     }
 
     fn pushDirectOpUse(self: *@This(), direct_op_use: DirectOpUse) AnalysisError!void {
@@ -230,6 +319,8 @@ const FixedCollector = struct {
         return .{
             .entry_index = entry_index,
             .functions = self.functions[0..self.function_count],
+            .imports = self.imports[0..self.import_count],
+            .helper_uses = self.helper_uses[0..self.helper_use_count],
             .helper_edges = self.helper_edges[0..self.helper_edge_count],
             .direct_op_uses = self.direct_op_uses[0..self.direct_op_use_count],
         };
@@ -432,6 +523,61 @@ fn maybeUnsupportedEffectAccess(
     return false;
 }
 
+fn findImportAlias(imports: []const ImportAlias, name: []const u8) ?ImportAlias {
+    for (imports) |import_alias| {
+        if (std.mem.eql(u8, import_alias.name, name)) return import_alias;
+    }
+    return null;
+}
+
+fn maybeTopLevelImportAlias(token_window: *const TokenWindow) ?TopLevelImportMatch {
+    if (token_window.count < 8) return null;
+    const tail = token_window.items[token_window.count - 8 .. token_window.count];
+    if (!((tail[0].tag == .keyword_const or tail[0].tag == .keyword_var) and
+        tail[1].tag == .identifier and
+        tail[2].tag == .equal and
+        tail[3].tag == .builtin and
+        std.mem.eql(u8, tail[3].lexeme, "@import") and
+        tail[4].tag == .l_paren and
+        tail[5].tag == .string_literal and
+        tail[6].tag == .r_paren and
+        tail[7].tag == .semicolon))
+    {
+        return null;
+    }
+    const import_path = unquoteImportPath(tail[5].lexeme) orelse return null;
+    return .{
+        .name = tail[1].lexeme,
+        .import_path = import_path,
+    };
+}
+
+fn maybeQualifiedHelperUse(
+    imports: []const ImportAlias,
+    token_window: *const TokenWindow,
+) ?struct {
+    import_alias: []const u8,
+    callee_name: []const u8,
+    offset: usize,
+} {
+    if (token_window.count < 4) return null;
+    const tail = token_window.items[token_window.count - 4 .. token_window.count];
+    if (!(tail[0].tag == .identifier and
+        tail[1].tag == .period and
+        tail[2].tag == .identifier and
+        tail[3].tag == .l_paren))
+    {
+        return null;
+    }
+    const import_alias = findImportAlias(imports, tail[0].lexeme) orelse return null;
+    if (!std.mem.endsWith(u8, import_alias.import_path, ".zig")) return null;
+    return .{
+        .import_alias = tail[0].lexeme,
+        .callee_name = tail[2].lexeme,
+        .offset = tail[2].offset,
+    };
+}
+
 fn findFunctionIndex(functions: []const FunctionNode, name: []const u8) ?usize {
     for (functions, 0..) |function, index| {
         if (std.mem.eql(u8, function.name, name)) return index;
@@ -446,30 +592,26 @@ fn edgeExists(edges: []const HelperEdge, caller_index: usize, callee_index: usiz
     return false;
 }
 
-fn resolveHelperEdges(collector: anytype) void {
+fn resolveHelperEdges(collector: anytype) AnalysisError!void {
     const functions = collector.functionsSlice();
-    var edges = collector.helperEdgesSliceMut();
-    var write_index: usize = 0;
+    const helper_uses = collector.helperUsesSlice();
+    collector.clearHelperEdges();
 
-    for (edges, 0..) |edge, read_index| {
-        const callee_index = findFunctionIndex(functions, edge.callee_name) orelse continue;
-        if (callee_index == edge.caller_index) continue;
+    for (helper_uses) |helper_use| {
+        if (helper_use.import_alias != null) continue;
+        const callee_index = findFunctionIndex(functions, helper_use.callee_name) orelse continue;
+        if (callee_index == helper_use.caller_index) continue;
 
         const resolved = HelperEdge{
-            .caller_index = edge.caller_index,
+            .caller_index = helper_use.caller_index,
             .callee_index = callee_index,
-            .caller_name = functions[edge.caller_index].name,
+            .caller_name = functions[helper_use.caller_index].name,
             .callee_name = functions[callee_index].name,
-            .line = edge.line,
-            .column = edge.column,
+            .line = helper_use.line,
+            .column = helper_use.column,
         };
-        if (edgeExists(edges[0..write_index], resolved.caller_index, resolved.callee_index)) continue;
-        edges[write_index] = resolved;
-        _ = read_index;
-        write_index += 1;
+        try collector.pushHelperEdge(resolved);
     }
-
-    collector.setHelperEdgeCount(write_index);
 }
 
 fn visitCycle(function_index: usize, edges: []const HelperEdge, visiting: []bool, visited: []bool) Error!void {
@@ -496,6 +638,7 @@ const BodyScanContext = struct {
     caller_index: usize,
     caller_name: []const u8,
     effect_param: ?[]const u8,
+    imports: []const ImportAlias,
     options: AnalyzeOptions,
 };
 
@@ -526,11 +669,10 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!void {
         if (pending_identifier) |candidate| {
             if (token.tag == .l_paren) {
                 const loc = locationForOffset(context.source, candidate.offset);
-                try collector.pushHelperEdge(.{
+                try collector.pushHelperUse(.{
                     .caller_index = context.caller_index,
-                    .callee_index = 0,
-                    .caller_name = context.caller_name,
                     .callee_name = candidate.lexeme,
+                    .import_alias = null,
                     .line = loc.line,
                     .column = loc.column,
                 });
@@ -544,6 +686,17 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!void {
             .offset = token.loc.start,
         };
         token_window.push(current);
+        if (maybeQualifiedHelperUse(context.imports, &token_window)) |qualified_use| {
+            const loc = locationForOffset(context.source, qualified_use.offset);
+            try collector.pushHelperUse(.{
+                .caller_index = context.caller_index,
+                .callee_name = qualified_use.callee_name,
+                .import_alias = qualified_use.import_alias,
+                .line = loc.line,
+                .column = loc.column,
+            });
+            pending_identifier = null;
+        }
         if (maybeRecordDirectOpUse(context.effect_param, aliases[0..alias_count], &token_window)) |match| {
             try collector.pushDirectOpUse(.{
                 .function_index = context.caller_index,
@@ -574,6 +727,7 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!void {
 fn scanSource(source: [:0]const u8, collector: anytype, options: AnalyzeOptions) AnalysisError!void {
     var tokenizer = std.zig.Tokenizer.init(source);
     var depth: usize = 0;
+    var top_level_window = TokenWindow{};
 
     while (true) {
         const token = tokenizer.next();
@@ -585,6 +739,7 @@ fn scanSource(source: [:0]const u8, collector: anytype, options: AnalyzeOptions)
             },
             .keyword_fn => {
                 if (depth != 0) continue;
+                top_level_window = .{};
 
                 var name_token = tokenizer.next();
                 while (isIgnorable(name_token.tag)) : (name_token = tokenizer.next()) {}
@@ -653,6 +808,7 @@ fn scanSource(source: [:0]const u8, collector: anytype, options: AnalyzeOptions)
                                 .caller_index = function_index,
                                 .caller_name = name,
                                 .effect_param = effect_param,
+                                .imports = collector.importsSlice(),
                                 .options = options,
                             };
                             try scanBody(&context, collector);
@@ -665,12 +821,28 @@ fn scanSource(source: [:0]const u8, collector: anytype, options: AnalyzeOptions)
             },
             else => {},
         }
+
+        if (depth == 0 and !isIgnorable(token.tag)) {
+            top_level_window.push(.{
+                .tag = token.tag,
+                .lexeme = tokenSlice(source, token),
+                .offset = token.loc.start,
+            });
+            if (token.tag == .semicolon) {
+                if (maybeTopLevelImportAlias(&top_level_window)) |import_alias| {
+                    try collector.pushImport(.{
+                        .name = import_alias.name,
+                        .import_path = import_alias.import_path,
+                    });
+                }
+            }
+        }
     }
 }
 
 fn finalizeGraph(source: [:0]const u8, collector: anytype, options: AnalyzeOptions) AnalysisError!?usize {
     try scanSource(source, collector, options);
-    resolveHelperEdges(collector);
+    try resolveHelperEdges(collector);
 
     const entry_index: ?usize = if (options.entry_symbol) |entry_symbol|
         findFunctionIndex(collector.functionsSlice(), entry_symbol) orelse return error.EntryMissing
@@ -709,11 +881,15 @@ pub fn analyzeComptime(
     const entry_index = finalizeGraph(source, &collector, options) catch |err| switch (err) {
         error.OutOfMemory => unreachable,
         error.EntryMissing => return error.EntryMissing,
+        error.MissingImport => return error.MissingImport,
         error.RecursiveHelpers => return error.RecursiveHelpers,
         error.TooManyFunctions => return error.TooManyFunctions,
+        error.TooManyImports => return error.TooManyImports,
+        error.TooManyHelperUses => return error.TooManyHelperUses,
         error.TooManyHelperEdges => return error.TooManyHelperEdges,
         error.TooManyOpUses => return error.TooManyOpUses,
         error.UnsupportedEffectAccess => return error.UnsupportedEffectAccess,
+        error.UnsupportedImportPath => return error.UnsupportedImportPath,
     };
     return collector.intoModuleGraph(entry_index);
 }

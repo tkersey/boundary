@@ -16,6 +16,10 @@ pub const ParsedSource = struct {
 
 /// One top-level function discovered in a parsed Zig source module.
 pub const TopLevelFunction = shared_graph.FunctionNode;
+/// One top-level import alias discovered in a parsed Zig source module.
+pub const ImportAlias = shared_graph.ImportAlias;
+/// One helper use discovered before same-file or cross-file resolution.
+pub const HelperUse = shared_graph.HelperUse;
 /// One conservative same-module helper call discovered inside a top-level function body.
 pub const HelperCallEdge = shared_graph.HelperEdge;
 /// One direct effect-op use discovered through the shared source graph.
@@ -25,12 +29,16 @@ pub const DirectOpUse = shared_graph.DirectOpUse;
 pub const ModuleAnalysis = struct {
     parsed: ParsedSource,
     top_level_functions: []const TopLevelFunction,
+    imports: []const ImportAlias,
+    helper_uses: []const HelperUse,
     helper_call_edges: []const HelperCallEdge,
     direct_op_uses: []const DirectOpUse,
 
     /// Release the owned parse payload and derived analysis slices.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         allocator.free(self.top_level_functions);
+        allocator.free(self.imports);
+        allocator.free(self.helper_uses);
         allocator.free(self.helper_call_edges);
         allocator.free(self.direct_op_uses);
         self.parsed.deinit(allocator);
@@ -86,6 +94,8 @@ pub fn analyzeModuleSource(allocator: std.mem.Allocator, source: []const u8) Par
     };
     errdefer {
         allocator.free(graph.functions);
+        allocator.free(graph.imports);
+        allocator.free(graph.helper_uses);
         allocator.free(graph.helper_edges);
         allocator.free(graph.direct_op_uses);
     }
@@ -93,6 +103,8 @@ pub fn analyzeModuleSource(allocator: std.mem.Allocator, source: []const u8) Par
     return .{
         .parsed = parsed,
         .top_level_functions = graph.functions,
+        .imports = graph.imports,
+        .helper_uses = graph.helper_uses,
         .helper_call_edges = graph.helper_edges,
         .direct_op_uses = graph.direct_op_uses,
     };

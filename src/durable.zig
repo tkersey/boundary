@@ -2,6 +2,9 @@ const kernel = @import("internal_kernel");
 const scenarios = @import("parity_scenarios");
 const std = @import("std");
 
+const current_manifest_schema: u32 = 3;
+const current_plan_schema: u32 = 1;
+
 /// Stable executable kernel artifact used by durable replay.
 pub const ProgramArtifact = struct {
     label: []const u8,
@@ -34,13 +37,20 @@ pub const RestoreStatus = enum {
 
 /// Manifest persisted alongside an append-only event log.
 pub const SessionManifest = struct {
-    schema_version: u32 = 2,
+    schema_version: u32 = current_manifest_schema,
     scenario_id: ?kernel.ScenarioId = null,
     /// Durable program identity. Plan-backed artifacts persist `ProgramPlan.ir_hash`.
     program_hash: u64,
     plan_hash: ?u64 = null,
+    plan_schema_version: ?u32 = null,
     last_seq: usize,
     restore_status: RestoreStatus = .exact_replay,
+};
+
+/// Versioned durable plan file envelope.
+pub const PlanFile = struct {
+    schema_version: u32 = current_plan_schema,
+    plan: kernel.ProgramPlan,
 };
 
 /// One append-only persisted event row.
@@ -85,6 +95,7 @@ pub const Store = struct {
             .scenario_id = scenario_id,
             .program_hash = artifact.identityHash(),
             .plan_hash = if (artifact.plan) |plan| hashPlan(plan) else null,
+            .plan_schema_version = if (artifact.plan != null) current_plan_schema else null,
             .last_seq = kernel.events(&state).len,
         };
         try writeManifest(self.manifest_path, manifest);
@@ -96,7 +107,7 @@ pub const Store = struct {
     /// Restore one persisted session by replaying the canonical scenario and checking the event log.
     pub fn restore(self: @This()) anyerror!RestoreResult {
         const manifest = try readManifest(self.allocator, self.manifest_path);
-        if (manifest.schema_version != 2) {
+        if (!isSupportedManifestSchema(manifest.schema_version)) {
             return .{
                 .status = .rebuild_required,
                 .manifest = manifest,
@@ -115,7 +126,7 @@ pub const Store = struct {
     /// Restore one persisted session by replaying the supplied artifact and checking the event log.
     pub fn restoreArtifact(self: @This(), artifact: ProgramArtifact) anyerror!RestoreResult {
         const manifest = try readManifest(self.allocator, self.manifest_path);
-        if (manifest.schema_version != 2) {
+        if (!isSupportedManifestSchema(manifest.schema_version)) {
             return .{
                 .status = .rebuild_required,
                 .manifest = manifest,
@@ -132,15 +143,29 @@ pub const Store = struct {
         const plan_path = try derivedPlanPath(self.allocator, self.manifest_path);
         defer self.allocator.free(plan_path);
         if (manifest.plan_hash) |expected_plan_hash| {
-            const plan = readPlan(self.allocator, plan_path) catch {
-                return .{
+            const plan_file = readPlanFile(self.allocator, plan_path) catch |err| switch (err) {
+                error.UnsupportedPlanSchema => return .{
+                    .status = .rebuild_required,
+                    .manifest = manifest,
+                    .state = null,
+                },
+                else => return .{
                     .status = .failed,
                     .manifest = manifest,
                     .state = null,
-                };
+                },
             };
-            defer freePlan(self.allocator, &plan);
-            if (hashPlan(plan) != expected_plan_hash or plan.ir_hash != manifest.program_hash) {
+            defer freePlan(self.allocator, &plan_file.plan);
+            if (manifest.plan_schema_version) |expected_plan_schema| {
+                if (plan_file.schema_version != expected_plan_schema) {
+                    return .{
+                        .status = .rebuild_required,
+                        .manifest = manifest,
+                        .state = null,
+                    };
+                }
+            }
+            if (hashPlan(plan_file.plan) != expected_plan_hash or plan_file.plan.ir_hash != manifest.program_hash) {
                 return .{
                     .status = .failed,
                     .manifest = manifest,
@@ -179,6 +204,10 @@ fn derivedPlanPath(allocator: std.mem.Allocator, manifest_path: []const u8) ![]u
         if (dir_name.len != 0) return try std.fs.path.join(allocator, &.{ dir_name, "plan.json" });
     }
     return try allocator.dupe(u8, "plan.json");
+}
+
+fn isSupportedManifestSchema(schema_version: u32) bool {
+    return schema_version == 2 or schema_version == current_manifest_schema;
 }
 
 fn hashProgram(label: []const u8, steps: []const kernel.Step) u64 {
@@ -298,7 +327,10 @@ fn writePlan(path: []const u8, plan: kernel.ProgramPlan) !void {
 
     var buffer: [4096]u8 = undefined;
     var writer = file.writer(&buffer);
-    try std.json.Stringify.value(plan, .{}, &writer.interface);
+    try std.json.Stringify.value(PlanFile{
+        .schema_version = current_plan_schema,
+        .plan = plan,
+    }, .{}, &writer.interface);
     try writer.interface.writeByte('\n');
     try writer.interface.flush();
 }
@@ -336,7 +368,7 @@ fn readManifest(allocator: std.mem.Allocator, path: []const u8) !SessionManifest
     return parsed.value;
 }
 
-fn readPlan(allocator: std.mem.Allocator, path: []const u8) !kernel.ProgramPlan {
+fn readPlanFile(allocator: std.mem.Allocator, path: []const u8) !PlanFile {
     const bytes = if (std.fs.path.isAbsolute(path)) blk: {
         const file = try std.fs.openFileAbsolute(path, .{});
         defer file.close();
@@ -345,9 +377,20 @@ fn readPlan(allocator: std.mem.Allocator, path: []const u8) !kernel.ProgramPlan 
         break :blk try reader.interface.allocRemaining(allocator, .limited(std.math.maxInt(usize)));
     } else try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
     defer allocator.free(bytes);
-    const parsed = try std.json.parseFromSlice(kernel.ProgramPlan, allocator, bytes, .{});
-    defer parsed.deinit();
-    return try clonePlan(allocator, parsed.value);
+    const parsed_plan_file = std.json.parseFromSlice(PlanFile, allocator, bytes, .{}) catch |plan_err| {
+        const legacy = std.json.parseFromSlice(kernel.ProgramPlan, allocator, bytes, .{}) catch return plan_err;
+        defer legacy.deinit();
+        return .{
+            .schema_version = 0,
+            .plan = try clonePlan(allocator, legacy.value),
+        };
+    };
+    defer parsed_plan_file.deinit();
+    if (parsed_plan_file.value.schema_version != current_plan_schema) return error.UnsupportedPlanSchema;
+    return .{
+        .schema_version = parsed_plan_file.value.schema_version,
+        .plan = try clonePlan(allocator, parsed_plan_file.value.plan),
+    };
 }
 
 fn clonePlan(allocator: std.mem.Allocator, plan: kernel.ProgramPlan) !kernel.ProgramPlan {
