@@ -10,12 +10,15 @@ pub const Error = source_graph_engine.Error;
 pub const ProgramFunction = struct {
     module_path: []const u8,
     name: []const u8,
+    body_lowering_supported: bool,
 };
 
 /// One helper edge in a flattened explicit-path program graph.
 pub const ProgramHelperEdge = struct {
     caller_index: usize,
     callee_index: usize,
+    line: usize,
+    column: usize,
 };
 
 /// One direct effect-op use in a flattened explicit-path program graph.
@@ -23,6 +26,8 @@ pub const ProgramDirectOpUse = struct {
     function_index: usize,
     requirement_label: []const u8,
     op_name: []const u8,
+    line: usize,
+    column: usize,
 };
 
 /// Flattened same-file plus imported-helper program graph for explicit-path lowering.
@@ -48,17 +53,22 @@ const Buffers = struct {
     functions: [256]ProgramFunction = [_]ProgramFunction{.{
         .module_path = "",
         .name = "",
+        .body_lowering_supported = false,
     }} ** 256,
     function_count: usize = 0,
     helper_edges: [1024]ProgramHelperEdge = [_]ProgramHelperEdge{.{
         .caller_index = 0,
         .callee_index = 0,
+        .line = 0,
+        .column = 0,
     }} ** 1024,
     helper_edge_count: usize = 0,
     direct_op_uses: [2048]ProgramDirectOpUse = [_]ProgramDirectOpUse{.{
         .function_index = 0,
         .requirement_label = "",
         .op_name = "",
+        .line = 0,
+        .column = 0,
     }} ** 2048,
     direct_op_use_count: usize = 0,
     modules: [64]ModuleEntry = [_]ModuleEntry{.{
@@ -173,12 +183,14 @@ fn edgeExists(edges: []const ProgramHelperEdge, caller_index: usize, callee_inde
     return false;
 }
 
-fn pushHelperEdge(buffers: *Buffers, caller_index: usize, callee_index: usize) Error!void {
+fn pushHelperEdge(buffers: *Buffers, caller_index: usize, callee_index: usize, line: usize, column: usize) Error!void {
     if (edgeExists(buffers.helper_edges[0..buffers.helper_edge_count], caller_index, callee_index)) return;
     if (buffers.helper_edge_count >= buffers.helper_edges.len) return error.TooManyHelperEdges;
     buffers.helper_edges[buffers.helper_edge_count] = .{
         .caller_index = caller_index,
         .callee_index = callee_index,
+        .line = line,
+        .column = column,
     };
     buffers.helper_edge_count += 1;
 }
@@ -206,6 +218,7 @@ fn collectModule(comptime source_path: []const u8, buffers: *Buffers) Error!Modu
         buffers.functions[buffers.function_count] = .{
             .module_path = source_path,
             .name = function.name,
+            .body_lowering_supported = function.body_lowering_supported,
         };
         buffers.function_count += 1;
     }
@@ -216,6 +229,8 @@ fn collectModule(comptime source_path: []const u8, buffers: *Buffers) Error!Modu
             .function_index = first_function_index + direct_op_use.function_index,
             .requirement_label = direct_op_use.requirement_label,
             .op_name = direct_op_use.op_name,
+            .line = direct_op_use.line,
+            .column = direct_op_use.column,
         };
         buffers.direct_op_use_count += 1;
     }
@@ -236,6 +251,8 @@ fn collectModule(comptime source_path: []const u8, buffers: *Buffers) Error!Modu
             buffers,
             first_function_index + edge.caller_index,
             first_function_index + edge.callee_index,
+            edge.line,
+            edge.column,
         );
     }
 
@@ -250,6 +267,8 @@ fn collectModule(comptime source_path: []const u8, buffers: *Buffers) Error!Modu
             buffers,
             first_function_index + helper_use.caller_index,
             imported.first_function_index + callee_local_index,
+            helper_use.line,
+            helper_use.column,
         );
     }
 

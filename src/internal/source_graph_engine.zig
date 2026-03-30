@@ -25,6 +25,7 @@ pub const AnalyzeOptions = struct {
 pub const FunctionNode = struct {
     name: []const u8,
     effect_param: ?[]const u8,
+    body_lowering_supported: bool,
 };
 
 /// One top-level import alias discovered in a Zig source module.
@@ -57,6 +58,8 @@ pub const DirectOpUse = struct {
     function_index: usize,
     requirement_label: []const u8,
     op_name: []const u8,
+    line: usize,
+    column: usize,
 };
 
 /// Shared same-module source graph returned by runtime and comptime extraction.
@@ -101,6 +104,30 @@ const TokenWindow = struct {
             self.items[index - 1] = self.items[index];
         }
         self.items[self.items.len - 1] = item;
+    }
+};
+
+const StatementWindow = struct {
+    items: [32]TokenItem = [_]TokenItem{.{
+        .tag = .invalid,
+        .lexeme = "",
+        .offset = 0,
+    }} ** 32,
+    count: usize = 0,
+
+    fn push(self: *@This(), item: TokenItem) void {
+        if (self.count < self.items.len) {
+            self.items[self.count] = item;
+            self.count += 1;
+        }
+    }
+
+    fn reset(self: *@This()) void {
+        self.count = 0;
+    }
+
+    fn slice(self: *const @This()) []const TokenItem {
+        return self.items[0..self.count];
     }
 };
 
@@ -149,6 +176,10 @@ const RuntimeCollector = struct {
     fn pushFunction(self: *@This(), function: FunctionNode) AnalysisError!usize {
         try self.functions.append(self.allocator, function);
         return self.functions.items.len - 1;
+    }
+
+    fn setFunctionBodyLoweringSupported(self: *@This(), function_index: usize, supported: bool) void {
+        self.functions.items[function_index].body_lowering_supported = supported;
     }
 
     fn functionsSlice(self: *const @This()) []const FunctionNode {
@@ -228,6 +259,7 @@ const FixedCollector = struct {
     functions: [128]FunctionNode = [_]FunctionNode{.{
         .name = "",
         .effect_param = null,
+        .body_lowering_supported = false,
     }} ** 128,
     function_count: usize = 0,
     imports: [64]ImportAlias = [_]ImportAlias{.{
@@ -256,6 +288,8 @@ const FixedCollector = struct {
         .function_index = 0,
         .requirement_label = "",
         .op_name = "",
+        .line = 0,
+        .column = 0,
     }} ** 1024,
     direct_op_use_count: usize = 0,
 
@@ -264,6 +298,10 @@ const FixedCollector = struct {
         self.functions[self.function_count] = function;
         self.function_count += 1;
         return self.function_count - 1;
+    }
+
+    fn setFunctionBodyLoweringSupported(self: *@This(), function_index: usize, supported: bool) void {
+        self.functions[function_index].body_lowering_supported = supported;
     }
 
     fn functionsSlice(self: *const @This()) []const FunctionNode {
@@ -380,7 +418,7 @@ fn upsertAlias(aliases: []Alias, alias_count: *usize, name: []const u8, kind: Al
 
 fn maybeAliasFromDeclaration(
     effect_param: ?[]const u8,
-    aliases: []Alias,
+    aliases: []const Alias,
     token_window: *const TokenWindow,
 ) ?struct {
     name: []const u8,
@@ -523,6 +561,118 @@ fn maybeUnsupportedEffectAccess(
     return false;
 }
 
+fn statementIsSimpleReturn(statement: []const TokenItem) bool {
+    return statement.len == 2 and statement[0].tag == .keyword_return and statement[1].tag == .semicolon;
+}
+
+fn statementTrimSemicolon(statement: []const TokenItem) []const TokenItem {
+    if (statement.len == 0) return statement;
+    if (statement[statement.len - 1].tag != .semicolon) return statement;
+    return statement[0 .. statement.len - 1];
+}
+
+fn statementArgsSupported(args: []const TokenItem) bool {
+    for (args) |item| switch (item.tag) {
+        .comma,
+        .identifier,
+        .keyword_try,
+        .string_literal,
+        .number_literal,
+        => {},
+        else => return false,
+    };
+    return true;
+}
+
+fn statementMatchesSupportedDirectOp(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    statement: []const TokenItem,
+) bool {
+    const tokens = statementTrimSemicolon(statement);
+    if (tokens.len == 0) return false;
+
+    var index: usize = 0;
+    if (tokens.len >= 2 and
+        tokens[0].tag == .identifier and
+        std.mem.eql(u8, tokens[0].lexeme, "_") and
+        tokens[1].tag == .equal)
+    {
+        index = 2;
+    }
+    if (index < tokens.len and tokens[index].tag == .keyword_try) index += 1;
+
+    if (index >= tokens.len or tokens[index].tag != .identifier) return false;
+    const base_kind = aliasKind(effect_param, aliases, tokens[index].lexeme) orelse return false;
+
+    switch (base_kind) {
+        .effect_root => {
+            if (index + 6 > tokens.len) return false;
+            if (tokens[index + 1].tag != .period) return false;
+            if (tokens[index + 2].tag != .identifier) return false;
+            if (tokens[index + 3].tag != .period) return false;
+            if (tokens[index + 4].tag != .identifier) return false;
+            if (tokens[index + 5].tag != .l_paren) return false;
+            if (tokens[tokens.len - 1].tag != .r_paren) return false;
+            return statementArgsSupported(tokens[index + 6 .. tokens.len - 1]);
+        },
+        .requirement => {
+            if (index + 4 > tokens.len) return false;
+            if (tokens[index + 1].tag != .period) return false;
+            if (tokens[index + 2].tag != .identifier) return false;
+            if (tokens[index + 3].tag != .l_paren) return false;
+            if (tokens[tokens.len - 1].tag != .r_paren) return false;
+            return statementArgsSupported(tokens[index + 4 .. tokens.len - 1]);
+        },
+    }
+}
+
+fn statementMatchesSupportedHelperCall(
+    imports: []const ImportAlias,
+    statement: []const TokenItem,
+) bool {
+    const tokens = statementTrimSemicolon(statement);
+    if (tokens.len == 0) return false;
+
+    var index: usize = 0;
+    if (tokens[index].tag == .keyword_try) index += 1;
+    if (index >= tokens.len or tokens[index].tag != .identifier) return false;
+
+    if (index + 2 <= tokens.len and
+        tokens[index + 1].tag == .l_paren and
+        tokens[tokens.len - 1].tag == .r_paren)
+    {
+        return statementArgsSupported(tokens[index + 2 .. tokens.len - 1]);
+    }
+
+    if (index + 4 > tokens.len) return false;
+    if (tokens[index + 1].tag != .period) return false;
+    if (tokens[index + 2].tag != .identifier) return false;
+    if (tokens[index + 3].tag != .l_paren) return false;
+    if (tokens[tokens.len - 1].tag != .r_paren) return false;
+    const import_alias = findImportAlias(imports, tokens[index].lexeme) orelse return false;
+    if (!std.mem.endsWith(u8, import_alias.import_path, ".zig")) return false;
+    return statementArgsSupported(tokens[index + 4 .. tokens.len - 1]);
+}
+
+fn statementSupportsBodyLowering(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    imports: []const ImportAlias,
+    statement_window: *const StatementWindow,
+) bool {
+    const statement = statement_window.slice();
+    if (statement.len == 0) return true;
+    if (statementIsSimpleReturn(statement)) return true;
+
+    var token_window = TokenWindow{};
+    for (statement) |item| token_window.push(item);
+    if (maybeAliasFromDeclaration(effect_param, aliases, &token_window) != null) return true;
+    if (statementMatchesSupportedDirectOp(effect_param, aliases, statement)) return true;
+    if (statementMatchesSupportedHelperCall(imports, statement)) return true;
+    return false;
+}
+
 fn findImportAlias(imports: []const ImportAlias, name: []const u8) ?ImportAlias {
     for (imports) |import_alias| {
         if (std.mem.eql(u8, import_alias.name, name)) return import_alias;
@@ -641,22 +791,27 @@ const BodyScanContext = struct {
     options: AnalyzeOptions,
 };
 
-fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!void {
+fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!bool {
     var aliases = [_]Alias{.{
         .name = "",
         .kind = .effect_root,
     }} ** 128;
     var alias_count: usize = 0;
     var body_depth: usize = 1;
+    var body_lowering_supported = context.effect_param != null;
     var previous_kept_tag: ?std.zig.Token.Tag = null;
     var pending_identifier: ?PendingIdentifier = null;
     var token_window = TokenWindow{};
+    var statement_window = StatementWindow{};
 
     while (body_depth != 0) {
         const token = context.tokenizer.next();
         switch (token.tag) {
             .eof => break,
-            .l_brace => body_depth += 1,
+            .l_brace => {
+                body_depth += 1;
+                body_lowering_supported = false;
+            },
             .r_brace => {
                 body_depth -= 1;
                 if (body_depth == 0) break;
@@ -685,6 +840,7 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!void {
             .offset = token.loc.start,
         };
         token_window.push(current);
+        statement_window.push(current);
         if (maybeQualifiedHelperUse(context.imports, &token_window)) |qualified_use| {
             const loc = locationForOffset(context.source, qualified_use.offset);
             try collector.pushHelperUse(.{
@@ -697,16 +853,26 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!void {
             pending_identifier = null;
         }
         if (maybeRecordDirectOpUse(context.effect_param, aliases[0..alias_count], &token_window)) |match| {
+            const loc = locationForOffset(context.source, current.offset);
             try collector.pushDirectOpUse(.{
                 .function_index = context.caller_index,
                 .requirement_label = match.requirement_label,
                 .op_name = match.op_name,
+                .line = loc.line,
+                .column = loc.column,
             });
         }
         if (current.tag == .semicolon) {
+            if (!statementSupportsBodyLowering(
+                context.effect_param,
+                aliases[0..alias_count],
+                context.imports,
+                &statement_window,
+            )) body_lowering_supported = false;
             if (maybeAliasFromDeclaration(context.effect_param, aliases[0..alias_count], &token_window)) |alias| {
                 try upsertAlias(aliases[0..], &alias_count, alias.name, alias.kind);
             }
+            statement_window.reset();
         } else if (context.options.reject_indirect_effect_access and
             maybeUnsupportedEffectAccess(context.effect_param, aliases[0..alias_count], &token_window))
         {
@@ -721,6 +887,8 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!void {
         }
         previous_kept_tag = token.tag;
     }
+
+    return body_lowering_supported;
 }
 
 fn scanSource(source: [:0]const u8, collector: anytype, options: AnalyzeOptions) AnalysisError!void {
@@ -793,6 +961,7 @@ fn scanSource(source: [:0]const u8, collector: anytype, options: AnalyzeOptions)
                 const function_index = try collector.pushFunction(.{
                     .name = name,
                     .effect_param = effect_param,
+                    .body_lowering_supported = false,
                 });
 
                 while (true) {
@@ -810,7 +979,8 @@ fn scanSource(source: [:0]const u8, collector: anytype, options: AnalyzeOptions)
                                 .imports = collector.importsSlice(),
                                 .options = options,
                             };
-                            try scanBody(&context, collector);
+                            const body_supported = try scanBody(&context, collector);
+                            collector.setFunctionBodyLoweringSupported(function_index, body_supported);
                             break;
                         },
                         .semicolon => break,

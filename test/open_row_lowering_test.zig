@@ -1,3 +1,4 @@
+const example_open_row_linear_helper_body = @import("example_open_row_linear_helper_body");
 const example_open_row_recursive_cross_writer = @import("example_open_row_recursive_cross_writer");
 const example_open_row_recursive_writer = @import("example_open_row_recursive_writer");
 const example_open_row_state_writer = @import("example_open_row_state_writer");
@@ -15,6 +16,36 @@ test "open-row state-writer workflow lowers through the public same-module path"
     try std.testing.expectEqual(@as(usize, 2), lowered.normalization.requirement_count);
     try std.testing.expectEqual(@as(usize, 3), lowered.normalization.op_count);
     try std.testing.expectEqual(@as(usize, 2), lowered.normalization.output_count);
+}
+
+test "straight-line helper bodies lower real source-owned call_op and call_helper instructions" {
+    const lowered = try example_open_row_linear_helper_body.loweredProgram();
+
+    const helper_index = comptime blk: {
+        for (lowered.program.functions, 0..) |function, function_index| {
+            if (std.mem.eql(u8, function.symbol.symbol_name, "helper")) break :blk function_index;
+        }
+        unreachable;
+    };
+    const leaf_index = comptime blk: {
+        for (lowered.program.functions, 0..) |function, function_index| {
+            if (std.mem.eql(u8, function.symbol.symbol_name, "leaf")) break :blk function_index;
+        }
+        unreachable;
+    };
+
+    const helper_body = lowered.program.function_bodies[helper_index];
+    const leaf_body = lowered.program.function_bodies[leaf_index];
+
+    try std.testing.expectEqual(@as(usize, 2), helper_body.blocks[0].instructions.len);
+    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[0].terminator.kind), .return_unit), helper_body.blocks[0].terminator.kind);
+    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[0].instructions[0].kind), .call_op), helper_body.blocks[0].instructions[0].kind);
+    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[0].instructions[1].kind), .call_helper), helper_body.blocks[0].instructions[1].kind);
+    try std.testing.expectEqual(@as(u16, @intCast(leaf_index)), helper_body.blocks[0].instructions[1].operand);
+
+    try std.testing.expectEqual(@as(usize, 1), leaf_body.blocks[0].instructions.len);
+    try std.testing.expectEqual(@as(@TypeOf(leaf_body.blocks[0].instructions[0].kind), .call_op), leaf_body.blocks[0].instructions[0].kind);
+    try std.testing.expectEqual(@as(@TypeOf(leaf_body.blocks[0].terminator.kind), .return_unit), leaf_body.blocks[0].terminator.kind);
 }
 
 test "open-row state-writer workflow exposes the generated same-module runtime plan" {

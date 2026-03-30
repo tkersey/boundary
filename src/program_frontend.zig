@@ -3,6 +3,19 @@ const helper_body_ir = @import("helper_body_ir");
 const parity_scenarios = @import("parity_scenarios");
 const std = @import("std");
 
+/// One lowered helper-body basic block carried by the internal front end.
+pub const BodyBlock = helper_body_ir.Block;
+/// One lowered helper-body instruction carried by the internal front end.
+pub const BodyInstruction = helper_body_ir.Instruction;
+/// One lowered helper-body local codec carried by the internal front end.
+pub const BodyLocalCodec = helper_body_ir.LocalCodec;
+/// One lowered helper-body terminator carried by the internal front end.
+pub const BodyTerminator = helper_body_ir.Terminator;
+/// One lowered helper-body terminator kind carried by the internal front end.
+pub const BodyTerminatorKind = helper_body_ir.TerminatorKind;
+/// One lowered helper-body payload aligned to one front-end function.
+pub const FunctionBody = helper_body_ir.FunctionBody;
+
 /// Witness programs exposed through the internal structured-program front end.
 pub const WitnessProgram = enum {
     atm_resume_transform,
@@ -47,7 +60,7 @@ pub const OpenRowProgram = struct {
     entry_symbol: []const u8,
     functions: []const effect_ir.Function,
     call_edges: []const effect_ir.CallEdge = &.{},
-    function_bodies: []const helper_body_ir.FunctionBody = &.{},
+    function_bodies: []const FunctionBody = &.{},
 };
 
 /// One lowered open-row program that owns its function storage.
@@ -55,7 +68,7 @@ pub const LoweredOpenRowProgram = struct {
     entry_index: usize,
     functions: []const effect_ir.Function,
     call_edges: []const effect_ir.CallEdge = &.{},
-    function_bodies: []const helper_body_ir.FunctionBody = &.{},
+    function_bodies: []const FunctionBody = &.{},
 
     /// Project the owned function storage back into the generic Effect IR view.
     pub fn asEffectProgram(self: *const @This()) effect_ir.Program {
