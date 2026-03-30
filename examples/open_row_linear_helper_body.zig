@@ -27,6 +27,7 @@ pub fn loweringSpec() shift.lowering.LowerSpec {
                 .tell = shift.ir.Transform([]const u8, void),
             },
         }),
+        .ValueType = []const u8,
         .outputs = &.{
             .{ .label = "writer", .OutputType = [][]const u8 },
         },

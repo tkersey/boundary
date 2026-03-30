@@ -228,9 +228,12 @@ pub const LocalCodec = enum {
 
 /// Public helper-body instruction tags.
 pub const InstructionKind = enum {
+    add_const_i32,
     call_helper,
     call_op,
     compare_eq_zero,
+    const_i32,
+    const_string,
     return_value,
     sub_one,
 };
@@ -241,6 +244,7 @@ pub const Instruction = struct {
     dst: LocalId = 0,
     operand: u16 = 0,
     aux: u16 = 0,
+    string_literal: []const u8 = "",
 };
 
 /// Public helper-body terminator tags.
@@ -286,6 +290,7 @@ pub const SccGroup = struct {
 pub const Function = struct {
     symbol: SymbolRef,
     row: Row,
+    ValueType: type = void,
     outputs: []const OutputSpec = &.{},
 };
 

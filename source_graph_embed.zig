@@ -10,6 +10,7 @@ pub const Error = source_graph_engine.Error;
 pub const ProgramFunction = struct {
     module_path: []const u8,
     name: []const u8,
+    effect_param: ?[]const u8,
     body_lowering_supported: bool,
     body_start_offset: usize,
     body_end_offset: usize,
@@ -55,6 +56,7 @@ const Buffers = struct {
     functions: [256]ProgramFunction = [_]ProgramFunction{.{
         .module_path = "",
         .name = "",
+        .effect_param = null,
         .body_lowering_supported = false,
         .body_start_offset = 0,
         .body_end_offset = 0,
@@ -222,6 +224,7 @@ fn collectModule(comptime source_path: []const u8, buffers: *Buffers) Error!Modu
         buffers.functions[buffers.function_count] = .{
             .module_path = source_path,
             .name = function.name,
+            .effect_param = function.effect_param,
             .body_lowering_supported = function.body_lowering_supported,
             .body_start_offset = function.body_start_offset,
             .body_end_offset = function.body_end_offset,

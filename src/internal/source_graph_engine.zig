@@ -579,6 +579,13 @@ fn statementIsSimpleReturn(statement: []const TokenItem) bool {
     return statement.len == 2 and statement[0].tag == .keyword_return and statement[1].tag == .semicolon;
 }
 
+fn statementIsLiteralReturn(statement: []const TokenItem) bool {
+    return statement.len == 3 and
+        statement[0].tag == .keyword_return and
+        (statement[1].tag == .string_literal or statement[1].tag == .number_literal) and
+        statement[2].tag == .semicolon;
+}
+
 fn statementTrimSemicolon(statement: []const TokenItem) []const TokenItem {
     if (statement.len == 0) return statement;
     if (statement[statement.len - 1].tag != .semicolon) return statement;
@@ -590,8 +597,10 @@ fn statementArgsSupported(args: []const TokenItem) bool {
         .comma,
         .identifier,
         .keyword_try,
+        .minus,
         .string_literal,
         .number_literal,
+        .plus,
         => {},
         else => return false,
     };
@@ -641,21 +650,35 @@ fn statementMatchesSupportedDirectOp(
     }
 }
 
-fn statementMatchesSupportedLocalFromDirectOp(statement: []const TokenItem) bool {
-    return statement.len == 12 and
-        statement[0].tag == .keyword_const and
-        statement[1].tag == .identifier and
-        statement[2].tag == .equal and
-        statement[3].tag == .keyword_try and
-        statement[4].tag == .identifier and
-        std.mem.eql(u8, statement[4].lexeme, "eff") and
-        statement[5].tag == .period and
-        statement[6].tag == .identifier and
-        statement[7].tag == .period and
-        statement[8].tag == .identifier and
-        statement[9].tag == .l_paren and
-        statement[10].tag == .r_paren and
-        statement[11].tag == .semicolon;
+fn statementMatchesSupportedLocalFromDirectOp(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    statement: []const TokenItem,
+) bool {
+    if (statement.len < 8) return false;
+    if (statement[0].tag != .keyword_const) return false;
+    if (statement[1].tag != .identifier) return false;
+    if (statement[2].tag != .equal) return false;
+    if (statement[3].tag != .keyword_try) return false;
+    if (statement[4].tag != .identifier) return false;
+
+    const base_kind = aliasKind(effect_param, aliases, statement[4].lexeme) orelse return false;
+    return switch (base_kind) {
+        .effect_root => statement.len == 12 and
+            statement[5].tag == .period and
+            statement[6].tag == .identifier and
+            statement[7].tag == .period and
+            statement[8].tag == .identifier and
+            statement[9].tag == .l_paren and
+            statement[10].tag == .r_paren and
+            statement[11].tag == .semicolon,
+        .requirement => statement.len == 10 and
+            statement[5].tag == .period and
+            statement[6].tag == .identifier and
+            statement[7].tag == .l_paren and
+            statement[8].tag == .r_paren and
+            statement[9].tag == .semicolon,
+    };
 }
 
 fn statementMatchesSupportedHelperCall(
@@ -738,11 +761,12 @@ fn statementSupportsBodyLowering(
     const statement = statement_window.slice();
     if (statement.len == 0) return true;
     if (statementIsSimpleReturn(statement)) return true;
+    if (statementIsLiteralReturn(statement)) return true;
 
     var token_window = TokenWindow{};
     for (statement) |item| token_window.push(item);
     if (maybeAliasFromDeclaration(effect_param, aliases, &token_window) != null) return true;
-    if (statementMatchesSupportedLocalFromDirectOp(statement)) return true;
+    if (statementMatchesSupportedLocalFromDirectOp(effect_param, aliases, statement)) return true;
     if (statementMatchesSupportedIfLocalEqZeroReturn(statement)) return true;
     if (statementMatchesSupportedDirectOp(effect_param, aliases, statement)) return true;
     if (statementMatchesSupportedLocalDecrementOp(effect_param, aliases, statement)) return true;

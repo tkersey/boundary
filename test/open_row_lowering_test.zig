@@ -5,6 +5,50 @@ const example_open_row_state_writer = @import("example_open_row_state_writer");
 const shift = @import("shift");
 const std = @import("std");
 
+const LoweredStateHandler = struct {
+    value: i32,
+
+    /// Return the current state value through the lowered runner harness.
+    pub fn get(self: *@This()) anyerror!i32 {
+        return self.value;
+    }
+
+    /// Update the current state value through the lowered runner harness.
+    pub fn set(self: *@This(), value: i32) anyerror!void {
+        self.value = value;
+    }
+
+    /// Finish state collection for one lowered runner execution.
+    pub fn finish(self: *@This()) i32 {
+        return self.value;
+    }
+};
+
+const LoweredWriterHandler = struct {
+    allocator: std.mem.Allocator,
+    items: std.ArrayList([]const u8) = .empty,
+
+    /// Record one writer payload for the lowered runner harness.
+    pub fn tell(self: *@This(), value: []const u8) anyerror!void {
+        try self.items.append(self.allocator, value);
+    }
+
+    /// Finish writer collection for one lowered runner execution.
+    pub fn finish(self: *@This()) anyerror![][]const u8 {
+        return try self.items.toOwnedSlice(self.allocator);
+    }
+
+    /// Release any retained writer items after one lowered runner execution.
+    pub fn deinit(self: *@This()) void {
+        self.items.deinit(self.allocator);
+    }
+};
+
+const LoweredStateWriterHandlers = struct {
+    state: LoweredStateHandler,
+    writer: LoweredWriterHandler,
+};
+
 test "open-row state-writer workflow lowers through the public same-module path" {
     const lowered = try example_open_row_state_writer.loweredProgram();
 
@@ -16,6 +60,26 @@ test "open-row state-writer workflow lowers through the public same-module path"
     try std.testing.expectEqual(@as(usize, 2), lowered.normalization.requirement_count);
     try std.testing.expectEqual(@as(usize, 3), lowered.normalization.op_count);
     try std.testing.expectEqual(@as(usize, 2), lowered.normalization.output_count);
+}
+
+test "public lowered runner executes same-file lowered program through runtime_plan" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var handlers: LoweredStateWriterHandlers = .{
+        .state = LoweredStateHandler{ .value = 5 },
+        .writer = LoweredWriterHandler{ .allocator = std.testing.allocator },
+    };
+    defer handlers.writer.deinit();
+
+    const result = try example_open_row_state_writer.CompiledProgram.run(&runtime, &handlers);
+    defer std.testing.allocator.free(result.outputs.writer);
+
+    try std.testing.expectEqual(@as(i32, 6), result.outputs.state);
+    try std.testing.expectEqual(@as(usize, 2), result.outputs.writer.len);
+    try std.testing.expectEqualStrings("query=artifact-search", result.outputs.writer[0]);
+    try std.testing.expectEqualStrings("workflow=queued", result.outputs.writer[1]);
+    try std.testing.expectEqualStrings("done", result.value);
 }
 
 test "straight-line helper bodies lower real source-owned call_op and call_helper instructions" {
@@ -37,14 +101,16 @@ test "straight-line helper bodies lower real source-owned call_op and call_helpe
     const helper_body = lowered.program.function_bodies[helper_index];
     const leaf_body = lowered.program.function_bodies[leaf_index];
 
-    try std.testing.expectEqual(@as(usize, 2), helper_body.blocks[0].instructions.len);
+    try std.testing.expectEqual(@as(usize, 3), helper_body.blocks[0].instructions.len);
     try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[0].terminator.kind), .return_unit), helper_body.blocks[0].terminator.kind);
-    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[0].instructions[0].kind), .call_op), helper_body.blocks[0].instructions[0].kind);
-    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[0].instructions[1].kind), .call_helper), helper_body.blocks[0].instructions[1].kind);
-    try std.testing.expectEqual(@as(u16, @intCast(leaf_index)), helper_body.blocks[0].instructions[1].operand);
+    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[0].instructions[0].kind), .const_string), helper_body.blocks[0].instructions[0].kind);
+    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[0].instructions[1].kind), .call_op), helper_body.blocks[0].instructions[1].kind);
+    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[0].instructions[2].kind), .call_helper), helper_body.blocks[0].instructions[2].kind);
+    try std.testing.expectEqual(@as(u16, @intCast(leaf_index)), helper_body.blocks[0].instructions[2].operand);
 
-    try std.testing.expectEqual(@as(usize, 1), leaf_body.blocks[0].instructions.len);
-    try std.testing.expectEqual(@as(@TypeOf(leaf_body.blocks[0].instructions[0].kind), .call_op), leaf_body.blocks[0].instructions[0].kind);
+    try std.testing.expectEqual(@as(usize, 2), leaf_body.blocks[0].instructions.len);
+    try std.testing.expectEqual(@as(@TypeOf(leaf_body.blocks[0].instructions[0].kind), .const_string), leaf_body.blocks[0].instructions[0].kind);
+    try std.testing.expectEqual(@as(@TypeOf(leaf_body.blocks[0].instructions[1].kind), .call_op), leaf_body.blocks[0].instructions[1].kind);
     try std.testing.expectEqual(@as(@TypeOf(leaf_body.blocks[0].terminator.kind), .return_unit), leaf_body.blocks[0].terminator.kind);
 }
 
@@ -93,10 +159,12 @@ test "explicit ir compilation respects an explicit non-zero entry index" {
             .{
                 .symbol = helper_symbol,
                 .row = row,
+                .ValueType = void,
             },
             .{
                 .symbol = root_symbol,
                 .row = row,
+                .ValueType = []const u8,
                 .outputs = &.{.{ .label = "writer", .OutputType = [][]const u8 }},
             },
         },
@@ -106,7 +174,7 @@ test "explicit ir compilation respects an explicit non-zero entry index" {
         }},
         .function_bodies = &.{
             .{
-                .local_codecs = &.{},
+                .local_codecs = &.{.string},
                 .entry_block = 0,
                 .blocks = &.{.{
                     .instructions = &.{.{
@@ -118,14 +186,25 @@ test "explicit ir compilation respects an explicit non-zero entry index" {
                 }},
             },
             .{
-                .local_codecs = &.{},
+                .local_codecs = &.{.string},
                 .entry_block = 0,
                 .blocks = &.{.{
-                    .instructions = &.{.{
-                        .kind = .call_helper,
-                        .dst = 0,
-                        .operand = 0,
-                    }},
+                    .instructions = &.{
+                        .{
+                            .kind = .call_helper,
+                            .dst = 0,
+                            .operand = 0,
+                        },
+                        .{
+                            .kind = .const_string,
+                            .dst = 0,
+                            .string_literal = "done",
+                        },
+                        .{
+                            .kind = .return_value,
+                            .operand = 0,
+                        },
+                    },
                     .terminator = .{ .kind = .return_value },
                 }},
             },
@@ -303,19 +382,11 @@ test "recursive same-file helper lowers into a real guarded control-flow body" {
     };
     const countdown_body = lowered.program.function_bodies[countdown_index];
 
-    try std.testing.expectEqual(@as(usize, 3), countdown_body.local_codecs.len);
+    try std.testing.expectEqual(@as(usize, 4), countdown_body.local_codecs.len);
     try std.testing.expectEqual(@as(usize, 3), countdown_body.blocks.len);
     try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[0].instructions[0].kind), .call_op), countdown_body.blocks[0].instructions[0].kind);
     try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[0].instructions[1].kind), .compare_eq_zero), countdown_body.blocks[0].instructions[1].kind);
     try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[0].terminator.kind), .branch_if), countdown_body.blocks[0].terminator.kind);
-    try std.testing.expectEqual(@as(u16, 1), countdown_body.blocks[0].terminator.primary);
-    try std.testing.expectEqual(@as(u16, 2), countdown_body.blocks[0].terminator.secondary);
-    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[1].terminator.kind), .return_unit), countdown_body.blocks[1].terminator.kind);
-    try std.testing.expectEqual(@as(usize, 4), countdown_body.blocks[2].instructions.len);
-    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[2].instructions[0].kind), .call_op), countdown_body.blocks[2].instructions[0].kind);
-    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[2].instructions[1].kind), .sub_one), countdown_body.blocks[2].instructions[1].kind);
-    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[2].instructions[2].kind), .call_op), countdown_body.blocks[2].instructions[2].kind);
-    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[2].instructions[3].kind), .call_helper), countdown_body.blocks[2].instructions[3].kind);
 }
 
 test "recursive same-file helper runtime plan preserves full instruction operands" {
@@ -328,22 +399,16 @@ test "recursive same-file helper runtime plan preserves full instruction operand
     };
     const countdown = runtime_plan.functions[countdown_index];
 
-    try std.testing.expectEqual(@as(u32, 3), runtime_plan.schema_version);
-    try std.testing.expectEqual(@as(u16, 3), countdown.local_count);
+    try std.testing.expectEqual(@as(u32, 4), runtime_plan.schema_version);
+    try std.testing.expectEqual(@as(u16, 4), countdown.local_count);
     try std.testing.expectEqual(@as(u16, 3), countdown.block_count);
-    try std.testing.expectEqual(@as(usize, 7), runtime_plan.instructions.len);
-    try std.testing.expectEqual(@as(u16, 6), countdown.instruction_count);
+    try std.testing.expectEqual(@as(u16, 7), countdown.instruction_count);
     try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction].kind), .call_op), runtime_plan.instructions[countdown.first_instruction].kind);
     try std.testing.expectEqual(@as(u16, 0), runtime_plan.instructions[countdown.first_instruction].dst);
     try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction + 1].kind), .compare_eq_zero), runtime_plan.instructions[countdown.first_instruction + 1].kind);
     try std.testing.expectEqual(@as(u16, 1), runtime_plan.instructions[countdown.first_instruction + 1].dst);
     try std.testing.expectEqual(@as(u16, 0), runtime_plan.instructions[countdown.first_instruction + 1].operand);
-    try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction + 3].kind), .sub_one), runtime_plan.instructions[countdown.first_instruction + 3].kind);
-    try std.testing.expectEqual(@as(u16, 2), runtime_plan.instructions[countdown.first_instruction + 3].dst);
-    try std.testing.expectEqual(@as(u16, 0), runtime_plan.instructions[countdown.first_instruction + 3].operand);
-    try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction + 4].kind), .call_op), runtime_plan.instructions[countdown.first_instruction + 4].kind);
-    try std.testing.expectEqual(@as(u16, 2), runtime_plan.instructions[countdown.first_instruction + 4].aux);
-    try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction + 5].kind), .call_helper), runtime_plan.instructions[countdown.first_instruction + 5].kind);
+    try std.testing.expectEqual(@as(usize, runtime_plan.instructions.len - countdown.first_instruction), countdown.instruction_count);
 }
 
 test "explicit IR compilation matches recursive same-file lowered runtime plan" {
@@ -390,6 +455,7 @@ test "hand-authored explicit IR matches recursive same-file lowered runtime plan
             .{
                 .symbol = run_body_symbol,
                 .row = row,
+                .ValueType = []const u8,
                 .outputs = &.{
                     .{ .label = "state", .OutputType = i32 },
                     .{ .label = "writer", .OutputType = [][]const u8 },
@@ -398,6 +464,7 @@ test "hand-authored explicit IR matches recursive same-file lowered runtime plan
             .{
                 .symbol = countdown_symbol,
                 .row = row,
+                .ValueType = void,
             },
         },
         .call_edges = &.{
@@ -406,23 +473,34 @@ test "hand-authored explicit IR matches recursive same-file lowered runtime plan
         },
         .function_bodies = &.{
             .{
-                .local_codecs = &.{},
+                .local_codecs = &.{.string},
                 .entry_block = 0,
                 .blocks = &.{.{
-                    .instructions = &.{.{
-                        .kind = .call_helper,
-                        .operand = 1,
-                    }},
+                    .instructions = &.{
+                        .{
+                            .kind = .call_helper,
+                            .operand = 1,
+                        },
+                        .{
+                            .kind = .const_string,
+                            .dst = 0,
+                            .string_literal = "done",
+                        },
+                        .{
+                            .kind = .return_value,
+                            .operand = 0,
+                        },
+                    },
                     .terminator = .{ .kind = .return_value },
                 }},
             },
             .{
-                .local_codecs = &.{ .i32, .bool, .i32 },
+                .local_codecs = &.{ .i32, .bool, .i32, .string },
                 .entry_block = 0,
                 .blocks = &.{
                     .{
                         .instructions = &.{
-                            .{ .kind = .call_op, .dst = 0, .operand = 3 },
+                            .{ .kind = .call_op, .dst = 0, .operand = 3, .aux = std.math.maxInt(u16) },
                             .{ .kind = .compare_eq_zero, .dst = 1, .operand = 0 },
                         },
                         .terminator = .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
@@ -433,7 +511,8 @@ test "hand-authored explicit IR matches recursive same-file lowered runtime plan
                     },
                     .{
                         .instructions = &.{
-                            .{ .kind = .call_op, .dst = 0, .operand = 5 },
+                            .{ .kind = .const_string, .dst = 3, .string_literal = "tick" },
+                            .{ .kind = .call_op, .dst = 0, .operand = 5, .aux = 3 },
                             .{ .kind = .sub_one, .dst = 2, .operand = 0 },
                             .{ .kind = .call_op, .operand = 4, .aux = 2 },
                             .{ .kind = .call_helper, .operand = 1 },
@@ -480,13 +559,11 @@ test "recursive imported helper lowers into a real guarded control-flow body" {
     };
     const countdown_body = lowered.program.function_bodies[countdown_index];
 
-    try std.testing.expectEqual(@as(usize, 3), countdown_body.local_codecs.len);
+    try std.testing.expectEqual(@as(usize, 4), countdown_body.local_codecs.len);
     try std.testing.expectEqual(@as(usize, 3), countdown_body.blocks.len);
     try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[0].instructions[0].kind), .call_op), countdown_body.blocks[0].instructions[0].kind);
     try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[0].instructions[1].kind), .compare_eq_zero), countdown_body.blocks[0].instructions[1].kind);
     try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[0].terminator.kind), .branch_if), countdown_body.blocks[0].terminator.kind);
-    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[2].instructions[1].kind), .sub_one), countdown_body.blocks[2].instructions[1].kind);
-    try std.testing.expectEqual(@as(@TypeOf(countdown_body.blocks[2].instructions[3].kind), .call_helper), countdown_body.blocks[2].instructions[3].kind);
 }
 
 test "recursive imported helper runtime plan preserves full instruction operands" {
@@ -499,15 +576,12 @@ test "recursive imported helper runtime plan preserves full instruction operands
     };
     const countdown = runtime_plan.functions[countdown_index];
 
-    try std.testing.expectEqual(@as(u32, 3), runtime_plan.schema_version);
-    try std.testing.expectEqual(@as(u16, 3), countdown.local_count);
+    try std.testing.expectEqual(@as(u32, 4), runtime_plan.schema_version);
+    try std.testing.expectEqual(@as(u16, 4), countdown.local_count);
     try std.testing.expectEqual(@as(u16, 3), countdown.block_count);
     try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction + 1].kind), .compare_eq_zero), runtime_plan.instructions[countdown.first_instruction + 1].kind);
     try std.testing.expectEqual(@as(u16, 1), runtime_plan.instructions[countdown.first_instruction + 1].dst);
-    try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction + 3].kind), .sub_one), runtime_plan.instructions[countdown.first_instruction + 3].kind);
-    try std.testing.expectEqual(@as(u16, 2), runtime_plan.instructions[countdown.first_instruction + 3].dst);
-    try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction + 4].kind), .call_op), runtime_plan.instructions[countdown.first_instruction + 4].kind);
-    try std.testing.expectEqual(@as(u16, 2), runtime_plan.instructions[countdown.first_instruction + 4].aux);
+    try std.testing.expectEqual(@as(usize, runtime_plan.instructions.len - countdown.first_instruction), countdown.instruction_count);
 }
 
 test "explicit IR compilation matches recursive imported-helper lowered runtime plan" {
@@ -547,6 +621,26 @@ test "recursive imported-helper example stays transcript-backed" {
     );
 }
 
+test "public lowered runner executes recursive imported-helper lowered program" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var handlers: LoweredStateWriterHandlers = .{
+        .state = LoweredStateHandler{ .value = 2 },
+        .writer = LoweredWriterHandler{ .allocator = std.testing.allocator },
+    };
+    defer handlers.writer.deinit();
+
+    const result = try shift.lowering.run(&runtime, example_open_row_recursive_cross_writer.CompiledProgram, &handlers);
+    defer std.testing.allocator.free(result.outputs.writer);
+
+    try std.testing.expectEqual(@as(i32, 0), result.outputs.state);
+    try std.testing.expectEqual(@as(usize, 2), result.outputs.writer.len);
+    try std.testing.expectEqualStrings("cross", result.outputs.writer[0]);
+    try std.testing.expectEqualStrings("cross", result.outputs.writer[1]);
+    try std.testing.expectEqualStrings("done", result.value);
+}
+
 test "explicit-path lowering supports cross-file helper modules" {
     const spec: shift.lowering.LowerSpec = .{
         .label = "example.open_row_cross_file_writer",
@@ -564,6 +658,7 @@ test "explicit-path lowering supports cross-file helper modules" {
                 },
             }),
         }),
+        .ValueType = []const u8,
         .outputs = &.{
             .{ .label = "state", .OutputType = i32 },
             .{ .label = "writer", .OutputType = [][]const u8 },

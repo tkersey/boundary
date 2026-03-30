@@ -27,6 +27,7 @@ pub fn loweringSpec() shift.lowering.LowerSpec {
                 },
             }),
         }),
+        .ValueType = []const u8,
         .outputs = &.{
             .{ .label = "state", .OutputType = i32 },
             .{ .label = "writer", .OutputType = [][]const u8 },

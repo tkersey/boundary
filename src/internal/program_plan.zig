@@ -62,6 +62,7 @@ pub const RequirementPlan = struct {
 /// One lowered function descriptor in the runtime-owned executable plan.
 pub const FunctionPlan = struct {
     symbol_name: []const u8,
+    value_codec: ValueCodec = .unit,
     first_requirement: u16,
     requirement_count: u16,
     first_output: u16,
@@ -76,9 +77,12 @@ pub const FunctionPlan = struct {
 
 /// Serializable instruction tags carried by the runtime-owned plan.
 pub const InstructionKind = enum {
+    add_const_i32,
     call_helper,
     call_op,
     compare_eq_zero,
+    const_i32,
+    const_string,
     return_value,
     sub_one,
 };
@@ -89,6 +93,7 @@ pub const Instruction = struct {
     dst: u16 = 0,
     operand: u16 = 0,
     aux: u16 = 0,
+    string_literal: []const u8 = "",
 };
 
 /// Serializable block terminator tags carried by the runtime-owned plan.
@@ -116,7 +121,7 @@ pub const BlockPlan = struct {
 /// Runtime-owned serializable executable plan for lowered or explicit IR programs.
 pub const ProgramPlan = struct {
     /// Stable schema version for JSON-serialized runtime plans.
-    pub const current_schema_version: u32 = 3;
+    pub const current_schema_version: u32 = 4;
 
     schema_version: u32 = current_schema_version,
     label: []const u8,
@@ -180,9 +185,10 @@ pub const ProgramPlan = struct {
             .call_op => {
                 if (instruction.operand >= self.ops.len) return error.InvalidCallOpTarget;
             },
-            .compare_eq_zero, .sub_one => {},
+            .const_string => {},
+            .add_const_i32, .compare_eq_zero, .const_i32, .sub_one => {},
             .return_value => {
-                if (instruction.operand != 0 or instruction.dst != 0 or instruction.aux != 0) return error.InvalidReturnValueIndex;
+                if (instruction.operand >= self.locals.len) return error.InvalidReturnValueIndex;
             },
         };
 
@@ -207,6 +213,7 @@ pub const ProgramPlan = struct {
         hasher.update(std.mem.asBytes(&self.entry_index));
         for (self.functions) |function| {
             hashBytes(&hasher, function.symbol_name);
+            hashBytes(&hasher, @tagName(function.value_codec));
             hasher.update(std.mem.asBytes(&function.first_requirement));
             hasher.update(std.mem.asBytes(&function.requirement_count));
             hasher.update(std.mem.asBytes(&function.first_output));
@@ -248,6 +255,7 @@ pub const ProgramPlan = struct {
             hasher.update(std.mem.asBytes(&instruction.dst));
             hasher.update(std.mem.asBytes(&instruction.operand));
             hasher.update(std.mem.asBytes(&instruction.aux));
+            hashBytes(&hasher, instruction.string_literal);
         }
         return hasher.final();
     }
@@ -311,11 +319,18 @@ fn codecFromEffectIrBody(codec: effect_ir.LocalCodec) ValueCodec {
     };
 }
 
+fn valueCodecFromEffectType(comptime T: type) CodecError!ValueCodec {
+    return try codecForType(T);
+}
+
 fn instructionKindFromEffectIrBody(kind: effect_ir.InstructionKind) InstructionKind {
     return switch (kind) {
+        .add_const_i32 => .add_const_i32,
         .call_helper => .call_helper,
         .call_op => .call_op,
         .compare_eq_zero => .compare_eq_zero,
+        .const_i32 => .const_i32,
+        .const_string => .const_string,
         .return_value => .return_value,
         .sub_one => .sub_one,
     };
@@ -488,6 +503,7 @@ pub fn irHashForProgram(comptime program: effect_ir.Program) PlanError!u64 {
         const digest = try effect_ir.rowDigest(function.row, function.outputs);
         hashBytes(&hasher, function.symbol.module_path);
         hashBytes(&hasher, function.symbol.symbol_name);
+        hashBytes(&hasher, @typeName(function.ValueType));
         hasher.update(std.mem.asBytes(&digest.hash));
         hasher.update(std.mem.asBytes(&digest.requirement_count));
         hasher.update(std.mem.asBytes(&digest.op_count));
@@ -508,6 +524,7 @@ pub fn irHashForProgram(comptime program: effect_ir.Program) PlanError!u64 {
                 hasher.update(std.mem.asBytes(&instruction.dst));
                 hasher.update(std.mem.asBytes(&instruction.operand));
                 hasher.update(std.mem.asBytes(&instruction.aux));
+                hashBytes(&hasher, instruction.string_literal);
             }
             hashBytes(&hasher, @tagName(block.terminator.kind));
             hasher.update(std.mem.asBytes(&block.terminator.primary));
@@ -521,6 +538,9 @@ pub fn irHashForProgram(comptime program: effect_ir.Program) PlanError!u64 {
 pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.Program) PlanError!ProgramPlan {
     if (program.functions.len == 0) return error.EmptyProgram;
     if (program.entry_index >= program.functions.len) return error.UnknownSymbol;
+    for (program.functions) |function| {
+        if (function.ValueType != void and program.function_bodies.len == 0) return error.InvalidProgramBodyShape;
+    }
     if (program.function_bodies.len != 0) {
         if (program.function_bodies.len != program.functions.len) return error.InvalidProgramBodyShape;
         return try planFromOpenRowProgram(label, .{
@@ -585,6 +605,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
             }
             buf[index] = .{
                 .symbol_name = function.symbol.symbol_name,
+                .value_codec = try valueCodecFromEffectType(function.ValueType),
                 .first_requirement = requirement_index,
                 .requirement_count = @intCast(function.row.requirements.len),
                 .first_output = output_index,
@@ -694,6 +715,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
                     .dst = 0,
                     .operand = callee_index,
                     .aux = 0,
+                    .string_literal = "",
                 };
                 instruction_index += 1;
             }
@@ -702,6 +724,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
                 .dst = 0,
                 .operand = 0,
                 .aux = 0,
+                .string_literal = "",
             };
             instruction_index += 1;
         }
@@ -772,6 +795,7 @@ pub fn planFromOpenRowProgram(
             };
             buf[index] = .{
                 .symbol_name = function.symbol.symbol_name,
+                .value_codec = try valueCodecFromEffectType(function.ValueType),
                 .first_requirement = requirement_index,
                 .requirement_count = @intCast(function.row.requirements.len),
                 .first_output = output_index,
@@ -914,6 +938,7 @@ pub fn planFromOpenRowProgram(
                         .dst = instruction.dst,
                         .operand = instruction.operand,
                         .aux = instruction.aux,
+                        .string_literal = instruction.string_literal,
                     };
                     instruction_index += 1;
                 }

@@ -383,6 +383,7 @@ fn cloneFunction(comptime function: effect_ir.Function) effect_ir.Function {
     return .{
         .symbol = cloneSymbolRef(function.symbol),
         .row = cloneRow(function.row),
+        .ValueType = function.ValueType,
         .outputs = cloneOutputSpecs(function.outputs),
     };
 }
