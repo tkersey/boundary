@@ -1,3 +1,4 @@
+const shared_graph = @import("source_graph_engine");
 const std = @import("std");
 
 /// Parsed source text plus the AST that owns token views into it.
@@ -14,29 +15,24 @@ pub const ParsedSource = struct {
 };
 
 /// One top-level function discovered in a parsed Zig source module.
-pub const TopLevelFunction = struct {
-    name: []const u8,
-    node: std.zig.Ast.Node.Index,
-};
-
+pub const TopLevelFunction = shared_graph.FunctionNode;
 /// One conservative same-module helper call discovered inside a top-level function body.
-pub const HelperCallEdge = struct {
-    caller_name: []const u8,
-    callee_name: []const u8,
-    line: usize,
-    column: usize,
-};
+pub const HelperCallEdge = shared_graph.HelperEdge;
+/// One direct effect-op use discovered through the shared source graph.
+pub const DirectOpUse = shared_graph.DirectOpUse;
 
 /// One reusable same-module source analysis result.
 pub const ModuleAnalysis = struct {
     parsed: ParsedSource,
     top_level_functions: []const TopLevelFunction,
     helper_call_edges: []const HelperCallEdge,
+    direct_op_uses: []const DirectOpUse,
 
     /// Release the owned parse payload and derived analysis slices.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         allocator.free(self.top_level_functions);
         allocator.free(self.helper_call_edges);
+        allocator.free(self.direct_op_uses);
         self.parsed.deinit(allocator);
         self.* = undefined;
     }
@@ -72,26 +68,6 @@ pub fn parseSource(allocator: std.mem.Allocator, source: []const u8) ParseSource
     };
 }
 
-fn collectTopLevelFunctions(
-    allocator: std.mem.Allocator,
-    tree: std.zig.Ast,
-) std.mem.Allocator.Error![]const TopLevelFunction {
-    var container_buffer: [2]std.zig.Ast.Node.Index = undefined;
-    const root = tree.fullContainerDecl(&container_buffer, .root) orelse return try allocator.alloc(TopLevelFunction, 0);
-
-    var functions = std.ArrayList(TopLevelFunction).empty;
-    defer functions.deinit(allocator);
-
-    for (root.ast.members) |member| {
-        const name = topLevelFunctionName(tree, member) orelse continue;
-        try functions.append(allocator, .{
-            .name = name,
-            .node = member,
-        });
-    }
-    return try functions.toOwnedSlice(allocator);
-}
-
 fn findTopLevelFunction(functions: []const TopLevelFunction, name: []const u8) ?TopLevelFunction {
     for (functions) |function| {
         if (std.mem.eql(u8, function.name, name)) return function;
@@ -99,85 +75,26 @@ fn findTopLevelFunction(functions: []const TopLevelFunction, name: []const u8) ?
     return null;
 }
 
-fn nextKeptTokenIndex(
-    tree: std.zig.Ast,
-    first_index: usize,
-    last_index: usize,
-) ?std.zig.Ast.TokenIndex {
-    var raw_index = first_index;
-    while (raw_index <= last_index) : (raw_index += 1) {
-        const token_index: std.zig.Ast.TokenIndex = @intCast(raw_index);
-        const tag = tree.tokenTag(token_index);
-        if (shouldSkipToken(tag)) continue;
-        return token_index;
-    }
-    return null;
-}
-
-fn shouldSkipToken(tag: std.zig.Token.Tag) bool {
-    return switch (tag) {
-        .doc_comment, .container_doc_comment => true,
-        else => false,
-    };
-}
-
-fn collectHelperCallEdges(
-    allocator: std.mem.Allocator,
-    tree: std.zig.Ast,
-    functions: []const TopLevelFunction,
-) std.mem.Allocator.Error![]const HelperCallEdge {
-    var edges = std.ArrayList(HelperCallEdge).empty;
-    defer edges.deinit(allocator);
-
-    for (functions) |function| {
-        const first = tree.firstToken(function.node);
-        const last = tree.lastToken(function.node);
-        var previous_kept_tag: ?std.zig.Token.Tag = null;
-        var raw_index: usize = first;
-        while (raw_index <= last) : (raw_index += 1) {
-            const token_index: std.zig.Ast.TokenIndex = @intCast(raw_index);
-            const tag = tree.tokenTag(token_index);
-            if (shouldSkipToken(tag)) continue;
-
-            if (tag == .identifier and previous_kept_tag != .period) {
-                const next_token = nextKeptTokenIndex(tree, raw_index + 1, last);
-                if (next_token != null and tree.tokenTag(next_token.?) == .l_paren) {
-                    const callee_name = tree.tokenSlice(token_index);
-                    if (findTopLevelFunction(functions, callee_name)) |callee|
-                        if (!std.mem.eql(u8, callee.name, function.name)) {
-                            const loc = tree.tokenLocation(0, token_index);
-                            try edges.append(allocator, .{
-                                .caller_name = function.name,
-                                .callee_name = callee.name,
-                                .line = loc.line + 1,
-                                .column = loc.column + 1,
-                            });
-                        };
-                }
-            }
-
-            previous_kept_tag = tag;
-        }
-    }
-
-    return try edges.toOwnedSlice(allocator);
-}
-
 /// Parse and analyze one same-module Zig source buffer.
 pub fn analyzeModuleSource(allocator: std.mem.Allocator, source: []const u8) ParseSourceError!ModuleAnalysis {
     var parsed = try parseSource(allocator, source);
     errdefer parsed.deinit(allocator);
 
-    const top_level_functions = try collectTopLevelFunctions(allocator, parsed.tree);
-    errdefer allocator.free(top_level_functions);
-
-    const helper_call_edges = try collectHelperCallEdges(allocator, parsed.tree, top_level_functions);
-    errdefer allocator.free(helper_call_edges);
+    const graph = shared_graph.analyzeRuntime(allocator, parsed.source_z, .{}) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => unreachable,
+    };
+    errdefer {
+        allocator.free(graph.functions);
+        allocator.free(graph.helper_edges);
+        allocator.free(graph.direct_op_uses);
+    }
 
     return .{
         .parsed = parsed,
-        .top_level_functions = top_level_functions,
-        .helper_call_edges = helper_call_edges,
+        .top_level_functions = graph.functions,
+        .helper_call_edges = graph.helper_edges,
+        .direct_op_uses = graph.direct_op_uses,
     };
 }
 

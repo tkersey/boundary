@@ -234,6 +234,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const source_graph_engine_mod = b.createModule(.{
+        .root_source_file = b.path("src/internal/source_graph_engine.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const internal_program_plan_mod = b.createModule(.{
         .root_source_file = b.path("src/internal/program_plan.zig"),
         .target = target,
@@ -245,6 +250,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    source_graph_comptime_mod.addImport("source_graph_engine", source_graph_engine_mod);
     const source_graph_embed_mod = b.createModule(.{
         .root_source_file = b.path("source_graph_embed.zig"),
         .target = target,
@@ -336,6 +342,7 @@ pub fn build(b: *std.Build) void {
     authoring_lowerer_mod.addImport("effect_ir", effect_ir_mod);
     authoring_lowerer_mod.addImport("lowered_machine", lowered_machine_mod);
     authoring_lowerer_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    authoring_lowerer_mod.addImport("source_graph_engine", source_graph_engine_mod);
     frontend_support_mod.addImport("lowered_machine", lowered_machine_mod);
     shift_mod.addImport("effect_ir", effect_ir_mod);
     shift_mod.addImport("lowered_machine", lowered_machine_mod);

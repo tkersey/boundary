@@ -157,7 +157,7 @@ fn flatOpsForRow(comptime row: effect_ir.Row) []const FlatOp {
 
 fn reachableFunctions(comptime graph: source_graph_comptime.ModuleGraph) [graph.functions.len]bool {
     var reachable = [_]bool{false} ** graph.functions.len;
-    reachable[graph.entry_index] = true;
+    reachable[graph.entry_index.?] = true;
 
     var changed = true;
     while (changed) {
@@ -288,7 +288,7 @@ fn buildFunctionsAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
         index += 1;
 
         for (graph.functions, 0..) |function, function_index| {
-            if (!reachable[function_index] or function_index == graph.entry_index) continue;
+            if (!reachable[function_index] or function_index == graph.entry_index.?) continue;
             buffer[index] = .{
                 .symbol = .{
                     .module_path = cloneBytes(source_path),
