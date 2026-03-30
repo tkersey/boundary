@@ -2,9 +2,10 @@ const kernel = @import("internal_kernel");
 const scenarios = @import("parity_scenarios");
 const std = @import("std");
 
-const current_manifest_schema: u32 = 4;
+const current_manifest_schema: u32 = 5;
 const current_plan_schema: u32 = 2;
 const current_event_schema: u32 = 1;
+const current_artifact_schema: u32 = 1;
 
 /// Stable executable kernel artifact used by durable replay.
 pub const ProgramArtifact = struct {
@@ -43,11 +44,20 @@ pub const SessionManifest = struct {
     scenario_id: ?kernel.ScenarioId = null,
     /// Durable program identity. Plan-backed artifacts persist `ProgramPlan.ir_hash`.
     program_hash: u64,
+    artifact_schema_version: ?u32 = null,
     plan_hash: ?u64 = null,
     plan_schema_version: ?u32 = null,
     event_schema_version: ?u32 = null,
     last_seq: usize,
     restore_status: RestoreStatus = .exact_replay,
+};
+
+/// Versioned durable artifact envelope for non-scenario executable provenance.
+pub const ArtifactFile = struct {
+    schema_version: u32 = current_artifact_schema,
+    identity_hash: u64,
+    label: []const u8,
+    steps: []const kernel.Step,
 };
 
 /// Versioned durable plan file envelope.
@@ -87,6 +97,7 @@ const SessionManifestState = struct {
     schema_version: u32,
     scenario_id: ?kernel.ScenarioId,
     program_hash: u64,
+    artifact_schema_version: ?u32,
     plan_hash: ?u64,
     plan_schema_version: ?u32,
     event_schema_version: ?u32,
@@ -155,6 +166,15 @@ const session_manifest_migrators = [_]SessionManifestMigrator{
             }
         }.run,
     },
+    .{
+        .from = 4,
+        .to_schema = 5,
+        .migrate = struct {
+            fn run(state: *SessionManifestState) void {
+                state.schema_version = 5;
+            }
+        }.run,
+    },
 };
 
 const plan_file_migrators = [_]PlanFileMigrator{
@@ -220,6 +240,11 @@ const ReadManifestResult = struct {
     manifest: SessionManifest,
 };
 
+const ReadArtifactFileResult = struct {
+    stored_schema_version: u32,
+    artifact: ProgramArtifact,
+};
+
 const ReadEventRecordResult = struct {
     stored_schema_version: u32,
     record: EventRecord,
@@ -260,15 +285,19 @@ pub const Store = struct {
         const state = kernel.runSteps(artifact.steps);
         const plan_path = try derivedPlanPath(self.allocator, self.manifest_path);
         defer self.allocator.free(plan_path);
+        const artifact_path = try derivedArtifactPath(self.allocator, self.manifest_path);
+        defer self.allocator.free(artifact_path);
         const manifest = SessionManifest{
             .scenario_id = scenario_id,
             .program_hash = artifact.identityHash(),
+            .artifact_schema_version = if (scenario_id == null) current_artifact_schema else null,
             .plan_hash = if (artifact.plan) |plan| hashPlan(plan) else null,
             .plan_schema_version = if (artifact.plan != null) current_plan_schema else null,
             .event_schema_version = current_event_schema,
             .last_seq = kernel.events(&state).len,
         };
         try writeManifest(self.manifest_path, manifest);
+        if (scenario_id == null) try writeArtifact(artifact_path, artifact);
         if (artifact.plan) |plan| try writePlan(plan_path, plan);
         try writeEvents(self.events_path, &state);
         return manifest;
@@ -296,13 +325,44 @@ pub const Store = struct {
                 .state = null,
             };
         }
-
-        const scenario_id = manifest.scenario_id orelse return .{
+        if (manifest.scenario_id) |id| {
+            return try self.restoreArtifactInternal(ProgramArtifact.fromScenario(id), .rewriteback);
+        }
+        const expected_artifact_schema = manifest.artifact_schema_version orelse return .{
             .status = .rebuild_required,
             .manifest = manifest,
             .state = null,
         };
-        return try self.restoreArtifactInternal(ProgramArtifact.fromScenario(scenario_id), .rewriteback);
+        if (expected_artifact_schema != current_artifact_schema) {
+            return .{
+                .status = .rebuild_required,
+                .manifest = manifest,
+                .state = null,
+            };
+        }
+        const artifact_path = try derivedArtifactPath(self.allocator, self.manifest_path);
+        defer self.allocator.free(artifact_path);
+        const artifact_file = readArtifactFile(self.allocator, artifact_path) catch |err| switch (err) {
+            error.UnsupportedArtifactSchema => return .{
+                .status = .rebuild_required,
+                .manifest = manifest,
+                .state = null,
+            },
+            else => return .{
+                .status = .failed,
+                .manifest = manifest,
+                .state = null,
+            },
+        };
+        defer freeArtifact(self.allocator, &artifact_file.artifact);
+        if (artifact_file.stored_schema_version != expected_artifact_schema) {
+            return .{
+                .status = .rebuild_required,
+                .manifest = manifest,
+                .state = null,
+            };
+        }
+        return try self.restoreArtifactInternal(artifact_file.artifact, .rewriteback);
     }
 
     /// Inspect one persisted session restore without rewriting migrated artifacts back to disk.
@@ -328,12 +388,44 @@ pub const Store = struct {
             };
         }
 
-        const scenario_id = manifest.scenario_id orelse return .{
+        if (manifest.scenario_id) |id| {
+            return try self.restoreArtifactInternal(ProgramArtifact.fromScenario(id), .inspect_only);
+        }
+        const expected_artifact_schema = manifest.artifact_schema_version orelse return .{
             .status = .rebuild_required,
             .manifest = manifest,
             .state = null,
         };
-        return try self.restoreArtifactInternal(ProgramArtifact.fromScenario(scenario_id), .inspect_only);
+        if (expected_artifact_schema != current_artifact_schema) {
+            return .{
+                .status = .rebuild_required,
+                .manifest = manifest,
+                .state = null,
+            };
+        }
+        const artifact_path = try derivedArtifactPath(self.allocator, self.manifest_path);
+        defer self.allocator.free(artifact_path);
+        const artifact_file = readArtifactFile(self.allocator, artifact_path) catch |err| switch (err) {
+            error.UnsupportedArtifactSchema => return .{
+                .status = .rebuild_required,
+                .manifest = manifest,
+                .state = null,
+            },
+            else => return .{
+                .status = .failed,
+                .manifest = manifest,
+                .state = null,
+            },
+        };
+        defer freeArtifact(self.allocator, &artifact_file.artifact);
+        if (artifact_file.stored_schema_version != expected_artifact_schema) {
+            return .{
+                .status = .rebuild_required,
+                .manifest = manifest,
+                .state = null,
+            };
+        }
+        return try self.restoreArtifactInternal(artifact_file.artifact, .inspect_only);
     }
 
     /// Restore one persisted session by replaying the supplied artifact and checking the event log.
@@ -466,6 +558,7 @@ pub const Store = struct {
                 .schema_version = current_manifest_schema,
                 .scenario_id = manifest.scenario_id,
                 .program_hash = manifest.program_hash,
+                .artifact_schema_version = if (manifest.scenario_id == null) current_artifact_schema else null,
                 .plan_hash = current_plan_hash,
                 .plan_schema_version = if (current_plan_hash != null) current_plan_schema else null,
                 .event_schema_version = current_event_schema,
@@ -501,6 +594,13 @@ fn derivedPlanPath(allocator: std.mem.Allocator, manifest_path: []const u8) ![]u
         if (dir_name.len != 0) return try std.fs.path.join(allocator, &.{ dir_name, "plan.json" });
     }
     return try allocator.dupe(u8, "plan.json");
+}
+
+fn derivedArtifactPath(allocator: std.mem.Allocator, manifest_path: []const u8) ![]u8 {
+    if (std.fs.path.dirname(manifest_path)) |dir_name| {
+        if (dir_name.len != 0) return try std.fs.path.join(allocator, &.{ dir_name, "artifact.json" });
+    }
+    return try allocator.dupe(u8, "artifact.json");
 }
 
 fn isSupportedManifestSchema(schema_version: u32) bool {
@@ -627,6 +727,25 @@ fn writeManifest(path: []const u8, manifest: SessionManifest) !void {
     try writer.interface.flush();
 }
 
+fn writeArtifact(path: []const u8, artifact: ProgramArtifact) !void {
+    const file = if (std.fs.path.isAbsolute(path))
+        try std.fs.createFileAbsolute(path, .{ .truncate = true })
+    else
+        try std.fs.cwd().createFile(path, .{ .truncate = true });
+    defer file.close();
+
+    var buffer: [4096]u8 = undefined;
+    var writer = file.writer(&buffer);
+    try std.json.Stringify.value(ArtifactFile{
+        .schema_version = current_artifact_schema,
+        .identity_hash = artifact.identityHash(),
+        .label = artifact.label,
+        .steps = artifact.steps,
+    }, .{}, &writer.interface);
+    try writer.interface.writeByte('\n');
+    try writer.interface.flush();
+}
+
 fn writePlan(path: []const u8, plan: kernel.ProgramPlan) !void {
     const file = if (std.fs.path.isAbsolute(path))
         try std.fs.createFileAbsolute(path, .{ .truncate = true })
@@ -680,6 +799,7 @@ fn readManifest(allocator: std.mem.Allocator, path: []const u8) !ReadManifestRes
             .schema_version = parsed.value.schema_version,
             .scenario_id = parsed.value.scenario_id,
             .program_hash = parsed.value.program_hash,
+            .artifact_schema_version = parsed.value.artifact_schema_version,
             .plan_hash = parsed.value.plan_hash,
             .plan_schema_version = parsed.value.plan_schema_version,
             .event_schema_version = parsed.value.event_schema_version,
@@ -692,6 +812,7 @@ fn readManifest(allocator: std.mem.Allocator, path: []const u8) !ReadManifestRes
             .schema_version = parsed.value.schema_version,
             .scenario_id = parsed.value.scenario_id,
             .program_hash = parsed.value.program_hash,
+            .artifact_schema_version = null,
             .plan_hash = parsed.value.plan_hash,
             .plan_schema_version = parsed.value.plan_schema_version,
             .event_schema_version = null,
@@ -705,6 +826,7 @@ fn readManifest(allocator: std.mem.Allocator, path: []const u8) !ReadManifestRes
             .schema_version = parsed.value.schema_version,
             .scenario_id = parsed.value.scenario_id,
             .program_hash = parsed.value.program_hash,
+            .artifact_schema_version = null,
             .plan_hash = parsed.value.plan_hash,
             .plan_schema_version = null,
             .event_schema_version = null,
@@ -722,6 +844,7 @@ fn readManifest(allocator: std.mem.Allocator, path: []const u8) !ReadManifestRes
             .schema_version = migrated.schema_version,
             .scenario_id = migrated.scenario_id,
             .program_hash = migrated.program_hash,
+            .artifact_schema_version = migrated.artifact_schema_version,
             .plan_hash = migrated.plan_hash,
             .plan_schema_version = migrated.plan_schema_version,
             .event_schema_version = migrated.event_schema_version,
@@ -735,6 +858,25 @@ const ReadPlanFileResult = struct {
     stored_schema_version: u32,
     plan: kernel.ProgramPlan,
 };
+
+fn readArtifactFile(allocator: std.mem.Allocator, path: []const u8) !ReadArtifactFileResult {
+    const bytes = if (std.fs.path.isAbsolute(path)) blk: {
+        const file = try std.fs.openFileAbsolute(path, .{});
+        defer file.close();
+        var buffer: [4096]u8 = undefined;
+        var reader = file.reader(&buffer);
+        break :blk try reader.interface.allocRemaining(allocator, .limited(std.math.maxInt(usize)));
+    } else try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
+    defer allocator.free(bytes);
+
+    const parsed = try std.json.parseFromSlice(ArtifactFile, allocator, bytes, .{});
+    defer parsed.deinit();
+    if (parsed.value.schema_version != current_artifact_schema) return error.UnsupportedArtifactSchema;
+    return .{
+        .stored_schema_version = parsed.value.schema_version,
+        .artifact = try cloneArtifact(allocator, parsed.value),
+    };
+}
 
 fn readPlanFile(allocator: std.mem.Allocator, path: []const u8) !ReadPlanFileResult {
     const bytes = if (std.fs.path.isAbsolute(path)) blk: {
@@ -777,6 +919,57 @@ fn readPlanFile(allocator: std.mem.Allocator, path: []const u8) !ReadPlanFileRes
     return .{
         .stored_schema_version = stored_schema_version,
         .plan = migrated.plan,
+    };
+}
+
+fn cloneArtifact(allocator: std.mem.Allocator, artifact: ArtifactFile) !ProgramArtifact {
+    return .{
+        .label = try allocator.dupe(u8, artifact.label),
+        .program_hash = artifact.identity_hash,
+        .steps = try cloneSteps(allocator, artifact.steps),
+        .plan = null,
+    };
+}
+
+fn cloneSteps(allocator: std.mem.Allocator, steps: []const kernel.Step) ![]kernel.Step {
+    var cloned = try allocator.alloc(kernel.Step, steps.len);
+    var count: usize = 0;
+    errdefer {
+        freeSteps(allocator, cloned[0..count]);
+        allocator.free(cloned);
+    }
+    for (steps, 0..) |step, idx| {
+        cloned[idx] = try cloneStep(allocator, step);
+        count += 1;
+    }
+    return cloned;
+}
+
+fn cloneStep(allocator: std.mem.Allocator, step: kernel.Step) !kernel.Step {
+    return switch (step) {
+        .checkpoint => |value| .{ .checkpoint = value },
+        .emit => |event| .{ .emit = try cloneEvent(allocator, event) },
+        .pop_pending => .pop_pending,
+        .push_pending => |frame| .{ .push_pending = frame },
+        .set_active_prompt => |prompt| .{ .set_active_prompt = prompt },
+        .set_final => |value| .{ .set_final = try cloneValue(allocator, value) },
+    };
+}
+
+fn cloneEvent(allocator: std.mem.Allocator, event: kernel.Event) !kernel.Event {
+    return switch (event) {
+        .note => |value| .{ .note = try allocator.dupe(u8, value) },
+        .final_i32 => |value| .{ .final_i32 = value },
+        .final_string => |value| .{ .final_string = try allocator.dupe(u8, value) },
+    };
+}
+
+fn cloneValue(allocator: std.mem.Allocator, value: kernel.Value) !kernel.Value {
+    return switch (value) {
+        .none => .none,
+        .bool => |flag| .{ .bool = flag },
+        .i32 => |number| .{ .i32 = number },
+        .string => |line| .{ .string = try allocator.dupe(u8, line) },
     };
 }
 
@@ -926,6 +1119,27 @@ fn freePlan(allocator: std.mem.Allocator, plan: *const kernel.ProgramPlan) void 
     for (plan.outputs) |output| allocator.free(output.label);
     allocator.free(plan.outputs);
     allocator.free(plan.instructions);
+}
+
+fn freeArtifact(allocator: std.mem.Allocator, artifact: *const ProgramArtifact) void {
+    allocator.free(artifact.label);
+    freeSteps(allocator, artifact.steps);
+    allocator.free(artifact.steps);
+}
+
+fn freeSteps(allocator: std.mem.Allocator, steps: []const kernel.Step) void {
+    for (steps) |step| switch (step) {
+        .emit => |event| switch (event) {
+            .note => |value| allocator.free(value),
+            .final_i32 => {},
+            .final_string => |value| allocator.free(value),
+        },
+        .set_final => |value| switch (value) {
+            .string => |line| allocator.free(line),
+            else => {},
+        },
+        else => {},
+    };
 }
 
 fn readEventRecord(allocator: std.mem.Allocator, line: []const u8, schema_version: u32) !ReadEventRecordResult {

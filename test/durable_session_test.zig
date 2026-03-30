@@ -2,6 +2,7 @@ const shift = @import("shift");
 const std = @import("std");
 
 const TestPaths = struct {
+    artifact_path: []u8,
     dir_path: []u8,
     manifest_path: []u8,
     events_path: []u8,
@@ -16,7 +17,10 @@ const TestPaths = struct {
         errdefer std.testing.allocator.free(events_path);
         const plan_path = try std.fs.path.join(std.testing.allocator, &.{ dir_path, "plan.json" });
         errdefer std.testing.allocator.free(plan_path);
+        const artifact_path = try std.fs.path.join(std.testing.allocator, &.{ dir_path, "artifact.json" });
+        errdefer std.testing.allocator.free(artifact_path);
         return .{
+            .artifact_path = artifact_path,
             .dir_path = dir_path,
             .manifest_path = manifest_path,
             .events_path = events_path,
@@ -25,6 +29,7 @@ const TestPaths = struct {
     }
 
     fn deinit(self: *const TestPaths) void {
+        std.testing.allocator.free(self.artifact_path);
         std.testing.allocator.free(self.plan_path);
         std.testing.allocator.free(self.events_path);
         std.testing.allocator.free(self.manifest_path);
@@ -181,11 +186,41 @@ test "durable saveArtifact persists plan-backed identity and plan.json" {
 
     try std.testing.expectEqual(@as(u64, 0x1234), manifest.program_hash);
     try std.testing.expect(manifest.plan_hash != null);
+    try std.testing.expectEqual(@as(?u32, 1), manifest.artifact_schema_version);
     try std.testing.expectEqual(@as(?u32, 2), manifest.plan_schema_version);
     try std.testing.expectEqual(@as(?u32, 1), manifest.event_schema_version);
     _ = try std.fs.cwd().statFile(paths.plan_path);
+    _ = try std.fs.cwd().statFile(paths.artifact_path);
+
+    const artifact_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.artifact_path, std.math.maxInt(usize));
+    defer std.testing.allocator.free(artifact_bytes);
+    const parsed_artifact = try std.json.parseFromSlice(shift.durable.ArtifactFile, std.testing.allocator, artifact_bytes, .{});
+    defer parsed_artifact.deinit();
+    try std.testing.expectEqual(@as(u32, 1), parsed_artifact.value.schema_version);
+    try std.testing.expectEqual(@as(u64, 0x1234), parsed_artifact.value.identity_hash);
+    try std.testing.expectEqualStrings("plan_backed", parsed_artifact.value.label);
 
     const restored = try store.restoreArtifact(artifact);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
+    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
+}
+
+test "durable restore and inspect use persisted non-scenario artifact provenance" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const artifact = makePlanBackedArtifact(0x9234, 0x9234, "demo.plan", "runBody");
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    _ = try store.saveArtifact(artifact, null);
+
+    const inspected = try store.inspectRestore();
+    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, inspected.status);
+    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), inspected.migration_report);
+
+    const restored = try store.restore();
     try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
     try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
 }
@@ -318,7 +353,7 @@ test "durable restore accepts legacy schema manifest and raw plan.json" {
     try std.testing.expectEqual(@as(u32, 0), inspected_report.event_schema.?.from);
     try std.testing.expectEqual(@as(u32, 1), inspected_report.event_schema.?.to_schema);
     try std.testing.expectEqual(@as(u32, 2), inspected_report.manifest_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 4), inspected_report.manifest_schema.?.to_schema);
+    try std.testing.expectEqual(@as(u32, 5), inspected_report.manifest_schema.?.to_schema);
     try std.testing.expectEqual(@as(u32, 0), inspected_report.plan_file_schema.?.from);
     try std.testing.expectEqual(@as(u32, 2), inspected_report.plan_file_schema.?.to_schema);
     try std.testing.expect(!inspected_report.rewrote_events);
@@ -331,7 +366,7 @@ test "durable restore accepts legacy schema manifest and raw plan.json" {
     try std.testing.expectEqual(@as(u32, 0), report.event_schema.?.from);
     try std.testing.expectEqual(@as(u32, 1), report.event_schema.?.to_schema);
     try std.testing.expectEqual(@as(u32, 2), report.manifest_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 4), report.manifest_schema.?.to_schema);
+    try std.testing.expectEqual(@as(u32, 5), report.manifest_schema.?.to_schema);
     try std.testing.expectEqual(@as(u32, 0), report.plan_file_schema.?.from);
     try std.testing.expectEqual(@as(u32, 2), report.plan_file_schema.?.to_schema);
     try std.testing.expect(report.rewrote_events);
@@ -342,7 +377,7 @@ test "durable restore accepts legacy schema manifest and raw plan.json" {
     defer std.testing.allocator.free(rewritten_manifest_bytes);
     const rewritten_manifest = try std.json.parseFromSlice(shift.durable.SessionManifest, std.testing.allocator, rewritten_manifest_bytes, .{});
     defer rewritten_manifest.deinit();
-    try std.testing.expectEqual(@as(u32, 4), rewritten_manifest.value.schema_version);
+    try std.testing.expectEqual(@as(u32, 5), rewritten_manifest.value.schema_version);
     try std.testing.expectEqual(@as(?u32, 2), rewritten_manifest.value.plan_schema_version);
     try std.testing.expectEqual(@as(?u32, 1), rewritten_manifest.value.event_schema_version);
 
@@ -483,6 +518,33 @@ test "durable restore reports rebuild required on unknown event schema" {
     }
 
     const restored = try store.restoreArtifact(artifact);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+}
+
+test "durable restore reports rebuild required on unknown artifact schema" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const artifact = makePlanBackedArtifact(0x8334, 0x8334, "demo.plan", "runBody");
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    var manifest = try store.saveArtifact(artifact, null);
+    manifest.scenario_id = null;
+    manifest.artifact_schema_version = 999;
+
+    {
+        const file = try std.fs.cwd().createFile(paths.manifest_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        try std.json.Stringify.value(manifest, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+
+    const restored = try store.restore();
     try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
 }
 

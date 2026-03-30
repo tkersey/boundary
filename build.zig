@@ -1027,6 +1027,25 @@ pub fn build(b: *std.Build) void {
     src_lower_err_wit_cmd.step.dependOn(&source_lowering_tool_install.step);
     const src_lower_err_wit_step = b.step("source-lowering-error-witness-check", "Check that the source-lowering tool emits the checked public witness surface.");
     src_lower_err_wit_step.dependOn(&src_lower_err_wit_cmd.step);
+    const dur_migrate_tool_mod = b.createModule(.{
+        .root_source_file = b.path("tools/shift_durable_migrate.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    dur_migrate_tool_mod.addImport("shift", shift_mod);
+    const dur_migrate_tool_exe = b.addExecutable(.{
+        .name = "shift-durable-migrate",
+        .root_module = dur_migrate_tool_mod,
+    });
+    const dur_migrate_tool_install = b.addInstallArtifact(dur_migrate_tool_exe, .{});
+    const dur_migrate_tool_step = b.step("durable-migration-tool", "Build the durable migration tool.");
+    dur_migrate_tool_step.dependOn(&dur_migrate_tool_exe.step);
+    dur_migrate_tool_step.dependOn(&dur_migrate_tool_install.step);
+    const dur_migrate_contract = b.addSystemCommand(&.{ "sh", "test/durable_migration_tool/run.sh" });
+    dur_migrate_contract.step.dependOn(&dur_migrate_tool_install.step);
+    const dur_migrate_contract_step = b.step("durable-migration-tool-contract", "Check durable migration inspect and upgrade behavior through the tool surface.");
+    dur_migrate_contract_step.dependOn(&dur_migrate_contract.step);
+    test_step.dependOn(&dur_migrate_contract.step);
     const public_error_api_ban_cmd = b.addSystemCommand(&.{ "sh", "test/public_error_api_ban/run.sh" });
     const public_error_api_ban_step = b.step("public-error-api-ban", "Fail closed if retired public root spellings reappear.");
     public_error_api_ban_step.dependOn(&public_error_api_ban_cmd.step);
