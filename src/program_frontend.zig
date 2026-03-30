@@ -1,4 +1,5 @@
 const effect_ir = @import("effect_ir");
+const helper_body_ir = @import("helper_body_ir");
 const parity_scenarios = @import("parity_scenarios");
 const std = @import("std");
 
@@ -46,6 +47,7 @@ pub const OpenRowProgram = struct {
     entry_symbol: []const u8,
     functions: []const effect_ir.Function,
     call_edges: []const effect_ir.CallEdge = &.{},
+    function_bodies: []const helper_body_ir.FunctionBody = &.{},
 };
 
 /// One lowered open-row program that owns its function storage.
@@ -53,6 +55,7 @@ pub const LoweredOpenRowProgram = struct {
     entry_index: usize,
     functions: []const effect_ir.Function,
     call_edges: []const effect_ir.CallEdge = &.{},
+    function_bodies: []const helper_body_ir.FunctionBody = &.{},
 
     /// Project the owned function storage back into the generic Effect IR view.
     pub fn asEffectProgram(self: *const @This()) effect_ir.Program {
@@ -314,6 +317,53 @@ fn cloneCallEdges(comptime call_edges: []const effect_ir.CallEdge) []const effec
     };
 }
 
+fn cloneBodyInstructions(comptime instructions: []const helper_body_ir.Instruction) []const helper_body_ir.Instruction {
+    return comptime blk: {
+        var buffer: [instructions.len]helper_body_ir.Instruction = undefined;
+        for (instructions, 0..) |instruction, index| {
+            buffer[index] = instruction;
+        }
+        break :blk buffer[0..];
+    };
+}
+
+fn cloneBodyBlocks(comptime blocks: []const helper_body_ir.Block) []const helper_body_ir.Block {
+    return comptime blk: {
+        var buffer: [blocks.len]helper_body_ir.Block = undefined;
+        for (blocks, 0..) |block, index| {
+            buffer[index] = .{
+                .instructions = cloneBodyInstructions(block.instructions),
+                .terminator = block.terminator,
+            };
+        }
+        break :blk buffer[0..];
+    };
+}
+
+fn cloneLocalCodecs(comptime codecs: []const helper_body_ir.LocalCodec) []const helper_body_ir.LocalCodec {
+    return comptime blk: {
+        var buffer: [codecs.len]helper_body_ir.LocalCodec = undefined;
+        for (codecs, 0..) |codec, index| {
+            buffer[index] = codec;
+        }
+        break :blk buffer[0..];
+    };
+}
+
+fn cloneFunctionBodies(comptime function_bodies: []const helper_body_ir.FunctionBody) []const helper_body_ir.FunctionBody {
+    return comptime blk: {
+        var buffer: [function_bodies.len]helper_body_ir.FunctionBody = undefined;
+        for (function_bodies, 0..) |body, index| {
+            buffer[index] = .{
+                .local_codecs = cloneLocalCodecs(body.local_codecs),
+                .entry_block = body.entry_block,
+                .blocks = cloneBodyBlocks(body.blocks),
+            };
+        }
+        break :blk buffer[0..];
+    };
+}
+
 fn cloneFunction(comptime function: effect_ir.Function) effect_ir.Function {
     return .{
         .symbol = cloneSymbolRef(function.symbol),
@@ -363,6 +413,7 @@ pub fn lowerOpenRow(program: OpenRowProgram) effect_ir.NormalizeError!LoweredOpe
         .entry_index = try entryIndex(program.functions, program.entry_symbol),
         .functions = cloneFunctions(program.functions),
         .call_edges = cloneCallEdges(program.call_edges),
+        .function_bodies = cloneFunctionBodies(program.function_bodies),
     };
 }
 
@@ -401,11 +452,42 @@ test "lowerOpenRow preserves the function payload" {
 test "open row state-writer workflow carries both requirements and outputs" {
     const program = try lowerOpenRow(open_rows.stateWriterWorkflow());
     try @import("std").testing.expectEqual(@as(usize, 1), program.functions.len);
+    try @import("std").testing.expectEqual(@as(usize, 0), program.function_bodies.len);
     try @import("std").testing.expectEqualStrings("runBody", program.functions[0].symbol.symbol_name);
     const digest = try effect_ir.rowDigest(program.functions[0].row, program.functions[0].outputs);
     try @import("std").testing.expectEqual(@as(usize, 2), digest.requirement_count);
     try @import("std").testing.expectEqual(@as(usize, 3), digest.op_count);
     try @import("std").testing.expectEqual(@as(usize, 2), digest.output_count);
+}
+
+test "lowerOpenRow preserves attached helper body storage" {
+    const program = try lowerOpenRow(.{
+        .label = "example.body_storage",
+        .entry_symbol = "runBody",
+        .functions = &.{.{
+            .symbol = .{
+                .module_path = "examples/body_storage.zig",
+                .symbol_name = "runBody",
+            },
+            .row = effect_ir.rowFromSpec(.{
+                .state = .{
+                    .get = effect_ir.Transform(void, i32),
+                },
+            }),
+        }},
+        .function_bodies = &.{.{
+            .local_codecs = &.{},
+            .entry_block = 0,
+            .blocks = &.{.{
+                .instructions = &.{},
+                .terminator = .{ .kind = .return_unit },
+            }},
+        }},
+    });
+
+    try @import("std").testing.expectEqual(@as(usize, 1), program.function_bodies.len);
+    try @import("std").testing.expectEqual(@as(usize, 1), program.function_bodies[0].blocks.len);
+    try @import("std").testing.expectEqual(@as(helper_body_ir.BlockId, 0), program.function_bodies[0].entry_block);
 }
 
 test "lowerOpenRow keeps prior lowered functions stable across later calls" {

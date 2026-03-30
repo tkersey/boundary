@@ -256,24 +256,6 @@ fn collectModule(comptime source_path: []const u8, buffers: *Buffers) Error!Modu
     return summary;
 }
 
-fn visitCycle(function_index: usize, edges: []const ProgramHelperEdge, visiting: []bool, visited: []bool) Error!void {
-    if (visiting[function_index]) return error.RecursiveHelpers;
-    if (visited[function_index]) return;
-    visiting[function_index] = true;
-    for (edges) |edge| {
-        if (edge.caller_index != function_index) continue;
-        try visitCycle(edge.callee_index, edges, visiting, visited);
-    }
-    visiting[function_index] = false;
-    visited[function_index] = true;
-}
-
-fn detectRecursiveHelpers(entry_index: usize, edges: []const ProgramHelperEdge) Error!void {
-    var visiting = [_]bool{false} ** 256;
-    var visited = [_]bool{false} ** 256;
-    try visitCycle(entry_index, edges, visiting[0..], visited[0..]);
-}
-
 /// Analyze one repo-relative source file and flatten same-file plus imported helper graphs into one explicit program graph.
 pub fn analyzeProgramAt(comptime source_path: []const u8, comptime entry_symbol: []const u8) Error!ProgramGraph {
     var buffers = Buffers{};
@@ -281,7 +263,6 @@ pub fn analyzeProgramAt(comptime source_path: []const u8, comptime entry_symbol:
     const root_graph = try analyzeOwnedModule(source_path, entry_symbol);
     const entry_local_index = root_graph.entry_index orelse return error.EntryMissing;
     const entry_index = root.first_function_index + entry_local_index;
-    try detectRecursiveHelpers(entry_index, buffers.helper_edges[0..buffers.helper_edge_count]);
 
     return .{
         .entry_index = entry_index,

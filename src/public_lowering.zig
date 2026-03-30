@@ -262,7 +262,7 @@ fn buildFunctionsAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
     const graph = source_graph_embed.analyzeProgramAt(source_path, spec.entry_symbol) catch |err| switch (err) {
         error.EntryMissing => @compileError("public lowering could not find the requested entry symbol in the embedded source"),
         error.MissingImport => @compileError("public lowering could not resolve one imported helper module or helper symbol"),
-        error.RecursiveHelpers => @compileError("public lowering does not support recursive helper graphs"),
+        error.RecursiveHelpers => @compileError("public lowering encountered an unexpected recursive helper analysis failure"),
         error.TooManyFunctions => @compileError("public lowering source graph exceeded the supported function limit"),
         error.TooManyImports => @compileError("public lowering source graph exceeded the supported import limit"),
         error.TooManyHelperUses => @compileError("public lowering source graph exceeded the supported helper-use limit"),
@@ -319,7 +319,7 @@ fn buildCallEdgesAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
     const graph = source_graph_embed.analyzeProgramAt(source_path, spec.entry_symbol) catch |err| switch (err) {
         error.EntryMissing => @compileError("public lowering could not find the requested entry symbol in the embedded source"),
         error.MissingImport => @compileError("public lowering could not resolve one imported helper module or helper symbol"),
-        error.RecursiveHelpers => @compileError("public lowering does not support recursive helper graphs"),
+        error.RecursiveHelpers => @compileError("public lowering encountered an unexpected recursive helper analysis failure"),
         error.TooManyFunctions => @compileError("public lowering source graph exceeded the supported function limit"),
         error.TooManyImports => @compileError("public lowering source graph exceeded the supported import limit"),
         error.TooManyHelperUses => @compileError("public lowering source graph exceeded the supported helper-use limit"),
@@ -408,7 +408,6 @@ pub fn validateFileBackedOpenRowAt(
     if (!analysis.isParseClean()) return error.ParseError;
     const graph = source_graph_engine.analyzeRuntime(allocator, analysis.parsed.source_z, .{
         .entry_symbol = entry_symbol,
-        .reject_recursive_helpers = true,
         .reject_indirect_effect_access = true,
     }) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,

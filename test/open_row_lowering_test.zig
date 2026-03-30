@@ -1,3 +1,5 @@
+const example_open_row_recursive_cross_writer = @import("example_open_row_recursive_cross_writer");
+const example_open_row_recursive_writer = @import("example_open_row_recursive_writer");
 const example_open_row_state_writer = @import("example_open_row_state_writer");
 const shift = @import("shift");
 const std = @import("std");
@@ -158,7 +160,7 @@ test "same-module validation rejects unsupported effect access for explicit-path
     );
 }
 
-test "same-module validation rejects recursive helper graphs for explicit-path lowering" {
+test "same-module validation accepts recursive helper graphs for explicit-path lowering" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -179,9 +181,50 @@ test "same-module validation rejects recursive helper graphs for explicit-path l
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    try std.testing.expectError(
-        error.UnsupportedHelperGraph,
-        shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody"),
+    try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
+}
+
+test "recursive same-file workflow lowers through the public root surface" {
+    const lowered = try example_open_row_recursive_writer.loweredProgram();
+
+    try std.testing.expectEqualStrings("example.open_row_recursive_writer", lowered.label);
+    try std.testing.expectEqual(@as(usize, 2), lowered.program.functions.len);
+    try std.testing.expectEqual(@as(usize, 2), lowered.program.call_edges.len);
+    try std.testing.expectEqualStrings("runBody", lowered.program.functions[lowered.program.entry_index].symbol.symbol_name);
+    try std.testing.expectEqual(@as(usize, 2), lowered.normalization.requirement_count);
+    try std.testing.expectEqual(@as(usize, 3), lowered.normalization.op_count);
+    try std.testing.expectEqual(@as(usize, 2), lowered.normalization.output_count);
+}
+
+test "recursive imported-helper workflow lowers through the public root surface" {
+    const lowered = try example_open_row_recursive_cross_writer.loweredProgram();
+
+    try std.testing.expectEqualStrings("example.open_row_recursive_cross_writer", lowered.label);
+    try std.testing.expectEqual(@as(usize, 2), lowered.program.functions.len);
+    try std.testing.expectEqual(@as(usize, 2), lowered.program.call_edges.len);
+    try std.testing.expectEqualStrings("runBody", lowered.program.functions[lowered.program.entry_index].symbol.symbol_name);
+    try std.testing.expectEqual(@as(usize, 2), lowered.normalization.requirement_count);
+    try std.testing.expectEqual(@as(usize, 3), lowered.normalization.op_count);
+    try std.testing.expectEqual(@as(usize, 2), lowered.normalization.output_count);
+}
+
+test "recursive same-file example stays transcript-backed" {
+    var writer_buffer: [256]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&writer_buffer);
+    try example_open_row_recursive_writer.run(&writer);
+    try std.testing.expectEqualStrings(
+        "item=tick\nitem=tick\nitem=tick\nfinal_state=0\nvalue=done\n",
+        writer.buffered(),
+    );
+}
+
+test "recursive imported-helper example stays transcript-backed" {
+    var writer_buffer: [256]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&writer_buffer);
+    try example_open_row_recursive_cross_writer.run(&writer);
+    try std.testing.expectEqualStrings(
+        "item=cross\nitem=cross\nfinal_state=0\nvalue=done\n",
+        writer.buffered(),
     );
 }
 

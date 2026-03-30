@@ -600,7 +600,6 @@ fn resolveHelperEdges(collector: anytype) AnalysisError!void {
     for (helper_uses) |helper_use| {
         if (helper_use.import_alias != null) continue;
         const callee_index = findFunctionIndex(functions, helper_use.callee_name) orelse continue;
-        if (callee_index == helper_use.caller_index) continue;
 
         const resolved = HelperEdge{
             .caller_index = helper_use.caller_index,

@@ -234,6 +234,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const helper_body_ir_mod = b.createModule(.{
+        .root_source_file = b.path("src/internal/helper_body_ir.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const source_graph_engine_mod = b.createModule(.{
         .root_source_file = b.path("src/internal/source_graph_engine.zig"),
         .target = target,
@@ -245,6 +250,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     internal_program_plan_mod.addImport("effect_ir", effect_ir_mod);
+    helper_body_ir_mod.addImport("internal_program_plan", internal_program_plan_mod);
     const source_graph_comptime_mod = b.createModule(.{
         .root_source_file = b.path("src/internal/source_graph_comptime.zig"),
         .target = target,
@@ -373,8 +379,10 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     program_frontend_mod.addImport("effect_ir", effect_ir_mod);
+    program_frontend_mod.addImport("helper_body_ir", helper_body_ir_mod);
     program_frontend_mod.addImport("parity_scenarios", parity_scenarios_mod);
     internal_program_plan_mod.addImport("program_frontend", program_frontend_mod);
+    internal_program_plan_mod.addImport("helper_body_ir", helper_body_ir_mod);
     shift_mod.addImport("program_frontend", program_frontend_mod);
     shift_mod.addImport("authoring_build_options", authoring_build_options_mod);
     shift_mod.addImport("source_graph_embed", source_graph_embed_mod);
@@ -953,6 +961,8 @@ pub fn build(b: *std.Build) void {
     open_row_lowering_mod.addImport("program_frontend", program_frontend_mod);
     open_row_lowering_mod.addImport("shift", shift_mod);
     open_row_lowering_mod.addImport("example_open_row_state_writer", createShiftConsumerModule(b, "examples/open_row_state_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    open_row_lowering_mod.addImport("example_open_row_recursive_writer", createShiftConsumerModule(b, "examples/open_row_recursive_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    open_row_lowering_mod.addImport("example_open_row_recursive_cross_writer", createShiftConsumerModule(b, "examples/open_row_recursive_cross_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     const open_row_lowering_tests = b.addTest(.{
         .root_module = open_row_lowering_mod,
     });
