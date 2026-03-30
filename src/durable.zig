@@ -192,7 +192,24 @@ const event_record_migrators = [_]EventRecordMigrator{
 };
 
 /// Restore result for one durable session replay attempt.
+pub const VersionHop = struct {
+    from: u32,
+    to_schema: u32,
+};
+
+/// Detailed schema-hop and rewriteback facts for one migrated restore.
+pub const MigrationReport = struct {
+    event_schema: ?VersionHop = null,
+    manifest_schema: ?VersionHop = null,
+    plan_file_schema: ?VersionHop = null,
+    rewrote_events: bool = false,
+    rewrote_manifest: bool = false,
+    rewrote_plan_file: bool = false,
+};
+
+/// Restore result for one durable session replay attempt, including optional migration provenance.
 pub const RestoreResult = struct {
+    migration_report: ?MigrationReport = null,
     status: RestoreStatus,
     manifest: SessionManifest,
     state: ?kernel.State = null,
@@ -211,6 +228,11 @@ const ReadEventRecordResult = struct {
 const EventsMatchResult = struct {
     matches: bool,
     migrated: bool,
+};
+
+const RestoreRewriteMode = enum {
+    inspect_only,
+    rewriteback,
 };
 
 /// Local append-only store for one durable interpreter session.
@@ -280,11 +302,51 @@ pub const Store = struct {
             .manifest = manifest,
             .state = null,
         };
-        return try self.restoreArtifact(ProgramArtifact.fromScenario(scenario_id));
+        return try self.restoreArtifactInternal(ProgramArtifact.fromScenario(scenario_id), .rewriteback);
+    }
+
+    /// Inspect one persisted session restore without rewriting migrated artifacts back to disk.
+    pub fn inspectRestore(self: @This()) anyerror!RestoreResult {
+        const read_manifest = readManifest(self.allocator, self.manifest_path) catch |err| switch (err) {
+            error.UnsupportedManifestSchema => return .{
+                .status = .rebuild_required,
+                .manifest = .{
+                    .schema_version = 0,
+                    .program_hash = 0,
+                    .last_seq = 0,
+                },
+                .state = null,
+            },
+            else => return err,
+        };
+        const manifest = read_manifest.manifest;
+        if (!isSupportedManifestSchema(manifest.schema_version)) {
+            return .{
+                .status = .rebuild_required,
+                .manifest = manifest,
+                .state = null,
+            };
+        }
+
+        const scenario_id = manifest.scenario_id orelse return .{
+            .status = .rebuild_required,
+            .manifest = manifest,
+            .state = null,
+        };
+        return try self.restoreArtifactInternal(ProgramArtifact.fromScenario(scenario_id), .inspect_only);
     }
 
     /// Restore one persisted session by replaying the supplied artifact and checking the event log.
     pub fn restoreArtifact(self: @This(), artifact: ProgramArtifact) anyerror!RestoreResult {
+        return try self.restoreArtifactInternal(artifact, .rewriteback);
+    }
+
+    /// Inspect one persisted artifact restore without rewriting migrated artifacts back to disk.
+    pub fn inspectRestoreArtifact(self: @This(), artifact: ProgramArtifact) anyerror!RestoreResult {
+        return try self.restoreArtifactInternal(artifact, .inspect_only);
+    }
+
+    fn restoreArtifactInternal(self: @This(), artifact: ProgramArtifact, rewrite_mode: RestoreRewriteMode) anyerror!RestoreResult {
         const read_manifest = readManifest(self.allocator, self.manifest_path) catch |err| switch (err) {
             error.UnsupportedManifestSchema => return .{
                 .status = .rebuild_required,
@@ -388,9 +450,17 @@ pub const Store = struct {
         if (manifest.plan_hash != null and manifest.plan_schema_version != current_plan_schema) manifest_migrated = true;
         if (expected_event_schema != current_event_schema) manifest_migrated = true;
         if (manifest_migrated or plan_migrated or event_match.migrated) {
-            if (plan_migrated) try writePlan(plan_path, loaded_plan.?);
-            if (event_match.migrated) try writeEvents(self.events_path, &state);
-
+            const migration_report = MigrationReport{
+                .event_schema = versionHopIfMigrated(expected_event_schema, current_event_schema, event_match.migrated),
+                .manifest_schema = versionHopIfMigrated(read_manifest.stored_schema_version, current_manifest_schema, read_manifest.stored_schema_version != current_manifest_schema),
+                .plan_file_schema = if (manifest.plan_hash != null)
+                    versionHopIfMigrated(manifest.plan_schema_version orelse 0, current_plan_schema, plan_migrated)
+                else
+                    null,
+                .rewrote_events = rewrite_mode == .rewriteback and event_match.migrated,
+                .rewrote_manifest = rewrite_mode == .rewriteback,
+                .rewrote_plan_file = rewrite_mode == .rewriteback and plan_migrated,
+            };
             const current_plan_hash = if (loaded_plan) |plan| hashPlan(plan) else null;
             var persisted_manifest = SessionManifest{
                 .schema_version = current_manifest_schema,
@@ -402,10 +472,17 @@ pub const Store = struct {
                 .last_seq = kernel.events(&state).len,
                 .restore_status = .exact_replay,
             };
-            try writeManifest(self.manifest_path, persisted_manifest);
+            if (rewrite_mode == .rewriteback) {
+                if (plan_migrated) try writePlan(plan_path, loaded_plan.?);
+                if (event_match.migrated) try writeEvents(self.events_path, &state);
+                try writeManifest(self.manifest_path, persisted_manifest);
+            } else {
+                persisted_manifest = manifest;
+            }
 
             persisted_manifest.restore_status = .migrated_replay;
             return .{
+                .migration_report = migration_report,
                 .status = .migrated_replay,
                 .manifest = persisted_manifest,
                 .state = state,
@@ -432,6 +509,14 @@ fn isSupportedManifestSchema(schema_version: u32) bool {
 
 fn isSupportedEventSchema(schema_version: u32) bool {
     return schema_version == 0 or schema_version == current_event_schema;
+}
+
+fn versionHopIfMigrated(from: u32, to_schema: u32, migrated: bool) ?VersionHop {
+    if (!migrated) return null;
+    return .{
+        .from = from,
+        .to_schema = to_schema,
+    };
 }
 
 fn hashProgram(label: []const u8, steps: []const kernel.Step) u64 {
