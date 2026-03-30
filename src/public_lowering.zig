@@ -15,10 +15,6 @@ pub const LowerSpec = struct {
     outputs: []const effect_ir.OutputSpec = &.{},
 };
 
-/// Public additive open-row program payload.
-pub const OpenRowProgram = program_frontend.OpenRowProgram;
-/// Public additive lowered open-row artifact.
-pub const LoweredProgram = source_lowering.OpenRowGeneratedProgram;
 /// Public additive validation error surface for file-backed same-module sources.
 pub const ValidationError = error{
     EntryMissing,
@@ -30,13 +26,6 @@ pub const ValidationError = error{
 };
 /// Public additive lowering error surface.
 pub const LowerError = effect_ir.NormalizeError || ValidationError;
-/// Public additive runtime plan over the retained open-row lowering path.
-pub const ProgramPlan = program_plan.ProgramPlan;
-/// Public additive compiled program marker.
-pub const CompiledProgram = type;
-
-/// Public additive constructors over the retained open-row frontend.
-pub const open_rows = program_frontend.open_rows;
 
 fn cloneBytes(comptime bytes: []const u8) []const u8 {
     return std.fmt.comptimePrint("{s}", .{bytes});
@@ -344,8 +333,8 @@ fn buildCallEdgesAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
     };
 }
 
-/// Build one public additive open-row payload with an explicit caller-visible source path.
-pub fn openRowAt(comptime source_path: []const u8, comptime spec: LowerSpec) OpenRowProgram {
+/// Build one explicit-path open-row payload with a caller-visible source path.
+fn openRowAt(comptime source_path: []const u8, comptime spec: LowerSpec) program_frontend.OpenRowProgram {
     return .{
         .label = spec.label,
         .entry_symbol = spec.entry_symbol,
@@ -354,8 +343,8 @@ pub fn openRowAt(comptime source_path: []const u8, comptime spec: LowerSpec) Ope
     };
 }
 
-/// Lower one public additive open-row payload into the retained effect-ir shell.
-pub fn lowerOpenRowAt(comptime source_path: []const u8, comptime spec: LowerSpec) LowerError!LoweredProgram {
+/// Lower one explicit-path open-row payload into the retained effect-ir shell.
+pub fn lowerOpenRowAt(comptime source_path: []const u8, comptime spec: LowerSpec) LowerError!source_lowering.OpenRowGeneratedProgram {
     return try source_lowering.lowerOpenRowProgram(openRowAt(source_path, spec));
 }
 
@@ -484,13 +473,8 @@ fn LowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) type {
     });
 }
 
-/// Compile one additive lowering request into a generated type using an explicit source path.
+/// Compile one explicit-path lowering request into a generated type using a caller-visible source path.
 pub const lowerAt = LowerAt;
-
-/// Transitional alias while the additive lowering namespace settles.
-pub const CompileOpenRow = LowerAt;
-/// Compile one explicit-path additive lowerer request through the same runtime-plan bridge.
-pub const CompileOpenRowAt = LowerAt;
 
 fn CompileIrType(comptime label: []const u8, comptime program: effect_ir.Program) type {
     comptime {

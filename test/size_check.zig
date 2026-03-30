@@ -75,9 +75,14 @@ test "public root keeps the lexical surface, additive lowering, and compatibilit
     try std.testing.expect(!@hasDecl(shift.compat, "ir"));
 
     try std.testing.expect(!@hasDecl(shift.lowering, "openRow"));
+    try std.testing.expect(!@hasDecl(shift.lowering, "OpenRowProgram"));
+    try std.testing.expect(!@hasDecl(shift.lowering, "LoweredProgram"));
+    try std.testing.expect(!@hasDecl(shift.lowering, "ProgramPlan"));
     try std.testing.expect(!@hasDecl(shift.lowering, "lowerOpenRow"));
     try std.testing.expect(!@hasDecl(shift.lowering, "irProgram"));
     try std.testing.expect(!@hasDecl(shift.lowering, "validateFileBackedOpenRow"));
+    try std.testing.expect(!@hasDecl(shift.lowering, "CompileOpenRow"));
+    try std.testing.expect(!@hasDecl(shift.lowering, "CompileOpenRowAt"));
 }
 
 test "public interpreter runs pure step data without host runtime ownership" {

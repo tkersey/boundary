@@ -46,7 +46,7 @@ pub fn loweringSpec() shift.lowering.LowerSpec {
 }
 
 /// Return the additive public lowered artifact for this workflow.
-pub fn loweredProgram() anyerror!shift.lowering.LoweredProgram {
+pub fn loweredProgram() @TypeOf(shift.lowering.lowerOpenRowAt(loweringSourcePath(), loweringSpec())) {
     return try shift.lowering.lowerOpenRowAt(loweringSourcePath(), loweringSpec());
 }
 
