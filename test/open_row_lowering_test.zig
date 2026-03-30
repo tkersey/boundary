@@ -88,6 +88,34 @@ test "same-module validation accepts helper graphs for explicit-path lowering" {
     try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
 }
 
+test "same-module validation accepts alias-based effect access for explicit-path lowering" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{
+        .sub_path = "alias_effect_access.zig",
+        .data =
+        \\fn helper(eff: anytype) !void {
+        \\    const writer = eff.writer;
+        \\    try writer.tell("queued");
+        \\}
+        \\pub fn runBody(eff: anytype) !void {
+        \\    const e = eff;
+        \\    const state = e.state;
+        \\    _ = try state.get();
+        \\    try helper(eff);
+        \\}
+        ,
+    });
+
+    const tmp_path = try tmp.dir.realpathAlloc(std.testing.allocator, "alias_effect_access.zig");
+    defer std.testing.allocator.free(tmp_path);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
+}
+
 test "same-module validation rejects unsupported effect access for explicit-path lowering" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();

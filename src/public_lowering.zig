@@ -246,14 +246,14 @@ fn buildFunctionsAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
     const graph = source_graph_embed.analyzeProgramAt(source_path, spec.entry_symbol) catch |err| switch (err) {
         error.EntryMissing => @compileError("public lowering could not find the requested entry symbol in the embedded source"),
         error.MissingImport => @compileError("public lowering could not resolve one imported helper module or helper symbol"),
-        error.RecursiveHelpers => @compileError("public lowering does not yet support recursive helper graphs"),
+        error.RecursiveHelpers => @compileError("public lowering does not support recursive helper graphs"),
         error.TooManyFunctions => @compileError("public lowering source graph exceeded the supported function limit"),
         error.TooManyImports => @compileError("public lowering source graph exceeded the supported import limit"),
         error.TooManyHelperUses => @compileError("public lowering source graph exceeded the supported helper-use limit"),
         error.TooManyHelperEdges => @compileError("public lowering source graph exceeded the supported helper-edge limit"),
         error.TooManyOpUses => @compileError("public lowering source graph exceeded the supported op-use limit"),
-        error.UnsupportedEffectAccess => @compileError("public lowering helper inference only supports direct eff.requirement.op(...) access"),
-        error.UnsupportedImportPath => @compileError("public lowering currently supports only repo-relative .zig imports for cross-file helpers"),
+        error.UnsupportedEffectAccess => @compileError("public lowering helper inference supports only the retained direct and alias-based effect access patterns"),
+        error.UnsupportedImportPath => @compileError("public lowering supports only repo-relative .zig imports for cross-file helpers"),
     };
     const reachable = reachableFunctions(graph);
     const flat_ops = flatOpsForRow(spec.row);
@@ -303,14 +303,14 @@ fn buildCallEdgesAt(comptime source_path: []const u8, comptime spec: LowerSpec) 
     const graph = source_graph_embed.analyzeProgramAt(source_path, spec.entry_symbol) catch |err| switch (err) {
         error.EntryMissing => @compileError("public lowering could not find the requested entry symbol in the embedded source"),
         error.MissingImport => @compileError("public lowering could not resolve one imported helper module or helper symbol"),
-        error.RecursiveHelpers => @compileError("public lowering does not yet support recursive helper graphs"),
+        error.RecursiveHelpers => @compileError("public lowering does not support recursive helper graphs"),
         error.TooManyFunctions => @compileError("public lowering source graph exceeded the supported function limit"),
         error.TooManyImports => @compileError("public lowering source graph exceeded the supported import limit"),
         error.TooManyHelperUses => @compileError("public lowering source graph exceeded the supported helper-use limit"),
         error.TooManyHelperEdges => @compileError("public lowering source graph exceeded the supported helper-edge limit"),
         error.TooManyOpUses => @compileError("public lowering source graph exceeded the supported op-use limit"),
-        error.UnsupportedEffectAccess => @compileError("public lowering helper inference only supports direct eff.requirement.op(...) access"),
-        error.UnsupportedImportPath => @compileError("public lowering currently supports only repo-relative .zig imports for cross-file helpers"),
+        error.UnsupportedEffectAccess => @compileError("public lowering helper inference supports only the retained direct and alias-based effect access patterns"),
+        error.UnsupportedImportPath => @compileError("public lowering supports only repo-relative .zig imports for cross-file helpers"),
     };
     const reachable = reachableFunctions(graph);
     const edge_count = comptime count: {
