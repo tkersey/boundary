@@ -5,6 +5,10 @@ const public_lowering = @import("public_lowering.zig");
 pub const Program = effect_ir.Program;
 /// Public explicit Effect IR row type.
 pub const Row = effect_ir.Row;
+/// Public explicit Effect IR symbol reference.
+pub const SymbolRef = effect_ir.SymbolRef;
+/// Public explicit Effect IR function descriptor.
+pub const Function = effect_ir.Function;
 /// Public explicit Effect IR output descriptor.
 pub const OutputSpec = effect_ir.OutputSpec;
 /// Public explicit Effect IR call-edge descriptor.

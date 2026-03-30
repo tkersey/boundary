@@ -104,6 +104,7 @@ fn cloneProgram(comptime program: effect_ir.Program) effect_ir.Program {
         break :blk buffer;
     };
     return .{
+        .entry_index = program.entry_index,
         .functions = &functions,
         .call_edges = cloneCallEdges(program.call_edges),
         .function_bodies = cloneFunctionBodies(program.function_bodies),
@@ -127,6 +128,13 @@ fn cloneCallEdges(comptime call_edges: []const effect_ir.CallEdge) []const effec
         }
         break :blk &buffer;
     };
+}
+
+fn explicitEntryIndex(comptime functions: []const effect_ir.Function, comptime entry_symbol: []const u8) u16 {
+    for (functions, 0..) |function, index| {
+        if (std.mem.eql(u8, function.symbol.symbol_name, entry_symbol)) return @intCast(index);
+    }
+    @compileError("public lowering could not find the requested entry symbol in the explicit effect-ir program");
 }
 
 fn cloneBodyInstructions(comptime instructions: []const effect_ir.Instruction) []const effect_ir.Instruction {
@@ -1054,6 +1062,7 @@ pub fn lowerOpenRowAt(comptime source_path: []const u8, comptime spec: LowerSpec
 pub fn irProgramAt(comptime source_path: []const u8, comptime spec: LowerSpec) effect_ir.Program {
     const payload = openRowAt(source_path, spec);
     return .{
+        .entry_index = explicitEntryIndex(payload.functions, spec.entry_symbol),
         .functions = payload.functions,
         .call_edges = payload.call_edges,
         .function_bodies = payload.function_bodies,
@@ -1212,7 +1221,10 @@ fn CompileIrType(comptime label: []const u8, comptime program: effect_ir.Program
         error.UnsupportedCodecType => @compileError("public lowering runtime plan rejected a type outside the first-wave codec set"),
         error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
     };
-    return GeneratedProgramType(label, "<ir>", program.functions[0].symbol.symbol_name, compiled_plan, null);
+    if (program.entry_index >= program.functions.len) {
+        @compileError("public lowering rejected an effect-ir program with an out-of-range entry_index");
+    }
+    return GeneratedProgramType(label, "<ir>", program.functions[program.entry_index].symbol.symbol_name, compiled_plan, null);
 }
 
 /// Compile one explicit public effect-ir program into the same runtime-owned plan shape.

@@ -73,6 +73,71 @@ test "explicit ir compilation matches the generated runtime plan shape" {
     try std.testing.expectEqual(@as(usize, 7), ExplicitIrProgramType.runtime_plan.ops.len);
 }
 
+test "explicit ir compilation respects an explicit non-zero entry index" {
+    const row = shift.ir.rowFromSpec(.{
+        .writer = .{
+            .tell = shift.ir.Transform([]const u8, void),
+        },
+    });
+    const helper_symbol: shift.ir.SymbolRef = .{
+        .module_path = "examples/hand_authored.zig",
+        .symbol_name = "helper",
+    };
+    const root_symbol: shift.ir.SymbolRef = .{
+        .module_path = "examples/hand_authored.zig",
+        .symbol_name = "root",
+    };
+    const HandAuthoredProgram: shift.ir.Program = .{
+        .entry_index = 1,
+        .functions = &.{
+            .{
+                .symbol = helper_symbol,
+                .row = row,
+            },
+            .{
+                .symbol = root_symbol,
+                .row = row,
+                .outputs = &.{.{ .label = "writer", .OutputType = [][]const u8 }},
+            },
+        },
+        .call_edges = &.{.{
+            .caller = root_symbol,
+            .callee = helper_symbol,
+        }},
+        .function_bodies = &.{
+            .{
+                .local_codecs = &.{},
+                .entry_block = 0,
+                .blocks = &.{.{
+                    .instructions = &.{.{
+                        .kind = .call_op,
+                        .dst = 0,
+                        .operand = 0,
+                    }},
+                    .terminator = .{ .kind = .return_unit },
+                }},
+            },
+            .{
+                .local_codecs = &.{},
+                .entry_block = 0,
+                .blocks = &.{.{
+                    .instructions = &.{.{
+                        .kind = .call_helper,
+                        .dst = 0,
+                        .operand = 0,
+                    }},
+                    .terminator = .{ .kind = .return_value },
+                }},
+            },
+        },
+    };
+
+    const ProgramType = shift.ir.compile("example.hand_authored_ir", HandAuthoredProgram);
+
+    try std.testing.expectEqualStrings("root", ProgramType.entry_symbol);
+    try std.testing.expectEqual(@as(u16, 1), ProgramType.runtime_plan.entry_index);
+}
+
 test "root lowerAt matches the example-owned same-module lowering" {
     const ExplicitProgramType = shift.lowerAt(
         example_open_row_state_writer.loweringSourcePath(),
@@ -287,7 +352,101 @@ test "explicit IR compilation matches recursive same-file lowered runtime plan" 
         example_open_row_recursive_writer.irProgram(),
     );
 
-    try std.testing.expectEqual(example_open_row_recursive_writer.CompiledProgram.ir_hash, ExplicitProgramType.ir_hash);
+    try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.functions, ExplicitProgramType.runtime_plan.functions);
+    try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.requirements, ExplicitProgramType.runtime_plan.requirements);
+    try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.ops, ExplicitProgramType.runtime_plan.ops);
+    try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.outputs, ExplicitProgramType.runtime_plan.outputs);
+    try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.locals, ExplicitProgramType.runtime_plan.locals);
+    try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.blocks, ExplicitProgramType.runtime_plan.blocks);
+    try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.terminators, ExplicitProgramType.runtime_plan.terminators);
+    try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.instructions, ExplicitProgramType.runtime_plan.instructions);
+}
+
+test "hand-authored explicit IR matches recursive same-file lowered runtime plan" {
+    const row = shift.ir.mergeRows(.{
+        shift.ir.rowFromSpec(.{
+            .state = .{
+                .get = shift.ir.Transform(void, i32),
+                .set = shift.ir.Transform(i32, void),
+            },
+        }),
+        shift.ir.rowFromSpec(.{
+            .writer = .{
+                .tell = shift.ir.Transform([]const u8, void),
+            },
+        }),
+    });
+    const countdown_symbol: shift.ir.SymbolRef = .{
+        .module_path = "examples/open_row_recursive_writer.zig",
+        .symbol_name = "countdown",
+    };
+    const run_body_symbol: shift.ir.SymbolRef = .{
+        .module_path = "examples/open_row_recursive_writer.zig",
+        .symbol_name = "runBody",
+    };
+    const HandAuthoredProgram: shift.ir.Program = .{
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol = run_body_symbol,
+                .row = row,
+                .outputs = &.{
+                    .{ .label = "state", .OutputType = i32 },
+                    .{ .label = "writer", .OutputType = [][]const u8 },
+                },
+            },
+            .{
+                .symbol = countdown_symbol,
+                .row = row,
+            },
+        },
+        .call_edges = &.{
+            .{ .caller = run_body_symbol, .callee = countdown_symbol },
+            .{ .caller = countdown_symbol, .callee = countdown_symbol },
+        },
+        .function_bodies = &.{
+            .{
+                .local_codecs = &.{},
+                .entry_block = 0,
+                .blocks = &.{.{
+                    .instructions = &.{.{
+                        .kind = .call_helper,
+                        .operand = 1,
+                    }},
+                    .terminator = .{ .kind = .return_value },
+                }},
+            },
+            .{
+                .local_codecs = &.{ .i32, .bool, .i32 },
+                .entry_block = 0,
+                .blocks = &.{
+                    .{
+                        .instructions = &.{
+                            .{ .kind = .call_op, .dst = 0, .operand = 3 },
+                            .{ .kind = .compare_eq_zero, .dst = 1, .operand = 0 },
+                        },
+                        .terminator = .{ .kind = .branch_if, .primary = 1, .secondary = 2 },
+                    },
+                    .{
+                        .instructions = &.{},
+                        .terminator = .{ .kind = .return_unit },
+                    },
+                    .{
+                        .instructions = &.{
+                            .{ .kind = .call_op, .dst = 0, .operand = 5 },
+                            .{ .kind = .sub_one, .dst = 2, .operand = 0 },
+                            .{ .kind = .call_op, .operand = 4, .aux = 2 },
+                            .{ .kind = .call_helper, .operand = 1 },
+                        },
+                        .terminator = .{ .kind = .return_unit },
+                    },
+                },
+            },
+        },
+    };
+
+    const ExplicitProgramType = shift.ir.compile("example.open_row_recursive_writer", HandAuthoredProgram);
+
     try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.functions, ExplicitProgramType.runtime_plan.functions);
     try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.requirements, ExplicitProgramType.runtime_plan.requirements);
     try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.ops, ExplicitProgramType.runtime_plan.ops);

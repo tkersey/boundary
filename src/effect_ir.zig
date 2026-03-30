@@ -291,6 +291,7 @@ pub const Function = struct {
 
 /// One resolved program plus the call graph it was elaborated from.
 pub const Program = struct {
+    entry_index: u16 = 0,
     functions: []const Function,
     call_edges: []const CallEdge,
     function_bodies: []const FunctionBody = &.{},

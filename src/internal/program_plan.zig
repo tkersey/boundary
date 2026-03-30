@@ -465,6 +465,7 @@ fn invalidGeneratedPlan(err: ValidationError) noreturn {
 
 /// Compute a stable hash for the full normalized IR program identity.
 pub fn irHashForProgram(comptime program: effect_ir.Program) PlanError!u64 {
+    if (program.entry_index >= program.functions.len) return error.UnknownSymbol;
     if (program.function_bodies.len != 0 and program.function_bodies.len != program.functions.len) {
         return error.InvalidProgramBodyShape;
     }
@@ -482,6 +483,7 @@ pub fn irHashForProgram(comptime program: effect_ir.Program) PlanError!u64 {
     });
 
     var hasher = std.hash.Wyhash.init(0);
+    hasher.update(std.mem.asBytes(&program.entry_index));
     for (program.functions) |function| {
         const digest = try effect_ir.rowDigest(function.row, function.outputs);
         hashBytes(&hasher, function.symbol.module_path);
@@ -518,10 +520,11 @@ pub fn irHashForProgram(comptime program: effect_ir.Program) PlanError!u64 {
 /// Lower one comptime effect-ir program into a runtime-owned executable plan shape.
 pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.Program) PlanError!ProgramPlan {
     if (program.functions.len == 0) return error.EmptyProgram;
+    if (program.entry_index >= program.functions.len) return error.UnknownSymbol;
     if (program.function_bodies.len != 0) {
         if (program.function_bodies.len != program.functions.len) return error.InvalidProgramBodyShape;
         return try planFromOpenRowProgram(label, .{
-            .entry_index = 0,
+            .entry_index = program.entry_index,
             .functions = program.functions,
             .call_edges = program.call_edges,
             .function_bodies = program.function_bodies,
@@ -708,7 +711,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
     const plan: ProgramPlan = .{
         .label = label,
         .ir_hash = ir_hash,
-        .entry_index = 0,
+        .entry_index = program.entry_index,
         .functions = &functions,
         .requirements = &requirements,
         .ops = &ops,

@@ -73,6 +73,7 @@ pub const LoweredOpenRowProgram = struct {
     /// Project the owned function storage back into the generic Effect IR view.
     pub fn asEffectProgram(self: *const @This()) effect_ir.Program {
         return .{
+            .entry_index = @intCast(self.entry_index),
             .functions = self.functions,
             .call_edges = self.call_edges,
             .function_bodies = self.function_bodies,
