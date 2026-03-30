@@ -1,4 +1,5 @@
 const effect_ir = @import("effect_ir");
+const program_frontend = @import("program_frontend");
 const std = @import("std");
 
 /// Serializable value codecs admitted by the first redesign wave.
@@ -37,6 +38,11 @@ pub const OutputPlan = struct {
     codec: ValueCodec,
 };
 
+/// One lowered local slot descriptor in the runtime-owned executable plan.
+pub const LocalPlan = struct {
+    codec: ValueCodec,
+};
+
 /// One lowered operation descriptor in the runtime-owned executable plan.
 pub const OpPlan = struct {
     requirement_index: u16,
@@ -60,6 +66,10 @@ pub const FunctionPlan = struct {
     requirement_count: u16,
     first_output: u16,
     output_count: u16,
+    first_local: u16 = 0,
+    local_count: u16 = 0,
+    first_block: u16 = 0,
+    block_count: u16 = 0,
     first_instruction: u16,
     instruction_count: u16,
 };
@@ -77,10 +87,32 @@ pub const Instruction = struct {
     index: u16,
 };
 
+/// Serializable block terminator tags carried by the runtime-owned plan.
+pub const TerminatorKind = enum {
+    branch_if,
+    jump,
+    return_unit,
+    return_value,
+};
+
+/// One serializable block terminator in the runtime-owned executable plan.
+pub const Terminator = struct {
+    kind: TerminatorKind,
+    primary: u16 = 0,
+    secondary: u16 = 0,
+};
+
+/// One lowered basic-block descriptor in the runtime-owned executable plan.
+pub const BlockPlan = struct {
+    first_instruction: u16,
+    instruction_count: u16,
+    terminator_index: u16,
+};
+
 /// Runtime-owned serializable executable plan for lowered or explicit IR programs.
 pub const ProgramPlan = struct {
     /// Stable schema version for JSON-serialized runtime plans.
-    pub const current_schema_version: u32 = 1;
+    pub const current_schema_version: u32 = 2;
 
     schema_version: u32 = current_schema_version,
     label: []const u8,
@@ -90,6 +122,9 @@ pub const ProgramPlan = struct {
     requirements: []const RequirementPlan,
     ops: []const OpPlan,
     outputs: []const OutputPlan,
+    locals: []const LocalPlan = &.{},
+    blocks: []const BlockPlan = &.{},
+    terminators: []const Terminator = &.{},
     instructions: []const Instruction,
 
     /// Validate that this runtime-owned plan is structurally self-contained.
@@ -105,6 +140,10 @@ pub const ProgramPlan = struct {
             if (requirement_end > self.requirements.len) return error.InvalidFunctionRequirementSpan;
             const output_end = rangeEnd(function.first_output, function.output_count) orelse return error.InvalidFunctionOutputSpan;
             if (output_end > self.outputs.len) return error.InvalidFunctionOutputSpan;
+            const local_end = rangeEnd(function.first_local, function.local_count) orelse return error.InvalidFunctionLocalSpan;
+            if (local_end > self.locals.len) return error.InvalidFunctionLocalSpan;
+            const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
+            if (block_end > self.blocks.len) return error.InvalidFunctionBlockSpan;
             const instruction_end = rangeEnd(function.first_instruction, function.instruction_count) orelse return error.InvalidFunctionInstructionSpan;
             if (instruction_end > self.instructions.len) return error.InvalidFunctionInstructionSpan;
         }
@@ -124,6 +163,12 @@ pub const ProgramPlan = struct {
             if (output.label.len == 0) return error.EmptyOutputLabel;
         }
 
+        for (self.blocks) |block| {
+            const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
+            if (instruction_end > self.instructions.len) return error.InvalidBlockInstructionSpan;
+            if (block.terminator_index >= self.terminators.len) return error.InvalidBlockTerminatorIndex;
+        }
+
         for (self.instructions) |instruction| switch (instruction.kind) {
             .call_helper => {
                 if (instruction.index >= self.functions.len) return error.InvalidCallHelperTarget;
@@ -134,6 +179,17 @@ pub const ProgramPlan = struct {
             .return_value => {
                 if (instruction.index != 0) return error.InvalidReturnValueIndex;
             },
+        };
+
+        for (self.terminators) |terminator| switch (terminator.kind) {
+            .branch_if => {
+                if (terminator.primary >= self.blocks.len) return error.InvalidTerminatorTarget;
+                if (terminator.secondary >= self.blocks.len) return error.InvalidTerminatorTarget;
+            },
+            .jump => {
+                if (terminator.primary >= self.blocks.len) return error.InvalidTerminatorTarget;
+            },
+            .return_unit, .return_value => {},
         };
     }
 
@@ -169,6 +225,19 @@ pub const ProgramPlan = struct {
             hashBytes(&hasher, output.label);
             hashBytes(&hasher, @tagName(output.codec));
         }
+        for (self.locals) |local| {
+            hashBytes(&hasher, @tagName(local.codec));
+        }
+        for (self.blocks) |block| {
+            hasher.update(std.mem.asBytes(&block.first_instruction));
+            hasher.update(std.mem.asBytes(&block.instruction_count));
+            hasher.update(std.mem.asBytes(&block.terminator_index));
+        }
+        for (self.terminators) |terminator| {
+            hashBytes(&hasher, @tagName(terminator.kind));
+            hasher.update(std.mem.asBytes(&terminator.primary));
+            hasher.update(std.mem.asBytes(&terminator.secondary));
+        }
         for (self.instructions) |instruction| {
             hashBytes(&hasher, @tagName(instruction.kind));
             hasher.update(std.mem.asBytes(&instruction.index));
@@ -189,17 +258,24 @@ pub const ValidationError = error{
     EmptyRequirementLabel,
     InvalidCallHelperTarget,
     InvalidCallOpTarget,
+    InvalidBlockInstructionSpan,
+    InvalidBlockTerminatorIndex,
     InvalidEntryIndex,
+    InvalidFunctionBlockSpan,
     InvalidFunctionInstructionSpan,
+    InvalidFunctionLocalSpan,
     InvalidFunctionOutputSpan,
     InvalidFunctionRequirementSpan,
     InvalidOpRequirementIndex,
     InvalidRequirementOpSpan,
     InvalidReturnValueIndex,
+    InvalidTerminatorTarget,
     UnsupportedSchemaVersion,
 };
 /// Error set for lowering comptime IR into a runtime-owned plan.
 pub const PlanError = CodecError || effect_ir.NormalizeError || error{EmptyProgram};
+/// Error set for upgrading legacy runtime-plan schemas in place.
+pub const LegacySchemaError = std.mem.Allocator.Error || error{UnsupportedSchemaVersion};
 
 /// Return the first-wave runtime codec for one supported Zig type.
 pub fn codecForType(comptime T: type) CodecError!ValueCodec {
@@ -217,6 +293,55 @@ fn hashBytes(hasher: *std.hash.Wyhash, value: []const u8) void {
     hasher.update(&.{0});
 }
 
+/// Upgrade a legacy schema-v1 plan in place by synthesizing one block and one return terminator per function.
+pub fn upgradeLegacyProgramPlan(allocator: std.mem.Allocator, plan: *ProgramPlan) LegacySchemaError!void {
+    if (plan.schema_version == ProgramPlan.current_schema_version) return;
+    if (plan.schema_version != 1) return error.UnsupportedSchemaVersion;
+
+    const functions = try allocator.alloc(FunctionPlan, plan.functions.len);
+    errdefer allocator.free(functions);
+    const blocks = try allocator.alloc(BlockPlan, plan.functions.len);
+    errdefer allocator.free(blocks);
+    const terminators = try allocator.alloc(Terminator, plan.functions.len);
+    errdefer allocator.free(terminators);
+
+    for (plan.functions, 0..) |function, index| {
+        functions[index] = .{
+            .symbol_name = function.symbol_name,
+            .first_requirement = function.first_requirement,
+            .requirement_count = function.requirement_count,
+            .first_output = function.first_output,
+            .output_count = function.output_count,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = @intCast(index),
+            .block_count = 1,
+            .first_instruction = function.first_instruction,
+            .instruction_count = function.instruction_count,
+        };
+        blocks[index] = .{
+            .first_instruction = function.first_instruction,
+            .instruction_count = function.instruction_count,
+            .terminator_index = @intCast(index),
+        };
+        terminators[index] = .{
+            .kind = .return_value,
+            .primary = 0,
+            .secondary = 0,
+        };
+    }
+
+    allocator.free(plan.functions);
+    allocator.free(plan.locals);
+    allocator.free(plan.blocks);
+    allocator.free(plan.terminators);
+    plan.functions = functions;
+    plan.locals = try allocator.alloc(LocalPlan, 0);
+    plan.blocks = blocks;
+    plan.terminators = terminators;
+    plan.schema_version = ProgramPlan.current_schema_version;
+}
+
 fn rangeEnd(start: u16, len: u16) ?usize {
     const wide_start: usize = start;
     const wide_len: usize = len;
@@ -230,6 +355,41 @@ fn symbolIndex(comptime program: effect_ir.Program, comptime symbol: effect_ir.S
     return null;
 }
 
+fn countBodyLocals(comptime program: program_frontend.LoweredOpenRowProgram) usize {
+    var total: usize = 0;
+    for (program.function_bodies) |body| total += body.local_codecs.len;
+    return total;
+}
+
+fn countBodyBlocks(comptime program: program_frontend.LoweredOpenRowProgram) usize {
+    var total: usize = 0;
+    for (program.function_bodies) |body| total += body.blocks.len;
+    return total;
+}
+
+fn countBodyTerminators(comptime program: program_frontend.LoweredOpenRowProgram) usize {
+    var total: usize = 0;
+    for (program.function_bodies) |body| total += body.blocks.len;
+    return total;
+}
+
+fn countBodyInstructions(comptime program: program_frontend.LoweredOpenRowProgram) usize {
+    var total: usize = 0;
+    for (program.function_bodies) |body| {
+        for (body.blocks) |block| total += block.instructions.len;
+    }
+    return total;
+}
+
+fn terminatorKindFromBody(kind: @import("helper_body_ir").TerminatorKind) TerminatorKind {
+    return switch (kind) {
+        .branch_if => .branch_if,
+        .jump => .jump,
+        .return_unit => .return_unit,
+        .return_value => .return_value,
+    };
+}
+
 fn invalidGeneratedPlan(err: ValidationError) noreturn {
     @compileError(switch (err) {
         error.EmptyFunctionSymbol => "runtime plan generator produced an empty function symbol",
@@ -240,13 +400,18 @@ fn invalidGeneratedPlan(err: ValidationError) noreturn {
         error.EmptyRequirementLabel => "runtime plan generator produced an empty requirement label",
         error.InvalidCallHelperTarget => "runtime plan generator produced an out-of-range helper target",
         error.InvalidCallOpTarget => "runtime plan generator produced an out-of-range op target",
+        error.InvalidBlockInstructionSpan => "runtime plan generator produced an invalid block instruction span",
+        error.InvalidBlockTerminatorIndex => "runtime plan generator produced an invalid block terminator index",
         error.InvalidEntryIndex => "runtime plan generator produced an invalid entry index",
+        error.InvalidFunctionBlockSpan => "runtime plan generator produced an invalid function block span",
         error.InvalidFunctionInstructionSpan => "runtime plan generator produced an invalid function instruction span",
+        error.InvalidFunctionLocalSpan => "runtime plan generator produced an invalid function local span",
         error.InvalidFunctionOutputSpan => "runtime plan generator produced an invalid function output span",
         error.InvalidFunctionRequirementSpan => "runtime plan generator produced an invalid function requirement span",
         error.InvalidOpRequirementIndex => "runtime plan generator produced an op with an invalid requirement index",
         error.InvalidRequirementOpSpan => "runtime plan generator produced an invalid requirement op span",
         error.InvalidReturnValueIndex => "runtime plan generator produced a return instruction with a non-zero index",
+        error.InvalidTerminatorTarget => "runtime plan generator produced an invalid block terminator target",
         error.UnsupportedSchemaVersion => "runtime plan generator produced an unsupported schema version",
     });
 }
@@ -347,6 +512,10 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
                 .requirement_count = @intCast(function.row.requirements.len),
                 .first_output = output_index,
                 .output_count = @intCast(function.outputs.len),
+                .first_local = 0,
+                .local_count = 0,
+                .first_block = @intCast(index),
+                .block_count = 1,
                 .first_instruction = instruction_index,
                 .instruction_count = @intCast(helper_call_count + 1),
             };
@@ -412,6 +581,30 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         break :blk buf;
     };
 
+    const blocks = comptime blk: {
+        var buf: [program.functions.len]BlockPlan = undefined;
+        for (functions, 0..) |function, index| {
+            buf[index] = .{
+                .first_instruction = function.first_instruction,
+                .instruction_count = function.instruction_count,
+                .terminator_index = @intCast(index),
+            };
+        }
+        break :blk buf;
+    };
+
+    const terminators = comptime blk: {
+        var buf: [program.functions.len]Terminator = undefined;
+        for (&buf) |*terminator| {
+            terminator.* = .{
+                .kind = .return_value,
+                .primary = 0,
+                .secondary = 0,
+            };
+        }
+        break :blk buf;
+    };
+
     const instructions = comptime blk: {
         var buf: [instruction_total]Instruction = undefined;
         var instruction_index: usize = 0;
@@ -442,6 +635,221 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         .requirements = &requirements,
         .ops = &ops,
         .outputs = &outputs,
+        .locals = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    };
+    if (plan.validate()) {
+        // The generated payload is internally consistent.
+    } else |err| invalidGeneratedPlan(err);
+    return plan;
+}
+
+/// Lower one body-bearing open-row program into a runtime-owned executable plan shape.
+pub fn planFromOpenRowProgram(
+    comptime label: []const u8,
+    comptime program: program_frontend.LoweredOpenRowProgram,
+) PlanError!ProgramPlan {
+    const summary_program = program.asEffectProgram();
+    const requirement_total = comptime blk: {
+        var total: usize = 0;
+        for (program.functions) |function| total += function.row.requirements.len;
+        break :blk total;
+    };
+    const op_total = comptime blk: {
+        var total: usize = 0;
+        for (program.functions) |function| {
+            for (function.row.requirements) |requirement| total += requirement.ops.len;
+        }
+        break :blk total;
+    };
+    const output_total = comptime blk: {
+        var total: usize = 0;
+        for (program.functions) |function| total += function.outputs.len;
+        break :blk total;
+    };
+    const local_total = countBodyLocals(program);
+    const block_total = countBodyBlocks(program);
+    const terminator_total = countBodyTerminators(program);
+    const instruction_total = countBodyInstructions(program);
+    const ir_hash = try irHashForProgram(summary_program);
+
+    const functions = comptime blk: {
+        var buf: [program.functions.len]FunctionPlan = undefined;
+        var requirement_index: u16 = 0;
+        var output_index: u16 = 0;
+        var local_index: u16 = 0;
+        var block_index: u16 = 0;
+        var instruction_index: u16 = 0;
+        for (program.functions, 0..) |function, index| {
+            const body = program.function_bodies[index];
+            const instruction_count = count: {
+                var total: usize = 0;
+                for (body.blocks) |block| total += block.instructions.len;
+                break :count total;
+            };
+            buf[index] = .{
+                .symbol_name = function.symbol.symbol_name,
+                .first_requirement = requirement_index,
+                .requirement_count = @intCast(function.row.requirements.len),
+                .first_output = output_index,
+                .output_count = @intCast(function.outputs.len),
+                .first_local = local_index,
+                .local_count = @intCast(body.local_codecs.len),
+                .first_block = block_index,
+                .block_count = @intCast(body.blocks.len),
+                .first_instruction = instruction_index,
+                .instruction_count = @intCast(instruction_count),
+            };
+            requirement_index += @intCast(function.row.requirements.len);
+            output_index += @intCast(function.outputs.len);
+            local_index += @intCast(body.local_codecs.len);
+            block_index += @intCast(body.blocks.len);
+            instruction_index += @intCast(instruction_count);
+        }
+        break :blk buf;
+    };
+
+    const requirements = comptime blk: {
+        var buf: [requirement_total]RequirementPlan = undefined;
+        var requirement_index: usize = 0;
+        var op_index: u16 = 0;
+        for (program.functions) |function| {
+            for (function.row.requirements) |requirement| {
+                buf[requirement_index] = .{
+                    .label = requirement.label,
+                    .first_op = op_index,
+                    .op_count = @intCast(requirement.ops.len),
+                };
+                op_index += @intCast(requirement.ops.len);
+                requirement_index += 1;
+            }
+        }
+        break :blk buf;
+    };
+
+    const ops = comptime blk: {
+        var buf: [op_total]OpPlan = undefined;
+        var op_index: usize = 0;
+        var requirement_index: u16 = 0;
+        for (program.functions) |function| {
+            for (function.row.requirements) |requirement| {
+                for (requirement.ops) |op| {
+                    buf[op_index] = .{
+                        .requirement_index = requirement_index,
+                        .op_name = op.op_name,
+                        .mode = controlModeFromIr(op.mode),
+                        .payload_codec = try codecForType(op.PayloadType),
+                        .resume_codec = try codecForType(op.ResumeType),
+                    };
+                    op_index += 1;
+                }
+                requirement_index += 1;
+            }
+        }
+        break :blk buf;
+    };
+
+    const outputs = comptime blk: {
+        var buf: [output_total]OutputPlan = undefined;
+        var output_index: usize = 0;
+        for (program.functions) |function| {
+            for (function.outputs) |output| {
+                buf[output_index] = .{
+                    .label = output.label,
+                    .codec = try codecForType(output.OutputType),
+                };
+                output_index += 1;
+            }
+        }
+        break :blk buf;
+    };
+
+    const locals = comptime blk: {
+        var buf: [local_total]LocalPlan = undefined;
+        var local_index: usize = 0;
+        for (program.function_bodies) |body| {
+            for (body.local_codecs) |codec| {
+                buf[local_index] = .{ .codec = codec };
+                local_index += 1;
+            }
+        }
+        break :blk buf;
+    };
+
+    const blocks = comptime blk: {
+        var buf: [block_total]BlockPlan = undefined;
+        var block_index: usize = 0;
+        var instruction_index: u16 = 0;
+        var terminator_index: u16 = 0;
+        for (program.function_bodies) |body| {
+            for (body.blocks) |block| {
+                buf[block_index] = .{
+                    .first_instruction = instruction_index,
+                    .instruction_count = @intCast(block.instructions.len),
+                    .terminator_index = terminator_index,
+                };
+                instruction_index += @intCast(block.instructions.len);
+                terminator_index += 1;
+                block_index += 1;
+            }
+        }
+        break :blk buf;
+    };
+
+    const terminators = comptime blk: {
+        var buf: [terminator_total]Terminator = undefined;
+        var terminator_index: usize = 0;
+        var block_base: u16 = 0;
+        for (program.function_bodies) |body| {
+            for (body.blocks) |block| {
+                buf[terminator_index] = .{
+                    .kind = terminatorKindFromBody(block.terminator.kind),
+                    .primary = if (block.terminator.kind == .jump or block.terminator.kind == .branch_if)
+                        block_base + block.terminator.primary
+                    else
+                        block.terminator.primary,
+                    .secondary = if (block.terminator.kind == .branch_if)
+                        block_base + block.terminator.secondary
+                    else
+                        block.terminator.secondary,
+                };
+                terminator_index += 1;
+            }
+            block_base += @intCast(body.blocks.len);
+        }
+        break :blk buf;
+    };
+
+    const instructions = comptime blk: {
+        var buf: [instruction_total]Instruction = undefined;
+        var instruction_index: usize = 0;
+        for (program.function_bodies) |body| {
+            for (body.blocks) |block| {
+                for (block.instructions) |instruction| {
+                    buf[instruction_index] = .{
+                        .kind = instruction.kind,
+                        .index = instruction.operand,
+                    };
+                    instruction_index += 1;
+                }
+            }
+        }
+        break :blk buf;
+    };
+
+    const plan: ProgramPlan = .{
+        .label = label,
+        .ir_hash = ir_hash,
+        .entry_index = @intCast(program.entry_index),
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &outputs,
+        .locals = &locals,
+        .blocks = &blocks,
+        .terminators = &terminators,
         .instructions = &instructions,
     };
     if (plan.validate()) {
@@ -496,8 +904,12 @@ test "planFromProgram lowers one simple state-writer IR shell into a runtime-own
     try std.testing.expectEqual(@as(usize, 2), plan.requirements.len);
     try std.testing.expectEqual(@as(usize, 3), plan.ops.len);
     try std.testing.expectEqual(@as(usize, 2), plan.outputs.len);
+    try std.testing.expectEqual(@as(usize, 0), plan.locals.len);
+    try std.testing.expectEqual(@as(usize, 1), plan.blocks.len);
+    try std.testing.expectEqual(@as(usize, 1), plan.terminators.len);
     try std.testing.expectEqual(@as(usize, 1), plan.instructions.len);
     try std.testing.expectEqual(InstructionKind.return_value, plan.instructions[0].kind);
+    try std.testing.expectEqual(TerminatorKind.return_value, plan.terminators[0].kind);
     try plan.validate();
 }
 
@@ -540,13 +952,20 @@ test "planFromProgram hashes the whole program and makes helper calls self-conta
     const first_row_only_hash = try effect_ir.rowDigest(program.functions[0].row, program.functions[0].outputs);
 
     try std.testing.expect(plan.ir_hash != first_row_only_hash.hash);
+    try std.testing.expectEqual(@as(usize, 0), plan.locals.len);
+    try std.testing.expectEqual(@as(usize, 2), plan.blocks.len);
+    try std.testing.expectEqual(@as(usize, 2), plan.terminators.len);
     try std.testing.expectEqual(@as(usize, 3), plan.instructions.len);
     try std.testing.expectEqual(@as(u16, 0), plan.functions[0].first_instruction);
     try std.testing.expectEqual(@as(u16, 2), plan.functions[0].instruction_count);
+    try std.testing.expectEqual(@as(u16, 0), plan.functions[0].first_block);
+    try std.testing.expectEqual(@as(u16, 1), plan.functions[0].block_count);
     try std.testing.expectEqual(InstructionKind.call_helper, plan.instructions[0].kind);
     try std.testing.expectEqual(@as(u16, 1), plan.instructions[0].index);
     try std.testing.expectEqual(InstructionKind.return_value, plan.instructions[1].kind);
     try std.testing.expectEqual(InstructionKind.return_value, plan.instructions[2].kind);
+    try std.testing.expectEqual(TerminatorKind.return_value, plan.terminators[0].kind);
+    try std.testing.expectEqual(TerminatorKind.return_value, plan.terminators[1].kind);
     try plan.validate();
 }
 
@@ -561,12 +980,25 @@ test "ProgramPlan.validate rejects out-of-range helper targets" {
             .requirement_count = 0,
             .first_output = 0,
             .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .block_count = 1,
             .first_instruction = 0,
             .instruction_count = 1,
         }},
         .requirements = &.{},
         .ops = &.{},
         .outputs = &.{},
+        .locals = &.{},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 1,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{
+            .kind = .return_value,
+        }},
         .instructions = &.{.{
             .kind = .call_helper,
             .index = 1,
@@ -587,6 +1019,10 @@ test "ProgramPlan hash survives JSON roundtrip" {
             .requirement_count = 1,
             .first_output = 0,
             .output_count = 1,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .block_count = 1,
             .first_instruction = 0,
             .instruction_count = 1,
         }},
@@ -605,6 +1041,15 @@ test "ProgramPlan hash survives JSON roundtrip" {
         .outputs = &.{.{
             .label = "writer",
             .codec = .string_list,
+        }},
+        .locals = &.{},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 1,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{
+            .kind = .return_value,
         }},
         .instructions = &.{.{
             .kind = .return_value,

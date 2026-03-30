@@ -60,6 +60,10 @@ fn makePlanBackedArtifact(
                 .requirement_count = 0,
                 .first_output = 0,
                 .output_count = 1,
+                .first_local = 0,
+                .local_count = 0,
+                .first_block = 0,
+                .block_count = 1,
                 .first_instruction = 0,
                 .instruction_count = 1,
             }},
@@ -68,6 +72,15 @@ fn makePlanBackedArtifact(
             .outputs = &.{.{
                 .label = "result",
                 .codec = .i32,
+            }},
+            .locals = &.{},
+            .blocks = &.{.{
+                .first_instruction = 0,
+                .instruction_count = 1,
+                .terminator_index = 0,
+            }},
+            .terminators = &.{.{
+                .kind = .return_value,
             }},
             .instructions = &.{.{
                 .kind = .return_value,
@@ -187,7 +200,7 @@ test "durable saveArtifact persists plan-backed identity and plan.json" {
     try std.testing.expectEqual(@as(u64, 0x1234), manifest.program_hash);
     try std.testing.expect(manifest.plan_hash != null);
     try std.testing.expectEqual(@as(?u32, 1), manifest.artifact_schema_version);
-    try std.testing.expectEqual(@as(?u32, 2), manifest.plan_schema_version);
+    try std.testing.expectEqual(@as(?u32, 3), manifest.plan_schema_version);
     try std.testing.expectEqual(@as(?u32, 1), manifest.event_schema_version);
     _ = try std.fs.cwd().statFile(paths.plan_path);
     _ = try std.fs.cwd().statFile(paths.artifact_path);
@@ -261,51 +274,7 @@ test "durable restore accepts legacy schema manifest and raw plan.json" {
         .last_seq = 2,
     };
 
-    const raw_plan_hash = blk: {
-        var hasher = std.hash.Wyhash.init(0);
-        hasher.update(artifact.plan.?.label);
-        hasher.update(std.mem.asBytes(&artifact.plan.?.ir_hash));
-        for (artifact.plan.?.functions) |function| {
-            hasher.update(function.symbol_name);
-            hasher.update(std.mem.asBytes(&function.first_requirement));
-            hasher.update(std.mem.asBytes(&function.requirement_count));
-            hasher.update(std.mem.asBytes(&function.first_output));
-            hasher.update(std.mem.asBytes(&function.output_count));
-            hasher.update(std.mem.asBytes(&function.first_instruction));
-            hasher.update(std.mem.asBytes(&function.instruction_count));
-        }
-        for (artifact.plan.?.requirements) |requirement| {
-            hasher.update(requirement.label);
-            hasher.update(std.mem.asBytes(&requirement.first_op));
-            hasher.update(std.mem.asBytes(&requirement.op_count));
-        }
-        for (artifact.plan.?.ops) |op| {
-            hasher.update(std.mem.asBytes(&op.requirement_index));
-            hasher.update(op.op_name);
-            hasher.update(@tagName(op.mode));
-            hasher.update(@tagName(op.payload_codec));
-            hasher.update(@tagName(op.resume_codec));
-        }
-        for (artifact.plan.?.outputs) |output| {
-            hasher.update(output.label);
-            hasher.update(@tagName(output.codec));
-        }
-        for (artifact.plan.?.instructions) |instruction| switch (instruction.kind) {
-            .call_op => {
-                hasher.update("call_op");
-                hasher.update(std.mem.asBytes(&instruction.index));
-            },
-            .call_helper => {
-                hasher.update("call_helper");
-                hasher.update(std.mem.asBytes(&instruction.index));
-            },
-            .return_value => {
-                hasher.update("return_value");
-                hasher.update(std.mem.asBytes(&instruction.index));
-            },
-        };
-        break :blk hasher.final();
-    };
+    const raw_plan_hash = artifact.plan.?.hash();
 
     {
         const file = try std.fs.cwd().createFile(paths.manifest_path, .{ .truncate = true });
@@ -355,7 +324,7 @@ test "durable restore accepts legacy schema manifest and raw plan.json" {
     try std.testing.expectEqual(@as(u32, 2), inspected_report.manifest_schema.?.from);
     try std.testing.expectEqual(@as(u32, 5), inspected_report.manifest_schema.?.to_schema);
     try std.testing.expectEqual(@as(u32, 0), inspected_report.plan_file_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 2), inspected_report.plan_file_schema.?.to_schema);
+    try std.testing.expectEqual(@as(u32, 3), inspected_report.plan_file_schema.?.to_schema);
     try std.testing.expect(!inspected_report.rewrote_events);
     try std.testing.expect(!inspected_report.rewrote_manifest);
     try std.testing.expect(!inspected_report.rewrote_plan_file);
@@ -368,7 +337,7 @@ test "durable restore accepts legacy schema manifest and raw plan.json" {
     try std.testing.expectEqual(@as(u32, 2), report.manifest_schema.?.from);
     try std.testing.expectEqual(@as(u32, 5), report.manifest_schema.?.to_schema);
     try std.testing.expectEqual(@as(u32, 0), report.plan_file_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 2), report.plan_file_schema.?.to_schema);
+    try std.testing.expectEqual(@as(u32, 3), report.plan_file_schema.?.to_schema);
     try std.testing.expect(report.rewrote_events);
     try std.testing.expect(report.rewrote_manifest);
     try std.testing.expect(report.rewrote_plan_file);
@@ -378,14 +347,14 @@ test "durable restore accepts legacy schema manifest and raw plan.json" {
     const rewritten_manifest = try std.json.parseFromSlice(shift.durable.SessionManifest, std.testing.allocator, rewritten_manifest_bytes, .{});
     defer rewritten_manifest.deinit();
     try std.testing.expectEqual(@as(u32, 5), rewritten_manifest.value.schema_version);
-    try std.testing.expectEqual(@as(?u32, 2), rewritten_manifest.value.plan_schema_version);
+    try std.testing.expectEqual(@as(?u32, 3), rewritten_manifest.value.plan_schema_version);
     try std.testing.expectEqual(@as(?u32, 1), rewritten_manifest.value.event_schema_version);
 
     const rewritten_plan_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.plan_path, std.math.maxInt(usize));
     defer std.testing.allocator.free(rewritten_plan_bytes);
     const rewritten_plan = try std.json.parseFromSlice(shift.durable.PlanFile, std.testing.allocator, rewritten_plan_bytes, .{});
     defer rewritten_plan.deinit();
-    try std.testing.expectEqual(@as(u32, 2), rewritten_plan.value.schema_version);
+    try std.testing.expectEqual(@as(u32, 3), rewritten_plan.value.schema_version);
 
     const restored_again = try store.restoreArtifact(stripped);
     try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored_again.status);
@@ -609,7 +578,7 @@ test "durable restore fails when plan.json is tampered" {
         var tampered = artifact.plan.?;
         tampered.label = "tampered.plan";
         try std.json.Stringify.value(shift.durable.PlanFile{
-            .schema_version = 2,
+            .schema_version = 3,
             .plan_hash = 0,
             .plan = tampered,
         }, .{}, &writer.interface);

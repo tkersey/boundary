@@ -3,7 +3,7 @@ const scenarios = @import("parity_scenarios");
 const std = @import("std");
 
 const current_manifest_schema: u32 = 5;
-const current_plan_schema: u32 = 2;
+const current_plan_schema: u32 = 3;
 const current_event_schema: u32 = 1;
 const current_artifact_schema: u32 = 1;
 
@@ -136,7 +136,7 @@ const SessionManifestMigrator = struct {
 const PlanFileMigrator = struct {
     from: u32,
     to_schema: u32,
-    migrate: *const fn (*PlanFileState) void,
+    migrate: *const fn (std.mem.Allocator, *PlanFileState) anyerror!void,
 };
 
 const EventRecordMigrator = struct {
@@ -182,7 +182,7 @@ const plan_file_migrators = [_]PlanFileMigrator{
         .from = 0,
         .to_schema = 1,
         .migrate = struct {
-            fn run(state: *PlanFileState) void {
+            fn run(_: std.mem.Allocator, state: *PlanFileState) !void {
                 state.schema_version = 1;
             }
         }.run,
@@ -191,9 +191,20 @@ const plan_file_migrators = [_]PlanFileMigrator{
         .from = 1,
         .to_schema = 2,
         .migrate = struct {
-            fn run(state: *PlanFileState) void {
+            fn run(_: std.mem.Allocator, state: *PlanFileState) !void {
                 state.plan_hash = hashPlan(state.plan);
                 state.schema_version = 2;
+            }
+        }.run,
+    },
+    .{
+        .from = 2,
+        .to_schema = 3,
+        .migrate = struct {
+            fn run(allocator: std.mem.Allocator, state: *PlanFileState) !void {
+                try kernel.upgradeLegacyProgramPlan(allocator, &state.plan);
+                state.plan_hash = hashPlan(state.plan);
+                state.schema_version = 3;
             }
         }.run,
     },
@@ -669,49 +680,7 @@ fn hashProgram(label: []const u8, steps: []const kernel.Step) u64 {
 }
 
 fn hashPlan(plan: kernel.ProgramPlan) u64 {
-    var hasher = std.hash.Wyhash.init(0);
-    hasher.update(plan.label);
-    hasher.update(std.mem.asBytes(&plan.ir_hash));
-    for (plan.functions) |function| {
-        hasher.update(function.symbol_name);
-        hasher.update(std.mem.asBytes(&function.first_requirement));
-        hasher.update(std.mem.asBytes(&function.requirement_count));
-        hasher.update(std.mem.asBytes(&function.first_output));
-        hasher.update(std.mem.asBytes(&function.output_count));
-        hasher.update(std.mem.asBytes(&function.first_instruction));
-        hasher.update(std.mem.asBytes(&function.instruction_count));
-    }
-    for (plan.requirements) |requirement| {
-        hasher.update(requirement.label);
-        hasher.update(std.mem.asBytes(&requirement.first_op));
-        hasher.update(std.mem.asBytes(&requirement.op_count));
-    }
-    for (plan.ops) |op| {
-        hasher.update(std.mem.asBytes(&op.requirement_index));
-        hasher.update(op.op_name);
-        hasher.update(@tagName(op.mode));
-        hasher.update(@tagName(op.payload_codec));
-        hasher.update(@tagName(op.resume_codec));
-    }
-    for (plan.outputs) |output| {
-        hasher.update(output.label);
-        hasher.update(@tagName(output.codec));
-    }
-    for (plan.instructions) |instruction| switch (instruction.kind) {
-        .call_op => {
-            hasher.update("call_op");
-            hasher.update(std.mem.asBytes(&instruction.index));
-        },
-        .call_helper => {
-            hasher.update("call_helper");
-            hasher.update(std.mem.asBytes(&instruction.index));
-        },
-        .return_value => {
-            hasher.update("return_value");
-            hasher.update(std.mem.asBytes(&instruction.index));
-        },
-    };
-    return hasher.final();
+    return plan.hash();
 }
 
 fn writeManifest(path: []const u8, manifest: SessionManifest) !void {
@@ -914,7 +883,7 @@ fn readPlanFile(allocator: std.mem.Allocator, path: []const u8) !ReadPlanFileRes
 
     var migrated = state;
     const stored_schema_version = migrated.schema_version;
-    try migratePlanFile(&migrated);
+    try migratePlanFile(allocator, &migrated);
     if (migrated.schema_version != current_plan_schema) return error.UnsupportedPlanSchema;
     return .{
         .stored_schema_version = stored_schema_version,
@@ -983,6 +952,9 @@ fn clonePlan(allocator: std.mem.Allocator, plan: kernel.ProgramPlan) !kernel.Pro
         .requirements = try allocator.alloc(kernel.RequirementPlan, 0),
         .ops = try allocator.alloc(kernel.OpPlan, 0),
         .outputs = try allocator.alloc(kernel.OutputPlan, 0),
+        .locals = try allocator.alloc(kernel.LocalPlan, 0),
+        .blocks = try allocator.alloc(kernel.BlockPlan, 0),
+        .terminators = try allocator.alloc(kernel.Terminator, 0),
         .instructions = try allocator.alloc(kernel.Instruction, 0),
     };
     errdefer freePlan(allocator, &cloned);
@@ -1000,6 +972,10 @@ fn clonePlan(allocator: std.mem.Allocator, plan: kernel.ProgramPlan) !kernel.Pro
             .requirement_count = function.requirement_count,
             .first_output = function.first_output,
             .output_count = function.output_count,
+            .first_local = function.first_local,
+            .local_count = function.local_count,
+            .first_block = function.first_block,
+            .block_count = function.block_count,
             .first_instruction = function.first_instruction,
             .instruction_count = function.instruction_count,
         };
@@ -1060,6 +1036,18 @@ fn clonePlan(allocator: std.mem.Allocator, plan: kernel.ProgramPlan) !kernel.Pro
     allocator.free(cloned.outputs);
     cloned.outputs = outputs;
 
+    const locals = try allocator.dupe(kernel.LocalPlan, plan.locals);
+    allocator.free(cloned.locals);
+    cloned.locals = locals;
+
+    const blocks = try allocator.dupe(kernel.BlockPlan, plan.blocks);
+    allocator.free(cloned.blocks);
+    cloned.blocks = blocks;
+
+    const terminators = try allocator.dupe(kernel.Terminator, plan.terminators);
+    allocator.free(cloned.terminators);
+    cloned.terminators = terminators;
+
     const instructions = try allocator.dupe(kernel.Instruction, plan.instructions);
     allocator.free(cloned.instructions);
     cloned.instructions = instructions;
@@ -1080,12 +1068,12 @@ fn migrateSessionManifest(state: *SessionManifestState) !void {
     if (state.schema_version != current_manifest_schema) return error.UnsupportedManifestSchema;
 }
 
-fn migratePlanFile(state: *PlanFileState) !void {
+fn migratePlanFile(allocator: std.mem.Allocator, state: *PlanFileState) !void {
     while (state.schema_version < current_plan_schema) {
         var advanced = false;
         for (plan_file_migrators) |migrator| {
             if (migrator.from != state.schema_version) continue;
-            migrator.migrate(state);
+            try migrator.migrate(allocator, state);
             advanced = true;
             break;
         }
@@ -1118,6 +1106,9 @@ fn freePlan(allocator: std.mem.Allocator, plan: *const kernel.ProgramPlan) void 
     allocator.free(plan.ops);
     for (plan.outputs) |output| allocator.free(output.label);
     allocator.free(plan.outputs);
+    allocator.free(plan.locals);
+    allocator.free(plan.blocks);
+    allocator.free(plan.terminators);
     allocator.free(plan.instructions);
 }
 

@@ -10,12 +10,7 @@ pub const BlockId = u16;
 pub const LocalCodec = program_plan.ValueCodec;
 
 /// One internal helper-body terminator kind.
-pub const TerminatorKind = enum {
-    branch_if,
-    jump,
-    return_unit,
-    return_value,
-};
+pub const TerminatorKind = program_plan.TerminatorKind;
 
 /// One internal helper-body instruction.
 pub const Instruction = struct {

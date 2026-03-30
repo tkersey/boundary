@@ -38,10 +38,18 @@ pub const RequirementPlan = program_plan.RequirementPlan;
 pub const OpPlan = program_plan.OpPlan;
 /// Runtime-owned output descriptor re-export.
 pub const OutputPlan = program_plan.OutputPlan;
+/// Runtime-owned local descriptor re-export.
+pub const LocalPlan = program_plan.LocalPlan;
+/// Runtime-owned block descriptor re-export.
+pub const BlockPlan = program_plan.BlockPlan;
+/// Runtime-owned terminator descriptor re-export.
+pub const Terminator = program_plan.Terminator;
 /// Runtime-owned instruction descriptor re-export.
 pub const Instruction = program_plan.Instruction;
 /// Runtime-owned instruction-tag descriptor re-export.
 pub const InstructionKind = program_plan.InstructionKind;
+/// Runtime-owned terminator-tag descriptor re-export.
+pub const TerminatorKind = program_plan.TerminatorKind;
 /// Runtime-owned value codec re-export.
 pub const ValueCodec = program_plan.ValueCodec;
 /// Runtime-owned control-mode tag re-export.
@@ -50,6 +58,8 @@ pub const PlanControlMode = program_plan.ControlMode;
 pub const ProgramPlanValidationError = program_plan.ValidationError;
 /// Runtime-owned plan compiler re-export.
 pub const planFromProgram = program_plan.planFromProgram;
+/// Runtime-owned legacy plan schema upgrader re-export.
+pub const upgradeLegacyProgramPlan = program_plan.upgradeLegacyProgramPlan;
 /// Runtime-owned full-program identity hash helper re-export.
 pub const irHashForProgram = program_plan.irHashForProgram;
 /// Value codec helper re-export.

@@ -382,6 +382,66 @@ fn cloneFunctions(comptime functions: []const effect_ir.Function) []const effect
     };
 }
 
+fn symbolIndex(comptime functions: []const effect_ir.Function, comptime symbol: effect_ir.SymbolRef) ?u16 {
+    for (functions, 0..) |function, index| {
+        if (function.symbol.eql(symbol)) return @intCast(index);
+    }
+    return null;
+}
+
+fn synthesizeBodyInstructions(
+    comptime functions: []const effect_ir.Function,
+    comptime call_edges: []const effect_ir.CallEdge,
+    comptime function_index: usize,
+) []const helper_body_ir.Instruction {
+    const instruction_count = comptime blk: {
+        var count: usize = 0;
+        for (call_edges) |edge| {
+            if (edge.caller.eql(functions[function_index].symbol)) count += 1;
+        }
+        break :blk count;
+    };
+
+    return comptime blk: {
+        var buffer: [instruction_count]helper_body_ir.Instruction = undefined;
+        var index: usize = 0;
+        for (call_edges) |edge| {
+            if (!edge.caller.eql(functions[function_index].symbol)) continue;
+            const callee_index = symbolIndex(functions, edge.callee) orelse @compileError("open-row frontend could not synthesize helper body for an unknown callee");
+            buffer[index] = .{
+                .kind = .call_helper,
+                .operand = callee_index,
+            };
+            index += 1;
+        }
+        break :blk buffer[0..];
+    };
+}
+
+fn synthesizeFunctionBodies(
+    comptime functions: []const effect_ir.Function,
+    comptime call_edges: []const effect_ir.CallEdge,
+) []const helper_body_ir.FunctionBody {
+    return comptime blk: {
+        var buffer: [functions.len]helper_body_ir.FunctionBody = undefined;
+        for (functions, 0..) |function, function_index| {
+            const instructions = synthesizeBodyInstructions(functions, call_edges, function_index);
+            const blocks = [_]helper_body_ir.Block{.{
+                .instructions = instructions,
+                .terminator = .{
+                    .kind = if (function.outputs.len == 0) .return_unit else .return_value,
+                },
+            }};
+            buffer[function_index] = .{
+                .local_codecs = &.{},
+                .entry_block = 0,
+                .blocks = &blocks,
+            };
+        }
+        break :blk buffer[0..];
+    };
+}
+
 fn validateOpenRowGraph(
     comptime functions: []const effect_ir.Function,
     comptime call_edges: []const effect_ir.CallEdge,
@@ -409,11 +469,17 @@ fn entryIndex(comptime functions: []const effect_ir.Function, comptime entry_sym
 /// Lower one open-row frontend payload into stable function storage.
 pub fn lowerOpenRow(program: OpenRowProgram) effect_ir.NormalizeError!LoweredOpenRowProgram {
     try validateOpenRowGraph(program.functions, program.call_edges);
+    if (program.function_bodies.len != 0 and program.function_bodies.len != program.functions.len) {
+        return error.UnsupportedHelperCallEdge;
+    }
     return .{
         .entry_index = try entryIndex(program.functions, program.entry_symbol),
         .functions = cloneFunctions(program.functions),
         .call_edges = cloneCallEdges(program.call_edges),
-        .function_bodies = cloneFunctionBodies(program.function_bodies),
+        .function_bodies = if (program.function_bodies.len == 0)
+            synthesizeFunctionBodies(program.functions, program.call_edges)
+        else
+            cloneFunctionBodies(program.function_bodies),
     };
 }
 
@@ -452,12 +518,48 @@ test "lowerOpenRow preserves the function payload" {
 test "open row state-writer workflow carries both requirements and outputs" {
     const program = try lowerOpenRow(open_rows.stateWriterWorkflow());
     try @import("std").testing.expectEqual(@as(usize, 1), program.functions.len);
-    try @import("std").testing.expectEqual(@as(usize, 0), program.function_bodies.len);
+    try @import("std").testing.expectEqual(@as(usize, 1), program.function_bodies.len);
+    try @import("std").testing.expectEqual(@as(usize, 1), program.function_bodies[0].blocks.len);
     try @import("std").testing.expectEqualStrings("runBody", program.functions[0].symbol.symbol_name);
     const digest = try effect_ir.rowDigest(program.functions[0].row, program.functions[0].outputs);
     try @import("std").testing.expectEqual(@as(usize, 2), digest.requirement_count);
     try @import("std").testing.expectEqual(@as(usize, 3), digest.op_count);
     try @import("std").testing.expectEqual(@as(usize, 2), digest.output_count);
+}
+
+test "lowerOpenRow synthesizes helper-call instructions into body storage" {
+    const helper_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/synth.zig",
+        .symbol_name = "helper",
+    };
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/synth.zig",
+        .symbol_name = "root",
+    };
+    const row = effect_ir.rowFromSpec(.{
+        .state = .{
+            .get = effect_ir.Transform(void, i32),
+        },
+    });
+    const program = try lowerOpenRow(.{
+        .label = "example.synth",
+        .entry_symbol = "root",
+        .functions = &.{
+            .{ .symbol = root_symbol, .row = row, .outputs = &.{.{ .label = "state", .OutputType = i32 }} },
+            .{ .symbol = helper_symbol, .row = row, .outputs = &.{} },
+        },
+        .call_edges = &.{.{
+            .caller = root_symbol,
+            .callee = helper_symbol,
+        }},
+    });
+
+    try @import("std").testing.expectEqual(@as(usize, 2), program.function_bodies.len);
+    try @import("std").testing.expectEqual(@as(usize, 1), program.function_bodies[0].blocks[0].instructions.len);
+    try @import("std").testing.expectEqual(@as(@TypeOf(program.function_bodies[0].blocks[0].instructions[0].kind), .call_helper), program.function_bodies[0].blocks[0].instructions[0].kind);
+    try @import("std").testing.expectEqual(@as(u16, 1), program.function_bodies[0].blocks[0].instructions[0].operand);
+    try @import("std").testing.expectEqual(helper_body_ir.TerminatorKind.return_value, program.function_bodies[0].blocks[0].terminator.kind);
+    try @import("std").testing.expectEqual(helper_body_ir.TerminatorKind.return_unit, program.function_bodies[1].blocks[0].terminator.kind);
 }
 
 test "lowerOpenRow preserves attached helper body storage" {

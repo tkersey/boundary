@@ -436,27 +436,9 @@ fn GeneratedProgramType(
     comptime label_value: []const u8,
     comptime source_path_value: []const u8,
     comptime entry_symbol_value: []const u8,
-    comptime ir_program: effect_ir.Program,
+    comptime compiled_plan: program_plan.ProgramPlan,
     comptime validate_spec: ?ValidationSpec,
 ) type {
-    const stable_ir_program = cloneProgram(ir_program);
-    const compiled_plan = program_plan.planFromProgram(label_value, stable_ir_program) catch |err| switch (err) {
-        error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
-        error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
-        error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
-        error.EmptyProgram => @compileError("public lowering rejected an empty effect-ir program"),
-        error.EmptyRequirementLabel => @compileError("public lowering rejected an empty requirement label"),
-        error.EmptyOpName => @compileError("public lowering rejected an empty op name"),
-        error.InvalidRequirementShape => @compileError("public lowering rejected an invalid requirement shape"),
-        error.InvalidRowShape => @compileError("public lowering rejected an invalid row shape"),
-        error.OutputWithoutRequirement => @compileError("public lowering rejected outputs without matching requirements"),
-        error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
-        error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
-        error.UnsupportedHelperCallEdge => @compileError("public lowering runtime plan rejected helper call edges outside the retained open-row shell"),
-        error.UnsupportedCodecType => @compileError("public lowering runtime plan rejected a type outside the first-wave codec set"),
-        error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
-    };
-
     return struct {
         /// Stable label for this compiled additive lowering request.
         pub const label = label_value;
@@ -481,7 +463,7 @@ fn LowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) type {
     comptime {
         @setEvalBranchQuota(20_000);
     }
-    _ = source_lowering.lowerOpenRowProgram(openRowAt(source_path, spec)) catch |err| switch (err) {
+    const lowered_program = source_lowering.lowerOpenRowProgram(openRowAt(source_path, spec)) catch |err| switch (err) {
         error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
         error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
         error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
@@ -495,7 +477,23 @@ fn LowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) type {
         error.UnsupportedHelperCallEdge => @compileError("public lowering rejected helper call edges outside the retained open-row shell"),
         error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
     };
-    return GeneratedProgramType(spec.label, source_path, spec.entry_symbol, irProgramAt(source_path, spec), .{
+    const compiled_plan = program_plan.planFromOpenRowProgram(spec.label, lowered_program.program) catch |err| switch (err) {
+        error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
+        error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
+        error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
+        error.EmptyProgram => @compileError("public lowering rejected an empty effect-ir program"),
+        error.EmptyRequirementLabel => @compileError("public lowering rejected an empty requirement label"),
+        error.EmptyOpName => @compileError("public lowering rejected an empty op name"),
+        error.InvalidRequirementShape => @compileError("public lowering rejected an invalid requirement shape"),
+        error.InvalidRowShape => @compileError("public lowering rejected an invalid row shape"),
+        error.OutputWithoutRequirement => @compileError("public lowering rejected outputs without matching requirements"),
+        error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
+        error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
+        error.UnsupportedHelperCallEdge => @compileError("public lowering runtime plan rejected helper call edges outside the retained open-row shell"),
+        error.UnsupportedCodecType => @compileError("public lowering runtime plan rejected a type outside the first-wave codec set"),
+        error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
+    };
+    return GeneratedProgramType(spec.label, source_path, spec.entry_symbol, compiled_plan, .{
         .source_path = source_path,
         .entry_symbol = spec.entry_symbol,
     });
@@ -516,7 +514,24 @@ fn CompileIrType(comptime label: []const u8, comptime program: effect_ir.Program
         @setEvalBranchQuota(20_000);
     }
     if (program.functions.len == 0) @compileError("public lowering cannot compile an empty effect-ir program");
-    return GeneratedProgramType(label, "<ir>", program.functions[0].symbol.symbol_name, program, null);
+    const stable_ir_program = cloneProgram(program);
+    const compiled_plan = program_plan.planFromProgram(label, stable_ir_program) catch |err| switch (err) {
+        error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
+        error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
+        error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
+        error.EmptyProgram => @compileError("public lowering rejected an empty effect-ir program"),
+        error.EmptyRequirementLabel => @compileError("public lowering rejected an empty requirement label"),
+        error.EmptyOpName => @compileError("public lowering rejected an empty op name"),
+        error.InvalidRequirementShape => @compileError("public lowering rejected an invalid requirement shape"),
+        error.InvalidRowShape => @compileError("public lowering rejected an invalid row shape"),
+        error.OutputWithoutRequirement => @compileError("public lowering rejected outputs without matching requirements"),
+        error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
+        error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
+        error.UnsupportedHelperCallEdge => @compileError("public lowering runtime plan rejected helper call edges outside the retained open-row shell"),
+        error.UnsupportedCodecType => @compileError("public lowering runtime plan rejected a type outside the first-wave codec set"),
+        error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
+    };
+    return GeneratedProgramType(label, "<ir>", program.functions[0].symbol.symbol_name, compiled_plan, null);
 }
 
 /// Compile one explicit public effect-ir program into the same runtime-owned plan shape.
