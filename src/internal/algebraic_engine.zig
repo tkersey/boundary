@@ -524,38 +524,26 @@ fn Binding(
             return switch (SpecType.builder_kind) {
                 .direct_transform => try BindingType.callResumeValue(self.spec, payload),
                 .transform => blk: {
-                    const Carrier = HandlerCarrier();
-                    var carrier = Carrier{ .binding = self, .payload = payload };
+                    const resume_value = try BindingType.callResumeValue(self.spec, payload);
                     const handler = struct {
-                        /// Supply the resumptive transform value from the explicit carrier.
-                        pub fn resumeValue(ctx: *Carrier) lowered_machine.ResetError(ErrorSet)!Op.Resume {
-                            return try BindingType.callResumeValue(ctx.binding.spec, ctx.payload);
-                        }
-
-                        /// Complete the enclosing answer after one transform resume from the explicit carrier.
-                        pub fn afterResume(ctx: *Carrier, answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
-                            return try BindingType.callAfterResume(ctx.binding.spec, answer);
+                        /// Complete the enclosing answer after one transform resume from the live binding.
+                        pub fn afterResume(binding: *BindingType, answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
+                            return try BindingType.callAfterResume(binding.spec, answer);
                         }
                     };
 
-                    break :blk try frontend.transformWithContext(Op.Resume, &self.prompt, &carrier, handler);
+                    break :blk try frontend.transformWithBorrowedAfterContext(Op.Resume, &self.prompt, resume_value, self, handler);
                 },
                 .choice => blk: {
-                    const Carrier = HandlerCarrier();
-                    var carrier = Carrier{ .binding = self, .payload = payload };
+                    const decision = try BindingType.callResumeOrReturn(self.spec, payload);
                     const handler = struct {
-                        /// Choose the next action for the explicit choice carrier.
-                        pub fn resumeOrReturn(ctx: *Carrier) lowered_machine.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
-                            return try BindingType.callResumeOrReturn(ctx.binding.spec, ctx.payload);
-                        }
-
-                        /// Complete the enclosing answer after one choice resume from the explicit carrier.
-                        pub fn afterResume(ctx: *Carrier, answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
-                            return try BindingType.callAfterResume(ctx.binding.spec, answer);
+                        /// Complete the enclosing answer after one choice resume from the live binding.
+                        pub fn afterResume(binding: *BindingType, answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
+                            return try BindingType.callAfterResume(binding.spec, answer);
                         }
                     };
 
-                    break :blk try frontend.choiceWithContext(Op.Resume, &self.prompt, &carrier, handler);
+                    break :blk try frontend.choiceWithBorrowedAfterContext(Op.Resume, &self.prompt, decision, self, handler);
                 },
                 .abort => {
                     const Carrier = HandlerCarrier();

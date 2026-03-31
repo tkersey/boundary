@@ -181,6 +181,17 @@ fn assertHandlerProtocolWithContext(
     }
 }
 
+fn assertAfterResumeProtocolWithContext(
+    comptime PromptType: type,
+    comptime ContextPtrType: type,
+    comptime Handler: type,
+) void {
+    if (!hasDeclSafe(Handler, "afterResume")) @compileError(@typeName(Handler) ++ " must declare afterResume");
+    if (!fnParamsMatch(@TypeOf(Handler.afterResume), &.{ ContextPtrType, PromptType.InAnswer }) or !fnReturnMatches(@TypeOf(Handler.afterResume), PromptType.OutAnswer)) {
+        @compileError(@typeName(Handler) ++ ".afterResume must have type fn (Ctx, InAnswer) OutAnswer or fn (Ctx, InAnswer) ResetError(ErrorSet)!OutAnswer");
+    }
+}
+
 fn callResumeValueWithContext(
     comptime Resume: type,
     comptime PromptType: type,
@@ -226,6 +237,13 @@ fn callResumeOrReturnWithContext(
     const ResumeOrReturnFn = @TypeOf(Handler.resumeOrReturn);
     if (ResumeOrReturnFn == fn (ContextPtrType) ResumeOrReturnType(Resume, PromptType)) return Handler.resumeOrReturn(ctx);
     return Handler.resumeOrReturn(ctx) catch |err| return @errorCast(err);
+}
+
+fn assertBorrowedContextPtrType(comptime ContextPtrType: type, comptime label: []const u8) void {
+    const pointer_info = @typeInfo(ContextPtrType).pointer;
+    if (@typeInfo(ContextPtrType) != .pointer or pointer_info.size != .one) {
+        @compileError("frontend." ++ label ++ " currently requires a single-item pointer handler context");
+    }
 }
 
 fn assertContinuationType(
@@ -1162,6 +1180,56 @@ pub fn transformWithContext(
     return error.FrontendSuspend;
 }
 
+/// Perform one resumptive transform using a borrowed after-resume context that stays live through the enclosing frontend.run.
+pub fn transformWithBorrowedAfterContext(
+    comptime Resume: type,
+    prompt: anytype,
+    resume_value: Resume,
+    after_ctx: anytype,
+    comptime Handler: type,
+) lowered_machine.InternalControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
+    const PromptType = PromptTypeFromPtr(@TypeOf(prompt));
+    const ContextPtrType = @TypeOf(after_ctx);
+    comptime assertPromptMode(@TypeOf(prompt), .resume_then_transform, "transformWithBorrowedAfterContext");
+    comptime assertBorrowedContextPtrType(ContextPtrType, "transformWithBorrowedAfterContext");
+    comptime assertAfterResumeProtocolWithContext(PromptType, ContextPtrType, Handler);
+
+    const frame = findFrame(PromptType, prompt) orelse return error.MissingPrompt;
+    if (frame.cursor < frame.records.items.len) {
+        const record = frame.records.items[frame.cursor];
+        frame.cursor += 1;
+        switch (record) {
+            .resumed => |recorded| {
+                frame.applied_after.append(frame.allocator, .{
+                    .ctx = recorded.after_resume_ctx,
+                    .afterResumeFn = recorded.afterResumeFn,
+                }) catch return error.ProgramContractViolation;
+                return decodeResume(Resume, recorded.storage);
+            },
+            .terminal => |answer| {
+                frame.terminal = answer;
+                return error.FrontendSuspend;
+            },
+        }
+    }
+
+    const storage = try encodeResume(frame.allocator, Resume, resume_value);
+    frame.records.append(frame.allocator, .{
+        .resumed = .{
+            .storage = storage,
+            .after_resume_ctx = @ptrCast(after_ctx),
+            .afterResumeCleanup = null,
+            .afterResumeFn = struct {
+                fn invoke(raw_ctx: ?*anyopaque, value: PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer {
+                    const typed_ctx: ContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
+                    return try callAfterResumeWithContext(PromptType, ContextPtrType, Handler, typed_ctx, value);
+                }
+            }.invoke,
+        },
+    }) catch return error.ProgramContractViolation;
+    return error.FrontendSuspend;
+}
+
 /// Perform one zero-or-one-resume choice operation.
 pub fn choice(
     comptime Resume: type,
@@ -1224,6 +1292,64 @@ pub fn choiceWithContext(
                 if (persisted_ctx.cleanup) |cleanup| cleanup(frame.allocator, persisted_ctx.ctx);
                 return error.ProgramContractViolation;
             };
+        },
+        .return_now => |answer| {
+            frame.terminal = answer;
+            frame.records.append(frame.allocator, .{ .terminal = answer }) catch return error.ProgramContractViolation;
+        },
+    }
+    return error.FrontendSuspend;
+}
+
+/// Perform one zero-or-one-resume choice using a borrowed after-resume context that stays live through the enclosing frontend.run.
+pub fn choiceWithBorrowedAfterContext(
+    comptime Resume: type,
+    prompt: anytype,
+    decision: ResumeOrReturnType(Resume, PromptTypeFromPtr(@TypeOf(prompt))),
+    after_ctx: anytype,
+    comptime Handler: type,
+) lowered_machine.InternalControlError(PromptErrorSetType(@TypeOf(prompt)))!Resume {
+    const PromptType = PromptTypeFromPtr(@TypeOf(prompt));
+    const ContextPtrType = @TypeOf(after_ctx);
+    comptime assertPromptMode(@TypeOf(prompt), .resume_or_return, "choiceWithBorrowedAfterContext");
+    comptime assertBorrowedContextPtrType(ContextPtrType, "choiceWithBorrowedAfterContext");
+    comptime assertAfterResumeProtocolWithContext(PromptType, ContextPtrType, Handler);
+
+    const frame = findFrame(PromptType, prompt) orelse return error.MissingPrompt;
+    if (frame.cursor < frame.records.items.len) {
+        const record = frame.records.items[frame.cursor];
+        frame.cursor += 1;
+        switch (record) {
+            .resumed => |recorded| {
+                frame.applied_after.append(frame.allocator, .{
+                    .ctx = recorded.after_resume_ctx,
+                    .afterResumeFn = recorded.afterResumeFn,
+                }) catch return error.ProgramContractViolation;
+                return decodeResume(Resume, recorded.storage);
+            },
+            .terminal => |answer| {
+                frame.terminal = answer;
+                return error.FrontendSuspend;
+            },
+        }
+    }
+
+    switch (decision) {
+        .resume_with => |resume_value| {
+            const storage = try encodeResume(frame.allocator, Resume, resume_value);
+            frame.records.append(frame.allocator, .{
+                .resumed = .{
+                    .storage = storage,
+                    .after_resume_ctx = @ptrCast(after_ctx),
+                    .afterResumeCleanup = null,
+                    .afterResumeFn = struct {
+                        fn invoke(raw_ctx: ?*anyopaque, value: PromptType.InAnswer) lowered_machine.ResetError(PromptType.ErrorSet)!PromptType.OutAnswer {
+                            const typed_ctx: ContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
+                            return try callAfterResumeWithContext(PromptType, ContextPtrType, Handler, typed_ctx, value);
+                        }
+                    }.invoke,
+                },
+            }) catch return error.ProgramContractViolation;
         },
         .return_now => |answer| {
             frame.terminal = answer;
@@ -1415,6 +1541,73 @@ test "choiceWithContext persists a copy of handler context for replay" {
     carrier.payload = 0;
     try std.testing.expectEqual(@as(usize, 11), stored.tag);
     try std.testing.expectEqual(@as(i32, 52), stored.payload);
+}
+
+test "transformWithBorrowedAfterContext keeps live handler state for replay" {
+    const Prompt = prompt_contract.Prompt(.resume_then_transform, i32, i32, error{});
+    const Carrier = struct {
+        offset: *i32,
+    };
+    const handler = struct {
+        /// Read the live borrowed offset when the transform replay finalizes.
+        pub fn afterResume(ctx: *Carrier, answer: i32) i32 {
+            return answer + ctx.offset.*;
+        }
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try lowered_machine.beginExecution(&runtime);
+    defer lowered_machine.endExecution(&runtime);
+
+    var prompt = Prompt.init();
+    var frame = Frame(Prompt).init(lowered_machine.runtimeAllocator(&runtime), &prompt);
+    defer frame.deinit();
+    try pushActiveFrame(&runtime, &frame.base);
+    defer popActiveFrame(&runtime, &frame.base);
+
+    var offset: i32 = 3;
+    var carrier = Carrier{ .offset = &offset };
+    try std.testing.expectError(error.FrontendSuspend, transformWithBorrowedAfterContext(i32, &prompt, 41, &carrier, handler));
+    try std.testing.expectEqual(@as(usize, 1), frame.records.items.len);
+
+    offset = 7;
+    const resumed = frame.records.items[0].resumed;
+    try std.testing.expectEqual(@as(i32, 12), try resumed.afterResumeFn(resumed.after_resume_ctx, 5));
+}
+
+test "choiceWithBorrowedAfterContext keeps live handler state for replay" {
+    const Prompt = prompt_contract.Prompt(.resume_or_return, i32, i32, error{});
+    const Carrier = struct {
+        offset: *i32,
+    };
+    const handler = struct {
+        /// Read the live borrowed offset when the choice replay finalizes.
+        pub fn afterResume(ctx: *Carrier, answer: i32) i32 {
+            return answer + ctx.offset.*;
+        }
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try lowered_machine.beginExecution(&runtime);
+    defer lowered_machine.endExecution(&runtime);
+
+    var prompt = Prompt.init();
+    var frame = Frame(Prompt).init(lowered_machine.runtimeAllocator(&runtime), &prompt);
+    defer frame.deinit();
+    try pushActiveFrame(&runtime, &frame.base);
+    defer popActiveFrame(&runtime, &frame.base);
+
+    var offset: i32 = 5;
+    var carrier = Carrier{ .offset = &offset };
+    const decision = ResumeOrReturnType(i32, Prompt).resumeWith(41);
+    try std.testing.expectError(error.FrontendSuspend, choiceWithBorrowedAfterContext(i32, &prompt, decision, &carrier, handler));
+    try std.testing.expectEqual(@as(usize, 1), frame.records.items.len);
+
+    offset = 11;
+    const resumed = frame.records.items[0].resumed;
+    try std.testing.expectEqual(@as(i32, 16), try resumed.afterResumeFn(resumed.after_resume_ctx, 5));
 }
 
 test "abortWithContext reuses the recorded terminal during replay" {
