@@ -26,6 +26,7 @@ pub const LowerSpec = struct {
 pub const SourceRef = struct {
     repo_path: []const u8,
     caller_file: []const u8,
+    caller_hash: ?u64 = null,
 };
 
 /// Public additive validation error surface for file-backed same-module sources.
@@ -333,45 +334,33 @@ fn pathTailMatches(comptime caller_file: []const u8, comptime repo_path: []const
     return start == 0 or caller_file[start - 1] == '/' or caller_file[start - 1] == '\\';
 }
 
-fn basename(comptime path: []const u8) []const u8 {
-    var start: usize = 0;
-    inline for (path, 0..) |byte, index| {
-        if (byte == '/' or byte == '\\') start = index + 1;
-    }
-    return path[start..];
+fn sourceOwnershipMatches(comptime source_ref: SourceRef) bool {
+    return pathTailMatches(source_ref.caller_file, source_ref.repo_path) or sourceHashMatches(source_ref);
 }
 
-const ambiguous_repo_basenames = [_][]const u8{
-    "algebraic.zig",
-    "early_exit.zig",
-    "exception_basic.zig",
-    "nested_workflow.zig",
-    "open_row_abortive_validation.zig",
-    "open_row_artifact_search.zig",
-    "open_row_generator.zig",
-    "optional_basic.zig",
-    "reader_basic.zig",
-    "resource_basic.zig",
-    "resume_or_return.zig",
-    "root.zig",
-    "state_basic.zig",
-    "writer_basic.zig",
-};
-
-fn basenameIsRepoUnique(comptime repo_path: []const u8) bool {
-    inline for (ambiguous_repo_basenames) |ambiguous| {
-        if (std.mem.eql(u8, basename(repo_path), ambiguous)) return false;
+fn hashSourceBytes(comptime bytes: []const u8) u64 {
+    comptime {
+        @setEvalBranchQuota(20_000);
     }
-    return true;
+    return std.hash.Wyhash.hash(0, bytes);
+}
+
+fn sourceHashMatches(comptime source_ref: SourceRef) bool {
+    const caller_hash = source_ref.caller_hash orelse return false;
+    return caller_hash == hashSourceBytes(source_graph_embed.embeddedSource(source_ref.repo_path));
+}
+
+fn pathHasSeparator(comptime path: []const u8) bool {
+    inline for (path) |byte| {
+        if (byte == '/' or byte == '\\') return true;
+    }
+    return false;
 }
 
 fn assertSourceOwnership(comptime source_ref: SourceRef) void {
     if (source_ref.repo_path.len == 0) @compileError("public lowering source ownership requires a non-empty repo_path");
     if (source_ref.caller_file.len == 0) @compileError("public lowering source ownership requires a non-empty caller_file");
-    if (!pathTailMatches(source_ref.caller_file, source_ref.repo_path) and
-        !(basenameIsRepoUnique(source_ref.repo_path) and
-            std.mem.eql(u8, basename(source_ref.caller_file), basename(source_ref.repo_path))))
-    {
+    if (!sourceOwnershipMatches(source_ref)) {
         @compileError("public lowering source ownership requires caller_file to end with repo_path");
     }
 }
@@ -383,6 +372,22 @@ pub fn source(comptime repo_path: []const u8, comptime caller: std.builtin.Sourc
     return .{
         .repo_path = cloneBytes(repo_path),
         .caller_file = cloneBytes(caller.file),
+        .caller_hash = if (pathHasSeparator(caller.file)) hashSourceBytes(@embedFile(caller.file)) else null,
+    };
+}
+
+/// Build one caller-owned lowering provenance witness from an explicit repo path, `@src()`, and caller-supplied source bytes.
+pub fn sourceWithContent(
+    comptime repo_path: []const u8,
+    comptime caller: std.builtin.SourceLocation,
+    comptime caller_source: []const u8,
+) SourceRef {
+    if (repo_path.len == 0) @compileError("public lowering source helper requires a non-empty repo-relative path");
+    if (caller.file.len == 0) @compileError("public lowering source helper requires a non-empty caller source file");
+    return .{
+        .repo_path = cloneBytes(repo_path),
+        .caller_file = cloneBytes(caller.file),
+        .caller_hash = hashSourceBytes(caller_source),
     };
 }
 
@@ -1354,4 +1359,28 @@ test "same-module lowerAt preserves caller-provided source ownership" {
     try std.testing.expectEqualStrings("examples/open_row_state_writer.zig", ProgramType.source_path);
     try std.testing.expectEqualStrings("runBody", ProgramType.entry_symbol);
     try std.testing.expectEqual(@as(usize, 3), ProgramType.runtime_plan.functions.len);
+}
+
+test "source ownership requires a true repo-path suffix, not a basename-only match" {
+    try std.testing.expect(sourceOwnershipMatches(.{
+        .repo_path = "examples/open_row_state_writer.zig",
+        .caller_file = "/repo/examples/open_row_state_writer.zig",
+    }));
+    try std.testing.expect(!sourceOwnershipMatches(.{
+        .repo_path = "examples/open_row_state_writer.zig",
+        .caller_file = "/tmp/open_row_state_writer.zig",
+    }));
+}
+
+test "source ownership accepts a helper-authored content witness when caller paths are module-root relative" {
+    try std.testing.expect(sourceOwnershipMatches(.{
+        .repo_path = "examples/open_row_state_writer.zig",
+        .caller_file = "open_row_state_writer.zig",
+        .caller_hash = hashSourceBytes(source_graph_embed.embeddedSource("examples/open_row_state_writer.zig")),
+    }));
+    try std.testing.expect(!sourceOwnershipMatches(.{
+        .repo_path = "examples/open_row_state_writer.zig",
+        .caller_file = "open_row_state_writer.zig",
+        .caller_hash = hashSourceBytes("not the repo source"),
+    }));
 }

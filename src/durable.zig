@@ -335,6 +335,40 @@ pub const Store = struct {
         defer self.allocator.free(plan_path);
         const artifact_path = try derivedArtifactPath(self.allocator, self.manifest_path);
         defer self.allocator.free(artifact_path);
+        var manifest_snapshot = try captureFileSnapshot(self.allocator, self.manifest_path);
+        defer manifest_snapshot.deinit(self.allocator);
+        errdefer {
+            restoreFileSnapshot(manifest_snapshot, self.manifest_path) catch |restore_err| {
+                std.log.err("durable rollback failed for manifest: {s}", .{@errorName(restore_err)});
+            };
+        }
+        var artifact_snapshot: ?FileSnapshot = null;
+        defer if (artifact_snapshot) |*snapshot| snapshot.deinit(self.allocator);
+        errdefer {
+            if (artifact_snapshot) |snapshot| restoreFileSnapshot(snapshot, artifact_path) catch |restore_err| {
+                std.log.err("durable rollback failed for artifact.json: {s}", .{@errorName(restore_err)});
+            };
+        }
+        if (scenario_id == null) {
+            artifact_snapshot = try captureFileSnapshot(self.allocator, artifact_path);
+        }
+        var plan_snapshot: ?FileSnapshot = null;
+        defer if (plan_snapshot) |*snapshot| snapshot.deinit(self.allocator);
+        errdefer {
+            if (plan_snapshot) |snapshot| restoreFileSnapshot(snapshot, plan_path) catch |restore_err| {
+                std.log.err("durable rollback failed for plan.json: {s}", .{@errorName(restore_err)});
+            };
+        }
+        if (artifact.plan != null) {
+            plan_snapshot = try captureFileSnapshot(self.allocator, plan_path);
+        }
+        var events_snapshot = try captureFileSnapshot(self.allocator, self.events_path);
+        defer events_snapshot.deinit(self.allocator);
+        errdefer {
+            restoreFileSnapshot(events_snapshot, self.events_path) catch |restore_err| {
+                std.log.err("durable rollback failed for events.jsonl: {s}", .{@errorName(restore_err)});
+            };
+        }
         const manifest = SessionManifest{
             .scenario_id = scenario_id,
             .program_hash = artifact.identityHash(),
@@ -344,10 +378,10 @@ pub const Store = struct {
             .event_schema_version = current_event_schema,
             .last_seq = kernel.events(&state).len,
         };
-        try writeManifest(self.manifest_path, manifest);
         if (scenario_id == null) try writeArtifact(artifact_path, artifact);
         if (artifact.plan) |plan| try writePlan(plan_path, plan);
         try writeEvents(self.events_path, &state);
+        try writeManifest(self.manifest_path, manifest);
         return manifest;
     }
 
@@ -720,6 +754,62 @@ fn hashPlan(plan: kernel.ProgramPlan) u64 {
     return plan.hash();
 }
 
+const FileSnapshot = struct {
+    existed: bool,
+    bytes: ?[]u8 = null,
+
+    fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        if (self.bytes) |bytes| allocator.free(bytes);
+    }
+};
+
+fn captureFileSnapshot(allocator: std.mem.Allocator, path: []const u8) !FileSnapshot {
+    const bytes = if (std.fs.path.isAbsolute(path))
+        readAbsoluteFileAlloc(allocator, path) catch |err| switch (err) {
+            error.FileNotFound => return .{ .existed = false },
+            else => return err,
+        }
+    else
+        std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize)) catch |err| switch (err) {
+            error.FileNotFound => return .{ .existed = false },
+            else => return err,
+        };
+    return .{
+        .existed = true,
+        .bytes = bytes,
+    };
+}
+
+fn restoreFileSnapshot(snapshot: FileSnapshot, path: []const u8) !void {
+    if (snapshot.existed) {
+        try writeRawFile(path, snapshot.bytes.?);
+        return;
+    }
+    deleteFileIfExists(path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
+}
+
+fn writeRawFile(path: []const u8, bytes: []const u8) !void {
+    const file = if (std.fs.path.isAbsolute(path))
+        try std.fs.createFileAbsolute(path, .{ .truncate = true })
+    else
+        try std.fs.cwd().createFile(path, .{ .truncate = true });
+    defer file.close();
+    var buffer: [4096]u8 = undefined;
+    var writer = file.writer(&buffer);
+    try writer.interface.writeAll(bytes);
+    try writer.interface.flush();
+}
+
+fn deleteFileIfExists(path: []const u8) !void {
+    if (std.fs.path.isAbsolute(path))
+        try std.fs.deleteFileAbsolute(path)
+    else
+        try std.fs.cwd().deleteFile(path);
+}
+
 fn writeManifest(path: []const u8, manifest: SessionManifest) !void {
     const file = if (std.fs.path.isAbsolute(path))
         try std.fs.createFileAbsolute(path, .{ .truncate = true })
@@ -792,11 +882,7 @@ fn writeEvents(path: []const u8, state: *const kernel.State) !void {
 
 fn readManifest(allocator: std.mem.Allocator, path: []const u8) !ReadManifestResult {
     const bytes = if (std.fs.path.isAbsolute(path)) blk: {
-        const file = try std.fs.openFileAbsolute(path, .{});
-        defer file.close();
-        var buffer: [4096]u8 = undefined;
-        var reader = file.reader(&buffer);
-        break :blk try reader.interface.allocRemaining(allocator, .limited(std.math.maxInt(usize)));
+        break :blk try readAbsoluteFileAlloc(allocator, path);
     } else try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
     defer allocator.free(bytes);
     const state = if (std.json.parseFromSlice(SessionManifest, allocator, bytes, .{})) |parsed| blk: {
@@ -858,6 +944,14 @@ fn readManifest(allocator: std.mem.Allocator, path: []const u8) !ReadManifestRes
             .restore_status = migrated.restore_status,
         },
     };
+}
+
+fn readAbsoluteFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    const file = try std.fs.openFileAbsolute(path, .{});
+    defer file.close();
+    var buffer: [4096]u8 = undefined;
+    var reader = file.reader(&buffer);
+    return try reader.interface.allocRemaining(allocator, .limited(std.math.maxInt(usize)));
 }
 
 const ReadPlanFileResult = struct {

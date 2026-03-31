@@ -43,7 +43,7 @@ pub fn loweringSourcePath() []const u8 {
 
 /// Return the explicit caller-owned lowering provenance witness for this module.
 pub fn loweringSource() shift.lowering.SourceRef {
-    return shift.lowering.source(loweringSourcePath(), @src());
+    return shift.lowering.sourceWithContent(loweringSourcePath(), @src(), @embedFile(@src().file));
 }
 
 /// Return the lowered artifact for this cross-file workflow.

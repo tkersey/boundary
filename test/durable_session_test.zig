@@ -220,6 +220,46 @@ test "durable saveArtifact persists plan-backed identity and plan.json" {
     try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
 }
 
+test "durable saveArtifact restores the previous checkpoint when a later write fails" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const baseline_artifact = makePlanBackedArtifact(0x9911, 0x1234, "baseline.plan", "runBody");
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    _ = try store.saveArtifact(baseline_artifact, null);
+
+    const bad_events_path = try std.fs.path.join(std.testing.allocator, &.{ paths.dir_path, "missing", "events.jsonl" });
+    defer std.testing.allocator.free(bad_events_path);
+    const failing_store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, bad_events_path);
+    const replacement_artifact = makePlanBackedArtifact(0x8822, 0x5678, "replacement.plan", "replacementBody");
+    try std.testing.expectError(error.FileNotFound, failing_store.saveArtifact(replacement_artifact, null));
+
+    const artifact_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.artifact_path, std.math.maxInt(usize));
+    defer std.testing.allocator.free(artifact_bytes);
+    const parsed_artifact = try std.json.parseFromSlice(shift.durable.ArtifactFile, std.testing.allocator, artifact_bytes, .{});
+    defer parsed_artifact.deinit();
+    try std.testing.expectEqual(@as(u64, 0x1234), parsed_artifact.value.identity_hash);
+
+    const manifest_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.manifest_path, std.math.maxInt(usize));
+    defer std.testing.allocator.free(manifest_bytes);
+    const parsed_manifest = try std.json.parseFromSlice(shift.durable.SessionManifest, std.testing.allocator, manifest_bytes, .{});
+    defer parsed_manifest.deinit();
+    try std.testing.expectEqual(@as(u64, 0x1234), parsed_manifest.value.program_hash);
+
+    const plan_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.plan_path, std.math.maxInt(usize));
+    defer std.testing.allocator.free(plan_bytes);
+    const parsed_plan = try std.json.parseFromSlice(shift.durable.PlanFile, std.testing.allocator, plan_bytes, .{});
+    defer parsed_plan.deinit();
+    try std.testing.expectEqual(@as(u64, 0x1234), parsed_plan.value.plan.ir_hash);
+
+    const restored = try store.restore();
+    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
+    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
+}
+
 test "durable restore and inspect use persisted non-scenario artifact provenance" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
