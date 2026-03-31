@@ -337,6 +337,7 @@ pub const Store = struct {
                 return error.ScenarioArtifactMismatch;
             }
         }
+        try kernel.validateStepCapacity(artifact.steps);
         const state = kernel.runSteps(artifact.steps);
         const plan_path = try derivedPlanPath(self.allocator, self.manifest_path);
         defer self.allocator.free(plan_path);
@@ -630,6 +631,7 @@ pub const Store = struct {
                 .state = null,
             };
         }
+        try kernel.validateStepCapacity(artifact.steps);
         const state = kernel.runSteps(artifact.steps);
         const event_match = eventsMatch(self.allocator, self.events_path, expected_event_schema, &state, manifest.last_seq) catch |err| switch (err) {
             error.UnsupportedEventSchema => return .{
@@ -1117,6 +1119,14 @@ fn cloneEvent(allocator: std.mem.Allocator, event: kernel.Event) !kernel.Event {
     };
 }
 
+fn freeEvent(allocator: std.mem.Allocator, event: kernel.Event) void {
+    switch (event) {
+        .note => |value| allocator.free(value),
+        .final_i32 => {},
+        .final_string => |value| allocator.free(value),
+    }
+}
+
 fn cloneValue(allocator: std.mem.Allocator, value: kernel.Value) !kernel.Value {
     return switch (value) {
         .none => .none,
@@ -1439,11 +1449,7 @@ fn freeArtifact(allocator: std.mem.Allocator, artifact: *const ProgramArtifact) 
 
 fn freeSteps(allocator: std.mem.Allocator, steps: []const kernel.Step) void {
     for (steps) |step| switch (step) {
-        .emit => |event| switch (event) {
-            .note => |value| allocator.free(value),
-            .final_i32 => {},
-            .final_string => |value| allocator.free(value),
-        },
+        .emit => |event| freeEvent(allocator, event),
         .set_final => |value| switch (value) {
             .string => |line| allocator.free(line),
             else => {},
@@ -1453,13 +1459,13 @@ fn freeSteps(allocator: std.mem.Allocator, steps: []const kernel.Step) void {
 }
 
 fn readEventRecord(allocator: std.mem.Allocator, line: []const u8, schema_version: u32) !ReadEventRecordResult {
-    const state = if (schema_version == 0) blk: {
+    var state = if (schema_version == 0) blk: {
         const parsed = try std.json.parseFromSlice(LegacyEventRecordV0, allocator, line, .{});
         defer parsed.deinit();
         break :blk EventRecordState{
             .schema_version = 0,
             .seq = parsed.value.seq,
-            .event = parsed.value.event,
+            .event = try cloneEvent(allocator, parsed.value.event),
         };
     } else blk: {
         const parsed = try std.json.parseFromSlice(EventRecord, allocator, line, .{});
@@ -1468,18 +1474,18 @@ fn readEventRecord(allocator: std.mem.Allocator, line: []const u8, schema_versio
         break :blk EventRecordState{
             .schema_version = parsed.value.schema_version,
             .seq = parsed.value.seq,
-            .event = parsed.value.event,
+            .event = try cloneEvent(allocator, parsed.value.event),
         };
     };
+    errdefer freeEvent(allocator, state.event);
     const stored_schema_version = state.schema_version;
-    var migrated = state;
-    try migrateEventRecord(&migrated);
+    try migrateEventRecord(&state);
     return .{
         .stored_schema_version = stored_schema_version,
         .record = .{
-            .schema_version = migrated.schema_version,
-            .seq = migrated.seq,
-            .event = migrated.event,
+            .schema_version = state.schema_version,
+            .seq = state.seq,
+            .event = state.event,
         },
     };
 }
@@ -1511,6 +1517,7 @@ fn eventsMatch(
         if (seq >= expected_events.len) return .{ .matches = false, .migrated = migrated };
 
         const parsed = try readEventRecord(allocator, line, schema_version);
+        defer freeEvent(allocator, parsed.record.event);
         if (parsed.stored_schema_version != current_event_schema) migrated = true;
         if (parsed.record.seq != seq) return .{ .matches = false, .migrated = migrated };
         if (!eventEql(parsed.record.event, expected_events[seq])) return .{ .matches = false, .migrated = migrated };

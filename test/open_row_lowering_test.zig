@@ -9,6 +9,18 @@ const example_open_row_state_writer = @import("example_open_row_state_writer");
 const shift = @import("shift");
 const std = @import("std");
 
+fn symlinkAliasPath(
+    allocator: std.mem.Allocator,
+    tmp: *std.testing.TmpDir,
+    target_path: []const u8,
+    alias_name: []const u8,
+) ![]u8 {
+    try tmp.dir.symLink(target_path, alias_name, .{});
+    const tmp_path = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(tmp_path);
+    return try std.fmt.allocPrint(allocator, "{s}{c}{s}", .{ tmp_path, std.fs.path.sep, alias_name });
+}
+
 const LoweredStateHandler = struct {
     value: i32,
 
@@ -607,6 +619,26 @@ test "file-backed validation resolves cross-file helper imports for explicit-pat
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
+}
+
+test "file-backed validation resolves cross-file helper imports from checkout aliases" {
+    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(original_cwd);
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const checkout_alias = try symlinkAliasPath(std.testing.allocator, &tmp, original_cwd, "shift_repo_alias");
+    defer std.testing.allocator.free(checkout_alias);
+
+    const entry_path = try std.fs.path.join(
+        std.testing.allocator,
+        &.{ checkout_alias, "examples", "open_row_cross_file_writer.zig" },
+    );
+    defer std.testing.allocator.free(entry_path);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), entry_path, "runBody");
 }
 
 test "file-backed validation rejects helper imports that escape the package root" {

@@ -85,18 +85,31 @@ const empty_pending = PendingFrame{
     .resume_value = .none,
 };
 
+const max_checkpoints = 16;
+const max_events = 16;
+const max_pending_frames = 8;
+
+/// Validation errors for fixed-capacity kernel transcript replay.
+pub const StepValidationError = error{
+    PendingFrameUnderflow,
+    TooManyCheckpoints,
+    TooManyEvents,
+    TooManyPendingFrames,
+};
+
 /// Full typed execution state for one kernel execution.
 pub const State = struct {
     active_prompt: ?PromptId = null,
-    checkpoints: [16]TraceCheckpoint = [_]TraceCheckpoint{empty_checkpoint} ** 16,
+    checkpoints: [max_checkpoints]TraceCheckpoint = [_]TraceCheckpoint{empty_checkpoint} ** max_checkpoints,
     checkpoint_len: usize = 0,
-    events: [16]Event = [_]Event{empty_event} ** 16,
+    events: [max_events]Event = [_]Event{empty_event} ** max_events,
     event_len: usize = 0,
     final_result: Value = .none,
-    pending: [8]PendingFrame = [_]PendingFrame{empty_pending} ** 8,
+    pending: [max_pending_frames]PendingFrame = [_]PendingFrame{empty_pending} ** max_pending_frames,
     pending_len: usize = 0,
 
     fn appendCheckpoint(self: *State, tag: CheckpointTag) void {
+        std.debug.assert(self.checkpoint_len < self.checkpoints.len);
         const top_pending = if (self.pending_len == 0) null else self.pending[self.pending_len - 1];
         self.checkpoints[self.checkpoint_len] = .{
             .tag = tag,
@@ -111,19 +124,49 @@ pub const State = struct {
     }
 
     fn appendEvent(self: *State, event: Event) void {
+        std.debug.assert(self.event_len < self.events.len);
         self.events[self.event_len] = event;
         self.event_len += 1;
     }
 
     fn popPending(self: *State) void {
+        std.debug.assert(self.pending_len != 0);
         self.pending_len -= 1;
     }
 
     fn pushPending(self: *State, frame: PendingFrame) void {
+        std.debug.assert(self.pending_len < self.pending.len);
         self.pending[self.pending_len] = frame;
         self.pending_len += 1;
     }
 };
+
+/// Reject one step transcript that would overflow the fixed-capacity replay state.
+pub fn validateStepCapacity(steps: []const Step) StepValidationError!void {
+    var checkpoint_len: usize = 0;
+    var event_len: usize = 0;
+    var pending_len: usize = 0;
+
+    for (steps) |step| switch (step) {
+        .checkpoint => {
+            if (checkpoint_len >= max_checkpoints) return error.TooManyCheckpoints;
+            checkpoint_len += 1;
+        },
+        .emit => {
+            if (event_len >= max_events) return error.TooManyEvents;
+            event_len += 1;
+        },
+        .push_pending => {
+            if (pending_len >= max_pending_frames) return error.TooManyPendingFrames;
+            pending_len += 1;
+        },
+        .pop_pending => {
+            if (pending_len == 0) return error.PendingFrameUnderflow;
+            pending_len -= 1;
+        },
+        else => {},
+    };
+}
 
 /// Execute one sequence of kernel steps to completion.
 pub fn runSteps(steps: []const Step) State {
@@ -175,4 +218,24 @@ test "runSteps records checkpoints and transcript events without host runtime st
     try std.testing.expectEqual(@as(usize, 1), events(&state).len);
     try std.testing.expectEqual(@as(?PromptId, .primary), state.active_prompt);
     try std.testing.expectEqual(@as(usize, 1), state.pending_len);
+}
+
+test "validateStepCapacity rejects oversized transcripts before replay" {
+    var too_many_checkpoints: [max_checkpoints + 1]Step = undefined;
+    for (&too_many_checkpoints) |*step| step.* = .{ .checkpoint = .atm_resume_prepared };
+    try std.testing.expectError(error.TooManyCheckpoints, validateStepCapacity(&too_many_checkpoints));
+
+    var too_many_events: [max_events + 1]Step = undefined;
+    for (&too_many_events) |*step| step.* = .{ .emit = .{ .note = "queued" } };
+    try std.testing.expectError(error.TooManyEvents, validateStepCapacity(&too_many_events));
+
+    var too_many_pending: [max_pending_frames + 1]Step = undefined;
+    for (&too_many_pending) |*step| step.* = .{ .push_pending = .{
+        .kind = .resume_then_transform,
+        .prompt = .primary,
+        .resume_value = .none,
+    } };
+    try std.testing.expectError(error.TooManyPendingFrames, validateStepCapacity(&too_many_pending));
+
+    try std.testing.expectError(error.PendingFrameUnderflow, validateStepCapacity(&.{.pop_pending}));
 }

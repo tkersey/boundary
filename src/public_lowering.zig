@@ -1025,14 +1025,25 @@ fn findValidationImport(imports: []const ValidationImport, name: []const u8) ?Va
     return null;
 }
 
+fn packageRootRelativeSlice(source_path: []const u8) ?[]const u8 {
+    if (!std.mem.startsWith(u8, source_path, build_options.package_root)) return null;
+    if (source_path.len <= build_options.package_root.len) return null;
+    const separator = source_path[build_options.package_root.len];
+    if (separator != '/' and separator != '\\') return null;
+    return source_path[build_options.package_root.len + 1 ..];
+}
+
 fn packageRootRelativePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ValidationError![]u8 {
     if (source_path.len == 0) return error.UnsupportedHelperGraph;
     if (std.fs.path.isAbsolute(source_path)) {
-        if (!std.mem.startsWith(u8, source_path, build_options.package_root)) return error.UnsupportedHelperGraph;
-        if (source_path.len <= build_options.package_root.len) return error.UnsupportedHelperGraph;
-        const separator = source_path[build_options.package_root.len];
-        if (separator != '/' and separator != '\\') return error.UnsupportedHelperGraph;
-        return try allocator.dupe(u8, source_path[build_options.package_root.len + 1 ..]);
+        if (packageRootRelativeSlice(source_path)) |repo_source_path| {
+            return try allocator.dupe(u8, repo_source_path);
+        }
+
+        const canonical_path = std.fs.cwd().realpathAlloc(allocator, source_path) catch return error.UnsupportedHelperGraph;
+        defer allocator.free(canonical_path);
+        const repo_source_path = packageRootRelativeSlice(canonical_path) orelse return error.UnsupportedHelperGraph;
+        return try allocator.dupe(u8, repo_source_path);
     }
     return try allocator.dupe(u8, source_path);
 }

@@ -92,6 +92,14 @@ fn makePlanBackedArtifact(
     };
 }
 
+fn allocRepeatedNoteSteps(allocator: std.mem.Allocator, count: usize) ![]shift.interpreter.Step {
+    const steps = try allocator.alloc(shift.interpreter.Step, count);
+    for (steps) |*step| {
+        step.* = .{ .emit = .{ .note = "queued" } };
+    }
+    return steps;
+}
+
 test "durable store replays the canonical event log exactly" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -107,6 +115,40 @@ test "durable store replays the canonical event log exactly" {
     try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
     try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
     try std.testing.expectEqual(@as(usize, 2), shift.interpreter.events(&restored.state.?).len);
+}
+
+test "durable restore replays owned string event payloads" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const artifact: shift.durable.ProgramArtifact = .{
+        .label = "string_events",
+        .program_hash = 0x7a11,
+        .steps = &.{
+            .{ .emit = .{ .note = "plan-backed" } },
+            .{ .emit = .{ .final_string = "done" } },
+        },
+    };
+
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    _ = try store.saveArtifact(artifact, null);
+
+    const restored = try store.restoreArtifact(artifact);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
+    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
+    const events = shift.interpreter.events(&restored.state.?);
+    try std.testing.expectEqual(@as(usize, 2), events.len);
+    try std.testing.expectEqualStrings("plan-backed", switch (events[0]) {
+        .note => |value| value,
+        else => return error.TestExpectedEqual,
+    });
+    try std.testing.expectEqualStrings("done", switch (events[1]) {
+        .final_string => |value| value,
+        else => return error.TestExpectedEqual,
+    });
 }
 
 test "durable restore reports rebuild required on schema mismatch" {
@@ -553,6 +595,65 @@ test "durable saveArtifact writes versioned event rows" {
     const parsed = try std.json.parseFromSlice(shift.durable.EventRecord, std.testing.allocator, first, .{});
     defer parsed.deinit();
     try std.testing.expectEqual(@as(u32, 1), parsed.value.schema_version);
+}
+
+test "durable saveArtifact rejects oversized transcripts before replay" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const steps = try allocRepeatedNoteSteps(std.testing.allocator, 17);
+    defer std.testing.allocator.free(steps);
+
+    const artifact: shift.durable.ProgramArtifact = .{
+        .label = "too_many_events",
+        .program_hash = 0x8bad,
+        .steps = steps,
+    };
+
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    try std.testing.expectError(error.TooManyEvents, store.saveArtifact(artifact, null));
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().statFile(paths.manifest_path));
+}
+
+test "durable restoreArtifact rejects oversized transcripts before replay" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const steps = try allocRepeatedNoteSteps(std.testing.allocator, 17);
+    defer std.testing.allocator.free(steps);
+
+    const artifact: shift.durable.ProgramArtifact = .{
+        .label = "too_many_events",
+        .program_hash = 0x9bad,
+        .steps = steps,
+    };
+
+    {
+        const file = try std.fs.cwd().createFile(paths.manifest_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        try std.json.Stringify.value(shift.durable.SessionManifest{
+            .program_hash = artifact.identityHash(),
+            .event_schema_version = 1,
+            .last_seq = steps.len,
+        }, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+    {
+        const file = try std.fs.cwd().createFile(paths.events_path, .{ .truncate = true });
+        defer file.close();
+    }
+
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    try std.testing.expectError(error.TooManyEvents, store.restoreArtifact(artifact));
 }
 
 test "durable restore accepts legacy raw event rows" {
