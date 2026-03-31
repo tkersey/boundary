@@ -2,6 +2,20 @@ const kernel = @import("internal_kernel");
 const portable_core = @import("portable_core");
 const std = @import("std");
 
+const SpinLock = struct {
+    state: u8 = 0,
+
+    fn lock(self: *@This()) void {
+        while (@cmpxchgWeak(u8, &self.state, 0, 1, .acquire, .monotonic) != null) {
+            std.atomic.spinLoopHint();
+        }
+    }
+
+    fn unlock(self: *@This()) void {
+        @atomicStore(u8, &self.state, 0, .release);
+    }
+};
+
 /// Public runtime misuse and semantic-contract errors surfaced by `shift`.
 pub const RuntimeError = error{
     MissingPrompt,
@@ -89,15 +103,70 @@ pub fn runtimeAllocator(runtime: *const Runtime) std.mem.Allocator {
     return runtime.core.allocator;
 }
 
+const ActiveRuntimeRegistry = struct {
+    const Entry = struct {
+        runtime: *Runtime,
+        depth: usize,
+    };
+
+    lock_state: SpinLock = .{},
+    map: std.AutoHashMapUnmanaged(std.Thread.Id, Entry) = .empty,
+
+    fn begin(self: *@This(), runtime: *Runtime) (RuntimeError || SetupError)!void {
+        self.lock_state.lock();
+        defer self.lock_state.unlock();
+
+        const entry = self.map.getPtr(runtime.thread_id);
+        if (entry) |active| {
+            if (active.runtime != runtime) return error.RuntimeBusy;
+            active.depth += 1;
+            return;
+        }
+        try self.map.put(std.heap.page_allocator, runtime.thread_id, .{ .runtime = runtime, .depth = 1 });
+    }
+
+    fn end(self: *@This(), runtime: *Runtime) void {
+        self.lock_state.lock();
+        defer self.lock_state.unlock();
+
+        const entry = self.map.getPtr(runtime.thread_id).?;
+        std.debug.assert(entry.runtime == runtime);
+        if (entry.depth == 1) {
+            _ = self.map.remove(runtime.thread_id);
+            if (self.map.count() == 0) {
+                self.map.deinit(std.heap.page_allocator);
+                self.map = .empty;
+            }
+            return;
+        }
+        entry.depth -= 1;
+    }
+
+    fn current(self: *@This(), thread_id: std.Thread.Id) ?*Runtime {
+        self.lock_state.lock();
+        defer self.lock_state.unlock();
+        return if (self.map.get(thread_id)) |entry| entry.runtime else null;
+    }
+};
+
+var active_runtimes = ActiveRuntimeRegistry{};
+
+/// Return the currently active runtime on this thread, if one is executing.
+pub fn activeRuntime() ?*Runtime {
+    return active_runtimes.current(std.Thread.getCurrentId());
+}
+
 /// Enter one frontend execution against the host runtime.
-pub fn beginExecution(runtime: *Runtime) RuntimeError!void {
+pub fn beginExecution(runtime: *Runtime) (RuntimeError || SetupError)!void {
     try runtime.ensureThread();
+    try active_runtimes.begin(runtime);
     runtime.core.active_reset_count += 1;
 }
 
 /// Leave one frontend execution against the host runtime.
 pub fn endExecution(runtime: *Runtime) void {
     runtime.core.active_reset_count -= 1;
+    active_runtimes.end(runtime);
 }
 
 /// Stable scenario ids re-exported from the canonical scenario registry.

@@ -3,6 +3,26 @@ const std = @import("std");
 /// Stable prompt token shape shared across compat and canonical paths.
 pub const PromptToken = usize;
 
+const prompt_token_bits = @bitSizeOf(PromptToken);
+const explicit_prompt_marker = @as(PromptToken, 1) << (prompt_token_bits - 1);
+const explicit_payload_bits = prompt_token_bits - 1;
+const explicit_source_bits = explicit_payload_bits / 2;
+const explicit_local_bits = explicit_payload_bits - explicit_source_bits;
+const pending_source_tag = std.math.maxInt(PromptToken);
+
+fn bitMask(comptime bit_count: comptime_int) PromptToken {
+    if (bit_count == 0) return 0;
+    return std.math.maxInt(PromptToken) >> @as(std.math.Log2Int(PromptToken), @intCast(prompt_token_bits - bit_count));
+}
+
+const max_explicit_source_tag = bitMask(explicit_source_bits);
+const max_explicit_local_token = bitMask(explicit_local_bits);
+const max_compat_prompt_token = explicit_prompt_marker - 1;
+
+fn encodeExplicitPromptToken(source_tag: PromptToken, local_token: PromptToken) PromptToken {
+    return explicit_prompt_marker | (source_tag << explicit_local_bits) | local_token;
+}
+
 const SpinLock = struct {
     state: u8 = 0,
 
@@ -26,18 +46,49 @@ pub const LifecycleState = enum {
 /// Explicit prompt-token allocator used by canonical and compat shells.
 pub const PromptTokenSource = struct {
     next_token: PromptToken = 1,
+    source_tag: PromptToken = pending_source_tag,
     lock_state: SpinLock = .{},
 
     /// Allocate one distinct prompt token, failing closed on overflow.
     pub fn allocate(self: *@This()) PromptToken {
         self.lock_state.lock();
         defer self.lock_state.unlock();
-        const token = self.next_token;
-        if (token == std.math.maxInt(PromptToken)) {
+        const local_token = self.next_token;
+        const source_tag = self.ensureSourceTag();
+        if (source_tag == 0) {
+            if (local_token > max_compat_prompt_token) {
+                std.debug.panic("compat prompt token overflow", .{});
+            }
+            self.next_token += 1;
+            return local_token;
+        }
+        if (local_token > max_explicit_local_token) {
             std.debug.panic("prompt token overflow", .{});
         }
         self.next_token += 1;
-        return token;
+        return encodeExplicitPromptToken(source_tag, local_token);
+    }
+
+    fn ensureSourceTag(self: *@This()) PromptToken {
+        if (self.source_tag != pending_source_tag) return self.source_tag;
+        self.source_tag = explicit_source_tags.allocate();
+        return self.source_tag;
+    }
+};
+
+const ExplicitSourceTagAllocator = struct {
+    next_tag: PromptToken = 1,
+    lock_state: SpinLock = .{},
+
+    fn allocate(self: *@This()) PromptToken {
+        self.lock_state.lock();
+        defer self.lock_state.unlock();
+        const source_tag = self.next_tag;
+        if (source_tag == 0 or source_tag > max_explicit_source_tag) {
+            std.debug.panic("prompt source overflow", .{});
+        }
+        self.next_tag += 1;
+        return source_tag;
     }
 };
 
@@ -175,9 +226,9 @@ pub const ExecutionCore = struct {
     }
 };
 
-var compat_prompt_tokens = PromptTokenSource{};
+var compat_prompt_tokens = PromptTokenSource{ .source_tag = 0 };
 var compat_frames = SharedFrameRegistry{};
-var compat_cleanup = CleanupStack{};
+var explicit_source_tags = ExplicitSourceTagAllocator{};
 
 /// Return the compatibility prompt-token source used by legacy `Prompt.init()`.
 pub fn compatPromptTokens() *PromptTokenSource {
@@ -207,11 +258,6 @@ pub fn compatFrameCount() usize {
 /// Release compat-frame storage once the global registry is idle.
 pub fn compatFrameDeinitIfIdle() void {
     compat_frames.deinitIfIdle();
-}
-
-/// Return the compatibility cleanup stack used by transitional zero-arg helpers.
-pub fn compatCleanupStack() *CleanupStack {
-    return &compat_cleanup;
 }
 
 test "compat frame registry ignores runtime allocators and deinitializes through page allocator" {

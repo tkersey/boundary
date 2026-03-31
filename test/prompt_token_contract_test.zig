@@ -17,13 +17,24 @@ test "prompt initWithSource draws distinct tokens from the supplied source" {
     const first = DemoPrompt.initWithSource(&source);
     const second = DemoPrompt.initWithSource(&source);
 
-    try std.testing.expectEqual(@as(usize, 1), first.token);
-    try std.testing.expectEqual(@as(usize, 2), second.token);
+    try std.testing.expect(first.token != second.token);
+    try std.testing.expect(source.next_token == 3);
+}
+
+test "prompt initWithSource keeps tokens distinct across independent sources" {
+    const NoError = error{};
+    const DemoPrompt = prompt_support.Prompt(.resume_then_transform, void, void, NoError);
+    var first_source = portable_core.PromptTokenSource{};
+    var second_source = portable_core.PromptTokenSource{};
+
+    const first = DemoPrompt.initWithSource(&first_source);
+    const second = DemoPrompt.initWithSource(&second_source);
+
+    try std.testing.expect(first.token != second.token);
 }
 
 test "prompt token source keeps tokens distinct across concurrent allocation" {
     var source = portable_core.PromptTokenSource{};
-    var seen = [_]bool{false} ** 257;
     var tokens = [_]usize{0} ** 256;
     var threads: [8]std.Thread = undefined;
 
@@ -42,10 +53,11 @@ test "prompt token source keeps tokens distinct across concurrent allocation" {
     }
     for (&threads) |thread| thread.join();
 
+    var seen = std.AutoHashMap(usize, void).init(std.testing.allocator);
+    defer seen.deinit();
     for (tokens) |token| {
-        try std.testing.expect(token >= 1 and token <= 256);
-        try std.testing.expect(!seen[token]);
-        seen[token] = true;
+        const entry = try seen.getOrPut(token);
+        try std.testing.expect(!entry.found_existing);
     }
     try std.testing.expectEqual(@as(usize, 257), source.next_token);
 }

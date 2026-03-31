@@ -759,6 +759,141 @@ fn Frame(comptime PromptType: type) type {
     };
 }
 
+fn cloneReplayValue(allocator: std.mem.Allocator, comptime T: type, value: T) lowered_machine.Error!T {
+    if (T == std.mem.Allocator) return value;
+
+    return switch (@typeInfo(T)) {
+        .void,
+        .bool,
+        .int,
+        .float,
+        .comptime_int,
+        .comptime_float,
+        .null,
+        .undefined,
+        .noreturn,
+        .enum_literal,
+        .@"enum",
+        .@"fn",
+        .error_set,
+        .@"opaque",
+        .type,
+        .vector,
+        => value,
+        .pointer => |pointer| switch (pointer.size) {
+            .one => {
+                switch (@typeInfo(pointer.child)) {
+                    .@"fn", .@"opaque" => return value,
+                    else => {},
+                }
+                const cloned = allocator.create(pointer.child) catch return error.ProgramContractViolation;
+                errdefer allocator.destroy(cloned);
+                cloned.* = try cloneReplayValue(allocator, pointer.child, value.*);
+                return cloned;
+            },
+            .slice => {
+                const cloned = allocator.alloc(pointer.child, value.len) catch return error.ProgramContractViolation;
+                var initialized: usize = 0;
+                errdefer {
+                    while (initialized != 0) {
+                        initialized -= 1;
+                        destroyReplayValue(allocator, pointer.child, cloned[initialized]);
+                    }
+                    allocator.free(cloned);
+                }
+                for (value, 0..) |item, index| {
+                    cloned[index] = try cloneReplayValue(allocator, pointer.child, item);
+                    initialized += 1;
+                }
+                return cloned;
+            },
+            else => @compileError("frontend contextual replay does not support many-pointer or C-pointer handler context fields"),
+        },
+        .array => |array| {
+            var cloned = value;
+            for (0..array.len) |index| {
+                cloned[index] = try cloneReplayValue(allocator, array.child, value[index]);
+            }
+            return cloned;
+        },
+        .optional => |optional| {
+            if (value) |payload| return try cloneReplayValue(allocator, optional.child, payload);
+            return null;
+        },
+        .@"struct" => |info| {
+            var cloned = value;
+            inline for (info.fields) |field| {
+                @field(cloned, field.name) = try cloneReplayValue(allocator, field.type, @field(value, field.name));
+            }
+            if (@hasField(T, "items") and @hasField(T, "capacity")) {
+                const ItemsType = @FieldType(T, "items");
+                if (@typeInfo(ItemsType) == .pointer and @typeInfo(ItemsType).pointer.size == .slice and @FieldType(T, "capacity") == usize) {
+                    cloned.capacity = cloned.items.len;
+                }
+            }
+            return cloned;
+        },
+        .@"union" => |union_info| {
+            if (union_info.tag_type == null) return value;
+            return switch (value) {
+                inline else => |payload, tag| @unionInit(T, @tagName(tag), try cloneReplayValue(allocator, @TypeOf(payload), payload)),
+            };
+        },
+        .error_union => |error_union| {
+            if (value) |payload| return try cloneReplayValue(allocator, error_union.payload, payload);
+            return value catch |err| err;
+        },
+        else => @compileError("frontend contextual replay does not support this handler context field type"),
+    };
+}
+
+fn destroyReplayValue(allocator: std.mem.Allocator, comptime T: type, value: T) void {
+    if (T == std.mem.Allocator) return;
+
+    switch (@typeInfo(T)) {
+        .pointer => |pointer| switch (pointer.size) {
+            .one => {
+                switch (@typeInfo(pointer.child)) {
+                    .@"fn", .@"opaque" => return,
+                    else => {},
+                }
+                const mutable_value = @constCast(value);
+                destroyReplayValue(allocator, pointer.child, mutable_value.*);
+                allocator.destroy(mutable_value);
+            },
+            .slice => {
+                for (value) |item| destroyReplayValue(allocator, pointer.child, item);
+                allocator.free(value);
+            },
+            else => {},
+        },
+        .array => |array| {
+            for (0..array.len) |index| destroyReplayValue(allocator, array.child, value[index]);
+        },
+        .optional => |optional| {
+            if (value) |payload| destroyReplayValue(allocator, optional.child, payload);
+        },
+        .@"struct" => |info| {
+            inline for (info.fields) |field| {
+                destroyReplayValue(allocator, field.type, @field(value, field.name));
+            }
+        },
+        .@"union" => |union_info| {
+            if (union_info.tag_type) |_| switch (value) {
+                inline else => |payload| destroyReplayValue(allocator, @TypeOf(payload), payload),
+            };
+        },
+        .error_union => {
+            if (value) |payload| {
+                destroyReplayValue(allocator, @TypeOf(payload), payload);
+            } else |err| {
+                _ = err;
+            }
+        },
+        else => {},
+    }
+}
+
 fn persistHandlerContext(
     allocator: std.mem.Allocator,
     comptime ContextPtrType: type,
@@ -776,12 +911,14 @@ fn persistHandlerContext(
 
     const Child = std.meta.Child(ContextPtrType);
     const stored = allocator.create(Child) catch return error.ProgramContractViolation;
-    stored.* = handler_ctx.*;
+    errdefer allocator.destroy(stored);
+    stored.* = try cloneReplayValue(allocator, Child, handler_ctx.*);
     return .{
         .ctx = @ptrCast(stored),
         .cleanup = struct {
             fn cleanup(ctx_allocator: std.mem.Allocator, raw_ctx: ?*anyopaque) void {
                 const typed_ctx: *Child = @ptrCast(@alignCast(raw_ctx.?));
+                destroyReplayValue(ctx_allocator, Child, typed_ctx.*);
                 ctx_allocator.destroy(typed_ctx);
             }
         }.cleanup,
@@ -1138,9 +1275,14 @@ pub fn abortWithContext(
 
 test "transformWithContext persists a copy of handler context for replay" {
     const Prompt = prompt_contract.Prompt(.resume_then_transform, i32, i32, error{});
+    const Metadata = struct {
+        offset: i32,
+    };
     const Carrier = struct {
         tag: usize,
         payload: i32,
+        metadata: *Metadata,
+        label: []const u8,
     };
     const handler = struct {
         /// Return the resumptive transform payload from the persisted carrier copy.
@@ -1150,7 +1292,7 @@ test "transformWithContext persists a copy of handler context for replay" {
 
         /// Return one observable value from the persisted carrier copy after resume.
         pub fn afterResume(ctx: *Carrier, answer: i32) i32 {
-            return answer + @as(i32, @intCast(ctx.tag));
+            return answer + @as(i32, @intCast(ctx.tag)) + ctx.metadata.offset + @as(i32, ctx.label[0]);
         }
     };
 
@@ -1165,7 +1307,9 @@ test "transformWithContext persists a copy of handler context for replay" {
     try pushActiveFrame(&runtime, &frame.base);
     defer popActiveFrame(&runtime, &frame.base);
 
-    var carrier = Carrier{ .tag = 7, .payload = 41 };
+    var metadata = Metadata{ .offset = 3 };
+    var label_storage = [_]u8{ 'A', 'B' };
+    var carrier = Carrier{ .tag = 7, .payload = 41, .metadata = &metadata, .label = label_storage[0..] };
     try std.testing.expectError(error.FrontendSuspend, transformWithContext(i32, &prompt, &carrier, handler));
     try std.testing.expectEqual(@as(usize, 1), frame.records.items.len);
 
@@ -1174,11 +1318,58 @@ test "transformWithContext persists a copy of handler context for replay" {
     const stored: *Carrier = @ptrCast(@alignCast(resumed.after_resume_ctx.?));
     try std.testing.expectEqual(@as(usize, 7), stored.tag);
     try std.testing.expectEqual(@as(i32, 41), stored.payload);
+    try std.testing.expect(stored.metadata != carrier.metadata);
+    try std.testing.expect(stored.label.ptr != carrier.label.ptr);
+    try std.testing.expectEqual(@as(i32, 3), stored.metadata.offset);
+    try std.testing.expectEqualStrings("AB", stored.label);
 
     carrier.tag = 99;
     carrier.payload = 0;
+    carrier.metadata.offset = 20;
+    label_storage[0] = 'Z';
     try std.testing.expectEqual(@as(usize, 7), stored.tag);
     try std.testing.expectEqual(@as(i32, 41), stored.payload);
+    try std.testing.expectEqual(@as(i32, 3), stored.metadata.offset);
+    try std.testing.expectEqualStrings("AB", stored.label);
+    try std.testing.expectEqual(@as(i32, 80), try resumed.afterResumeFn(resumed.after_resume_ctx, 5));
+}
+
+test "transform replay keeps frames disambiguated across independent prompt sources" {
+    const Prompt = prompt_contract.Prompt(.resume_then_transform, i32, i32, error{});
+    const handler = struct {
+        fn resumeValue() i32 {
+            return 41;
+        }
+
+        fn afterResume(answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try lowered_machine.beginExecution(&runtime);
+    defer lowered_machine.endExecution(&runtime);
+
+    var first_source = portable_core.PromptTokenSource{};
+    var second_source = portable_core.PromptTokenSource{};
+    var first_prompt = Prompt.initWithSource(&first_source);
+    var second_prompt = Prompt.initWithSource(&second_source);
+    try std.testing.expect(first_prompt.token != second_prompt.token);
+
+    var first_frame = Frame(Prompt).init(lowered_machine.runtimeAllocator(&runtime), &first_prompt);
+    defer first_frame.deinit();
+    try pushActiveFrame(&runtime, &first_frame.base);
+    defer popActiveFrame(&runtime, &first_frame.base);
+
+    var second_frame = Frame(Prompt).init(lowered_machine.runtimeAllocator(&runtime), &second_prompt);
+    defer second_frame.deinit();
+    try pushActiveFrame(&runtime, &second_frame.base);
+    defer popActiveFrame(&runtime, &second_frame.base);
+
+    try std.testing.expectError(error.FrontendSuspend, transform(i32, &first_prompt, handler));
+    try std.testing.expectEqual(@as(usize, 1), first_frame.records.items.len);
+    try std.testing.expectEqual(@as(usize, 0), second_frame.records.items.len);
 }
 
 test "choiceWithContext persists a copy of handler context for replay" {
