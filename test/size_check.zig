@@ -86,6 +86,18 @@ test "public root keeps the lexical surface, additive lowering, and compatibilit
     try std.testing.expect(@hasDecl(shift.lowering, "source"));
 }
 
+test "shift.ir preserves the prior effect_ir compatibility surface" {
+    try std.testing.expect(@hasDecl(shift.ir, "Program"));
+    try std.testing.expect(@hasDecl(shift.ir, "compile"));
+    try std.testing.expect(@hasDecl(shift.ir, "ControlMode"));
+    try std.testing.expect(@hasDecl(shift.ir, "OpSpec"));
+    try std.testing.expect(@hasDecl(shift.ir, "Requirement"));
+    try std.testing.expect(@hasDecl(shift.ir, "NormalizeError"));
+
+    try std.testing.expect(hasErrorName(shift.ir.NormalizeError, "DuplicateRequirementLabel"));
+    try std.testing.expect(hasErrorName(shift.ir.NormalizeError, "OutputWithoutRequirement"));
+}
+
 test "public interpreter runs pure step data without host runtime ownership" {
     const state = shift.interpreter.runSteps(&.{
         .{ .set_active_prompt = .primary },
