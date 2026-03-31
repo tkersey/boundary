@@ -1033,19 +1033,58 @@ fn packageRootRelativeSlice(source_path: []const u8) ?[]const u8 {
     return source_path[build_options.package_root.len + 1 ..];
 }
 
-fn packageRootRelativePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ValidationError![]u8 {
-    if (source_path.len == 0) return error.UnsupportedHelperGraph;
-    if (std.fs.path.isAbsolute(source_path)) {
-        if (packageRootRelativeSlice(source_path)) |repo_source_path| {
-            return try allocator.dupe(u8, repo_source_path);
-        }
+fn normalizeRelativeRepoPathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ValidationError![]u8 {
+    var segments = std.ArrayList([]const u8).empty;
+    defer segments.deinit(allocator);
 
-        const canonical_path = std.fs.cwd().realpathAlloc(allocator, source_path) catch return error.UnsupportedHelperGraph;
-        defer allocator.free(canonical_path);
-        const repo_source_path = packageRootRelativeSlice(canonical_path) orelse return error.UnsupportedHelperGraph;
-        return try allocator.dupe(u8, repo_source_path);
+    var start: usize = 0;
+    var index: usize = 0;
+    while (index <= source_path.len) : (index += 1) {
+        if (index != source_path.len and source_path[index] != '/' and source_path[index] != '\\') continue;
+        const segment = source_path[start..index];
+        start = index + 1;
+        if (segment.len == 0 or std.mem.eql(u8, segment, ".")) continue;
+        if (std.mem.eql(u8, segment, "..")) {
+            if (segments.items.len == 0) return error.UnsupportedHelperGraph;
+            _ = segments.pop();
+            continue;
+        }
+        try segments.append(allocator, segment);
     }
-    return try allocator.dupe(u8, source_path);
+    if (segments.items.len == 0) return error.UnsupportedHelperGraph;
+
+    return std.fs.path.join(allocator, segments.items) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => unreachable,
+    };
+}
+
+fn canonicalValidationSourcePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ValidationError![]u8 {
+    if (source_path.len == 0) return error.UnsupportedHelperGraph;
+
+    var owned_canonical_path: ?[]u8 = null;
+    defer if (owned_canonical_path) |canonical_path| allocator.free(canonical_path);
+
+    const repo_source_path = if (packageRootRelativeSlice(source_path)) |repo_path|
+        repo_path
+    else blk: {
+        owned_canonical_path = std.fs.cwd().realpathAlloc(allocator, source_path) catch return error.UnsupportedHelperGraph;
+        break :blk packageRootRelativeSlice(owned_canonical_path.?) orelse return error.UnsupportedHelperGraph;
+    };
+
+    const normalized_repo_source_path = try normalizeRelativeRepoPathAlloc(allocator, repo_source_path);
+    defer allocator.free(normalized_repo_source_path);
+    return std.fs.path.join(allocator, &.{ build_options.package_root, normalized_repo_source_path }) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => unreachable,
+    };
+}
+
+fn packageRootRelativePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ValidationError![]u8 {
+    const canonical_source_path = try canonicalValidationSourcePathAlloc(allocator, source_path);
+    defer allocator.free(canonical_source_path);
+    const repo_source_path = packageRootRelativeSlice(canonical_source_path) orelse return error.UnsupportedHelperGraph;
+    return try allocator.dupe(u8, repo_source_path);
 }
 
 fn resolveValidationImportPathAlloc(
@@ -1067,30 +1106,7 @@ fn resolveValidationImportPathAlloc(
         try joined.append(allocator, '/');
     }
     try joined.appendSlice(allocator, import_path);
-
-    var segments = std.ArrayList([]const u8).empty;
-    defer segments.deinit(allocator);
-
-    var start: usize = 0;
-    var index: usize = 0;
-    while (index <= joined.items.len) : (index += 1) {
-        if (index != joined.items.len and joined.items[index] != '/') continue;
-        const segment = joined.items[start..index];
-        start = index + 1;
-        if (segment.len == 0 or std.mem.eql(u8, segment, ".")) continue;
-        if (std.mem.eql(u8, segment, "..")) {
-            if (segments.items.len == 0) return error.UnsupportedHelperGraph;
-            _ = segments.pop();
-            continue;
-        }
-        try segments.append(allocator, segment);
-    }
-    if (segments.items.len == 0) return error.UnsupportedHelperGraph;
-
-    return std.fs.path.join(allocator, segments.items) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => unreachable,
-    };
+    return try normalizeRelativeRepoPathAlloc(allocator, joined.items);
 }
 
 fn collectValidationModule(
@@ -1205,9 +1221,12 @@ pub fn validateFileBackedOpenRowAt(
     source_path: []const u8,
     entry_symbol: []const u8,
 ) ValidationError!void {
+    const canonical_source_path = try canonicalValidationSourcePathAlloc(allocator, source_path);
+    defer allocator.free(canonical_source_path);
+
     var validation = ValidationState{ .allocator = allocator };
     defer validation.deinit();
-    _ = try collectValidationModule(&validation, source_path, entry_symbol);
+    _ = try collectValidationModule(&validation, canonical_source_path, entry_symbol);
 }
 
 const ValidationSpec = struct {

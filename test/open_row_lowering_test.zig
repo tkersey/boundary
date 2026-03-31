@@ -1,5 +1,6 @@
 const example_open_row_branching_helper_body = @import("example_open_row_branching_helper_body");
 const example_open_row_cross_file_writer = @import("example_open_row_cross_file_writer");
+const example_open_row_escaped_string_helper_body = @import("example_open_row_escaped_string_helper_body");
 const example_open_row_helper_value_flow = @import("example_open_row_helper_value_flow");
 const example_open_row_helper_value_flow_cross = @import("example_open_row_helper_value_flow_cross");
 const example_open_row_linear_helper_body = @import("example_open_row_linear_helper_body");
@@ -169,6 +170,41 @@ test "straight-line helper bodies lower real source-owned call_op and call_helpe
     try std.testing.expectEqual(@as(@TypeOf(leaf_body.blocks[0].instructions[0].kind), .const_string), leaf_body.blocks[0].instructions[0].kind);
     try std.testing.expectEqual(@as(@TypeOf(leaf_body.blocks[0].instructions[1].kind), .call_op), leaf_body.blocks[0].instructions[1].kind);
     try std.testing.expectEqual(@as(@TypeOf(leaf_body.blocks[0].terminator.kind), .return_unit), leaf_body.blocks[0].terminator.kind);
+}
+
+test "escaped helper string literals decode before const_string emission" {
+    const lowered = try example_open_row_escaped_string_helper_body.loweredProgram();
+
+    const helper_index = comptime blk: {
+        for (lowered.program.functions, 0..) |function, function_index| {
+            if (std.mem.eql(u8, function.symbol.symbol_name, "helper")) break :blk function_index;
+        }
+        unreachable;
+    };
+
+    const helper_body = lowered.program.function_bodies[helper_index];
+    try std.testing.expectEqual(@as(usize, 4), helper_body.blocks[0].instructions.len);
+    try std.testing.expectEqualStrings("line\n", helper_body.blocks[0].instructions[0].string_literal);
+    try std.testing.expectEqualStrings("\"", helper_body.blocks[0].instructions[2].string_literal);
+}
+
+test "public lowered runner preserves escaped helper string literal semantics" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var handlers: LoweredStateWriterHandlers = .{
+        .state = LoweredStateHandler{ .value = 0 },
+        .writer = LoweredWriterHandler{ .allocator = std.testing.allocator },
+    };
+    defer handlers.writer.deinit();
+
+    const result = try example_open_row_escaped_string_helper_body.CompiledProgram.run(&runtime, &handlers);
+    defer std.testing.allocator.free(result.outputs.writer);
+
+    try std.testing.expectEqual(@as(usize, 2), result.outputs.writer.len);
+    try std.testing.expectEqualStrings("line\n", result.outputs.writer[0]);
+    try std.testing.expectEqualStrings("\"", result.outputs.writer[1]);
+    try std.testing.expectEqualStrings("done", result.value);
 }
 
 test "branching helper body lowers a real if-else control-flow body" {
@@ -650,6 +686,56 @@ test "file-backed validation rejects helper imports that escape the package root
     try std.testing.expectError(
         error.UnsupportedHelperGraph,
         shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), entry_path, "runBody"),
+    );
+}
+
+test "file-backed validation accepts repo-local relative entry paths from subdirectories" {
+    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(original_cwd);
+
+    try std.posix.chdir("examples");
+    defer std.posix.chdir(original_cwd) catch unreachable;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), "open_row_cross_file_writer.zig", "runBody");
+}
+
+test "file-backed validation rejects relative entry paths that escape the package root" {
+    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(original_cwd);
+
+    const external_root = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "/tmp/shift-open-row-validation-{d}",
+        .{std.time.nanoTimestamp()},
+    );
+    defer std.testing.allocator.free(external_root);
+    std.fs.deleteTreeAbsolute(external_root) catch {};
+    try std.fs.makeDirAbsolute(external_root);
+    defer std.fs.deleteTreeAbsolute(external_root) catch unreachable;
+
+    var external_dir = try std.fs.openDirAbsolute(external_root, .{});
+    defer external_dir.close();
+    try external_dir.makeDir("inside");
+    try external_dir.writeFile(.{
+        .sub_path = "outside.zig",
+        .data =
+        \\pub fn runBody() void {}
+        ,
+    });
+
+    const inside_path = try std.fs.path.join(std.testing.allocator, &.{ external_root, "inside" });
+    defer std.testing.allocator.free(inside_path);
+
+    try std.posix.chdir(inside_path);
+    defer std.posix.chdir(original_cwd) catch unreachable;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try std.testing.expectError(
+        error.UnsupportedHelperGraph,
+        shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), "../outside.zig", "runBody"),
     );
 }
 

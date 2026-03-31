@@ -663,7 +663,68 @@ fn noLocalId() u16 {
 fn stringLiteralContents(comptime literal: []const u8) ?[]const u8 {
     if (literal.len < 2) return null;
     if (literal[0] != '"' or literal[literal.len - 1] != '"') return null;
-    return literal[1 .. literal.len - 1];
+
+    return comptime blk: {
+        var decoded_len: usize = 0;
+        var index: usize = 1;
+        while (index < literal.len - 1) {
+            switch (literal[index]) {
+                '\\' => {
+                    const escape_char_index = index + 1;
+                    const parsed = std.zig.string_literal.parseEscapeSequence(literal, &index);
+                    const codepoint = switch (parsed) {
+                        .success => |value| value,
+                        .failure => return null,
+                    };
+                    if (literal[escape_char_index] == 'u') {
+                        var utf8_buffer: [4]u8 = undefined;
+                        decoded_len += std.unicode.utf8Encode(codepoint, &utf8_buffer) catch return null;
+                    } else {
+                        decoded_len += 1;
+                    }
+                },
+                '"' => return null,
+                '\n' => return null,
+                else => {
+                    decoded_len += 1;
+                    index += 1;
+                },
+            }
+        }
+
+        var buffer: [decoded_len]u8 = undefined;
+        var out_index: usize = 0;
+        index = 1;
+        while (index < literal.len - 1) {
+            switch (literal[index]) {
+                '\\' => {
+                    const escape_char_index = index + 1;
+                    const parsed = std.zig.string_literal.parseEscapeSequence(literal, &index);
+                    const codepoint = switch (parsed) {
+                        .success => |value| value,
+                        .failure => return null,
+                    };
+                    if (literal[escape_char_index] == 'u') {
+                        var utf8_buffer: [4]u8 = undefined;
+                        const utf8_len = std.unicode.utf8Encode(codepoint, &utf8_buffer) catch return null;
+                        @memcpy(buffer[out_index .. out_index + utf8_len], utf8_buffer[0..utf8_len]);
+                        out_index += utf8_len;
+                    } else {
+                        buffer[out_index] = @as(u8, @intCast(codepoint));
+                        out_index += 1;
+                    }
+                },
+                '"' => return null,
+                '\n' => return null,
+                else => {
+                    buffer[out_index] = literal[index];
+                    out_index += 1;
+                    index += 1;
+                },
+            }
+        }
+        break :blk &buffer;
+    };
 }
 
 fn appendInstruction(

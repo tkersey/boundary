@@ -103,17 +103,62 @@ const Buffers = struct {
     module_count: usize = 0,
 };
 
+const NormalizeRelativePathError = error{
+    EmptyPath,
+    EscapesRoot,
+    TooManySegments,
+};
+
+fn joinRelativePathSegments(comptime segments: []const []const u8) []const u8 {
+    return comptime blk: {
+        if (segments.len == 0) break :blk "";
+        var result = segments[0];
+        for (segments[1..]) |segment| {
+            result = std.fmt.comptimePrint("{s}/{s}", .{ result, segment });
+        }
+        break :blk result;
+    };
+}
+
+fn normalizeRelativePath(comptime source_path: []const u8) NormalizeRelativePathError![]const u8 {
+    var segments = [_][]const u8{""} ** 64;
+    var segment_count: usize = 0;
+    var start: usize = 0;
+    var index: usize = 0;
+    while (index <= source_path.len) : (index += 1) {
+        if (index != source_path.len and source_path[index] != '/' and source_path[index] != '\\') continue;
+        const segment = source_path[start..index];
+        start = index + 1;
+        if (segment.len == 0 or std.mem.eql(u8, segment, ".")) continue;
+        if (std.mem.eql(u8, segment, "..")) {
+            if (segment_count == 0) return error.EscapesRoot;
+            segment_count -= 1;
+            continue;
+        }
+        if (segment_count >= segments.len) return error.TooManySegments;
+        segments[segment_count] = segment;
+        segment_count += 1;
+    }
+    if (segment_count == 0) return error.EmptyPath;
+    return joinRelativePathSegments(segments[0..segment_count]);
+}
+
 fn repoRelativePath(comptime source_path: []const u8) []const u8 {
-    if (std.fs.path.isAbsolute(source_path)) {
+    const repo_path = if (std.fs.path.isAbsolute(source_path)) blk: {
         if (!std.mem.startsWith(u8, source_path, build_options.package_root)) {
             @compileError("public lowering source path must stay under the package root");
         }
         if (source_path.len <= build_options.package_root.len or source_path[build_options.package_root.len] != std.fs.path.sep) {
             @compileError("public lowering source path must point to a file under the package root");
         }
-        return source_path[build_options.package_root.len + 1 ..];
-    }
-    return source_path;
+        break :blk source_path[build_options.package_root.len + 1 ..];
+    } else source_path;
+
+    return normalizeRelativePath(repo_path) catch |err| switch (err) {
+        error.EmptyPath => @compileError("public lowering source path must point to a file under the package root"),
+        error.EscapesRoot => @compileError("public lowering source path must stay under the package root"),
+        error.TooManySegments => @compileError("public lowering source path exceeded the supported segment budget"),
+    };
 }
 
 /// Embed one repo-relative source file through a repo-root module so examples remain package-visible.
@@ -140,32 +185,9 @@ fn resolveImportPath(comptime from_path: []const u8, comptime import_path: []con
     else
         std.fmt.comptimePrint("{s}/{s}", .{ base_dir, import_path });
 
-    var segments = [_][]const u8{""} ** 64;
-    var segment_count: usize = 0;
-    var start: usize = 0;
-    var index: usize = 0;
-    while (index <= joined.len) : (index += 1) {
-        if (index != joined.len and joined[index] != '/') continue;
-        const segment = joined[start..index];
-        start = index + 1;
-        if (segment.len == 0 or std.mem.eql(u8, segment, ".")) continue;
-        if (std.mem.eql(u8, segment, "..")) {
-            if (segment_count == 0) return error.UnsupportedImportPath;
-            segment_count -= 1;
-            continue;
-        }
-        if (segment_count >= segments.len) return error.TooManyImports;
-        segments[segment_count] = segment;
-        segment_count += 1;
-    }
-
-    return comptime blk: {
-        if (segment_count == 0) break :blk "";
-        var result = segments[0];
-        for (segments[1..segment_count]) |segment| {
-            result = std.fmt.comptimePrint("{s}/{s}", .{ result, segment });
-        }
-        break :blk result;
+    return normalizeRelativePath(joined) catch |err| switch (err) {
+        error.EmptyPath, error.EscapesRoot => error.UnsupportedImportPath,
+        error.TooManySegments => error.TooManyImports,
     };
 }
 
