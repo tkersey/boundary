@@ -147,14 +147,7 @@ fn ensureParentDir(allocator: std.mem.Allocator, path: []const u8) !void {
         if (dir_name.len == 0) return;
         const resolved = try allocator.dupe(u8, dir_name);
         defer allocator.free(resolved);
-        if (std.fs.path.isAbsolute(resolved)) {
-            std.fs.makeDirAbsolute(resolved) catch |err| switch (err) {
-                error.PathAlreadyExists => {},
-                else => return err,
-            };
-        } else {
-            try std.fs.cwd().makePath(resolved);
-        }
+        try std.fs.cwd().makePath(resolved);
     }
 }
 

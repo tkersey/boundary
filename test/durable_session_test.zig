@@ -220,6 +220,73 @@ test "durable saveArtifact persists plan-backed identity and plan.json" {
     try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
 }
 
+test "durable saveArtifact rejects non-scenario artifacts when scenario_id is set" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const artifact = makePlanBackedArtifact(99, 0x1234, "demo.plan", "runBody");
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+
+    try std.testing.expectError(error.ScenarioArtifactMismatch, store.saveArtifact(artifact, .direct_return));
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().statFile(paths.manifest_path));
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().statFile(paths.artifact_path));
+}
+
+test "durable restore rejects tampered plan-backed artifact payloads even when events match" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const artifact = makePlanBackedArtifact(0x2234, 0x2234, "demo.plan", "runBody");
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    _ = try store.saveArtifact(artifact, null);
+
+    {
+        const file = try std.fs.cwd().createFile(paths.artifact_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        try std.json.Stringify.value(shift.durable.ArtifactFile{
+            .schema_version = 1,
+            .identity_hash = artifact.identityHash(),
+            .label = artifact.label,
+            .steps = &.{
+                .{ .emit = .{ .note = "tampered" } },
+                .{ .emit = .{ .final_i32 = 9 } },
+            },
+        }, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+    {
+        const file = try std.fs.cwd().createFile(paths.events_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        try std.json.Stringify.value(shift.durable.EventRecord{
+            .schema_version = 1,
+            .seq = 0,
+            .event = .{ .note = "tampered" },
+        }, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try std.json.Stringify.value(shift.durable.EventRecord{
+            .schema_version = 1,
+            .seq = 1,
+            .event = .{ .final_i32 = 9 },
+        }, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+
+    const restored = try store.restore();
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+}
+
 test "durable saveArtifact restores the previous checkpoint when a later write fails" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();

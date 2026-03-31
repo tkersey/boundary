@@ -655,7 +655,12 @@ pub inline fn optionalRequestProgram(
     comptime Cap: type,
     ctx: anytype,
     comptime Continuation: anytype,
-) @TypeOf(activeEngineContext(Cap, ctx).bindings.bindingPtr(0).directProgram({}, Continuation)) {
+) frontend.Program(prompt_contract.Prompt(
+    .resume_or_return,
+    family.ContextStateType(@TypeOf(ctx)),
+    family.ContextAnswerType(@TypeOf(ctx)),
+    family.ContextErrorSetType(@TypeOf(ctx)),
+)) {
     comptime family.assertContextType(Cap, @TypeOf(ctx));
     return activeEngineContext(Cap, ctx).bindings.bindingPtr(0).directProgram({}, Continuation);
 }
@@ -1018,12 +1023,12 @@ pub inline fn throwExceptionProgram(
     comptime Cap: type,
     ctx: anytype,
     payload: family.ContextStateType(@TypeOf(ctx)),
-) @TypeOf(activeEngineContext(Cap, ctx).bindings.bindingPtr(0).directProgram(payload, struct {
-    /// Unreachable continuation placeholder for direct-return effect programs.
-    pub fn apply(_: noreturn) family.ContextAnswerType(@TypeOf(ctx)) {
-        unreachable;
-    }
-})) {
+) frontend.Program(prompt_contract.Prompt(
+    .direct_return,
+    family.ContextAnswerType(@TypeOf(ctx)),
+    family.ContextAnswerType(@TypeOf(ctx)),
+    family.ContextErrorSetType(@TypeOf(ctx)),
+)) {
     comptime family.assertContextType(Cap, @TypeOf(ctx));
     const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
     return activeEngineContext(Cap, ctx).bindings.bindingPtr(0).directProgram(payload, struct {

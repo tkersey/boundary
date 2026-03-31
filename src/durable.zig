@@ -44,6 +44,7 @@ pub const SessionManifest = struct {
     scenario_id: ?kernel.ScenarioId = null,
     /// Durable program identity. Plan-backed artifacts persist `ProgramPlan.ir_hash`.
     program_hash: u64,
+    artifact_hash: ?u64 = null,
     artifact_schema_version: ?u32 = null,
     plan_hash: ?u64 = null,
     plan_schema_version: ?u32 = null,
@@ -97,6 +98,7 @@ const SessionManifestState = struct {
     schema_version: u32,
     scenario_id: ?kernel.ScenarioId,
     program_hash: u64,
+    artifact_hash: ?u64,
     artifact_schema_version: ?u32,
     plan_hash: ?u64,
     plan_schema_version: ?u32,
@@ -330,6 +332,11 @@ pub const Store = struct {
 
     /// Persist one executable kernel artifact into local append-only artifacts.
     pub fn saveArtifact(self: @This(), artifact: ProgramArtifact, scenario_id: ?kernel.ScenarioId) anyerror!SessionManifest {
+        if (scenario_id) |id| {
+            if (!artifactMatchesCanonicalScenario(artifact, ProgramArtifact.fromScenario(id))) {
+                return error.ScenarioArtifactMismatch;
+            }
+        }
         const state = kernel.runSteps(artifact.steps);
         const plan_path = try derivedPlanPath(self.allocator, self.manifest_path);
         defer self.allocator.free(plan_path);
@@ -372,6 +379,7 @@ pub const Store = struct {
         const manifest = SessionManifest{
             .scenario_id = scenario_id,
             .program_hash = artifact.identityHash(),
+            .artifact_hash = hashProgram(artifact.label, artifact.steps),
             .artifact_schema_version = if (scenario_id == null) current_artifact_schema else null,
             .plan_hash = if (artifact.plan) |plan| hashPlan(plan) else null,
             .plan_schema_version = if (artifact.plan != null) current_plan_schema else null,
@@ -542,7 +550,16 @@ pub const Store = struct {
             };
         }
         var manifest_migrated = read_manifest.stored_schema_version != current_manifest_schema;
-        if (manifest.program_hash != artifact.identityHash()) {
+        if (manifest.artifact_hash) |expected_artifact_hash| {
+            if (hashProgram(artifact.label, artifact.steps) != expected_artifact_hash) {
+                return .{
+                    .status = .rebuild_required,
+                    .manifest = manifest,
+                    .state = null,
+                };
+            }
+        }
+        if (manifest.program_hash != if (artifact.plan) |plan| plan.ir_hash else artifact.identityHash()) {
             return .{
                 .status = .rebuild_required,
                 .manifest = manifest,
@@ -596,6 +613,14 @@ pub const Store = struct {
                 }
             }
         }
+        const expected_program_hash = if (loaded_plan) |plan| plan.ir_hash else if (artifact.plan) |plan| plan.ir_hash else artifact.identityHash();
+        if (manifest.program_hash != expected_program_hash) {
+            return .{
+                .status = .rebuild_required,
+                .manifest = manifest,
+                .state = null,
+            };
+        }
 
         const expected_event_schema = manifest.event_schema_version orelse 0;
         if (!isSupportedEventSchema(expected_event_schema)) {
@@ -640,6 +665,7 @@ pub const Store = struct {
                 .schema_version = current_manifest_schema,
                 .scenario_id = manifest.scenario_id,
                 .program_hash = manifest.program_hash,
+                .artifact_hash = manifest.artifact_hash orelse hashProgram(artifact.label, artifact.steps),
                 .artifact_schema_version = if (manifest.scenario_id == null) current_artifact_schema else null,
                 .plan_hash = current_plan_hash,
                 .plan_schema_version = if (current_plan_hash != null) current_plan_schema else null,
@@ -748,6 +774,13 @@ fn hashProgram(label: []const u8, steps: []const kernel.Step) u64 {
         },
     };
     return hasher.final();
+}
+
+fn artifactMatchesCanonicalScenario(artifact: ProgramArtifact, canonical: ProgramArtifact) bool {
+    if (artifact.plan != null) return false;
+    if (!std.mem.eql(u8, artifact.label, canonical.label)) return false;
+    if (artifact.program_hash != canonical.program_hash) return false;
+    return std.meta.eql(artifact.steps, canonical.steps);
 }
 
 fn hashPlan(plan: kernel.ProgramPlan) u64 {
@@ -891,6 +924,7 @@ fn readManifest(allocator: std.mem.Allocator, path: []const u8) !ReadManifestRes
             .schema_version = parsed.value.schema_version,
             .scenario_id = parsed.value.scenario_id,
             .program_hash = parsed.value.program_hash,
+            .artifact_hash = parsed.value.artifact_hash,
             .artifact_schema_version = parsed.value.artifact_schema_version,
             .plan_hash = parsed.value.plan_hash,
             .plan_schema_version = parsed.value.plan_schema_version,
@@ -904,6 +938,7 @@ fn readManifest(allocator: std.mem.Allocator, path: []const u8) !ReadManifestRes
             .schema_version = parsed.value.schema_version,
             .scenario_id = parsed.value.scenario_id,
             .program_hash = parsed.value.program_hash,
+            .artifact_hash = null,
             .artifact_schema_version = null,
             .plan_hash = parsed.value.plan_hash,
             .plan_schema_version = parsed.value.plan_schema_version,
@@ -918,6 +953,7 @@ fn readManifest(allocator: std.mem.Allocator, path: []const u8) !ReadManifestRes
             .schema_version = parsed.value.schema_version,
             .scenario_id = parsed.value.scenario_id,
             .program_hash = parsed.value.program_hash,
+            .artifact_hash = null,
             .artifact_schema_version = null,
             .plan_hash = parsed.value.plan_hash,
             .plan_schema_version = null,
@@ -936,6 +972,7 @@ fn readManifest(allocator: std.mem.Allocator, path: []const u8) !ReadManifestRes
             .schema_version = migrated.schema_version,
             .scenario_id = migrated.scenario_id,
             .program_hash = migrated.program_hash,
+            .artifact_hash = migrated.artifact_hash,
             .artifact_schema_version = migrated.artifact_schema_version,
             .plan_hash = migrated.plan_hash,
             .plan_schema_version = migrated.plan_schema_version,

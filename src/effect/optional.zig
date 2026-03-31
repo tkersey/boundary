@@ -236,6 +236,50 @@ test "optional handle can return now without resuming the body tail" {
     try std.testing.expect(!demo.after_request);
 }
 
+test "optional requestProgram stays on the explicit frontend.Program surface" {
+    const OptionalInstance = Instance(i32, error{});
+    const policy = struct {
+        /// Resume the explicit-program regression test with a known value.
+        pub fn resumeOrReturn() prompt_contract.ResumeOrReturn(i32, []const u8) {
+            return prompt_contract.ResumeOrReturn(i32, []const u8).resumeWith(41);
+        }
+
+        /// Convert the resumed explicit-program answer into the enclosing result.
+        pub fn afterResume(value: i32) []const u8 {
+            if (value != 42) unreachable;
+            return "answer=42";
+        }
+    };
+    const demo = struct {
+        /// Store the optional request program on the explicit frontend.Program surface.
+        pub fn program(comptime Cap: type, ctx: anytype) frontend.Program(prompt_contract.Prompt(
+            .resume_or_return,
+            family.ContextStateType(@TypeOf(ctx)),
+            family.ContextAnswerType(@TypeOf(ctx)),
+            family.ContextErrorSetType(@TypeOf(ctx)),
+        )) {
+            const explicit_program: frontend.Program(prompt_contract.Prompt(
+                .resume_or_return,
+                family.ContextStateType(@TypeOf(ctx)),
+                family.ContextAnswerType(@TypeOf(ctx)),
+                family.ContextErrorSetType(@TypeOf(ctx)),
+            )) = requestProgram(Cap, ctx, struct {
+                /// Increment the resumed optional answer through the explicit frontend.Program path.
+                pub fn apply(current: i32) i32 {
+                    return current + 1;
+                }
+            });
+            return explicit_program;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = OptionalInstance.init();
+    const result = try handle([]const u8, &runtime, &instance, policy, demo);
+    try std.testing.expectEqualStrings("answer=42", result);
+}
+
 test "optional handle can resume and transform the resumed answer" {
     const OptionalInstance = Instance(i32, error{});
     const policy = struct {

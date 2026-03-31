@@ -26,6 +26,13 @@ test "source helper captures explicit repo path plus caller-owned participation"
     try std.testing.expectEqualStrings(std.fs.path.basename(@src().file), std.fs.path.basename(src.caller_file));
 }
 
+test "source helper stays callable from test modules" {
+    const src = shift.lowering.source("test/source_ownership_probe_test.zig", @src());
+
+    try std.testing.expectEqualStrings("test/source_ownership_probe_test.zig", src.repo_path);
+    try std.testing.expectEqualStrings(std.fs.path.basename(@src().file), std.fs.path.basename(src.caller_file));
+}
+
 test "public root keeps lowerAt and provenance-bearing shift.lower" {
     try std.testing.expect(@hasDecl(shift, "lowerAt"));
     try std.testing.expect(@hasDecl(shift, "lower"));

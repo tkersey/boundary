@@ -18,6 +18,9 @@ plan_upgrade_json="$tmp_root/plan-upgrade.json"
 plan_final_json="$tmp_root/plan-final.json"
 plan_manifest="$tmp_root/plan-session.manifest.json"
 plan_events="$tmp_root/plan-events.jsonl"
+nested_seed_json="$tmp_root/nested-seed.json"
+nested_manifest="$tmp_root/deep/absolute/tree/session.manifest.json"
+nested_events="$tmp_root/deep/absolute/tree/events.jsonl"
 
 trap 'rm -rf "$tmp_root"' EXIT INT TERM
 
@@ -204,4 +207,20 @@ data = json.load(open(sys.argv[1]))
 assert data["command"] == "inspect"
 assert data["status"] == "exact_replay"
 assert data["migration_report"] is None
+PY
+
+"$tool" seed \
+  --manifest "$nested_manifest" \
+  --events "$nested_events" \
+  --scenario direct_return \
+  >"$nested_seed_json"
+
+uv run python - <<'PY' "$nested_seed_json" "$nested_manifest" "$nested_events"
+import json, os, sys
+seed_path, manifest_path, events_path = sys.argv[1], sys.argv[2], sys.argv[3]
+data = json.load(open(seed_path))
+assert data["command"] == "seed"
+assert data["status"] == "exact_replay"
+assert os.path.exists(manifest_path)
+assert os.path.exists(events_path)
 PY

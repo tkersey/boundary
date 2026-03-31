@@ -1,7 +1,9 @@
 const algebraic = @import("algebraic.zig");
 const family = @import("family.zig");
+const frontend = @import("frontend_support");
 const lexical_with = @import("../with_api.zig");
 const lowered_machine = @import("lowered_machine");
+const prompt_contract = @import("prompt_contract_support");
 const shift = @import("../root.zig");
 const std = @import("std");
 
@@ -155,6 +157,39 @@ test "exception handle can throw directly to the catch policy" {
     const result = try handle([]const u8, &runtime, &instance, catcher, demo);
     try std.testing.expectEqualStrings("result=early", result);
     try std.testing.expect(!demo.after_throw);
+}
+
+test "exception throwProgram stays on the explicit frontend.Program surface" {
+    const ExceptionInstance = Instance([]const u8, error{});
+    const catcher = struct {
+        /// Recover the explicit-program regression payload unchanged.
+        pub fn directReturn(payload: []const u8) []const u8 {
+            return payload;
+        }
+    };
+    const demo = struct {
+        /// Store the exception throw program on the explicit frontend.Program surface.
+        pub fn program(comptime Cap: type, ctx: anytype) frontend.Program(prompt_contract.Prompt(
+            .direct_return,
+            family.ContextAnswerType(@TypeOf(ctx)),
+            family.ContextAnswerType(@TypeOf(ctx)),
+            family.ContextErrorSetType(@TypeOf(ctx)),
+        )) {
+            const explicit_program: frontend.Program(prompt_contract.Prompt(
+                .direct_return,
+                family.ContextAnswerType(@TypeOf(ctx)),
+                family.ContextAnswerType(@TypeOf(ctx)),
+                family.ContextErrorSetType(@TypeOf(ctx)),
+            )) = throwProgram(Cap, ctx, "result=early");
+            return explicit_program;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = ExceptionInstance.init();
+    const result = try handle([]const u8, &runtime, &instance, catcher, demo);
+    try std.testing.expectEqualStrings("result=early", result);
 }
 
 test "nested same-shaped exception handles get distinct capability types" {

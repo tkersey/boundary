@@ -201,6 +201,12 @@ pub const ProgramPlan = struct {
                     },
                     .call_op => {
                         if (instruction.operand >= self.ops.len) return error.InvalidCallOpTarget;
+                        if (self.ops[instruction.operand].payload_codec != .unit and
+                            instruction.aux != std.math.maxInt(u16) and
+                            !isValidFunctionLocal(function.local_count, instruction.aux))
+                        {
+                            return error.InvalidInstructionLocalIndex;
+                        }
                     },
                     .const_string => {},
                     .add_const_i32, .compare_eq_zero, .const_i32, .sub_one => {
@@ -510,6 +516,7 @@ fn invalidGeneratedPlan(err: ValidationError) noreturn {
         error.EmptyOutputLabel => "runtime plan generator produced an empty output label",
         error.EmptyProgram => "runtime plan generator produced an empty program",
         error.EmptyRequirementLabel => "runtime plan generator produced an empty requirement label",
+        error.InvalidCallHelperArgSpan => "runtime plan generator produced an invalid helper call argument span",
         error.InvalidCallHelperTarget => "runtime plan generator produced an out-of-range helper target",
         error.InvalidCallOpTarget => "runtime plan generator produced an out-of-range op target",
         error.InvalidBlockInstructionSpan => "runtime plan generator produced an invalid block instruction span",
@@ -1332,6 +1339,55 @@ test "ProgramPlan.validate rejects helper call arguments outside the owning func
     };
 
     try std.testing.expectError(error.InvalidCallHelperArgSpan, plan.validate());
+}
+
+test "ProgramPlan.validate rejects call_op payload locals outside the owning function locals" {
+    const plan = ProgramPlan{
+        .label = "invalid.call_op_payload_local",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{.{
+            .label = "req",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "call",
+            .mode = .transform,
+            .payload_codec = .i32,
+            .resume_codec = .unit,
+        }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 1,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{
+            .kind = .call_op,
+            .dst = 0,
+            .operand = 0,
+            .aux = 1,
+        }},
+    };
+
+    try std.testing.expectError(error.InvalidInstructionLocalIndex, plan.validate());
 }
 
 test "ProgramPlan.validate rejects terminator targets outside the owning function body" {

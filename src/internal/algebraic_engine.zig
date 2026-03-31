@@ -383,6 +383,8 @@ fn Binding(
 
         spec: SpecType,
         prompt: PromptType,
+        var direct_binding: ?*Self = null;
+        var direct_payload: ?Op.Payload = null;
 
         fn ProgramErrorSet(comptime Continuation: anytype) type {
             return switch (SpecType.builder_kind) {
@@ -431,6 +433,11 @@ fn Binding(
                 .spec = spec,
                 .prompt = .{ .token = token },
             };
+        }
+
+        fn currentDirectPayload() Op.Payload {
+            if (comptime Op.Payload == void) return {};
+            return direct_payload.?;
         }
 
         fn HandlerCarrier() type {
@@ -653,8 +660,55 @@ fn Binding(
         }
 
         /// Build one explicit frontend program that closes over this binding directly.
-        pub fn directProgram(self: *@This(), payload: Op.Payload, comptime Continuation: anytype) AuthoredProgramType(Continuation) {
-            return self.program(payload, Continuation);
+        pub fn directProgram(self: *@This(), payload: Op.Payload, comptime Continuation: anytype) frontend.Program(ProgramPromptType(Continuation)) {
+            const BindingType = @This();
+            direct_binding = self;
+            direct_payload = payload;
+            return switch (SpecType.builder_kind) {
+                .direct_transform => @compileError("direct transform bindings do not support explicit program construction"),
+                .transform => blk: {
+                    const ProgramPrompt = ProgramPromptType(Continuation);
+                    const handler = struct {
+                        /// Supply the resumptive value for one direct explicit transform op.
+                        pub fn resumeValue() lowered_machine.ResetError(ErrorSet)!Op.Resume {
+                            return try BindingType.callResumeValue(BindingType.direct_binding.?.spec, BindingType.currentDirectPayload());
+                        }
+
+                        /// Complete the enclosing answer after one direct explicit transform resume.
+                        pub fn afterResume(answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
+                            return try BindingType.callAfterResume(BindingType.direct_binding.?.spec, answer);
+                        }
+                    };
+
+                    break :blk frontend.transformProgram(ProgramPrompt, Op.Resume, handler, Continuation);
+                },
+                .choice => blk: {
+                    const ProgramPrompt = ProgramPromptType(Continuation);
+                    const handler = struct {
+                        /// Decide whether one direct explicit choice op resumes or returns now.
+                        pub fn resumeOrReturn() lowered_machine.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
+                            return try BindingType.callResumeOrReturn(BindingType.direct_binding.?.spec, BindingType.currentDirectPayload());
+                        }
+
+                        /// Complete the enclosing answer after one direct explicit choice resume.
+                        pub fn afterResume(answer: ContinueAnswer) lowered_machine.ResetError(ErrorSet)!Answer {
+                            return try BindingType.callAfterResume(BindingType.direct_binding.?.spec, answer);
+                        }
+                    };
+
+                    break :blk frontend.choiceProgram(ProgramPrompt, Op.Resume, handler, Continuation);
+                },
+                .abort => blk: {
+                    const handler = struct {
+                        /// Convert one direct explicit abort payload into the enclosing answer.
+                        pub fn directReturn() lowered_machine.ResetError(ErrorSet)!Answer {
+                            return try BindingType.callDirectReturn(BindingType.direct_binding.?.spec, BindingType.currentDirectPayload());
+                        }
+                    };
+
+                    break :blk frontend.abortProgram(PromptType, handler);
+                },
+            };
         }
     };
 }

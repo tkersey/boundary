@@ -222,9 +222,15 @@ fn executeLoweredFunction(
                     }
                 },
                 .call_op => {
-                    const payload = if (instruction.aux < locals.len) getLocal(locals, instruction.aux) else .none;
+                    const op = compiled_plan.ops[instruction.operand];
+                    const payload = if (op.payload_codec == .unit)
+                        .none
+                    else if (instruction.aux < locals.len)
+                        getLocal(locals, instruction.aux)
+                    else
+                        return error.ProgramContractViolation;
                     const result = try callLoweredOp(compiled_plan, handlers_ptr, instruction.operand, payload);
-                    if (instruction.dst < locals.len and compiled_plan.ops[instruction.operand].resume_codec != .unit) {
+                    if (instruction.dst < locals.len and op.resume_codec != .unit) {
                         setLocal(locals, instruction.dst, result);
                     }
                 },
@@ -347,6 +353,8 @@ fn hashSourceBytes(comptime bytes: []const u8) u64 {
 
 fn sourceHashMatches(comptime source_ref: SourceRef) bool {
     const caller_hash = source_ref.caller_hash orelse return false;
+    if (pathHasSeparator(source_ref.caller_file)) return false;
+    if (!std.mem.eql(u8, std.fs.path.basename(source_ref.repo_path), source_ref.caller_file)) return false;
     return caller_hash == hashSourceBytes(source_graph_embed.embeddedSource(source_ref.repo_path));
 }
 
@@ -372,7 +380,7 @@ pub fn source(comptime repo_path: []const u8, comptime caller: std.builtin.Sourc
     return .{
         .repo_path = cloneBytes(repo_path),
         .caller_file = cloneBytes(caller.file),
-        .caller_hash = if (pathHasSeparator(caller.file)) hashSourceBytes(@embedFile(caller.file)) else null,
+        .caller_hash = null,
     };
 }
 
@@ -1382,5 +1390,18 @@ test "source ownership accepts a helper-authored content witness when caller pat
         .repo_path = "examples/open_row_state_writer.zig",
         .caller_file = "open_row_state_writer.zig",
         .caller_hash = hashSourceBytes("not the repo source"),
+    }));
+}
+
+test "source ownership rejects matching-byte witnesses from a different caller path" {
+    try std.testing.expect(!sourceOwnershipMatches(.{
+        .repo_path = "examples/open_row_state_writer.zig",
+        .caller_file = "/tmp/other_module.zig",
+        .caller_hash = hashSourceBytes(source_graph_embed.embeddedSource("examples/open_row_state_writer.zig")),
+    }));
+    try std.testing.expect(!sourceOwnershipMatches(.{
+        .repo_path = "examples/open_row_state_writer.zig",
+        .caller_file = "other_module.zig",
+        .caller_hash = hashSourceBytes(source_graph_embed.embeddedSource("examples/open_row_state_writer.zig")),
     }));
 }
