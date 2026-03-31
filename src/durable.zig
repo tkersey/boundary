@@ -676,6 +676,33 @@ pub const Store = struct {
                 .restore_status = .exact_replay,
             };
             if (rewrite_mode == .rewriteback) {
+                var manifest_snapshot = try captureFileSnapshot(self.allocator, self.manifest_path);
+                defer manifest_snapshot.deinit(self.allocator);
+                errdefer {
+                    restoreFileSnapshot(manifest_snapshot, self.manifest_path) catch |restore_err| {
+                        std.log.err("durable rollback failed for manifest rewriteback: {s}", .{@errorName(restore_err)});
+                    };
+                }
+                var plan_snapshot: ?FileSnapshot = null;
+                defer if (plan_snapshot) |*snapshot| snapshot.deinit(self.allocator);
+                errdefer {
+                    if (plan_snapshot) |snapshot| restoreFileSnapshot(snapshot, plan_path) catch |restore_err| {
+                        std.log.err("durable rollback failed for plan rewriteback: {s}", .{@errorName(restore_err)});
+                    };
+                }
+                if (plan_migrated) {
+                    plan_snapshot = try captureFileSnapshot(self.allocator, plan_path);
+                }
+                var events_snapshot: ?FileSnapshot = null;
+                defer if (events_snapshot) |*snapshot| snapshot.deinit(self.allocator);
+                errdefer {
+                    if (events_snapshot) |snapshot| restoreFileSnapshot(snapshot, self.events_path) catch |restore_err| {
+                        std.log.err("durable rollback failed for events rewriteback: {s}", .{@errorName(restore_err)});
+                    };
+                }
+                if (event_match.migrated) {
+                    events_snapshot = try captureFileSnapshot(self.allocator, self.events_path);
+                }
                 if (plan_migrated) try writePlan(plan_path, loaded_plan.?);
                 if (event_match.migrated) try writeEvents(self.events_path, &state);
                 try writeManifest(self.manifest_path, persisted_manifest);

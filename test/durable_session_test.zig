@@ -578,6 +578,80 @@ test "durable restore accepts legacy schema manifest and raw plan.json" {
     try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored_again.migration_report);
 }
 
+test "durable restoreArtifact rolls back migrated plan rewriteback when a later write fails" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const artifact = makePlanBackedArtifact(0x6234, 0x6234, "demo.plan", "runBody");
+    const legacy_manifest = shift.durable.SessionManifest{
+        .schema_version = 2,
+        .scenario_id = null,
+        .program_hash = artifact.plan.?.ir_hash,
+        .plan_hash = artifact.plan.?.hash(),
+        .plan_schema_version = null,
+        .last_seq = 2,
+    };
+
+    {
+        const file = try std.fs.cwd().createFile(paths.manifest_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        try std.json.Stringify.value(legacy_manifest, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+    {
+        const file = try std.fs.cwd().createFile(paths.plan_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        try std.json.Stringify.value(artifact.plan.?, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+    {
+        const file = try std.fs.cwd().createFile(paths.events_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        const LegacyEventRecord = struct {
+            seq: usize,
+            event: shift.interpreter.Event,
+        };
+        try std.json.Stringify.value(LegacyEventRecord{ .seq = 0, .event = .{ .note = "plan-backed" } }, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try std.json.Stringify.value(LegacyEventRecord{ .seq = 1, .event = .{ .final_i32 = 7 } }, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+
+    const bad_events_path = try std.fs.path.join(std.testing.allocator, &.{ paths.dir_path, "missing", "events.jsonl" });
+    defer std.testing.allocator.free(bad_events_path);
+    const failing_store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, bad_events_path);
+    var stripped = artifact;
+    stripped.plan = null;
+    try std.testing.expectError(error.FileNotFound, failing_store.restoreArtifact(stripped));
+
+    const manifest_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.manifest_path, std.math.maxInt(usize));
+    defer std.testing.allocator.free(manifest_bytes);
+    const parsed_manifest = try std.json.parseFromSlice(shift.durable.SessionManifest, std.testing.allocator, manifest_bytes, .{});
+    defer parsed_manifest.deinit();
+    try std.testing.expectEqual(@as(u32, 2), parsed_manifest.value.schema_version);
+    try std.testing.expectEqual(@as(?u32, null), parsed_manifest.value.plan_schema_version);
+    try std.testing.expectEqual(@as(?u32, null), parsed_manifest.value.event_schema_version);
+
+    const plan_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.plan_path, std.math.maxInt(usize));
+    defer std.testing.allocator.free(plan_bytes);
+    const parsed_plan = try std.json.parseFromSlice(@TypeOf(artifact.plan.?), std.testing.allocator, plan_bytes, .{});
+    defer parsed_plan.deinit();
+    try std.testing.expectEqualStrings("demo.plan", parsed_plan.value.label);
+    try std.testing.expectEqual(@as(u64, 0x6234), parsed_plan.value.ir_hash);
+}
+
 test "durable saveArtifact writes versioned event rows" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
