@@ -232,6 +232,10 @@ const session_manifest_migrators = [_]SessionManifestMigrator{
         .to_schema = 5,
         .migrate = struct {
             fn run(state: *SessionManifestState) void {
+                state.artifact_schema_version = if (state.scenario_id == null)
+                    state.artifact_schema_version orelse current_artifact_schema
+                else
+                    null;
                 state.schema_version = 5;
             }
         }.run,

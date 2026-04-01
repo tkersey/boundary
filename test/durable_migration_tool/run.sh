@@ -194,6 +194,7 @@ assert report["rewrote_events"] is False
 assert report["rewrote_plan_file"] is False
 manifest = json.load(open(manifest_path))
 assert manifest["schema_version"] == 5
+assert manifest["artifact_schema_version"] == 1
 PY
 
 "$tool" inspect \

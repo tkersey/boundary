@@ -480,6 +480,11 @@ pub fn upgradeLegacyProgramPlan(allocator: std.mem.Allocator, plan: *ProgramPlan
         return;
     }
 
+    if (plan.schema_version == 3) {
+        plan.schema_version = ProgramPlan.current_schema_version;
+        return;
+    }
+
     if (plan.schema_version != ProgramPlan.current_schema_version) return error.UnsupportedSchemaVersion;
 }
 
