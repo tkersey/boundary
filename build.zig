@@ -238,6 +238,24 @@ fn packageRootAliasPath(b: *std.Build) []const u8 {
         "/tmp/shift_repo_alias_{x}",
         .{std.hash.Wyhash.hash(0, b.pathFromRoot("."))},
     ) catch std.process.fatal("unable to allocate package-root alias path", .{});
+    const repo_root = b.pathFromRoot(".");
+
+    var link_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const existing_target = std.fs.readLinkAbsolute(alias_path, &link_buffer) catch |err| switch (err) {
+        error.FileNotFound => null,
+        else => blk: {
+            std.fs.deleteFileAbsolute(alias_path) catch |delete_err| switch (delete_err) {
+                error.FileNotFound => {},
+                error.IsDir => std.fs.deleteTreeAbsolute(alias_path) catch
+                    std.process.fatal("unable to clear package-root alias directory", .{}),
+                else => std.process.fatal("unable to clear package-root alias path", .{}),
+            };
+            break :blk null;
+        },
+    };
+    if (existing_target) |target| {
+        if (std.mem.eql(u8, target, repo_root)) return alias_path;
+    }
 
     std.fs.deleteFileAbsolute(alias_path) catch |err| switch (err) {
         error.FileNotFound => {},
@@ -245,7 +263,7 @@ fn packageRootAliasPath(b: *std.Build) []const u8 {
             std.process.fatal("unable to clear package-root alias directory", .{}),
         else => std.process.fatal("unable to clear package-root alias path", .{}),
     };
-    std.fs.symLinkAbsolute(b.pathFromRoot("."), alias_path, .{}) catch
+    std.fs.symLinkAbsolute(repo_root, alias_path, .{}) catch
         std.process.fatal("unable to create package-root alias path", .{});
     return alias_path;
 }
