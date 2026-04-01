@@ -192,6 +192,81 @@ test "exception throwProgram stays on the explicit frontend.Program surface" {
     try std.testing.expectEqualStrings("result=early", result);
 }
 
+test "exception throwProgram keeps direct explicit-program state thread-local across concurrent handles" {
+    const ExceptionInstance = Instance([]const u8, error{});
+    const catcher = struct {
+        /// Preserve the thrown payload so concurrent explicit-program runs can assert thread isolation.
+        pub fn directReturn(payload: []const u8) []const u8 {
+            return payload;
+        }
+    };
+    const Shared = struct {
+        stage: std.atomic.Value(u8) = std.atomic.Value(u8).init(0),
+        first_result: []const u8 = "",
+        second_result: []const u8 = "",
+    };
+    const waitForStage = struct {
+        fn until(stage: *std.atomic.Value(u8), expected: u8) void {
+            while (stage.load(.acquire) < expected) {
+                std.Thread.yield() catch {};
+            }
+        }
+    }.until;
+
+    var shared = Shared{};
+
+    const first = try std.Thread.spawn(.{}, struct {
+        fn run(state: *Shared) void {
+            const demo = struct {
+                var shared_ptr: *Shared = undefined;
+
+                /// Build the first explicit throw program, then wait for the second thread to overwrite shared direct state.
+                pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(throwProgram(Cap, ctx, "first")) {
+                    const explicit_program = throwProgram(Cap, ctx, "first");
+                    shared_ptr.stage.store(1, .release);
+                    waitForStage(&shared_ptr.stage, 2);
+                    return explicit_program;
+                }
+            };
+
+            demo.shared_ptr = state;
+            var runtime = shift.Runtime.init(std.testing.allocator);
+            defer runtime.deinit();
+            var instance = ExceptionInstance.init();
+            state.first_result = handle([]const u8, &runtime, &instance, catcher, demo) catch unreachable;
+        }
+    }.run, .{&shared});
+
+    const second = try std.Thread.spawn(.{}, struct {
+        fn run(state: *Shared) void {
+            waitForStage(&state.stage, 1);
+
+            const demo = struct {
+                var shared_ptr: *Shared = undefined;
+
+                /// Build the second explicit throw program after the first thread has published its pending direct state.
+                pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(throwProgram(Cap, ctx, "second")) {
+                    const explicit_program = throwProgram(Cap, ctx, "second");
+                    shared_ptr.stage.store(2, .release);
+                    return explicit_program;
+                }
+            };
+
+            demo.shared_ptr = state;
+            var runtime = shift.Runtime.init(std.testing.allocator);
+            defer runtime.deinit();
+            var instance = ExceptionInstance.init();
+            state.second_result = handle([]const u8, &runtime, &instance, catcher, demo) catch unreachable;
+        }
+    }.run, .{&shared});
+
+    first.join();
+    second.join();
+
+    try std.testing.expectEqualStrings("first", shared.first_result);
+    try std.testing.expectEqualStrings("second", shared.second_result);
+}
+
 test "nested same-shaped exception handles get distinct capability types" {
     const NoError = error{};
     const ExceptionInstance = Instance(i32, NoError);

@@ -191,6 +191,11 @@ fn resolveImportPath(comptime from_path: []const u8, comptime import_path: []con
     };
 }
 
+/// Resolve one helper import relative to its owning repo-relative module path.
+pub fn resolveImportPathAt(comptime from_path: []const u8, comptime import_path: []const u8) Error![]const u8 {
+    return try resolveImportPath(from_path, import_path);
+}
+
 fn findModule(buffers: *const Buffers, comptime path: []const u8) ?ModuleSummary {
     for (buffers.modules[0..buffers.module_count]) |module| {
         if (std.mem.eql(u8, module.path, path)) return module.summary;

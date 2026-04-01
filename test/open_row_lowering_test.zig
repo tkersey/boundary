@@ -66,6 +66,10 @@ const LoweredStateWriterHandlers = struct {
     writer: LoweredWriterHandler,
 };
 
+const LoweredWriterOnlyHandlers = struct {
+    writer: LoweredWriterHandler,
+};
+
 test "open-row state-writer workflow lowers through the public same-module path" {
     const lowered = try example_open_row_state_writer.loweredProgram();
 
@@ -351,6 +355,23 @@ test "generated cross-file lowered programs validate through imported helper mod
     defer arena.deinit();
     try example_open_row_cross_file_writer.CompiledProgram.validate(arena.allocator());
     try example_open_row_helper_value_flow_cross.CompiledProgram.validate(arena.allocator());
+}
+
+test "generated lowered programs validate repo-relative source paths from outside the repo root" {
+    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(original_cwd);
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const external_cwd = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(external_cwd);
+
+    try std.posix.chdir(external_cwd);
+    defer std.posix.chdir(original_cwd) catch unreachable;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try example_open_row_state_writer.CompiledProgram.validate(arena.allocator());
 }
 
 test "explicit ir compilation matches the generated runtime plan shape" {
@@ -1054,6 +1075,38 @@ test "explicit-path lowering supports cross-file helper modules" {
     try std.testing.expectEqual(@as(usize, 5), Lowered.runtime_plan.requirements.len);
     try std.testing.expectEqual(@as(usize, 7), Lowered.runtime_plan.ops.len);
     try std.testing.expectEqual(Lowered.ir_hash, Explicit.ir_hash);
+}
+
+test "explicit-path lowering disambiguates imported helpers by alias" {
+    const spec: shift.lowering.LowerSpec = .{
+        .label = "test.open_row_helper_alias",
+        .entry_symbol = "runBody",
+        .row = shift.ir.rowFromSpec(.{
+            .writer = .{
+                .tell = shift.ir.Transform([]const u8, void),
+            },
+        }),
+        .outputs = &.{
+            .{ .label = "writer", .OutputType = [][]const u8 },
+        },
+    };
+
+    const Lowered = shift.lowerAt("test/open_row_helper_alias/entry.zig", spec);
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var handlers = LoweredWriterOnlyHandlers{
+        .writer = .{ .allocator = std.testing.allocator },
+    };
+    defer handlers.writer.deinit();
+
+    const result = try Lowered.run(&runtime, &handlers);
+    defer std.testing.allocator.free(result.outputs.writer);
+
+    try std.testing.expectEqual(@as(usize, 2), result.outputs.writer.len);
+    try std.testing.expectEqualStrings("a", result.outputs.writer[0]);
+    try std.testing.expectEqualStrings("b", result.outputs.writer[1]);
 }
 
 test "open-row state-writer example stays transcript-backed" {

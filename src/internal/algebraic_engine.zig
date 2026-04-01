@@ -383,8 +383,8 @@ fn Binding(
 
         spec: SpecType,
         prompt: PromptType,
-        var direct_binding: ?*Self = null;
-        var direct_payload: ?Op.Payload = null;
+        threadlocal var direct_binding: ?*Self = null;
+        threadlocal var direct_payload: ?Op.Payload = null;
 
         fn ProgramErrorSet(comptime Continuation: anytype) type {
             return switch (SpecType.builder_kind) {

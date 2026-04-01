@@ -350,6 +350,7 @@ fn parseBoundLocalFromDirectCall(
 
 const HelperCall = struct {
     callee_name: []const u8,
+    import_alias: ?[]const u8,
     value_args: []const BodyToken,
 };
 
@@ -370,6 +371,7 @@ fn parseHelperCall(
         const value_args = helperCallValueArgs(args) orelse return null;
         return .{
             .callee_name = tokens[index].lexeme,
+            .import_alias = null,
             .value_args = value_args,
         };
     }
@@ -384,6 +386,7 @@ fn parseHelperCall(
         const value_args = helperCallValueArgs(args) orelse return null;
         return .{
             .callee_name = tokens[index + 2].lexeme,
+            .import_alias = tokens[index].lexeme,
             .value_args = value_args,
         };
     }
@@ -547,15 +550,10 @@ fn parseLocalDecrementOpStatement(
     };
 }
 
-fn parseHelperCallStatement(comptime statement: []const BodyToken) ?[]const u8 {
-    if (statement.len != 6) return null;
-    if (statement[0].tag != .keyword_try) return null;
-    if (statement[1].tag != .identifier) return null;
-    if (statement[2].tag != .l_paren) return null;
-    if (statement[3].tag != .identifier or !std.mem.eql(u8, statement[3].lexeme, "eff")) return null;
-    if (statement[4].tag != .r_paren) return null;
-    if (statement[5].tag != .semicolon) return null;
-    return statement[1].lexeme;
+fn parseHelperCallStatement(comptime statement: []const BodyToken) ?HelperCall {
+    const helper_call = parseHelperCall(statement) orelse return null;
+    if (helper_call.value_args.len != 0) return null;
+    return helper_call;
 }
 
 fn parseReturnLiteralStatement(comptime statement: []const BodyToken) ?union(enum) {
@@ -630,15 +628,42 @@ fn opIndexForFunctionUse(
     @compileError("public lowering could not map one direct effect-op use into the lowered function row");
 }
 
-fn helperTargetIndexByName(
+fn helperImportModulePath(
+    comptime caller_module_path: []const u8,
+    comptime import_alias: []const u8,
+) ?[]const u8 {
+    const caller_graph = source_graph_engine.analyzeComptime(source_graph_embed.embeddedSource(caller_module_path), .{
+        .entry_symbol = null,
+        .reject_recursive_helpers = false,
+        .reject_indirect_effect_access = true,
+    }) catch return null;
+
+    for (caller_graph.imports) |import_row| {
+        if (!std.mem.eql(u8, import_row.name, import_alias)) continue;
+        return source_graph_embed.resolveImportPathAt(caller_module_path, import_row.import_path) catch return null;
+    }
+    return null;
+}
+
+fn helperTargetIndex(
     comptime graph: source_graph_embed.ProgramGraph,
     comptime lowered_index_map: [graph.functions.len]u16,
     comptime graph_function_index: usize,
-    comptime callee_name: []const u8,
+    comptime helper_call: HelperCall,
 ) u16 {
+    const caller_module_path = graph.functions[graph_function_index].module_path;
+    const expected_module_path = if (helper_call.import_alias) |import_alias|
+        helperImportModulePath(caller_module_path, import_alias) orelse
+            @compileError("public lowering recursive helper subset could not resolve one helper import alias")
+    else
+        caller_module_path;
+
     for (graph.helper_edges) |edge| {
         if (edge.caller_index != graph_function_index) continue;
-        if (std.mem.eql(u8, graph.functions[edge.callee_index].name, callee_name)) {
+        const callee = graph.functions[edge.callee_index];
+        if (std.mem.eql(u8, callee.name, helper_call.callee_name) and
+            std.mem.eql(u8, callee.module_path, expected_module_path))
+        {
             return lowered_index_map[edge.callee_index];
         }
     }
@@ -944,11 +969,11 @@ fn appendBranchActionInstructions(
             return .{ .kind = .return_unit };
         },
         .helper_call => |helper_call| {
-            const callee_index = helperTargetIndexByName(
+            const callee_index = helperTargetIndex(
                 context.graph,
                 context.lowered_index_map,
                 context.graph_function_index,
-                helper_call.callee_name,
+                helper_call,
             );
             const callee = context.functions[callee_index];
             emitHelperCallInstruction(helper_call, .{
@@ -1036,11 +1061,11 @@ fn buildLinearBodyForFunction(
                 continue;
             }
             if (parseBoundLocalFromHelperCall(statement)) |bound_helper| {
-                const callee_index = helperTargetIndexByName(
+                const callee_index = helperTargetIndex(
                     graph,
                     lowered_index_map,
                     graph_function_index,
-                    bound_helper.helper_call.callee_name,
+                    bound_helper.helper_call,
                 );
                 const callee = functions[callee_index];
                 if (callee.ValueType == void) break :blk null;
@@ -1160,11 +1185,11 @@ fn buildLinearBodyForFunction(
                 continue;
             }
             if (parseHelperCall(statement)) |helper_call| {
-                const callee_index = helperTargetIndexByName(
+                const callee_index = helperTargetIndex(
                     graph,
                     lowered_index_map,
                     graph_function_index,
-                    helper_call.callee_name,
+                    helper_call,
                 );
                 const callee = functions[callee_index];
                 emitHelperCallInstruction(
@@ -1430,10 +1455,10 @@ fn buildRecursiveGuardBodyForFunction(
                 index += 1;
                 continue;
             }
-            const callee_name = parseHelperCallStatement(statement).?;
+            const helper_call = parseHelperCallStatement(statement).?;
             buffer[index] = .{
                 .kind = .call_helper,
-                .operand = helperTargetIndexByName(graph, lowered_index_map, graph_function_index, callee_name),
+                .operand = helperTargetIndex(graph, lowered_index_map, graph_function_index, helper_call),
             };
             index += 1;
         }
