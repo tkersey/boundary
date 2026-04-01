@@ -179,6 +179,7 @@ fn isPlanReplayRebuildError(err: anyerror) bool {
         error.InvalidOpRequirementIndex,
         error.InvalidRequirementOpSpan,
         error.InvalidReturnValueIndex,
+        error.InvalidTerminatorInstruction,
         error.InvalidTerminatorTarget,
         error.UnsupportedPlanSchema,
         error.UnsupportedSchemaVersion,

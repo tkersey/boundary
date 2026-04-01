@@ -158,42 +158,6 @@ fn repoZigPathRegistry(b: *std.Build) []const u8 {
     return registry.items;
 }
 
-fn repoDuplicateBasenameRegistry(b: *std.Build) []const u8 {
-    var root_dir = std.fs.cwd().openDir(b.pathFromRoot("."), .{ .iterate = true }) catch
-        std.process.fatal("unable to open repo root for duplicate basename registry", .{});
-    defer root_dir.close();
-
-    var paths = std.ArrayList([]const u8).empty;
-    collectRepoZigPaths(b, root_dir, "", &paths);
-
-    var duplicates = std.ArrayList([]const u8).empty;
-    for (paths.items, 0..) |left_path, left_index| {
-        const left_basename = buildPathBasename(left_path);
-        var seen_duplicate = false;
-        for (duplicates.items) |existing| {
-            if (std.mem.eql(u8, existing, left_basename)) {
-                seen_duplicate = true;
-                break;
-            }
-        }
-        if (seen_duplicate) continue;
-
-        for (paths.items[left_index + 1 ..]) |right_path| {
-            if (!std.mem.eql(u8, buildPathBasename(right_path), left_basename)) continue;
-            duplicates.append(b.allocator, left_basename) catch
-                std.process.fatal("unable to record duplicate basename", .{});
-            break;
-        }
-    }
-
-    var registry = std.ArrayList(u8).empty;
-    for (duplicates.items) |basename| {
-        registry.appendSlice(b.allocator, basename) catch std.process.fatal("unable to append duplicate basename", .{});
-        registry.append(b.allocator, '\n') catch std.process.fatal("unable to append duplicate basename separator", .{});
-    }
-    return registry.items;
-}
-
 fn collectRepoZigPaths(
     b: *std.Build,
     dir: std.fs.Dir,
@@ -308,15 +272,6 @@ fn externalSourceRejectionPath(b: *std.Build, repo_relative_path: []const u8) []
     ) catch std.process.fatal("unable to allocate external source rejection leaf", .{});
     return std.fs.path.join(b.allocator, &.{ boundaryAliasRoot(b), alias_leaf }) catch
         std.process.fatal("unable to allocate external source rejection path", .{});
-}
-
-fn buildPathBasename(path: []const u8) []const u8 {
-    var start = path.len;
-    while (start != 0) {
-        if (path[start - 1] == '/') break;
-        start -= 1;
-    }
-    return path[start..];
 }
 
 fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
@@ -485,7 +440,6 @@ pub fn build(b: *std.Build) void {
     authoring_lowerer_options.addOption(bool, "package_root_alias_available", package_root_alias.available);
     authoring_lowerer_options.addOption([]const u8, "external_open_row_state_writer_alias_path", externalSourceRejectionPath(b, "examples/open_row_state_writer.zig"));
     authoring_lowerer_options.addOption([]const u8, "repo_zig_paths", repoZigPathRegistry(b));
-    authoring_lowerer_options.addOption([]const u8, "repo_duplicate_basenames", repoDuplicateBasenameRegistry(b));
     authoring_lowerer_options.addOption(bool, "authoring_lowerer_options_marker", lowerer_opts_marker);
     authoring_lowerer_options.addOption([32]u8, "hash_local_mutation_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/local_mutation_resume.zig"));
     authoring_lowerer_options.addOption([32]u8, "hash_branch_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/branch_resume.zig"));
@@ -1736,6 +1690,9 @@ pub fn build(b: *std.Build) void {
         .{ .name = "cf-resume-value-mismatch", .path = "test/compile_fail/resume_value_mismatch.zig", .expected = ".resumeValue must have type fn () Resume or fn () ResetError(ErrorSet)!Resume" },
         .{ .name = "cf-source-ownership-mismatch", .path = "test/compile_fail/source_ownership_mismatch_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
         .{ .name = "cf-source-ownership-content-mirror", .path = "test/compile_fail/source_ownership_content_mirror_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
+        .{ .name = "cf-source-ownership-basename-witness", .path = "test/compile_fail/source_ownership_basename_witness_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
+        .{ .name = "cf-public-ir-value-dst", .path = "test/compile_fail/public_ir_value_dst_fails.zig", .expected = "runtime plan generator produced an instruction with an out-of-range function-local reference" },
+        .{ .name = "cf-public-ir-terminator-precondition", .path = "test/compile_fail/public_ir_terminator_precondition_fails.zig", .expected = "runtime plan generator produced a block terminator without its required producer instruction" },
         .{ .name = "cf-string-list-codec", .path = "test/compile_fail/string_list_codec_fails.zig", .expected = "public lowering runtime plan rejected string_list values across executable boundaries" },
         .{ .name = "cf-unsupported-helper-body", .path = "test/compile_fail/unsupported_helper_body_fails.zig", .expected = "public lowering cannot synthesize unsupported helper or entry bodies; test/compile_fail_inputs/unsupported_helper_body_source.zig:helper must stay within the retained lowered-body subset" },
         .{ .name = "cf-entry-path-escape-lower-at", .path = "test/compile_fail/entry_path_escape_lower_at_fails.zig", .expected = "public lowering source path must stay under the package root" },

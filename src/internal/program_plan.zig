@@ -192,9 +192,15 @@ pub const ProgramPlan = struct {
                 const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
                 if (instruction_end > function_instruction_end) return error.InvalidFunctionInstructionSpan;
                 covered_instruction_end = instruction_end;
+                var block_has_return_value = false;
                 for (self.instructions[block.first_instruction..instruction_end]) |instruction| switch (instruction.kind) {
                     .call_helper => {
                         if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
+                        if (self.functions[instruction.operand].value_codec != .unit and
+                            !isValidFunctionLocal(function.local_count, instruction.dst))
+                        {
+                            return error.InvalidInstructionLocalIndex;
+                        }
                         const target_parameter_count = self.functions[instruction.operand].parameter_count;
                         if (target_parameter_count != 0) {
                             const call_arg_end = rangeEnd(instruction.aux, target_parameter_count) orelse return error.InvalidCallHelperArgSpan;
@@ -206,6 +212,11 @@ pub const ProgramPlan = struct {
                     },
                     .call_op => {
                         if (instruction.operand >= self.ops.len) return error.InvalidCallOpTarget;
+                        if (self.ops[instruction.operand].resume_codec != .unit and
+                            !isValidFunctionLocal(function.local_count, instruction.dst))
+                        {
+                            return error.InvalidInstructionLocalIndex;
+                        }
                         if (self.ops[instruction.operand].payload_codec != .unit and
                             instruction.aux != std.math.maxInt(u16) and
                             !isValidFunctionLocal(function.local_count, instruction.aux))
@@ -221,6 +232,7 @@ pub const ProgramPlan = struct {
                         }
                     },
                     .return_value => {
+                        block_has_return_value = true;
                         if (!isValidFunctionLocal(function.local_count, instruction.operand)) return error.InvalidInstructionLocalIndex;
                     },
                 };
@@ -230,11 +242,19 @@ pub const ProgramPlan = struct {
                     .branch_if => {
                         if (!isOwnedBlockTarget(function.first_block, block_end, terminator.primary)) return error.InvalidTerminatorTarget;
                         if (!isOwnedBlockTarget(function.first_block, block_end, terminator.secondary)) return error.InvalidTerminatorTarget;
+                        if (instruction_end == block.first_instruction or
+                            self.instructions[instruction_end - 1].kind != .compare_eq_zero)
+                        {
+                            return error.InvalidTerminatorInstruction;
+                        }
                     },
                     .jump => {
                         if (!isOwnedBlockTarget(function.first_block, block_end, terminator.primary)) return error.InvalidTerminatorTarget;
                     },
-                    .return_unit, .return_value => {},
+                    .return_unit => {},
+                    .return_value => {
+                        if (!block_has_return_value) return error.InvalidTerminatorInstruction;
+                    },
                 }
             }
             if (covered_instruction_end != function_instruction_end) return error.InvalidFunctionInstructionSpan;
@@ -331,6 +351,7 @@ pub const ValidationError = error{
     InvalidOpRequirementIndex,
     InvalidRequirementOpSpan,
     InvalidReturnValueIndex,
+    InvalidTerminatorInstruction,
     InvalidTerminatorTarget,
     UnsupportedSchemaVersion,
 };
@@ -538,6 +559,7 @@ fn invalidGeneratedPlan(err: ValidationError) noreturn {
         error.InvalidOpRequirementIndex => "runtime plan generator produced an op with an invalid requirement index",
         error.InvalidRequirementOpSpan => "runtime plan generator produced an invalid requirement op span",
         error.InvalidReturnValueIndex => "runtime plan generator produced a return instruction with a non-zero index",
+        error.InvalidTerminatorInstruction => "runtime plan generator produced a block terminator without its required producer instruction",
         error.InvalidTerminatorTarget => "runtime plan generator produced an invalid block terminator target",
         error.UnsupportedSchemaVersion => "runtime plan generator produced an unsupported schema version",
     });
@@ -1440,6 +1462,126 @@ test "ProgramPlan.validate rejects call_op payload locals outside the owning fun
     try std.testing.expectError(error.InvalidInstructionLocalIndex, plan.validate());
 }
 
+test "ProgramPlan.validate rejects value-producing helper destinations outside the owning function locals" {
+    const plan = ProgramPlan{
+        .label = "invalid.helper_result_local",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "root",
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 0,
+                .first_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 1,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .i32,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 1,
+                .block_count = 1,
+                .first_instruction = 1,
+                .instruction_count = 1,
+            },
+        },
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &.{
+            .{
+                .first_instruction = 0,
+                .instruction_count = 1,
+                .terminator_index = 0,
+            },
+            .{
+                .first_instruction = 1,
+                .instruction_count = 1,
+                .terminator_index = 1,
+            },
+        },
+        .terminators = &.{
+            .{ .kind = .return_unit },
+            .{ .kind = .return_value },
+        },
+        .instructions = &.{
+            .{
+                .kind = .call_helper,
+                .dst = 0,
+                .operand = 1,
+                .aux = std.math.maxInt(u16),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+        },
+    };
+
+    try std.testing.expectError(error.InvalidInstructionLocalIndex, plan.validate());
+}
+
+test "ProgramPlan.validate rejects value-producing op destinations outside the owning function locals" {
+    const plan = ProgramPlan{
+        .label = "invalid.call_op_result_local",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{.{
+            .label = "req",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "get",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .i32,
+        }},
+        .outputs = &.{},
+        .locals = &.{},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 1,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{
+            .kind = .call_op,
+            .dst = 0,
+            .operand = 0,
+            .aux = std.math.maxInt(u16),
+        }},
+    };
+
+    try std.testing.expectError(error.InvalidInstructionLocalIndex, plan.validate());
+}
+
 test "ProgramPlan.validate rejects terminator targets outside the owning function body" {
     const plan = ProgramPlan{
         .label = "invalid.foreign_block_target",
@@ -1497,6 +1639,93 @@ test "ProgramPlan.validate rejects terminator targets outside the owning functio
     };
 
     try std.testing.expectError(error.InvalidTerminatorTarget, plan.validate());
+}
+
+test "ProgramPlan.validate rejects branch_if terminators without a trailing compare instruction" {
+    const plan = ProgramPlan{
+        .label = "invalid.branch_without_compare",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .block_count = 2,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &.{
+            .{
+                .first_instruction = 0,
+                .instruction_count = 1,
+                .terminator_index = 0,
+            },
+            .{
+                .first_instruction = 1,
+                .instruction_count = 0,
+                .terminator_index = 1,
+            },
+        },
+        .terminators = &.{
+            .{ .kind = .branch_if, .primary = 1, .secondary = 1 },
+            .{ .kind = .return_unit },
+        },
+        .instructions = &.{.{
+            .kind = .const_i32,
+            .dst = 0,
+            .operand = 1,
+        }},
+    };
+
+    try std.testing.expectError(error.InvalidTerminatorInstruction, plan.validate());
+}
+
+test "ProgramPlan.validate rejects return_value terminators without a return instruction" {
+    const plan = ProgramPlan{
+        .label = "invalid.return_without_instruction",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 1,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{.{ .label = "result", .codec = .i32 }},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 1,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{.{
+            .kind = .const_i32,
+            .dst = 0,
+            .operand = 1,
+        }},
+    };
+
+    try std.testing.expectError(error.InvalidTerminatorInstruction, plan.validate());
 }
 
 test "ProgramPlan.validate rejects functions whose instruction span is not attached to owned blocks" {

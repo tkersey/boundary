@@ -380,11 +380,13 @@ fn relativeOwnedRepoPathMatches(comptime caller_file: []const u8, comptime repo_
 }
 
 fn sourceOwnershipMatches(comptime source_ref: SourceRef) bool {
-    return ((std.fs.path.isAbsolute(source_ref.caller_file) and
+    if (source_ref.caller_hash != null or source_ref.caller_source != null) {
+        return sourceHashMatches(source_ref);
+    }
+    return (std.fs.path.isAbsolute(source_ref.caller_file) and
         pathTailMatches(source_ref.caller_file, source_ref.repo_path) and
         pathUsesOwnedRoot(source_ref.caller_file)) or
-        relativeOwnedRepoPathMatches(source_ref.caller_file, source_ref.repo_path)) or
-        sourceHashMatches(source_ref);
+        relativeOwnedRepoPathMatches(source_ref.caller_file, source_ref.repo_path);
 }
 
 fn hashSourceBytes(comptime bytes: []const u8) u64 {
@@ -396,15 +398,20 @@ fn hashSourceBytes(comptime bytes: []const u8) u64 {
 
 fn sourceHashMatches(comptime source_ref: SourceRef) bool {
     if (source_ref.caller_source) |caller_source| {
+        const caller_hash = source_ref.caller_hash orelse return false;
         if (std.fs.path.isAbsolute(source_ref.caller_file)) {
             if (!pathTailMatches(source_ref.caller_file, source_ref.repo_path)) return false;
             if (!pathUsesOwnedRoot(source_ref.caller_file)) return false;
         } else if (pathHasSeparator(source_ref.caller_file)) {
             if (!relativeOwnedRepoPathMatches(source_ref.caller_file, source_ref.repo_path)) return false;
-        } else if (!basenameOwnedWitnessMatches(build_options.repo_duplicate_basenames, source_ref.repo_path, source_ref.caller_file)) {
+        } else {
             return false;
         }
-        return source_ref.caller_hash == hashSourceBytes(caller_source);
+        if (caller_hash != hashSourceBytes(caller_source)) return false;
+        if (repoPathIsOwned(source_ref.repo_path)) {
+            return caller_hash == hashSourceBytes(source_graph_embed.embeddedSource(source_ref.repo_path));
+        }
+        return true;
     }
     const caller_hash = source_ref.caller_hash orelse return false;
     if (std.fs.path.isAbsolute(source_ref.caller_file)) {
@@ -416,8 +423,7 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
         if (!relativeOwnedRepoPathMatches(source_ref.caller_file, source_ref.repo_path)) return false;
         return caller_hash == hashSourceBytes(source_graph_embed.embeddedSource(source_ref.repo_path));
     }
-    if (!basenameOwnedWitnessMatches(build_options.repo_duplicate_basenames, source_ref.repo_path, source_ref.caller_file)) return false;
-    return caller_hash == hashSourceBytes(source_graph_embed.embeddedSource(source_ref.repo_path));
+    return false;
 }
 
 fn sourcePathForLowering(comptime source_ref: SourceRef) []const u8 {
@@ -427,29 +433,33 @@ fn sourcePathForLowering(comptime source_ref: SourceRef) []const u8 {
     return source_ref.repo_path;
 }
 
-fn basenameOwnedWitnessMatches(
-    comptime duplicate_registry: []const u8,
-    comptime repo_path: []const u8,
-    comptime caller_file: []const u8,
-) bool {
-    if (pathHasSeparator(caller_file)) return false;
-    if (!std.mem.eql(u8, pathBasename(repo_path), caller_file)) return false;
-    return !basenameIsDuplicated(duplicate_registry, caller_file);
+fn repoPathIsOwned(comptime repo_path: []const u8) bool {
+    return registryContainsLine(build_options.repo_zig_paths, repo_path);
 }
 
-fn basenameIsDuplicated(comptime duplicate_registry: []const u8, comptime basename: []const u8) bool {
+fn registryContainsLine(comptime registry: []const u8, comptime candidate: []const u8) bool {
     comptime {
         @setEvalBranchQuota(50_000);
     }
     var start: usize = 0;
-    while (start < duplicate_registry.len) {
+    while (start < registry.len) {
         var end = start;
-        while (end < duplicate_registry.len and duplicate_registry[end] != '\n') : (end += 1) {}
-        const candidate = duplicate_registry[start..end];
-        if (candidate.len != 0 and std.mem.eql(u8, candidate, basename)) return true;
+        while (end < registry.len and registry[end] != '\n') : (end += 1) {}
+        const line = registry[start..end];
+        if (line.len != 0 and std.mem.eql(u8, line, candidate)) return true;
         start = end + 1;
     }
     return false;
+}
+
+fn normalizeSourceHelperCallerFile(comptime repo_path: []const u8, comptime caller_file: []const u8) []const u8 {
+    if (!std.fs.path.isAbsolute(caller_file) and
+        !pathHasSeparator(caller_file) and
+        std.mem.eql(u8, pathBasename(repo_path), caller_file))
+    {
+        return cloneBytes(repo_path);
+    }
+    return cloneBytes(caller_file);
 }
 
 fn pathBasename(path: []const u8) []const u8 {
@@ -498,7 +508,7 @@ pub fn sourceWithContent(
     if (caller.file.len == 0) @compileError("public lowering source helper requires a non-empty caller source file");
     return .{
         .repo_path = cloneBytes(repo_path),
-        .caller_file = cloneBytes(caller.file),
+        .caller_file = normalizeSourceHelperCallerFile(repo_path, caller.file),
         .caller_hash = hashSourceBytes(caller_source),
         .caller_source = sentinelBytes(caller_source),
     };
@@ -1683,16 +1693,27 @@ test "source ownership rejects absolute paths whose root only shares a prefix wi
     }
 }
 
-test "source ownership accepts a helper-authored content witness when caller paths are module-root relative" {
+test "source ownership accepts helper-authored content witnesses only when owned repo bytes match" {
     try std.testing.expect(sourceOwnershipMatches(.{
         .repo_path = "examples/open_row_state_writer.zig",
-        .caller_file = "open_row_state_writer.zig",
+        .caller_file = "examples/open_row_state_writer.zig",
         .caller_hash = hashSourceBytes(source_graph_embed.embeddedSource("examples/open_row_state_writer.zig")),
+        .caller_source = source_graph_embed.embeddedSource("examples/open_row_state_writer.zig"),
     }));
     try std.testing.expect(!sourceOwnershipMatches(.{
         .repo_path = "examples/open_row_state_writer.zig",
-        .caller_file = "open_row_state_writer.zig",
+        .caller_file = "examples/open_row_state_writer.zig",
         .caller_hash = hashSourceBytes("not the repo source"),
+        .caller_source = "not the repo source",
+    }));
+}
+
+test "source ownership rejects basename-only content witnesses even when their bytes match" {
+    try std.testing.expect(!sourceOwnershipMatches(.{
+        .repo_path = "examples/open_row_state_writer.zig",
+        .caller_file = "open_row_state_writer.zig",
+        .caller_hash = hashSourceBytes(source_graph_embed.embeddedSource("examples/open_row_state_writer.zig")),
+        .caller_source = source_graph_embed.embeddedSource("examples/open_row_state_writer.zig"),
     }));
 }
 
@@ -1724,45 +1745,52 @@ test "source ownership rejects mirrored relative paths outside the repo root" {
     }));
 }
 
-test "source ownership rejects basename-only content witnesses when the basename is duplicated" {
-    try std.testing.expect(!basenameOwnedWitnessMatches(
-        "index.zig\n",
-        "foo/index.zig",
-        "index.zig",
-    ));
-}
-
 test "executeLoweredDispatch rejects return-value terminators without a return instruction" {
-    const row = effect_ir.rowFromSpec(.{
-        .writer = .{
-            .tell = effect_ir.Transform([]const u8, void),
-        },
-    });
-    const entry_symbol: effect_ir.SymbolRef = .{
-        .module_path = "src/public_lowering.zig",
-        .symbol_name = "invalidReturnRoot",
-    };
-    const plan = comptime try program_plan.planFromProgram("example.invalid_return_root", .{
+    const plan: program_plan.ProgramPlan = .{
+        .label = "example.invalid_return_root",
+        .ir_hash = 1,
         .entry_index = 0,
         .functions = &.{.{
-            .symbol = entry_symbol,
-            .row = row,
-            .ValueType = i32,
-        }},
-        .call_edges = &.{},
-        .function_bodies = &.{.{
-            .local_codecs = &.{.i32},
+            .symbol_name = "invalidReturnRoot",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
             .entry_block = 0,
-            .blocks = &.{.{
-                .instructions = &.{.{
-                    .kind = .const_i32,
-                    .dst = 0,
-                    .operand = 1,
-                }},
-                .terminator = .{ .kind = .return_value },
-            }},
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
         }},
-    });
+        .requirements = &.{.{
+            .label = "writer",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "tell",
+            .mode = .transform,
+            .payload_codec = .string,
+            .resume_codec = .unit,
+        }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 1,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{.{
+            .kind = .const_i32,
+            .dst = 0,
+            .operand = 1,
+        }},
+    };
     const Handlers = struct {
         writer: struct {
             pub fn tell(_: *@This(), _: []const u8) anyerror!void {}

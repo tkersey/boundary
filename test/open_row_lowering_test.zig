@@ -551,6 +551,12 @@ test "root lower matches the example-owned same-module lowering" {
     );
 }
 
+test "sourceWithContent normalizes basename-only caller files to the explicit repo path" {
+    const source_ref = example_open_row_state_writer.loweringSource();
+
+    try std.testing.expectEqualStrings(example_open_row_state_writer.loweringSourcePath(), source_ref.caller_file);
+}
+
 test "explicit IR compilation preserves non-zero helper-body entry blocks in the runtime plan" {
     const entry_symbol: shift.ir.SymbolRef = .{
         .module_path = "test/open_row_lowering_test.zig",
@@ -1172,12 +1178,6 @@ test "explicit-path lowering accepts checkout-alias absolute paths" {
     try std.testing.expectEqualDeep(Canonical.runtime_plan.instructions, Lowered.runtime_plan.instructions);
 }
 
-test "repo duplicate basename registry ignores global cache entries" {
-    try std.testing.expect(
-        std.mem.indexOf(u8, authoring_build_options.repo_duplicate_basenames, "source_ownership_probe_test.zig\n") == null,
-    );
-}
-
 test "explicit-path lowering disambiguates imported helpers by alias" {
     const spec: shift.lowering.LowerSpec = .{
         .label = "test.open_row_helper_alias",
@@ -1257,3 +1257,4 @@ test "open-row state-writer example stays transcript-backed" {
         writer.buffered(),
     );
 }
+{"id":"lrn-20260401T204604Z-e4d853ac","captured_at":"2026-04-01T20:46:04Z","status":"codify_now","learning":"When shift public lowering accepts caller-owned source bytes for an internal repo path, require the witness to match embedded repo bytes and reject basename-only hashed refs, because self-consistent basename witnesses otherwise bypass ownership checks; also make ProgramPlan.validate reject value-producing helper/op destinations and terminators without their required producer instructions so malformed public helper-body IR fails at compile time.","evidence":["src/public_lowering.zig:382-426 tightened hash-backed ownership admission; zig build test --summary none -> ok","src/internal/program_plan.zig:195-257 validates helper/op dst slots and terminator producers; zig build compile-fail -> ok","zig build lint -- --max-warnings 0 -> ok"],"application":"Use this on public lowering and explicit IR review fixes to fail closed at validation/compile time instead of relying on runtime ProgramContractViolation or silent dropped values.","context":{"repo":"tkersey/shift","branch":"feature/binding-packet-portability","paths":["build.zig","src/durable.zig","src/internal/program_plan.zig","src/public_lowering.zig","test/open_row_lowering_test.zig"]},"source":"codex","fingerprint":"e4d853acbebc6144","tags":["zig","shift","lowering","ownership","validation"]}
