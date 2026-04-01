@@ -408,20 +408,23 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
             return false;
         }
         if (caller_hash != hashSourceBytes(caller_source)) return false;
-        if (repoPathIsOwned(source_ref.repo_path)) {
-            return caller_hash == hashSourceBytes(source_graph_embed.embeddedSource(source_ref.repo_path));
-        }
-        return true;
+        const owned_repo_path = comptime repoPathIsOwned(source_ref.repo_path);
+        if (!owned_repo_path) return false;
+        const repo_source = comptime source_graph_embed.embeddedSource(source_ref.repo_path);
+        return caller_hash == hashSourceBytes(repo_source);
     }
     const caller_hash = source_ref.caller_hash orelse return false;
+    const owned_repo_path = comptime repoPathIsOwned(source_ref.repo_path);
+    if (!owned_repo_path) return false;
+    const repo_source = comptime source_graph_embed.embeddedSource(source_ref.repo_path);
     if (std.fs.path.isAbsolute(source_ref.caller_file)) {
         if (!pathTailMatches(source_ref.caller_file, source_ref.repo_path)) return false;
         if (!pathUsesOwnedRoot(source_ref.caller_file)) return false;
-        return caller_hash == hashSourceBytes(source_graph_embed.embeddedSource(source_ref.repo_path));
+        return caller_hash == hashSourceBytes(repo_source);
     }
     if (pathHasSeparator(source_ref.caller_file)) {
         if (!relativeOwnedRepoPathMatches(source_ref.caller_file, source_ref.repo_path)) return false;
-        return caller_hash == hashSourceBytes(source_graph_embed.embeddedSource(source_ref.repo_path));
+        return caller_hash == hashSourceBytes(repo_source);
     }
     return false;
 }
@@ -1712,12 +1715,35 @@ test "source ownership accepts helper-authored content witnesses only when owned
     }));
 }
 
+test "source ownership rejects helper-authored content witnesses for non-repo paths" {
+    try std.testing.expect(!sourceOwnershipMatches(.{
+        .repo_path = "examples/not_in_repo.zig",
+        .caller_file = "examples/not_in_repo.zig",
+        .caller_hash = hashSourceBytes(
+            \\pub fn runBody() void {}
+        ),
+        .caller_source =
+        \\pub fn runBody() void {}
+        ,
+    }));
+}
+
 test "source ownership rejects basename-only content witnesses even when their bytes match" {
     try std.testing.expect(!sourceOwnershipMatches(.{
         .repo_path = "examples/open_row_state_writer.zig",
         .caller_file = "open_row_state_writer.zig",
         .caller_hash = hashSourceBytes(source_graph_embed.embeddedSource("examples/open_row_state_writer.zig")),
         .caller_source = source_graph_embed.embeddedSource("examples/open_row_state_writer.zig"),
+    }));
+}
+
+test "source ownership rejects hash-only witnesses for non-repo paths" {
+    try std.testing.expect(!sourceOwnershipMatches(.{
+        .repo_path = "examples/not_in_repo.zig",
+        .caller_file = "examples/not_in_repo.zig",
+        .caller_hash = hashSourceBytes(
+            \\pub fn runBody() void {}
+        ),
     }));
 }
 
