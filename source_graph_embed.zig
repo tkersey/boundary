@@ -143,15 +143,25 @@ fn normalizeRelativePath(comptime source_path: []const u8) NormalizeRelativePath
     return joinRelativePathSegments(segments[0..segment_count]);
 }
 
+fn repoRelativeAbsolutePath(
+    comptime source_path: []const u8,
+    comptime root_path: []const u8,
+) ?[]const u8 {
+    if (!std.mem.startsWith(u8, source_path, root_path)) return null;
+    if (source_path.len <= root_path.len) {
+        @compileError("public lowering source path must point to a file under the package root");
+    }
+    if (source_path[root_path.len] != std.fs.path.sep) {
+        @compileError("public lowering source path must point to a file under the package root");
+    }
+    return source_path[root_path.len + 1 ..];
+}
+
 fn repoRelativePath(comptime source_path: []const u8) []const u8 {
     const repo_path = if (std.fs.path.isAbsolute(source_path)) blk: {
-        if (!std.mem.startsWith(u8, source_path, build_options.package_root)) {
-            @compileError("public lowering source path must stay under the package root");
-        }
-        if (source_path.len <= build_options.package_root.len or source_path[build_options.package_root.len] != std.fs.path.sep) {
-            @compileError("public lowering source path must point to a file under the package root");
-        }
-        break :blk source_path[build_options.package_root.len + 1 ..];
+        if (repoRelativeAbsolutePath(source_path, build_options.package_root)) |repo_source_path| break :blk repo_source_path;
+        if (repoRelativeAbsolutePath(source_path, build_options.package_root_alias)) |repo_source_path| break :blk repo_source_path;
+        @compileError("public lowering source path must stay under the package root");
     } else source_path;
 
     return normalizeRelativePath(repo_path) catch |err| switch (err) {

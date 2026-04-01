@@ -421,7 +421,7 @@ fn synthesizeBodyInstructions(
     comptime functions: []const effect_ir.Function,
     comptime call_edges: []const effect_ir.CallEdge,
     comptime function_index: usize,
-) []const helper_body_ir.Instruction {
+) effect_ir.NormalizeError![]const helper_body_ir.Instruction {
     const instruction_count = comptime blk: {
         var count: usize = 0;
         for (call_edges) |edge| {
@@ -436,6 +436,9 @@ fn synthesizeBodyInstructions(
         for (call_edges) |edge| {
             if (!edge.caller.eql(functions[function_index].symbol)) continue;
             const callee_index = symbolIndex(functions, edge.callee) orelse @compileError("open-row frontend could not synthesize helper body for an unknown callee");
+            if (functions[callee_index].parameter_codecs.len != 0 or functions[callee_index].ValueType != void) {
+                return error.UnsupportedHelperCallEdge;
+            }
             buffer[index] = .{
                 .kind = .call_helper,
                 .operand = callee_index,
@@ -449,15 +452,16 @@ fn synthesizeBodyInstructions(
 fn synthesizeFunctionBodies(
     comptime functions: []const effect_ir.Function,
     comptime call_edges: []const effect_ir.CallEdge,
-) []const helper_body_ir.FunctionBody {
+) effect_ir.NormalizeError![]const helper_body_ir.FunctionBody {
     return comptime blk: {
         var buffer: [functions.len]helper_body_ir.FunctionBody = undefined;
         for (functions, 0..) |function, function_index| {
-            const instructions = synthesizeBodyInstructions(functions, call_edges, function_index);
+            if (function.ValueType != void) return error.UnsupportedHelperCallEdge;
+            const instructions = try synthesizeBodyInstructions(functions, call_edges, function_index);
             const blocks = [_]helper_body_ir.Block{.{
                 .instructions = instructions,
                 .terminator = .{
-                    .kind = if (function.outputs.len == 0) .return_unit else .return_value,
+                    .kind = .return_unit,
                 },
             }};
             buffer[function_index] = .{
@@ -506,7 +510,7 @@ pub fn lowerOpenRow(program: OpenRowProgram) effect_ir.NormalizeError!LoweredOpe
         .functions = cloneFunctions(program.functions),
         .call_edges = cloneCallEdges(program.call_edges),
         .function_bodies = if (program.function_bodies.len == 0)
-            synthesizeFunctionBodies(program.functions, program.call_edges)
+            try synthesizeFunctionBodies(program.functions, program.call_edges)
         else
             cloneFunctionBodies(program.function_bodies),
     };
@@ -587,8 +591,54 @@ test "lowerOpenRow synthesizes helper-call instructions into body storage" {
     try @import("std").testing.expectEqual(@as(usize, 1), program.function_bodies[0].blocks[0].instructions.len);
     try @import("std").testing.expectEqual(@as(@TypeOf(program.function_bodies[0].blocks[0].instructions[0].kind), .call_helper), program.function_bodies[0].blocks[0].instructions[0].kind);
     try @import("std").testing.expectEqual(@as(u16, 1), program.function_bodies[0].blocks[0].instructions[0].operand);
-    try @import("std").testing.expectEqual(helper_body_ir.TerminatorKind.return_value, program.function_bodies[0].blocks[0].terminator.kind);
+    try @import("std").testing.expectEqual(helper_body_ir.TerminatorKind.return_unit, program.function_bodies[0].blocks[0].terminator.kind);
     try @import("std").testing.expectEqual(helper_body_ir.TerminatorKind.return_unit, program.function_bodies[1].blocks[0].terminator.kind);
+}
+
+test "lowerOpenRow rejects synthesized helper calls that need arguments" {
+    const helper_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/synth_args.zig",
+        .symbol_name = "helper",
+    };
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/synth_args.zig",
+        .symbol_name = "root",
+    };
+
+    try @import("std").testing.expectError(error.UnsupportedHelperCallEdge, lowerOpenRow(.{
+        .label = "example.synth_args",
+        .entry_symbol = "root",
+        .functions = &.{
+            .{
+                .symbol = root_symbol,
+                .row = effect_ir.rowFromSpec(.{}),
+            },
+            .{
+                .symbol = helper_symbol,
+                .row = effect_ir.rowFromSpec(.{}),
+                .parameter_codecs = &.{.i32},
+            },
+        },
+        .call_edges = &.{.{
+            .caller = root_symbol,
+            .callee = helper_symbol,
+        }},
+    }));
+}
+
+test "lowerOpenRow rejects synthesized non-void function bodies" {
+    try @import("std").testing.expectError(error.UnsupportedHelperCallEdge, lowerOpenRow(.{
+        .label = "example.synth_value",
+        .entry_symbol = "root",
+        .functions = &.{.{
+            .symbol = .{
+                .module_path = "examples/synth_value.zig",
+                .symbol_name = "root",
+            },
+            .row = effect_ir.rowFromSpec(.{}),
+            .ValueType = i32,
+        }},
+    }));
 }
 
 test "lowerOpenRow preserves attached helper body storage" {

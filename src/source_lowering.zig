@@ -196,6 +196,20 @@ test "analyzeSameModuleSourceText stays generic and same-module only" {
     try std.testing.expectEqualStrings("helper", analysis.helper_call_edges[0].callee_name);
 }
 
+test "analyzeSameModuleSourceText propagates same-module graph limits" {
+    const source = comptime blk: {
+        var text = "";
+        for (0..65) |index| {
+            text = text ++ std.fmt.comptimePrint("const dep{d} = @import(\"dep{d}.zig\");\n", .{ index, index });
+        }
+        break :blk text ++
+            \\pub fn run() void {}
+        ;
+    };
+
+    try std.testing.expectError(error.TooManyImports, analyzeSameModuleSourceText(std.testing.allocator, source));
+}
+
 fn sourceCaseFeatureFlags(case_id: []const u8) []const []const u8 {
     if (std.mem.eql(u8, case_id, "source.local_mutation_resume")) return &.{ "locals", "mutation", "resume_value" };
     if (std.mem.eql(u8, case_id, "source.branch_resume")) return &.{ "if_else", "locals", "resume_value" };

@@ -190,12 +190,12 @@ fn executeLoweredFunction(
         setLocal(locals, @intCast(arg_index), arg);
     }
     var current_block_index: u16 = function.first_block + function.entry_block;
-    var return_local: u16 = 0;
 
     while (true) {
         const block = compiled_plan.blocks[current_block_index];
         const instruction_end = block.first_instruction + block.instruction_count;
         var instruction_index = block.first_instruction;
+        var return_local: ?u16 = null;
         while (instruction_index < instruction_end) : (instruction_index += 1) {
             const instruction = compiled_plan.instructions[instruction_index];
             switch (instruction.kind) {
@@ -268,7 +268,7 @@ fn executeLoweredFunction(
             },
             .jump => current_block_index = terminator.primary,
             .return_unit => return .none,
-            .return_value => return getLocal(locals, return_local),
+            .return_value => return getLocal(locals, return_local orelse return error.ProgramContractViolation),
         }
     }
 }
@@ -346,16 +346,49 @@ fn sourceOwnershipMatches(comptime source_ref: SourceRef) bool {
 
 fn hashSourceBytes(comptime bytes: []const u8) u64 {
     comptime {
-        @setEvalBranchQuota(20_000);
+        @setEvalBranchQuota(1_000_000);
     }
     return std.hash.Wyhash.hash(0, bytes);
 }
 
 fn sourceHashMatches(comptime source_ref: SourceRef) bool {
     const caller_hash = source_ref.caller_hash orelse return false;
-    if (pathHasSeparator(source_ref.caller_file)) return false;
-    if (!std.mem.eql(u8, std.fs.path.basename(source_ref.repo_path), source_ref.caller_file)) return false;
+    if (!basenameOwnedWitnessMatches(build_options.repo_duplicate_basenames, source_ref.repo_path, source_ref.caller_file)) return false;
     return caller_hash == hashSourceBytes(source_graph_embed.embeddedSource(source_ref.repo_path));
+}
+
+fn basenameOwnedWitnessMatches(
+    comptime duplicate_registry: []const u8,
+    comptime repo_path: []const u8,
+    comptime caller_file: []const u8,
+) bool {
+    if (pathHasSeparator(caller_file)) return false;
+    if (!std.mem.eql(u8, pathBasename(repo_path), caller_file)) return false;
+    return !basenameIsDuplicated(duplicate_registry, caller_file);
+}
+
+fn basenameIsDuplicated(comptime duplicate_registry: []const u8, comptime basename: []const u8) bool {
+    comptime {
+        @setEvalBranchQuota(50_000);
+    }
+    var start: usize = 0;
+    while (start < duplicate_registry.len) {
+        var end = start;
+        while (end < duplicate_registry.len and duplicate_registry[end] != '\n') : (end += 1) {}
+        const candidate = duplicate_registry[start..end];
+        if (candidate.len != 0 and std.mem.eql(u8, candidate, basename)) return true;
+        start = end + 1;
+    }
+    return false;
+}
+
+fn pathBasename(path: []const u8) []const u8 {
+    var start = path.len;
+    while (start != 0) {
+        if (path[start - 1] == '/' or path[start - 1] == '\\') break;
+        start -= 1;
+    }
+    return path[start..];
 }
 
 fn pathHasSeparator(comptime path: []const u8) bool {
@@ -1140,7 +1173,20 @@ fn collectValidationModule(
         return existing_index;
     }
 
-    var analysis = try source_lowering.analyzeFileBackedSource(state.allocator, source_path);
+    var analysis = source_lowering.analyzeFileBackedSource(state.allocator, source_path) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.ParseError => return error.ParseError,
+        error.SourceUnreadable => return error.SourceUnreadable,
+        error.TooManyFunctions,
+        error.TooManyFunctionParams,
+        error.TooManyImports,
+        error.TooManyHelperUses,
+        error.TooManyHelperEdges,
+        error.TooManyOpUses,
+        => return error.UnsupportedHelperGraph,
+        error.UnsupportedEffectAccess => return error.UnsupportedEffectAccess,
+        else => unreachable,
+    };
     defer analysis.deinit(state.allocator);
 
     if (!analysis.isParseClean()) return error.ParseError;
@@ -1451,4 +1497,53 @@ test "source ownership rejects matching-byte witnesses from a different caller p
         .caller_file = "other_module.zig",
         .caller_hash = hashSourceBytes(source_graph_embed.embeddedSource("examples/open_row_state_writer.zig")),
     }));
+}
+
+test "source ownership rejects basename-only content witnesses when the basename is duplicated" {
+    try std.testing.expect(!basenameOwnedWitnessMatches(
+        "index.zig\n",
+        "foo/index.zig",
+        "index.zig",
+    ));
+}
+
+test "executeLoweredDispatch rejects return-value terminators without a return instruction" {
+    const row = effect_ir.rowFromSpec(.{
+        .writer = .{
+            .tell = effect_ir.Transform([]const u8, void),
+        },
+    });
+    const entry_symbol: effect_ir.SymbolRef = .{
+        .module_path = "src/public_lowering.zig",
+        .symbol_name = "invalidReturnRoot",
+    };
+    const plan = comptime try program_plan.planFromProgram("example.invalid_return_root", .{
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol = entry_symbol,
+            .row = row,
+            .ValueType = i32,
+        }},
+        .call_edges = &.{},
+        .function_bodies = &.{.{
+            .local_codecs = &.{.i32},
+            .entry_block = 0,
+            .blocks = &.{.{
+                .instructions = &.{.{
+                    .kind = .const_i32,
+                    .dst = 0,
+                    .operand = 1,
+                }},
+                .terminator = .{ .kind = .return_value },
+            }},
+        }},
+    });
+    const Handlers = struct {
+        writer: struct {
+            pub fn tell(_: *@This(), _: []const u8) anyerror!void {}
+        } = .{},
+    };
+    var handlers: Handlers = .{};
+
+    try std.testing.expectError(error.ProgramContractViolation, executeLoweredDispatch(plan, &handlers, 0, &.{}));
 }

@@ -1,3 +1,4 @@
+const authoring_build_options = @import("authoring_build_options");
 const example_open_row_branching_helper_body = @import("example_open_row_branching_helper_body");
 const example_open_row_cross_file_writer = @import("example_open_row_cross_file_writer");
 const example_open_row_escaped_string_helper_body = @import("example_open_row_escaped_string_helper_body");
@@ -1075,6 +1076,48 @@ test "explicit-path lowering supports cross-file helper modules" {
     try std.testing.expectEqual(@as(usize, 5), Lowered.runtime_plan.requirements.len);
     try std.testing.expectEqual(@as(usize, 7), Lowered.runtime_plan.ops.len);
     try std.testing.expectEqual(Lowered.ir_hash, Explicit.ir_hash);
+}
+
+test "explicit-path lowering accepts checkout-alias absolute paths" {
+    const spec: shift.lowering.LowerSpec = .{
+        .label = "example.open_row_cross_file_writer.alias",
+        .entry_symbol = "runBody",
+        .row = shift.ir.mergeRows(.{
+            shift.ir.rowFromSpec(.{
+                .state = .{
+                    .get = shift.ir.Transform(void, i32),
+                    .set = shift.ir.Transform(i32, void),
+                },
+            }),
+            shift.ir.rowFromSpec(.{
+                .writer = .{
+                    .tell = shift.ir.Transform([]const u8, void),
+                },
+            }),
+        }),
+        .ValueType = []const u8,
+        .outputs = &.{
+            .{ .label = "state", .OutputType = i32 },
+            .{ .label = "writer", .OutputType = [][]const u8 },
+        },
+    };
+    const alias_source_path = comptime std.fmt.comptimePrint(
+        "{s}/examples/open_row_cross_file_writer.zig",
+        .{authoring_build_options.package_root_alias},
+    );
+
+    const Lowered = shift.lowerAt(alias_source_path, spec);
+    const Canonical = shift.lowerAt("examples/open_row_cross_file_writer.zig", spec);
+
+    try std.testing.expectEqualStrings(alias_source_path, Lowered.source_path);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.functions, Lowered.runtime_plan.functions);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.requirements, Lowered.runtime_plan.requirements);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.ops, Lowered.runtime_plan.ops);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.outputs, Lowered.runtime_plan.outputs);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.locals, Lowered.runtime_plan.locals);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.blocks, Lowered.runtime_plan.blocks);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.terminators, Lowered.runtime_plan.terminators);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.instructions, Lowered.runtime_plan.instructions);
 }
 
 test "explicit-path lowering disambiguates imported helpers by alias" {

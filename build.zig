@@ -128,6 +128,137 @@ fn canonicalSourceHash(b: *std.Build, path: []const u8) [32]u8 {
     return digest;
 }
 
+fn repoZigPathRegistry(b: *std.Build) []const u8 {
+    var root_dir = std.fs.cwd().openDir(b.pathFromRoot("."), .{ .iterate = true }) catch
+        std.process.fatal("unable to open repo root for source registry", .{});
+    defer root_dir.close();
+
+    var paths = std.ArrayList([]const u8).empty;
+    collectRepoZigPaths(b, root_dir, "", &paths);
+
+    var left: usize = 0;
+    while (left < paths.items.len) : (left += 1) {
+        var right = left + 1;
+        while (right < paths.items.len) : (right += 1) {
+            if (std.mem.order(u8, paths.items[right], paths.items[left]) == .lt) {
+                const tmp = paths.items[left];
+                paths.items[left] = paths.items[right];
+                paths.items[right] = tmp;
+            }
+        }
+    }
+
+    var registry = std.ArrayList(u8).empty;
+    for (paths.items) |path| {
+        registry.appendSlice(b.allocator, path) catch std.process.fatal("unable to append repo source path", .{});
+        registry.append(b.allocator, '\n') catch std.process.fatal("unable to append repo source separator", .{});
+    }
+    return registry.items;
+}
+
+fn repoDuplicateBasenameRegistry(b: *std.Build) []const u8 {
+    var root_dir = std.fs.cwd().openDir(b.pathFromRoot("."), .{ .iterate = true }) catch
+        std.process.fatal("unable to open repo root for duplicate basename registry", .{});
+    defer root_dir.close();
+
+    var paths = std.ArrayList([]const u8).empty;
+    collectRepoZigPaths(b, root_dir, "", &paths);
+
+    var duplicates = std.ArrayList([]const u8).empty;
+    for (paths.items, 0..) |left_path, left_index| {
+        const left_basename = buildPathBasename(left_path);
+        var seen_duplicate = false;
+        for (duplicates.items) |existing| {
+            if (std.mem.eql(u8, existing, left_basename)) {
+                seen_duplicate = true;
+                break;
+            }
+        }
+        if (seen_duplicate) continue;
+
+        for (paths.items[left_index + 1 ..]) |right_path| {
+            if (!std.mem.eql(u8, buildPathBasename(right_path), left_basename)) continue;
+            duplicates.append(b.allocator, left_basename) catch
+                std.process.fatal("unable to record duplicate basename", .{});
+            break;
+        }
+    }
+
+    var registry = std.ArrayList(u8).empty;
+    for (duplicates.items) |basename| {
+        registry.appendSlice(b.allocator, basename) catch std.process.fatal("unable to append duplicate basename", .{});
+        registry.append(b.allocator, '\n') catch std.process.fatal("unable to append duplicate basename separator", .{});
+    }
+    return registry.items;
+}
+
+fn collectRepoZigPaths(
+    b: *std.Build,
+    dir: std.fs.Dir,
+    prefix: []const u8,
+    paths: *std.ArrayList([]const u8),
+) void {
+    var iterator = dir.iterate();
+    while (iterator.next() catch std.process.fatal("unable to iterate repo source directory", .{})) |entry| {
+        if (entry.kind == .sym_link) continue;
+        if (std.mem.eql(u8, entry.name, ".git") or
+            std.mem.eql(u8, entry.name, ".zig-cache") or
+            std.mem.eql(u8, entry.name, "zig-out"))
+        {
+            continue;
+        }
+
+        const owned_relative_path = (if (prefix.len == 0)
+            std.fmt.allocPrint(b.allocator, "{s}", .{entry.name})
+        else
+            std.fmt.allocPrint(b.allocator, "{s}/{s}", .{ prefix, entry.name })) catch
+            std.process.fatal("unable to allocate repo source path", .{});
+
+        switch (entry.kind) {
+            .directory => {
+                var child_dir = dir.openDir(entry.name, .{ .iterate = true }) catch
+                    std.process.fatal("unable to descend into repo source directory", .{});
+                defer child_dir.close();
+                collectRepoZigPaths(b, child_dir, owned_relative_path, paths);
+            },
+            .file => {
+                if (std.mem.endsWith(u8, owned_relative_path, ".zig")) {
+                    paths.append(b.allocator, owned_relative_path) catch
+                        std.process.fatal("unable to record repo source path", .{});
+                }
+            },
+            else => {},
+        }
+    }
+}
+
+fn packageRootAliasPath(b: *std.Build) []const u8 {
+    const alias_path = std.fmt.allocPrint(
+        b.allocator,
+        "/tmp/shift_repo_alias_{x}",
+        .{std.hash.Wyhash.hash(0, b.pathFromRoot("."))},
+    ) catch std.process.fatal("unable to allocate package-root alias path", .{});
+
+    std.fs.deleteFileAbsolute(alias_path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        error.IsDir => std.fs.deleteTreeAbsolute(alias_path) catch
+            std.process.fatal("unable to clear package-root alias directory", .{}),
+        else => std.process.fatal("unable to clear package-root alias path", .{}),
+    };
+    std.fs.symLinkAbsolute(b.pathFromRoot("."), alias_path, .{}) catch
+        std.process.fatal("unable to create package-root alias path", .{});
+    return alias_path;
+}
+
+fn buildPathBasename(path: []const u8) []const u8 {
+    var start = path.len;
+    while (start != 0) {
+        if (path[start - 1] == '/') break;
+        start -= 1;
+    }
+    return path[start..];
+}
+
 fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
     var out = std.ArrayList(u8).empty;
     defer out.deinit(allocator);
@@ -289,6 +420,9 @@ pub fn build(b: *std.Build) void {
     const authoring_lowerer_options = b.addOptions();
     const lowerer_opts_marker = true;
     authoring_lowerer_options.addOption([]const u8, "package_root", b.pathFromRoot("."));
+    authoring_lowerer_options.addOption([]const u8, "package_root_alias", packageRootAliasPath(b));
+    authoring_lowerer_options.addOption([]const u8, "repo_zig_paths", repoZigPathRegistry(b));
+    authoring_lowerer_options.addOption([]const u8, "repo_duplicate_basenames", repoDuplicateBasenameRegistry(b));
     authoring_lowerer_options.addOption(bool, "authoring_lowerer_options_marker", lowerer_opts_marker);
     authoring_lowerer_options.addOption([32]u8, "hash_local_mutation_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/local_mutation_resume.zig"));
     authoring_lowerer_options.addOption([32]u8, "hash_branch_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/branch_resume.zig"));
@@ -957,6 +1091,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    open_row_lowering_mod.addImport("authoring_build_options", authoring_build_options_mod);
     open_row_lowering_mod.addImport("effect_ir", effect_ir_mod);
     open_row_lowering_mod.addImport("source_lowering", source_lowering_mod);
     open_row_lowering_mod.addImport("program_frontend", program_frontend_mod);

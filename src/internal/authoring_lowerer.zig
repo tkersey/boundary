@@ -45,6 +45,13 @@ pub const SourceValidationError = error{
     OutOfMemory,
     ParseError,
     SourceUnreadable,
+    TooManyFunctions,
+    TooManyFunctionParams,
+    TooManyImports,
+    TooManyHelperUses,
+    TooManyHelperEdges,
+    TooManyOpUses,
+    UnsupportedEffectAccess,
 };
 /// Generic same-module source analysis result shared by public lowering and proof adapters.
 pub const SameModuleSourceAnalysis = source_analysis.ModuleAnalysis;

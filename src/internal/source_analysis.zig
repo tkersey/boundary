@@ -63,6 +63,16 @@ pub const ModuleAnalysis = struct {
 
 /// Error surface for parsing source buffers into owned AST payloads.
 pub const ParseSourceError = error{OutOfMemory};
+/// Error surface for generic same-module source analysis.
+pub const AnalyzeModuleSourceError = ParseSourceError || error{
+    TooManyFunctions,
+    TooManyFunctionParams,
+    TooManyImports,
+    TooManyHelperUses,
+    TooManyHelperEdges,
+    TooManyOpUses,
+    UnsupportedEffectAccess,
+};
 
 /// Parse one Zig source buffer into an owned AST payload.
 pub fn parseSource(allocator: std.mem.Allocator, source: []const u8) ParseSourceError!ParsedSource {
@@ -84,12 +94,19 @@ fn findTopLevelFunction(functions: []const TopLevelFunction, name: []const u8) ?
 }
 
 /// Parse and analyze one same-module Zig source buffer.
-pub fn analyzeModuleSource(allocator: std.mem.Allocator, source: []const u8) ParseSourceError!ModuleAnalysis {
+pub fn analyzeModuleSource(allocator: std.mem.Allocator, source: []const u8) AnalyzeModuleSourceError!ModuleAnalysis {
     var parsed = try parseSource(allocator, source);
     errdefer parsed.deinit(allocator);
 
     const graph = shared_graph.analyzeRuntime(allocator, parsed.source_z, .{}) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
+        error.TooManyFunctions => return error.TooManyFunctions,
+        error.TooManyFunctionParams => return error.TooManyFunctionParams,
+        error.TooManyImports => return error.TooManyImports,
+        error.TooManyHelperUses => return error.TooManyHelperUses,
+        error.TooManyHelperEdges => return error.TooManyHelperEdges,
+        error.TooManyOpUses => return error.TooManyOpUses,
+        error.UnsupportedEffectAccess => return error.UnsupportedEffectAccess,
         else => unreachable,
     };
     errdefer {
