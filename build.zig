@@ -8,6 +8,7 @@ const ShiftConsumerDeps = struct {
 };
 
 const ShiftPromptFixtureDeps = struct {
+    authoring_build_options_mod: *std.Build.Module,
     prompt_support_mod: *std.Build.Module,
     shift_mod: *std.Build.Module,
     with_api_mod: *std.Build.Module,
@@ -54,6 +55,7 @@ fn createShiftPromptFixtureModule(
         .target = target,
         .optimize = optimize,
     });
+    mod.addImport("authoring_build_options", deps.authoring_build_options_mod);
     mod.addImport("shift", deps.shift_mod);
     mod.addImport("prompt_support", deps.prompt_support_mod);
     mod.addImport("with_api", deps.with_api_mod);
@@ -203,6 +205,7 @@ fn collectRepoZigPaths(
         if (entry.kind == .sym_link) continue;
         if (std.mem.eql(u8, entry.name, ".git") or
             std.mem.eql(u8, entry.name, ".zig-cache") or
+            std.mem.eql(u8, entry.name, ".zig-global-cache") or
             std.mem.eql(u8, entry.name, "zig-out"))
         {
             continue;
@@ -265,6 +268,46 @@ fn packageRootAliasPath(b: *std.Build) []const u8 {
     };
     std.fs.symLinkAbsolute(repo_root, alias_path, .{}) catch
         std.process.fatal("unable to create package-root alias path", .{});
+    return alias_path;
+}
+
+fn externalSourceAliasPath(b: *std.Build, repo_relative_path: []const u8) []const u8 {
+    const alias_hash = std.hash.Wyhash.hash(
+        std.hash.Wyhash.hash(0, b.pathFromRoot(".")),
+        repo_relative_path,
+    );
+    const alias_path = std.fmt.allocPrint(
+        b.allocator,
+        "/tmp/shift_source_alias_{x}_{s}",
+        .{ alias_hash, std.fs.path.basename(repo_relative_path) },
+    ) catch std.process.fatal("unable to allocate external source alias path", .{});
+    const target_path = b.pathFromRoot(repo_relative_path);
+
+    var link_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const existing_target = std.fs.readLinkAbsolute(alias_path, &link_buffer) catch |err| switch (err) {
+        error.FileNotFound => null,
+        else => blk: {
+            std.fs.deleteFileAbsolute(alias_path) catch |delete_err| switch (delete_err) {
+                error.FileNotFound => {},
+                error.IsDir => std.fs.deleteTreeAbsolute(alias_path) catch
+                    std.process.fatal("unable to clear external source alias directory", .{}),
+                else => std.process.fatal("unable to clear external source alias path", .{}),
+            };
+            break :blk null;
+        },
+    };
+    if (existing_target) |target| {
+        if (std.mem.eql(u8, target, target_path)) return alias_path;
+    }
+
+    std.fs.deleteFileAbsolute(alias_path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        error.IsDir => std.fs.deleteTreeAbsolute(alias_path) catch
+            std.process.fatal("unable to clear external source alias directory", .{}),
+        else => std.process.fatal("unable to clear external source alias path", .{}),
+    };
+    std.fs.symLinkAbsolute(target_path, alias_path, .{}) catch
+        std.process.fatal("unable to create external source alias path", .{});
     return alias_path;
 }
 
@@ -439,6 +482,7 @@ pub fn build(b: *std.Build) void {
     const lowerer_opts_marker = true;
     authoring_lowerer_options.addOption([]const u8, "package_root", b.pathFromRoot("."));
     authoring_lowerer_options.addOption([]const u8, "package_root_alias", packageRootAliasPath(b));
+    authoring_lowerer_options.addOption([]const u8, "external_open_row_state_writer_alias_path", externalSourceAliasPath(b, "examples/open_row_state_writer.zig"));
     authoring_lowerer_options.addOption([]const u8, "repo_zig_paths", repoZigPathRegistry(b));
     authoring_lowerer_options.addOption([]const u8, "repo_duplicate_basenames", repoDuplicateBasenameRegistry(b));
     authoring_lowerer_options.addOption(bool, "authoring_lowerer_options_marker", lowerer_opts_marker);
@@ -1636,6 +1680,7 @@ pub fn build(b: *std.Build) void {
     };
     inline for (one_shot_success_fixtures) |fixture| {
         const fixture_mod = createShiftPromptFixtureModule(b, fixture.path, target, optimize, .{
+            .authoring_build_options_mod = authoring_build_options_mod,
             .shift_mod = shift_mod,
             .prompt_support_mod = prompt_support_mod,
             .with_api_mod = with_api_mod,
@@ -1660,6 +1705,7 @@ pub fn build(b: *std.Build) void {
     const one_shot_survey_step = b.step("one-shot-survey", "Run the current plain-Zig one-shot survey contract.");
     inline for (one_shot_success_fixtures) |fixture| {
         const fixture_mod = createShiftPromptFixtureModule(b, fixture.path, target, optimize, .{
+            .authoring_build_options_mod = authoring_build_options_mod,
             .shift_mod = shift_mod,
             .prompt_support_mod = prompt_support_mod,
             .with_api_mod = with_api_mod,
@@ -1693,6 +1739,8 @@ pub fn build(b: *std.Build) void {
         .{ .name = "cf-unsupported-helper-body", .path = "test/compile_fail/unsupported_helper_body_fails.zig", .expected = "public lowering cannot synthesize unsupported helper or entry bodies; test/compile_fail_inputs/unsupported_helper_body_source.zig:helper must stay within the retained lowered-body subset" },
         .{ .name = "cf-entry-path-escape-lower-at", .path = "test/compile_fail/entry_path_escape_lower_at_fails.zig", .expected = "public lowering source path must stay under the package root" },
         .{ .name = "cf-entry-path-escape-ir-program-at", .path = "test/compile_fail/entry_path_escape_ir_program_at_fails.zig", .expected = "public lowering source path must stay under the package root" },
+        .{ .name = "cf-absolute-entry-alias-lower-at", .path = "test/compile_fail/absolute_entry_alias_lower_at_fails.zig", .expected = "public lowering source path must stay under the package root" },
+        .{ .name = "cf-absolute-entry-alias-ir-program-at", .path = "test/compile_fail/absolute_entry_alias_ir_program_at_fails.zig", .expected = "public lowering source path must stay under the package root" },
         .{ .name = "cf-collect-closed-outputs-const-mutating-finish", .path = "test/compile_fail/collect_closed_outputs_const_mutating_finish_fails.zig", .expected = "cast discards const qualifier" },
         .{ .name = "cf-one-shot-missing-after-resume", .path = "test/one_shot_survey/missing_after_resume_fails.zig", .expected = "must declare afterResume" },
         .{ .name = "cf-one-shot-missing-resume-or-return", .path = "test/one_shot_survey/missing_resume_or_return_fails.zig", .expected = "must declare resumeOrReturn" },
@@ -1706,6 +1754,7 @@ pub fn build(b: *std.Build) void {
     assertOwnedCompileFailFixtures(b, "test/compile_fail", compile_fail_fixtures);
     inline for (compile_fail_fixtures) |fixture| {
         const fixture_mod = createShiftPromptFixtureModule(b, fixture.path, target, optimize, .{
+            .authoring_build_options_mod = authoring_build_options_mod,
             .shift_mod = shift_mod,
             .prompt_support_mod = prompt_support_mod,
             .with_api_mod = with_api_mod,

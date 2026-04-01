@@ -173,7 +173,7 @@ fn repoRelativePath(comptime source_path: []const u8) []const u8 {
                 error.TooManySegments => @compileError("public lowering source path exceeded the supported segment budget"),
             };
         }
-        return absoluteSourcePath(source_path);
+        @compileError("public lowering source path must stay under the package root");
     }
     return normalizeRelativePath(source_path) catch |err| switch (err) {
         error.EmptyPath => @compileError("public lowering source path must point to a file under the package root"),

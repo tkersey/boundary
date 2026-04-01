@@ -589,9 +589,17 @@ fn cloneCallEdges(comptime call_edges: []const effect_ir.CallEdge) []const effec
     };
 }
 
-fn explicitEntryIndex(comptime functions: []const effect_ir.Function, comptime entry_symbol: []const u8) u16 {
+fn explicitEntryIndex(
+    comptime functions: []const effect_ir.Function,
+    comptime entry_symbol: []const u8,
+    comptime entry_module_path: ?[]const u8,
+) u16 {
     for (functions, 0..) |function, index| {
-        if (std.mem.eql(u8, function.symbol.symbol_name, entry_symbol)) return @intCast(index);
+        if (!std.mem.eql(u8, function.symbol.symbol_name, entry_symbol)) continue;
+        if (entry_module_path) |module_path| {
+            if (!std.mem.eql(u8, function.symbol.module_path, module_path)) continue;
+        }
+        return @intCast(index);
     }
     @compileError("public lowering could not find the requested entry symbol in the explicit effect-ir program");
 }
@@ -996,6 +1004,7 @@ fn openRowWithRootSource(
     return .{
         .label = spec.label,
         .entry_symbol = spec.entry_symbol,
+        .entry_module_path = graph.functions[graph.entry_index].module_path,
         .functions = functions,
         .call_edges = buildCallEdgesForGraph(graph),
         .function_bodies = buildFunctionBodiesForGraph(
@@ -1016,7 +1025,7 @@ pub fn lowerOpenRowAt(comptime source_path: []const u8, comptime spec: LowerSpec
 pub fn irProgramAt(comptime source_path: []const u8, comptime spec: LowerSpec) effect_ir.Program {
     const payload = openRowAt(source_path, spec);
     return .{
-        .entry_index = explicitEntryIndex(payload.functions, spec.entry_symbol),
+        .entry_index = explicitEntryIndex(payload.functions, spec.entry_symbol, payload.entry_module_path),
         .functions = payload.functions,
         .call_edges = payload.call_edges,
         .function_bodies = payload.function_bodies,

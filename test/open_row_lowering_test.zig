@@ -1171,6 +1171,12 @@ test "explicit-path lowering accepts checkout-alias absolute paths" {
     try std.testing.expectEqualDeep(Canonical.runtime_plan.instructions, Lowered.runtime_plan.instructions);
 }
 
+test "repo duplicate basename registry ignores global cache entries" {
+    try std.testing.expect(
+        std.mem.indexOf(u8, authoring_build_options.repo_duplicate_basenames, "source_ownership_probe_test.zig\n") == null,
+    );
+}
+
 test "explicit-path lowering disambiguates imported helpers by alias" {
     const spec: shift.lowering.LowerSpec = .{
         .label = "test.open_row_helper_alias",
@@ -1201,6 +1207,44 @@ test "explicit-path lowering disambiguates imported helpers by alias" {
     try std.testing.expectEqual(@as(usize, 2), result.outputs.writer.len);
     try std.testing.expectEqualStrings("a", result.outputs.writer[0]);
     try std.testing.expectEqualStrings("b", result.outputs.writer[1]);
+}
+
+test "explicit-path lowering preserves the entry module when helpers share the entry symbol name" {
+    const spec: shift.lowering.LowerSpec = .{
+        .label = "test.open_row_entry_symbol_alias",
+        .entry_symbol = "runBody",
+        .row = shift.ir.rowFromSpec(.{
+            .writer = .{
+                .tell = shift.ir.Transform([]const u8, void),
+            },
+        }),
+        .outputs = &.{
+            .{ .label = "writer", .OutputType = [][]const u8 },
+        },
+    };
+
+    const lowered = shift.lowerAt("test/open_row_entry_symbol_alias/entry.zig", spec);
+    const ir_program = shift.lowering.irProgramAt("test/open_row_entry_symbol_alias/entry.zig", spec);
+
+    try std.testing.expectEqualStrings(
+        "test/open_row_entry_symbol_alias/entry.zig",
+        ir_program.functions[ir_program.entry_index].symbol.module_path,
+    );
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var handlers = LoweredWriterOnlyHandlers{
+        .writer = .{ .allocator = std.testing.allocator },
+    };
+    defer handlers.writer.deinit();
+
+    const result = try lowered.run(&runtime, &handlers);
+    defer std.testing.allocator.free(result.outputs.writer);
+
+    try std.testing.expectEqual(@as(usize, 2), result.outputs.writer.len);
+    try std.testing.expectEqualStrings("helper", result.outputs.writer[0]);
+    try std.testing.expectEqualStrings("entry", result.outputs.writer[1]);
 }
 
 test "open-row state-writer example stays transcript-backed" {

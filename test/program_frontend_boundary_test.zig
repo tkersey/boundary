@@ -15,7 +15,34 @@ test "program frontend lowers nested workflow publish to the canonical scenario"
     try std.testing.expectEqualStrings("nested_workflow", lowered.scenario.case_id);
 }
 
-test "open-row lowering rejects ambiguous entry symbols across modules" {
+test "open-row lowering disambiguates same-named entry symbols by module path" {
+    const lowered = try program_frontend.lowerOpenRow(.{
+        .label = "example.ambiguous_entry",
+        .entry_symbol = "runBody",
+        .entry_module_path = "examples/root.zig",
+        .functions = &.{
+            .{
+                .symbol = .{
+                    .module_path = "examples/helper.zig",
+                    .symbol_name = "runBody",
+                },
+                .row = effect_ir.rowFromSpec(.{}),
+            },
+            .{
+                .symbol = .{
+                    .module_path = "examples/root.zig",
+                    .symbol_name = "runBody",
+                },
+                .row = effect_ir.rowFromSpec(.{}),
+            },
+        },
+    });
+
+    try std.testing.expectEqual(@as(usize, 1), lowered.entry_index);
+    try std.testing.expectEqualStrings("examples/root.zig", lowered.functions[lowered.entry_index].symbol.module_path);
+}
+
+test "open-row lowering rejects ambiguous entry symbols when the entry module is absent" {
     try std.testing.expectError(error.DuplicateSymbol, program_frontend.lowerOpenRow(.{
         .label = "example.ambiguous_entry",
         .entry_symbol = "runBody",

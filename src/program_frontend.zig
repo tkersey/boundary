@@ -58,6 +58,7 @@ pub const LoweredProgram = struct {
 pub const OpenRowProgram = struct {
     label: []const u8,
     entry_symbol: []const u8,
+    entry_module_path: ?[]const u8 = null,
     functions: []const effect_ir.Function,
     call_edges: []const effect_ir.CallEdge = &.{},
     function_bodies: []const FunctionBody = &.{},
@@ -492,10 +493,17 @@ fn validateOpenRowGraph(
     });
 }
 
-fn entryIndex(comptime functions: []const effect_ir.Function, comptime entry_symbol: []const u8) effect_ir.NormalizeError!usize {
+fn entryIndex(
+    comptime functions: []const effect_ir.Function,
+    comptime entry_symbol: []const u8,
+    comptime entry_module_path: ?[]const u8,
+) effect_ir.NormalizeError!usize {
     var found_index: ?usize = null;
     for (functions, 0..) |function, index| {
         if (!std.mem.eql(u8, function.symbol.symbol_name, entry_symbol)) continue;
+        if (entry_module_path) |module_path| {
+            if (!std.mem.eql(u8, function.symbol.module_path, module_path)) continue;
+        }
         if (found_index != null) return error.DuplicateSymbol;
         found_index = index;
     }
@@ -509,7 +517,7 @@ pub fn lowerOpenRow(program: OpenRowProgram) effect_ir.NormalizeError!LoweredOpe
         return error.UnsupportedHelperCallEdge;
     }
     return .{
-        .entry_index = try entryIndex(program.functions, program.entry_symbol),
+        .entry_index = try entryIndex(program.functions, program.entry_symbol, program.entry_module_path),
         .functions = cloneFunctions(program.functions),
         .call_edges = cloneCallEdges(program.call_edges),
         .function_bodies = if (program.function_bodies.len == 0)
