@@ -823,6 +823,9 @@ pub fn planFromOpenRowProgram(
     comptime label: []const u8,
     comptime program: program_frontend.LoweredOpenRowProgram,
 ) PlanError!ProgramPlan {
+    if (program.function_bodies.len == 0) {
+        return try planFromProgram(label, program.asEffectProgram());
+    }
     const summary_program = program.asEffectProgram();
     const requirement_total = comptime blk: {
         var total: usize = 0;
@@ -1177,6 +1180,47 @@ test "planFromProgram hashes the whole program and makes helper calls self-conta
     try std.testing.expectEqual(TerminatorKind.return_value, plan.terminators[0].kind);
     try std.testing.expectEqual(TerminatorKind.return_value, plan.terminators[1].kind);
     try plan.validate();
+}
+
+test "planFromOpenRowProgram preserves row-only helper call plans" {
+    const shared_row = effect_ir.rowFromSpec(.{
+        .state = .{
+            .get = effect_ir.Transform(void, i32),
+        },
+    });
+    const helper_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/workflow.zig",
+        .symbol_name = "helper",
+    };
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/workflow.zig",
+        .symbol_name = "root",
+    };
+    const lowered = program_frontend.LoweredOpenRowProgram{
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol = root_symbol,
+                .row = shared_row,
+                .outputs = &.{.{ .label = "state", .OutputType = i32 }},
+            },
+            .{
+                .symbol = helper_symbol,
+                .row = shared_row,
+                .outputs = &.{.{ .label = "state", .OutputType = i32 }},
+            },
+        },
+        .call_edges = &.{.{
+            .caller = root_symbol,
+            .callee = helper_symbol,
+        }},
+        .function_bodies = &.{},
+    };
+
+    const row_only_plan = try planFromProgram("example.workflow", lowered.asEffectProgram());
+    const open_row_plan = try planFromOpenRowProgram("example.workflow", lowered);
+
+    try std.testing.expectEqualDeep(row_only_plan, open_row_plan);
 }
 
 test "ProgramPlan.validate rejects out-of-range helper targets" {

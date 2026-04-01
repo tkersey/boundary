@@ -1649,10 +1649,12 @@ test "source ownership accepts only absolute paths rooted at the checkout or pac
         .repo_path = "examples/open_row_state_writer.zig",
         .caller_file = canonical_owned,
     }));
-    try std.testing.expect(sourceOwnershipMatches(.{
-        .repo_path = "examples/open_row_state_writer.zig",
-        .caller_file = alias_owned,
-    }));
+    if (build_options.package_root_alias_available) {
+        try std.testing.expect(sourceOwnershipMatches(.{
+            .repo_path = "examples/open_row_state_writer.zig",
+            .caller_file = alias_owned,
+        }));
+    }
     try std.testing.expect(!sourceOwnershipMatches(.{
         .repo_path = "examples/open_row_state_writer.zig",
         .caller_file = "/tmp/foreign/examples/open_row_state_writer.zig",
@@ -1673,10 +1675,12 @@ test "source ownership rejects absolute paths whose root only shares a prefix wi
         .repo_path = "examples/open_row_state_writer.zig",
         .caller_file = prefixed_checkout_root,
     }));
-    try std.testing.expect(!sourceOwnershipMatches(.{
-        .repo_path = "examples/open_row_state_writer.zig",
-        .caller_file = prefixed_alias_root,
-    }));
+    if (build_options.package_root_alias_available) {
+        try std.testing.expect(!sourceOwnershipMatches(.{
+            .repo_path = "examples/open_row_state_writer.zig",
+            .caller_file = prefixed_alias_root,
+        }));
+    }
 }
 
 test "source ownership accepts a helper-authored content witness when caller paths are module-root relative" {

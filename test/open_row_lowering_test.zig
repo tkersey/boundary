@@ -1130,6 +1130,7 @@ test "explicit-path lowering supports cross-file helper modules" {
 }
 
 test "explicit-path lowering accepts checkout-alias absolute paths" {
+    if (!authoring_build_options.package_root_alias_available) return error.SkipZigTest;
     const spec: shift.lowering.LowerSpec = .{
         .label = "example.open_row_cross_file_writer.alias",
         .entry_symbol = "runBody",

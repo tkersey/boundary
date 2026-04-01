@@ -235,80 +235,79 @@ fn collectRepoZigPaths(
     }
 }
 
-fn packageRootAliasPath(b: *std.Build) []const u8 {
-    const alias_path = std.fmt.allocPrint(
-        b.allocator,
-        "/tmp/shift_repo_alias_{x}",
-        .{std.hash.Wyhash.hash(0, b.pathFromRoot("."))},
-    ) catch std.process.fatal("unable to allocate package-root alias path", .{});
+const PackageRootAlias = struct {
+    path: []const u8,
+    available: bool,
+};
+
+fn boundaryAliasRoot(b: *std.Build) []const u8 {
     const repo_root = b.pathFromRoot(".");
+    const repo_parent = std.fs.path.dirname(repo_root) orelse
+        std.process.fatal("unable to derive package-root alias parent", .{});
+    return std.fs.path.join(b.allocator, &.{ repo_parent, ".shift_aliases" }) catch
+        std.process.fatal("unable to allocate package-root alias root", .{});
+}
+
+fn clearAliasPath(alias_path: []const u8, dir_error: []const u8, path_error: []const u8) void {
+    std.fs.deleteFileAbsolute(alias_path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        error.IsDir => std.fs.deleteTreeAbsolute(alias_path) catch
+            std.process.fatal("{s}", .{dir_error}),
+        else => std.process.fatal("{s}", .{path_error}),
+    };
+}
+
+fn packageRootAlias(b: *std.Build) PackageRootAlias {
+    const repo_root = b.pathFromRoot(".");
+    const alias_root = boundaryAliasRoot(b);
+    std.fs.makeDirAbsolute(alias_root) catch |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => return .{ .path = repo_root, .available = false },
+    };
+    const alias_leaf = std.fmt.allocPrint(
+        b.allocator,
+        "shift_repo_alias_{x}",
+        .{std.hash.Wyhash.hash(0, repo_root)},
+    ) catch std.process.fatal("unable to allocate package-root alias leaf", .{});
+    const alias_path = std.fs.path.join(b.allocator, &.{ alias_root, alias_leaf }) catch
+        std.process.fatal("unable to allocate package-root alias path", .{});
 
     var link_buffer: [std.fs.max_path_bytes]u8 = undefined;
     const existing_target = std.fs.readLinkAbsolute(alias_path, &link_buffer) catch |err| switch (err) {
         error.FileNotFound => null,
         else => blk: {
-            std.fs.deleteFileAbsolute(alias_path) catch |delete_err| switch (delete_err) {
-                error.FileNotFound => {},
-                error.IsDir => std.fs.deleteTreeAbsolute(alias_path) catch
-                    std.process.fatal("unable to clear package-root alias directory", .{}),
-                else => std.process.fatal("unable to clear package-root alias path", .{}),
-            };
+            clearAliasPath(alias_path, "unable to clear package-root alias directory", "unable to clear package-root alias path");
             break :blk null;
         },
     };
     if (existing_target) |target| {
-        if (std.mem.eql(u8, target, repo_root)) return alias_path;
+        if (std.mem.eql(u8, target, repo_root)) return .{
+            .path = alias_path,
+            .available = true,
+        };
     }
 
-    std.fs.deleteFileAbsolute(alias_path) catch |err| switch (err) {
-        error.FileNotFound => {},
-        error.IsDir => std.fs.deleteTreeAbsolute(alias_path) catch
-            std.process.fatal("unable to clear package-root alias directory", .{}),
-        else => std.process.fatal("unable to clear package-root alias path", .{}),
-    };
+    clearAliasPath(alias_path, "unable to clear package-root alias directory", "unable to clear package-root alias path");
     std.fs.symLinkAbsolute(repo_root, alias_path, .{}) catch
-        std.process.fatal("unable to create package-root alias path", .{});
-    return alias_path;
+        return .{ .path = repo_root, .available = false };
+    return .{
+        .path = alias_path,
+        .available = true,
+    };
 }
 
-fn externalSourceAliasPath(b: *std.Build, repo_relative_path: []const u8) []const u8 {
+fn externalSourceRejectionPath(b: *std.Build, repo_relative_path: []const u8) []const u8 {
     const alias_hash = std.hash.Wyhash.hash(
         std.hash.Wyhash.hash(0, b.pathFromRoot(".")),
         repo_relative_path,
     );
-    const alias_path = std.fmt.allocPrint(
+    const alias_leaf = std.fmt.allocPrint(
         b.allocator,
-        "/tmp/shift_source_alias_{x}_{s}",
+        "shift_source_alias_{x}_{s}",
         .{ alias_hash, std.fs.path.basename(repo_relative_path) },
-    ) catch std.process.fatal("unable to allocate external source alias path", .{});
-    const target_path = b.pathFromRoot(repo_relative_path);
-
-    var link_buffer: [std.fs.max_path_bytes]u8 = undefined;
-    const existing_target = std.fs.readLinkAbsolute(alias_path, &link_buffer) catch |err| switch (err) {
-        error.FileNotFound => null,
-        else => blk: {
-            std.fs.deleteFileAbsolute(alias_path) catch |delete_err| switch (delete_err) {
-                error.FileNotFound => {},
-                error.IsDir => std.fs.deleteTreeAbsolute(alias_path) catch
-                    std.process.fatal("unable to clear external source alias directory", .{}),
-                else => std.process.fatal("unable to clear external source alias path", .{}),
-            };
-            break :blk null;
-        },
-    };
-    if (existing_target) |target| {
-        if (std.mem.eql(u8, target, target_path)) return alias_path;
-    }
-
-    std.fs.deleteFileAbsolute(alias_path) catch |err| switch (err) {
-        error.FileNotFound => {},
-        error.IsDir => std.fs.deleteTreeAbsolute(alias_path) catch
-            std.process.fatal("unable to clear external source alias directory", .{}),
-        else => std.process.fatal("unable to clear external source alias path", .{}),
-    };
-    std.fs.symLinkAbsolute(target_path, alias_path, .{}) catch
-        std.process.fatal("unable to create external source alias path", .{});
-    return alias_path;
+    ) catch std.process.fatal("unable to allocate external source rejection leaf", .{});
+    return std.fs.path.join(b.allocator, &.{ boundaryAliasRoot(b), alias_leaf }) catch
+        std.process.fatal("unable to allocate external source rejection path", .{});
 }
 
 fn buildPathBasename(path: []const u8) []const u8 {
@@ -479,10 +478,12 @@ pub fn build(b: *std.Build) void {
     lowered_machine_mod.addImport("internal_kernel", internal_kernel_mod);
     lowered_machine_mod.addImport("interpreter", interpreter_mod);
     const authoring_lowerer_options = b.addOptions();
+    const package_root_alias = packageRootAlias(b);
     const lowerer_opts_marker = true;
     authoring_lowerer_options.addOption([]const u8, "package_root", b.pathFromRoot("."));
-    authoring_lowerer_options.addOption([]const u8, "package_root_alias", packageRootAliasPath(b));
-    authoring_lowerer_options.addOption([]const u8, "external_open_row_state_writer_alias_path", externalSourceAliasPath(b, "examples/open_row_state_writer.zig"));
+    authoring_lowerer_options.addOption([]const u8, "package_root_alias", package_root_alias.path);
+    authoring_lowerer_options.addOption(bool, "package_root_alias_available", package_root_alias.available);
+    authoring_lowerer_options.addOption([]const u8, "external_open_row_state_writer_alias_path", externalSourceRejectionPath(b, "examples/open_row_state_writer.zig"));
     authoring_lowerer_options.addOption([]const u8, "repo_zig_paths", repoZigPathRegistry(b));
     authoring_lowerer_options.addOption([]const u8, "repo_duplicate_basenames", repoDuplicateBasenameRegistry(b));
     authoring_lowerer_options.addOption(bool, "authoring_lowerer_options_marker", lowerer_opts_marker);
