@@ -1266,6 +1266,22 @@ fn cloneLegacyInstructionV2IntoCurrent(instruction: LegacyInstructionV2) kernel.
     };
 }
 
+fn instructionOwnsStringLiteral(instruction: kernel.Instruction) bool {
+    return instruction.kind == .const_string or instruction.string_literal.len != 0;
+}
+
+fn cloneInstruction(allocator: std.mem.Allocator, instruction: kernel.Instruction) !kernel.Instruction {
+    var cloned = instruction;
+    if (instructionOwnsStringLiteral(instruction)) {
+        cloned.string_literal = try allocator.dupe(u8, instruction.string_literal);
+    }
+    return cloned;
+}
+
+fn freeInstruction(allocator: std.mem.Allocator, instruction: kernel.Instruction) void {
+    if (instructionOwnsStringLiteral(instruction)) allocator.free(instruction.string_literal);
+}
+
 fn cloneLegacyProgramPlanV2(allocator: std.mem.Allocator, plan: LegacyProgramPlanV2) !kernel.ProgramPlan {
     var cloned = kernel.ProgramPlan{
         .schema_version = plan.schema_version,
@@ -1497,7 +1513,16 @@ fn clonePlan(allocator: std.mem.Allocator, plan: kernel.ProgramPlan) !kernel.Pro
     allocator.free(cloned.terminators);
     cloned.terminators = terminators;
 
-    const instructions = try allocator.dupe(kernel.Instruction, plan.instructions);
+    var instructions = try allocator.alloc(kernel.Instruction, plan.instructions.len);
+    errdefer allocator.free(instructions);
+    var instruction_count: usize = 0;
+    errdefer {
+        for (instructions[0..instruction_count]) |instruction| freeInstruction(allocator, instruction);
+    }
+    for (plan.instructions, 0..) |instruction, index| {
+        instructions[index] = try cloneInstruction(allocator, instruction);
+        instruction_count += 1;
+    }
     allocator.free(cloned.instructions);
     cloned.instructions = instructions;
     return cloned;
@@ -1559,6 +1584,7 @@ fn freePlan(allocator: std.mem.Allocator, plan: *const kernel.ProgramPlan) void 
     allocator.free(plan.call_args);
     allocator.free(plan.blocks);
     allocator.free(plan.terminators);
+    for (plan.instructions) |instruction| freeInstruction(allocator, instruction);
     allocator.free(plan.instructions);
 }
 
@@ -1665,4 +1691,80 @@ fn eventEql(lhs: kernel.Event, rhs: kernel.Event) bool {
             else => false,
         },
     };
+}
+
+test "clonePlan owns const_string literals before parse teardown" {
+    const allocator = std.testing.allocator;
+    const plan_file: PlanFile = .{
+        .plan_hash = 0,
+        .plan = .{
+            .label = "persisted.plan",
+            .ir_hash = 0x1234,
+            .entry_index = 0,
+            .functions = &.{.{
+                .symbol_name = "runBody",
+                .value_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 1,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 2,
+                .entry_block = 0,
+            }},
+            .requirements = &.{},
+            .ops = &.{},
+            .outputs = &.{.{
+                .label = "result",
+                .codec = .string,
+            }},
+            .locals = &.{.{ .codec = .string }},
+            .call_args = &.{},
+            .blocks = &.{.{
+                .first_instruction = 0,
+                .instruction_count = 2,
+                .terminator_index = 0,
+            }},
+            .terminators = &.{.{
+                .kind = .return_value,
+                .primary = 0,
+            }},
+            .instructions = &.{
+                .{
+                    .kind = .const_string,
+                    .dst = 0,
+                    .string_literal = "persisted literal",
+                },
+                .{
+                    .kind = .return_value,
+                    .operand = 0,
+                },
+            },
+        },
+    };
+    var json: std.io.Writer.Allocating = .init(allocator);
+    defer json.deinit();
+    try std.json.Stringify.value(plan_file, .{}, &json.writer);
+
+    const cloned = blk: {
+        const parsed = try std.json.parseFromSlice(PlanFile, allocator, json.written(), .{});
+        defer parsed.deinit();
+        const parsed_literal = parsed.value.plan.instructions[0].string_literal;
+
+        const cloned = try clonePlan(allocator, parsed.value.plan);
+        try std.testing.expect(cloned.instructions[0].string_literal.ptr != parsed_literal.ptr);
+        break :blk cloned;
+    };
+    defer freePlan(allocator, &cloned);
+
+    const clobber = try allocator.alloc(u8, cloned.instructions[0].string_literal.len);
+    defer allocator.free(clobber);
+    @memset(clobber, 'x');
+
+    try std.testing.expectEqualStrings("persisted literal", cloned.instructions[0].string_literal);
 }

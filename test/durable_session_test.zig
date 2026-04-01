@@ -552,6 +552,78 @@ test "durable restore preserves plan-backed helper ABI fields across persisted p
     try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
 }
 
+test "durable restore preserves plan-backed const_string literals across persisted plan reload" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const artifact: shift.durable.ProgramArtifact = .{
+        .label = "plan_backed_const_string",
+        .program_hash = 0x9912,
+        .steps = &.{
+            .{ .emit = .{ .note = "plan-backed" } },
+            .{ .emit = .{ .final_string = "persisted literal" } },
+        },
+        .plan = .{
+            .label = "demo.plan",
+            .ir_hash = 0x5512,
+            .entry_index = 0,
+            .functions = &.{.{
+                .symbol_name = "runBody",
+                .value_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 1,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 2,
+            }},
+            .requirements = &.{},
+            .ops = &.{},
+            .outputs = &.{.{
+                .label = "result",
+                .codec = .string,
+            }},
+            .locals = &.{.{ .codec = .string }},
+            .call_args = &.{},
+            .blocks = &.{.{
+                .first_instruction = 0,
+                .instruction_count = 2,
+                .terminator_index = 0,
+            }},
+            .terminators = &.{.{
+                .kind = .return_value,
+                .primary = 0,
+            }},
+            .instructions = &.{
+                .{
+                    .kind = .const_string,
+                    .dst = 0,
+                    .string_literal = "persisted literal",
+                },
+                .{
+                    .kind = .return_value,
+                    .operand = 0,
+                },
+            },
+        },
+    };
+
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    _ = try store.saveArtifact(artifact, null);
+
+    const restored = try store.restoreArtifact(artifact);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
+    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
+}
+
 test "durable restore accepts a matching step bridge when persisted plan.json is valid" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
