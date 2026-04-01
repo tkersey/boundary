@@ -840,6 +840,11 @@ fn buildFunctionsForGraph(comptime graph: source_graph_embed.ProgramGraph, compt
     const reachable = reachableFunctions(graph);
     const flat_ops = flatOpsForRow(spec.row);
     const used_ops = inferUsedOps(graph, flat_ops);
+    const entry_function = graph.functions[graph.entry_index];
+
+    if (entry_function.value_param_count != 0) {
+        @compileError("public lowering rejected entry functions with value parameters because run(runtime, handlers) cannot supply entry arguments");
+    }
 
     const function_count = count: {
         var count_functions: usize = 0;
@@ -853,7 +858,6 @@ fn buildFunctionsForGraph(comptime graph: source_graph_embed.ProgramGraph, compt
         var buffer: [function_count]effect_ir.Function = undefined;
         var index: usize = 0;
 
-        const entry_function = graph.functions[graph.entry_index];
         buffer[index] = .{
             .symbol = .{
                 .module_path = cloneBytes(entry_function.module_path),

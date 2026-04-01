@@ -149,7 +149,7 @@ pub const ProgramPlan = struct {
         for (self.functions) |function| {
             if (function.symbol_name.len == 0) return error.EmptyFunctionSymbol;
             if (function.parameter_count > function.local_count) return error.InvalidFunctionLocalSpan;
-            if (function.entry_block >= function.block_count and function.block_count != 0) return error.InvalidFunctionEntryBlock;
+            if (function.block_count == 0 or function.entry_block >= function.block_count) return error.InvalidFunctionEntryBlock;
             const requirement_end = rangeEnd(function.first_requirement, function.requirement_count) orelse return error.InvalidFunctionRequirementSpan;
             if (requirement_end > self.requirements.len) return error.InvalidFunctionRequirementSpan;
             const output_end = rangeEnd(function.first_output, function.output_count) orelse return error.InvalidFunctionOutputSpan;
@@ -211,7 +211,9 @@ pub const ProgramPlan = struct {
                         }
                     },
                     .call_op => {
-                        if (instruction.operand >= self.ops.len) return error.InvalidCallOpTarget;
+                        if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
+                            return error.InvalidCallOpTarget;
+                        }
                         if (self.ops[instruction.operand].resume_codec != .unit and
                             !isValidFunctionLocal(function.local_count, instruction.dst))
                         {
@@ -496,6 +498,15 @@ fn isOwnedBlockTarget(first_block: u16, block_end: usize, target: u16) bool {
     return target_index >= first_block and target_index < block_end;
 }
 
+fn functionOwnsOpTarget(self: ProgramPlan, function: FunctionPlan, target: u16) bool {
+    const requirement_end = rangeEnd(function.first_requirement, function.requirement_count) orelse return false;
+    for (self.requirements[function.first_requirement..requirement_end]) |requirement| {
+        const op_end = rangeEnd(requirement.first_op, requirement.op_count) orelse return false;
+        if (target >= requirement.first_op and target < op_end) return true;
+    }
+    return false;
+}
+
 fn symbolIndex(comptime program: effect_ir.Program, comptime symbol: effect_ir.SymbolRef) ?u16 {
     for (program.functions, 0..) |function, index| {
         if (function.symbol.eql(symbol)) return @intCast(index);
@@ -545,7 +556,7 @@ fn invalidGeneratedPlan(err: ValidationError) noreturn {
         error.EmptyRequirementLabel => "runtime plan generator produced an empty requirement label",
         error.InvalidCallHelperArgSpan => "runtime plan generator produced an invalid helper call argument span",
         error.InvalidCallHelperTarget => "runtime plan generator produced an out-of-range helper target",
-        error.InvalidCallOpTarget => "runtime plan generator produced an out-of-range op target",
+        error.InvalidCallOpTarget => "runtime plan generator produced an out-of-range or foreign-row op target",
         error.InvalidBlockInstructionSpan => "runtime plan generator produced an invalid block instruction span",
         error.InvalidBlockTerminatorIndex => "runtime plan generator produced an invalid block terminator index",
         error.InvalidEntryIndex => "runtime plan generator produced an invalid entry index",
@@ -1413,6 +1424,37 @@ test "ProgramPlan.validate rejects helper call arguments outside the owning func
     try std.testing.expectError(error.InvalidCallHelperArgSpan, plan.validate());
 }
 
+test "ProgramPlan.validate rejects functions without owned blocks" {
+    const plan = ProgramPlan{
+        .label = "invalid.blockless_function",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 0,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .blocks = &.{},
+        .terminators = &.{},
+        .instructions = &.{},
+    };
+
+    try std.testing.expectError(error.InvalidFunctionEntryBlock, plan.validate());
+}
+
 test "ProgramPlan.validate rejects call_op payload locals outside the owning function locals" {
     const plan = ProgramPlan{
         .label = "invalid.call_op_payload_local",
@@ -1460,6 +1502,96 @@ test "ProgramPlan.validate rejects call_op payload locals outside the owning fun
     };
 
     try std.testing.expectError(error.InvalidInstructionLocalIndex, plan.validate());
+}
+
+test "ProgramPlan.validate rejects call_op targets outside the owning function row" {
+    const plan = ProgramPlan{
+        .label = "invalid.call_op_foreign_row",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "root",
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 0,
+                .first_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 0,
+            },
+            .{
+                .symbol_name = "helper",
+                .first_requirement = 1,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 1,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 1,
+            },
+        },
+        .requirements = &.{
+            .{
+                .label = "state",
+                .first_op = 0,
+                .op_count = 1,
+            },
+            .{
+                .label = "writer",
+                .first_op = 1,
+                .op_count = 1,
+            },
+        },
+        .ops = &.{
+            .{
+                .requirement_index = 0,
+                .op_name = "get",
+                .mode = .transform,
+                .payload_codec = .unit,
+                .resume_codec = .i32,
+            },
+            .{
+                .requirement_index = 1,
+                .op_name = "tell",
+                .mode = .transform,
+                .payload_codec = .string,
+                .resume_codec = .unit,
+            },
+        },
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &.{
+            .{
+                .first_instruction = 0,
+                .instruction_count = 0,
+                .terminator_index = 0,
+            },
+            .{
+                .first_instruction = 0,
+                .instruction_count = 1,
+                .terminator_index = 1,
+            },
+        },
+        .terminators = &.{
+            .{ .kind = .return_unit },
+            .{ .kind = .return_unit },
+        },
+        .instructions = &.{.{
+            .kind = .call_op,
+            .dst = 0,
+            .operand = 0,
+            .aux = std.math.maxInt(u16),
+        }},
+    };
+
+    try std.testing.expectError(error.InvalidCallOpTarget, plan.validate());
 }
 
 test "ProgramPlan.validate rejects value-producing helper destinations outside the owning function locals" {

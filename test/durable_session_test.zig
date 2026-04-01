@@ -324,7 +324,7 @@ test "durable saveArtifact rejects structurally invalid plan-backed artifacts" {
     };
 
     const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
-    try std.testing.expectError(error.InvalidFunctionInstructionSpan, store.saveArtifact(invalid_artifact, null));
+    try std.testing.expectError(error.InvalidFunctionEntryBlock, store.saveArtifact(invalid_artifact, null));
     try std.testing.expectError(error.FileNotFound, std.fs.cwd().statFile(paths.manifest_path));
     try std.testing.expectError(error.FileNotFound, std.fs.cwd().statFile(paths.artifact_path));
     try std.testing.expectError(error.FileNotFound, std.fs.cwd().statFile(paths.plan_path));
