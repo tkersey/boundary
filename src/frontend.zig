@@ -7,7 +7,8 @@ const EncodedValue = lowered_machine.ProgramValue;
 
 const FrameBase = struct {
     prompt_token: prompt_contract.PromptToken,
-    previous_for_token: ?*FrameBase = null,
+    runtime_previous_for_token: ?*FrameBase = null,
+    compat_previous_for_token: ?*FrameBase = null,
 };
 
 fn PromptTypeFromPtr(comptime PromptPtrType: type) type {
@@ -929,16 +930,25 @@ fn findFrame(comptime PromptType: type, prompt: *const PromptType) ?*Frame(Promp
 }
 
 fn pushActiveFrame(runtime: *lowered_machine.Runtime, base: *FrameBase) lowered_machine.Error!void {
-    const previous = runtime.core.frames.push(runtime.core.allocator, base.prompt_token, base) catch return error.ProgramContractViolation;
-    base.previous_for_token = if (previous) |raw| @ptrCast(@alignCast(raw)) else null;
-    _ = portable_core.compatFramePush(runtime.core.allocator, base.prompt_token, base) catch return error.ProgramContractViolation;
+    const runtime_previous = runtime.core.frames.push(runtime.core.allocator, base.prompt_token, base) catch return error.ProgramContractViolation;
+    base.runtime_previous_for_token = if (runtime_previous) |raw| @ptrCast(@alignCast(raw)) else null;
+    errdefer {
+        const previous: ?*anyopaque = if (base.runtime_previous_for_token) |prior| @ptrCast(prior) else null;
+        runtime.core.frames.pop(base.prompt_token, previous);
+        base.runtime_previous_for_token = null;
+    }
+
+    const compat_previous = portable_core.compatFramePush(runtime.core.allocator, base.prompt_token, base) catch return error.ProgramContractViolation;
+    base.compat_previous_for_token = if (compat_previous) |raw| @ptrCast(@alignCast(raw)) else null;
 }
 
 fn popActiveFrame(runtime: *lowered_machine.Runtime, base: *FrameBase) void {
-    const previous: ?*anyopaque = if (base.previous_for_token) |prior| @ptrCast(prior) else null;
-    runtime.core.frames.pop(base.prompt_token, previous);
-    portable_core.compatFramePop(base.prompt_token, previous);
-    base.previous_for_token = null;
+    const runtime_previous: ?*anyopaque = if (base.runtime_previous_for_token) |prior| @ptrCast(prior) else null;
+    const compat_previous: ?*anyopaque = if (base.compat_previous_for_token) |prior| @ptrCast(prior) else null;
+    runtime.core.frames.pop(base.prompt_token, runtime_previous);
+    portable_core.compatFramePop(base.prompt_token, compat_previous);
+    base.runtime_previous_for_token = null;
+    base.compat_previous_for_token = null;
 }
 
 fn encodeResume(
@@ -1570,6 +1580,41 @@ test "transform replay keeps frames disambiguated across independent prompt sour
     try std.testing.expectError(error.FrontendSuspend, transform(i32, &first_prompt, handler));
     try std.testing.expectEqual(@as(usize, 1), first_frame.records.items.len);
     try std.testing.expectEqual(@as(usize, 0), second_frame.records.items.len);
+}
+
+test "compat frame pop restores the shadowed frame when runtimes reuse a prompt token" {
+    const Prompt = prompt_contract.Prompt(.resume_then_transform, i32, i32, error{});
+
+    var first_runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer first_runtime.deinit();
+    var second_runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer second_runtime.deinit();
+
+    var first_prompt = Prompt.initWithToken(41);
+    var second_prompt = Prompt.initWithToken(41);
+
+    var first_frame = Frame(Prompt).init(lowered_machine.runtimeAllocator(&first_runtime), &first_prompt);
+    defer first_frame.deinit();
+    try pushActiveFrame(&first_runtime, &first_frame.base);
+
+    try std.testing.expect(findFrame(Prompt, &first_prompt) == &first_frame);
+    try std.testing.expect(first_runtime.core.frames.find(*FrameBase, first_prompt.token) == &first_frame.base);
+
+    var second_frame = Frame(Prompt).init(lowered_machine.runtimeAllocator(&second_runtime), &second_prompt);
+    defer second_frame.deinit();
+    try pushActiveFrame(&second_runtime, &second_frame.base);
+
+    try std.testing.expect(findFrame(Prompt, &second_prompt) == &second_frame);
+    try std.testing.expect(second_runtime.core.frames.find(*FrameBase, second_prompt.token) == &second_frame.base);
+
+    popActiveFrame(&second_runtime, &second_frame.base);
+    try std.testing.expect(findFrame(Prompt, &first_prompt) == &first_frame);
+    try std.testing.expect(first_runtime.core.frames.find(*FrameBase, first_prompt.token) == &first_frame.base);
+    try std.testing.expect(second_runtime.core.frames.find(*FrameBase, second_prompt.token) == null);
+
+    popActiveFrame(&first_runtime, &first_frame.base);
+    try std.testing.expect(findFrame(Prompt, &first_prompt) == null);
+    try std.testing.expect(first_runtime.core.frames.find(*FrameBase, first_prompt.token) == null);
 }
 
 test "choiceWithContext persists a copy of handler context for replay" {

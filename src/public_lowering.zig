@@ -367,10 +367,22 @@ fn pathStartsWithRoot(comptime path: []const u8, comptime root: []const u8) bool
     return path.len == root.len or path[root.len] == '/' or path[root.len] == '\\';
 }
 
-fn pathUsesOwnedRoot(comptime caller_file: []const u8) bool {
+fn pathUsesCheckoutRoot(comptime caller_file: []const u8) bool {
     if (!std.fs.path.isAbsolute(caller_file)) return false;
-    return pathStartsWithRoot(caller_file, build_options.package_root) or
-        pathStartsWithRoot(caller_file, build_options.package_root_alias);
+    return pathStartsWithRoot(caller_file, build_options.package_root);
+}
+
+fn pathUsesPackageRootAlias(comptime caller_file: []const u8) bool {
+    if (!build_options.package_root_alias_available) return false;
+    if (!std.fs.path.isAbsolute(caller_file)) return false;
+    return pathStartsWithRoot(caller_file, build_options.package_root_alias);
+}
+
+fn absolutePathUsesOwnedRoot(comptime source_ref: SourceRef) bool {
+    if (!std.fs.path.isAbsolute(source_ref.caller_file)) return false;
+    if (pathUsesCheckoutRoot(source_ref.caller_file)) return true;
+    if (!pathUsesPackageRootAlias(source_ref.caller_file)) return false;
+    return source_ref.caller_hash != null and source_ref.caller_source != null;
 }
 
 fn relativeOwnedRepoPathMatches(comptime caller_file: []const u8, comptime repo_path: []const u8) bool {
@@ -385,7 +397,7 @@ fn sourceOwnershipMatches(comptime source_ref: SourceRef) bool {
     }
     return (std.fs.path.isAbsolute(source_ref.caller_file) and
         pathTailMatches(source_ref.caller_file, source_ref.repo_path) and
-        pathUsesOwnedRoot(source_ref.caller_file)) or
+        absolutePathUsesOwnedRoot(source_ref)) or
         relativeOwnedRepoPathMatches(source_ref.caller_file, source_ref.repo_path);
 }
 
@@ -401,7 +413,7 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
         const caller_hash = source_ref.caller_hash orelse return false;
         if (std.fs.path.isAbsolute(source_ref.caller_file)) {
             if (!pathTailMatches(source_ref.caller_file, source_ref.repo_path)) return false;
-            if (!pathUsesOwnedRoot(source_ref.caller_file)) return false;
+            if (!absolutePathUsesOwnedRoot(source_ref)) return false;
         } else if (pathHasSeparator(source_ref.caller_file)) {
             if (!relativeOwnedRepoPathMatches(source_ref.caller_file, source_ref.repo_path)) return false;
         } else {
@@ -419,7 +431,7 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
     const repo_source = comptime source_graph_embed.embeddedSource(source_ref.repo_path);
     if (std.fs.path.isAbsolute(source_ref.caller_file)) {
         if (!pathTailMatches(source_ref.caller_file, source_ref.repo_path)) return false;
-        if (!pathUsesOwnedRoot(source_ref.caller_file)) return false;
+        if (!absolutePathUsesOwnedRoot(source_ref)) return false;
         return caller_hash == hashSourceBytes(repo_source);
     }
     if (pathHasSeparator(source_ref.caller_file)) {
@@ -430,7 +442,7 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
 }
 
 fn sourcePathForLowering(comptime source_ref: SourceRef) []const u8 {
-    if (std.fs.path.isAbsolute(source_ref.caller_file) and !pathUsesOwnedRoot(source_ref.caller_file)) {
+    if (std.fs.path.isAbsolute(source_ref.caller_file) and !absolutePathUsesOwnedRoot(source_ref)) {
         return cloneBytes(source_ref.caller_file);
     }
     return source_ref.repo_path;
@@ -1652,7 +1664,7 @@ test "source ownership requires a true repo-path suffix, not a basename-only mat
     }));
 }
 
-test "source ownership accepts only absolute paths rooted at the checkout or package-root alias" {
+test "source ownership accepts canonical absolute paths and requires content witnesses for package-root aliases" {
     const canonical_owned = comptime std.fmt.comptimePrint(
         "{s}/examples/open_row_state_writer.zig",
         .{build_options.package_root},
@@ -1667,9 +1679,20 @@ test "source ownership accepts only absolute paths rooted at the checkout or pac
         .caller_file = canonical_owned,
     }));
     if (build_options.package_root_alias_available) {
+        try std.testing.expect(!sourceOwnershipMatches(.{
+            .repo_path = "examples/open_row_state_writer.zig",
+            .caller_file = alias_owned,
+        }));
+        try std.testing.expect(!sourceOwnershipMatches(.{
+            .repo_path = "examples/open_row_state_writer.zig",
+            .caller_file = alias_owned,
+            .caller_hash = hashSourceBytes(source_graph_embed.embeddedSource("examples/open_row_state_writer.zig")),
+        }));
         try std.testing.expect(sourceOwnershipMatches(.{
             .repo_path = "examples/open_row_state_writer.zig",
             .caller_file = alias_owned,
+            .caller_hash = hashSourceBytes(source_graph_embed.embeddedSource("examples/open_row_state_writer.zig")),
+            .caller_source = source_graph_embed.embeddedSource("examples/open_row_state_writer.zig"),
         }));
     }
     try std.testing.expect(!sourceOwnershipMatches(.{
