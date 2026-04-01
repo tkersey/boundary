@@ -2,6 +2,7 @@ const authoring_build_options = @import("authoring_build_options");
 const example_open_row_branching_helper_body = @import("example_open_row_branching_helper_body");
 const example_open_row_cross_file_writer = @import("example_open_row_cross_file_writer");
 const example_open_row_escaped_string_helper_body = @import("example_open_row_escaped_string_helper_body");
+const example_open_row_helper_bool_flow = @import("example_open_row_helper_bool_flow");
 const example_open_row_helper_value_flow = @import("example_open_row_helper_value_flow");
 const example_open_row_helper_value_flow_cross = @import("example_open_row_helper_value_flow_cross");
 const example_open_row_linear_helper_body = @import("example_open_row_linear_helper_body");
@@ -69,6 +70,19 @@ const LoweredStateWriterHandlers = struct {
 
 const LoweredWriterOnlyHandlers = struct {
     writer: LoweredWriterHandler,
+};
+
+const LoweredApprovalHandler = struct {
+    allowed: bool,
+
+    /// Return the preconfigured approval bit for the lowered test handler.
+    pub fn ask(self: *@This()) anyerror!bool {
+        return self.allowed;
+    }
+};
+
+const LoweredApprovalHandlers = struct {
+    approval: LoweredApprovalHandler,
 };
 
 test "open-row state-writer workflow lowers through the public same-module path" {
@@ -336,6 +350,43 @@ test "public lowered runner executes cross-file helper value flow through the mu
     try std.testing.expectEqual(@as(usize, 1), result.outputs.writer.len);
     try std.testing.expectEqualStrings("cross-selected", result.outputs.writer[0]);
     try std.testing.expectEqualStrings("done", result.value);
+}
+
+test "bool helper lowering preserves helper parameter and return codecs" {
+    const lowered = try example_open_row_helper_bool_flow.loweredProgram();
+
+    const helper_index = comptime blk: {
+        for (lowered.program.functions, 0..) |function, function_index| {
+            if (std.mem.eql(u8, function.symbol.symbol_name, "preserve")) break :blk function_index;
+        }
+        unreachable;
+    };
+    const helper_function = lowered.program.functions[helper_index];
+    const helper_body = lowered.program.function_bodies[helper_index];
+
+    try std.testing.expectEqual(@as(usize, 1), helper_function.parameter_codecs.len);
+    try std.testing.expectEqual(@as(@TypeOf(helper_function.parameter_codecs[0]), .bool), helper_function.parameter_codecs[0]);
+    try std.testing.expectEqual(bool, helper_function.ValueType);
+    try std.testing.expectEqual(@as(usize, 1), helper_body.local_codecs.len);
+    try std.testing.expectEqual(@as(@TypeOf(helper_body.local_codecs[0]), .bool), helper_body.local_codecs[0]);
+    try std.testing.expectEqual(@as(@TypeOf(helper_body.blocks[0].instructions[0].kind), .return_value), helper_body.blocks[0].instructions[0].kind);
+}
+
+test "public lowered runner executes bool helper flow through the helper ABI" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var allowed_handlers: LoweredApprovalHandlers = .{
+        .approval = .{ .allowed = true },
+    };
+    const allowed = try example_open_row_helper_bool_flow.CompiledProgram.run(&runtime, &allowed_handlers);
+    try std.testing.expectEqual(true, allowed.value);
+
+    var denied_handlers: LoweredApprovalHandlers = .{
+        .approval = .{ .allowed = false },
+    };
+    const denied = try example_open_row_helper_bool_flow.CompiledProgram.run(&runtime, &denied_handlers);
+    try std.testing.expectEqual(false, denied.value);
 }
 
 test "open-row state-writer workflow exposes the generated same-module runtime plan" {

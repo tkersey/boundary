@@ -433,7 +433,9 @@ pub const Store = struct {
         }
         const artifact_path = try derivedArtifactPath(self.allocator, self.manifest_path);
         defer self.allocator.free(artifact_path);
-        const artifact_file = readArtifactFile(self.allocator, artifact_path) catch |err| switch (err) {
+        const legacy_artifact_path = try legacyArtifactPath(self.allocator, self.manifest_path);
+        defer self.allocator.free(legacy_artifact_path);
+        const artifact_file = readArtifactFileWithLegacyFallback(self.allocator, artifact_path, legacy_artifact_path) catch |err| switch (err) {
             error.UnsupportedArtifactSchema => return .{
                 .status = .rebuild_required,
                 .manifest = manifest,
@@ -496,7 +498,9 @@ pub const Store = struct {
         }
         const artifact_path = try derivedArtifactPath(self.allocator, self.manifest_path);
         defer self.allocator.free(artifact_path);
-        const artifact_file = readArtifactFile(self.allocator, artifact_path) catch |err| switch (err) {
+        const legacy_artifact_path = try legacyArtifactPath(self.allocator, self.manifest_path);
+        defer self.allocator.free(legacy_artifact_path);
+        const artifact_file = readArtifactFileWithLegacyFallback(self.allocator, artifact_path, legacy_artifact_path) catch |err| switch (err) {
             error.UnsupportedArtifactSchema => return .{
                 .status = .rebuild_required,
                 .manifest = manifest,
@@ -569,11 +573,13 @@ pub const Store = struct {
         }
         const plan_path = try derivedPlanPath(self.allocator, self.manifest_path);
         defer self.allocator.free(plan_path);
+        const legacy_plan_path = try legacyPlanPath(self.allocator, self.manifest_path);
+        defer self.allocator.free(legacy_plan_path);
         var loaded_plan: ?kernel.ProgramPlan = null;
         defer if (loaded_plan) |plan| freePlan(self.allocator, &plan);
         var plan_migrated = false;
         if (manifest.plan_hash) |expected_plan_hash| {
-            const plan_file = readPlanFile(self.allocator, plan_path) catch |err| switch (err) {
+            const plan_file = readPlanFileWithLegacyFallback(self.allocator, plan_path, legacy_plan_path) catch |err| switch (err) {
                 error.UnsupportedPlanSchema => return .{
                     .status = .rebuild_required,
                     .manifest = manifest,
@@ -726,18 +732,47 @@ pub const Store = struct {
     }
 };
 
-fn derivedPlanPath(allocator: std.mem.Allocator, manifest_path: []const u8) ![]u8 {
+fn sidecarBasenameAlloc(allocator: std.mem.Allocator, manifest_path: []const u8, sidecar_kind: []const u8) ![]u8 {
+    const manifest_name = std.fs.path.basename(manifest_path);
+    const stem = if (std.mem.endsWith(u8, manifest_name, ".manifest.json"))
+        manifest_name[0 .. manifest_name.len - ".manifest.json".len]
+    else if (std.mem.endsWith(u8, manifest_name, ".json"))
+        manifest_name[0 .. manifest_name.len - ".json".len]
+    else
+        manifest_name;
+    return try std.fmt.allocPrint(allocator, "{s}.{s}.json", .{ stem, sidecar_kind });
+}
+
+fn derivedSidecarPath(allocator: std.mem.Allocator, manifest_path: []const u8, sidecar_kind: []const u8) ![]u8 {
+    const sidecar_name = try sidecarBasenameAlloc(allocator, manifest_path, sidecar_kind);
+    defer allocator.free(sidecar_name);
     if (std.fs.path.dirname(manifest_path)) |dir_name| {
-        if (dir_name.len != 0) return try std.fs.path.join(allocator, &.{ dir_name, "plan.json" });
+        if (dir_name.len != 0) return try std.fs.path.join(allocator, &.{ dir_name, sidecar_name });
     }
-    return try allocator.dupe(u8, "plan.json");
+    return try allocator.dupe(u8, sidecar_name);
+}
+
+fn legacySidecarPath(allocator: std.mem.Allocator, manifest_path: []const u8, sidecar_name: []const u8) ![]u8 {
+    if (std.fs.path.dirname(manifest_path)) |dir_name| {
+        if (dir_name.len != 0) return try std.fs.path.join(allocator, &.{ dir_name, sidecar_name });
+    }
+    return try allocator.dupe(u8, sidecar_name);
+}
+
+fn derivedPlanPath(allocator: std.mem.Allocator, manifest_path: []const u8) ![]u8 {
+    return try derivedSidecarPath(allocator, manifest_path, "plan");
 }
 
 fn derivedArtifactPath(allocator: std.mem.Allocator, manifest_path: []const u8) ![]u8 {
-    if (std.fs.path.dirname(manifest_path)) |dir_name| {
-        if (dir_name.len != 0) return try std.fs.path.join(allocator, &.{ dir_name, "artifact.json" });
-    }
-    return try allocator.dupe(u8, "artifact.json");
+    return try derivedSidecarPath(allocator, manifest_path, "artifact");
+}
+
+fn legacyPlanPath(allocator: std.mem.Allocator, manifest_path: []const u8) ![]u8 {
+    return try legacySidecarPath(allocator, manifest_path, "plan.json");
+}
+
+fn legacyArtifactPath(allocator: std.mem.Allocator, manifest_path: []const u8) ![]u8 {
+    return try legacySidecarPath(allocator, manifest_path, "artifact.json");
 }
 
 fn isSupportedManifestSchema(schema_version: u32) bool {
@@ -1044,6 +1079,17 @@ fn readArtifactFile(allocator: std.mem.Allocator, path: []const u8) !ReadArtifac
     };
 }
 
+fn readArtifactFileWithLegacyFallback(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    legacy_path: []const u8,
+) !ReadArtifactFileResult {
+    return readArtifactFile(allocator, path) catch |err| switch (err) {
+        error.FileNotFound => try readArtifactFile(allocator, legacy_path),
+        else => return err,
+    };
+}
+
 fn readPlanFile(allocator: std.mem.Allocator, path: []const u8) !ReadPlanFileResult {
     const bytes = if (std.fs.path.isAbsolute(path)) blk: {
         const file = try std.fs.openFileAbsolute(path, .{});
@@ -1101,6 +1147,17 @@ fn readPlanFile(allocator: std.mem.Allocator, path: []const u8) !ReadPlanFileRes
     return .{
         .stored_schema_version = stored_schema_version,
         .plan = migrated.plan,
+    };
+}
+
+fn readPlanFileWithLegacyFallback(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    legacy_path: []const u8,
+) !ReadPlanFileResult {
+    return readPlanFile(allocator, path) catch |err| switch (err) {
+        error.FileNotFound => try readPlanFile(allocator, legacy_path),
+        else => return err,
     };
 }
 

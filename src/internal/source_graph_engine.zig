@@ -24,6 +24,7 @@ pub const AnalyzeOptions = struct {
 
 /// One supported scalar or string value shape discovered in a function signature.
 pub const ValueShape = enum {
+    bool,
     i32,
     string,
     usize,
@@ -606,6 +607,9 @@ fn parseValueShapeFromTypeTokens(
 } {
     if (start_index >= tokens.len) return null;
     if (tokens[start_index].tag == .identifier) {
+        if (std.mem.eql(u8, tokens[start_index].lexeme, "bool")) {
+            return .{ .shape = .bool, .next_index = start_index + 1 };
+        }
         if (std.mem.eql(u8, tokens[start_index].lexeme, "i32")) {
             return .{ .shape = .i32, .next_index = start_index + 1 };
         }

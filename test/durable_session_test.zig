@@ -9,15 +9,27 @@ const TestPaths = struct {
     plan_path: []u8,
 
     fn init(tmp: *std.testing.TmpDir) !TestPaths {
+        return try initNamed(tmp, "session");
+    }
+
+    fn initNamed(tmp: *std.testing.TmpDir, session_name: []const u8) !TestPaths {
         const dir_path = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
         errdefer std.testing.allocator.free(dir_path);
-        const manifest_path = try std.fs.path.join(std.testing.allocator, &.{ dir_path, "session.manifest.json" });
+        const manifest_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.manifest.json", .{session_name});
+        defer std.testing.allocator.free(manifest_name);
+        const manifest_path = try std.fs.path.join(std.testing.allocator, &.{ dir_path, manifest_name });
         errdefer std.testing.allocator.free(manifest_path);
-        const events_path = try std.fs.path.join(std.testing.allocator, &.{ dir_path, "events.jsonl" });
+        const events_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.events.jsonl", .{session_name});
+        defer std.testing.allocator.free(events_name);
+        const events_path = try std.fs.path.join(std.testing.allocator, &.{ dir_path, events_name });
         errdefer std.testing.allocator.free(events_path);
-        const plan_path = try std.fs.path.join(std.testing.allocator, &.{ dir_path, "plan.json" });
+        const plan_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.plan.json", .{session_name});
+        defer std.testing.allocator.free(plan_name);
+        const plan_path = try std.fs.path.join(std.testing.allocator, &.{ dir_path, plan_name });
         errdefer std.testing.allocator.free(plan_path);
-        const artifact_path = try std.fs.path.join(std.testing.allocator, &.{ dir_path, "artifact.json" });
+        const artifact_name = try std.fmt.allocPrint(std.testing.allocator, "{s}.artifact.json", .{session_name});
+        defer std.testing.allocator.free(artifact_name);
+        const artifact_path = try std.fs.path.join(std.testing.allocator, &.{ dir_path, artifact_name });
         errdefer std.testing.allocator.free(artifact_path);
         return .{
             .artifact_path = artifact_path,
@@ -90,6 +102,12 @@ fn makePlanBackedArtifact(
             }},
         },
     };
+}
+
+fn legacyPlanPathAlloc(allocator: std.mem.Allocator, manifest_path: []const u8) ![]u8 {
+    const dir_path = std.fs.path.dirname(manifest_path) orelse "";
+    if (dir_path.len != 0) return try std.fs.path.join(allocator, &.{ dir_path, "plan.json" });
+    return try allocator.dupe(u8, "plan.json");
 }
 
 fn allocRepeatedNoteSteps(allocator: std.mem.Allocator, count: usize) ![]shift.interpreter.Step {
@@ -369,6 +387,35 @@ test "durable saveArtifact restores the previous checkpoint when a later write f
     try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
 }
 
+test "durable stores keep manifest-scoped sidecars when two sessions share one directory" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const first_paths = try TestPaths.initNamed(&tmp, "first");
+    defer first_paths.deinit();
+    const second_paths = try TestPaths.initNamed(&tmp, "second");
+    defer second_paths.deinit();
+
+    const first_artifact = makePlanBackedArtifact(11, 0x1111, "first.plan", "runBody");
+    const second_artifact = makePlanBackedArtifact(22, 0x2222, "second.plan", "runBody");
+
+    const first_store = shift.durable.Store.init(std.testing.allocator, first_paths.manifest_path, first_paths.events_path);
+    const second_store = shift.durable.Store.init(std.testing.allocator, second_paths.manifest_path, second_paths.events_path);
+
+    _ = try first_store.saveArtifact(first_artifact, null);
+    _ = try second_store.saveArtifact(second_artifact, null);
+
+    _ = try std.fs.cwd().statFile(first_paths.plan_path);
+    _ = try std.fs.cwd().statFile(first_paths.artifact_path);
+    _ = try std.fs.cwd().statFile(second_paths.plan_path);
+    _ = try std.fs.cwd().statFile(second_paths.artifact_path);
+
+    const restored_first = try first_store.restoreArtifact(first_artifact);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored_first.status);
+    const restored_second = try second_store.restoreArtifact(second_artifact);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored_second.status);
+}
+
 test "durable restore and inspect use persisted non-scenario artifact provenance" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -482,6 +529,8 @@ test "durable restore accepts legacy schema manifest and raw plan.json" {
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(0x5234, 0x5234, "demo.plan", "runBody");
+    const legacy_plan_path = try legacyPlanPathAlloc(std.testing.allocator, paths.manifest_path);
+    defer std.testing.allocator.free(legacy_plan_path);
     const legacy_manifest = shift.durable.SessionManifest{
         .schema_version = 2,
         .scenario_id = null,
@@ -505,7 +554,7 @@ test "durable restore accepts legacy schema manifest and raw plan.json" {
         try writer.interface.flush();
     }
     {
-        const file = try std.fs.cwd().createFile(paths.plan_path, .{ .truncate = true });
+        const file = try std.fs.cwd().createFile(legacy_plan_path, .{ .truncate = true });
         defer file.close();
         var buffer: [1024]u8 = undefined;
         var writer = file.writer(&buffer);

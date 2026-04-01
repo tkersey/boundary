@@ -53,6 +53,21 @@ const BranchBuildContext = struct {
     lowered_function_index: usize,
 };
 
+/// Pair an optional root source path with the caller-owned embedded source bytes.
+pub const RootSource = struct {
+    path: ?[]const u8,
+    content: ?[:0]const u8,
+};
+
+const FunctionBuildContext = struct {
+    graph: source_graph_embed.ProgramGraph,
+    lowered_index_map: []const u16,
+    functions: []const effect_ir.Function,
+    graph_function_index: usize,
+    lowered_function_index: usize,
+    root_source: RootSource,
+};
+
 fn cloneBytes(comptime bytes: []const u8) []const u8 {
     return std.fmt.comptimePrint("{s}", .{bytes});
 }
@@ -75,10 +90,14 @@ fn isBodyIgnorable(tag: std.zig.Token.Tag) bool {
 
 fn bodyTokensForFunction(
     comptime module_path: []const u8,
+    comptime root_source: RootSource,
     comptime body_start_offset: usize,
     comptime body_end_offset: usize,
 ) []const BodyToken {
-    const module_source = source_graph_embed.embeddedSource(module_path);
+    const module_source = if (root_source.path != null and std.mem.eql(u8, module_path, root_source.path.?))
+        root_source.content.?
+    else
+        source_graph_embed.embeddedSource(module_path);
     return comptime blk: {
         var tokenizer = std.zig.Tokenizer.init(module_source);
         var token_count: usize = 0;
@@ -647,7 +666,7 @@ fn helperImportModulePath(
 
 fn helperTargetIndex(
     comptime graph: source_graph_embed.ProgramGraph,
-    comptime lowered_index_map: [graph.functions.len]u16,
+    comptime lowered_index_map: []const u16,
     comptime graph_function_index: usize,
     comptime helper_call: HelperCall,
 ) u16 {
@@ -989,16 +1008,12 @@ fn appendBranchActionInstructions(
 }
 
 fn buildLinearBodyForFunction(
-    comptime graph: source_graph_embed.ProgramGraph,
-    comptime lowered_index_map: [graph.functions.len]u16,
-    comptime functions: []const effect_ir.Function,
-    comptime graph_function_index: usize,
-    comptime lowered_function_index: usize,
+    comptime context: FunctionBuildContext,
 ) ?program_frontend.FunctionBody {
-    const function = graph.functions[graph_function_index];
+    const function = context.graph.functions[context.graph_function_index];
     if (function.body_end_offset <= function.body_start_offset) return null;
 
-    const tokens = bodyTokensForFunction(function.module_path, function.body_start_offset, function.body_end_offset);
+    const tokens = bodyTokensForFunction(function.module_path, context.root_source, function.body_start_offset, function.body_end_offset);
     const statement_ranges = statementRangesForTokens(tokens);
     if (statement_ranges.len == 0) return null;
 
@@ -1040,6 +1055,7 @@ fn buildLinearBodyForFunction(
 
         for (0..function.value_param_count) |param_index| {
             const param_codec: effect_ir.LocalCodec = switch (function.value_param_shapes[param_index]) {
+                .bool => .bool,
                 .i32 => .i32,
                 .string => .string,
                 .usize => .usize,
@@ -1047,11 +1063,11 @@ fn buildLinearBodyForFunction(
             _ = appendBoundLocal(&local_storage, function.value_param_names[param_index], param_codec);
         }
         const branch_build_context: BranchBuildContext = .{
-            .graph = graph,
-            .lowered_index_map = lowered_index_map[0..],
-            .functions = functions,
-            .graph_function_index = graph_function_index,
-            .lowered_function_index = lowered_function_index,
+            .graph = context.graph,
+            .lowered_index_map = context.lowered_index_map,
+            .functions = context.functions,
+            .graph_function_index = context.graph_function_index,
+            .lowered_function_index = context.lowered_function_index,
         };
 
         for (statement_ranges, 0..) |range, statement_index| {
@@ -1062,17 +1078,18 @@ fn buildLinearBodyForFunction(
             }
             if (parseBoundLocalFromHelperCall(statement)) |bound_helper| {
                 const callee_index = helperTargetIndex(
-                    graph,
-                    lowered_index_map,
-                    graph_function_index,
+                    context.graph,
+                    context.lowered_index_map,
+                    context.graph_function_index,
                     bound_helper.helper_call,
                 );
-                const callee = functions[callee_index];
+                const callee = context.functions[callee_index];
                 if (callee.ValueType == void) break :blk null;
                 const dst = appendBoundLocal(
                     &local_storage,
                     bound_helper.local_name,
                     switch (callee.ValueType) {
+                        bool => .bool,
                         i32 => .i32,
                         []const u8 => .string,
                         usize => .usize,
@@ -1093,8 +1110,8 @@ fn buildLinearBodyForFunction(
             }
             if (parseBoundLocalFromDirectCall(function.effect_param, aliases[0..alias_count], statement)) |bound_local| {
                 const codec = resumeCodecForFunctionUse(
-                    functions,
-                    lowered_function_index,
+                    context.functions,
+                    context.lowered_function_index,
                     bound_local.requirement_label,
                     bound_local.op_name,
                 );
@@ -1103,8 +1120,8 @@ fn buildLinearBodyForFunction(
                     .kind = .call_op,
                     .dst = dst,
                     .operand = opIndexForFunctionUse(
-                        functions,
-                        lowered_function_index,
+                        context.functions,
+                        context.lowered_function_index,
                         bound_local.requirement_label,
                         bound_local.op_name,
                     ),
@@ -1114,7 +1131,7 @@ fn buildLinearBodyForFunction(
             }
             if (parseIfLocalEqZeroBranchStatement(function.effect_param, aliases[0..alias_count], statement)) |branch_statement| {
                 if (statement_index + 1 != statement_ranges.len) break :blk null;
-                if (functions[lowered_function_index].ValueType != void) break :blk null;
+                if (context.functions[context.lowered_function_index].ValueType != void) break :blk null;
                 const condition_local = findBoundLocal(local_bindings[0..binding_count], branch_statement.local_name) orelse break :blk null;
                 if (condition_local.codec != .i32 and condition_local.codec != .usize) break :blk null;
 
@@ -1175,8 +1192,8 @@ fn buildLinearBodyForFunction(
                 appendInstruction(instructions[0..], &instruction_count, .{
                     .kind = .call_op,
                     .operand = opIndexForFunctionUse(
-                        functions,
-                        lowered_function_index,
+                        context.functions,
+                        context.lowered_function_index,
                         direct_call.requirement_label,
                         direct_call.op_name,
                     ),
@@ -1186,12 +1203,12 @@ fn buildLinearBodyForFunction(
             }
             if (parseHelperCall(statement)) |helper_call| {
                 const callee_index = helperTargetIndex(
-                    graph,
-                    lowered_index_map,
-                    graph_function_index,
+                    context.graph,
+                    context.lowered_index_map,
+                    context.graph_function_index,
                     helper_call,
                 );
-                const callee = functions[callee_index];
+                const callee = context.functions[callee_index];
                 emitHelperCallInstruction(
                     helper_call,
                     .{
@@ -1209,7 +1226,7 @@ fn buildLinearBodyForFunction(
                 const return_literal = parseReturnLiteralStatement(statement) orelse break :blk null;
                 switch (return_literal) {
                     .i32_value => |value| {
-                        if (functions[lowered_function_index].ValueType != i32) break :blk null;
+                        if (context.functions[context.lowered_function_index].ValueType != i32) break :blk null;
                         const dst = appendAnonymousLocal(&local_storage, .i32);
                         appendInstruction(instructions[0..], &instruction_count, .{
                             .kind = .const_i32,
@@ -1224,7 +1241,7 @@ fn buildLinearBodyForFunction(
                         terminated = true;
                     },
                     .string_value => |value| {
-                        if (functions[lowered_function_index].ValueType != []const u8) break :blk null;
+                        if (context.functions[context.lowered_function_index].ValueType != []const u8) break :blk null;
                         const dst = appendAnonymousLocal(&local_storage, .string);
                         appendInstruction(instructions[0..], &instruction_count, .{
                             .kind = .const_string,
@@ -1250,8 +1267,9 @@ fn buildLinearBodyForFunction(
             if (parseReturnLocalStatement(statement)) |local_name| {
                 if (statement_index + 1 != statement_ranges.len) break :blk null;
                 const local = findBoundLocal(local_bindings[0..binding_count], local_name) orelse break :blk null;
-                const expected_codec: effect_ir.LocalCodec = switch (functions[lowered_function_index].ValueType) {
+                const expected_codec: effect_ir.LocalCodec = switch (context.functions[context.lowered_function_index].ValueType) {
                     void => break :blk null,
+                    bool => .bool,
                     i32 => .i32,
                     []const u8 => .string,
                     usize => .usize,
@@ -1269,7 +1287,7 @@ fn buildLinearBodyForFunction(
             break :blk null;
         }
 
-        if (!terminated and functions[lowered_function_index].ValueType != void) break :blk null;
+        if (!terminated and context.functions[context.lowered_function_index].ValueType != void) break :blk null;
 
         const body_instructions = instructions[0..instruction_count];
         const body_locals = local_codecs[0..local_count];
@@ -1287,18 +1305,14 @@ fn buildLinearBodyForFunction(
 }
 
 fn buildReturnLiteralBodyForFunction(
-    comptime graph: source_graph_embed.ProgramGraph,
-    comptime lowered_index_map: [graph.functions.len]u16,
-    comptime functions: []const effect_ir.Function,
-    comptime graph_function_index: usize,
-    comptime lowered_function_index: usize,
+    comptime context: FunctionBuildContext,
 ) ?program_frontend.FunctionBody {
-    const function = graph.functions[graph_function_index];
-    const lowered_function = functions[lowered_function_index];
+    const function = context.graph.functions[context.graph_function_index];
+    const lowered_function = context.functions[context.lowered_function_index];
     if (lowered_function.ValueType == void) return null;
     if (function.body_end_offset <= function.body_start_offset) return null;
 
-    const tokens = bodyTokensForFunction(function.module_path, function.body_start_offset, function.body_end_offset);
+    const tokens = bodyTokensForFunction(function.module_path, context.root_source, function.body_start_offset, function.body_end_offset);
     const statement_ranges = statementRangesForTokens(tokens);
     if (statement_ranges.len == 0) return null;
 
@@ -1310,13 +1324,7 @@ fn buildReturnLiteralBodyForFunction(
     }
 
     const instructions = comptime blk: {
-        const leading_instructions = buildBodyInstructionsForFunction(
-            graph,
-            lowered_index_map,
-            functions,
-            graph_function_index,
-            lowered_function_index,
-        );
+        const leading_instructions = buildBodyInstructionsForFunction(context);
         var buffer: [leading_instructions.len + 2]program_frontend.BodyInstruction = undefined;
         var index: usize = 0;
         for (leading_instructions) |instruction| {
@@ -1361,16 +1369,12 @@ fn buildReturnLiteralBodyForFunction(
 }
 
 fn buildRecursiveGuardBodyForFunction(
-    comptime graph: source_graph_embed.ProgramGraph,
-    comptime lowered_index_map: [graph.functions.len]u16,
-    comptime functions: []const effect_ir.Function,
-    comptime graph_function_index: usize,
-    comptime lowered_function_index: usize,
+    comptime context: FunctionBuildContext,
 ) ?program_frontend.FunctionBody {
-    const function = graph.functions[graph_function_index];
+    const function = context.graph.functions[context.graph_function_index];
     if (function.body_end_offset <= function.body_start_offset) return null;
 
-    const tokens = bodyTokensForFunction(function.module_path, function.body_start_offset, function.body_end_offset);
+    const tokens = bodyTokensForFunction(function.module_path, context.root_source, function.body_start_offset, function.body_end_offset);
     const statement_ranges = statementRangesForTokens(tokens);
     if (statement_ranges.len < 3) return null;
 
@@ -1378,8 +1382,8 @@ fn buildRecursiveGuardBodyForFunction(
     if (!parseIfLocalEqZeroReturnStatement(tokens[statement_ranges[1].start..statement_ranges[1].end], bound.local_name)) return null;
 
     const local_codec = resumeCodecForFunctionUse(
-        functions,
-        lowered_function_index,
+        context.functions,
+        context.lowered_function_index,
         bound.requirement_label,
         bound.op_name,
     );
@@ -1422,8 +1426,8 @@ fn buildRecursiveGuardBodyForFunction(
                 buffer[index] = .{
                     .kind = .call_op,
                     .operand = opIndexForFunctionUse(
-                        functions,
-                        lowered_function_index,
+                        context.functions,
+                        context.lowered_function_index,
                         decrement_op.requirement_label,
                         decrement_op.op_name,
                     ),
@@ -1445,8 +1449,8 @@ fn buildRecursiveGuardBodyForFunction(
                 buffer[index] = .{
                     .kind = .call_op,
                     .operand = opIndexForFunctionUse(
-                        functions,
-                        lowered_function_index,
+                        context.functions,
+                        context.lowered_function_index,
                         direct_op.requirement_label,
                         direct_op.op_name,
                     ),
@@ -1458,7 +1462,7 @@ fn buildRecursiveGuardBodyForFunction(
             const helper_call = parseHelperCallStatement(statement).?;
             buffer[index] = .{
                 .kind = .call_helper,
-                .operand = helperTargetIndex(graph, lowered_index_map, graph_function_index, helper_call),
+                .operand = helperTargetIndex(context.graph, context.lowered_index_map, context.graph_function_index, helper_call),
             };
             index += 1;
         }
@@ -1470,8 +1474,8 @@ fn buildRecursiveGuardBodyForFunction(
             .kind = .call_op,
             .dst = 0,
             .operand = opIndexForFunctionUse(
-                functions,
-                lowered_function_index,
+                context.functions,
+                context.lowered_function_index,
                 bound.requirement_label,
                 bound.op_name,
             ),
@@ -1516,31 +1520,27 @@ fn buildRecursiveGuardBodyForFunction(
 }
 
 fn buildBodyInstructionsForFunction(
-    comptime graph: source_graph_embed.ProgramGraph,
-    comptime lowered_index_map: [graph.functions.len]u16,
-    comptime functions: []const effect_ir.Function,
-    comptime graph_function_index: usize,
-    comptime lowered_function_index: usize,
+    comptime context: FunctionBuildContext,
 ) []const program_frontend.BodyInstruction {
     const helper_count = comptime count: {
         var total: usize = 0;
-        for (graph.helper_edges) |edge| {
-            if (edge.caller_index == graph_function_index) total += 1;
+        for (context.graph.helper_edges) |edge| {
+            if (edge.caller_index == context.graph_function_index) total += 1;
         }
         break :count total;
     };
     const op_count = comptime count: {
         var total: usize = 0;
-        for (graph.direct_op_uses) |direct_use| {
-            if (direct_use.function_index == graph_function_index) total += 1;
+        for (context.graph.direct_op_uses) |direct_use| {
+            if (direct_use.function_index == context.graph_function_index) total += 1;
         }
         break :count total;
     };
     const helper_indices = comptime blk: {
         var buffer: [helper_count]usize = undefined;
         var index: usize = 0;
-        for (graph.helper_edges, 0..) |edge, edge_index| {
-            if (edge.caller_index != graph_function_index) continue;
+        for (context.graph.helper_edges, 0..) |edge, edge_index| {
+            if (edge.caller_index != context.graph_function_index) continue;
             buffer[index] = edge_index;
             index += 1;
         }
@@ -1549,8 +1549,8 @@ fn buildBodyInstructionsForFunction(
     const op_indices = comptime blk: {
         var buffer: [op_count]usize = undefined;
         var index: usize = 0;
-        for (graph.direct_op_uses, 0..) |direct_use, direct_use_index| {
-            if (direct_use.function_index != graph_function_index) continue;
+        for (context.graph.direct_op_uses, 0..) |direct_use, direct_use_index| {
+            if (direct_use.function_index != context.graph_function_index) continue;
             buffer[index] = direct_use_index;
             index += 1;
         }
@@ -1570,20 +1570,20 @@ fn buildBodyInstructionsForFunction(
                 true
             else choose_direct_op: {
                 break :choose_direct_op instructionLocationLess(
-                    graph.direct_op_uses[op_indices[op_index]].line,
-                    graph.direct_op_uses[op_indices[op_index]].column,
-                    graph.helper_edges[helper_indices[helper_index]].line,
-                    graph.helper_edges[helper_indices[helper_index]].column,
+                    context.graph.direct_op_uses[op_indices[op_index]].line,
+                    context.graph.direct_op_uses[op_indices[op_index]].column,
+                    context.graph.helper_edges[helper_indices[helper_index]].line,
+                    context.graph.helper_edges[helper_indices[helper_index]].column,
                 );
             };
 
             if (take_direct_op) {
-                const direct_use = graph.direct_op_uses[op_indices[op_index]];
+                const direct_use = context.graph.direct_op_uses[op_indices[op_index]];
                 buffer[instruction_index] = .{
                     .kind = .call_op,
                     .operand = opIndexForFunctionUse(
-                        functions,
-                        lowered_function_index,
+                        context.functions,
+                        context.lowered_function_index,
                         direct_use.requirement_label,
                         direct_use.op_name,
                     ),
@@ -1591,10 +1591,10 @@ fn buildBodyInstructionsForFunction(
                 };
                 op_index += 1;
             } else {
-                const edge = graph.helper_edges[helper_indices[helper_index]];
+                const edge = context.graph.helper_edges[helper_indices[helper_index]];
                 buffer[instruction_index] = .{
                     .kind = .call_helper,
-                    .operand = lowered_index_map[edge.callee_index],
+                    .operand = context.lowered_index_map[edge.callee_index],
                 };
                 helper_index += 1;
             }
@@ -1611,6 +1611,7 @@ pub fn buildFunctionBodiesForGraph(
     comptime functions: []const effect_ir.Function,
     comptime reachable: [graph.functions.len]bool,
     comptime lowered_index_map: [graph.functions.len]u16,
+    comptime root_source: RootSource,
 ) []const program_frontend.FunctionBody {
     return comptime blk: {
         var buffer: [functions.len]program_frontend.FunctionBody = undefined;
@@ -1624,35 +1625,26 @@ pub fn buildFunctionBodiesForGraph(
                 failUnsupportedBodyLowering(function);
             }
 
-            if (buildRecursiveGuardBodyForFunction(
-                graph,
-                lowered_index_map,
-                functions,
-                graph_function_index,
-                lowered_function_index,
-            )) |control_flow_body| {
+            const context: FunctionBuildContext = .{
+                .graph = graph,
+                .lowered_index_map = lowered_index_map[0..],
+                .functions = functions,
+                .graph_function_index = graph_function_index,
+                .lowered_function_index = lowered_function_index,
+                .root_source = root_source,
+            };
+
+            if (buildRecursiveGuardBodyForFunction(context)) |control_flow_body| {
                 buffer[lowered_function_index] = control_flow_body;
                 continue;
             }
 
-            if (buildLinearBodyForFunction(
-                graph,
-                lowered_index_map,
-                functions,
-                graph_function_index,
-                lowered_function_index,
-            )) |linear_body| {
+            if (buildLinearBodyForFunction(context)) |linear_body| {
                 buffer[lowered_function_index] = linear_body;
                 continue;
             }
 
-            if (buildReturnLiteralBodyForFunction(
-                graph,
-                lowered_index_map,
-                functions,
-                graph_function_index,
-                lowered_function_index,
-            )) |return_literal_body| {
+            if (buildReturnLiteralBodyForFunction(context)) |return_literal_body| {
                 buffer[lowered_function_index] = return_literal_body;
                 continue;
             }
@@ -1661,13 +1653,7 @@ pub fn buildFunctionBodiesForGraph(
                 @compileError("public lowering currently requires admitted literal return lowering for non-void helper or entry functions");
             }
 
-            const instructions = buildBodyInstructionsForFunction(
-                graph,
-                lowered_index_map,
-                functions,
-                graph_function_index,
-                lowered_function_index,
-            );
+            const instructions = buildBodyInstructionsForFunction(context);
             const blocks = [_]program_frontend.BodyBlock{.{
                 .instructions = instructions,
                 .terminator = .{ .kind = .return_unit },

@@ -27,6 +27,7 @@ pub const SourceRef = struct {
     repo_path: []const u8,
     caller_file: []const u8,
     caller_hash: ?u64 = null,
+    caller_source: ?[:0]const u8 = null,
 };
 
 /// Public additive validation error surface for file-backed same-module sources.
@@ -340,8 +341,28 @@ fn pathTailMatches(comptime caller_file: []const u8, comptime repo_path: []const
     return start == 0 or caller_file[start - 1] == '/' or caller_file[start - 1] == '\\';
 }
 
+fn pathStartsWithRoot(comptime path: []const u8, comptime root: []const u8) bool {
+    if (path.len < root.len) return false;
+    inline for (root, 0..) |expected, index| {
+        const actual = path[index];
+        if (expected == '/' or expected == '\\') {
+            if (actual != '/' and actual != '\\') return false;
+            continue;
+        }
+        if (actual != expected) return false;
+    }
+    return path.len == root.len or path[root.len] == '/' or path[root.len] == '\\';
+}
+
+fn pathUsesOwnedRoot(comptime caller_file: []const u8) bool {
+    if (!std.fs.path.isAbsolute(caller_file)) return true;
+    return pathStartsWithRoot(caller_file, build_options.package_root) or
+        pathStartsWithRoot(caller_file, build_options.package_root_alias);
+}
+
 fn sourceOwnershipMatches(comptime source_ref: SourceRef) bool {
-    return pathTailMatches(source_ref.caller_file, source_ref.repo_path) or sourceHashMatches(source_ref);
+    return (pathTailMatches(source_ref.caller_file, source_ref.repo_path) and pathUsesOwnedRoot(source_ref.caller_file)) or
+        sourceHashMatches(source_ref);
 }
 
 fn hashSourceBytes(comptime bytes: []const u8) u64 {
@@ -352,9 +373,29 @@ fn hashSourceBytes(comptime bytes: []const u8) u64 {
 }
 
 fn sourceHashMatches(comptime source_ref: SourceRef) bool {
+    if (source_ref.caller_source) |caller_source| {
+        if (std.fs.path.isAbsolute(source_ref.caller_file)) {
+            if (!pathTailMatches(source_ref.caller_file, source_ref.repo_path)) return false;
+        } else if (!basenameOwnedWitnessMatches(build_options.repo_duplicate_basenames, source_ref.repo_path, source_ref.caller_file)) {
+            return false;
+        }
+        return source_ref.caller_hash == hashSourceBytes(caller_source);
+    }
     const caller_hash = source_ref.caller_hash orelse return false;
+    if (std.fs.path.isAbsolute(source_ref.caller_file)) {
+        if (!pathTailMatches(source_ref.caller_file, source_ref.repo_path)) return false;
+        if (!pathUsesOwnedRoot(source_ref.caller_file)) return false;
+        return caller_hash == hashSourceBytes(source_graph_embed.embeddedSource(source_ref.repo_path));
+    }
     if (!basenameOwnedWitnessMatches(build_options.repo_duplicate_basenames, source_ref.repo_path, source_ref.caller_file)) return false;
     return caller_hash == hashSourceBytes(source_graph_embed.embeddedSource(source_ref.repo_path));
+}
+
+fn sourcePathForLowering(comptime source_ref: SourceRef) []const u8 {
+    if (std.fs.path.isAbsolute(source_ref.caller_file) and !pathUsesOwnedRoot(source_ref.caller_file)) {
+        return cloneBytes(source_ref.caller_file);
+    }
+    return source_ref.repo_path;
 }
 
 fn basenameOwnedWitnessMatches(
@@ -414,6 +455,7 @@ pub fn source(comptime repo_path: []const u8, comptime caller: std.builtin.Sourc
         .repo_path = cloneBytes(repo_path),
         .caller_file = cloneBytes(caller.file),
         .caller_hash = null,
+        .caller_source = null,
     };
 }
 
@@ -429,6 +471,7 @@ pub fn sourceWithContent(
         .repo_path = cloneBytes(repo_path),
         .caller_file = cloneBytes(caller.file),
         .caller_hash = hashSourceBytes(caller_source),
+        .caller_source = sentinelBytes(caller_source),
     };
 }
 
@@ -643,7 +686,15 @@ fn loweredFunctionIndexMap(comptime graph: source_graph_embed.ProgramGraph) [gra
 }
 
 fn analyzeProgramGraphAt(comptime source_path: []const u8, comptime entry_symbol: []const u8) source_graph_embed.ProgramGraph {
-    return source_graph_embed.analyzeProgramAt(source_path, entry_symbol) catch |err| switch (err) {
+    return analyzeProgramGraphWithRootSource(source_path, null, entry_symbol);
+}
+
+fn analyzeProgramGraphWithRootSource(
+    comptime source_path: []const u8,
+    comptime root_source: ?[:0]const u8,
+    comptime entry_symbol: []const u8,
+) source_graph_embed.ProgramGraph {
+    return source_graph_embed.analyzeProgramWithRootSource(source_path, root_source, entry_symbol) catch |err| switch (err) {
         error.EntryMissing => @compileError("public lowering could not find the requested entry symbol in the embedded source"),
         error.MissingImport => @compileError("public lowering could not resolve one imported helper module or helper symbol"),
         error.RecursiveHelpers => @compileError("public lowering encountered an unexpected recursive helper analysis failure"),
@@ -774,6 +825,7 @@ fn buildFunctionsForGraph(comptime graph: source_graph_embed.ProgramGraph, compt
                 var codec_buffer: [function.value_param_count]effect_ir.LocalCodec = undefined;
                 for (0..function.value_param_count) |param_index| {
                     codec_buffer[param_index] = switch (function.value_param_shapes[param_index]) {
+                        .bool => .bool,
                         .i32 => .i32,
                         .string => .string,
                         .usize => .usize,
@@ -783,6 +835,7 @@ fn buildFunctionsForGraph(comptime graph: source_graph_embed.ProgramGraph, compt
             };
             const value_type = if (function.return_shape) |shape|
                 switch (shape) {
+                    .bool => bool,
                     .i32 => i32,
                     .string => []const u8,
                     .usize => usize,
@@ -882,22 +935,46 @@ fn opIndexForFunctionUse(
 fn buildFunctionBodiesForGraph(
     comptime graph: source_graph_embed.ProgramGraph,
     comptime functions: []const effect_ir.Function,
+    comptime root_source_path: ?[]const u8,
+    comptime root_source: ?[:0]const u8,
 ) []const program_frontend.FunctionBody {
     const reachable = reachableFunctions(graph);
     const lowered_index_map = loweredFunctionIndexMap(graph);
-    return helper_body_lowering.buildFunctionBodiesForGraph(graph, functions, reachable, lowered_index_map);
+    return helper_body_lowering.buildFunctionBodiesForGraph(
+        graph,
+        functions,
+        reachable,
+        lowered_index_map,
+        .{
+            .path = root_source_path,
+            .content = root_source,
+        },
+    );
 }
 
 /// Build one explicit-path open-row payload with a caller-visible source path.
 fn openRowAt(comptime source_path: []const u8, comptime spec: LowerSpec) program_frontend.OpenRowProgram {
-    const graph = analyzeProgramGraphAt(source_path, spec.entry_symbol);
+    return openRowWithRootSource(source_path, null, spec);
+}
+
+fn openRowWithRootSource(
+    comptime source_path: []const u8,
+    comptime root_source: ?[:0]const u8,
+    comptime spec: LowerSpec,
+) program_frontend.OpenRowProgram {
+    const graph = analyzeProgramGraphWithRootSource(source_path, root_source, spec.entry_symbol);
     const functions = buildFunctionsForGraph(graph, spec);
     return .{
         .label = spec.label,
         .entry_symbol = spec.entry_symbol,
         .functions = functions,
         .call_edges = buildCallEdgesForGraph(graph),
-        .function_bodies = buildFunctionBodiesForGraph(graph, functions),
+        .function_bodies = buildFunctionBodiesForGraph(
+            graph,
+            functions,
+            if (root_source != null) source_path else null,
+            root_source,
+        ),
     };
 }
 
@@ -1391,7 +1468,54 @@ fn LowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) type {
 
 fn Lower(comptime source_ref: SourceRef, comptime spec: LowerSpec) type {
     assertSourceOwnership(source_ref);
-    return LowerAt(source_ref.repo_path, spec);
+    if (source_ref.caller_source != null) {
+        const caller_source = source_ref.caller_source.?;
+        const source_path = sourcePathForLowering(source_ref);
+        comptime {
+            @setEvalBranchQuota(20_000);
+        }
+        const lowered_program = source_lowering.lowerOpenRowProgram(openRowWithRootSource(source_path, caller_source, spec)) catch |err| switch (err) {
+            error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
+            error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
+            error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
+            error.EmptyRequirementLabel => @compileError("public lowering rejected an empty requirement label"),
+            error.EmptyOpName => @compileError("public lowering rejected an empty op name"),
+            error.InvalidProgramBodyShape => @compileError("public lowering rejected one helper body outside the retained lowered-body subset"),
+            error.InvalidRequirementShape => @compileError("public lowering rejected a requirement shape produced by source lowering"),
+            error.InvalidRowShape => @compileError("public lowering rejected a row shape produced by source lowering"),
+            error.OutputWithoutRequirement => @compileError("public lowering rejected source-lowered outputs without matching requirements"),
+            error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
+            error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
+            error.UnsupportedHelperCallEdge => @compileError("public lowering rejected helper call edges outside the retained open-row shell"),
+            error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
+        };
+        const compiled_plan = program_plan.planFromOpenRowProgram(spec.label, lowered_program.program) catch |err| switch (err) {
+            error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
+            error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
+            error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
+            error.EmptyProgram => @compileError("public lowering rejected an empty effect-ir program"),
+            error.EmptyRequirementLabel => @compileError("public lowering rejected an empty requirement label"),
+            error.EmptyOpName => @compileError("public lowering rejected an empty op name"),
+            error.InvalidProgramBodyShape => @compileError("public lowering rejected a helper-body payload that does not align to its function list"),
+            error.InvalidRequirementShape => @compileError("public lowering rejected an invalid requirement shape"),
+            error.InvalidRowShape => @compileError("public lowering rejected an invalid row shape"),
+            error.OutputWithoutRequirement => @compileError("public lowering rejected outputs without matching requirements"),
+            error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
+            error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
+            error.UnsupportedHelperCallEdge => @compileError("public lowering runtime plan rejected helper call edges outside the retained open-row shell"),
+            error.UnsupportedCodecType => @compileError("public lowering runtime plan rejected a type outside the first-wave codec set"),
+            error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
+        };
+        assertExecutableCodecSupport(compiled_plan);
+        return GeneratedProgramType(spec.label, source_path, spec.entry_symbol, compiled_plan, .{
+            .ValueType = spec.ValueType,
+            .outputs = spec.outputs,
+        }, .{
+            .source_path = source_path,
+            .entry_symbol = spec.entry_symbol,
+        });
+    }
+    return LowerAt(sourcePathForLowering(source_ref), spec);
 }
 
 /// Compile one lowering request from an explicit caller-owned provenance witness.
@@ -1465,11 +1589,55 @@ test "same-module lowerAt preserves caller-provided source ownership" {
 test "source ownership requires a true repo-path suffix, not a basename-only match" {
     try std.testing.expect(sourceOwnershipMatches(.{
         .repo_path = "examples/open_row_state_writer.zig",
-        .caller_file = "/repo/examples/open_row_state_writer.zig",
+        .caller_file = "examples/open_row_state_writer.zig",
     }));
     try std.testing.expect(!sourceOwnershipMatches(.{
         .repo_path = "examples/open_row_state_writer.zig",
         .caller_file = "/tmp/open_row_state_writer.zig",
+    }));
+}
+
+test "source ownership accepts only absolute paths rooted at the checkout or package-root alias" {
+    const canonical_owned = comptime std.fmt.comptimePrint(
+        "{s}/examples/open_row_state_writer.zig",
+        .{build_options.package_root},
+    );
+    const alias_owned = comptime std.fmt.comptimePrint(
+        "{s}/examples/open_row_state_writer.zig",
+        .{build_options.package_root_alias},
+    );
+
+    try std.testing.expect(sourceOwnershipMatches(.{
+        .repo_path = "examples/open_row_state_writer.zig",
+        .caller_file = canonical_owned,
+    }));
+    try std.testing.expect(sourceOwnershipMatches(.{
+        .repo_path = "examples/open_row_state_writer.zig",
+        .caller_file = alias_owned,
+    }));
+    try std.testing.expect(!sourceOwnershipMatches(.{
+        .repo_path = "examples/open_row_state_writer.zig",
+        .caller_file = "/tmp/foreign/examples/open_row_state_writer.zig",
+    }));
+}
+
+test "source ownership rejects absolute paths whose root only shares a prefix with the checkout root" {
+    const prefixed_checkout_root = comptime std.fmt.comptimePrint(
+        "{s}x/examples/open_row_state_writer.zig",
+        .{build_options.package_root},
+    );
+    const prefixed_alias_root = comptime std.fmt.comptimePrint(
+        "{s}x/examples/open_row_state_writer.zig",
+        .{build_options.package_root_alias},
+    );
+
+    try std.testing.expect(!sourceOwnershipMatches(.{
+        .repo_path = "examples/open_row_state_writer.zig",
+        .caller_file = prefixed_checkout_root,
+    }));
+    try std.testing.expect(!sourceOwnershipMatches(.{
+        .repo_path = "examples/open_row_state_writer.zig",
+        .caller_file = prefixed_alias_root,
     }));
 }
 

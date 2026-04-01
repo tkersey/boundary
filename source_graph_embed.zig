@@ -158,17 +158,47 @@ fn repoRelativeAbsolutePath(
 }
 
 fn repoRelativePath(comptime source_path: []const u8) []const u8 {
-    const repo_path = if (std.fs.path.isAbsolute(source_path)) blk: {
-        if (repoRelativeAbsolutePath(source_path, build_options.package_root)) |repo_source_path| break :blk repo_source_path;
-        if (repoRelativeAbsolutePath(source_path, build_options.package_root_alias)) |repo_source_path| break :blk repo_source_path;
-        @compileError("public lowering source path must stay under the package root");
-    } else source_path;
-
-    return normalizeRelativePath(repo_path) catch |err| switch (err) {
+    if (std.fs.path.isAbsolute(source_path)) {
+        if (repoRelativeAbsolutePath(source_path, build_options.package_root)) |repo_source_path| {
+            return normalizeRelativePath(repo_source_path) catch |err| switch (err) {
+                error.EmptyPath => @compileError("public lowering source path must point to a file under the package root"),
+                error.EscapesRoot => @compileError("public lowering source path must stay under the package root"),
+                error.TooManySegments => @compileError("public lowering source path exceeded the supported segment budget"),
+            };
+        }
+        if (repoRelativeAbsolutePath(source_path, build_options.package_root_alias)) |repo_source_path| {
+            return normalizeRelativePath(repo_source_path) catch |err| switch (err) {
+                error.EmptyPath => @compileError("public lowering source path must point to a file under the package root"),
+                error.EscapesRoot => @compileError("public lowering source path must stay under the package root"),
+                error.TooManySegments => @compileError("public lowering source path exceeded the supported segment budget"),
+            };
+        }
+        return absoluteSourcePath(source_path);
+    }
+    return normalizeRelativePath(source_path) catch |err| switch (err) {
         error.EmptyPath => @compileError("public lowering source path must point to a file under the package root"),
         error.EscapesRoot => @compileError("public lowering source path must stay under the package root"),
         error.TooManySegments => @compileError("public lowering source path exceeded the supported segment budget"),
     };
+}
+
+fn absoluteSourcePath(comptime source_path: []const u8) []const u8 {
+    if (!std.fs.path.isAbsolute(source_path)) @compileError("public lowering absolute source path must be absolute");
+    return normalizeAbsolutePath(source_path) catch |err| switch (err) {
+        error.EmptyPath => @compileError("public lowering source path must point to a file"),
+        error.EscapesRoot => @compileError("public lowering source path must stay within the absolute root"),
+        error.TooManySegments => @compileError("public lowering source path exceeded the supported segment budget"),
+    };
+}
+
+fn normalizeAbsolutePath(comptime source_path: []const u8) NormalizeRelativePathError![]const u8 {
+    if (!std.fs.path.isAbsolute(source_path)) return error.EmptyPath;
+    const relative = normalizeRelativePath(source_path[1..]) catch |err| switch (err) {
+        error.EmptyPath => return error.EmptyPath,
+        error.EscapesRoot => return error.EscapesRoot,
+        error.TooManySegments => return error.TooManySegments,
+    };
+    return std.fmt.comptimePrint("/{s}", .{relative});
 }
 
 /// Embed one repo-relative source file through a repo-root module so examples remain package-visible.
@@ -189,16 +219,26 @@ fn resolveImportPath(comptime from_path: []const u8, comptime import_path: []con
     if (std.mem.startsWith(u8, import_path, "/")) return error.UnsupportedImportPath;
     if (!std.mem.endsWith(u8, import_path, ".zig")) return error.UnsupportedImportPath;
 
-    const base_dir = dirname(repoRelativePath(from_path));
+    const normalized_from_path = if (std.fs.path.isAbsolute(from_path))
+        absoluteSourcePath(from_path)
+    else
+        repoRelativePath(from_path);
+    const base_dir = dirname(normalized_from_path);
     const joined = if (base_dir.len == 0)
         import_path
     else
         std.fmt.comptimePrint("{s}/{s}", .{ base_dir, import_path });
 
-    return normalizeRelativePath(joined) catch |err| switch (err) {
-        error.EmptyPath, error.EscapesRoot => error.UnsupportedImportPath,
-        error.TooManySegments => error.TooManyImports,
-    };
+    return if (std.fs.path.isAbsolute(normalized_from_path))
+        normalizeAbsolutePath(joined) catch |err| switch (err) {
+            error.EmptyPath, error.EscapesRoot => error.UnsupportedImportPath,
+            error.TooManySegments => error.TooManyImports,
+        }
+    else
+        normalizeRelativePath(joined) catch |err| switch (err) {
+            error.EmptyPath, error.EscapesRoot => error.UnsupportedImportPath,
+            error.TooManySegments => error.TooManyImports,
+        };
 }
 
 /// Resolve one helper import relative to its owning repo-relative module path.
@@ -248,20 +288,30 @@ fn pushHelperEdge(buffers: *Buffers, caller_index: usize, callee_index: usize, l
 
 fn analyzeOwnedModule(
     comptime source_path: []const u8,
+    comptime root_source: ?[:0]const u8,
     comptime entry_symbol: ?[]const u8,
 ) Error!source_graph_engine.ModuleGraph {
-    return source_graph_engine.analyzeComptime(embeddedSource(source_path), .{
+    return source_graph_engine.analyzeComptime(root_source orelse embeddedSource(source_path), .{
         .entry_symbol = entry_symbol,
         .reject_recursive_helpers = false,
         .reject_indirect_effect_access = true,
     });
 }
 
-fn collectModule(comptime source_path: []const u8, buffers: *Buffers) Error!ModuleSummary {
+fn collectModule(
+    comptime source_path: []const u8,
+    comptime root_source_path: ?[]const u8,
+    comptime root_source: ?[:0]const u8,
+    buffers: *Buffers,
+) Error!ModuleSummary {
     if (findModule(buffers, source_path)) |existing| return existing;
 
     if (buffers.module_count >= buffers.modules.len) return error.TooManyImports;
-    const graph = try analyzeOwnedModule(source_path, null);
+    const graph = try analyzeOwnedModule(
+        source_path,
+        if (root_source_path != null and std.mem.eql(u8, source_path, root_source_path.?)) root_source else null,
+        null,
+    );
     const first_function_index = buffers.function_count;
 
     if (buffers.function_count + graph.functions.len > buffers.functions.len) return error.TooManyFunctions;
@@ -319,7 +369,7 @@ fn collectModule(comptime source_path: []const u8, buffers: *Buffers) Error!Modu
         if (graph.functions[helper_use.caller_index].effect_param == null) continue;
         const import_row = findImportAlias(graph.imports, import_alias) orelse return error.MissingImport;
         const imported_path = try resolveImportPath(source_path, import_row.import_path);
-        const imported = try collectModule(imported_path, buffers);
+        const imported = try collectModule(imported_path, root_source_path, root_source, buffers);
         const callee_local_index = findLocalFunctionIndex(imported.graph, helper_use.callee_name) orelse return error.MissingImport;
         try pushHelperEdge(
             buffers,
@@ -335,9 +385,18 @@ fn collectModule(comptime source_path: []const u8, buffers: *Buffers) Error!Modu
 
 /// Analyze one repo-relative source file and flatten same-file plus imported helper graphs into one explicit program graph.
 pub fn analyzeProgramAt(comptime source_path: []const u8, comptime entry_symbol: []const u8) Error!ProgramGraph {
+    return try analyzeProgramWithRootSource(source_path, null, entry_symbol);
+}
+
+/// Analyze one source-owned root module plus imported helper graphs into one explicit program graph.
+pub fn analyzeProgramWithRootSource(
+    comptime source_path: []const u8,
+    comptime root_source: ?[:0]const u8,
+    comptime entry_symbol: []const u8,
+) Error!ProgramGraph {
     var buffers = Buffers{};
-    const root = try collectModule(source_path, &buffers);
-    const root_graph = try analyzeOwnedModule(source_path, entry_symbol);
+    const root = try collectModule(source_path, if (root_source != null) source_path else null, root_source, &buffers);
+    const root_graph = try analyzeOwnedModule(source_path, root_source, entry_symbol);
     const entry_local_index = root_graph.entry_index orelse return error.EntryMissing;
     const entry_index = root.first_function_index + entry_local_index;
 
