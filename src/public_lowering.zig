@@ -376,6 +376,7 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
     if (source_ref.caller_source) |caller_source| {
         if (std.fs.path.isAbsolute(source_ref.caller_file)) {
             if (!pathTailMatches(source_ref.caller_file, source_ref.repo_path)) return false;
+            if (!pathUsesOwnedRoot(source_ref.caller_file)) return false;
         } else if (!basenameOwnedWitnessMatches(build_options.repo_duplicate_basenames, source_ref.repo_path, source_ref.caller_file)) {
             return false;
         }

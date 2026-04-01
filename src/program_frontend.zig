@@ -493,10 +493,13 @@ fn validateOpenRowGraph(
 }
 
 fn entryIndex(comptime functions: []const effect_ir.Function, comptime entry_symbol: []const u8) effect_ir.NormalizeError!usize {
+    var found_index: ?usize = null;
     for (functions, 0..) |function, index| {
-        if (std.mem.eql(u8, function.symbol.symbol_name, entry_symbol)) return index;
+        if (!std.mem.eql(u8, function.symbol.symbol_name, entry_symbol)) continue;
+        if (found_index != null) return error.DuplicateSymbol;
+        found_index = index;
     }
-    return error.UnknownSymbol;
+    return found_index orelse error.UnknownSymbol;
 }
 
 /// Lower one open-row frontend payload into stable function storage.

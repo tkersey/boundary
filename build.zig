@@ -954,6 +954,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    boundary_mod.addImport("effect_ir", effect_ir_mod);
     boundary_mod.addImport("program_frontend", program_frontend_mod);
     survey_runtime_mod.addImport("private_lowered_runtime", private_lowered_runtime_mod);
     const runtime_route_registry_mod = b.createModule(.{
@@ -1687,6 +1688,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "cf-retired-mergerowspecs", .path = "test/compile_fail/retired_mergerowspecs_fails.zig", .expected = "has no member named 'handlers'" },
         .{ .name = "cf-resume-value-mismatch", .path = "test/compile_fail/resume_value_mismatch.zig", .expected = ".resumeValue must have type fn () Resume or fn () ResetError(ErrorSet)!Resume" },
         .{ .name = "cf-source-ownership-mismatch", .path = "test/compile_fail/source_ownership_mismatch_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
+        .{ .name = "cf-source-ownership-content-mirror", .path = "test/compile_fail/source_ownership_content_mirror_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
         .{ .name = "cf-string-list-codec", .path = "test/compile_fail/string_list_codec_fails.zig", .expected = "public lowering runtime plan rejected string_list values across executable boundaries" },
         .{ .name = "cf-unsupported-helper-body", .path = "test/compile_fail/unsupported_helper_body_fails.zig", .expected = "public lowering cannot synthesize unsupported helper or entry bodies; test/compile_fail_inputs/unsupported_helper_body_source.zig:helper must stay within the retained lowered-body subset" },
         .{ .name = "cf-entry-path-escape-lower-at", .path = "test/compile_fail/entry_path_escape_lower_at_fails.zig", .expected = "public lowering source path must stay under the package root" },
