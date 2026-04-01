@@ -155,6 +155,38 @@ const EventRecordState = struct {
     event: kernel.Event,
 };
 
+fn isPlanReplayRebuildError(err: anyerror) bool {
+    return switch (err) {
+        error.EmptyFunctionSymbol,
+        error.EmptyLabel,
+        error.EmptyOpName,
+        error.EmptyOutputLabel,
+        error.EmptyProgram,
+        error.EmptyRequirementLabel,
+        error.InvalidCallHelperTarget,
+        error.InvalidCallHelperArgSpan,
+        error.InvalidCallOpTarget,
+        error.InvalidBlockInstructionSpan,
+        error.InvalidBlockTerminatorIndex,
+        error.InvalidEntryIndex,
+        error.InvalidFunctionBlockSpan,
+        error.InvalidFunctionEntryBlock,
+        error.InvalidFunctionInstructionSpan,
+        error.InvalidFunctionLocalSpan,
+        error.InvalidFunctionOutputSpan,
+        error.InvalidFunctionRequirementSpan,
+        error.InvalidInstructionLocalIndex,
+        error.InvalidOpRequirementIndex,
+        error.InvalidRequirementOpSpan,
+        error.InvalidReturnValueIndex,
+        error.InvalidTerminatorTarget,
+        error.UnsupportedPlanSchema,
+        error.UnsupportedSchemaVersion,
+        => true,
+        else => false,
+    };
+}
+
 const SessionManifestMigrator = struct {
     from: u32,
     to_schema: u32,
@@ -337,6 +369,7 @@ pub const Store = struct {
                 return error.ScenarioArtifactMismatch;
             }
         }
+        if (artifact.plan) |plan| try plan.validate();
         try kernel.validateStepCapacity(artifact.steps);
         const state = kernel.runSteps(artifact.steps);
         const plan_path = try derivedPlanPath(self.allocator, self.manifest_path);
@@ -579,17 +612,19 @@ pub const Store = struct {
         defer if (loaded_plan) |plan| freePlan(self.allocator, &plan);
         var plan_migrated = false;
         if (manifest.plan_hash) |expected_plan_hash| {
-            const plan_file = readPlanFileWithLegacyFallback(self.allocator, plan_path, legacy_plan_path) catch |err| switch (err) {
-                error.UnsupportedPlanSchema => return .{
-                    .status = .rebuild_required,
-                    .manifest = manifest,
-                    .state = null,
-                },
-                else => return .{
+            const plan_file = readPlanFileWithLegacyFallback(self.allocator, plan_path, legacy_plan_path) catch |err| {
+                if (isPlanReplayRebuildError(err)) {
+                    return .{
+                        .status = .rebuild_required,
+                        .manifest = manifest,
+                        .state = null,
+                    };
+                }
+                return .{
                     .status = .failed,
                     .manifest = manifest,
                     .state = null,
-                },
+                };
             };
             loaded_plan = plan_file.plan;
             plan_migrated = plan_file.stored_schema_version != current_plan_schema;
@@ -940,6 +975,7 @@ fn writeArtifact(path: []const u8, artifact: ProgramArtifact) !void {
 }
 
 fn writePlan(path: []const u8, plan: kernel.ProgramPlan) !void {
+    try plan.validate();
     const file = if (std.fs.path.isAbsolute(path))
         try std.fs.createFileAbsolute(path, .{ .truncate = true })
     else
@@ -1144,6 +1180,7 @@ fn readPlanFile(allocator: std.mem.Allocator, path: []const u8) !ReadPlanFileRes
     const stored_schema_version = migrated.schema_version;
     try migratePlanFile(allocator, &migrated);
     if (migrated.schema_version != current_plan_schema) return error.UnsupportedPlanSchema;
+    try migrated.plan.validate();
     return .{
         .stored_schema_version = stored_schema_version,
         .plan = migrated.plan,

@@ -68,12 +68,13 @@ fn makePlanBackedArtifact(
             .entry_index = 0,
             .functions = &.{.{
                 .symbol_name = function_symbol,
+                .value_codec = .i32,
                 .first_requirement = 0,
                 .requirement_count = 0,
                 .first_output = 0,
                 .output_count = 1,
                 .first_local = 0,
-                .local_count = 0,
+                .local_count = 1,
                 .first_block = 0,
                 .block_count = 1,
                 .first_instruction = 0,
@@ -85,7 +86,7 @@ fn makePlanBackedArtifact(
                 .label = "result",
                 .codec = .i32,
             }},
-            .locals = &.{},
+            .locals = &.{.{ .codec = .i32 }},
             .blocks = &.{.{
                 .first_instruction = 0,
                 .instruction_count = 1,
@@ -278,6 +279,55 @@ test "durable saveArtifact persists plan-backed identity and plan.json" {
     const restored = try store.restoreArtifact(artifact);
     try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
     try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
+}
+
+test "durable saveArtifact rejects structurally invalid plan-backed artifacts" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const invalid_artifact: shift.durable.ProgramArtifact = .{
+        .label = "invalid_plan_backed",
+        .program_hash = 0x1234,
+        .steps = &.{
+            .{ .emit = .{ .note = "plan-backed" } },
+            .{ .emit = .{ .final_i32 = 7 } },
+        },
+        .plan = .{
+            .label = "invalid.plan",
+            .ir_hash = 0x1234,
+            .entry_index = 0,
+            .functions = &.{.{
+                .symbol_name = "runBody",
+                .value_codec = .i32,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 1,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .block_count = 0,
+                .first_instruction = 0,
+                .instruction_count = 1,
+            }},
+            .requirements = &.{},
+            .ops = &.{},
+            .outputs = &.{.{ .label = "result", .codec = .i32 }},
+            .locals = &.{.{ .codec = .i32 }},
+            .blocks = &.{},
+            .terminators = &.{},
+            .instructions = &.{.{ .kind = .return_value, .operand = 0 }},
+        },
+    };
+
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    try std.testing.expectError(error.InvalidFunctionInstructionSpan, store.saveArtifact(invalid_artifact, null));
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().statFile(paths.manifest_path));
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().statFile(paths.artifact_path));
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().statFile(paths.plan_path));
 }
 
 test "durable saveArtifact rejects non-scenario artifacts when scenario_id is set" {
@@ -1037,4 +1087,76 @@ test "durable restore fails when plan.json is tampered" {
 
     const restored = try store.restoreArtifact(artifact);
     try std.testing.expectEqual(shift.durable.RestoreStatus.failed, restored.status);
+}
+
+test "durable restore rejects structurally invalid but hash-consistent persisted plan sidecars" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const artifact = makePlanBackedArtifact(0x5235, 0x5235, "demo.plan", "runBody");
+    const invalid_plan: @TypeOf(artifact.plan.?) = .{
+        .label = artifact.plan.?.label,
+        .ir_hash = artifact.plan.?.ir_hash,
+        .entry_index = artifact.plan.?.entry_index,
+        .functions = &.{.{
+            .symbol_name = "runBody",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 1,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .block_count = 0,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{.{ .label = "result", .codec = .i32 }},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &.{},
+        .terminators = &.{},
+        .instructions = &.{.{ .kind = .return_value, .operand = 0 }},
+    };
+
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    _ = try store.saveArtifact(artifact, null);
+
+    {
+        const file = try std.fs.cwd().createFile(paths.plan_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        try std.json.Stringify.value(shift.durable.PlanFile{
+            .schema_version = 4,
+            .plan_hash = invalid_plan.hash(),
+            .plan = invalid_plan,
+        }, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+    {
+        const manifest_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.manifest_path, std.math.maxInt(usize));
+        defer std.testing.allocator.free(manifest_bytes);
+        const parsed_manifest = try std.json.parseFromSlice(shift.durable.SessionManifest, std.testing.allocator, manifest_bytes, .{});
+        defer parsed_manifest.deinit();
+
+        const file = try std.fs.cwd().createFile(paths.manifest_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        var tampered_manifest = parsed_manifest.value;
+        tampered_manifest.plan_hash = invalid_plan.hash();
+        try std.json.Stringify.value(tampered_manifest, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+
+    const restored = try store.restore();
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
 }

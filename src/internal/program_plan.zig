@@ -185,8 +185,13 @@ pub const ProgramPlan = struct {
 
         for (self.functions) |function| {
             const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
+            const function_instruction_end = rangeEnd(function.first_instruction, function.instruction_count) orelse return error.InvalidFunctionInstructionSpan;
+            var covered_instruction_end: usize = function.first_instruction;
             for (self.blocks[function.first_block..block_end]) |block| {
+                if (block.first_instruction != covered_instruction_end) return error.InvalidFunctionInstructionSpan;
                 const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
+                if (instruction_end > function_instruction_end) return error.InvalidFunctionInstructionSpan;
+                covered_instruction_end = instruction_end;
                 for (self.instructions[block.first_instruction..instruction_end]) |instruction| switch (instruction.kind) {
                     .call_helper => {
                         if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
@@ -232,6 +237,7 @@ pub const ProgramPlan = struct {
                     .return_unit, .return_value => {},
                 }
             }
+            if (covered_instruction_end != function_instruction_end) return error.InvalidFunctionInstructionSpan;
         }
     }
 
@@ -1447,6 +1453,68 @@ test "ProgramPlan.validate rejects terminator targets outside the owning functio
     };
 
     try std.testing.expectError(error.InvalidTerminatorTarget, plan.validate());
+}
+
+test "ProgramPlan.validate rejects functions whose instruction span is not attached to owned blocks" {
+    const zero_block_plan = ProgramPlan{
+        .label = "invalid.unowned_instruction_span.zero_blocks",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 1,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .block_count = 0,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{.{ .label = "result", .codec = .i32 }},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &.{},
+        .terminators = &.{},
+        .instructions = &.{.{ .kind = .return_value, .operand = 0 }},
+    };
+    try std.testing.expectError(error.InvalidFunctionInstructionSpan, zero_block_plan.validate());
+
+    const uncovered_instruction_plan = ProgramPlan{
+        .label = "invalid.unowned_instruction_span.uncovered",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 1,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{.{ .label = "result", .codec = .i32 }},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 0,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{ .kind = .return_value, .operand = 0 }},
+    };
+    try std.testing.expectError(error.InvalidFunctionInstructionSpan, uncovered_instruction_plan.validate());
 }
 
 test "ProgramPlan hash survives JSON roundtrip" {

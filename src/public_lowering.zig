@@ -341,6 +341,19 @@ fn pathTailMatches(comptime caller_file: []const u8, comptime repo_path: []const
     return start == 0 or caller_file[start - 1] == '/' or caller_file[start - 1] == '\\';
 }
 
+fn pathEquals(comptime lhs: []const u8, comptime rhs: []const u8) bool {
+    if (lhs.len != rhs.len) return false;
+    inline for (rhs, 0..) |expected, index| {
+        const actual = lhs[index];
+        if (expected == '/' or expected == '\\') {
+            if (actual != '/' and actual != '\\') return false;
+            continue;
+        }
+        if (actual != expected) return false;
+    }
+    return true;
+}
+
 fn pathStartsWithRoot(comptime path: []const u8, comptime root: []const u8) bool {
     if (path.len < root.len) return false;
     inline for (root, 0..) |expected, index| {
@@ -355,13 +368,22 @@ fn pathStartsWithRoot(comptime path: []const u8, comptime root: []const u8) bool
 }
 
 fn pathUsesOwnedRoot(comptime caller_file: []const u8) bool {
-    if (!std.fs.path.isAbsolute(caller_file)) return true;
+    if (!std.fs.path.isAbsolute(caller_file)) return false;
     return pathStartsWithRoot(caller_file, build_options.package_root) or
         pathStartsWithRoot(caller_file, build_options.package_root_alias);
 }
 
+fn relativeOwnedRepoPathMatches(comptime caller_file: []const u8, comptime repo_path: []const u8) bool {
+    if (std.fs.path.isAbsolute(caller_file)) return false;
+    if (!pathHasSeparator(caller_file)) return false;
+    return pathEquals(caller_file, repo_path);
+}
+
 fn sourceOwnershipMatches(comptime source_ref: SourceRef) bool {
-    return (pathTailMatches(source_ref.caller_file, source_ref.repo_path) and pathUsesOwnedRoot(source_ref.caller_file)) or
+    return ((std.fs.path.isAbsolute(source_ref.caller_file) and
+        pathTailMatches(source_ref.caller_file, source_ref.repo_path) and
+        pathUsesOwnedRoot(source_ref.caller_file)) or
+        relativeOwnedRepoPathMatches(source_ref.caller_file, source_ref.repo_path)) or
         sourceHashMatches(source_ref);
 }
 
@@ -377,6 +399,8 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
         if (std.fs.path.isAbsolute(source_ref.caller_file)) {
             if (!pathTailMatches(source_ref.caller_file, source_ref.repo_path)) return false;
             if (!pathUsesOwnedRoot(source_ref.caller_file)) return false;
+        } else if (pathHasSeparator(source_ref.caller_file)) {
+            if (!relativeOwnedRepoPathMatches(source_ref.caller_file, source_ref.repo_path)) return false;
         } else if (!basenameOwnedWitnessMatches(build_options.repo_duplicate_basenames, source_ref.repo_path, source_ref.caller_file)) {
             return false;
         }
@@ -386,6 +410,10 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
     if (std.fs.path.isAbsolute(source_ref.caller_file)) {
         if (!pathTailMatches(source_ref.caller_file, source_ref.repo_path)) return false;
         if (!pathUsesOwnedRoot(source_ref.caller_file)) return false;
+        return caller_hash == hashSourceBytes(source_graph_embed.embeddedSource(source_ref.repo_path));
+    }
+    if (pathHasSeparator(source_ref.caller_file)) {
+        if (!relativeOwnedRepoPathMatches(source_ref.caller_file, source_ref.repo_path)) return false;
         return caller_hash == hashSourceBytes(source_graph_embed.embeddedSource(source_ref.repo_path));
     }
     if (!basenameOwnedWitnessMatches(build_options.repo_duplicate_basenames, source_ref.repo_path, source_ref.caller_file)) return false;
@@ -1665,6 +1693,21 @@ test "source ownership rejects matching-byte witnesses from a different caller p
         .repo_path = "examples/open_row_state_writer.zig",
         .caller_file = "other_module.zig",
         .caller_hash = hashSourceBytes(source_graph_embed.embeddedSource("examples/open_row_state_writer.zig")),
+    }));
+}
+
+test "source ownership rejects mirrored relative paths outside the repo root" {
+    const mirrored_relative = "vendor/mirror/examples/open_row_state_writer.zig";
+
+    try std.testing.expect(!sourceOwnershipMatches(.{
+        .repo_path = "examples/open_row_state_writer.zig",
+        .caller_file = mirrored_relative,
+    }));
+    try std.testing.expect(!sourceOwnershipMatches(.{
+        .repo_path = "examples/open_row_state_writer.zig",
+        .caller_file = mirrored_relative,
+        .caller_hash = hashSourceBytes(source_graph_embed.embeddedSource("examples/open_row_state_writer.zig")),
+        .caller_source = source_graph_embed.embeddedSource("examples/open_row_state_writer.zig"),
     }));
 }
 
