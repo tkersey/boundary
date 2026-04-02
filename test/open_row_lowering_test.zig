@@ -227,6 +227,47 @@ test "public lowered runner preserves escaped helper string literal semantics" {
     try std.testing.expectEqualStrings("done", result.value);
 }
 
+test "public lowered runner decodes escaped return string literals before const_string emission" {
+    const source_bytes =
+        \\pub fn runBody(eff: anytype) ![]const u8 {
+        \\    try eff.writer.tell("tick");
+        \\    return "done\n";
+        \\}
+    ;
+    const EscapedReturn = shift.lower(.{
+        .repo_path = "test/inline_escaped_return_literal.zig",
+        .caller_file = "test/inline_escaped_return_literal.zig",
+        .caller_hash = std.hash.Wyhash.hash(0, source_bytes),
+        .caller_source = source_bytes,
+    }, .{
+        .label = "test.inline_escaped_return_literal",
+        .entry_symbol = "runBody",
+        .row = shift.ir.rowFromSpec(.{
+            .writer = .{
+                .tell = shift.ir.Transform([]const u8, void),
+            },
+        }),
+        .ValueType = []const u8,
+        .outputs = &.{
+            .{ .label = "writer", .OutputType = [][]const u8 },
+        },
+    });
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var handlers: LoweredWriterOnlyHandlers = .{
+        .writer = LoweredWriterHandler{ .allocator = std.testing.allocator },
+    };
+    defer handlers.writer.deinit();
+
+    const result = try EscapedReturn.run(&runtime, &handlers);
+    defer std.testing.allocator.free(result.outputs.writer);
+    try std.testing.expectEqual(@as(usize, 1), result.outputs.writer.len);
+    try std.testing.expectEqualStrings("tick", result.outputs.writer[0]);
+    try std.testing.expectEqualStrings("done\n", result.value);
+}
+
 test "branching helper body lowers a real if-else control-flow body" {
     const lowered = try example_open_row_branching_helper_body.loweredProgram();
 
@@ -759,6 +800,53 @@ test "file-backed validation resolves cross-file helper imports from checkout al
 
 test "file-backed validation rejects helper imports that escape the package root" {
     const entry_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, "test/open_row_validation_boundary/entry_escape_import.zig");
+    defer std.testing.allocator.free(entry_path);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try std.testing.expectError(
+        error.UnsupportedHelperGraph,
+        shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), entry_path, "runBody"),
+    );
+}
+
+test "file-backed validation rejects absolute-path helper imports that escape the entry tree" {
+    const external_root = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "/tmp/shift-open-row-absolute-helper-import-{d}",
+        .{std.time.nanoTimestamp()},
+    );
+    defer std.testing.allocator.free(external_root);
+    std.fs.deleteTreeAbsolute(external_root) catch {};
+    try std.fs.makeDirAbsolute(external_root);
+    defer std.fs.deleteTreeAbsolute(external_root) catch unreachable;
+
+    var external_dir = try std.fs.openDirAbsolute(external_root, .{});
+    defer external_dir.close();
+    try external_dir.makePath("nested/deeper");
+    try external_dir.writeFile(.{
+        .sub_path = "outside_helper.zig",
+        .data =
+        \\pub fn helper(eff: anytype) !void {
+        \\    try eff.writer.tell("escaped");
+        \\}
+        ,
+    });
+    try external_dir.writeFile(.{
+        .sub_path = "nested/deeper/entry.zig",
+        .data =
+        \\const helpers = @import("../../outside_helper.zig");
+        \\
+        \\pub fn runBody(eff: anytype) !void {
+        \\    try helpers.helper(eff);
+        \\}
+        ,
+    });
+
+    const entry_path = try std.fs.path.join(
+        std.testing.allocator,
+        &.{ external_root, "nested", "deeper", "entry.zig" },
+    );
     defer std.testing.allocator.free(entry_path);
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

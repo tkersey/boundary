@@ -588,10 +588,7 @@ fn parseReturnLiteralStatement(comptime statement: []const BodyToken) ?union(enu
     return switch (statement[1].tag) {
         .number_literal => .{ .i32_value = std.fmt.parseInt(i32, statement[1].lexeme, 10) catch return null },
         .string_literal => .{
-            .string_value = if (statement[1].lexeme.len >= 2)
-                statement[1].lexeme[1 .. statement[1].lexeme.len - 1]
-            else
-                return null,
+            .string_value = stringLiteralContents(statement[1].lexeme) orelse return null,
         },
         else => null,
     };

@@ -331,20 +331,6 @@ fn cloneBytes(comptime bytes: []const u8) []const u8 {
     return std.fmt.comptimePrint("{s}", .{bytes});
 }
 
-fn pathTailMatches(comptime caller_file: []const u8, comptime repo_path: []const u8) bool {
-    if (caller_file.len < repo_path.len) return false;
-    const start = caller_file.len - repo_path.len;
-    inline for (repo_path, 0..) |expected, index| {
-        const actual = caller_file[start + index];
-        if (expected == '/') {
-            if (actual != '/' and actual != '\\') return false;
-            continue;
-        }
-        if (actual != expected) return false;
-    }
-    return start == 0 or caller_file[start - 1] == '/' or caller_file[start - 1] == '\\';
-}
-
 fn pathEquals(comptime lhs: []const u8, comptime rhs: []const u8) bool {
     if (lhs.len != rhs.len) return false;
     inline for (rhs, 0..) |expected, index| {
@@ -395,11 +381,26 @@ fn pathUsesPackageRootAlias(comptime caller_file: []const u8) bool {
     return pathStartsWithRoot(caller_file, build_options.package_root_alias);
 }
 
-fn absolutePathUsesOwnedRoot(comptime source_ref: SourceRef) bool {
+fn pathMatchesOwnedRootRelative(
+    comptime caller_file: []const u8,
+    comptime root: []const u8,
+    comptime repo_path: []const u8,
+) bool {
+    if (!pathStartsWithRoot(caller_file, root)) return false;
+    if (caller_file.len <= root.len) return false;
+    const separator = caller_file[root.len];
+    if (separator != '/' and separator != '\\') return false;
+    return pathEquals(caller_file[root.len + 1 ..], repo_path);
+}
+
+fn absoluteOwnedRepoPathMatches(comptime source_ref: SourceRef) bool {
     if (!std.fs.path.isAbsolute(source_ref.caller_file)) return false;
-    if (pathUsesCheckoutRoot(source_ref.caller_file)) return true;
+    if (pathUsesCheckoutRoot(source_ref.caller_file)) {
+        return pathMatchesOwnedRootRelative(source_ref.caller_file, build_options.package_root, source_ref.repo_path);
+    }
     if (!pathUsesPackageRootAlias(source_ref.caller_file)) return false;
-    return source_ref.caller_hash != null and source_ref.caller_source != null;
+    if (source_ref.caller_hash == null or source_ref.caller_source == null) return false;
+    return pathMatchesOwnedRootRelative(source_ref.caller_file, build_options.package_root_alias, source_ref.repo_path);
 }
 
 fn relativeOwnedRepoPathMatches(comptime caller_file: []const u8, comptime repo_path: []const u8) bool {
@@ -412,9 +413,7 @@ fn sourceOwnershipMatches(comptime source_ref: SourceRef) bool {
     if (source_ref.caller_hash != null or source_ref.caller_source != null) {
         return sourceHashMatches(source_ref);
     }
-    return (std.fs.path.isAbsolute(source_ref.caller_file) and
-        pathTailMatches(source_ref.caller_file, source_ref.repo_path) and
-        absolutePathUsesOwnedRoot(source_ref)) or
+    return absoluteOwnedRepoPathMatches(source_ref) or
         relativeOwnedRepoPathMatches(source_ref.caller_file, source_ref.repo_path);
 }
 
@@ -432,8 +431,7 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
             if (std.fs.path.isAbsolute(source_ref.repo_path)) {
                 if (!pathEquals(source_ref.caller_file, source_ref.repo_path)) return false;
             } else {
-                if (!pathTailMatches(source_ref.caller_file, source_ref.repo_path)) return false;
-                if (!absolutePathUsesOwnedRoot(source_ref)) return false;
+                if (!absoluteOwnedRepoPathMatches(source_ref)) return false;
             }
         } else if (pathHasSeparator(source_ref.caller_file)) {
             if (!relativeOwnedRepoPathMatches(source_ref.caller_file, source_ref.repo_path)) return false;
@@ -448,8 +446,7 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
     if (!owned_repo_path) return false;
     const repo_source = comptime source_graph_embed.embeddedSource(source_ref.repo_path);
     if (std.fs.path.isAbsolute(source_ref.caller_file)) {
-        if (!pathTailMatches(source_ref.caller_file, source_ref.repo_path)) return false;
-        if (!absolutePathUsesOwnedRoot(source_ref)) return false;
+        if (!absoluteOwnedRepoPathMatches(source_ref)) return false;
         return caller_hash == hashSourceBytes(repo_source);
     }
     if (pathHasSeparator(source_ref.caller_file)) {
@@ -460,7 +457,7 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
 }
 
 fn sourcePathForLowering(comptime source_ref: SourceRef) []const u8 {
-    if (std.fs.path.isAbsolute(source_ref.caller_file) and !absolutePathUsesOwnedRoot(source_ref)) {
+    if (std.fs.path.isAbsolute(source_ref.caller_file) and !absoluteOwnedRepoPathMatches(source_ref)) {
         return cloneBytes(source_ref.caller_file);
     }
     return source_ref.repo_path;
@@ -1551,8 +1548,10 @@ fn resolveValidationImportPathAlloc(
     }
 
     if (!std.fs.path.isAbsolute(source_path)) return error.UnsupportedHelperGraph;
+    const normalized_import_path = try normalizeRelativeRepoPathAlloc(allocator, import_path);
+    defer allocator.free(normalized_import_path);
     const base_dir = std.fs.path.dirname(source_path) orelse return error.UnsupportedHelperGraph;
-    const joined_path = std.fs.path.join(allocator, &.{ base_dir, import_path }) catch |err| switch (err) {
+    const joined_path = std.fs.path.join(allocator, &.{ base_dir, normalized_import_path }) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => unreachable,
     };
