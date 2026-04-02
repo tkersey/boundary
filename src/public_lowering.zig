@@ -467,6 +467,11 @@ fn repoPathIsOwned(comptime repo_path: []const u8) bool {
     return registryContainsLine(build_options.repo_zig_paths, repo_path);
 }
 
+fn repoPathHasUniqueBasename(comptime repo_path: []const u8) bool {
+    if (!repoPathIsOwned(repo_path)) return false;
+    return !registryContainsLine(build_options.repo_duplicate_basenames, pathBasename(repo_path));
+}
+
 fn registryContainsLine(comptime registry: []const u8, comptime candidate: []const u8) bool {
     comptime {
         @setEvalBranchQuota(50_000);
@@ -485,7 +490,8 @@ fn registryContainsLine(comptime registry: []const u8, comptime candidate: []con
 fn normalizeSourceHelperCallerFile(comptime repo_path: []const u8, comptime caller_file: []const u8) []const u8 {
     if (!std.fs.path.isAbsolute(caller_file) and
         !pathHasSeparator(caller_file) and
-        std.mem.eql(u8, pathBasename(repo_path), caller_file))
+        std.mem.eql(u8, pathBasename(repo_path), caller_file) and
+        repoPathHasUniqueBasename(repo_path))
     {
         return cloneBytes(repo_path);
     }
@@ -522,7 +528,7 @@ pub fn source(comptime repo_path: []const u8, comptime caller: std.builtin.Sourc
     if (caller.file.len == 0) @compileError("public lowering source helper requires a non-empty caller source file");
     return .{
         .repo_path = cloneBytes(repo_path),
-        .caller_file = cloneBytes(caller.file),
+        .caller_file = normalizeSourceHelperCallerFile(repo_path, caller.file),
         .caller_hash = null,
         .caller_source = null,
     };
@@ -2114,6 +2120,54 @@ test "source ownership rejects basename-only content witnesses even when their b
         .caller_hash = hashSourceBytes(source_graph_embed.embeddedSource("examples/open_row_state_writer.zig")),
         .caller_source = source_graph_embed.embeddedSource("examples/open_row_state_writer.zig"),
     }));
+}
+
+test "source helper normalizes basename-only callers only when the owned repo basename is unique" {
+    const current_src = @src();
+    const unique_caller: std.builtin.SourceLocation = .{
+        .module = current_src.module,
+        .file = "open_row_state_writer.zig",
+        .line = 1,
+        .column = 1,
+        .fn_name = "uniqueCaller",
+    };
+    const ambiguous_caller: std.builtin.SourceLocation = .{
+        .module = current_src.module,
+        .file = "entry.zig",
+        .line = 1,
+        .column = 1,
+        .fn_name = "ambiguousCaller",
+    };
+
+    try std.testing.expect(repoPathHasUniqueBasename("examples/open_row_state_writer.zig"));
+    try std.testing.expect(!repoPathHasUniqueBasename("test/open_row_entry_symbol_alias/entry.zig"));
+
+    const unique_source = comptime source("examples/open_row_state_writer.zig", unique_caller);
+    try std.testing.expectEqualStrings("examples/open_row_state_writer.zig", unique_source.caller_file);
+    try std.testing.expect(comptime sourceOwnershipMatches(unique_source));
+
+    const ambiguous_source = comptime source("test/open_row_entry_symbol_alias/entry.zig", ambiguous_caller);
+    try std.testing.expectEqualStrings("entry.zig", ambiguous_source.caller_file);
+    try std.testing.expect(!comptime sourceOwnershipMatches(ambiguous_source));
+}
+
+test "sourceWithContent preserves basename-only ambiguity instead of rewriting duplicate basenames" {
+    const current_src = @src();
+    const ambiguous_caller: std.builtin.SourceLocation = .{
+        .module = current_src.module,
+        .file = "entry.zig",
+        .line = 1,
+        .column = 1,
+        .fn_name = "ambiguousContentCaller",
+    };
+    const ambiguous_source = comptime sourceWithContent(
+        "test/open_row_entry_symbol_alias/entry.zig",
+        ambiguous_caller,
+        source_graph_embed.embeddedSource("test/open_row_entry_symbol_alias/entry.zig"),
+    );
+
+    try std.testing.expectEqualStrings("entry.zig", ambiguous_source.caller_file);
+    try std.testing.expect(!comptime sourceOwnershipMatches(ambiguous_source));
 }
 
 test "source ownership rejects hash-only witnesses for non-repo paths" {
