@@ -1232,12 +1232,111 @@ const ValidationState = struct {
     }
 };
 
-fn deinitValidationGraph(allocator: std.mem.Allocator, graph: source_graph_engine.ModuleGraph) void {
+fn freeValidationGraphBuffers(allocator: std.mem.Allocator, graph: source_graph_engine.ModuleGraph) void {
     allocator.free(graph.functions);
     allocator.free(graph.imports);
     allocator.free(graph.helper_uses);
     allocator.free(graph.helper_edges);
     allocator.free(graph.direct_op_uses);
+}
+
+fn deinitValidationGraph(allocator: std.mem.Allocator, graph: source_graph_engine.ModuleGraph) void {
+    for (graph.functions) |function| allocator.free(function.name);
+    allocator.free(graph.functions);
+    for (graph.imports) |import_alias| {
+        allocator.free(import_alias.name);
+        allocator.free(import_alias.import_path);
+    }
+    allocator.free(graph.imports);
+    for (graph.helper_uses) |helper_use| {
+        allocator.free(helper_use.callee_name);
+        if (helper_use.import_alias) |import_alias| allocator.free(import_alias);
+    }
+    allocator.free(graph.helper_uses);
+    for (graph.helper_edges) |edge| {
+        allocator.free(edge.caller_name);
+        allocator.free(edge.callee_name);
+    }
+    allocator.free(graph.helper_edges);
+    for (graph.direct_op_uses) |direct_op_use| {
+        allocator.free(direct_op_use.requirement_label);
+        allocator.free(direct_op_use.op_name);
+    }
+    allocator.free(graph.direct_op_uses);
+}
+
+fn cloneValidationGraphAlloc(
+    allocator: std.mem.Allocator,
+    graph: source_graph_engine.ModuleGraph,
+) !source_graph_engine.ModuleGraph {
+    var owned_functions = try allocator.alloc(source_graph_engine.FunctionNode, graph.functions.len);
+    errdefer allocator.free(owned_functions);
+    for (graph.functions, 0..) |function, index| {
+        errdefer for (owned_functions[0..index]) |owned| allocator.free(owned.name);
+        owned_functions[index] = function;
+        owned_functions[index].name = try allocator.dupe(u8, function.name);
+    }
+
+    var owned_imports = try allocator.alloc(source_graph_engine.ImportAlias, graph.imports.len);
+    errdefer allocator.free(owned_imports);
+    for (graph.imports, 0..) |import_alias, index| {
+        errdefer for (owned_imports[0..index]) |owned| {
+            allocator.free(owned.name);
+            allocator.free(owned.import_path);
+        };
+        owned_imports[index] = .{
+            .name = try allocator.dupe(u8, import_alias.name),
+            .import_path = try allocator.dupe(u8, import_alias.import_path),
+        };
+    }
+
+    var owned_helper_uses = try allocator.alloc(source_graph_engine.HelperUse, graph.helper_uses.len);
+    errdefer allocator.free(owned_helper_uses);
+    for (graph.helper_uses, 0..) |helper_use, index| {
+        errdefer for (owned_helper_uses[0..index]) |owned| {
+            allocator.free(owned.callee_name);
+            if (owned.import_alias) |import_alias| allocator.free(import_alias);
+        };
+        owned_helper_uses[index] = helper_use;
+        owned_helper_uses[index].callee_name = try allocator.dupe(u8, helper_use.callee_name);
+        owned_helper_uses[index].import_alias = if (helper_use.import_alias) |import_alias|
+            try allocator.dupe(u8, import_alias)
+        else
+            null;
+    }
+
+    var owned_helper_edges = try allocator.alloc(source_graph_engine.HelperEdge, graph.helper_edges.len);
+    errdefer allocator.free(owned_helper_edges);
+    for (graph.helper_edges, 0..) |edge, index| {
+        errdefer for (owned_helper_edges[0..index]) |owned| {
+            allocator.free(owned.caller_name);
+            allocator.free(owned.callee_name);
+        };
+        owned_helper_edges[index] = edge;
+        owned_helper_edges[index].caller_name = try allocator.dupe(u8, edge.caller_name);
+        owned_helper_edges[index].callee_name = try allocator.dupe(u8, edge.callee_name);
+    }
+
+    var owned_direct_op_uses = try allocator.alloc(source_graph_engine.DirectOpUse, graph.direct_op_uses.len);
+    errdefer allocator.free(owned_direct_op_uses);
+    for (graph.direct_op_uses, 0..) |direct_op_use, index| {
+        errdefer for (owned_direct_op_uses[0..index]) |owned| {
+            allocator.free(owned.requirement_label);
+            allocator.free(owned.op_name);
+        };
+        owned_direct_op_uses[index] = direct_op_use;
+        owned_direct_op_uses[index].requirement_label = try allocator.dupe(u8, direct_op_use.requirement_label);
+        owned_direct_op_uses[index].op_name = try allocator.dupe(u8, direct_op_use.op_name);
+    }
+
+    return .{
+        .entry_index = graph.entry_index,
+        .functions = owned_functions,
+        .imports = owned_imports,
+        .helper_uses = owned_helper_uses,
+        .helper_edges = owned_helper_edges,
+        .direct_op_uses = owned_direct_op_uses,
+    };
 }
 
 fn cloneValidationFunctionsAlloc(
@@ -1504,7 +1603,7 @@ fn analyzeValidationModuleGraph(
 ) ValidationError!source_graph_engine.ModuleGraph {
     if (source_graph) |owned_graph| {
         if (owned_graph.contentForPath(source_path)) |source_bytes| {
-            return source_graph_engine.analyzeRuntime(allocator, source_bytes, .{
+            const graph = source_graph_engine.analyzeRuntime(allocator, source_bytes, .{
                 .entry_symbol = entry_symbol,
                 .reject_indirect_effect_access = true,
             }) catch |err| switch (err) {
@@ -1521,6 +1620,8 @@ fn analyzeValidationModuleGraph(
                 error.UnsupportedEffectAccess => return error.UnsupportedEffectAccess,
                 error.UnsupportedImportPath => return error.UnsupportedHelperGraph,
             };
+            defer freeValidationGraphBuffers(allocator, graph);
+            return cloneValidationGraphAlloc(allocator, graph) catch return error.OutOfMemory;
         }
     }
 
@@ -1541,7 +1642,7 @@ fn analyzeValidationModuleGraph(
     defer analysis.deinit(allocator);
 
     if (!analysis.isParseClean()) return error.ParseError;
-    return source_graph_engine.analyzeRuntime(allocator, analysis.parsed.source_z, .{
+    const graph = source_graph_engine.analyzeRuntime(allocator, analysis.parsed.source_z, .{
         .entry_symbol = entry_symbol,
         .reject_indirect_effect_access = true,
     }) catch |err| switch (err) {
@@ -1558,6 +1659,8 @@ fn analyzeValidationModuleGraph(
         error.UnsupportedEffectAccess => return error.UnsupportedEffectAccess,
         error.UnsupportedImportPath => return error.UnsupportedHelperGraph,
     };
+    defer freeValidationGraphBuffers(allocator, graph);
+    return cloneValidationGraphAlloc(allocator, graph) catch return error.OutOfMemory;
 }
 
 fn collectValidationModule(
