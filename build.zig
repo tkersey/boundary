@@ -217,6 +217,10 @@ fn boundaryAliasRoot(b: *std.Build) []const u8 {
         std.process.fatal("unable to allocate package-root alias root", .{});
 }
 
+fn boundaryFixtureRoot(b: *std.Build) []const u8 {
+    return b.pathFromRoot(".zig-cache/boundary-fixtures");
+}
+
 fn clearAliasPath(alias_path: []const u8, dir_error: []const u8, path_error: []const u8) void {
     std.fs.deleteFileAbsolute(alias_path) catch |err| switch (err) {
         error.FileNotFound => {},
@@ -266,19 +270,24 @@ fn packageRootAlias(b: *std.Build) PackageRootAlias {
 }
 
 fn writeBoundaryFixtureFile(b: *std.Build, basename: []const u8, contents: []const u8) []const u8 {
-    const alias_root = boundaryAliasRoot(b);
-    std.fs.makeDirAbsolute(alias_root) catch |err| switch (err) {
+    const fixture_root = boundaryFixtureRoot(b);
+    std.fs.makeDirAbsolute(fixture_root) catch |err| switch (err) {
         error.PathAlreadyExists => {},
         else => std.process.fatal("unable to prepare boundary fixture root", .{}),
     };
     const fixture_path = boundaryFixturePath(b, basename);
-    clearAliasPath(
-        fixture_path,
-        "unable to clear existing boundary fixture directory",
-        "unable to clear existing boundary fixture path",
-    );
-    const file = std.fs.createFileAbsolute(fixture_path, .{}) catch
-        std.process.fatal("unable to create boundary fixture file", .{});
+    const file = std.fs.createFileAbsolute(fixture_path, .{ .truncate = true }) catch |err| switch (err) {
+        error.IsDir => blk: {
+            clearAliasPath(
+                fixture_path,
+                "unable to clear existing boundary fixture directory",
+                "unable to clear existing boundary fixture path",
+            );
+            break :blk std.fs.createFileAbsolute(fixture_path, .{ .truncate = true }) catch
+                std.process.fatal("unable to recreate boundary fixture file", .{});
+        },
+        else => std.process.fatal("unable to create boundary fixture file", .{}),
+    };
     defer file.close();
     var writer_buffer: [4096]u8 = undefined;
     var file_writer = file.writer(&writer_buffer);
@@ -290,7 +299,7 @@ fn writeBoundaryFixtureFile(b: *std.Build, basename: []const u8, contents: []con
 }
 
 fn boundaryFixturePath(b: *std.Build, basename: []const u8) []const u8 {
-    return std.fs.path.join(b.allocator, &.{ boundaryAliasRoot(b), basename }) catch
+    return std.fs.path.join(b.allocator, &.{ boundaryFixtureRoot(b), basename }) catch
         std.process.fatal("unable to allocate boundary fixture path", .{});
 }
 
@@ -1179,11 +1188,23 @@ pub fn build(b: *std.Build) void {
     const down_test_path = boundaryFixturePath(b, "downstream_public_lowering_test.zig");
     const down_test_path_literal = zigStringLiteralEscapeAlloc(b.allocator, down_test_path) catch
         std.process.fatal("unable to escape downstream public lowering fixture path", .{});
+    const down_helper_src =
+        \\pub fn emit(eff: anytype) !void {
+        \\    try eff.writer.tell("query=artifact-search");
+        \\    try eff.writer.tell("workflow=queued");
+        \\}
+    ;
+    _ = writeBoundaryFixtureFile(
+        b,
+        "downstream_public_lowering_helper.zig",
+        down_helper_src,
+    );
     const down_test_src = std.fmt.allocPrint(
         b.allocator,
         \\const downstream_source_path = "{s}";
         \\const shift = @import("shift");
         \\const std = @import("std");
+        \\const helpers = @import("downstream_public_lowering_helper.zig");
         \\
         \\const runtime_support = shift.lowering.runtime_support;
         \\
@@ -1213,14 +1234,22 @@ pub fn build(b: *std.Build) void {
         \\}}
         \\
         \\fn loweringSource() shift.lowering.SourceRef {{
-        \\    return shift.lowering.sourceWithContent(downstream_source_path, @src(), @embedFile(@src().file));
+        \\    return shift.lowering.sourceWithContentAndImports(
+        \\        downstream_source_path,
+        \\        @src(),
+        \\        @embedFile(@src().file),
+        \\        &.{{shift.lowering.importedSource(
+        \\            downstream_source_path,
+        \\            "downstream_public_lowering_helper.zig",
+        \\            @embedFile("downstream_public_lowering_helper.zig"),
+        \\        )}},
+        \\    );
         \\}}
         \\
         \\pub fn runBody(eff: anytype) ![]const u8 {{
         \\    const before = try eff.state.get();
+        \\    try helpers.emit(eff);
         \\    try eff.state.set(before + 1);
-        \\    try eff.writer.tell("query=artifact-search");
-        \\    try eff.writer.tell("workflow=queued");
         \\    return "done";
         \\}}
         \\

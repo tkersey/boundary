@@ -22,12 +22,16 @@ pub const LowerSpec = struct {
     outputs: []const effect_ir.OutputSpec = &.{},
 };
 
+/// Public caller-owned imported source bytes for out-of-tree lowering.
+pub const ImportedSource = source_graph_embed.OwnedSource;
+
 /// Public caller-supplied provenance witness for one lowering request.
 pub const SourceRef = struct {
     repo_path: []const u8,
     caller_file: []const u8,
     caller_hash: ?u64 = null,
     caller_source: ?[:0]const u8 = null,
+    imported_sources: []const ImportedSource = &.{},
 };
 
 /// Public additive validation error surface for file-backed same-module sources.
@@ -367,6 +371,19 @@ fn pathStartsWithRoot(comptime path: []const u8, comptime root: []const u8) bool
     return path.len == root.len or path[root.len] == '/' or path[root.len] == '\\';
 }
 
+fn pathStartsWithRootRuntime(path: []const u8, root: []const u8) bool {
+    if (path.len < root.len) return false;
+    for (root, 0..) |expected, index| {
+        const actual = path[index];
+        if (expected == '/' or expected == '\\') {
+            if (actual != '/' and actual != '\\') return false;
+            continue;
+        }
+        if (actual != expected) return false;
+    }
+    return path.len == root.len or path[root.len] == '/' or path[root.len] == '\\';
+}
+
 fn pathUsesCheckoutRoot(comptime caller_file: []const u8) bool {
     if (!std.fs.path.isAbsolute(caller_file)) return false;
     return pathStartsWithRoot(caller_file, build_options.package_root);
@@ -520,6 +537,33 @@ pub fn sourceWithContent(
     comptime caller: std.builtin.SourceLocation,
     comptime caller_source: []const u8,
 ) SourceRef {
+    return sourceWithContentAndImports(repo_path, caller, caller_source, &.{});
+}
+
+/// Build one caller-owned imported source witness relative to the explicit root source path.
+pub fn importedSource(
+    comptime root_source_path: []const u8,
+    comptime import_path: []const u8,
+    comptime source_bytes: []const u8,
+) ImportedSource {
+    const resolved_path = source_graph_embed.resolveImportPathAt(root_source_path, import_path) catch |err| switch (err) {
+        error.UnsupportedImportPath => @compileError("public lowering imported source helper requires a relative .zig import path"),
+        error.TooManyImports => @compileError("public lowering imported source helper exceeded the supported segment budget"),
+        else => @compileError("public lowering imported source helper could not resolve the imported source path"),
+    };
+    return .{
+        .path = cloneBytes(resolved_path),
+        .content = sentinelBytes(source_bytes),
+    };
+}
+
+/// Build one caller-owned lowering provenance witness with explicit imported helper bytes.
+pub fn sourceWithContentAndImports(
+    comptime repo_path: []const u8,
+    comptime caller: std.builtin.SourceLocation,
+    comptime caller_source: []const u8,
+    comptime imported_sources: []const ImportedSource,
+) SourceRef {
     if (repo_path.len == 0) @compileError("public lowering source helper requires a non-empty repo-relative path");
     if (caller.file.len == 0) @compileError("public lowering source helper requires a non-empty caller source file");
     return .{
@@ -527,6 +571,7 @@ pub fn sourceWithContent(
         .caller_file = normalizeSourceHelperCallerFile(repo_path, caller.file),
         .caller_hash = hashSourceBytes(caller_source),
         .caller_source = sentinelBytes(caller_source),
+        .imported_sources = imported_sources,
     };
 }
 
@@ -749,15 +794,16 @@ fn loweredFunctionIndexMap(comptime graph: source_graph_embed.ProgramGraph) [gra
 }
 
 fn analyzeProgramGraphAt(comptime source_path: []const u8, comptime entry_symbol: []const u8) source_graph_embed.ProgramGraph {
-    return analyzeProgramGraphWithRootSource(source_path, null, entry_symbol);
+    return analyzeProgramGraphWithRootSource(source_path, null, &.{}, entry_symbol);
 }
 
 fn analyzeProgramGraphWithRootSource(
     comptime source_path: []const u8,
     comptime root_source: ?[:0]const u8,
+    comptime imported_sources: []const ImportedSource,
     comptime entry_symbol: []const u8,
 ) source_graph_embed.ProgramGraph {
-    return source_graph_embed.analyzeProgramWithRootSource(source_path, root_source, entry_symbol) catch |err| switch (err) {
+    return source_graph_embed.analyzeProgramWithRootSource(source_path, root_source, imported_sources, entry_symbol) catch |err| switch (err) {
         error.EntryMissing => @compileError("public lowering could not find the requested entry symbol in the embedded source"),
         error.MissingImport => @compileError("public lowering could not resolve one imported helper module or helper symbol"),
         error.RecursiveHelpers => @compileError("public lowering encountered an unexpected recursive helper analysis failure"),
@@ -1004,6 +1050,7 @@ fn buildFunctionBodiesForGraph(
     comptime functions: []const effect_ir.Function,
     comptime root_source_path: ?[]const u8,
     comptime root_source: ?[:0]const u8,
+    comptime imported_sources: []const ImportedSource,
 ) []const program_frontend.FunctionBody {
     const reachable = reachableFunctions(graph);
     const lowered_index_map = loweredFunctionIndexMap(graph);
@@ -1015,21 +1062,23 @@ fn buildFunctionBodiesForGraph(
         .{
             .path = root_source_path,
             .content = root_source,
+            .imported_sources = imported_sources,
         },
     );
 }
 
 /// Build one explicit-path open-row payload with a caller-visible source path.
 fn openRowAt(comptime source_path: []const u8, comptime spec: LowerSpec) program_frontend.OpenRowProgram {
-    return openRowWithRootSource(source_path, null, spec);
+    return openRowWithRootSource(source_path, null, &.{}, spec);
 }
 
 fn openRowWithRootSource(
     comptime source_path: []const u8,
     comptime root_source: ?[:0]const u8,
+    comptime imported_sources: []const ImportedSource,
     comptime spec: LowerSpec,
 ) program_frontend.OpenRowProgram {
-    const graph = analyzeProgramGraphWithRootSource(source_path, root_source, spec.entry_symbol);
+    const graph = analyzeProgramGraphWithRootSource(source_path, root_source, imported_sources, spec.entry_symbol);
     const functions = buildFunctionsForGraph(graph, spec);
     return .{
         .label = spec.label,
@@ -1042,6 +1091,7 @@ fn openRowWithRootSource(
             functions,
             if (root_source != null) source_path else null,
             root_source,
+            imported_sources,
         ),
     };
 }
@@ -1246,9 +1296,17 @@ fn canonicalValidationSourcePathAlloc(allocator: std.mem.Allocator, source_path:
     if (packageRootRelativeSlice(source_path)) |repo_path| {
         const normalized_repo_source_path = try normalizeRelativeRepoPathAlloc(allocator, repo_path);
         defer allocator.free(normalized_repo_source_path);
-        return std.fs.path.join(allocator, &.{ build_options.package_root, normalized_repo_source_path }) catch |err| switch (err) {
+        const package_root_candidate = std.fs.path.join(allocator, &.{ build_options.package_root, normalized_repo_source_path }) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => unreachable,
+        };
+        defer allocator.free(package_root_candidate);
+        owned_canonical_path = std.fs.realpathAlloc(allocator, package_root_candidate) catch return error.UnsupportedHelperGraph;
+        if (!pathStartsWithRootRuntime(owned_canonical_path.?, build_options.package_root)) {
+            return error.UnsupportedHelperGraph;
+        }
+        return allocator.dupe(u8, owned_canonical_path.?) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
         };
     }
 
@@ -1264,12 +1322,18 @@ fn canonicalValidationSourcePathAlloc(allocator: std.mem.Allocator, source_path:
 
         owned_canonical_path = std.fs.realpathAlloc(allocator, package_root_candidate) catch null;
         if (owned_canonical_path) |canonical_path| {
+            if (!pathStartsWithRootRuntime(canonical_path, build_options.package_root)) {
+                return error.UnsupportedHelperGraph;
+            }
             return allocator.dupe(u8, canonical_path) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
             };
         }
 
         owned_canonical_path = std.fs.cwd().realpathAlloc(allocator, source_path) catch return error.UnsupportedHelperGraph;
+        if (!pathStartsWithRootRuntime(owned_canonical_path.?, build_options.package_root)) {
+            return error.UnsupportedHelperGraph;
+        }
         return allocator.dupe(u8, owned_canonical_path.?) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
         };
@@ -1555,7 +1619,7 @@ fn Lower(comptime source_ref: SourceRef, comptime spec: LowerSpec) type {
         comptime {
             @setEvalBranchQuota(20_000);
         }
-        const lowered_program = source_lowering.lowerOpenRowProgram(openRowWithRootSource(source_path, caller_source, spec)) catch |err| switch (err) {
+        const lowered_program = source_lowering.lowerOpenRowProgram(openRowWithRootSource(source_path, caller_source, source_ref.imported_sources, spec)) catch |err| switch (err) {
             error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
             error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
             error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),

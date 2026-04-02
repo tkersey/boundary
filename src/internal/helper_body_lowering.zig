@@ -57,6 +57,7 @@ const BranchBuildContext = struct {
 pub const RootSource = struct {
     path: ?[]const u8,
     content: ?[:0]const u8,
+    imported_sources: []const source_graph_embed.OwnedSource = &.{},
 };
 
 const FunctionBuildContext = struct {
@@ -94,10 +95,12 @@ fn bodyTokensForFunction(
     comptime body_start_offset: usize,
     comptime body_end_offset: usize,
 ) []const BodyToken {
-    const module_source = if (root_source.path != null and std.mem.eql(u8, module_path, root_source.path.?))
-        root_source.content.?
-    else
-        source_graph_embed.embeddedSource(module_path);
+    const module_source = source_graph_embed.sourceBytes(
+        module_path,
+        root_source.path,
+        root_source.content,
+        root_source.imported_sources,
+    );
     return comptime blk: {
         var tokenizer = std.zig.Tokenizer.init(module_source);
         var token_count: usize = 0;
@@ -650,8 +653,14 @@ fn opIndexForFunctionUse(
 fn helperImportModulePath(
     comptime caller_module_path: []const u8,
     comptime import_alias: []const u8,
+    comptime root_source: RootSource,
 ) ?[]const u8 {
-    const caller_graph = source_graph_engine.analyzeComptime(source_graph_embed.embeddedSource(caller_module_path), .{
+    const caller_graph = source_graph_engine.analyzeComptime(source_graph_embed.sourceBytes(
+        caller_module_path,
+        root_source.path,
+        root_source.content,
+        root_source.imported_sources,
+    ), .{
         .entry_symbol = null,
         .reject_recursive_helpers = false,
         .reject_indirect_effect_access = true,
@@ -668,11 +677,12 @@ fn helperTargetIndex(
     comptime graph: source_graph_embed.ProgramGraph,
     comptime lowered_index_map: []const u16,
     comptime graph_function_index: usize,
+    comptime root_source: RootSource,
     comptime helper_call: HelperCall,
 ) u16 {
     const caller_module_path = graph.functions[graph_function_index].module_path;
     const expected_module_path = if (helper_call.import_alias) |import_alias|
-        helperImportModulePath(caller_module_path, import_alias) orelse
+        helperImportModulePath(caller_module_path, import_alias, root_source) orelse
             @compileError("public lowering recursive helper subset could not resolve one helper import alias")
     else
         caller_module_path;
@@ -992,6 +1002,7 @@ fn appendBranchActionInstructions(
                 context.graph,
                 context.lowered_index_map,
                 context.graph_function_index,
+                context.root_source,
                 helper_call,
             );
             const callee = context.functions[callee_index];
@@ -1081,6 +1092,7 @@ fn buildLinearBodyForFunction(
                     context.graph,
                     context.lowered_index_map,
                     context.graph_function_index,
+                    context.root_source,
                     bound_helper.helper_call,
                 );
                 const callee = context.functions[callee_index];
@@ -1206,6 +1218,7 @@ fn buildLinearBodyForFunction(
                     context.graph,
                     context.lowered_index_map,
                     context.graph_function_index,
+                    context.root_source,
                     helper_call,
                 );
                 const callee = context.functions[callee_index];
@@ -1462,7 +1475,13 @@ fn buildRecursiveGuardBodyForFunction(
             const helper_call = parseHelperCallStatement(statement).?;
             buffer[index] = .{
                 .kind = .call_helper,
-                .operand = helperTargetIndex(context.graph, context.lowered_index_map, context.graph_function_index, helper_call),
+                .operand = helperTargetIndex(
+                    context.graph,
+                    context.lowered_index_map,
+                    context.graph_function_index,
+                    context.root_source,
+                    helper_call,
+                ),
             };
             index += 1;
         }

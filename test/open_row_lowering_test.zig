@@ -1,4 +1,5 @@
 const authoring_build_options = @import("authoring_build_options");
+const builtin = @import("builtin");
 const example_open_row_branching_helper_body = @import("example_open_row_branching_helper_body");
 const example_open_row_cross_file_writer = @import("example_open_row_cross_file_writer");
 const example_open_row_escaped_string_helper_body = @import("example_open_row_escaped_string_helper_body");
@@ -815,6 +816,54 @@ test "file-backed validation rejects relative entry paths that escape the packag
     try std.testing.expectError(
         error.UnsupportedHelperGraph,
         shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), "../outside.zig", "runBody"),
+    );
+}
+
+test "file-backed validation rejects repo-relative symlink entries that canonicalize outside the package root" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(original_cwd);
+
+    const external_root = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "/tmp/shift-open-row-symlink-{d}",
+        .{std.time.nanoTimestamp()},
+    );
+    defer std.testing.allocator.free(external_root);
+    std.fs.deleteTreeAbsolute(external_root) catch {};
+    try std.fs.makeDirAbsolute(external_root);
+    defer std.fs.deleteTreeAbsolute(external_root) catch unreachable;
+    var external_dir = try std.fs.openDirAbsolute(external_root, .{});
+    defer external_dir.close();
+    try external_dir.writeFile(.{
+        .sub_path = "outside.zig",
+        .data =
+        \\pub fn runBody() void {}
+        ,
+    });
+
+    const outside_path = try std.fs.path.join(std.testing.allocator, &.{ external_root, "outside.zig" });
+    defer std.testing.allocator.free(outside_path);
+
+    const repo_link_path = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "test/open_row_validation_boundary/runtime_escape_link_{d}.zig",
+        .{std.time.nanoTimestamp()},
+    );
+    defer std.testing.allocator.free(repo_link_path);
+
+    const absolute_link_path = try std.fs.path.join(std.testing.allocator, &.{ original_cwd, repo_link_path });
+    defer std.testing.allocator.free(absolute_link_path);
+    std.fs.deleteFileAbsolute(absolute_link_path) catch {};
+    try std.fs.symLinkAbsolute(outside_path, absolute_link_path, .{});
+    defer std.fs.deleteFileAbsolute(absolute_link_path) catch unreachable;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try std.testing.expectError(
+        error.UnsupportedHelperGraph,
+        shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), repo_link_path, "runBody"),
     );
 }
 

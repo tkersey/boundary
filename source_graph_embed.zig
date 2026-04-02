@@ -1,4 +1,5 @@
 const build_options = @import("authoring_build_options");
+const builtin = @import("builtin");
 const source_graph_comptime = @import("source_graph_comptime");
 const source_graph_engine = @import("source_graph_engine");
 const std = @import("std");
@@ -43,6 +44,12 @@ pub const ProgramGraph = struct {
     functions: []const ProgramFunction,
     helper_edges: []const ProgramHelperEdge,
     direct_op_uses: []const ProgramDirectOpUse,
+};
+
+/// One caller-owned source file supplied alongside the root lowering source.
+pub const OwnedSource = struct {
+    path: []const u8,
+    content: [:0]const u8,
 };
 
 const ModuleSummary = struct {
@@ -120,6 +127,19 @@ fn joinRelativePathSegments(comptime segments: []const []const u8) []const u8 {
     };
 }
 
+fn pathEquals(comptime lhs: []const u8, comptime rhs: []const u8) bool {
+    if (lhs.len != rhs.len) return false;
+    inline for (rhs, 0..) |expected, index| {
+        const actual = lhs[index];
+        if (expected == '/' or expected == '\\') {
+            if (actual != '/' and actual != '\\') return false;
+            continue;
+        }
+        if (actual != expected) return false;
+    }
+    return true;
+}
+
 fn normalizeRelativePath(comptime source_path: []const u8) NormalizeRelativePathError![]const u8 {
     var segments = [_][]const u8{""} ** 64;
     var segment_count: usize = 0;
@@ -191,14 +211,50 @@ fn absoluteSourcePath(comptime source_path: []const u8) []const u8 {
     };
 }
 
-fn normalizeAbsolutePath(comptime source_path: []const u8) NormalizeRelativePathError![]const u8 {
-    if (!std.fs.path.isAbsolute(source_path)) return error.EmptyPath;
-    const relative = normalizeRelativePath(source_path[1..]) catch |err| switch (err) {
+fn normalizeAbsolutePathWithType(
+    comptime path_type: std.fs.path.PathType,
+    comptime source_path: []const u8,
+) NormalizeRelativePathError![]const u8 {
+    var iterator = std.fs.path.ComponentIterator(path_type, u8).init(source_path) catch return error.EmptyPath;
+    const root = iterator.root() orelse return error.EmptyPath;
+    const relative = normalizeRelativePath(source_path[root.len..]) catch |err| switch (err) {
         error.EmptyPath => return error.EmptyPath,
         error.EscapesRoot => return error.EscapesRoot,
         error.TooManySegments => return error.TooManySegments,
     };
-    return std.fmt.comptimePrint("/{s}", .{relative});
+    return std.fmt.comptimePrint("{s}{s}", .{ root, relative });
+}
+
+fn normalizeAbsolutePath(comptime source_path: []const u8) NormalizeRelativePathError![]const u8 {
+    if (!std.fs.path.isAbsolute(source_path)) return error.EmptyPath;
+    const path_type: std.fs.path.PathType = if (builtin.os.tag == .windows) .windows else .posix;
+    return normalizeAbsolutePathWithType(path_type, source_path);
+}
+
+/// Return caller-owned source bytes for one exact module path when provided explicitly.
+pub fn ownedSourceContent(
+    comptime source_path: []const u8,
+    comptime root_source_path: ?[]const u8,
+    comptime root_source: ?[:0]const u8,
+    comptime imported_sources: []const OwnedSource,
+) ?[:0]const u8 {
+    if (root_source_path != null and pathEquals(source_path, root_source_path.?)) {
+        return root_source;
+    }
+    for (imported_sources) |imported_source| {
+        if (pathEquals(source_path, imported_source.path)) return imported_source.content;
+    }
+    return null;
+}
+
+/// Resolve one module path to caller-owned bytes first, then fall back to repo-embedded bytes.
+pub fn sourceBytes(
+    comptime source_path: []const u8,
+    comptime root_source_path: ?[]const u8,
+    comptime root_source: ?[:0]const u8,
+    comptime imported_sources: []const OwnedSource,
+) [:0]const u8 {
+    return ownedSourceContent(source_path, root_source_path, root_source, imported_sources) orelse embeddedSource(source_path);
 }
 
 /// Embed one repo-relative source file through a repo-root module so examples remain package-visible.
@@ -288,10 +344,12 @@ fn pushHelperEdge(buffers: *Buffers, caller_index: usize, callee_index: usize, l
 
 fn analyzeOwnedModule(
     comptime source_path: []const u8,
+    comptime root_source_path: ?[]const u8,
     comptime root_source: ?[:0]const u8,
+    comptime imported_sources: []const OwnedSource,
     comptime entry_symbol: ?[]const u8,
 ) Error!source_graph_engine.ModuleGraph {
-    return source_graph_engine.analyzeComptime(root_source orelse embeddedSource(source_path), .{
+    return source_graph_engine.analyzeComptime(sourceBytes(source_path, root_source_path, root_source, imported_sources), .{
         .entry_symbol = entry_symbol,
         .reject_recursive_helpers = false,
         .reject_indirect_effect_access = true,
@@ -302,6 +360,7 @@ fn collectModule(
     comptime source_path: []const u8,
     comptime root_source_path: ?[]const u8,
     comptime root_source: ?[:0]const u8,
+    comptime imported_sources: []const OwnedSource,
     buffers: *Buffers,
 ) Error!ModuleSummary {
     if (findModule(buffers, source_path)) |existing| return existing;
@@ -309,7 +368,9 @@ fn collectModule(
     if (buffers.module_count >= buffers.modules.len) return error.TooManyImports;
     const graph = try analyzeOwnedModule(
         source_path,
-        if (root_source_path != null and std.mem.eql(u8, source_path, root_source_path.?)) root_source else null,
+        root_source_path,
+        root_source,
+        imported_sources,
         null,
     );
     const first_function_index = buffers.function_count;
@@ -369,7 +430,7 @@ fn collectModule(
         if (graph.functions[helper_use.caller_index].effect_param == null) continue;
         const import_row = findImportAlias(graph.imports, import_alias) orelse return error.MissingImport;
         const imported_path = try resolveImportPath(source_path, import_row.import_path);
-        const imported = try collectModule(imported_path, root_source_path, root_source, buffers);
+        const imported = try collectModule(imported_path, root_source_path, root_source, imported_sources, buffers);
         const callee_local_index = findLocalFunctionIndex(imported.graph, helper_use.callee_name) orelse return error.MissingImport;
         try pushHelperEdge(
             buffers,
@@ -385,18 +446,20 @@ fn collectModule(
 
 /// Analyze one repo-relative source file and flatten same-file plus imported helper graphs into one explicit program graph.
 pub fn analyzeProgramAt(comptime source_path: []const u8, comptime entry_symbol: []const u8) Error!ProgramGraph {
-    return try analyzeProgramWithRootSource(source_path, null, entry_symbol);
+    return try analyzeProgramWithRootSource(source_path, null, &.{}, entry_symbol);
 }
 
 /// Analyze one source-owned root module plus imported helper graphs into one explicit program graph.
 pub fn analyzeProgramWithRootSource(
     comptime source_path: []const u8,
     comptime root_source: ?[:0]const u8,
+    comptime imported_sources: []const OwnedSource,
     comptime entry_symbol: []const u8,
 ) Error!ProgramGraph {
     var buffers = Buffers{};
-    const root = try collectModule(source_path, if (root_source != null) source_path else null, root_source, &buffers);
-    const root_graph = try analyzeOwnedModule(source_path, root_source, entry_symbol);
+    const root_source_path = if (root_source != null) source_path else null;
+    const root = try collectModule(source_path, root_source_path, root_source, imported_sources, &buffers);
+    const root_graph = try analyzeOwnedModule(source_path, root_source_path, root_source, imported_sources, entry_symbol);
     const entry_local_index = root_graph.entry_index orelse return error.EntryMissing;
     const entry_index = root.first_function_index + entry_local_index;
 
@@ -406,4 +469,18 @@ pub fn analyzeProgramWithRootSource(
         .helper_edges = buffers.helper_edges[0..buffers.helper_edge_count],
         .direct_op_uses = buffers.direct_op_uses[0..buffers.direct_op_use_count],
     };
+}
+
+test "normalizeAbsolutePathWithType preserves Windows drive roots" {
+    try std.testing.expectEqualStrings(
+        "C:\\foo/bar.zig",
+        try normalizeAbsolutePathWithType(.windows, "C:\\foo\\.\\bar.zig"),
+    );
+}
+
+test "normalizeAbsolutePathWithType preserves UNC roots" {
+    try std.testing.expectEqualStrings(
+        "\\\\server\\share\\pkg/main.zig",
+        try normalizeAbsolutePathWithType(.windows, "\\\\server\\share\\pkg\\.\\main.zig"),
+    );
 }
