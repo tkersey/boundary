@@ -1204,6 +1204,9 @@ pub fn planFromOpenRowProgram(
         for (program.function_bodies) |body| {
             for (body.blocks) |block| {
                 for (block.instructions) |instruction| {
+                    if (instruction.kind == .call_helper and instruction.operand >= program.functions.len) {
+                        invalidGeneratedPlan(error.InvalidCallHelperTarget);
+                    }
                     const target_parameter_count: u16 = if (instruction.kind == .call_helper)
                         @intCast(program.functions[instruction.operand].parameter_codecs.len)
                     else

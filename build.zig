@@ -217,12 +217,11 @@ fn boundaryAliasRoot(b: *std.Build) []const u8 {
         std.process.fatal("unable to allocate package-root alias root", .{});
 }
 
-fn boundaryFixtureRoot(b: *std.Build) []const u8 {
-    return b.pathFromRoot(".zig-cache/boundary-fixtures");
-}
-
 fn externalBoundaryFixtureRoot(b: *std.Build) []const u8 {
-    return std.fs.path.join(b.allocator, &.{ boundaryFixtureRoot(b), "external-boundary-fixtures" }) catch
+    const repo_root = b.pathFromRoot(".");
+    const repo_parent = std.fs.path.dirname(repo_root) orelse
+        std.process.fatal("unable to derive external boundary fixture parent", .{});
+    return std.fs.path.join(b.allocator, &.{ repo_parent, ".shift_external_boundary_fixtures" }) catch
         std.process.fatal("unable to allocate external boundary fixture root", .{});
 }
 
@@ -272,35 +271,6 @@ fn packageRootAlias(b: *std.Build) PackageRootAlias {
         .path = alias_path,
         .available = true,
     };
-}
-
-fn writeBoundaryFixtureFile(b: *std.Build, basename: []const u8, contents: []const u8) []const u8 {
-    const fixture_root = boundaryFixtureRoot(b);
-    std.fs.makeDirAbsolute(fixture_root) catch |err| switch (err) {
-        error.PathAlreadyExists => {},
-        else => std.process.fatal("unable to prepare boundary fixture root", .{}),
-    };
-    const fixture_path = boundaryFixturePath(b, basename);
-    const file = std.fs.createFileAbsolute(fixture_path, .{ .truncate = true }) catch |err| switch (err) {
-        error.IsDir => blk: {
-            clearAliasPath(
-                fixture_path,
-                "unable to clear existing boundary fixture directory",
-                "unable to clear existing boundary fixture path",
-            );
-            break :blk std.fs.createFileAbsolute(fixture_path, .{ .truncate = true }) catch
-                std.process.fatal("unable to recreate boundary fixture file", .{});
-        },
-        else => std.process.fatal("unable to create boundary fixture file", .{}),
-    };
-    defer file.close();
-    var writer_buffer: [4096]u8 = undefined;
-    var file_writer = file.writer(&writer_buffer);
-    file_writer.interface.writeAll(contents) catch
-        std.process.fatal("unable to write boundary fixture file", .{});
-    file_writer.interface.flush() catch
-        std.process.fatal("unable to flush boundary fixture file", .{});
-    return fixture_path;
 }
 
 fn writeExternalBoundaryFixtureFile(b: *std.Build, basename: []const u8, contents: []const u8) []const u8 {
@@ -354,11 +324,6 @@ fn ensureOptionalAbsoluteSymlink(
     clearAliasPath(link_path, dir_error, path_error);
     std.fs.symLinkAbsolute(target_path, link_path, .{}) catch return false;
     return true;
-}
-
-fn boundaryFixturePath(b: *std.Build, basename: []const u8) []const u8 {
-    return std.fs.path.join(b.allocator, &.{ boundaryFixtureRoot(b), basename }) catch
-        std.process.fatal("unable to allocate boundary fixture path", .{});
 }
 
 fn zigStringLiteralEscapeAlloc(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
@@ -1272,7 +1237,10 @@ pub fn build(b: *std.Build) void {
         .root_module = open_row_lowering_mod,
     });
     const run_open_row_lowering_tests = b.addRunArtifact(open_row_lowering_tests);
-    const down_test_path = boundaryFixturePath(b, "downstream_public_lowering_test.zig");
+    const down_test_path = std.fs.path.join(
+        b.allocator,
+        &.{ externalBoundaryFixtureRoot(b), "downstream_public_lowering_test.zig" },
+    ) catch std.process.fatal("unable to allocate external downstream public lowering fixture path", .{});
     const down_test_path_literal = zigStringLiteralEscapeAlloc(b.allocator, down_test_path) catch
         std.process.fatal("unable to escape downstream public lowering fixture path", .{});
     const down_helper_src =
@@ -1281,7 +1249,7 @@ pub fn build(b: *std.Build) void {
         \\    try eff.writer.tell("workflow=queued");
         \\}
     ;
-    _ = writeBoundaryFixtureFile(
+    _ = writeExternalBoundaryFixtureFile(
         b,
         "downstream_public_lowering_helper.zig",
         down_helper_src,
@@ -1418,7 +1386,7 @@ pub fn build(b: *std.Build) void {
     ,
         .{down_test_path_literal},
     ) catch std.process.fatal("unable to allocate downstream public lowering test fixture", .{});
-    _ = writeBoundaryFixtureFile(
+    _ = writeExternalBoundaryFixtureFile(
         b,
         "downstream_public_lowering_test.zig",
         down_test_src,
@@ -2022,6 +1990,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "cf-public-ir-value-dst", .path = "test/compile_fail/public_ir_value_dst_fails.zig", .expected = "runtime plan generator produced an instruction with an out-of-range function-local reference" },
         .{ .name = "cf-public-ir-terminator-precondition", .path = "test/compile_fail/public_ir_terminator_precondition_fails.zig", .expected = "runtime plan generator produced a block terminator without its required producer instruction" },
         .{ .name = "cf-public-ir-blockless-entry", .path = "test/compile_fail/public_ir_blockless_entry_fails.zig", .expected = "runtime plan generator produced an invalid function entry block" },
+        .{ .name = "cf-public-ir-invalid-call-helper-target", .path = "test/compile_fail/public_ir_invalid_call_helper_target_fails.zig", .expected = "runtime plan generator produced an out-of-range helper target" },
         .{ .name = "cf-public-ir-foreign-row-call-op", .path = "test/compile_fail/public_ir_foreign_row_call_op_fails.zig", .expected = "runtime plan generator produced an out-of-range or foreign-row op target" },
         .{ .name = "cf-string-list-codec", .path = "test/compile_fail/string_list_codec_fails.zig", .expected = "public lowering runtime plan rejected string_list values across executable boundaries" },
         .{ .name = "cf-entry-value-param-lower-at", .path = "test/compile_fail/entry_value_param_lower_at_fails.zig", .expected = "public lowering rejected entry functions with value parameters because run(runtime, handlers) cannot supply entry arguments" },
@@ -2063,6 +2032,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "cf-public-ir-value-dst", .path = "test/compile_fail/public_ir_value_dst_fails.zig", .expected = "runtime plan generator produced an instruction with an out-of-range function-local reference" },
         .{ .name = "cf-public-ir-terminator-precondition", .path = "test/compile_fail/public_ir_terminator_precondition_fails.zig", .expected = "runtime plan generator produced a block terminator without its required producer instruction" },
         .{ .name = "cf-public-ir-blockless-entry", .path = "test/compile_fail/public_ir_blockless_entry_fails.zig", .expected = "runtime plan generator produced an invalid function entry block" },
+        .{ .name = "cf-public-ir-invalid-call-helper-target", .path = "test/compile_fail/public_ir_invalid_call_helper_target_fails.zig", .expected = "runtime plan generator produced an out-of-range helper target" },
         .{ .name = "cf-public-ir-foreign-row-call-op", .path = "test/compile_fail/public_ir_foreign_row_call_op_fails.zig", .expected = "runtime plan generator produced an out-of-range or foreign-row op target" },
         .{ .name = "cf-string-list-codec", .path = "test/compile_fail/string_list_codec_fails.zig", .expected = "public lowering runtime plan rejected string_list values across executable boundaries" },
         .{ .name = "cf-entry-value-param-lower-at", .path = "test/compile_fail/entry_value_param_lower_at_fails.zig", .expected = "public lowering rejected entry functions with value parameters because run(runtime, handlers) cannot supply entry arguments" },

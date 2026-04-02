@@ -21,8 +21,9 @@ comptime {
         \\}
     ;
     const caller_path = "/tmp/downstream_public_lowering_test.zig";
+    const repo_path = "/tmp/other_downstream_public_lowering_test.zig";
     _ = shift.lower(.{
-        .repo_path = caller_path,
+        .repo_path = repo_path,
         .caller_file = caller_path,
         .caller_hash = std.hash.Wyhash.hash(0, mirrored_source),
         .caller_source = mirrored_source,

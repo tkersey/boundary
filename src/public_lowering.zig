@@ -597,7 +597,6 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
         if (std.fs.path.isAbsolute(source_ref.caller_file)) {
             if (std.fs.path.isAbsolute(source_ref.repo_path)) {
                 if (!pathEquals(source_ref.caller_file, source_ref.repo_path)) return false;
-                if (!pathUsesCheckoutRoot(source_ref.repo_path) and !pathUsesPackageRootAlias(source_ref.repo_path)) return false;
             } else {
                 if (!absoluteOwnedRepoPathMatches(source_ref)) return false;
             }
@@ -667,7 +666,7 @@ fn assertSourceOwnership(comptime source_ref: SourceRef) void {
 
 /// Build one caller-owned lowering provenance witness from an explicit repo path plus `@src()`.
 pub fn source(comptime repo_path: []const u8, comptime caller: std.builtin.SourceLocation) SourceRef {
-    if (repo_path.len == 0) @compileError("public lowering source helper requires a non-empty repo-relative path");
+    if (repo_path.len == 0) @compileError("public lowering source helper requires a non-empty repo path");
     if (caller.file.len == 0) @compileError("public lowering source helper requires a non-empty caller source file");
     return .{
         .repo_path = cloneBytes(repo_path),
@@ -677,7 +676,7 @@ pub fn source(comptime repo_path: []const u8, comptime caller: std.builtin.Sourc
     };
 }
 
-/// Build one caller-owned lowering provenance witness from an explicit repo path, `@src()`, and caller-supplied source bytes.
+/// Build one caller-owned lowering provenance witness from an explicit repo path or caller-owned absolute path, `@src()`, and caller-supplied source bytes.
 pub fn sourceWithContent(
     comptime repo_path: []const u8,
     comptime caller: std.builtin.SourceLocation,
@@ -703,14 +702,14 @@ pub fn importedSource(
     };
 }
 
-/// Build one caller-owned lowering provenance witness with explicit imported helper bytes.
+/// Build one caller-owned lowering provenance witness with explicit imported helper bytes for either an owned repo path or a caller-owned absolute path.
 pub fn sourceWithContentAndImports(
     comptime repo_path: []const u8,
     comptime caller: std.builtin.SourceLocation,
     comptime caller_source: []const u8,
     comptime imported_sources: []const ImportedSource,
 ) SourceRef {
-    if (repo_path.len == 0) @compileError("public lowering source helper requires a non-empty repo-relative path");
+    if (repo_path.len == 0) @compileError("public lowering source helper requires a non-empty repo path");
     if (caller.file.len == 0) @compileError("public lowering source helper requires a non-empty caller source file");
     return .{
         .repo_path = cloneBytes(repo_path),
@@ -2408,14 +2407,20 @@ test "source ownership accepts absolute caller-owned content witnesses inside ow
     }
 }
 
-test "source ownership rejects absolute caller-owned content witnesses outside owned roots even when they name their own absolute path" {
+test "source ownership accepts absolute caller-owned content witnesses outside owned roots when the caller proves both path and bytes" {
     const caller_path = "/tmp/downstream_public_lowering_test.zig";
     const caller_source =
         \\pub fn runBody() void {}
     ;
 
-    try std.testing.expect(!sourceOwnershipMatches(.{
+    try std.testing.expect(sourceOwnershipMatches(.{
         .repo_path = caller_path,
+        .caller_file = caller_path,
+        .caller_hash = hashSourceBytes(caller_source),
+        .caller_source = caller_source,
+    }));
+    try std.testing.expect(!sourceOwnershipMatches(.{
+        .repo_path = "/tmp/other_downstream_public_lowering_test.zig",
         .caller_file = caller_path,
         .caller_hash = hashSourceBytes(caller_source),
         .caller_source = caller_source,
