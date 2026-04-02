@@ -528,7 +528,7 @@ pub fn source(comptime repo_path: []const u8, comptime caller: std.builtin.Sourc
     if (caller.file.len == 0) @compileError("public lowering source helper requires a non-empty caller source file");
     return .{
         .repo_path = cloneBytes(repo_path),
-        .caller_file = normalizeSourceHelperCallerFile(repo_path, caller.file),
+        .caller_file = cloneBytes(caller.file),
         .caller_hash = null,
         .caller_source = null,
     };
@@ -2122,7 +2122,7 @@ test "source ownership rejects basename-only content witnesses even when their b
     }));
 }
 
-test "source helper normalizes basename-only callers only when the owned repo basename is unique" {
+test "source helper preserves basename-only callers so ownership still fails closed" {
     const current_src = @src();
     const unique_caller: std.builtin.SourceLocation = .{
         .module = current_src.module,
@@ -2139,12 +2139,9 @@ test "source helper normalizes basename-only callers only when the owned repo ba
         .fn_name = "ambiguousCaller",
     };
 
-    try std.testing.expect(repoPathHasUniqueBasename("examples/open_row_state_writer.zig"));
-    try std.testing.expect(!repoPathHasUniqueBasename("test/open_row_entry_symbol_alias/entry.zig"));
-
     const unique_source = comptime source("examples/open_row_state_writer.zig", unique_caller);
-    try std.testing.expectEqualStrings("examples/open_row_state_writer.zig", unique_source.caller_file);
-    try std.testing.expect(comptime sourceOwnershipMatches(unique_source));
+    try std.testing.expectEqualStrings("open_row_state_writer.zig", unique_source.caller_file);
+    try std.testing.expect(!comptime sourceOwnershipMatches(unique_source));
 
     const ambiguous_source = comptime source("test/open_row_entry_symbol_alias/entry.zig", ambiguous_caller);
     try std.testing.expectEqualStrings("entry.zig", ambiguous_source.caller_file);

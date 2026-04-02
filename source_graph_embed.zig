@@ -140,6 +140,19 @@ fn pathEquals(comptime lhs: []const u8, comptime rhs: []const u8) bool {
     return true;
 }
 
+fn pathStartsWithRoot(comptime path: []const u8, comptime root: []const u8) bool {
+    if (path.len < root.len) return false;
+    inline for (root, 0..) |expected, index| {
+        const actual = path[index];
+        if (expected == '/' or expected == '\\') {
+            if (actual != '/' and actual != '\\') return false;
+            continue;
+        }
+        if (actual != expected) return false;
+    }
+    return path.len == root.len or path[root.len] == '/' or path[root.len] == '\\';
+}
+
 fn normalizeRelativePath(comptime source_path: []const u8) NormalizeRelativePathError![]const u8 {
     var segments = [_][]const u8{""} ** 64;
     var segment_count: usize = 0;
@@ -167,11 +180,11 @@ fn repoRelativeAbsolutePath(
     comptime source_path: []const u8,
     comptime root_path: []const u8,
 ) ?[]const u8 {
-    if (!std.mem.startsWith(u8, source_path, root_path)) return null;
+    if (!pathStartsWithRoot(source_path, root_path)) return null;
     if (source_path.len <= root_path.len) {
         @compileError("public lowering source path must point to a file under the package root");
     }
-    if (source_path[root_path.len] != std.fs.path.sep) {
+    if (source_path[root_path.len] != '/' and source_path[root_path.len] != '\\') {
         @compileError("public lowering source path must point to a file under the package root");
     }
     return source_path[root_path.len + 1 ..];
@@ -505,5 +518,22 @@ test "normalizeAbsolutePathWithType preserves UNC roots" {
     try std.testing.expectEqualStrings(
         "\\\\server\\share\\pkg/main.zig",
         try normalizeAbsolutePathWithType(.windows, "\\\\server\\share\\pkg\\.\\main.zig"),
+    );
+}
+
+test "repoRelativeAbsolutePath accepts mixed separator spellings for checkout roots" {
+    try std.testing.expectEqualStrings(
+        "examples/open_row_state_writer.zig",
+        repoRelativeAbsolutePath(
+            "C:/repo/examples/open_row_state_writer.zig",
+            "C:\\repo",
+        ).?,
+    );
+    try std.testing.expectEqualStrings(
+        "examples\\open_row_state_writer.zig",
+        repoRelativeAbsolutePath(
+            "C:\\repo\\examples\\open_row_state_writer.zig",
+            "C:/repo",
+        ).?,
     );
 }
