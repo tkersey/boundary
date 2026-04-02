@@ -1,4 +1,5 @@
 const shift = @import("shift");
+const std = @import("std");
 
 fn preserve(flag: bool, _: anytype) !bool {
     return flag;
@@ -26,13 +27,24 @@ pub fn loweringSpec() shift.lowering.LowerSpec {
 }
 
 /// Return the source path captured by this bool helper example module.
-pub fn loweringSourcePath() []const u8 {
+pub fn loweringSourcePath() [:0]const u8 {
     return "examples/open_row_helper_bool_flow.zig";
+}
+
+fn explicitLoweringCaller() std.builtin.SourceLocation {
+    const src = @src();
+    return .{
+        .module = src.module,
+        .file = loweringSourcePath(),
+        .line = src.line,
+        .column = src.column,
+        .fn_name = src.fn_name,
+    };
 }
 
 /// Return the explicit caller-owned lowering provenance witness for this module.
 pub fn loweringSource() shift.lowering.SourceRef {
-    return shift.lowering.sourceWithContent(loweringSourcePath(), @src(), @embedFile(@src().file));
+    return shift.lowering.sourceWithContent(loweringSourcePath(), explicitLoweringCaller(), @embedFile(@src().file));
 }
 
 /// Return the additive public lowered artifact for this bool helper workflow.

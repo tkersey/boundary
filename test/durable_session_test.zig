@@ -397,6 +397,123 @@ test "durable restore rejects tampered plan-backed artifact payloads even when e
     try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
+test "durable restore rejects colliding artifact hashes when step boundaries change" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const original = shift.durable.ProgramArtifact{
+        .label = "collision.case",
+        .program_hash = 0x4444,
+        .steps = &.{
+            .{ .emit = .{ .note = "queuedatm_resume_prepared" } },
+        },
+    };
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    _ = try store.saveArtifact(original, null);
+
+    const tampered = shift.durable.ProgramArtifact{
+        .label = original.label,
+        .program_hash = original.program_hash,
+        .steps = &.{
+            .{ .emit = .{ .note = "queued" } },
+            .{ .checkpoint = .atm_resume_prepared },
+        },
+    };
+
+    {
+        const file = try std.fs.cwd().createFile(paths.artifact_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        try std.json.Stringify.value(shift.durable.ArtifactFile{
+            .schema_version = 1,
+            .identity_hash = original.identityHash(),
+            .label = tampered.label,
+            .steps = tampered.steps,
+        }, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+    {
+        const file = try std.fs.cwd().createFile(paths.events_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        try std.json.Stringify.value(shift.durable.EventRecord{
+            .schema_version = 1,
+            .seq = 0,
+            .event = .{ .note = "queued" },
+        }, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+
+    const restored = try store.restore();
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+}
+
+test "durable restore rejects tampered pending resume payloads even without event changes" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const original = shift.durable.ProgramArtifact{
+        .label = "pending.resume.value",
+        .program_hash = 0x5555,
+        .steps = &.{
+            .{ .push_pending = .{
+                .kind = .resume_then_transform,
+                .prompt = .primary,
+                .resume_value = .{ .i32 = 1 },
+            } },
+        },
+    };
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    _ = try store.saveArtifact(original, null);
+
+    const tampered = shift.durable.ProgramArtifact{
+        .label = original.label,
+        .program_hash = original.program_hash,
+        .steps = &.{
+            .{ .push_pending = .{
+                .kind = .resume_then_transform,
+                .prompt = .primary,
+                .resume_value = .{ .i32 = 2 },
+            } },
+        },
+    };
+
+    {
+        const file = try std.fs.cwd().createFile(paths.artifact_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        try std.json.Stringify.value(shift.durable.ArtifactFile{
+            .schema_version = 1,
+            .identity_hash = original.identityHash(),
+            .label = tampered.label,
+            .steps = tampered.steps,
+        }, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+    {
+        const file = try std.fs.cwd().createFile(paths.events_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        try writer.interface.flush();
+    }
+
+    const restored = try store.restore();
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+}
+
 test "durable saveArtifact restores the previous checkpoint when a later write fails" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();

@@ -593,7 +593,7 @@ test "root lower matches the example-owned same-module lowering" {
     );
 }
 
-test "sourceWithContent rewrites basename-only caller paths when caller bytes prove the owned module" {
+test "repo-owned examples pass explicit repo-path caller witnesses to sourceWithContent" {
     const source_ref = example_open_row_state_writer.loweringSource();
 
     try std.testing.expectEqualStrings(example_open_row_state_writer.loweringSourcePath(), source_ref.caller_file);

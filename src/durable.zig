@@ -831,52 +831,89 @@ fn versionHopIfMigrated(from: u32, to_schema: u32, migrated: bool) ?VersionHop {
     };
 }
 
-fn hashProgram(label: []const u8, steps: []const kernel.Step) u64 {
-    var hasher = std.hash.Wyhash.init(0);
-    hasher.update(label);
-    hasher.update(&.{0});
-    for (steps) |step| switch (step) {
-        .checkpoint => |tag| hasher.update(@tagName(tag)),
-        .emit => |event| switch (event) {
-            .note => |line| {
-                hasher.update("note");
-                hasher.update(line);
-            },
-            .final_i32 => |value| {
-                hasher.update("final_i32");
-                hasher.update(std.mem.asBytes(&value));
-            },
-            .final_string => |value| {
-                hasher.update("final_string");
-                hasher.update(value);
-            },
+fn hashBytes(hasher: *std.hash.Wyhash, value: []const u8) void {
+    var encoded_len = std.mem.nativeToLittle(u64, @as(u64, @intCast(value.len)));
+    hasher.update(std.mem.asBytes(&encoded_len));
+    hasher.update(value);
+}
+
+fn hashTag(hasher: *std.hash.Wyhash, tag: []const u8) void {
+    hashBytes(hasher, tag);
+}
+
+fn hashValue(hasher: *std.hash.Wyhash, value: kernel.Value) void {
+    switch (value) {
+        .none => hashTag(hasher, "none"),
+        .bool => |flag| {
+            hashTag(hasher, "bool");
+            hasher.update(std.mem.asBytes(&flag));
         },
-        .pop_pending => hasher.update("pop_pending"),
+        .i32 => |number| {
+            hashTag(hasher, "i32");
+            hasher.update(std.mem.asBytes(&number));
+        },
+        .string => |line| {
+            hashTag(hasher, "string");
+            hashBytes(hasher, line);
+        },
+    }
+}
+
+fn hashEvent(hasher: *std.hash.Wyhash, event: kernel.Event) void {
+    hashTag(hasher, "emit");
+    switch (event) {
+        .note => |line| {
+            hashTag(hasher, "note");
+            hashBytes(hasher, line);
+        },
+        .final_i32 => |value| {
+            hashTag(hasher, "final_i32");
+            hasher.update(std.mem.asBytes(&value));
+        },
+        .final_string => |value| {
+            hashTag(hasher, "final_string");
+            hashBytes(hasher, value);
+        },
+    }
+}
+
+fn hashOptionalPrompt(hasher: *std.hash.Wyhash, prompt: ?kernel.PromptId) void {
+    if (prompt) |id| {
+        hashTag(hasher, @tagName(id));
+    } else {
+        hashTag(hasher, "null");
+    }
+}
+
+fn hashStep(hasher: *std.hash.Wyhash, step: kernel.Step) void {
+    switch (step) {
+        .checkpoint => |tag| {
+            hashTag(hasher, "checkpoint");
+            hashTag(hasher, @tagName(tag));
+        },
+        .emit => |event| hashEvent(hasher, event),
+        .pop_pending => hashTag(hasher, "pop_pending"),
         .push_pending => |frame| {
-            hasher.update("push_pending");
-            hasher.update(@tagName(frame.kind));
-            hasher.update(@tagName(frame.prompt));
+            hashTag(hasher, "push_pending");
+            hashTag(hasher, @tagName(frame.kind));
+            hashTag(hasher, @tagName(frame.prompt));
+            hashValue(hasher, frame.resume_value);
         },
         .set_active_prompt => |prompt| {
-            hasher.update("set_active_prompt");
-            if (prompt) |id| hasher.update(@tagName(id)) else hasher.update("null");
+            hashTag(hasher, "set_active_prompt");
+            hashOptionalPrompt(hasher, prompt);
         },
-        .set_final => |value| switch (value) {
-            .none => hasher.update("none"),
-            .bool => |flag| {
-                hasher.update("bool");
-                hasher.update(std.mem.asBytes(&flag));
-            },
-            .i32 => |number| {
-                hasher.update("i32");
-                hasher.update(std.mem.asBytes(&number));
-            },
-            .string => |line| {
-                hasher.update("string");
-                hasher.update(line);
-            },
+        .set_final => |value| {
+            hashTag(hasher, "set_final");
+            hashValue(hasher, value);
         },
-    };
+    }
+}
+
+fn hashProgram(label: []const u8, steps: []const kernel.Step) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    hashBytes(&hasher, label);
+    for (steps) |step| hashStep(&hasher, step);
     return hasher.final();
 }
 

@@ -163,59 +163,6 @@ fn repoZigPathRegistry(b: *std.Build) []const u8 {
     return registry.items;
 }
 
-fn repoDuplicateBasenameRegistry(b: *std.Build) []const u8 {
-    var root_dir = std.fs.cwd().openDir(b.pathFromRoot("."), .{ .iterate = true }) catch
-        std.process.fatal("unable to open repo root for duplicate basename registry", .{});
-    defer root_dir.close();
-
-    var paths = std.ArrayList([]const u8).empty;
-    collectRepoZigPaths(b, root_dir, "", &paths);
-
-    var seen = std.StringHashMap(void).init(b.allocator);
-    var duplicates = std.StringHashMap(void).init(b.allocator);
-    defer seen.deinit();
-    defer duplicates.deinit();
-
-    for (paths.items) |path| {
-        const basename = std.fs.path.basename(path);
-        if (seen.contains(basename)) {
-            duplicates.put(basename, {}) catch
-                std.process.fatal("unable to record duplicate repo basename", .{});
-            continue;
-        }
-        seen.put(basename, {}) catch
-            std.process.fatal("unable to record repo basename", .{});
-    }
-
-    var basenames = std.ArrayList([]const u8).empty;
-    var iterator = duplicates.keyIterator();
-    while (iterator.next()) |basename| {
-        basenames.append(b.allocator, basename.*) catch
-            std.process.fatal("unable to collect duplicate repo basename", .{});
-    }
-
-    var left: usize = 0;
-    while (left < basenames.items.len) : (left += 1) {
-        var right = left + 1;
-        while (right < basenames.items.len) : (right += 1) {
-            if (std.mem.order(u8, basenames.items[right], basenames.items[left]) == .lt) {
-                const tmp = basenames.items[left];
-                basenames.items[left] = basenames.items[right];
-                basenames.items[right] = tmp;
-            }
-        }
-    }
-
-    var registry = std.ArrayList(u8).empty;
-    for (basenames.items) |basename| {
-        registry.appendSlice(b.allocator, basename) catch
-            std.process.fatal("unable to append duplicate repo basename", .{});
-        registry.append(b.allocator, '\n') catch
-            std.process.fatal("unable to append duplicate basename separator", .{});
-    }
-    return registry.items;
-}
-
 fn collectRepoZigPaths(
     b: *std.Build,
     dir: std.fs.Dir,
@@ -608,7 +555,6 @@ pub fn build(b: *std.Build) void {
     authoring_lowerer_options.addOption([]const u8, "package_root_alias", package_root_alias.path);
     authoring_lowerer_options.addOption(bool, "package_root_alias_available", package_root_alias.available);
     authoring_lowerer_options.addOption([]const u8, "repo_zig_paths", repoZigPathRegistry(b));
-    authoring_lowerer_options.addOption([]const u8, "repo_duplicate_basenames", repoDuplicateBasenameRegistry(b));
     authoring_lowerer_options.addOption(bool, "authoring_lowerer_options_marker", lowerer_opts_marker);
     authoring_lowerer_options.addOption([32]u8, "hash_local_mutation_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/local_mutation_resume.zig"));
     authoring_lowerer_options.addOption([32]u8, "hash_branch_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/branch_resume.zig"));
