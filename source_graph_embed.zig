@@ -316,10 +316,17 @@ fn resolveImportPath(comptime from_path: []const u8, comptime import_path: []con
     else
         repoRelativePath(from_path);
     const base_dir = dirname(normalized_from_path);
-    const joined = if (base_dir.len == 0)
-        import_path
+    const normalized_import_path = if (std.fs.path.isAbsolute(normalized_from_path))
+        normalizeRelativePath(import_path) catch |err| switch (err) {
+            error.EmptyPath, error.EscapesRoot => return error.UnsupportedImportPath,
+            error.TooManySegments => return error.TooManyImports,
+        }
     else
-        std.fmt.comptimePrint("{s}/{s}", .{ base_dir, import_path });
+        import_path;
+    const joined = if (base_dir.len == 0)
+        normalized_import_path
+    else
+        std.fmt.comptimePrint("{s}/{s}", .{ base_dir, normalized_import_path });
 
     return if (std.fs.path.isAbsolute(normalized_from_path))
         normalizeAbsolutePath(joined) catch |err| switch (err) {

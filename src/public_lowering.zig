@@ -692,7 +692,7 @@ pub fn importedSource(
     comptime source_bytes: []const u8,
 ) ImportedSource {
     const resolved_path = source_graph_embed.resolveImportPathAt(root_source_path, import_path) catch |err| switch (err) {
-        error.UnsupportedImportPath => @compileError("public lowering imported source helper requires a relative .zig import path"),
+        error.UnsupportedImportPath => @compileError("public lowering imported source helper requires a non-escaping relative .zig import path"),
         error.TooManyImports => @compileError("public lowering imported source helper exceeded the supported segment budget"),
         else => @compileError("public lowering imported source helper could not resolve the imported source path"),
     };
@@ -959,7 +959,7 @@ fn analyzeProgramGraphWithRootSource(
         error.TooManyHelperEdges => @compileError("public lowering source graph exceeded the supported helper-edge limit"),
         error.TooManyOpUses => @compileError("public lowering source graph exceeded the supported op-use limit"),
         error.UnsupportedEffectAccess => @compileError("public lowering helper inference supports only the retained direct and alias-based effect access patterns"),
-        error.UnsupportedImportPath => @compileError("public lowering supports only repo-relative .zig imports for cross-file helpers"),
+        error.UnsupportedImportPath => @compileError("public lowering supports only non-escaping .zig imports for cross-file helpers"),
     };
 }
 
