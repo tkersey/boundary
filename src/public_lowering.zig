@@ -143,12 +143,46 @@ fn assertExecutableCodecSupport(comptime compiled_plan: program_plan.ProgramPlan
     }
 }
 
+fn afterMethodName(comptime op_name: []const u8) []const u8 {
+    var buffer: [128]u8 = undefined;
+    var len: usize = 0;
+    buffer[len..][0..5].* = "after".*;
+    len += 5;
+    var upper_next = true;
+    inline for (op_name) |byte| {
+        if (byte == '_') {
+            upper_next = true;
+            continue;
+        }
+        buffer[len] = if (upper_next and byte >= 'a' and byte <= 'z') byte - 32 else byte;
+        len += 1;
+        upper_next = false;
+    }
+    return buffer[0..len];
+}
+
+const LoweredOpResume = struct {
+    value: lowered_machine.ProgramValue,
+    apply_after: bool,
+};
+
+const LoweredOpResult = union(enum) {
+    resumed: LoweredOpResume,
+    terminal: lowered_machine.ProgramValue,
+};
+
+const LoweredFunctionResult = union(enum) {
+    value: lowered_machine.ProgramValue,
+    terminal: lowered_machine.ProgramValue,
+};
+
 fn callLoweredOp(
     comptime compiled_plan: program_plan.ProgramPlan,
     handlers_ptr: anytype,
+    comptime function_value_codec: program_plan.ValueCodec,
     op_index: u16,
     payload: lowered_machine.ProgramValue,
-) anyerror!lowered_machine.ProgramValue {
+) anyerror!LoweredOpResult {
     if (compiled_plan.ops.len == 0) return error.ProgramContractViolation;
     return switch (op_index) {
         inline 0...(compiled_plan.ops.len - 1) => |active_index| blk: {
@@ -158,27 +192,110 @@ fn callLoweredOp(
             const HandlerType = @TypeOf(handler_ptr.*);
             const method = @field(HandlerType, op.op_name);
             const ResumeType = runtimeValueType(op.resume_codec);
+            const AnswerType = runtimeValueType(function_value_codec);
+            const after_name = comptime afterMethodName(op.op_name);
+            const has_after = @hasDecl(HandlerType, after_name);
 
-            if (op.mode != .transform) @compileError("public lowered runner currently supports only transform operations");
+            switch (op.mode) {
+                .transform => {
+                    if (op.payload_codec == .unit) {
+                        const result = try resolveMaybeError(@call(.auto, method, .{handler_ptr}));
+                        break :blk .{ .resumed = .{
+                            .value = if (op.resume_codec == .unit)
+                                .none
+                            else
+                                encodeRuntimeValue(op.resume_codec, result),
+                            .apply_after = has_after,
+                        } };
+                    }
 
-            if (op.payload_codec == .unit) {
-                const result = try resolveMaybeError(@call(.auto, method, .{handler_ptr}));
-                break :blk if (op.resume_codec == .unit)
-                    .none
-                else
-                    encodeRuntimeValue(op.resume_codec, result);
+                    const PayloadType = runtimeValueType(op.payload_codec);
+                    const decoded_payload = decodeRuntimeValue(op.payload_codec, payload);
+                    const result = try resolveMaybeError(@call(.auto, method, .{ handler_ptr, @as(PayloadType, decoded_payload) }));
+                    break :blk .{ .resumed = .{
+                        .value = if (op.resume_codec == .unit)
+                            .none
+                        else
+                            encodeRuntimeValue(op.resume_codec, @as(ResumeType, result)),
+                        .apply_after = has_after,
+                    } };
+                },
+                .choice => {
+                    const decision = if (op.payload_codec == .unit)
+                        try resolveMaybeError(@call(.auto, method, .{handler_ptr}))
+                    else blk_decision: {
+                        const PayloadType = runtimeValueType(op.payload_codec);
+                        const decoded_payload = decodeRuntimeValue(op.payload_codec, payload);
+                        break :blk_decision try resolveMaybeError(@call(.auto, method, .{ handler_ptr, @as(PayloadType, decoded_payload) }));
+                    };
+                    break :blk switch (decision) {
+                        .resume_with => |resume_value| .{ .resumed = .{
+                            .value = if (op.resume_codec == .unit)
+                                .none
+                            else
+                                encodeRuntimeValue(op.resume_codec, @as(ResumeType, resume_value)),
+                            .apply_after = has_after,
+                        } },
+                        .return_now => |answer| .{ .terminal = encodeRuntimeValue(function_value_codec, @as(AnswerType, answer)) },
+                    };
+                },
+                .abort => {
+                    const answer = if (op.payload_codec == .unit)
+                        try resolveMaybeError(@call(.auto, method, .{handler_ptr}))
+                    else blk_answer: {
+                        const PayloadType = runtimeValueType(op.payload_codec);
+                        const decoded_payload = decodeRuntimeValue(op.payload_codec, payload);
+                        break :blk_answer try resolveMaybeError(@call(.auto, method, .{ handler_ptr, @as(PayloadType, decoded_payload) }));
+                    };
+                    break :blk .{ .terminal = encodeRuntimeValue(function_value_codec, @as(AnswerType, answer)) };
+                },
             }
-
-            const PayloadType = runtimeValueType(op.payload_codec);
-            const decoded_payload = decodeRuntimeValue(op.payload_codec, payload);
-            const result = try resolveMaybeError(@call(.auto, method, .{ handler_ptr, @as(PayloadType, decoded_payload) }));
-            break :blk if (op.resume_codec == .unit)
-                .none
-            else
-                encodeRuntimeValue(op.resume_codec, @as(ResumeType, result));
         },
         else => error.ProgramContractViolation,
     };
+}
+
+fn applyLoweredAfter(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    handlers_ptr: anytype,
+    comptime function_value_codec: program_plan.ValueCodec,
+    op_index: u16,
+    answer: lowered_machine.ProgramValue,
+) anyerror!lowered_machine.ProgramValue {
+    if (compiled_plan.ops.len == 0) return error.ProgramContractViolation;
+    return switch (op_index) {
+        inline 0...(compiled_plan.ops.len - 1) => |active_index| blk: {
+            const op = compiled_plan.ops[active_index];
+            const requirement = compiled_plan.requirements[op.requirement_index];
+            const handler_ptr = &@field(handlers_ptr.*, requirement.label);
+            const HandlerType = @TypeOf(handler_ptr.*);
+            const after_name = comptime afterMethodName(op.op_name);
+            if (!@hasDecl(HandlerType, after_name)) break :blk answer;
+
+            const AnswerType = runtimeValueType(function_value_codec);
+            const method = @field(HandlerType, after_name);
+            const decoded_answer = decodeRuntimeValue(function_value_codec, answer);
+            const transformed_answer = try resolveMaybeError(@call(.auto, method, .{ handler_ptr, @as(AnswerType, decoded_answer) }));
+            break :blk encodeRuntimeValue(function_value_codec, @as(AnswerType, transformed_answer));
+        },
+        else => error.ProgramContractViolation,
+    };
+}
+
+fn applyLoweredAfterStack(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    handlers_ptr: anytype,
+    comptime function_value_codec: program_plan.ValueCodec,
+    applied_after: []const u16,
+    answer: lowered_machine.ProgramValue,
+) anyerror!lowered_machine.ProgramValue {
+    var transformed = answer;
+    var index = applied_after.len;
+    while (index > 0) {
+        index -= 1;
+        transformed = try applyLoweredAfter(compiled_plan, handlers_ptr, function_value_codec, applied_after[index], transformed);
+    }
+    return transformed;
 }
 
 fn executeLoweredFunction(
@@ -186,10 +303,12 @@ fn executeLoweredFunction(
     handlers_ptr: anytype,
     comptime function_index: usize,
     args: []const lowered_machine.ProgramValue,
-) anyerror!lowered_machine.ProgramValue {
+) anyerror!LoweredFunctionResult {
     const function = compiled_plan.functions[function_index];
     var locals_storage: [function.local_count]lowered_machine.ProgramValue = [_]lowered_machine.ProgramValue{.none} ** function.local_count;
     const locals = locals_storage[0..];
+    var applied_after_storage: [@max(@as(usize, 1), function.instruction_count)]u16 = undefined;
+    var applied_after_len: usize = 0;
     if (args.len != function.parameter_count) return error.ProgramContractViolation;
     for (args, 0..) |arg, arg_index| {
         setLocal(locals, @intCast(arg_index), arg);
@@ -222,8 +341,19 @@ fn executeLoweredFunction(
                         break :helper_args helper_args_storage[0..callee.parameter_count];
                     };
                     const result = try executeLoweredDispatch(compiled_plan, handlers_ptr, instruction.operand, helper_args);
-                    if (instruction.dst < locals.len and compiled_plan.functions[instruction.operand].value_codec != .unit) {
-                        setLocal(locals, instruction.dst, result);
+                    switch (result) {
+                        .value => |typed| {
+                            if (instruction.dst < locals.len and compiled_plan.functions[instruction.operand].value_codec != .unit) {
+                                setLocal(locals, instruction.dst, typed);
+                            }
+                        },
+                        .terminal => |terminal| return .{ .terminal = try applyLoweredAfterStack(
+                            compiled_plan,
+                            handlers_ptr,
+                            function.value_codec,
+                            applied_after_storage[0..applied_after_len],
+                            terminal,
+                        ) },
                     }
                 },
                 .call_op => {
@@ -234,9 +364,25 @@ fn executeLoweredFunction(
                         getLocal(locals, instruction.aux)
                     else
                         return error.ProgramContractViolation;
-                    const result = try callLoweredOp(compiled_plan, handlers_ptr, instruction.operand, payload);
-                    if (instruction.dst < locals.len and op.resume_codec != .unit) {
-                        setLocal(locals, instruction.dst, result);
+                    const result = try callLoweredOp(compiled_plan, handlers_ptr, function.value_codec, instruction.operand, payload);
+                    switch (result) {
+                        .resumed => |resumed_value| {
+                            if (resumed_value.apply_after) {
+                                if (applied_after_len >= applied_after_storage.len) return error.ProgramContractViolation;
+                                applied_after_storage[applied_after_len] = instruction.operand;
+                                applied_after_len += 1;
+                            }
+                            if (instruction.dst < locals.len and op.resume_codec != .unit) {
+                                setLocal(locals, instruction.dst, resumed_value.value);
+                            }
+                        },
+                        .terminal => |terminal| return .{ .terminal = try applyLoweredAfterStack(
+                            compiled_plan,
+                            handlers_ptr,
+                            function.value_codec,
+                            applied_after_storage[0..applied_after_len],
+                            terminal,
+                        ) },
                     }
                 },
                 .compare_eq_zero => setLocal(locals, instruction.dst, .{
@@ -272,8 +418,20 @@ fn executeLoweredFunction(
                 current_block_index = if (predicate) terminator.primary else terminator.secondary;
             },
             .jump => current_block_index = terminator.primary,
-            .return_unit => return .none,
-            .return_value => return getLocal(locals, return_local orelse return error.ProgramContractViolation),
+            .return_unit => return .{ .value = try applyLoweredAfterStack(
+                compiled_plan,
+                handlers_ptr,
+                function.value_codec,
+                applied_after_storage[0..applied_after_len],
+                .none,
+            ) },
+            .return_value => return .{ .value = try applyLoweredAfterStack(
+                compiled_plan,
+                handlers_ptr,
+                function.value_codec,
+                applied_after_storage[0..applied_after_len],
+                getLocal(locals, return_local orelse return error.ProgramContractViolation),
+            ) },
         }
     }
 }
@@ -283,7 +441,7 @@ fn executeLoweredDispatch(
     handlers_ptr: anytype,
     function_index: u16,
     args: []const lowered_machine.ProgramValue,
-) anyerror!lowered_machine.ProgramValue {
+) anyerror!LoweredFunctionResult {
     if (compiled_plan.functions.len == 0) return error.ProgramContractViolation;
     return switch (function_index) {
         inline 0...(compiled_plan.functions.len - 1) => |active_index| executeLoweredFunction(compiled_plan, handlers_ptr, active_index, args),
@@ -409,6 +567,13 @@ fn relativeOwnedRepoPathMatches(comptime caller_file: []const u8, comptime repo_
     return pathEquals(caller_file, repo_path);
 }
 
+fn basenameOwnedRepoPathMatches(comptime caller_file: []const u8, comptime repo_path: []const u8) bool {
+    if (std.fs.path.isAbsolute(caller_file)) return false;
+    if (pathHasSeparator(caller_file)) return false;
+    if (pathHasSeparator(repo_path)) return false;
+    return pathEquals(caller_file, repo_path);
+}
+
 fn sourceOwnershipMatches(comptime source_ref: SourceRef) bool {
     if (source_ref.caller_hash != null or source_ref.caller_source != null) {
         return sourceHashMatches(source_ref);
@@ -436,7 +601,7 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
         } else if (pathHasSeparator(source_ref.caller_file)) {
             if (!relativeOwnedRepoPathMatches(source_ref.caller_file, source_ref.repo_path)) return false;
         } else {
-            return false;
+            if (!basenameOwnedRepoPathMatches(source_ref.caller_file, source_ref.repo_path)) return false;
         }
         if (caller_hash != hashSourceBytes(caller_source)) return false;
         return true;
@@ -1566,8 +1731,10 @@ fn resolveOwnedValidationImportPathAlloc(
     }
 
     if (!std.fs.path.isAbsolute(source_path)) return error.UnsupportedHelperGraph;
+    const normalized_import_path = try normalizeRelativeRepoPathAlloc(allocator, import_path);
+    defer allocator.free(normalized_import_path);
     const base_dir = std.fs.path.dirname(source_path) orelse return error.UnsupportedHelperGraph;
-    const joined_path = std.fs.path.join(allocator, &.{ base_dir, import_path }) catch |err| switch (err) {
+    const joined_path = std.fs.path.join(allocator, &.{ base_dir, normalized_import_path }) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => unreachable,
     };
@@ -1815,7 +1982,11 @@ fn GeneratedProgramType(
             const active_run_spec = run_spec orelse @compileError("public lowered-program execution is available only on source-lowered generated program types");
             try lowered_machine.beginExecution(runtime);
             defer lowered_machine.endExecution(runtime);
-            const value = try executeLoweredDispatch(compiled_plan, handlers, compiled_plan.entry_index, &.{});
+            const outcome = try executeLoweredDispatch(compiled_plan, handlers, compiled_plan.entry_index, &.{});
+            const value = switch (outcome) {
+                .value => |typed| typed,
+                .terminal => |typed| typed,
+            };
             return .{
                 .outputs = try collectLoweredOutputs(active_run_spec.outputs, handlers),
                 .value = decodeRuntimeValue(compiled_plan.functions[compiled_plan.entry_index].value_codec, value),
@@ -2099,6 +2270,19 @@ test "source ownership rejects basename-only content witnesses even when their b
     }));
 }
 
+test "source ownership accepts basename-only content witnesses when repo_path is basename-only" {
+    const downstream_source =
+        \\pub fn runBody() void {}
+    ;
+
+    try std.testing.expect(sourceOwnershipMatches(.{
+        .repo_path = "downstream_public_lowering_test.zig",
+        .caller_file = "downstream_public_lowering_test.zig",
+        .caller_hash = hashSourceBytes(downstream_source),
+        .caller_source = downstream_source,
+    }));
+}
+
 test "source helper preserves basename-only callers so ownership still fails closed" {
     const current_src = @src();
     const unique_caller: std.builtin.SourceLocation = .{
@@ -2243,6 +2427,238 @@ test "owned-source validation rejects helper imports that are missing from calle
         error.UnsupportedHelperGraph,
         validateOwnedOpenRowAt(std.testing.allocator, entry_path, root_source, &.{}, "runBody"),
     );
+}
+
+test "owned-source validation rejects absolute helper imports that climb outside the entry tree" {
+    const external_root = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "/tmp/shift-owned-open-row-absolute-helper-import-{d}",
+        .{std.time.nanoTimestamp()},
+    );
+    defer std.testing.allocator.free(external_root);
+    std.fs.deleteTreeAbsolute(external_root) catch {};
+    try std.fs.makeDirAbsolute(external_root);
+    defer std.fs.deleteTreeAbsolute(external_root) catch unreachable;
+
+    var external_dir = try std.fs.openDirAbsolute(external_root, .{});
+    defer external_dir.close();
+    try external_dir.makePath("nested/deeper");
+    try external_dir.writeFile(.{
+        .sub_path = "outside_helper.zig",
+        .data =
+        \\pub fn helper(eff: anytype) !void {
+        \\    try eff.writer.tell("escaped");
+        \\}
+        ,
+    });
+    try external_dir.writeFile(.{
+        .sub_path = "nested/deeper/entry.zig",
+        .data =
+        \\const helpers = @import("../../outside_helper.zig");
+        \\
+        \\pub fn runBody(eff: anytype) !void {
+        \\    try helpers.helper(eff);
+        \\}
+        ,
+    });
+
+    const entry_path = try std.fs.path.join(
+        std.testing.allocator,
+        &.{ external_root, "nested", "deeper", "entry.zig" },
+    );
+    defer std.testing.allocator.free(entry_path);
+    const helper_path = try std.fs.path.join(
+        std.testing.allocator,
+        &.{ external_root, "outside_helper.zig" },
+    );
+    defer std.testing.allocator.free(helper_path);
+
+    const root_file = try std.fs.openFileAbsolute(entry_path, .{});
+    defer root_file.close();
+    const root_source = try root_file.readToEndAlloc(
+        std.testing.allocator,
+        std.math.maxInt(usize),
+    );
+    defer std.testing.allocator.free(root_source);
+    const helper_file = try std.fs.openFileAbsolute(helper_path, .{});
+    defer helper_file.close();
+    const helper_source = try helper_file.readToEndAlloc(
+        std.testing.allocator,
+        std.math.maxInt(usize),
+    );
+    defer std.testing.allocator.free(helper_source);
+    const helper_content = try std.fmt.allocPrintZ(std.testing.allocator, "{s}", .{helper_source});
+    defer std.testing.allocator.free(helper_content);
+
+    try std.testing.expectError(
+        error.UnsupportedHelperGraph,
+        validateOwnedOpenRowAt(std.testing.allocator, entry_path, root_source, &.{.{
+            .path = helper_path,
+            .content = helper_content,
+        }}, "runBody"),
+    );
+}
+
+test "executeLoweredDispatch runs choice ops across resume and return-now branches" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "example.choice_root",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "choiceRoot",
+            .value_codec = .string,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{.{
+            .label = "picker",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "pick",
+            .mode = .choice,
+            .payload_codec = .unit,
+            .resume_codec = .string,
+        }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 2,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{
+                .kind = .call_op,
+                .dst = 0,
+                .operand = 0,
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+        },
+    };
+    const PickerHandler = struct {
+        branch: enum { resume_with, return_now },
+        after_calls: usize = 0,
+
+        pub fn pick(self: *@This()) anyerror!@import("root.zig").Decision([]const u8, []const u8) {
+            return switch (self.branch) {
+                .resume_with => @import("root.zig").Decision([]const u8, []const u8).resumeWith("answer=42"),
+                .return_now => @import("root.zig").Decision([]const u8, []const u8).returnNow("result=early"),
+            };
+        }
+
+        pub fn afterPick(self: *@This(), answer: []const u8) anyerror![]const u8 {
+            self.after_calls += 1;
+            try std.testing.expectEqualStrings("answer=42", answer);
+            return "after=42";
+        }
+    };
+    const Handlers = struct {
+        picker: PickerHandler,
+    };
+
+    var resumed_handlers: Handlers = .{
+        .picker = .{ .branch = .resume_with },
+    };
+    const resumed = try executeLoweredDispatch(plan, &resumed_handlers, 0, &.{});
+    switch (resumed) {
+        .value => |answer| try std.testing.expectEqualStrings("after=42", decodeRuntimeValue(.string, answer)),
+        .terminal => |_| return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqual(@as(usize, 1), resumed_handlers.picker.after_calls);
+
+    var early_handlers: Handlers = .{
+        .picker = .{ .branch = .return_now },
+    };
+    const early = try executeLoweredDispatch(plan, &early_handlers, 0, &.{});
+    switch (early) {
+        .terminal => |answer| try std.testing.expectEqualStrings("result=early", decodeRuntimeValue(.string, answer)),
+        .value => |_| return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqual(@as(usize, 0), early_handlers.picker.after_calls);
+}
+
+test "executeLoweredDispatch returns abort answers through terminal control" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "example.abort_root",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "abortRoot",
+            .value_codec = .string,
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+        }},
+        .requirements = &.{.{
+            .label = "guard",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "fail",
+            .mode = .abort,
+            .payload_codec = .string,
+            .resume_codec = .unit,
+        }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 1,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{
+            .kind = .call_op,
+            .operand = 0,
+            .aux = 0,
+        }},
+    };
+    const Handlers = struct {
+        guard: struct {
+            payload: []const u8 = "",
+
+            pub fn fail(self: *@This(), payload: []const u8) anyerror![]const u8 {
+                self.payload = payload;
+                return "error=missing-name";
+            }
+        } = .{},
+    };
+    var handlers: Handlers = .{};
+    const payload = lowered_machine.ProgramValue{ .string = "missing-name" };
+
+    const result = try executeLoweredDispatch(plan, &handlers, 0, &.{payload});
+    switch (result) {
+        .terminal => |answer| try std.testing.expectEqualStrings("error=missing-name", decodeRuntimeValue(.string, answer)),
+        .value => |_| return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings("missing-name", handlers.guard.payload);
 }
 
 test "executeLoweredDispatch rejects return-value terminators without a return instruction" {
