@@ -221,6 +221,11 @@ fn boundaryFixtureRoot(b: *std.Build) []const u8 {
     return b.pathFromRoot(".zig-cache/boundary-fixtures");
 }
 
+fn externalBoundaryFixtureRoot(b: *std.Build) []const u8 {
+    return std.fs.path.join(b.allocator, &.{ boundaryAliasRoot(b), "external-boundary-fixtures" }) catch
+        std.process.fatal("unable to allocate external boundary fixture root", .{});
+}
+
 fn clearAliasPath(alias_path: []const u8, dir_error: []const u8, path_error: []const u8) void {
     std.fs.deleteFileAbsolute(alias_path) catch |err| switch (err) {
         error.FileNotFound => {},
@@ -295,6 +300,36 @@ fn writeBoundaryFixtureFile(b: *std.Build, basename: []const u8, contents: []con
         std.process.fatal("unable to write boundary fixture file", .{});
     file_writer.interface.flush() catch
         std.process.fatal("unable to flush boundary fixture file", .{});
+    return fixture_path;
+}
+
+fn writeExternalBoundaryFixtureFile(b: *std.Build, basename: []const u8, contents: []const u8) []const u8 {
+    const fixture_root = externalBoundaryFixtureRoot(b);
+    std.fs.makeDirAbsolute(fixture_root) catch |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => std.process.fatal("unable to prepare external boundary fixture root", .{}),
+    };
+    const fixture_path = std.fs.path.join(b.allocator, &.{ fixture_root, basename }) catch
+        std.process.fatal("unable to allocate external boundary fixture path", .{});
+    const file = std.fs.createFileAbsolute(fixture_path, .{ .truncate = true }) catch |err| switch (err) {
+        error.IsDir => blk: {
+            clearAliasPath(
+                fixture_path,
+                "unable to clear existing external boundary fixture directory",
+                "unable to clear existing external boundary fixture path",
+            );
+            break :blk std.fs.createFileAbsolute(fixture_path, .{ .truncate = true }) catch
+                std.process.fatal("unable to recreate external boundary fixture file", .{});
+        },
+        else => std.process.fatal("unable to create external boundary fixture file", .{}),
+    };
+    defer file.close();
+    var writer_buffer: [4096]u8 = undefined;
+    var file_writer = file.writer(&writer_buffer);
+    file_writer.interface.writeAll(contents) catch
+        std.process.fatal("unable to write external boundary fixture file", .{});
+    file_writer.interface.flush() catch
+        std.process.fatal("unable to flush external boundary fixture file", .{});
     return fixture_path;
 }
 
@@ -1287,6 +1322,24 @@ pub fn build(b: *std.Build) void {
         "downstream_public_lowering_test.zig",
         down_test_src,
     );
+    const compile_fail_escape_helper_src =
+        \\pub fn helper(eff: anytype) !void {
+        \\    try eff.writer.tell("escaped");
+        \\}
+    ;
+    const cf_escape_helper_target = writeExternalBoundaryFixtureFile(
+        b,
+        "compile_fail_escape_helper_target.zig",
+        compile_fail_escape_helper_src,
+    );
+    const cf_escape_helper_link = b.pathFromRoot("test/compile_fail_inputs/.compile_fail_escape_helper_link.zig");
+    clearAliasPath(
+        cf_escape_helper_link,
+        "unable to clear compile-fail helper symlink directory",
+        "unable to clear compile-fail helper symlink path",
+    );
+    std.fs.symLinkAbsolute(cf_escape_helper_target, cf_escape_helper_link, .{}) catch
+        std.process.fatal("unable to create compile-fail helper symlink", .{});
     const down_mod = createShiftConsumerModule(
         b,
         down_test_path,
@@ -1872,6 +1925,8 @@ pub fn build(b: *std.Build) void {
         .{ .name = "cf-string-list-codec", .path = "test/compile_fail/string_list_codec_fails.zig", .expected = "public lowering runtime plan rejected string_list values across executable boundaries" },
         .{ .name = "cf-entry-value-param-lower-at", .path = "test/compile_fail/entry_value_param_lower_at_fails.zig", .expected = "public lowering rejected entry functions with value parameters because run(runtime, handlers) cannot supply entry arguments" },
         .{ .name = "cf-unsupported-helper-body", .path = "test/compile_fail/unsupported_helper_body_fails.zig", .expected = "public lowering cannot synthesize unsupported helper or entry bodies; test/compile_fail_inputs/unsupported_helper_body_source.zig:helper must stay within the retained lowered-body subset" },
+        .{ .name = "cf-helper-import-escape-lower-at", .path = "test/compile_fail/helper_import_escape_lower_at_fails.zig", .expected = "public lowering source path must resolve to an owned repo file" },
+        .{ .name = "cf-helper-import-escape-ir-program-at", .path = "test/compile_fail/helper_import_escape_ir_program_at_fails.zig", .expected = "public lowering source path must resolve to an owned repo file" },
         .{ .name = "cf-entry-path-escape-lower-at", .path = "test/compile_fail/entry_path_escape_lower_at_fails.zig", .expected = "public lowering source path must stay under the package root" },
         .{ .name = "cf-entry-path-escape-ir-program-at", .path = "test/compile_fail/entry_path_escape_ir_program_at_fails.zig", .expected = "public lowering source path must stay under the package root" },
         .{ .name = "cf-collect-closed-outputs-const-mutating-finish", .path = "test/compile_fail/collect_closed_outputs_const_mutating_finish_fails.zig", .expected = "cast discards const qualifier" },

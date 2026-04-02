@@ -202,6 +202,29 @@ fn repoRelativePath(comptime source_path: []const u8) []const u8 {
     };
 }
 
+fn registryContainsLine(comptime registry: []const u8, comptime candidate: []const u8) bool {
+    comptime {
+        @setEvalBranchQuota(50_000);
+    }
+    var start: usize = 0;
+    while (start < registry.len) {
+        var end = start;
+        while (end < registry.len and registry[end] != '\n') : (end += 1) {}
+        const line = registry[start..end];
+        if (line.len != 0 and std.mem.eql(u8, line, candidate)) return true;
+        start = end + 1;
+    }
+    return false;
+}
+
+fn ownedRepoRelativePath(comptime source_path: []const u8) []const u8 {
+    const repo_path = repoRelativePath(source_path);
+    if (!registryContainsLine(build_options.repo_zig_paths, repo_path)) {
+        @compileError("public lowering source path must resolve to an owned repo file");
+    }
+    return repo_path;
+}
+
 fn absoluteSourcePath(comptime source_path: []const u8) []const u8 {
     if (!std.fs.path.isAbsolute(source_path)) @compileError("public lowering absolute source path must be absolute");
     return normalizeAbsolutePath(source_path) catch |err| switch (err) {
@@ -259,7 +282,7 @@ pub fn sourceBytes(
 
 /// Embed one repo-relative source file through a repo-root module so examples remain package-visible.
 pub fn embeddedSource(comptime source_path: []const u8) [:0]const u8 {
-    return @embedFile(repoRelativePath(source_path));
+    return @embedFile(ownedRepoRelativePath(source_path));
 }
 
 /// Analyze one repo-relative source file through the shared comptime source-graph extractor.

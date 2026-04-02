@@ -867,6 +867,85 @@ test "file-backed validation rejects repo-relative symlink entries that canonica
     );
 }
 
+test "file-backed validation rejects repo-relative symlink helper imports that canonicalize outside the package root" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(original_cwd);
+
+    const external_root = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "/tmp/shift-open-row-helper-symlink-{d}",
+        .{std.time.nanoTimestamp()},
+    );
+    defer std.testing.allocator.free(external_root);
+    std.fs.deleteTreeAbsolute(external_root) catch {};
+    try std.fs.makeDirAbsolute(external_root);
+    defer std.fs.deleteTreeAbsolute(external_root) catch unreachable;
+
+    var external_dir = try std.fs.openDirAbsolute(external_root, .{});
+    defer external_dir.close();
+    try external_dir.writeFile(.{
+        .sub_path = "outside_helper.zig",
+        .data =
+        \\pub fn helper(eff: anytype) !void {
+        \\    try eff.writer.tell("outside");
+        \\}
+        ,
+    });
+
+    const outside_path = try std.fs.path.join(std.testing.allocator, &.{ external_root, "outside_helper.zig" });
+    defer std.testing.allocator.free(outside_path);
+
+    const timestamp = std.time.nanoTimestamp();
+    const repo_link_path = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "test/open_row_validation_boundary/runtime_escape_helper_link_{d}.zig",
+        .{timestamp},
+    );
+    defer std.testing.allocator.free(repo_link_path);
+    const repo_entry_path = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "test/open_row_validation_boundary/runtime_escape_helper_entry_{d}.zig",
+        .{timestamp},
+    );
+    defer std.testing.allocator.free(repo_entry_path);
+
+    const absolute_link_path = try std.fs.path.join(std.testing.allocator, &.{ original_cwd, repo_link_path });
+    defer std.testing.allocator.free(absolute_link_path);
+    const absolute_entry_path = try std.fs.path.join(std.testing.allocator, &.{ original_cwd, repo_entry_path });
+    defer std.testing.allocator.free(absolute_entry_path);
+
+    std.fs.deleteFileAbsolute(absolute_link_path) catch {};
+    std.fs.deleteFileAbsolute(absolute_entry_path) catch {};
+    try std.fs.symLinkAbsolute(outside_path, absolute_link_path, .{});
+    defer std.fs.deleteFileAbsolute(absolute_link_path) catch unreachable;
+
+    const entry_source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\const helpers = @import("{s}");
+        \\
+        \\pub fn runBody(eff: anytype) !void {{
+        \\    try helpers.helper(eff);
+        \\}}
+    ,
+        .{std.fs.path.basename(repo_link_path)},
+    );
+    defer std.testing.allocator.free(entry_source);
+    try std.fs.cwd().writeFile(.{
+        .sub_path = repo_entry_path,
+        .data = entry_source,
+    });
+    defer std.fs.deleteFileAbsolute(absolute_entry_path) catch unreachable;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try std.testing.expectError(
+        error.UnsupportedHelperGraph,
+        shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), repo_entry_path, "runBody"),
+    );
+}
+
 test "recursive same-file workflow lowers through the public root surface" {
     const lowered = try example_open_row_recursive_writer.loweredProgram();
 

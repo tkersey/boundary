@@ -1287,6 +1287,24 @@ fn normalizeRelativeRepoPathAlloc(allocator: std.mem.Allocator, source_path: []c
     };
 }
 
+fn canonicalPackageRootRelativePathAlloc(allocator: std.mem.Allocator, repo_path: []const u8) ValidationError![]u8 {
+    const normalized_repo_path = try normalizeRelativeRepoPathAlloc(allocator, repo_path);
+    defer allocator.free(normalized_repo_path);
+
+    const package_root_candidate = std.fs.path.join(allocator, &.{ build_options.package_root, normalized_repo_path }) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => unreachable,
+    };
+    defer allocator.free(package_root_candidate);
+
+    const canonical_path = std.fs.realpathAlloc(allocator, package_root_candidate) catch return error.UnsupportedHelperGraph;
+    errdefer allocator.free(canonical_path);
+    if (!pathStartsWithRootRuntime(canonical_path, build_options.package_root)) {
+        return error.UnsupportedHelperGraph;
+    }
+    return canonical_path;
+}
+
 fn canonicalValidationSourcePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ValidationError![]u8 {
     if (source_path.len == 0) return error.UnsupportedHelperGraph;
 
@@ -1294,37 +1312,19 @@ fn canonicalValidationSourcePathAlloc(allocator: std.mem.Allocator, source_path:
     defer if (owned_canonical_path) |canonical_path| allocator.free(canonical_path);
 
     if (packageRootRelativeSlice(source_path)) |repo_path| {
-        const normalized_repo_source_path = try normalizeRelativeRepoPathAlloc(allocator, repo_path);
-        defer allocator.free(normalized_repo_source_path);
-        const package_root_candidate = std.fs.path.join(allocator, &.{ build_options.package_root, normalized_repo_source_path }) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => unreachable,
-        };
-        defer allocator.free(package_root_candidate);
-        owned_canonical_path = std.fs.realpathAlloc(allocator, package_root_candidate) catch return error.UnsupportedHelperGraph;
-        if (!pathStartsWithRootRuntime(owned_canonical_path.?, build_options.package_root)) {
-            return error.UnsupportedHelperGraph;
-        }
+        owned_canonical_path = try canonicalPackageRootRelativePathAlloc(allocator, repo_path);
         return allocator.dupe(u8, owned_canonical_path.?) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
         };
     }
 
     if (!std.fs.path.isAbsolute(source_path)) {
-        const normalized_repo_source_path = try normalizeRelativeRepoPathAlloc(allocator, source_path);
-        defer allocator.free(normalized_repo_source_path);
-
-        const package_root_candidate = std.fs.path.join(allocator, &.{ build_options.package_root, normalized_repo_source_path }) catch |err| switch (err) {
+        owned_canonical_path = canonicalPackageRootRelativePathAlloc(allocator, source_path) catch |err| switch (err) {
+            error.UnsupportedHelperGraph => null,
             error.OutOfMemory => return error.OutOfMemory,
-            else => unreachable,
+            else => return err,
         };
-        defer allocator.free(package_root_candidate);
-
-        owned_canonical_path = std.fs.realpathAlloc(allocator, package_root_candidate) catch null;
         if (owned_canonical_path) |canonical_path| {
-            if (!pathStartsWithRootRuntime(canonical_path, build_options.package_root)) {
-                return error.UnsupportedHelperGraph;
-            }
             return allocator.dupe(u8, canonical_path) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
             };
@@ -1367,10 +1367,7 @@ fn resolveValidationImportPathAlloc(
         try joined.appendSlice(allocator, import_path);
         const imported_repo_path = try normalizeRelativeRepoPathAlloc(allocator, joined.items);
         defer allocator.free(imported_repo_path);
-        return std.fs.path.join(allocator, &.{ build_options.package_root, imported_repo_path }) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => unreachable,
-        };
+        return try canonicalPackageRootRelativePathAlloc(allocator, imported_repo_path);
     }
 
     if (!std.fs.path.isAbsolute(source_path)) return error.UnsupportedHelperGraph;
