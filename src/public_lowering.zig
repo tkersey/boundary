@@ -151,6 +151,8 @@ fn afterMethodName(comptime op_name: []const u8) []const u8 {
     var upper_next = true;
     inline for (op_name) |byte| {
         if (byte == '_') {
+            buffer[len] = '_';
+            len += 1;
             upper_next = true;
             continue;
         }
@@ -595,6 +597,7 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
         if (std.fs.path.isAbsolute(source_ref.caller_file)) {
             if (std.fs.path.isAbsolute(source_ref.repo_path)) {
                 if (!pathEquals(source_ref.caller_file, source_ref.repo_path)) return false;
+                if (!pathUsesCheckoutRoot(source_ref.repo_path) and !pathUsesPackageRootAlias(source_ref.repo_path)) return false;
             } else {
                 if (!absoluteOwnedRepoPathMatches(source_ref)) return false;
             }
@@ -2380,11 +2383,12 @@ test "source ownership rejects mirrored relative paths outside the repo root" {
     }));
 }
 
-test "source ownership accepts absolute caller-owned content witnesses when they name their own absolute path" {
-    const caller_path = "/tmp/downstream_public_lowering_test.zig";
-    const caller_source =
-        \\pub fn runBody() void {}
-    ;
+test "source ownership accepts absolute caller-owned content witnesses inside owned roots" {
+    const caller_path = comptime std.fmt.comptimePrint(
+        "{s}/examples/open_row_state_writer.zig",
+        .{build_options.package_root},
+    );
+    const caller_source = comptime source_graph_embed.embeddedSource("examples/open_row_state_writer.zig");
 
     try std.testing.expect(sourceOwnershipMatches(.{
         .repo_path = caller_path,
@@ -2392,6 +2396,56 @@ test "source ownership accepts absolute caller-owned content witnesses when they
         .caller_hash = hashSourceBytes(caller_source),
         .caller_source = caller_source,
     }));
+    if (build_options.package_root_alias_available) {
+        const alias_caller_path = comptime std.fmt.comptimePrint(
+            "{s}/examples/open_row_state_writer.zig",
+            .{build_options.package_root_alias},
+        );
+        try std.testing.expect(sourceOwnershipMatches(.{
+            .repo_path = alias_caller_path,
+            .caller_file = alias_caller_path,
+            .caller_hash = hashSourceBytes(caller_source),
+            .caller_source = caller_source,
+        }));
+    }
+}
+
+test "source ownership rejects absolute caller-owned content witnesses outside owned roots even when they name their own absolute path" {
+    const caller_path = "/tmp/downstream_public_lowering_test.zig";
+    const caller_source =
+        \\pub fn runBody() void {}
+    ;
+
+    try std.testing.expect(!sourceOwnershipMatches(.{
+        .repo_path = caller_path,
+        .caller_file = caller_path,
+        .caller_hash = hashSourceBytes(caller_source),
+        .caller_source = caller_source,
+    }));
+}
+
+test "after hook naming preserves underscore boundaries" {
+    comptime {
+        const foo_bar = afterMethodName("foo_bar");
+        const foo__bar = afterMethodName("foo__bar");
+        const _foo_bar = afterMethodName("_foo_bar");
+
+        if (!std.mem.eql(u8, foo_bar, "afterFoo_Bar")) {
+            @compileError("after hook naming must preserve single underscore boundaries");
+        }
+        if (!std.mem.eql(u8, foo__bar, "afterFoo__Bar")) {
+            @compileError("after hook naming must preserve repeated underscore boundaries");
+        }
+        if (!std.mem.eql(u8, _foo_bar, "after_Foo_Bar")) {
+            @compileError("after hook naming must preserve leading underscore boundaries");
+        }
+        if (std.mem.eql(u8, foo_bar, foo__bar) or
+            std.mem.eql(u8, foo_bar, _foo_bar) or
+            std.mem.eql(u8, foo__bar, _foo_bar))
+        {
+            @compileError("after hook naming must keep underscored op names distinct");
+        }
+    }
 }
 
 test "owned-source validation rejects helper imports that are missing from caller-supplied sources" {
