@@ -1133,6 +1133,62 @@ const ValidationHelperUse = struct {
     import_alias: ?[]u8,
 };
 
+const ValidationOwnedSource = struct {
+    path: []u8,
+    content: [:0]const u8,
+};
+
+const ValidationSourceGraph = struct {
+    allocator: std.mem.Allocator,
+    root_path: []const u8,
+    owned_sources: []ValidationOwnedSource,
+
+    fn init(
+        allocator: std.mem.Allocator,
+        source_path: []const u8,
+        root_source: [:0]const u8,
+        imported_sources: []const ImportedSource,
+    ) ValidationError!@This() {
+        var owned_sources = std.ArrayList(ValidationOwnedSource).empty;
+        errdefer {
+            for (owned_sources.items) |owned_source| allocator.free(owned_source.path);
+            owned_sources.deinit(allocator);
+        }
+
+        const normalized_root_path = try normalizeValidationOwnedPathAlloc(allocator, source_path);
+        try owned_sources.append(allocator, .{
+            .path = normalized_root_path,
+            .content = root_source,
+        });
+
+        for (imported_sources) |imported_source| {
+            try owned_sources.append(allocator, .{
+                .path = try normalizeValidationOwnedPathAlloc(allocator, imported_source.path),
+                .content = imported_source.content,
+            });
+        }
+
+        const slice = try owned_sources.toOwnedSlice(allocator);
+        return .{
+            .allocator = allocator,
+            .root_path = slice[0].path,
+            .owned_sources = slice,
+        };
+    }
+
+    fn deinit(self: *@This()) void {
+        for (self.owned_sources) |owned_source| self.allocator.free(owned_source.path);
+        self.allocator.free(self.owned_sources);
+    }
+
+    fn contentForPath(self: *const @This(), source_path: []const u8) ?[:0]const u8 {
+        for (self.owned_sources) |owned_source| {
+            if (std.mem.eql(u8, owned_source.path, source_path)) return owned_source.content;
+        }
+        return null;
+    }
+};
+
 const ValidationModule = struct {
     path: []u8,
     functions: []ValidationFunction,
@@ -1305,6 +1361,19 @@ fn canonicalPackageRootRelativePathAlloc(allocator: std.mem.Allocator, repo_path
     return canonical_path;
 }
 
+fn lexicalPackageRootRelativePathAlloc(allocator: std.mem.Allocator, repo_path: []const u8) ValidationError![]u8 {
+    const normalized_repo_path = try normalizeRelativeRepoPathAlloc(allocator, repo_path);
+    defer allocator.free(normalized_repo_path);
+
+    const package_root_candidate = std.fs.path.join(allocator, &.{ build_options.package_root, normalized_repo_path }) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => unreachable,
+    };
+    defer allocator.free(package_root_candidate);
+
+    return std.fs.path.resolve(allocator, &.{package_root_candidate}) catch return error.OutOfMemory;
+}
+
 fn canonicalValidationSourcePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ValidationError![]u8 {
     if (source_path.len == 0) return error.UnsupportedHelperGraph;
 
@@ -1345,6 +1414,18 @@ fn canonicalValidationSourcePathAlloc(allocator: std.mem.Allocator, source_path:
     };
 }
 
+fn normalizeValidationOwnedPathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ValidationError![]u8 {
+    if (source_path.len == 0) return error.UnsupportedHelperGraph;
+
+    if (packageRootRelativeSlice(source_path)) |repo_path| {
+        return lexicalPackageRootRelativePathAlloc(allocator, repo_path);
+    }
+    if (!std.fs.path.isAbsolute(source_path)) {
+        return lexicalPackageRootRelativePathAlloc(allocator, source_path);
+    }
+    return std.fs.path.resolve(allocator, &.{source_path}) catch return error.OutOfMemory;
+}
+
 fn resolveValidationImportPathAlloc(
     allocator: std.mem.Allocator,
     source_path: []const u8,
@@ -1380,21 +1461,70 @@ fn resolveValidationImportPathAlloc(
     return std.fs.realpathAlloc(allocator, joined_path) catch return error.UnsupportedHelperGraph;
 }
 
-fn collectValidationModule(
-    state: *ValidationState,
+fn resolveOwnedValidationImportPathAlloc(
+    allocator: std.mem.Allocator,
     source_path: []const u8,
-    entry_symbol: ?[]const u8,
-) ValidationError!usize {
-    if (state.findModuleIndex(source_path)) |existing_index| {
-        if (entry_symbol) |required_entry| {
-            if (findValidationFunctionIndex(state.modules.items[existing_index].functions, required_entry) == null) {
-                return error.EntryMissing;
-            }
+    import_path: []const u8,
+) ValidationError![]u8 {
+    if (std.fs.path.isAbsolute(import_path)) return error.UnsupportedHelperGraph;
+    if (!std.mem.endsWith(u8, import_path, ".zig")) return error.UnsupportedHelperGraph;
+
+    if (packageRootRelativeSlice(source_path)) |repo_source_path| {
+        const normalized_repo_source_path = try normalizeRelativeRepoPathAlloc(allocator, repo_source_path);
+        defer allocator.free(normalized_repo_source_path);
+        const base_dir = std.fs.path.dirname(normalized_repo_source_path) orelse "";
+
+        var joined = std.ArrayList(u8).empty;
+        defer joined.deinit(allocator);
+        if (base_dir.len != 0) {
+            try joined.appendSlice(allocator, base_dir);
+            try joined.append(allocator, '/');
         }
-        return existing_index;
+        try joined.appendSlice(allocator, import_path);
+        const imported_repo_path = try normalizeRelativeRepoPathAlloc(allocator, joined.items);
+        defer allocator.free(imported_repo_path);
+        return try lexicalPackageRootRelativePathAlloc(allocator, imported_repo_path);
     }
 
-    var analysis = source_lowering.analyzeFileBackedSource(state.allocator, source_path) catch |err| switch (err) {
+    if (!std.fs.path.isAbsolute(source_path)) return error.UnsupportedHelperGraph;
+    const base_dir = std.fs.path.dirname(source_path) orelse return error.UnsupportedHelperGraph;
+    const joined_path = std.fs.path.join(allocator, &.{ base_dir, import_path }) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => unreachable,
+    };
+    defer allocator.free(joined_path);
+    return std.fs.path.resolve(allocator, &.{joined_path}) catch return error.OutOfMemory;
+}
+
+fn analyzeValidationModuleGraph(
+    allocator: std.mem.Allocator,
+    source_path: []const u8,
+    entry_symbol: ?[]const u8,
+    source_graph: ?*const ValidationSourceGraph,
+) ValidationError!source_graph_engine.ModuleGraph {
+    if (source_graph) |owned_graph| {
+        if (owned_graph.contentForPath(source_path)) |source_bytes| {
+            return source_graph_engine.analyzeRuntime(allocator, source_bytes, .{
+                .entry_symbol = entry_symbol,
+                .reject_indirect_effect_access = true,
+            }) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.EntryMissing => return error.EntryMissing,
+                error.MissingImport => return error.UnsupportedHelperGraph,
+                error.RecursiveHelpers => return error.UnsupportedHelperGraph,
+                error.TooManyFunctions => return error.UnsupportedHelperGraph,
+                error.TooManyFunctionParams => return error.UnsupportedHelperGraph,
+                error.TooManyImports => return error.UnsupportedHelperGraph,
+                error.TooManyHelperUses => return error.UnsupportedHelperGraph,
+                error.TooManyHelperEdges => return error.UnsupportedHelperGraph,
+                error.TooManyOpUses => return error.UnsupportedHelperGraph,
+                error.UnsupportedEffectAccess => return error.UnsupportedEffectAccess,
+                error.UnsupportedImportPath => return error.UnsupportedHelperGraph,
+            };
+        }
+    }
+
+    var analysis = source_lowering.analyzeFileBackedSource(allocator, source_path) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.ParseError => return error.ParseError,
         error.SourceUnreadable => return error.SourceUnreadable,
@@ -1408,10 +1538,10 @@ fn collectValidationModule(
         error.UnsupportedEffectAccess => return error.UnsupportedEffectAccess,
         else => unreachable,
     };
-    defer analysis.deinit(state.allocator);
+    defer analysis.deinit(allocator);
 
     if (!analysis.isParseClean()) return error.ParseError;
-    const graph = source_graph_engine.analyzeRuntime(state.allocator, analysis.parsed.source_z, .{
+    return source_graph_engine.analyzeRuntime(allocator, analysis.parsed.source_z, .{
         .entry_symbol = entry_symbol,
         .reject_indirect_effect_access = true,
     }) catch |err| switch (err) {
@@ -1428,6 +1558,24 @@ fn collectValidationModule(
         error.UnsupportedEffectAccess => return error.UnsupportedEffectAccess,
         error.UnsupportedImportPath => return error.UnsupportedHelperGraph,
     };
+}
+
+fn collectValidationModule(
+    state: *ValidationState,
+    source_path: []const u8,
+    entry_symbol: ?[]const u8,
+    source_graph: ?*const ValidationSourceGraph,
+) ValidationError!usize {
+    if (state.findModuleIndex(source_path)) |existing_index| {
+        if (entry_symbol) |required_entry| {
+            if (findValidationFunctionIndex(state.modules.items[existing_index].functions, required_entry) == null) {
+                return error.EntryMissing;
+            }
+        }
+        return existing_index;
+    }
+
+    const graph = try analyzeValidationModuleGraph(state.allocator, source_path, entry_symbol, source_graph);
     defer deinitValidationGraph(state.allocator, graph);
 
     var module_owned_by_state = false;
@@ -1482,10 +1630,13 @@ fn collectValidationModule(
         if (!module.functions[helper_use.caller_index].effect_param_present) continue;
 
         const import_row = findValidationImport(module.imports, import_alias) orelse return error.UnsupportedHelperGraph;
-        const imported_path = try resolveValidationImportPathAlloc(state.allocator, source_path, import_row.import_path);
+        const imported_path = if (source_graph != null)
+            try resolveOwnedValidationImportPathAlloc(state.allocator, source_path, import_row.import_path)
+        else
+            try resolveValidationImportPathAlloc(state.allocator, source_path, import_row.import_path);
         defer state.allocator.free(imported_path);
 
-        const imported_index = try collectValidationModule(state, imported_path, null);
+        const imported_index = try collectValidationModule(state, imported_path, null, source_graph);
         if (findValidationFunctionIndex(state.modules.items[imported_index].functions, helper_use.callee_name) == null) {
             return error.UnsupportedHelperGraph;
         }
@@ -1508,12 +1659,29 @@ pub fn validateFileBackedOpenRowAt(
 
     var validation = ValidationState{ .allocator = allocator };
     defer validation.deinit();
-    _ = try collectValidationModule(&validation, canonical_source_path, entry_symbol);
+    _ = try collectValidationModule(&validation, canonical_source_path, entry_symbol, null);
+}
+
+fn validateOwnedOpenRowAt(
+    allocator: std.mem.Allocator,
+    source_path: []const u8,
+    root_source: [:0]const u8,
+    imported_sources: []const ImportedSource,
+    entry_symbol: []const u8,
+) ValidationError!void {
+    var source_graph = try ValidationSourceGraph.init(allocator, source_path, root_source, imported_sources);
+    defer source_graph.deinit();
+
+    var validation = ValidationState{ .allocator = allocator };
+    defer validation.deinit();
+    _ = try collectValidationModule(&validation, source_graph.root_path, entry_symbol, &source_graph);
 }
 
 const ValidationSpec = struct {
     source_path: []const u8,
     entry_symbol: []const u8,
+    root_source: ?[:0]const u8 = null,
+    imported_sources: []const ImportedSource = &.{},
 };
 
 const RunSpec = struct {
@@ -1545,6 +1713,15 @@ fn GeneratedProgramType(
         /// Validate the named source file and entry symbol for this compiled additive lowering request.
         pub fn validate(allocator: std.mem.Allocator) ValidationError!void {
             const active_spec = validate_spec orelse return;
+            if (active_spec.root_source) |root_source| {
+                return try validateOwnedOpenRowAt(
+                    allocator,
+                    active_spec.source_path,
+                    root_source,
+                    active_spec.imported_sources,
+                    active_spec.entry_symbol,
+                );
+            }
             return try validateFileBackedOpenRowAt(allocator, active_spec.source_path, active_spec.entry_symbol);
         }
 
@@ -1655,6 +1832,8 @@ fn Lower(comptime source_ref: SourceRef, comptime spec: LowerSpec) type {
         }, .{
             .source_path = source_path,
             .entry_symbol = spec.entry_symbol,
+            .root_source = caller_source,
+            .imported_sources = source_ref.imported_sources,
         });
     }
     return LowerAt(sourcePathForLowering(source_ref), spec);

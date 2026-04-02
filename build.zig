@@ -1242,11 +1242,35 @@ pub fn build(b: *std.Build) void {
         \\const helpers = @import("downstream_public_lowering_helper.zig");
         \\
         \\const runtime_support = shift.lowering.runtime_support;
+        \\const synthetic_root_source =
+        \\    \\const synthetic_helpers = @import("downstream_public_lowering_synthetic_helper.zig");
+        \\    \\
+        \\    \\pub fn syntheticRunBody(eff: anytype) ![]const u8 {{
+        \\    \\    const before = try eff.state.get();
+        \\    \\    try synthetic_helpers.emit(eff);
+        \\    \\    try eff.state.set(before + 1);
+        \\    \\    return "done";
+        \\    \\}}
+        \\;
+        \\const synthetic_helper_source =
+        \\    \\pub fn emit(eff: anytype) !void {{
+        \\    \\    try eff.writer.tell("query=artifact-search");
+        \\    \\    try eff.writer.tell("workflow=queued");
+        \\    \\}}
+        \\;
+        \\const synthetic_root_only_source =
+        \\    \\pub fn rootOnlyRunBody(eff: anytype) ![]const u8 {{
+        \\    \\    const before = try eff.state.get();
+        \\    \\    try eff.writer.tell("root-only");
+        \\    \\    try eff.state.set(before + 1);
+        \\    \\    return "done";
+        \\    \\}}
+        \\;
         \\
-        \\fn loweringSpec() shift.lowering.LowerSpec {{
+        \\fn loweringSpec(comptime entry_symbol: []const u8) shift.lowering.LowerSpec {{
         \\    return .{{
         \\        .label = "downstream.public_lowering",
-        \\        .entry_symbol = "runBody",
+        \\        .entry_symbol = entry_symbol,
         \\        .row = shift.ir.mergeRows(.{{
         \\            shift.ir.rowFromSpec(.{{
         \\                .state = .{{
@@ -1272,12 +1296,20 @@ pub fn build(b: *std.Build) void {
         \\    return shift.lowering.sourceWithContentAndImports(
         \\        downstream_source_path,
         \\        @src(),
-        \\        @embedFile(@src().file),
+        \\        synthetic_root_source,
         \\        &.{{shift.lowering.importedSource(
         \\            downstream_source_path,
-        \\            "downstream_public_lowering_helper.zig",
-        \\            @embedFile("downstream_public_lowering_helper.zig"),
+        \\            "downstream_public_lowering_synthetic_helper.zig",
+        \\            synthetic_helper_source,
         \\        )}},
+        \\    );
+        \\}}
+        \\
+        \\fn loweringSourceWithoutImports() shift.lowering.SourceRef {{
+        \\    return shift.lowering.sourceWithContent(
+        \\        downstream_source_path,
+        \\        @src(),
+        \\        synthetic_root_only_source,
         \\    );
         \\}}
         \\
@@ -1289,13 +1321,19 @@ pub fn build(b: *std.Build) void {
         \\}}
         \\
         \\test "downstream sourceWithContent lowers and validates from caller-owned content" {{
-        \\    const LoweredFromSource = shift.lower(loweringSource(), loweringSpec());
+        \\    const LoweredFromSource = shift.lower(loweringSource(), loweringSpec("syntheticRunBody"));
+        \\    try std.testing.expectEqualStrings(downstream_source_path, LoweredFromSource.source_path);
+        \\    try LoweredFromSource.validate(std.testing.allocator);
+        \\}}
+        \\
+        \\test "downstream sourceWithContent validates caller-owned root-only content" {{
+        \\    const LoweredFromSource = shift.lower(loweringSourceWithoutImports(), loweringSpec("rootOnlyRunBody"));
         \\    try std.testing.expectEqualStrings(downstream_source_path, LoweredFromSource.source_path);
         \\    try LoweredFromSource.validate(std.testing.allocator);
         \\}}
         \\
         \\test "downstream shift.lower remains executable outside the shift checkout" {{
-        \\    const LoweredFromSource = shift.lower(loweringSource(), loweringSpec());
+        \\    const LoweredFromSource = shift.lower(loweringSource(), loweringSpec("syntheticRunBody"));
         \\
         \\    var runtime = shift.Runtime.init(std.testing.allocator);
         \\    defer runtime.deinit();
