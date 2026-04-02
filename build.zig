@@ -222,7 +222,7 @@ fn boundaryFixtureRoot(b: *std.Build) []const u8 {
 }
 
 fn externalBoundaryFixtureRoot(b: *std.Build) []const u8 {
-    return std.fs.path.join(b.allocator, &.{ boundaryAliasRoot(b), "external-boundary-fixtures" }) catch
+    return std.fs.path.join(b.allocator, &.{ boundaryFixtureRoot(b), "external-boundary-fixtures" }) catch
         std.process.fatal("unable to allocate external boundary fixture root", .{});
 }
 
@@ -331,6 +331,29 @@ fn writeExternalBoundaryFixtureFile(b: *std.Build, basename: []const u8, content
     file_writer.interface.flush() catch
         std.process.fatal("unable to flush external boundary fixture file", .{});
     return fixture_path;
+}
+
+fn ensureOptionalAbsoluteSymlink(
+    target_path: []const u8,
+    link_path: []const u8,
+    dir_error: []const u8,
+    path_error: []const u8,
+) bool {
+    var link_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const existing_target = std.fs.readLinkAbsolute(link_path, &link_buffer) catch |err| switch (err) {
+        error.FileNotFound => null,
+        else => blk: {
+            clearAliasPath(link_path, dir_error, path_error);
+            break :blk null;
+        },
+    };
+    if (existing_target) |existing| {
+        if (std.mem.eql(u8, existing, target_path)) return true;
+    }
+
+    clearAliasPath(link_path, dir_error, path_error);
+    std.fs.symLinkAbsolute(target_path, link_path, .{}) catch return false;
+    return true;
 }
 
 fn boundaryFixturePath(b: *std.Build, basename: []const u8) []const u8 {
@@ -1371,13 +1394,12 @@ pub fn build(b: *std.Build) void {
         compile_fail_escape_helper_src,
     );
     const cf_escape_helper_link = b.pathFromRoot("test/compile_fail_inputs/.compile_fail_escape_helper_link.zig");
-    clearAliasPath(
+    const compile_fail_escape_symlink_ok = ensureOptionalAbsoluteSymlink(
+        cf_escape_helper_target,
         cf_escape_helper_link,
         "unable to clear compile-fail helper symlink directory",
         "unable to clear compile-fail helper symlink path",
     );
-    std.fs.symLinkAbsolute(cf_escape_helper_target, cf_escape_helper_link, .{}) catch
-        std.process.fatal("unable to create compile-fail helper symlink", .{});
     const down_mod = createShiftConsumerModule(
         b,
         down_test_path,
@@ -1939,7 +1961,7 @@ pub fn build(b: *std.Build) void {
     one_shot_survey_step.dependOn(&run_one_shot_runtime_tests.step);
     test_step.dependOn(&run_one_shot_runtime_tests.step);
 
-    const compile_fail_fixtures = [_]struct {
+    const compile_fail_owned_fixtures = [_]struct {
         name: []const u8,
         path: []const u8,
         expected: []const u8,
@@ -1977,7 +1999,44 @@ pub fn build(b: *std.Build) void {
         .{ .name = "cf-one-shot-legacy-alias", .path = "test/one_shot_survey/legacy_continuation_alias_recheck_fails.zig", .expected = "has no member named 'Continuation'" },
         .{ .name = "cf-one-shot-legacy-store", .path = "test/one_shot_survey/legacy_continuation_store_recheck_fails.zig", .expected = "has no member named 'Continuation'" },
     };
-    assertOwnedCompileFailFixtures(b, "test/compile_fail", compile_fail_fixtures);
+    assertOwnedCompileFailFixtures(b, "test/compile_fail", compile_fail_owned_fixtures);
+
+    const compile_fail_fixtures = [_]struct {
+        name: []const u8,
+        path: []const u8,
+        expected: []const u8,
+    }{
+        .{ .name = "cf-retired-program", .path = "test/compile_fail/retired_program_fails.zig", .expected = "has no member named 'Transform'" },
+        .{ .name = "cf-retired-decl", .path = "test/compile_fail/retired_decl_fails.zig", .expected = "has no member named 'Choice'" },
+        .{ .name = "cf-retired-op", .path = "test/compile_fail/retired_op_fails.zig", .expected = "has no member named 'Abort'" },
+        .{ .name = "cf-retired-ops", .path = "test/compile_fail/retired_ops_fails.zig", .expected = "has no member named 'Row'" },
+        .{ .name = "cf-retired-runwith", .path = "test/compile_fail/retired_runwith_fails.zig", .expected = "has no member named 'mergeRows'" },
+        .{ .name = "cf-retired-rowspec", .path = "test/compile_fail/retired_rowspec_fails.zig", .expected = "has no member named 'effects'" },
+        .{ .name = "cf-retired-mergerowspecs", .path = "test/compile_fail/retired_mergerowspecs_fails.zig", .expected = "has no member named 'handlers'" },
+        .{ .name = "cf-resume-value-mismatch", .path = "test/compile_fail/resume_value_mismatch.zig", .expected = ".resumeValue must have type fn () Resume or fn () ResetError(ErrorSet)!Resume" },
+        .{ .name = "cf-source-ownership-mismatch", .path = "test/compile_fail/source_ownership_mismatch_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
+        .{ .name = "cf-source-ownership-content-mirror", .path = "test/compile_fail/source_ownership_content_mirror_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
+        .{ .name = "cf-source-ownership-absolute-content-mirror", .path = "test/compile_fail/source_ownership_absolute_content_mirror_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
+        .{ .name = "cf-source-ownership-basename-witness", .path = "test/compile_fail/source_ownership_basename_witness_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
+        .{ .name = "cf-public-ir-value-dst", .path = "test/compile_fail/public_ir_value_dst_fails.zig", .expected = "runtime plan generator produced an instruction with an out-of-range function-local reference" },
+        .{ .name = "cf-public-ir-terminator-precondition", .path = "test/compile_fail/public_ir_terminator_precondition_fails.zig", .expected = "runtime plan generator produced a block terminator without its required producer instruction" },
+        .{ .name = "cf-public-ir-blockless-entry", .path = "test/compile_fail/public_ir_blockless_entry_fails.zig", .expected = "runtime plan generator produced an invalid function entry block" },
+        .{ .name = "cf-public-ir-foreign-row-call-op", .path = "test/compile_fail/public_ir_foreign_row_call_op_fails.zig", .expected = "runtime plan generator produced an out-of-range or foreign-row op target" },
+        .{ .name = "cf-string-list-codec", .path = "test/compile_fail/string_list_codec_fails.zig", .expected = "public lowering runtime plan rejected string_list values across executable boundaries" },
+        .{ .name = "cf-entry-value-param-lower-at", .path = "test/compile_fail/entry_value_param_lower_at_fails.zig", .expected = "public lowering rejected entry functions with value parameters because run(runtime, handlers) cannot supply entry arguments" },
+        .{ .name = "cf-unsupported-helper-body", .path = "test/compile_fail/unsupported_helper_body_fails.zig", .expected = "public lowering cannot synthesize unsupported helper or entry bodies; test/compile_fail_inputs/unsupported_helper_body_source.zig:helper must stay within the retained lowered-body subset" },
+        .{ .name = "cf-entry-path-escape-lower-at", .path = "test/compile_fail/entry_path_escape_lower_at_fails.zig", .expected = "public lowering source path must stay under the package root" },
+        .{ .name = "cf-entry-path-escape-ir-program-at", .path = "test/compile_fail/entry_path_escape_ir_program_at_fails.zig", .expected = "public lowering source path must stay under the package root" },
+        .{ .name = "cf-collect-closed-outputs-const-mutating-finish", .path = "test/compile_fail/collect_closed_outputs_const_mutating_finish_fails.zig", .expected = "cast discards const qualifier" },
+        .{ .name = "cf-one-shot-missing-after-resume", .path = "test/one_shot_survey/missing_after_resume_fails.zig", .expected = "must declare afterResume" },
+        .{ .name = "cf-one-shot-missing-resume-or-return", .path = "test/one_shot_survey/missing_resume_or_return_fails.zig", .expected = "must declare resumeOrReturn" },
+        .{ .name = "cf-one-shot-wrong-after-resume", .path = "test/one_shot_survey/wrong_after_resume_type_fails.zig", .expected = ".afterResume must have type fn (InAnswer) OutAnswer or fn (InAnswer) ResetError(ErrorSet)!OutAnswer" },
+        .{ .name = "cf-one-shot-wrong-ror-type", .path = "test/one_shot_survey/wrong_resume_or_return_type_fails.zig", .expected = ".resumeOrReturn must have type fn () ResumeOrReturn or fn () ResetError(ErrorSet)!ResumeOrReturn" },
+        .{ .name = "cf-one-shot-wrong-ror-after", .path = "test/one_shot_survey/wrong_resume_or_return_after_resume_fails.zig", .expected = ".afterResume must have type fn (InAnswer) OutAnswer or fn (InAnswer) ResetError(ErrorSet)!OutAnswer" },
+        .{ .name = "cf-one-shot-direct-return-mode-mismatch", .path = "test/one_shot_survey/direct_return_mode_mismatch_fails.zig", .expected = "must declare directReturn" },
+        .{ .name = "cf-one-shot-legacy-alias", .path = "test/one_shot_survey/legacy_continuation_alias_recheck_fails.zig", .expected = "has no member named 'Continuation'" },
+        .{ .name = "cf-one-shot-legacy-store", .path = "test/one_shot_survey/legacy_continuation_store_recheck_fails.zig", .expected = "has no member named 'Continuation'" },
+    };
     inline for (compile_fail_fixtures) |fixture| {
         const fixture_mod = createShiftPromptFixtureModule(b, fixture.path, target, optimize, .{
             .authoring_build_options_mod = authoring_build_options_mod,
@@ -1992,6 +2051,32 @@ pub fn build(b: *std.Build) void {
         fixture_check.expect_errors = .{ .contains = fixture.expected };
         compile_fail_step.dependOn(&fixture_check.step);
         test_step.dependOn(&fixture_check.step);
+    }
+    // Hosts without symlink support still need ordinary build/test lanes to stay usable.
+    if (compile_fail_escape_symlink_ok) {
+        const compile_fail_escape_fixtures = [_]struct {
+            name: []const u8,
+            path: []const u8,
+            expected: []const u8,
+        }{
+            .{ .name = "cf-helper-import-escape-lower-at", .path = "test/compile_fail/helper_import_escape_lower_at_fails.zig", .expected = "public lowering source path must resolve to an owned repo file" },
+            .{ .name = "cf-helper-import-escape-ir-program-at", .path = "test/compile_fail/helper_import_escape_ir_program_at_fails.zig", .expected = "public lowering source path must resolve to an owned repo file" },
+        };
+        inline for (compile_fail_escape_fixtures) |fixture| {
+            const fixture_mod = createShiftPromptFixtureModule(b, fixture.path, target, optimize, .{
+                .authoring_build_options_mod = authoring_build_options_mod,
+                .shift_mod = shift_mod,
+                .prompt_support_mod = prompt_support_mod,
+                .with_api_mod = with_api_mod,
+            });
+            const fixture_check = b.addObject(.{
+                .name = fixture.name,
+                .root_module = fixture_mod,
+            });
+            fixture_check.expect_errors = .{ .contains = fixture.expected };
+            compile_fail_step.dependOn(&fixture_check.step);
+            test_step.dependOn(&fixture_check.step);
+        }
     }
 
     const example_proof_mod = b.createModule(.{
