@@ -832,14 +832,36 @@ fn cloneReplayValue(state: *ReplayCloneState, comptime T: type, value: T) lowere
                     return @ptrCast(@alignCast(existing));
                 }
                 const cloned = state.allocator.create(pointer.child) catch return error.ProgramContractViolation;
-                try state.pointer_clones.put(@intFromPtr(value), @ptrCast(cloned));
+                state.pointer_clones.put(@intFromPtr(value), @ptrCast(cloned)) catch return error.ProgramContractViolation;
                 cloned.* = try cloneReplayValue(state, pointer.child, value.*);
                 return cloned;
             },
             .slice => {
+                if (value.len != 0 and @sizeOf(pointer.child) != 0) {
+                    const existing_first = state.pointer_clones.get(@intFromPtr(value.ptr));
+                    if (existing_first) |first| {
+                        const first_clone: [*]pointer.child = @ptrCast(@alignCast(first));
+                        var reuses_contiguous_clone = true;
+                        for (1..value.len) |index| {
+                            const existing_item = state.pointer_clones.get(@intFromPtr(&value[index])) orelse {
+                                reuses_contiguous_clone = false;
+                                break;
+                            };
+                            const clone_item: *pointer.child = @ptrCast(@alignCast(existing_item));
+                            if (clone_item != &first_clone[index]) {
+                                reuses_contiguous_clone = false;
+                                break;
+                            }
+                        }
+                        if (reuses_contiguous_clone) return first_clone[0..value.len];
+                    }
+                }
                 const cloned = state.allocator.alloc(pointer.child, value.len) catch return error.ProgramContractViolation;
                 for (value, 0..) |item, index| {
                     cloned[index] = try cloneReplayValue(state, pointer.child, item);
+                    if (@sizeOf(pointer.child) != 0) {
+                        state.pointer_clones.put(@intFromPtr(&value[index]), @ptrCast(&cloned[index])) catch return error.ProgramContractViolation;
+                    }
                 }
                 return cloned;
             },
@@ -1454,6 +1476,7 @@ test "transformWithContext rebinds allocator-backed replay state to the persiste
     const Prompt = prompt_contract.Prompt(.resume_then_transform, i32, i32, error{OutOfMemory});
     const Carrier = struct {
         list: std.ArrayList(i32),
+        allocator: std.mem.Allocator,
     };
     const handler = struct {
         /// Return the first replayed element from the managed list copy.
@@ -1463,8 +1486,8 @@ test "transformWithContext rebinds allocator-backed replay state to the persiste
 
         /// Append through the rebound allocator to prove the replay copy owns its storage.
         pub fn afterResume(ctx: *Carrier, answer: i32) error{OutOfMemory}!i32 {
-            defer ctx.list.deinit();
-            try ctx.list.append(answer);
+            defer ctx.list.deinit(ctx.allocator);
+            try ctx.list.append(ctx.allocator, answer);
             return ctx.list.items[0] + ctx.list.items[1];
         }
     };
@@ -1482,15 +1505,18 @@ test "transformWithContext rebinds allocator-backed replay state to the persiste
 
     var original_buffer: [256]u8 = undefined;
     var original_allocator = std.heap.FixedBufferAllocator.init(&original_buffer);
-    var carrier = Carrier{ .list = std.ArrayList(i32).init(original_allocator.allocator()) };
-    defer carrier.list.deinit();
-    try carrier.list.append(7);
+    var carrier = Carrier{
+        .list = .empty,
+        .allocator = original_allocator.allocator(),
+    };
+    defer carrier.list.deinit(carrier.allocator);
+    try carrier.list.append(carrier.allocator, 7);
 
     try std.testing.expectError(error.FrontendSuspend, transformWithContext(i32, &prompt, &carrier, handler));
     const resumed = frame.records.items[0].resumed;
     const stored: *Carrier = @ptrCast(@alignCast(resumed.after_resume_ctx.?));
-    const allocator_rebound = stored.list.allocator.ptr != carrier.list.allocator.ptr or
-        stored.list.allocator.vtable != carrier.list.allocator.vtable;
+    const allocator_rebound = stored.allocator.ptr != carrier.allocator.ptr or
+        stored.allocator.vtable != carrier.allocator.vtable;
     try std.testing.expect(allocator_rebound);
     try std.testing.expect(stored.list.items.ptr != carrier.list.items.ptr);
     try std.testing.expectEqual(stored.list.items.len, stored.list.capacity);
@@ -1541,6 +1567,53 @@ test "transformWithContext preserves aliased pointer fields during replay" {
 
     shared.value = 0;
     try std.testing.expectEqual(@as(i32, 41), stored.left.value);
+    try std.testing.expectEqual(@as(i32, 42), try resumed.afterResumeFn(resumed.after_resume_ctx, 1));
+}
+
+test "transformWithContext preserves aliased slice backing storage during replay" {
+    const Prompt = prompt_contract.Prompt(.resume_then_transform, i32, i32, error{});
+    const Carrier = struct {
+        left: []i32,
+        right: []i32,
+    };
+    const handler = struct {
+        /// Return the shared replay payload from the aliased slice pair.
+        pub fn resumeValue(ctx: *Carrier) i32 {
+            return ctx.left[0];
+        }
+
+        /// Mutate one slice view and read back through the aliased peer.
+        pub fn afterResume(ctx: *Carrier, answer: i32) i32 {
+            ctx.left[0] += answer;
+            return ctx.right[0];
+        }
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try lowered_machine.beginExecution(&runtime);
+    defer lowered_machine.endExecution(&runtime);
+
+    var prompt = Prompt.init();
+    var frame = Frame(Prompt).init(lowered_machine.runtimeAllocator(&runtime), &prompt);
+    defer frame.deinit();
+    try pushActiveFrame(&runtime, &frame.base);
+    defer popActiveFrame(&runtime, &frame.base);
+
+    var shared = [_]i32{ 41, 99 };
+    var carrier = Carrier{
+        .left = shared[0..1],
+        .right = shared[0..1],
+    };
+    try std.testing.expectError(error.FrontendSuspend, transformWithContext(i32, &prompt, &carrier, handler));
+
+    const resumed = frame.records.items[0].resumed;
+    const stored: *Carrier = @ptrCast(@alignCast(resumed.after_resume_ctx.?));
+    try std.testing.expect(stored.left.ptr == stored.right.ptr);
+    try std.testing.expect(stored.left.ptr != carrier.left.ptr);
+
+    shared[0] = 0;
+    try std.testing.expectEqual(@as(i32, 41), stored.left[0]);
     try std.testing.expectEqual(@as(i32, 42), try resumed.afterResumeFn(resumed.after_resume_ctx, 1));
 }
 

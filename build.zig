@@ -813,6 +813,35 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run the default shift proof surface.");
     test_step.dependOn(&run_root_tests.step);
 
+    const frontend_internal_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/frontend.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    frontend_internal_tests.root_module.addImport("lowered_machine", lowered_machine_mod);
+    frontend_internal_tests.root_module.addImport("portable_core", portable_core_mod);
+    frontend_internal_tests.root_module.addImport("prompt_contract_support", prompt_contract_support_mod);
+    const run_frontend_internal_tests = b.addRunArtifact(frontend_internal_tests);
+    const frontend_internal_step = b.step("frontend-internal-check", "Run frontend contextual replay regression tests.");
+    frontend_internal_step.dependOn(&run_frontend_internal_tests.step);
+    test_step.dependOn(&run_frontend_internal_tests.step);
+
+    const internal_program_plan_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/program_plan_review_regression_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    internal_program_plan_tests.root_module.addImport("internal_program_plan", internal_program_plan_mod);
+    internal_program_plan_tests.root_module.addImport("effect_ir", effect_ir_mod);
+    const run_plan_review_tests = b.addRunArtifact(internal_program_plan_tests);
+    const internal_program_plan_step = b.step("program-plan-check", "Run internal runtime program-plan regression tests.");
+    internal_program_plan_step.dependOn(&run_plan_review_tests.step);
+    test_step.dependOn(&run_plan_review_tests.step);
+
     const witness_mod = b.createModule(.{
         .root_source_file = b.path("test/witness_corpus_test.zig"),
         .target = target,

@@ -692,7 +692,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
             for (program.call_edges) |edge| {
                 if (edge.caller.eql(function.symbol)) helper_call_count += 1;
             }
-            total += helper_call_count + 1;
+            total += helper_call_count + @intFromBool(function.ValueType != void);
         }
         break :blk total;
     };
@@ -708,6 +708,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
             for (program.call_edges) |edge| {
                 if (edge.caller.eql(function.symbol)) helper_call_count += 1;
             }
+            const has_return_value = function.ValueType != void;
             buf[index] = .{
                 .symbol_name = function.symbol.symbol_name,
                 .value_codec = try valueCodecFromEffectType(function.ValueType),
@@ -721,11 +722,11 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
                 .first_block = @intCast(index),
                 .block_count = 1,
                 .first_instruction = instruction_index,
-                .instruction_count = @intCast(helper_call_count + 1),
+                .instruction_count = @intCast(helper_call_count + @intFromBool(has_return_value)),
             };
             requirement_index += @intCast(function.row.requirements.len);
             output_index += @intCast(function.outputs.len);
-            instruction_index += @intCast(helper_call_count + 1);
+            instruction_index += @intCast(helper_call_count + @intFromBool(has_return_value));
         }
         break :blk buf;
     };
@@ -799,9 +800,9 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
 
     const terminators = comptime blk: {
         var buf: [program.functions.len]Terminator = undefined;
-        for (&buf) |*terminator| {
+        for (&buf, functions) |*terminator, function| {
             terminator.* = .{
-                .kind = .return_value,
+                .kind = if (function.value_codec == .unit) .return_unit else .return_value,
                 .primary = 0,
                 .secondary = 0,
             };
@@ -825,14 +826,16 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
                 };
                 instruction_index += 1;
             }
-            buf[instruction_index] = .{
-                .kind = .return_value,
-                .dst = 0,
-                .operand = 0,
-                .aux = 0,
-                .string_literal = "",
-            };
-            instruction_index += 1;
+            if (function.ValueType != void) {
+                buf[instruction_index] = .{
+                    .kind = .return_value,
+                    .dst = 0,
+                    .operand = 0,
+                    .aux = 0,
+                    .string_literal = "",
+                };
+                instruction_index += 1;
+            }
         }
         break :blk buf;
     };
@@ -1119,6 +1122,9 @@ test "codecForType covers the retained public scalar and string shapes" {
 }
 
 test "planFromProgram lowers one simple state-writer IR shell into a runtime-owned plan" {
+    comptime {
+        @setEvalBranchQuota(20_000);
+    }
     const row = effect_ir.mergeRows(.{
         effect_ir.rowFromSpec(.{
             .state = .{
@@ -1146,7 +1152,7 @@ test "planFromProgram lowers one simple state-writer IR shell into a runtime-own
         }},
         .call_edges = &.{},
     };
-    const plan = try planFromProgram("example.open_row_state_writer", program);
+    const plan = comptime try planFromProgram("example.open_row_state_writer", program);
 
     try std.testing.expectEqual(@as(u16, 0), plan.entry_index);
     try std.testing.expectEqual(@as(usize, 1), plan.functions.len);
@@ -1156,13 +1162,15 @@ test "planFromProgram lowers one simple state-writer IR shell into a runtime-own
     try std.testing.expectEqual(@as(usize, 0), plan.locals.len);
     try std.testing.expectEqual(@as(usize, 1), plan.blocks.len);
     try std.testing.expectEqual(@as(usize, 1), plan.terminators.len);
-    try std.testing.expectEqual(@as(usize, 1), plan.instructions.len);
-    try std.testing.expectEqual(InstructionKind.return_value, plan.instructions[0].kind);
-    try std.testing.expectEqual(TerminatorKind.return_value, plan.terminators[0].kind);
+    try std.testing.expectEqual(@as(usize, 0), plan.instructions.len);
+    try std.testing.expectEqual(TerminatorKind.return_unit, plan.terminators[0].kind);
     try plan.validate();
 }
 
 test "planFromProgram hashes the whole program and makes helper calls self-contained" {
+    comptime {
+        @setEvalBranchQuota(20_000);
+    }
     const shared_row = effect_ir.rowFromSpec(.{
         .state = .{
             .get = effect_ir.Transform(void, i32),
@@ -1197,30 +1205,33 @@ test "planFromProgram hashes the whole program and makes helper calls self-conta
         },
     };
 
-    const plan = try planFromProgram("example.workflow", program);
+    const plan = comptime try planFromProgram("example.workflow", program);
     const first_row_only_hash = try effect_ir.rowDigest(program.functions[0].row, program.functions[0].outputs);
 
     try std.testing.expect(plan.ir_hash != first_row_only_hash.hash);
     try std.testing.expectEqual(@as(usize, 0), plan.locals.len);
     try std.testing.expectEqual(@as(usize, 2), plan.blocks.len);
     try std.testing.expectEqual(@as(usize, 2), plan.terminators.len);
-    try std.testing.expectEqual(@as(usize, 3), plan.instructions.len);
+    try std.testing.expectEqual(@as(usize, 1), plan.instructions.len);
     try std.testing.expectEqual(@as(u16, 0), plan.functions[0].first_instruction);
-    try std.testing.expectEqual(@as(u16, 2), plan.functions[0].instruction_count);
+    try std.testing.expectEqual(@as(u16, 1), plan.functions[0].instruction_count);
     try std.testing.expectEqual(@as(u16, 0), plan.functions[0].first_block);
     try std.testing.expectEqual(@as(u16, 1), plan.functions[0].block_count);
+    try std.testing.expectEqual(@as(u16, 1), plan.functions[1].first_instruction);
+    try std.testing.expectEqual(@as(u16, 0), plan.functions[1].instruction_count);
     try std.testing.expectEqual(InstructionKind.call_helper, plan.instructions[0].kind);
     try std.testing.expectEqual(@as(u16, 1), plan.instructions[0].operand);
     try std.testing.expectEqual(@as(u16, 0), plan.instructions[0].dst);
     try std.testing.expectEqual(@as(u16, 0), plan.instructions[0].aux);
-    try std.testing.expectEqual(InstructionKind.return_value, plan.instructions[1].kind);
-    try std.testing.expectEqual(InstructionKind.return_value, plan.instructions[2].kind);
-    try std.testing.expectEqual(TerminatorKind.return_value, plan.terminators[0].kind);
-    try std.testing.expectEqual(TerminatorKind.return_value, plan.terminators[1].kind);
+    try std.testing.expectEqual(TerminatorKind.return_unit, plan.terminators[0].kind);
+    try std.testing.expectEqual(TerminatorKind.return_unit, plan.terminators[1].kind);
     try plan.validate();
 }
 
 test "planFromOpenRowProgram preserves row-only helper call plans" {
+    comptime {
+        @setEvalBranchQuota(20_000);
+    }
     const shared_row = effect_ir.rowFromSpec(.{
         .state = .{
             .get = effect_ir.Transform(void, i32),
@@ -1255,8 +1266,8 @@ test "planFromOpenRowProgram preserves row-only helper call plans" {
         .function_bodies = &.{},
     };
 
-    const row_only_plan = try planFromProgram("example.workflow", lowered.asEffectProgram());
-    const open_row_plan = try planFromOpenRowProgram("example.workflow", lowered);
+    const row_only_plan = comptime try planFromProgram("example.workflow", lowered.asEffectProgram());
+    const open_row_plan = comptime try planFromOpenRowProgram("example.workflow", lowered);
 
     try std.testing.expectEqualDeep(row_only_plan, open_row_plan);
 }
@@ -1978,7 +1989,7 @@ test "ProgramPlan hash survives JSON roundtrip" {
         }},
     };
 
-    const json = try std.json.stringifyAlloc(std.testing.allocator, plan, .{});
+    const json = try std.json.Stringify.valueAlloc(std.testing.allocator, plan, .{});
     defer std.testing.allocator.free(json);
 
     const parsed = try std.json.parseFromSlice(ProgramPlan, std.testing.allocator, json, .{});
