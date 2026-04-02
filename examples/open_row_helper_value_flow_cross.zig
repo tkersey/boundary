@@ -53,7 +53,16 @@ fn explicitLoweringCaller() std.builtin.SourceLocation {
 
 /// Return the explicit caller-owned lowering provenance witness for this module.
 pub fn loweringSource() shift.lowering.SourceRef {
-    return shift.lowering.sourceWithContent(loweringSourcePath(), explicitLoweringCaller(), @embedFile(@src().file));
+    return shift.lowering.sourceWithContentAndImports(
+        loweringSourcePath(),
+        explicitLoweringCaller(),
+        @embedFile(@src().file),
+        &.{shift.lowering.importedSource(
+            loweringSourcePath(),
+            "open_row_helper_value_flow_cross_helpers.zig",
+            @embedFile("open_row_helper_value_flow_cross_helpers.zig"),
+        )},
+    );
 }
 
 /// Return the additive public lowered artifact for this cross-file helper value-flow workflow.

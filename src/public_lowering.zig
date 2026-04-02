@@ -1603,6 +1603,8 @@ fn analyzeValidationModuleGraph(
             defer freeValidationGraphBuffers(allocator, graph);
             return cloneValidationGraphAlloc(allocator, graph) catch return error.OutOfMemory;
         }
+
+        return error.UnsupportedHelperGraph;
     }
 
     var analysis = source_lowering.analyzeFileBackedSource(allocator, source_path) catch |err| switch (err) {
@@ -2206,6 +2208,41 @@ test "source ownership accepts absolute caller-owned content witnesses when they
         .caller_hash = hashSourceBytes(caller_source),
         .caller_source = caller_source,
     }));
+}
+
+test "owned-source validation rejects helper imports that are missing from caller-supplied sources" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const root_source =
+        \\const helper = @import("helper.zig");
+        \\
+        \\pub fn runBody(eff: anytype) ![]const u8 {
+        \\    try helper.emit(eff);
+        \\    return "done";
+        \\}
+    ;
+
+    try tmp.dir.writeFile(.{
+        .sub_path = "entry.zig",
+        .data = root_source,
+    });
+    try tmp.dir.writeFile(.{
+        .sub_path = "helper.zig",
+        .data =
+        \\pub fn emit(eff: anytype) !void {
+        \\    try eff.writer.tell("queued");
+        \\}
+        ,
+    });
+
+    const entry_path = try tmp.dir.realpathAlloc(std.testing.allocator, "entry.zig");
+    defer std.testing.allocator.free(entry_path);
+
+    try std.testing.expectError(
+        error.UnsupportedHelperGraph,
+        validateOwnedOpenRowAt(std.testing.allocator, entry_path, root_source, &.{}, "runBody"),
+    );
 }
 
 test "executeLoweredDispatch rejects return-value terminators without a return instruction" {
