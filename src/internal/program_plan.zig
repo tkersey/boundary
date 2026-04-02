@@ -581,6 +581,80 @@ fn invalidGeneratedPlan(err: ValidationError) noreturn {
     });
 }
 
+const RowOnlyFunctionSynthesis = struct {
+    helper_call_count: usize,
+    forwarded_arg_count: usize,
+    local_count: usize,
+    value_result_local: ?u16,
+    return_local: ?u16,
+    value_result_codec: ?ValueCodec,
+};
+
+fn rowOnlyFunctionSynthesis(
+    comptime program: effect_ir.Program,
+    comptime function_index: usize,
+) PlanError!RowOnlyFunctionSynthesis {
+    const function = program.functions[function_index];
+    const function_value_codec: ?ValueCodec = if (function.ValueType == void)
+        null
+    else
+        try valueCodecFromEffectType(function.ValueType);
+
+    var helper_call_count: usize = 0;
+    var forwarded_arg_count: usize = 0;
+    var value_returning_helper_count: usize = 0;
+    var value_result_codec: ?ValueCodec = null;
+    for (program.call_edges) |edge| {
+        if (!edge.caller.eql(function.symbol)) continue;
+        helper_call_count += 1;
+
+        const callee_index = symbolIndex(program, edge.callee) orelse return error.UnknownSymbol;
+        const callee = program.functions[callee_index];
+        if (callee.parameter_codecs.len > function.parameter_codecs.len) return error.InvalidProgramBodyShape;
+        for (callee.parameter_codecs, 0..) |codec, parameter_index| {
+            if (function.parameter_codecs[parameter_index] != codec) return error.InvalidProgramBodyShape;
+        }
+        forwarded_arg_count += callee.parameter_codecs.len;
+
+        if (callee.ValueType == void) continue;
+        value_returning_helper_count += 1;
+        const callee_value_codec = try valueCodecFromEffectType(callee.ValueType);
+        if (value_result_codec == null) {
+            value_result_codec = callee_value_codec;
+        } else if (value_result_codec.? != callee_value_codec) {
+            return error.InvalidProgramBodyShape;
+        }
+    }
+
+    const value_result_local: ?u16 = if (value_result_codec == null)
+        null
+    else
+        @intCast(function.parameter_codecs.len);
+    const local_count = function.parameter_codecs.len + @intFromBool(value_result_local != null);
+    const return_local: ?u16 = if (function_value_codec == null) blk: {
+        break :blk null;
+    } else if (value_result_local) |local_id| blk: {
+        if (value_returning_helper_count > 1) return error.InvalidProgramBodyShape;
+        if (value_result_codec.? != function_value_codec.?) return error.InvalidProgramBodyShape;
+        break :blk local_id;
+    } else blk: {
+        if (function.parameter_codecs.len == 0) return error.InvalidProgramBodyShape;
+        if (codecFromEffectIrBody(function.parameter_codecs[0]) != function_value_codec.?) {
+            return error.InvalidProgramBodyShape;
+        }
+        break :blk 0;
+    };
+
+    return .{
+        .helper_call_count = helper_call_count,
+        .forwarded_arg_count = forwarded_arg_count,
+        .local_count = local_count,
+        .value_result_local = value_result_local,
+        .return_local = return_local,
+        .value_result_codec = value_result_codec,
+    };
+}
+
 /// Compute a stable hash for the full normalized IR program identity.
 pub fn irHashForProgram(comptime program: effect_ir.Program) PlanError!u64 {
     if (program.entry_index >= program.functions.len) return error.UnknownSymbol;
@@ -643,9 +717,6 @@ pub fn irHashForProgram(comptime program: effect_ir.Program) PlanError!u64 {
 pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.Program) PlanError!ProgramPlan {
     if (program.functions.len == 0) return error.EmptyProgram;
     if (program.entry_index >= program.functions.len) return error.UnknownSymbol;
-    for (program.functions) |function| {
-        if (function.ValueType != void and program.function_bodies.len == 0) return error.InvalidProgramBodyShape;
-    }
     if (program.function_bodies.len != 0) {
         if (program.function_bodies.len != program.functions.len) return error.InvalidProgramBodyShape;
         return try planFromOpenRowProgram(label, .{
@@ -685,14 +756,25 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         for (program.functions) |function| total += function.outputs.len;
         break :blk total;
     };
+    const local_total = comptime blk: {
+        var total: usize = 0;
+        for (program.functions, 0..) |_, function_index| {
+            total += (try rowOnlyFunctionSynthesis(program, function_index)).local_count;
+        }
+        break :blk total;
+    };
+    const call_arg_total = comptime blk: {
+        var total: usize = 0;
+        for (program.functions, 0..) |_, function_index| {
+            total += (try rowOnlyFunctionSynthesis(program, function_index)).forwarded_arg_count;
+        }
+        break :blk total;
+    };
     const instruction_total = comptime blk: {
         var total: usize = 0;
-        for (program.functions) |function| {
-            var helper_call_count: usize = 0;
-            for (program.call_edges) |edge| {
-                if (edge.caller.eql(function.symbol)) helper_call_count += 1;
-            }
-            total += helper_call_count + @intFromBool(function.ValueType != void);
+        for (program.functions, 0..) |_, function_index| {
+            const synthesis = try rowOnlyFunctionSynthesis(program, function_index);
+            total += synthesis.helper_call_count + @intFromBool(synthesis.return_local != null);
         }
         break :blk total;
     };
@@ -702,13 +784,10 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         var buf: [program.functions.len]FunctionPlan = undefined;
         var requirement_index: u16 = 0;
         var output_index: u16 = 0;
+        var local_index: u16 = 0;
         var instruction_index: u16 = 0;
         for (program.functions, 0..) |function, index| {
-            var helper_call_count: usize = 0;
-            for (program.call_edges) |edge| {
-                if (edge.caller.eql(function.symbol)) helper_call_count += 1;
-            }
-            const has_return_value = function.ValueType != void;
+            const synthesis = try rowOnlyFunctionSynthesis(program, index);
             buf[index] = .{
                 .symbol_name = function.symbol.symbol_name,
                 .value_codec = try valueCodecFromEffectType(function.ValueType),
@@ -717,16 +796,17 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
                 .requirement_count = @intCast(function.row.requirements.len),
                 .first_output = output_index,
                 .output_count = @intCast(function.outputs.len),
-                .first_local = 0,
-                .local_count = 0,
+                .first_local = local_index,
+                .local_count = @intCast(synthesis.local_count),
                 .first_block = @intCast(index),
                 .block_count = 1,
                 .first_instruction = instruction_index,
-                .instruction_count = @intCast(helper_call_count + @intFromBool(has_return_value)),
+                .instruction_count = @intCast(synthesis.helper_call_count + @intFromBool(synthesis.return_local != null)),
             };
             requirement_index += @intCast(function.row.requirements.len);
             output_index += @intCast(function.outputs.len);
-            instruction_index += @intCast(helper_call_count + @intFromBool(has_return_value));
+            local_index += @intCast(synthesis.local_count);
+            instruction_index += @intCast(synthesis.helper_call_count + @intFromBool(synthesis.return_local != null));
         }
         break :blk buf;
     };
@@ -786,6 +866,40 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         break :blk buf;
     };
 
+    const locals = comptime blk: {
+        var buf: [local_total]LocalPlan = undefined;
+        var local_index: usize = 0;
+        for (program.functions, 0..) |function, function_index| {
+            for (function.parameter_codecs) |codec| {
+                buf[local_index] = .{ .codec = codecFromEffectIrBody(codec) };
+                local_index += 1;
+            }
+            const synthesis = try rowOnlyFunctionSynthesis(program, function_index);
+            if (synthesis.value_result_codec) |codec| {
+                buf[local_index] = .{ .codec = codec };
+                local_index += 1;
+            }
+        }
+        break :blk buf;
+    };
+
+    const call_args = comptime blk: {
+        var buf: [call_arg_total]u16 = undefined;
+        var call_arg_index: usize = 0;
+        for (program.functions) |function| {
+            for (program.call_edges) |edge| {
+                if (!edge.caller.eql(function.symbol)) continue;
+                const callee_index = symbolIndex(program, edge.callee) orelse return error.UnknownSymbol;
+                const callee = program.functions[callee_index];
+                for (callee.parameter_codecs, 0..) |_, parameter_index| {
+                    buf[call_arg_index] = @intCast(parameter_index);
+                    call_arg_index += 1;
+                }
+            }
+        }
+        break :blk buf;
+    };
+
     const blocks = comptime blk: {
         var buf: [program.functions.len]BlockPlan = undefined;
         for (functions, 0..) |function, index| {
@@ -813,24 +927,31 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
     const instructions = comptime blk: {
         var buf: [instruction_total]Instruction = undefined;
         var instruction_index: usize = 0;
-        for (program.functions) |function| {
+        var call_arg_base: u16 = 0;
+        for (program.functions, 0..) |function, function_index| {
+            const synthesis = try rowOnlyFunctionSynthesis(program, function_index);
             for (program.call_edges) |edge| {
                 if (!edge.caller.eql(function.symbol)) continue;
                 const callee_index = symbolIndex(program, edge.callee) orelse return error.UnknownSymbol;
+                const callee = program.functions[callee_index];
                 buf[instruction_index] = .{
                     .kind = .call_helper,
-                    .dst = 0,
+                    .dst = if (callee.ValueType == void)
+                        0
+                    else
+                        synthesis.value_result_local orelse return error.InvalidProgramBodyShape,
                     .operand = callee_index,
-                    .aux = 0,
+                    .aux = call_arg_base,
                     .string_literal = "",
                 };
                 instruction_index += 1;
+                call_arg_base += @intCast(callee.parameter_codecs.len);
             }
-            if (function.ValueType != void) {
+            if (synthesis.return_local) |return_local| {
                 buf[instruction_index] = .{
                     .kind = .return_value,
                     .dst = 0,
-                    .operand = 0,
+                    .operand = return_local,
                     .aux = 0,
                     .string_literal = "",
                 };
@@ -848,7 +969,8 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         .requirements = &requirements,
         .ops = &ops,
         .outputs = &outputs,
-        .locals = &.{},
+        .locals = &locals,
+        .call_args = &call_args,
         .blocks = &blocks,
         .terminators = &terminators,
         .instructions = &instructions,

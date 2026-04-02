@@ -480,6 +480,45 @@ test "explicit ir compilation matches the generated runtime plan shape" {
     try std.testing.expectEqual(@as(usize, 7), ExplicitIrProgramType.runtime_plan.ops.len);
 }
 
+test "explicit ir compilation accepts row-only helper params and helper return values" {
+    const helper_symbol: shift.ir.SymbolRef = .{
+        .module_path = "examples/row_only_value.zig",
+        .symbol_name = "helper",
+    };
+    const root_symbol: shift.ir.SymbolRef = .{
+        .module_path = "examples/row_only_value.zig",
+        .symbol_name = "root",
+    };
+    const ProgramType = shift.ir.compile("example.row_only_helper_value", .{
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol = root_symbol,
+                .row = shift.ir.rowFromSpec(.{}),
+                .parameter_codecs = &.{.i32},
+                .ValueType = i32,
+            },
+            .{
+                .symbol = helper_symbol,
+                .row = shift.ir.rowFromSpec(.{}),
+                .parameter_codecs = &.{.i32},
+                .ValueType = i32,
+            },
+        },
+        .call_edges = &.{.{
+            .caller = root_symbol,
+            .callee = helper_symbol,
+        }},
+    });
+
+    try std.testing.expectEqual(@as(usize, 3), ProgramType.runtime_plan.locals.len);
+    try std.testing.expectEqual(@as(usize, 1), ProgramType.runtime_plan.call_args.len);
+    try std.testing.expectEqual(@as(u16, 2), ProgramType.runtime_plan.functions[0].local_count);
+    try std.testing.expectEqual(@as(u16, 1), ProgramType.runtime_plan.functions[1].local_count);
+    try std.testing.expectEqual(@as(u16, 1), ProgramType.runtime_plan.instructions[0].dst);
+    try ProgramType.runtime_plan.validate();
+}
+
 test "explicit ir compilation respects an explicit non-zero entry index" {
     const row = shift.ir.rowFromSpec(.{
         .writer = .{
