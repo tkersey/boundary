@@ -26,5 +26,5 @@ fn loweringSpec() shift.lowering.LowerSpec {
 }
 
 comptime {
-    _ = shift.lowerAt("../shift/examples/open_row_state_writer.zig", loweringSpec());
+    _ = shift.lowering.lowerAt("../shift/examples/open_row_state_writer.zig", loweringSpec());
 }

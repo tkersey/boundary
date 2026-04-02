@@ -34,7 +34,7 @@ fn createShiftConsumerModule(
     deps: ShiftConsumerDeps,
 ) *std.Build.Module {
     const mod = b.createModule(.{
-        .root_source_file = b.path(path),
+        .root_source_file = lazyPathForSourceFile(b, path),
         .target = target,
         .optimize = optimize,
     });
@@ -51,7 +51,7 @@ fn createShiftPromptFixtureModule(
     deps: ShiftPromptFixtureDeps,
 ) *std.Build.Module {
     const mod = b.createModule(.{
-        .root_source_file = b.path(path),
+        .root_source_file = lazyPathForSourceFile(b, path),
         .target = target,
         .optimize = optimize,
     });
@@ -73,7 +73,7 @@ fn createBridgeExampleModule(
     },
 ) *std.Build.Module {
     const mod = b.createModule(.{
-        .root_source_file = b.path(path),
+        .root_source_file = lazyPathForSourceFile(b, path),
         .target = target,
         .optimize = optimize,
     });
@@ -88,10 +88,15 @@ fn createPlainModule(
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Module {
     return b.createModule(.{
-        .root_source_file = b.path(path),
+        .root_source_file = lazyPathForSourceFile(b, path),
         .target = target,
         .optimize = optimize,
     });
+}
+
+fn lazyPathForSourceFile(b: *std.Build, path: []const u8) std.Build.LazyPath {
+    if (std.fs.path.isAbsolute(path)) return .{ .cwd_relative = path };
+    return b.path(path);
 }
 
 fn assertOwnedCompileFailFixtures(b: *std.Build, dir_path: []const u8, fixture_table: anytype) void {
@@ -260,18 +265,28 @@ fn packageRootAlias(b: *std.Build) PackageRootAlias {
     };
 }
 
-fn externalSourceRejectionPath(b: *std.Build, repo_relative_path: []const u8) []const u8 {
-    const alias_hash = std.hash.Wyhash.hash(
-        std.hash.Wyhash.hash(0, b.pathFromRoot(".")),
-        repo_relative_path,
-    );
-    const alias_leaf = std.fmt.allocPrint(
-        b.allocator,
-        "shift_source_alias_{x}_{s}",
-        .{ alias_hash, std.fs.path.basename(repo_relative_path) },
-    ) catch std.process.fatal("unable to allocate external source rejection leaf", .{});
-    return std.fs.path.join(b.allocator, &.{ boundaryAliasRoot(b), alias_leaf }) catch
-        std.process.fatal("unable to allocate external source rejection path", .{});
+fn writeBoundaryFixtureFile(b: *std.Build, basename: []const u8, contents: []const u8) []const u8 {
+    const alias_root = boundaryAliasRoot(b);
+    std.fs.makeDirAbsolute(alias_root) catch |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => std.process.fatal("unable to prepare boundary fixture root", .{}),
+    };
+    const fixture_path = boundaryFixturePath(b, basename);
+    const file = std.fs.createFileAbsolute(fixture_path, .{}) catch
+        std.process.fatal("unable to create boundary fixture file", .{});
+    defer file.close();
+    var writer_buffer: [4096]u8 = undefined;
+    var file_writer = file.writer(&writer_buffer);
+    file_writer.interface.writeAll(contents) catch
+        std.process.fatal("unable to write boundary fixture file", .{});
+    file_writer.interface.flush() catch
+        std.process.fatal("unable to flush boundary fixture file", .{});
+    return fixture_path;
+}
+
+fn boundaryFixturePath(b: *std.Build, basename: []const u8) []const u8 {
+    return std.fs.path.join(b.allocator, &.{ boundaryAliasRoot(b), basename }) catch
+        std.process.fatal("unable to allocate boundary fixture path", .{});
 }
 
 fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
@@ -438,7 +453,6 @@ pub fn build(b: *std.Build) void {
     authoring_lowerer_options.addOption([]const u8, "package_root", b.pathFromRoot("."));
     authoring_lowerer_options.addOption([]const u8, "package_root_alias", package_root_alias.path);
     authoring_lowerer_options.addOption(bool, "package_root_alias_available", package_root_alias.available);
-    authoring_lowerer_options.addOption([]const u8, "external_open_row_state_writer_alias_path", externalSourceRejectionPath(b, "examples/open_row_state_writer.zig"));
     authoring_lowerer_options.addOption([]const u8, "repo_zig_paths", repoZigPathRegistry(b));
     authoring_lowerer_options.addOption(bool, "authoring_lowerer_options_marker", lowerer_opts_marker);
     authoring_lowerer_options.addOption([32]u8, "hash_local_mutation_resume", canonicalSourceHash(b, "test/source_lowering_corpus/fixtures/local_mutation_resume.zig"));
@@ -1128,6 +1142,99 @@ pub fn build(b: *std.Build) void {
         .root_module = open_row_lowering_mod,
     });
     const run_open_row_lowering_tests = b.addRunArtifact(open_row_lowering_tests);
+    const down_test_path = boundaryFixturePath(b, "downstream_public_lowering_test.zig");
+    const down_test_src = std.fmt.allocPrint(
+        b.allocator,
+        \\const downstream_source_path = "{s}";
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\const runtime_support = shift.lowering.runtime_support;
+        \\
+        \\fn loweringSpec() shift.lowering.LowerSpec {{
+        \\    return .{{
+        \\        .label = "downstream.public_lowering",
+        \\        .entry_symbol = "runBody",
+        \\        .row = shift.ir.mergeRows(.{{
+        \\            shift.ir.rowFromSpec(.{{
+        \\                .state = .{{
+        \\                    .get = shift.ir.Transform(void, i32),
+        \\                    .set = shift.ir.Transform(i32, void),
+        \\                }},
+        \\            }}),
+        \\            shift.ir.rowFromSpec(.{{
+        \\                .writer = .{{
+        \\                    .tell = shift.ir.Transform([]const u8, void),
+        \\                }},
+        \\            }}),
+        \\        }}),
+        \\        .ValueType = []const u8,
+        \\        .outputs = &.{{
+        \\            .{{ .label = "state", .OutputType = i32 }},
+        \\            .{{ .label = "writer", .OutputType = [][]const u8 }},
+        \\        }},
+        \\    }};
+        \\}}
+        \\
+        \\fn loweringSource() shift.lowering.SourceRef {{
+        \\    return shift.lowering.sourceWithContent(downstream_source_path, @src(), @embedFile(@src().file));
+        \\}}
+        \\
+        \\pub fn runBody(eff: anytype) ![]const u8 {{
+        \\    const before = try eff.state.get();
+        \\    try eff.state.set(before + 1);
+        \\    try eff.writer.tell("query=artifact-search");
+        \\    try eff.writer.tell("workflow=queued");
+        \\    return "done";
+        \\}}
+        \\
+        \\test "downstream sourceWithContent lowers and validates from caller-owned content" {{
+        \\    const LoweredFromSource = shift.lower(loweringSource(), loweringSpec());
+        \\    try std.testing.expectEqualStrings(downstream_source_path, LoweredFromSource.source_path);
+        \\    try LoweredFromSource.validate(std.testing.allocator);
+        \\}}
+        \\
+        \\test "downstream shift.lower remains executable outside the shift checkout" {{
+        \\    const LoweredFromSource = shift.lower(loweringSource(), loweringSpec());
+        \\
+        \\    var runtime = shift.Runtime.init(std.testing.allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    var source_handlers: runtime_support.StateWriterHandlers = .{{
+        \\        .state = .{{ .value = 0 }},
+        \\        .writer = .{{ .allocator = std.testing.allocator }},
+        \\    }};
+        \\    defer source_handlers.writer.deinit();
+        \\    const source_result = try LoweredFromSource.run(&runtime, &source_handlers);
+        \\    defer std.testing.allocator.free(source_result.outputs.writer);
+        \\
+        \\    try std.testing.expectEqualStrings("done", source_result.value);
+        \\    try std.testing.expectEqual(@as(i32, 1), source_result.outputs.state);
+        \\    try std.testing.expectEqual(@as(usize, 2), source_result.outputs.writer.len);
+        \\    try std.testing.expectEqualStrings("query=artifact-search", source_result.outputs.writer[0]);
+        \\    try std.testing.expectEqualStrings("workflow=queued", source_result.outputs.writer[1]);
+        \\}}
+        ,
+        .{down_test_path},
+    ) catch std.process.fatal("unable to allocate downstream public lowering test fixture", .{});
+    _ = writeBoundaryFixtureFile(
+        b,
+        "downstream_public_lowering_test.zig",
+        down_test_src,
+    );
+    const down_mod = createShiftConsumerModule(
+        b,
+        down_test_path,
+        target,
+        optimize,
+        .{ .shift_mod = shift_mod, .lowered_runtime_mod = private_lowered_runtime_mod },
+    );
+    const down_tests = b.addTest(.{
+        .root_module = down_mod,
+    });
+    const run_down_tests = b.addRunArtifact(down_tests);
+    const down_step = b.step("downstream-public-lowering", "Run public lowering proofs from an external consumer module.");
+    down_step.dependOn(&run_down_tests.step);
 
     const source_ownership_probe_mod = b.createModule(.{
         .root_source_file = b.path("test/source_ownership_probe_test.zig"),
@@ -1619,6 +1726,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_boundary_tests.step);
     test_step.dependOn(&run_bridge_boundary_tests.step);
     test_step.dependOn(&run_structured_program_tests.step);
+    test_step.dependOn(&run_down_tests.step);
     test_step.dependOn(&shipped_backend_cmd.step);
 
     const compile_fail_step = b.step("compile-fail", "Verify compile-fail misuse fixtures.");
@@ -1700,8 +1808,6 @@ pub fn build(b: *std.Build) void {
         .{ .name = "cf-unsupported-helper-body", .path = "test/compile_fail/unsupported_helper_body_fails.zig", .expected = "public lowering cannot synthesize unsupported helper or entry bodies; test/compile_fail_inputs/unsupported_helper_body_source.zig:helper must stay within the retained lowered-body subset" },
         .{ .name = "cf-entry-path-escape-lower-at", .path = "test/compile_fail/entry_path_escape_lower_at_fails.zig", .expected = "public lowering source path must stay under the package root" },
         .{ .name = "cf-entry-path-escape-ir-program-at", .path = "test/compile_fail/entry_path_escape_ir_program_at_fails.zig", .expected = "public lowering source path must stay under the package root" },
-        .{ .name = "cf-absolute-entry-alias-lower-at", .path = "test/compile_fail/absolute_entry_alias_lower_at_fails.zig", .expected = "public lowering source path must stay under the package root" },
-        .{ .name = "cf-absolute-entry-alias-ir-program-at", .path = "test/compile_fail/absolute_entry_alias_ir_program_at_fails.zig", .expected = "public lowering source path must stay under the package root" },
         .{ .name = "cf-collect-closed-outputs-const-mutating-finish", .path = "test/compile_fail/collect_closed_outputs_const_mutating_finish_fails.zig", .expected = "cast discards const qualifier" },
         .{ .name = "cf-one-shot-missing-after-resume", .path = "test/one_shot_survey/missing_after_resume_fails.zig", .expected = "must declare afterResume" },
         .{ .name = "cf-one-shot-missing-resume-or-return", .path = "test/one_shot_survey/missing_resume_or_return_fails.zig", .expected = "must declare resumeOrReturn" },

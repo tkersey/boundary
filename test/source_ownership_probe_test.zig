@@ -33,7 +33,8 @@ test "source helper stays callable from test modules" {
     try std.testing.expectEqualStrings(std.fs.path.basename(@src().file), std.fs.path.basename(src.caller_file));
 }
 
-test "public root keeps lowerAt and provenance-bearing shift.lower" {
-    try std.testing.expect(@hasDecl(shift, "lowerAt"));
+test "public root keeps provenance-bearing shift.lower while path-based lowering stays namespaced" {
+    try std.testing.expect(!@hasDecl(shift, "lowerAt"));
     try std.testing.expect(@hasDecl(shift, "lower"));
+    try std.testing.expect(@hasDecl(shift.lowering, "lowerAt"));
 }

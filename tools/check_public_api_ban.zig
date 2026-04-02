@@ -7,7 +7,6 @@ const allowed_exports = &[_][]const u8{
     "interpreter",
     "lowering",
     "lower",
-    "lowerAt",
     "ir",
     "With",
     "with",

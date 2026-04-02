@@ -518,7 +518,7 @@ test "explicit ir compilation respects an explicit non-zero entry index" {
 }
 
 test "root lowerAt matches the example-owned same-module lowering" {
-    const ExplicitProgramType = shift.lowerAt(
+    const ExplicitProgramType = shift.lowering.lowerAt(
         example_open_row_state_writer.loweringSourcePath(),
         example_open_row_state_writer.loweringSpec(),
     );
@@ -1125,7 +1125,7 @@ test "explicit-path lowering supports cross-file helper modules" {
         },
     };
 
-    const Lowered = shift.lowerAt("examples/open_row_cross_file_writer.zig", spec);
+    const Lowered = shift.lowering.lowerAt("examples/open_row_cross_file_writer.zig", spec);
     const Explicit = shift.ir.compile(spec.label, shift.lowering.irProgramAt("examples/open_row_cross_file_writer.zig", spec));
 
     try std.testing.expectEqualStrings("example.open_row_cross_file_writer", Lowered.label);
@@ -1164,8 +1164,8 @@ test "explicit-path lowering accepts checkout-alias absolute paths" {
         .{authoring_build_options.package_root_alias},
     );
 
-    const Lowered = shift.lowerAt(alias_source_path, spec);
-    const Canonical = shift.lowerAt("examples/open_row_cross_file_writer.zig", spec);
+    const Lowered = shift.lowering.lowerAt(alias_source_path, spec);
+    const Canonical = shift.lowering.lowerAt("examples/open_row_cross_file_writer.zig", spec);
 
     try std.testing.expectEqualStrings(alias_source_path, Lowered.source_path);
     try std.testing.expectEqualDeep(Canonical.runtime_plan.functions, Lowered.runtime_plan.functions);
@@ -1192,7 +1192,7 @@ test "explicit-path lowering disambiguates imported helpers by alias" {
         },
     };
 
-    const Lowered = shift.lowerAt("test/open_row_helper_alias/entry.zig", spec);
+    const Lowered = shift.lowering.lowerAt("test/open_row_helper_alias/entry.zig", spec);
 
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -1224,7 +1224,7 @@ test "explicit-path lowering preserves the entry module when helpers share the e
         },
     };
 
-    const lowered = shift.lowerAt("test/open_row_entry_symbol_alias/entry.zig", spec);
+    const lowered = shift.lowering.lowerAt("test/open_row_entry_symbol_alias/entry.zig", spec);
     const ir_program = shift.lowering.irProgramAt("test/open_row_entry_symbol_alias/entry.zig", spec);
 
     try std.testing.expectEqualStrings(

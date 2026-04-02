@@ -20,8 +20,6 @@ pub const interpreter = interpreter_api;
 pub const lowering = public_lowering;
 /// Public provenance-bearing additive lowering entrypoint requiring explicit caller-supplied source ownership.
 pub const lower = public_lowering.lower;
-/// Public explicit-path additive lowering entrypoint.
-pub const lowerAt = public_lowering.lowerAt;
 
 /// Build the public lexical metadata type.
 pub fn With(comptime HandlersType: type, comptime Body: type) type {
@@ -69,7 +67,6 @@ test {
     _ = interpreter;
     _ = ir;
     _ = lower;
-    _ = lowerAt;
     _ = lowering;
     _ = with;
     _ = run;

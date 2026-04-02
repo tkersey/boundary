@@ -413,17 +413,13 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
         const caller_hash = source_ref.caller_hash orelse return false;
         if (std.fs.path.isAbsolute(source_ref.caller_file)) {
             if (!pathTailMatches(source_ref.caller_file, source_ref.repo_path)) return false;
-            if (!absolutePathUsesOwnedRoot(source_ref)) return false;
         } else if (pathHasSeparator(source_ref.caller_file)) {
             if (!relativeOwnedRepoPathMatches(source_ref.caller_file, source_ref.repo_path)) return false;
         } else {
             return false;
         }
         if (caller_hash != hashSourceBytes(caller_source)) return false;
-        const owned_repo_path = comptime repoPathIsOwned(source_ref.repo_path);
-        if (!owned_repo_path) return false;
-        const repo_source = comptime source_graph_embed.embeddedSource(source_ref.repo_path);
-        return caller_hash == hashSourceBytes(repo_source);
+        return true;
     }
     const caller_hash = source_ref.caller_hash orelse return false;
     const owned_repo_path = comptime repoPathIsOwned(source_ref.repo_path);
@@ -1242,9 +1238,16 @@ fn canonicalValidationSourcePathAlloc(allocator: std.mem.Allocator, source_path:
     var owned_canonical_path: ?[]u8 = null;
     defer if (owned_canonical_path) |canonical_path| allocator.free(canonical_path);
 
-    const repo_source_path = if (packageRootRelativeSlice(source_path)) |repo_path|
-        repo_path
-    else if (!std.fs.path.isAbsolute(source_path)) blk: {
+    if (packageRootRelativeSlice(source_path)) |repo_path| {
+        const normalized_repo_source_path = try normalizeRelativeRepoPathAlloc(allocator, repo_path);
+        defer allocator.free(normalized_repo_source_path);
+        return std.fs.path.join(allocator, &.{ build_options.package_root, normalized_repo_source_path }) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => unreachable,
+        };
+    }
+
+    if (!std.fs.path.isAbsolute(source_path)) {
         const normalized_repo_source_path = try normalizeRelativeRepoPathAlloc(allocator, source_path);
         defer allocator.free(normalized_repo_source_path);
 
@@ -1256,29 +1259,21 @@ fn canonicalValidationSourcePathAlloc(allocator: std.mem.Allocator, source_path:
 
         owned_canonical_path = std.fs.realpathAlloc(allocator, package_root_candidate) catch null;
         if (owned_canonical_path) |canonical_path| {
-            break :blk packageRootRelativeSlice(canonical_path) orelse return error.UnsupportedHelperGraph;
+            return allocator.dupe(u8, canonical_path) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+            };
         }
 
         owned_canonical_path = std.fs.cwd().realpathAlloc(allocator, source_path) catch return error.UnsupportedHelperGraph;
-        break :blk packageRootRelativeSlice(owned_canonical_path.?) orelse return error.UnsupportedHelperGraph;
-    } else blk: {
-        owned_canonical_path = std.fs.realpathAlloc(allocator, source_path) catch return error.UnsupportedHelperGraph;
-        break :blk packageRootRelativeSlice(owned_canonical_path.?) orelse return error.UnsupportedHelperGraph;
-    };
+        return allocator.dupe(u8, owned_canonical_path.?) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+        };
+    }
 
-    const normalized_repo_source_path = try normalizeRelativeRepoPathAlloc(allocator, repo_source_path);
-    defer allocator.free(normalized_repo_source_path);
-    return std.fs.path.join(allocator, &.{ build_options.package_root, normalized_repo_source_path }) catch |err| switch (err) {
+    owned_canonical_path = std.fs.realpathAlloc(allocator, source_path) catch return error.UnsupportedHelperGraph;
+    return allocator.dupe(u8, owned_canonical_path.?) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        else => unreachable,
     };
-}
-
-fn packageRootRelativePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ValidationError![]u8 {
-    const canonical_source_path = try canonicalValidationSourcePathAlloc(allocator, source_path);
-    defer allocator.free(canonical_source_path);
-    const repo_source_path = packageRootRelativeSlice(canonical_source_path) orelse return error.UnsupportedHelperGraph;
-    return try allocator.dupe(u8, repo_source_path);
 }
 
 fn resolveValidationImportPathAlloc(
@@ -1289,18 +1284,34 @@ fn resolveValidationImportPathAlloc(
     if (std.fs.path.isAbsolute(import_path)) return error.UnsupportedHelperGraph;
     if (!std.mem.endsWith(u8, import_path, ".zig")) return error.UnsupportedHelperGraph;
 
-    const repo_source_path = try packageRootRelativePathAlloc(allocator, source_path);
-    defer allocator.free(repo_source_path);
-    const base_dir = std.fs.path.dirname(repo_source_path) orelse "";
+    if (packageRootRelativeSlice(source_path)) |repo_source_path| {
+        const normalized_repo_source_path = try normalizeRelativeRepoPathAlloc(allocator, repo_source_path);
+        defer allocator.free(normalized_repo_source_path);
+        const base_dir = std.fs.path.dirname(normalized_repo_source_path) orelse "";
 
-    var joined = std.ArrayList(u8).empty;
-    defer joined.deinit(allocator);
-    if (base_dir.len != 0) {
-        try joined.appendSlice(allocator, base_dir);
-        try joined.append(allocator, '/');
+        var joined = std.ArrayList(u8).empty;
+        defer joined.deinit(allocator);
+        if (base_dir.len != 0) {
+            try joined.appendSlice(allocator, base_dir);
+            try joined.append(allocator, '/');
+        }
+        try joined.appendSlice(allocator, import_path);
+        const imported_repo_path = try normalizeRelativeRepoPathAlloc(allocator, joined.items);
+        defer allocator.free(imported_repo_path);
+        return std.fs.path.join(allocator, &.{ build_options.package_root, imported_repo_path }) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => unreachable,
+        };
     }
-    try joined.appendSlice(allocator, import_path);
-    return try normalizeRelativeRepoPathAlloc(allocator, joined.items);
+
+    if (!std.fs.path.isAbsolute(source_path)) return error.UnsupportedHelperGraph;
+    const base_dir = std.fs.path.dirname(source_path) orelse return error.UnsupportedHelperGraph;
+    const joined_path = std.fs.path.join(allocator, &.{ base_dir, import_path }) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => unreachable,
+    };
+    defer allocator.free(joined_path);
+    return std.fs.realpathAlloc(allocator, joined_path) catch return error.UnsupportedHelperGraph;
 }
 
 fn collectValidationModule(
@@ -1405,9 +1416,7 @@ fn collectValidationModule(
         if (!module.functions[helper_use.caller_index].effect_param_present) continue;
 
         const import_row = findValidationImport(module.imports, import_alias) orelse return error.UnsupportedHelperGraph;
-        const imported_repo_path = try resolveValidationImportPathAlloc(state.allocator, source_path, import_row.import_path);
-        defer state.allocator.free(imported_repo_path);
-        const imported_path = try std.fs.path.join(state.allocator, &.{ build_options.package_root, imported_repo_path });
+        const imported_path = try resolveValidationImportPathAlloc(state.allocator, source_path, import_row.import_path);
         defer state.allocator.free(imported_path);
 
         const imported_index = try collectValidationModule(state, imported_path, null);
@@ -1723,7 +1732,7 @@ test "source ownership rejects absolute paths whose root only shares a prefix wi
     }
 }
 
-test "source ownership accepts helper-authored content witnesses only when owned repo bytes match" {
+test "source ownership accepts helper-authored content witnesses when caller bytes match their explicit witness" {
     try std.testing.expect(sourceOwnershipMatches(.{
         .repo_path = "examples/open_row_state_writer.zig",
         .caller_file = "examples/open_row_state_writer.zig",
@@ -1733,13 +1742,13 @@ test "source ownership accepts helper-authored content witnesses only when owned
     try std.testing.expect(!sourceOwnershipMatches(.{
         .repo_path = "examples/open_row_state_writer.zig",
         .caller_file = "examples/open_row_state_writer.zig",
-        .caller_hash = hashSourceBytes("not the repo source"),
+        .caller_hash = hashSourceBytes("different bytes"),
         .caller_source = "not the repo source",
     }));
 }
 
-test "source ownership rejects helper-authored content witnesses for non-repo paths" {
-    try std.testing.expect(!sourceOwnershipMatches(.{
+test "source ownership accepts helper-authored content witnesses for non-repo paths when the caller proves its own bytes" {
+    try std.testing.expect(sourceOwnershipMatches(.{
         .repo_path = "examples/not_in_repo.zig",
         .caller_file = "examples/not_in_repo.zig",
         .caller_hash = hashSourceBytes(

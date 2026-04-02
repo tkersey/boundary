@@ -22,7 +22,6 @@ test "public root keeps the lexical surface, additive lowering, and compatibilit
     try std.testing.expect(@hasDecl(shift, "interpreter"));
     try std.testing.expect(@hasDecl(shift, "lowering"));
     try std.testing.expect(@hasDecl(shift, "lower"));
-    try std.testing.expect(@hasDecl(shift, "lowerAt"));
     try std.testing.expect(@hasDecl(shift, "With"));
     try std.testing.expect(@hasDecl(shift, "with"));
     try std.testing.expect(@hasDecl(shift, "ir"));
@@ -68,6 +67,7 @@ test "public root keeps the lexical surface, additive lowering, and compatibilit
     try std.testing.expect(!@hasDecl(shift.compat, "interpreter"));
     try std.testing.expect(!@hasDecl(shift.compat, "durable"));
     try std.testing.expect(!@hasDecl(shift.compat, "lower"));
+    try std.testing.expect(!@hasDecl(shift, "lowerAt"));
     try std.testing.expect(!@hasDecl(shift.compat, "lowerAt"));
     try std.testing.expect(!@hasDecl(shift.compat, "lowering"));
     try std.testing.expect(!@hasDecl(shift.compat, "With"));
@@ -134,7 +134,7 @@ test "public additive lowering exposes the retained runtime-owned plan" {
         },
     };
 
-    const lowered = shift.lowerAt("examples/open_row_state_writer.zig", spec);
+    const lowered = shift.lowering.lowerAt("examples/open_row_state_writer.zig", spec);
     const explicit = shift.ir.compile(spec.label, shift.lowering.irProgramAt("examples/open_row_state_writer.zig", spec));
 
     try std.testing.expectEqualStrings("example.open_row_state_writer", lowered.label);

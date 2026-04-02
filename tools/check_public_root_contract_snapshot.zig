@@ -10,7 +10,6 @@ const expected_snapshot =
     \\    "interpreter",
     \\    "lowering",
     \\    "lower",
-    \\    "lowerAt",
     \\    "With",
     \\    "with",
     \\    "Runtime",
