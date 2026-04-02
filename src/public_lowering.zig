@@ -412,7 +412,12 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
     if (source_ref.caller_source) |caller_source| {
         const caller_hash = source_ref.caller_hash orelse return false;
         if (std.fs.path.isAbsolute(source_ref.caller_file)) {
-            if (!pathTailMatches(source_ref.caller_file, source_ref.repo_path)) return false;
+            if (std.fs.path.isAbsolute(source_ref.repo_path)) {
+                if (!pathEquals(source_ref.caller_file, source_ref.repo_path)) return false;
+            } else {
+                if (!pathTailMatches(source_ref.caller_file, source_ref.repo_path)) return false;
+                if (!absolutePathUsesOwnedRoot(source_ref)) return false;
+            }
         } else if (pathHasSeparator(source_ref.caller_file)) {
             if (!relativeOwnedRepoPathMatches(source_ref.caller_file, source_ref.repo_path)) return false;
         } else {
@@ -1804,6 +1809,20 @@ test "source ownership rejects mirrored relative paths outside the repo root" {
         .caller_file = mirrored_relative,
         .caller_hash = hashSourceBytes(source_graph_embed.embeddedSource("examples/open_row_state_writer.zig")),
         .caller_source = source_graph_embed.embeddedSource("examples/open_row_state_writer.zig"),
+    }));
+}
+
+test "source ownership accepts absolute caller-owned content witnesses when they name their own absolute path" {
+    const caller_path = "/tmp/downstream_public_lowering_test.zig";
+    const caller_source =
+        \\pub fn runBody() void {}
+    ;
+
+    try std.testing.expect(sourceOwnershipMatches(.{
+        .repo_path = caller_path,
+        .caller_file = caller_path,
+        .caller_hash = hashSourceBytes(caller_source),
+        .caller_source = caller_source,
     }));
 }
 

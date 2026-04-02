@@ -272,6 +272,11 @@ fn writeBoundaryFixtureFile(b: *std.Build, basename: []const u8, contents: []con
         else => std.process.fatal("unable to prepare boundary fixture root", .{}),
     };
     const fixture_path = boundaryFixturePath(b, basename);
+    clearAliasPath(
+        fixture_path,
+        "unable to clear existing boundary fixture directory",
+        "unable to clear existing boundary fixture path",
+    );
     const file = std.fs.createFileAbsolute(fixture_path, .{}) catch
         std.process.fatal("unable to create boundary fixture file", .{});
     defer file.close();
@@ -287,6 +292,22 @@ fn writeBoundaryFixtureFile(b: *std.Build, basename: []const u8, contents: []con
 fn boundaryFixturePath(b: *std.Build, basename: []const u8) []const u8 {
     return std.fs.path.join(b.allocator, &.{ boundaryAliasRoot(b), basename }) catch
         std.process.fatal("unable to allocate boundary fixture path", .{});
+}
+
+fn zigStringLiteralEscapeAlloc(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
+    var escaped = std.ArrayList(u8).empty;
+    defer escaped.deinit(allocator);
+
+    for (value) |byte| switch (byte) {
+        '\\' => try escaped.appendSlice(allocator, "\\\\"),
+        '"' => try escaped.appendSlice(allocator, "\\\""),
+        '\n' => try escaped.appendSlice(allocator, "\\n"),
+        '\r' => try escaped.appendSlice(allocator, "\\r"),
+        '\t' => try escaped.appendSlice(allocator, "\\t"),
+        else => try escaped.append(allocator, byte),
+    };
+
+    return try escaped.toOwnedSlice(allocator);
 }
 
 fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
@@ -325,6 +346,19 @@ fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8)
     }
 
     return try out.toOwnedSlice(allocator);
+}
+
+test "zigStringLiteralEscapeAlloc escapes path bytes for generated fixture source" {
+    const escaped = try zigStringLiteralEscapeAlloc(
+        std.testing.allocator,
+        "C:\\Users\\\"tk\"\\shift\\downstream_public_lowering_test.zig",
+    );
+    defer std.testing.allocator.free(escaped);
+
+    try std.testing.expectEqualStrings(
+        "C:\\\\Users\\\\\\\"tk\\\"\\\\shift\\\\downstream_public_lowering_test.zig",
+        escaped,
+    );
 }
 
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.
@@ -1143,6 +1177,8 @@ pub fn build(b: *std.Build) void {
     });
     const run_open_row_lowering_tests = b.addRunArtifact(open_row_lowering_tests);
     const down_test_path = boundaryFixturePath(b, "downstream_public_lowering_test.zig");
+    const down_test_path_literal = zigStringLiteralEscapeAlloc(b.allocator, down_test_path) catch
+        std.process.fatal("unable to escape downstream public lowering fixture path", .{});
     const down_test_src = std.fmt.allocPrint(
         b.allocator,
         \\const downstream_source_path = "{s}";
@@ -1214,8 +1250,8 @@ pub fn build(b: *std.Build) void {
         \\    try std.testing.expectEqualStrings("query=artifact-search", source_result.outputs.writer[0]);
         \\    try std.testing.expectEqualStrings("workflow=queued", source_result.outputs.writer[1]);
         \\}}
-        ,
-        .{down_test_path},
+    ,
+        .{down_test_path_literal},
     ) catch std.process.fatal("unable to allocate downstream public lowering test fixture", .{});
     _ = writeBoundaryFixtureFile(
         b,
@@ -1798,6 +1834,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "cf-resume-value-mismatch", .path = "test/compile_fail/resume_value_mismatch.zig", .expected = ".resumeValue must have type fn () Resume or fn () ResetError(ErrorSet)!Resume" },
         .{ .name = "cf-source-ownership-mismatch", .path = "test/compile_fail/source_ownership_mismatch_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
         .{ .name = "cf-source-ownership-content-mirror", .path = "test/compile_fail/source_ownership_content_mirror_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
+        .{ .name = "cf-source-ownership-absolute-content-mirror", .path = "test/compile_fail/source_ownership_absolute_content_mirror_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
         .{ .name = "cf-source-ownership-basename-witness", .path = "test/compile_fail/source_ownership_basename_witness_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
         .{ .name = "cf-public-ir-value-dst", .path = "test/compile_fail/public_ir_value_dst_fails.zig", .expected = "runtime plan generator produced an instruction with an out-of-range function-local reference" },
         .{ .name = "cf-public-ir-terminator-precondition", .path = "test/compile_fail/public_ir_terminator_precondition_fails.zig", .expected = "runtime plan generator produced a block terminator without its required producer instruction" },
