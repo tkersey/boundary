@@ -2475,26 +2475,30 @@ test "owned-source validation rejects absolute helper imports that climb outside
 
     const root_file = try std.fs.openFileAbsolute(entry_path, .{});
     defer root_file.close();
-    const root_source = try root_file.readToEndAlloc(
+    const root_source = try root_file.readToEndAllocOptions(
         std.testing.allocator,
         std.math.maxInt(usize),
+        null,
+        .of(u8),
+        0,
     );
     defer std.testing.allocator.free(root_source);
     const helper_file = try std.fs.openFileAbsolute(helper_path, .{});
     defer helper_file.close();
-    const helper_source = try helper_file.readToEndAlloc(
+    const helper_source = try helper_file.readToEndAllocOptions(
         std.testing.allocator,
         std.math.maxInt(usize),
+        null,
+        .of(u8),
+        0,
     );
     defer std.testing.allocator.free(helper_source);
-    const helper_content = try std.fmt.allocPrintZ(std.testing.allocator, "{s}", .{helper_source});
-    defer std.testing.allocator.free(helper_content);
 
     try std.testing.expectError(
         error.UnsupportedHelperGraph,
         validateOwnedOpenRowAt(std.testing.allocator, entry_path, root_source, &.{.{
             .path = helper_path,
-            .content = helper_content,
+            .content = helper_source,
         }}, "runBody"),
     );
 }
