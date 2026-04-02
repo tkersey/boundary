@@ -144,3 +144,51 @@ test "planFromProgram preserves row-only parameter returns inside the function l
     try std.testing.expectEqual(@as(u16, 0), plan.instructions[0].operand);
     try plan.validate();
 }
+
+test "planFromProgram rejects bodyless helper fan-out without explicit bodies" {
+    const row = effect_ir.rowFromSpec(.{});
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/fanout.zig",
+        .symbol_name = "root",
+    };
+    const helper_a_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/fanout.zig",
+        .symbol_name = "helperA",
+    };
+    const helper_b_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/fanout.zig",
+        .symbol_name = "helperB",
+    };
+    const program = effect_ir.Program{
+        .functions = &.{
+            .{ .symbol = root_symbol, .row = row },
+            .{ .symbol = helper_a_symbol, .row = row },
+            .{ .symbol = helper_b_symbol, .row = row },
+        },
+        .call_edges = &.{
+            .{ .caller = root_symbol, .callee = helper_a_symbol },
+            .{ .caller = root_symbol, .callee = helper_b_symbol },
+        },
+    };
+
+    const result = comptime internal_program_plan.planFromProgram("example.invalid_bodyless_fanout", program);
+    try std.testing.expectError(error.InvalidProgramBodyShape, result);
+}
+
+test "planFromProgram rejects bodyless recursive helper graphs without explicit bodies" {
+    const row = effect_ir.rowFromSpec(.{});
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/recursive.zig",
+        .symbol_name = "root",
+    };
+    const program = effect_ir.Program{
+        .functions = &.{.{ .symbol = root_symbol, .row = row }},
+        .call_edges = &.{.{
+            .caller = root_symbol,
+            .callee = root_symbol,
+        }},
+    };
+
+    const result = comptime internal_program_plan.planFromProgram("example.invalid_bodyless_cycle", program);
+    try std.testing.expectError(error.InvalidProgramBodyShape, result);
+}

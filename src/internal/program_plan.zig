@@ -590,6 +590,26 @@ const RowOnlyFunctionSynthesis = struct {
     value_result_codec: ?ValueCodec,
 };
 
+fn validateRowOnlyCallGraph(comptime program: effect_ir.Program) PlanError!void {
+    var successors: [program.functions.len]?usize = [_]?usize{null} ** program.functions.len;
+    for (program.call_edges) |edge| {
+        const caller_index = symbolIndex(program, edge.caller) orelse return error.UnknownSymbol;
+        const callee_index = symbolIndex(program, edge.callee) orelse return error.UnknownSymbol;
+        if (successors[caller_index] != null) return error.InvalidProgramBodyShape;
+        successors[caller_index] = callee_index;
+    }
+
+    for (program.functions, 0..) |_, start_index| {
+        var visited: [program.functions.len]bool = [_]bool{false} ** program.functions.len;
+        var current_index: ?usize = start_index;
+        while (current_index) |index| {
+            if (visited[index]) return error.InvalidProgramBodyShape;
+            visited[index] = true;
+            current_index = successors[index];
+        }
+    }
+}
+
 fn rowOnlyFunctionSynthesis(
     comptime program: effect_ir.Program,
     comptime function_index: usize,
@@ -738,6 +758,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         .symbols = &symbols,
         .edges = program.call_edges,
     });
+    try validateRowOnlyCallGraph(program);
 
     const requirement_total = comptime blk: {
         var total: usize = 0;
