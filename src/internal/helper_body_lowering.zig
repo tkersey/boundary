@@ -89,6 +89,19 @@ fn isBodyIgnorable(tag: std.zig.Token.Tag) bool {
     };
 }
 
+// Linear-body scratch must accommodate the largest single retained statement shape:
+// `if (local == 0) try helper(..., eff) else try helper(..., eff)`, which emits one
+// predicate instruction plus two max-arity helper-call lowerings in the same body.
+const max_helper_call_scratch_instructions = source_graph_engine.max_function_params + 1;
+const max_helper_call_scratch_locals = source_graph_engine.max_function_params;
+const max_branch_statement_scratch_instructions = 1 + (max_helper_call_scratch_instructions * 2);
+const max_branch_statement_scratch_locals = 1 + (max_helper_call_scratch_locals * 2);
+const max_branch_statement_call_args = source_graph_engine.max_function_params * 2;
+const max_statement_scratch_instructions = max_branch_statement_scratch_instructions;
+const max_statement_scratch_locals = max_branch_statement_scratch_locals;
+const max_statement_bound_locals = 1;
+const max_statement_call_args = max_branch_statement_call_args;
+
 fn bodyTokensForFunction(
     comptime module_path: []const u8,
     comptime root_source: RootSource,
@@ -1031,19 +1044,19 @@ fn buildLinearBodyForFunction(
             .kind = .effect_root,
         }} ** statement_ranges.len;
         var alias_count: usize = 0;
-        var local_bindings: [statement_ranges.len * 4 + source_graph_engine.max_function_params]BoundLocal = [_]BoundLocal{.{
+        var local_bindings: [statement_ranges.len * max_statement_bound_locals + source_graph_engine.max_function_params]BoundLocal = [_]BoundLocal{.{
             .name = "",
             .codec = .unit,
             .local_id = 0,
-        }} ** (statement_ranges.len * 4 + source_graph_engine.max_function_params);
+        }} ** (statement_ranges.len * max_statement_bound_locals + source_graph_engine.max_function_params);
         var binding_count: usize = 0;
-        var local_codecs: [statement_ranges.len * 4 + source_graph_engine.max_function_params]effect_ir.LocalCodec = [_]effect_ir.LocalCodec{.unit} ** (statement_ranges.len * 4 + source_graph_engine.max_function_params);
+        var local_codecs: [statement_ranges.len * max_statement_scratch_locals + source_graph_engine.max_function_params]effect_ir.LocalCodec = [_]effect_ir.LocalCodec{.unit} ** (statement_ranges.len * max_statement_scratch_locals + source_graph_engine.max_function_params);
         var local_count: usize = 0;
-        var call_args: [statement_ranges.len * source_graph_engine.max_function_params]u16 = [_]u16{0} ** (statement_ranges.len * source_graph_engine.max_function_params);
+        var call_args: [statement_ranges.len * max_statement_call_args]u16 = [_]u16{0} ** (statement_ranges.len * max_statement_call_args);
         var call_arg_count: usize = 0;
-        var instructions: [statement_ranges.len * 8]program_frontend.BodyInstruction = [_]program_frontend.BodyInstruction{.{
+        var instructions: [statement_ranges.len * max_statement_scratch_instructions]program_frontend.BodyInstruction = [_]program_frontend.BodyInstruction{.{
             .kind = .call_helper,
-        }} ** (statement_ranges.len * 8);
+        }} ** (statement_ranges.len * max_statement_scratch_instructions);
         var instruction_count: usize = 0;
         var terminator: program_frontend.BodyTerminator = .{ .kind = .return_unit };
         var terminated = false;

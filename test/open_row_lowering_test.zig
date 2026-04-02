@@ -1465,6 +1465,71 @@ test "explicit-path lowering disambiguates imported helpers by alias" {
     try std.testing.expectEqualStrings("b", result.outputs.writer[1]);
 }
 
+test "explicit-path lowering ignores ordinary line comments inside retained helper bodies" {
+    const spec: shift.lowering.LowerSpec = .{
+        .label = "test.open_row_helper_line_comment",
+        .entry_symbol = "runBody",
+        .row = shift.ir.rowFromSpec(.{
+            .writer = .{
+                .tell = shift.ir.Transform([]const u8, void),
+            },
+        }),
+        .ValueType = []const u8,
+        .outputs = &.{
+            .{ .label = "writer", .OutputType = [][]const u8 },
+        },
+    };
+
+    const Lowered = shift.lowering.lowerAt("test/open_row_helper_line_comment.zig", spec);
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var handlers = LoweredWriterOnlyHandlers{
+        .writer = .{ .allocator = std.testing.allocator },
+    };
+    defer handlers.writer.deinit();
+
+    const result = try Lowered.run(&runtime, &handlers);
+    defer std.testing.allocator.free(result.outputs.writer);
+
+    try std.testing.expectEqual(@as(usize, 1), result.outputs.writer.len);
+    try std.testing.expectEqualStrings("commented", result.outputs.writer[0]);
+    try std.testing.expectEqualStrings("done", result.value);
+}
+
+test "explicit-path IR lowering supports max-arity helper calls with literal arguments" {
+    const spec: shift.lowering.LowerSpec = .{
+        .label = "test.open_row_helper_max_arity",
+        .entry_symbol = "runBody",
+        .row = shift.ir.rowFromSpec(.{
+            .writer = .{
+                .tell = shift.ir.Transform([]const u8, void),
+            },
+        }),
+        .ValueType = []const u8,
+        .outputs = &.{
+            .{ .label = "writer", .OutputType = [][]const u8 },
+        },
+    };
+
+    const ir_program = shift.lowering.irProgramAt("test/open_row_helper_max_arity.zig", spec);
+    const helper_index = comptime blk: {
+        for (ir_program.functions, 0..) |function, function_index| {
+            if (std.mem.eql(u8, function.symbol.symbol_name, "helper")) break :blk function_index;
+        }
+        unreachable;
+    };
+    const entry_body = ir_program.function_bodies[ir_program.entry_index];
+    const helper_body = ir_program.function_bodies[helper_index];
+
+    try std.testing.expectEqual(@as(usize, 8), ir_program.functions[helper_index].parameter_codecs.len);
+    try std.testing.expectEqual(@as(usize, 8), entry_body.call_arg_locals.len);
+    try std.testing.expectEqual(@as(usize, 11), entry_body.blocks[0].instructions.len);
+    try std.testing.expectEqual(@as(usize, 2), helper_body.blocks[0].instructions.len);
+    try std.testing.expectEqual(@as(@TypeOf(entry_body.blocks[0].instructions[8].kind), .call_helper), entry_body.blocks[0].instructions[8].kind);
+}
+
 test "explicit-path lowering preserves the entry module when helpers share the entry symbol name" {
     const spec: shift.lowering.LowerSpec = .{
         .label = "test.open_row_entry_symbol_alias",
