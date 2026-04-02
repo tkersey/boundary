@@ -1654,6 +1654,9 @@ fn canonicalValidationSourcePathAlloc(allocator: std.mem.Allocator, source_path:
     }
 
     owned_canonical_path = std.fs.realpathAlloc(allocator, source_path) catch return error.UnsupportedHelperGraph;
+    if (!pathStartsWithRootRuntime(owned_canonical_path.?, build_options.package_root)) {
+        return error.UnsupportedHelperGraph;
+    }
     return allocator.dupe(u8, owned_canonical_path.?) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
     };
@@ -1697,15 +1700,10 @@ fn resolveValidationImportPathAlloc(
     }
 
     if (!std.fs.path.isAbsolute(source_path)) return error.UnsupportedHelperGraph;
-    const normalized_import_path = try normalizeRelativeRepoPathAlloc(allocator, import_path);
-    defer allocator.free(normalized_import_path);
-    const base_dir = std.fs.path.dirname(source_path) orelse return error.UnsupportedHelperGraph;
-    const joined_path = std.fs.path.join(allocator, &.{ base_dir, normalized_import_path }) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => unreachable,
-    };
-    defer allocator.free(joined_path);
-    return std.fs.realpathAlloc(allocator, joined_path) catch return error.UnsupportedHelperGraph;
+    const canonical_source_path = try canonicalValidationSourcePathAlloc(allocator, source_path);
+    defer allocator.free(canonical_source_path);
+    const repo_source_path = packageRootRelativeSlice(canonical_source_path) orelse return error.UnsupportedHelperGraph;
+    return try resolveValidationImportPathAlloc(allocator, repo_source_path, import_path);
 }
 
 fn resolveOwnedValidationImportPathAlloc(

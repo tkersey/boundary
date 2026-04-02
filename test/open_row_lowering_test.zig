@@ -946,6 +946,37 @@ test "file-backed validation rejects relative entry paths that escape the packag
     );
 }
 
+test "file-backed validation rejects absolute entry paths outside the package root" {
+    const external_root = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "/tmp/shift-open-row-absolute-entry-{d}",
+        .{std.time.nanoTimestamp()},
+    );
+    defer std.testing.allocator.free(external_root);
+    std.fs.deleteTreeAbsolute(external_root) catch {};
+    try std.fs.makeDirAbsolute(external_root);
+    defer std.fs.deleteTreeAbsolute(external_root) catch unreachable;
+
+    var external_dir = try std.fs.openDirAbsolute(external_root, .{});
+    defer external_dir.close();
+    try external_dir.writeFile(.{
+        .sub_path = "entry.zig",
+        .data =
+        \\pub fn runBody() void {}
+        ,
+    });
+
+    const entry_path = try std.fs.path.join(std.testing.allocator, &.{ external_root, "entry.zig" });
+    defer std.testing.allocator.free(entry_path);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try std.testing.expectError(
+        error.UnsupportedHelperGraph,
+        shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), entry_path, "runBody"),
+    );
+}
+
 test "file-backed validation rejects repo-relative symlink entries that canonicalize outside the package root" {
     if (builtin.os.tag == .windows) return error.SkipZigTest;
 

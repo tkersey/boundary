@@ -106,40 +106,46 @@ pub fn runtimeAllocator(runtime: *const Runtime) std.mem.Allocator {
 const ActiveRuntimeRegistry = struct {
     const Entry = struct {
         runtime: *Runtime,
-        depth: usize,
+        previous: ?*Entry,
     };
 
     lock_state: SpinLock = .{},
-    map: std.AutoHashMapUnmanaged(std.Thread.Id, Entry) = .empty,
+    map: std.AutoHashMapUnmanaged(std.Thread.Id, *Entry) = .empty,
 
     fn begin(self: *@This(), runtime: *Runtime) (RuntimeError || SetupError)!void {
         self.lock_state.lock();
         defer self.lock_state.unlock();
 
-        const entry = self.map.getPtr(runtime.thread_id);
-        if (entry) |active| {
-            if (active.runtime != runtime) return error.RuntimeBusy;
-            active.depth += 1;
-            return;
-        }
-        try self.map.put(std.heap.page_allocator, runtime.thread_id, .{ .runtime = runtime, .depth = 1 });
+        // zlinter-disable-next-line no_hidden_allocations - registry nodes must not perturb runtime-owned allocation accounting
+        const entry = try std.heap.page_allocator.create(Entry);
+        // zlinter-disable-next-line no_hidden_allocations - registry nodes must unwind through the same non-runtime allocator
+        errdefer std.heap.page_allocator.destroy(entry);
+        entry.* = .{
+            .runtime = runtime,
+            .previous = self.map.get(runtime.thread_id),
+        };
+        try self.map.put(std.heap.page_allocator, runtime.thread_id, entry);
     }
 
     fn end(self: *@This(), runtime: *Runtime) void {
         self.lock_state.lock();
         defer self.lock_state.unlock();
 
-        const entry = self.map.getPtr(runtime.thread_id).?;
+        const entry = self.map.get(runtime.thread_id).?;
         std.debug.assert(entry.runtime == runtime);
-        if (entry.depth == 1) {
-            _ = self.map.remove(runtime.thread_id);
-            if (self.map.count() == 0) {
-                self.map.deinit(std.heap.page_allocator);
-                self.map = .empty;
-            }
+        if (entry.previous) |previous| {
+            self.map.getPtr(runtime.thread_id).?.* = previous;
+            // zlinter-disable-next-line no_hidden_allocations - registry nodes must unwind through the same non-runtime allocator
+            std.heap.page_allocator.destroy(entry);
             return;
         }
-        entry.depth -= 1;
+        _ = self.map.remove(runtime.thread_id);
+        // zlinter-disable-next-line no_hidden_allocations - registry nodes must unwind through the same non-runtime allocator
+        std.heap.page_allocator.destroy(entry);
+        if (self.map.count() == 0) {
+            self.map.deinit(std.heap.page_allocator);
+            self.map = .empty;
+        }
     }
 
     fn current(self: *@This(), thread_id: std.Thread.Id) ?*Runtime {

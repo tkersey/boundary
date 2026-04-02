@@ -95,3 +95,45 @@ test "compat cleanup helpers stay isolated per active runtime thread" {
     first.join();
     second.join();
 }
+
+test "compat cleanup helpers follow the innermost runtime on the same thread" {
+    const Probe = struct {
+        frame: Frame = .{ .cleanupFn = cleanup },
+        counter: *usize,
+
+        fn cleanup(raw: *Frame) anyerror!void {
+            const self: *@This() = @fieldParentPtr("frame", raw);
+            self.counter.* += 1;
+        }
+    };
+
+    var outer_runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer outer_runtime.deinit();
+    var inner_runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer inner_runtime.deinit();
+
+    var outer_cleanup_calls: usize = 0;
+    var inner_cleanup_calls: usize = 0;
+
+    try lowered_machine.beginExecution(&outer_runtime);
+    defer lowered_machine.endExecution(&outer_runtime);
+
+    var outer_probe = Probe{ .counter = &outer_cleanup_calls };
+    push(&outer_probe.frame);
+    try std.testing.expectEqual(@as(?*Frame, &outer_probe.frame), checkpoint());
+
+    try lowered_machine.beginExecution(&inner_runtime);
+    try std.testing.expectEqual(@as(?*Frame, null), checkpoint());
+
+    var inner_probe = Probe{ .counter = &inner_cleanup_calls };
+    push(&inner_probe.frame);
+    try std.testing.expectEqual(@as(?*Frame, &inner_probe.frame), checkpoint());
+    try unwindTo(null);
+    try std.testing.expectEqual(@as(usize, 1), inner_cleanup_calls);
+
+    lowered_machine.endExecution(&inner_runtime);
+    try std.testing.expectEqual(@as(?*Frame, &outer_probe.frame), checkpoint());
+
+    try unwindTo(null);
+    try std.testing.expectEqual(@as(usize, 1), outer_cleanup_calls);
+}

@@ -1,3 +1,4 @@
+// zlinter-disable max_positional_args - this fixture intentionally stresses helper lowering at the current max arity boundary
 fn helper(
     one: []const u8,
     _two: []const u8,

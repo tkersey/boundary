@@ -87,6 +87,70 @@ test "runtime deinit rejects active reset" {
     try std.testing.expectEqual(@as(usize, 7), answer);
 }
 
+test "independent runtimes can execute on the same thread while another runtime is active" {
+    var outer_runtime = shift.Runtime.init(std.testing.allocator);
+    defer outer_runtime.deinit();
+    var inner_runtime = shift.Runtime.init(std.testing.allocator);
+    defer inner_runtime.deinit();
+
+    const NoError = error{};
+    const OuterPrompt = prompt_support.Prompt(.resume_then_transform, usize, usize, NoError);
+    const InnerPrompt = prompt_support.Prompt(.resume_then_transform, usize, usize, NoError);
+    var outer_prompt = OuterPrompt.init();
+    var inner_prompt = InnerPrompt.init();
+
+    const outer_handler = struct {
+        /// Keep the outer runtime active while the nested runtime runs.
+        pub fn resumeValue() usize {
+            return 1;
+        }
+
+        /// Return the nested runtime answer unchanged.
+        pub fn afterResume(value: usize) usize {
+            return value;
+        }
+    };
+    const inner_handler = struct {
+        /// Provide the nested runtime resume payload.
+        pub fn resumeValue() usize {
+            return 2;
+        }
+
+        /// Add one observable transform step inside the nested runtime.
+        pub fn afterResume(value: usize) usize {
+            return value + 5;
+        }
+    };
+    const inner_continuation = struct {
+        /// Complete the nested continuation so the outer runtime can observe success.
+        pub fn apply(value: usize) anyerror!usize {
+            return value + 10;
+        }
+    };
+    const outer_continuation = struct {
+        var inner_runtime_ptr: *shift.Runtime = undefined;
+        var inner_prompt_ptr: *InnerPrompt = undefined;
+
+        /// Run the nested prompt on the second runtime while the outer runtime stays active.
+        pub fn apply(_: usize) anyerror!usize {
+            return try prompt_support.run(
+                inner_runtime_ptr,
+                inner_prompt_ptr,
+                prompt_support.transformProgram(InnerPrompt, usize, inner_handler, inner_continuation),
+            );
+        }
+    };
+
+    outer_continuation.inner_runtime_ptr = &inner_runtime;
+    outer_continuation.inner_prompt_ptr = &inner_prompt;
+    const answer = try prompt_support.run(
+        &outer_runtime,
+        &outer_prompt,
+        prompt_support.transformProgram(OuterPrompt, usize, outer_handler, outer_continuation),
+    );
+    try std.testing.expectEqual(@as(usize, 17), answer);
+}
+
 test "destroyed runtime rejects later reset use" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     try runtime.deinitChecked();
