@@ -643,7 +643,8 @@ pub const Store = struct {
                 }
             }
             const stored_plan = loaded_plan.?;
-            if (hashPlan(stored_plan) != expected_plan_hash or stored_plan.ir_hash != manifest.program_hash) {
+            const migrated_plan_hash = hashPlan(stored_plan);
+            if (plan_file.comparison_plan_hash != expected_plan_hash or stored_plan.ir_hash != manifest.program_hash) {
                 return .{
                     .status = .failed,
                     .manifest = manifest,
@@ -651,7 +652,7 @@ pub const Store = struct {
                 };
             }
             if (artifact.plan) |current_plan| {
-                if (current_plan.ir_hash != manifest.program_hash or hashPlan(current_plan) != expected_plan_hash) {
+                if (current_plan.ir_hash != stored_plan.ir_hash or hashPlan(current_plan) != migrated_plan_hash) {
                     return .{
                         .status = .rebuild_required,
                         .manifest = manifest,
@@ -1135,6 +1136,7 @@ fn readAbsoluteFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
 
 const ReadPlanFileResult = struct {
     stored_schema_version: u32,
+    comparison_plan_hash: u64,
     plan: kernel.ProgramPlan,
 };
 
@@ -1217,6 +1219,7 @@ fn readPlanFile(allocator: std.mem.Allocator, path: []const u8) !ReadPlanFileRes
         }
     };
     errdefer freePlan(allocator, &state.plan);
+    const comparison_plan_hash = state.plan_hash orelse hashPlan(state.plan);
 
     var migrated = state;
     const stored_schema_version = migrated.schema_version;
@@ -1225,6 +1228,7 @@ fn readPlanFile(allocator: std.mem.Allocator, path: []const u8) !ReadPlanFileRes
     try migrated.plan.validate();
     return .{
         .stored_schema_version = stored_schema_version,
+        .comparison_plan_hash = comparison_plan_hash,
         .plan = migrated.plan,
     };
 }

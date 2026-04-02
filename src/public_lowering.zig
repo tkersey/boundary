@@ -2111,6 +2111,13 @@ fn CompileIrType(comptime label: []const u8, comptime program: effect_ir.Program
         @setEvalBranchQuota(20_000);
     }
     if (program.functions.len == 0) @compileError("public lowering cannot compile an empty effect-ir program");
+    if (program.entry_index >= program.functions.len) {
+        @compileError("public lowering rejected an effect-ir program with an out-of-range entry_index");
+    }
+    const entry_function = program.functions[program.entry_index];
+    if (entry_function.parameter_codecs.len != 0) {
+        @compileError("public lowering rejected entry functions with value parameters because run(runtime, handlers) cannot supply entry arguments");
+    }
     const stable_ir_program = cloneProgram(program);
     const compiled_plan = program_plan.planFromProgram(label, stable_ir_program) catch |err| switch (err) {
         error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
@@ -2129,11 +2136,8 @@ fn CompileIrType(comptime label: []const u8, comptime program: effect_ir.Program
         error.UnsupportedCodecType => @compileError("public lowering runtime plan rejected a type outside the first-wave codec set"),
         error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
     };
-    if (program.entry_index >= program.functions.len) {
-        @compileError("public lowering rejected an effect-ir program with an out-of-range entry_index");
-    }
     assertExecutableCodecSupport(compiled_plan);
-    return GeneratedProgramType(label, "<ir>", program.functions[program.entry_index].symbol.symbol_name, compiled_plan, null, null);
+    return GeneratedProgramType(label, "<ir>", entry_function.symbol.symbol_name, compiled_plan, null, null);
 }
 
 /// Compile one explicit public effect-ir program into the same runtime-owned plan shape.
