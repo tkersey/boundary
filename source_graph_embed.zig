@@ -327,8 +327,19 @@ pub fn absoluteOwnedImportWithinEntryTree(path: []const u8) bool {
     return entered_subtree;
 }
 
+/// Treat POSIX, UNC, and drive-letter forms as absolute so helper-import checks fail closed across hosts.
+pub fn pathIsAbsoluteCrossPlatform(path: []const u8) bool {
+    if (std.fs.path.isAbsolute(path)) return true;
+    if (path.len == 0) return false;
+    if (path[0] == '\\') return true;
+    return path.len >= 3 and
+        std.ascii.isAlphabetic(path[0]) and
+        path[1] == ':' and
+        (path[2] == '/' or path[2] == '\\');
+}
+
 fn resolveImportPath(comptime from_path: []const u8, comptime import_path: []const u8) Error![]const u8 {
-    if (std.mem.startsWith(u8, import_path, "/")) return error.UnsupportedImportPath;
+    if (pathIsAbsoluteCrossPlatform(import_path)) return error.UnsupportedImportPath;
     if (!std.mem.endsWith(u8, import_path, ".zig")) return error.UnsupportedImportPath;
 
     const normalized_from_path = if (std.fs.path.isAbsolute(from_path))
@@ -585,6 +596,23 @@ test "resolveImportPathAt rejects helper imports that climb above the admitted a
         resolveImportPathAt(
             "/tmp/shift-owned-open-row/nested/entry.zig",
             "helpers/../../outside_helper.zig",
+        ),
+    );
+}
+
+test "resolveImportPathAt rejects Windows absolute helper imports" {
+    try std.testing.expectError(
+        error.UnsupportedImportPath,
+        resolveImportPathAt(
+            "/tmp/shift-owned-open-row/nested/entry.zig",
+            "C:/tmp/helper.zig",
+        ),
+    );
+    try std.testing.expectError(
+        error.UnsupportedImportPath,
+        resolveImportPathAt(
+            "/tmp/shift-owned-open-row/nested/entry.zig",
+            "\\\\server\\share\\helper.zig",
         ),
     );
 }

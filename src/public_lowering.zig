@@ -610,16 +610,10 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
     const caller_hash = source_ref.caller_hash orelse return false;
     const owned_repo_path = comptime repoPathIsOwned(source_ref.repo_path);
     if (!owned_repo_path) return false;
+    if (!std.fs.path.isAbsolute(source_ref.caller_file)) return false;
     const repo_source = comptime source_graph_embed.embeddedSource(source_ref.repo_path);
-    if (std.fs.path.isAbsolute(source_ref.caller_file)) {
-        if (!absoluteOwnedRepoPathMatches(source_ref)) return false;
-        return caller_hash == hashSourceBytes(repo_source);
-    }
-    if (pathHasSeparator(source_ref.caller_file)) {
-        if (!relativeOwnedRepoPathMatches(source_ref.caller_file, source_ref.repo_path)) return false;
-        return caller_hash == hashSourceBytes(repo_source);
-    }
-    return false;
+    if (!absoluteOwnedRepoPathMatches(source_ref)) return false;
+    return caller_hash == hashSourceBytes(repo_source);
 }
 
 fn sourcePathForLowering(comptime source_ref: SourceRef) []const u8 {
@@ -1678,7 +1672,7 @@ fn resolveValidationImportPathAlloc(
     source_path: []const u8,
     import_path: []const u8,
 ) ValidationError![]u8 {
-    if (std.fs.path.isAbsolute(import_path)) return error.UnsupportedHelperGraph;
+    if (source_graph_embed.pathIsAbsoluteCrossPlatform(import_path)) return error.UnsupportedHelperGraph;
     if (!std.mem.endsWith(u8, import_path, ".zig")) return error.UnsupportedHelperGraph;
 
     if (packageRootRelativeSlice(source_path)) |repo_source_path| {
@@ -1710,7 +1704,7 @@ fn resolveOwnedValidationImportPathAlloc(
     source_path: []const u8,
     import_path: []const u8,
 ) ValidationError![]u8 {
-    if (std.fs.path.isAbsolute(import_path)) return error.UnsupportedHelperGraph;
+    if (source_graph_embed.pathIsAbsoluteCrossPlatform(import_path)) return error.UnsupportedHelperGraph;
     if (!std.mem.endsWith(u8, import_path, ".zig")) return error.UnsupportedHelperGraph;
 
     if (packageRootRelativeSlice(source_path)) |repo_source_path| {
@@ -2383,6 +2377,14 @@ test "source ownership rejects hash-only witnesses for non-repo paths" {
     }));
 }
 
+test "source ownership rejects hash-only witnesses for repo-owned relative paths" {
+    try std.testing.expect(!sourceOwnershipMatches(.{
+        .repo_path = "examples/open_row_state_writer.zig",
+        .caller_file = "examples/open_row_state_writer.zig",
+        .caller_hash = hashSourceBytes(source_graph_embed.embeddedSource("examples/open_row_state_writer.zig")),
+    }));
+}
+
 test "source ownership rejects matching-byte witnesses from a different caller path" {
     try std.testing.expect(!sourceOwnershipMatches(.{
         .repo_path = "examples/open_row_state_writer.zig",
@@ -2484,6 +2486,44 @@ test "owned validation rejects helper imports that climb above the admitted abso
             std.testing.allocator,
             "/tmp/shift-owned-open-row/nested/entry.zig",
             "helpers/../../outside_helper.zig",
+        ),
+    );
+}
+
+test "owned validation rejects Windows absolute helper imports" {
+    try std.testing.expectError(
+        error.UnsupportedHelperGraph,
+        resolveOwnedValidationImportPathAlloc(
+            std.testing.allocator,
+            "/tmp/shift-owned-open-row/nested/entry.zig",
+            "C:/tmp/helper.zig",
+        ),
+    );
+    try std.testing.expectError(
+        error.UnsupportedHelperGraph,
+        resolveOwnedValidationImportPathAlloc(
+            std.testing.allocator,
+            "/tmp/shift-owned-open-row/nested/entry.zig",
+            "\\\\server\\share\\helper.zig",
+        ),
+    );
+}
+
+test "file-backed validation rejects Windows absolute helper imports" {
+    try std.testing.expectError(
+        error.UnsupportedHelperGraph,
+        resolveValidationImportPathAlloc(
+            std.testing.allocator,
+            "examples/open_row_state_writer.zig",
+            "C:/tmp/helper.zig",
+        ),
+    );
+    try std.testing.expectError(
+        error.UnsupportedHelperGraph,
+        resolveValidationImportPathAlloc(
+            std.testing.allocator,
+            "examples/open_row_state_writer.zig",
+            "\\\\server\\share\\helper.zig",
         ),
     );
 }
