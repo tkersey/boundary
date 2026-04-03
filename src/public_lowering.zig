@@ -2115,9 +2115,6 @@ fn CompileIrType(comptime label: []const u8, comptime program: effect_ir.Program
         @compileError("public lowering rejected an effect-ir program with an out-of-range entry_index");
     }
     const entry_function = program.functions[program.entry_index];
-    if (entry_function.parameter_codecs.len != 0) {
-        @compileError("public lowering rejected entry functions with value parameters because run(runtime, handlers) cannot supply entry arguments");
-    }
     const stable_ir_program = cloneProgram(program);
     const compiled_plan = program_plan.planFromProgram(label, stable_ir_program) catch |err| switch (err) {
         error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
