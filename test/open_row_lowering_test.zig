@@ -940,6 +940,33 @@ test "file-backed validation resolves cross-file helper imports for explicit-pat
     try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
 }
 
+test "file-backed validation ignores unreachable imported helper graphs review regression" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{
+        .sub_path = "entry.zig",
+        .data =
+        \\const missing = @import("missing.zig");
+        \\
+        \\fn unrelated(eff: anytype) !void {
+        \\    try missing.emit(eff);
+        \\}
+        \\
+        \\pub fn runBody(eff: anytype) !void {
+        \\    try eff.writer.tell("ok");
+        \\}
+        ,
+    });
+
+    const tmp_path = try tmp.dir.realpathAlloc(std.testing.allocator, "entry.zig");
+    defer std.testing.allocator.free(tmp_path);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
+}
+
 test "file-backed validation resolves escaped helper import strings for explicit-path lowering" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();

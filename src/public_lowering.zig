@@ -291,11 +291,30 @@ fn applyLoweredAfter(
     };
 }
 
+fn unwindLoweredAfterStack(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    handlers_ptr: anytype,
+    comptime function_value_codec: program_plan.ValueCodec,
+    after_stack: *std.ArrayList(u16),
+    result: LoweredFunctionResult,
+) anyerror!LoweredFunctionResult {
+    var final_result = result;
+    while (after_stack.items.len != 0) {
+        const op_index = after_stack.pop().?;
+        final_result = switch (final_result) {
+            .value => |typed| .{ .value = try applyLoweredAfter(compiled_plan, handlers_ptr, function_value_codec, op_index, typed) },
+            .terminal => |typed| .{ .terminal = try applyLoweredAfter(compiled_plan, handlers_ptr, function_value_codec, op_index, typed) },
+        };
+    }
+    return final_result;
+}
+
 fn continueLoweredFunction(
     comptime compiled_plan: program_plan.ProgramPlan,
     handlers_ptr: anytype,
     comptime function_index: usize,
     locals: []lowered_machine.ProgramValue,
+    after_stack: *std.ArrayList(u16),
     initial_block_index: u16,
     initial_instruction_index: u16,
     initial_return_local: ?u16,
@@ -353,35 +372,16 @@ fn continueLoweredFunction(
                                 setLocal(locals, instruction.dst, resumed_value.value);
                             }
                             if (resumed_value.apply_after) {
-                                // Looping bodies can resume the same op more times than the static instruction span.
-                                const continued = try continueLoweredFunction(
-                                    compiled_plan,
-                                    handlers_ptr,
-                                    function_index,
-                                    locals,
-                                    current_block_index,
-                                    instruction_index + 1,
-                                    return_local,
-                                );
-                                return switch (continued) {
-                                    .value => |typed| .{ .value = try applyLoweredAfter(
-                                        compiled_plan,
-                                        handlers_ptr,
-                                        function.value_codec,
-                                        instruction.operand,
-                                        typed,
-                                    ) },
-                                    .terminal => |typed| .{ .terminal = try applyLoweredAfter(
-                                        compiled_plan,
-                                        handlers_ptr,
-                                        function.value_codec,
-                                        instruction.operand,
-                                        typed,
-                                    ) },
-                                };
+                                try after_stack.append(std.heap.page_allocator, instruction.operand);
                             }
                         },
-                        .terminal => |terminal| return .{ .terminal = terminal },
+                        .terminal => |terminal| return unwindLoweredAfterStack(
+                            compiled_plan,
+                            handlers_ptr,
+                            function.value_codec,
+                            after_stack,
+                            .{ .terminal = terminal },
+                        ),
                     }
                 },
                 .compare_eq_zero => setLocal(locals, instruction.dst, .{
@@ -423,8 +423,20 @@ fn continueLoweredFunction(
                 instruction_index = compiled_plan.blocks[current_block_index].first_instruction;
                 return_local = null;
             },
-            .return_unit => return .{ .value = .none },
-            .return_value => return .{ .value = getLocal(locals, return_local orelse return error.ProgramContractViolation) },
+            .return_unit => return unwindLoweredAfterStack(
+                compiled_plan,
+                handlers_ptr,
+                function.value_codec,
+                after_stack,
+                .{ .value = .none },
+            ),
+            .return_value => return unwindLoweredAfterStack(
+                compiled_plan,
+                handlers_ptr,
+                function.value_codec,
+                after_stack,
+                .{ .value = getLocal(locals, return_local orelse return error.ProgramContractViolation) },
+            ),
         }
     }
 }
@@ -443,12 +455,16 @@ fn executeLoweredFunction(
         setLocal(locals, @intCast(arg_index), arg);
     }
 
+    var after_stack = std.ArrayList(u16).empty;
+    defer after_stack.deinit(std.heap.page_allocator);
+
     const entry_block_index = function.first_block + function.entry_block;
     return continueLoweredFunction(
         compiled_plan,
         handlers_ptr,
         function_index,
         locals,
+        &after_stack,
         entry_block_index,
         compiled_plan.blocks[entry_block_index].first_instruction,
         null,
@@ -1338,6 +1354,11 @@ const ValidationHelperUse = struct {
     import_alias: ?[]u8,
 };
 
+const ValidationHelperEdge = struct {
+    caller_index: usize,
+    callee_index: usize,
+};
+
 const ValidationOwnedSource = struct {
     path: []u8,
     content: [:0]const u8,
@@ -1400,6 +1421,9 @@ const ValidationModule = struct {
     functions: []ValidationFunction,
     imports: []ValidationImport,
     helper_uses: []ValidationHelperUse,
+    helper_edges: []ValidationHelperEdge,
+    reachable_functions: []bool,
+    expanded_helper_uses: []bool,
     helper_edge_count: usize,
     direct_op_use_count: usize,
 };
@@ -1427,6 +1451,9 @@ const ValidationState = struct {
                 if (helper_use.import_alias) |import_alias| self.allocator.free(import_alias);
             }
             self.allocator.free(module.helper_uses);
+            self.allocator.free(module.helper_edges);
+            self.allocator.free(module.reachable_functions);
+            self.allocator.free(module.expanded_helper_uses);
         }
         self.modules.deinit(self.allocator);
     }
@@ -1600,6 +1627,21 @@ fn cloneValidationHelperUsesAlloc(
             .caller_index = helper_use.caller_index,
             .callee_name = try allocator.dupe(u8, helper_use.callee_name),
             .import_alias = if (helper_use.import_alias) |import_alias| try allocator.dupe(u8, import_alias) else null,
+        };
+    }
+    return out;
+}
+
+fn cloneValidationHelperEdgesAlloc(
+    allocator: std.mem.Allocator,
+    helper_edges: []const source_graph_engine.HelperEdge,
+) ![]ValidationHelperEdge {
+    const out = try allocator.alloc(ValidationHelperEdge, helper_edges.len);
+    errdefer allocator.free(out);
+    for (helper_edges, 0..) |helper_edge, index| {
+        out[index] = .{
+            .caller_index = helper_edge.caller_index,
+            .callee_index = helper_edge.callee_index,
         };
     }
     return out;
@@ -1920,10 +1962,76 @@ fn analyzeValidationModuleGraph(
     return cloneValidationGraphAlloc(allocator, graph) catch return error.OutOfMemory;
 }
 
+fn markValidationReachableFunctions(
+    module: *ValidationModule,
+    root_index: usize,
+) void {
+    if (root_index >= module.reachable_functions.len) return;
+    if (!module.reachable_functions[root_index]) module.reachable_functions[root_index] = true;
+
+    var changed = true;
+    while (changed) {
+        changed = false;
+        for (module.helper_edges) |edge| {
+            if (!module.reachable_functions[edge.caller_index] or module.reachable_functions[edge.callee_index]) continue;
+            module.reachable_functions[edge.callee_index] = true;
+            changed = true;
+        }
+    }
+}
+
+fn expandValidationModuleImports(
+    state: *ValidationState,
+    module_index: usize,
+    source_graph: ?*const ValidationSourceGraph,
+    expected_graph: ?*const ValidationSourceGraph,
+) ValidationError!void {
+    var helper_use_index: usize = 0;
+    while (helper_use_index < state.modules.items[module_index].helper_uses.len) : (helper_use_index += 1) {
+        const module = state.modules.items[module_index];
+        const helper_use = module.helper_uses[helper_use_index];
+        if (!module.reachable_functions[helper_use.caller_index] or module.expanded_helper_uses[helper_use_index]) continue;
+
+        state.modules.items[module_index].expanded_helper_uses[helper_use_index] = true;
+        const import_alias = helper_use.import_alias orelse continue;
+
+        const import_row = findValidationImport(module.imports, import_alias) orelse return error.UnsupportedHelperGraph;
+        const imported_path: ResolvedOwnedValidationImport = if (source_graph != null)
+            try resolveOwnedValidationImportPathAlloc(
+                state.allocator,
+                module.path,
+                import_row.import_path,
+                module.absolute_entry_tree_root,
+            )
+        else
+            .{
+                .path = try resolveValidationImportPathAlloc(state.allocator, module.path, import_row.import_path),
+                .absolute_entry_tree_root = null,
+            };
+        defer state.allocator.free(imported_path.path);
+        defer if (imported_path.absolute_entry_tree_root) |tree_root| state.allocator.free(tree_root);
+
+        _ = collectValidationModule(
+            state,
+            imported_path.path,
+            helper_use.callee_name,
+            source_graph,
+            expected_graph,
+            imported_path.absolute_entry_tree_root,
+        ) catch |err| switch (err) {
+            error.EntryMissing => return error.UnsupportedHelperGraph,
+            else => return err,
+        };
+
+        state.helper_edge_count += 1;
+        if (state.helper_edge_count > max_validation_helper_edges) return error.UnsupportedHelperGraph;
+    }
+}
+
 fn collectValidationModule(
     state: *ValidationState,
     source_path: []const u8,
-    entry_symbol: ?[]const u8,
+    required_symbol: ?[]const u8,
     source_graph: ?*const ValidationSourceGraph,
     expected_graph: ?*const ValidationSourceGraph,
     absolute_entry_tree_root: ?[]const u8,
@@ -1938,15 +2046,17 @@ fn collectValidationModule(
                 return error.UnsupportedHelperGraph;
             }
         }
-        if (entry_symbol) |required_entry| {
-            if (findValidationFunctionIndex(state.modules.items[existing_index].functions, required_entry) == null) {
+        if (required_symbol) |required_entry| {
+            const required_index = findValidationFunctionIndex(state.modules.items[existing_index].functions, required_entry) orelse {
                 return error.EntryMissing;
-            }
+            };
+            markValidationReachableFunctions(&state.modules.items[existing_index], required_index);
+            try expandValidationModuleImports(state, existing_index, source_graph, expected_graph);
         }
         return existing_index;
     }
 
-    const graph = try analyzeValidationModuleGraph(state.allocator, source_path, entry_symbol, source_graph, expected_graph);
+    const graph = try analyzeValidationModuleGraph(state.allocator, source_path, required_symbol, source_graph, expected_graph);
     defer deinitValidationGraph(state.allocator, graph);
 
     var module_owned_by_state = false;
@@ -1978,6 +2088,14 @@ fn collectValidationModule(
         }
         state.allocator.free(owned_helper_uses);
     };
+    const owned_helper_edges = try cloneValidationHelperEdgesAlloc(state.allocator, graph.helper_edges);
+    errdefer if (!module_owned_by_state) state.allocator.free(owned_helper_edges);
+    const reachable_functions = try state.allocator.alloc(bool, graph.functions.len);
+    errdefer if (!module_owned_by_state) state.allocator.free(reachable_functions);
+    @memset(reachable_functions, false);
+    const expanded_helper_uses = try state.allocator.alloc(bool, graph.helper_uses.len);
+    errdefer if (!module_owned_by_state) state.allocator.free(expanded_helper_uses);
+    @memset(expanded_helper_uses, false);
 
     if (state.modules.items.len >= max_validation_modules) return error.UnsupportedHelperGraph;
     try state.modules.append(state.allocator, .{
@@ -1986,6 +2104,9 @@ fn collectValidationModule(
         .functions = owned_functions,
         .imports = owned_imports,
         .helper_uses = owned_helper_uses,
+        .helper_edges = owned_helper_edges,
+        .reachable_functions = reachable_functions,
+        .expanded_helper_uses = expanded_helper_uses,
         .helper_edge_count = graph.helper_edges.len,
         .direct_op_use_count = graph.direct_op_uses.len,
     });
@@ -2002,39 +2123,12 @@ fn collectValidationModule(
     state.direct_op_use_count += module.direct_op_use_count;
     if (state.direct_op_use_count > max_validation_direct_op_uses) return error.UnsupportedHelperGraph;
 
-    for (module.helper_uses) |helper_use| {
-        const import_alias = helper_use.import_alias orelse continue;
-
-        const import_row = findValidationImport(module.imports, import_alias) orelse return error.UnsupportedHelperGraph;
-        const imported_path: ResolvedOwnedValidationImport = if (source_graph != null)
-            try resolveOwnedValidationImportPathAlloc(
-                state.allocator,
-                source_path,
-                import_row.import_path,
-                module.absolute_entry_tree_root,
-            )
-        else
-            .{
-                .path = try resolveValidationImportPathAlloc(state.allocator, source_path, import_row.import_path),
-                .absolute_entry_tree_root = null,
-            };
-        defer state.allocator.free(imported_path.path);
-        defer if (imported_path.absolute_entry_tree_root) |tree_root| state.allocator.free(tree_root);
-
-        const imported_index = try collectValidationModule(
-            state,
-            imported_path.path,
-            null,
-            source_graph,
-            expected_graph,
-            imported_path.absolute_entry_tree_root,
-        );
-        if (findValidationFunctionIndex(state.modules.items[imported_index].functions, helper_use.callee_name) == null) {
-            return error.UnsupportedHelperGraph;
-        }
-
-        state.helper_edge_count += 1;
-        if (state.helper_edge_count > max_validation_helper_edges) return error.UnsupportedHelperGraph;
+    if (required_symbol) |required_entry| {
+        const required_index = findValidationFunctionIndex(state.modules.items[module_index].functions, required_entry) orelse {
+            return error.EntryMissing;
+        };
+        markValidationReachableFunctions(&state.modules.items[module_index], required_index);
+        try expandValidationModuleImports(state, module_index, source_graph, expected_graph);
     }
 
     return module_index;
@@ -3361,6 +3455,112 @@ test "executeLoweredDispatch applies after handlers for repeated loop resumes" {
     }
     try std.testing.expectEqual(@as(usize, 5), handlers.counter.step_calls);
     try std.testing.expectEqual(@as(usize, 5), handlers.counter.after_calls);
+}
+
+test "executeLoweredDispatch unwinds after handlers iteratively across large loops review regression" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "example.loop_after_large",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "loopAfterRoot",
+            .value_codec = .i32,
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 3,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 2,
+            .first_instruction = 0,
+            .instruction_count = 4,
+        }},
+        .requirements = &.{.{
+            .label = "counter",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "step",
+            .mode = .transform,
+            .payload_codec = .i32,
+            .resume_codec = .i32,
+        }},
+        .outputs = &.{},
+        .locals = &.{
+            .{ .codec = .i32 },
+            .{ .codec = .bool },
+            .{ .codec = .i32 },
+        },
+        .blocks = &.{
+            .{
+                .first_instruction = 0,
+                .instruction_count = 2,
+                .terminator_index = 0,
+            },
+            .{
+                .first_instruction = 2,
+                .instruction_count = 2,
+                .terminator_index = 1,
+            },
+        },
+        .terminators = &.{
+            .{ .kind = .branch_if, .primary = 1, .secondary = 0 },
+            .{ .kind = .return_value },
+        },
+        .instructions = &.{
+            .{
+                .kind = .call_op,
+                .dst = 0,
+                .operand = 0,
+                .aux = 0,
+            },
+            .{
+                .kind = .compare_eq_zero,
+                .dst = 1,
+                .operand = 0,
+            },
+            .{
+                .kind = .const_i32,
+                .dst = 2,
+                .operand = 7,
+            },
+            .{
+                .kind = .return_value,
+                .operand = 2,
+            },
+        },
+    };
+    const Handlers = struct {
+        counter: struct {
+            step_calls: usize = 0,
+            after_calls: usize = 0,
+
+            pub fn step(self: *@This(), remaining: i32) anyerror!i32 {
+                self.step_calls += 1;
+                return remaining - 1;
+            }
+
+            pub fn afterStep(self: *@This(), answer: i32) anyerror!i32 {
+                self.after_calls += 1;
+                return answer + 100;
+            }
+        } = .{},
+    };
+
+    const loop_count: i32 = 100_000;
+    var handlers: Handlers = .{};
+    const result = try executeLoweredDispatch(plan, &handlers, 0, &.{.{ .i32 = loop_count }});
+    switch (result) {
+        .value => |answer| try std.testing.expectEqual(@as(i32, 10_000_007), decodeRuntimeValue(.i32, answer)),
+        .terminal => |_| return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqual(@as(usize, loop_count), handlers.counter.step_calls);
+    try std.testing.expectEqual(@as(usize, loop_count), handlers.counter.after_calls);
 }
 
 test "CompileIr run applies after handlers for repeated loop resumes" {
