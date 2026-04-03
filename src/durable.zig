@@ -1218,10 +1218,10 @@ fn readPlanFile(allocator: std.mem.Allocator, path: []const u8) !ReadPlanFileRes
             };
         }
     };
-    errdefer freePlan(allocator, &state.plan);
     const comparison_plan_hash = state.plan_hash orelse hashPlan(state.plan);
 
     var migrated = state;
+    errdefer freePlan(allocator, &migrated.plan);
     const stored_schema_version = migrated.schema_version;
     try migratePlanFile(allocator, &migrated);
     if (migrated.schema_version != current_plan_schema) return error.UnsupportedPlanSchema;
@@ -1813,4 +1813,63 @@ test "clonePlan owns const_string literals before parse teardown" {
     @memset(clobber, 'x');
 
     try std.testing.expectEqualStrings("persisted literal", cloned.instructions[0].string_literal);
+}
+
+test "readPlanFile frees migrated legacy plan ownership when validation fails" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const allocator = std.testing.allocator;
+    const dir_path = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(dir_path);
+    const plan_path = try std.fs.path.join(allocator, &.{ dir_path, "invalid-legacy.plan.json" });
+    defer allocator.free(plan_path);
+
+    const legacy_plan_file = LegacyPlanFileV3{
+        .schema_version = 3,
+        .plan_hash = 0x1234,
+        .plan = .{
+            .schema_version = 2,
+            .label = "invalid.legacy.plan",
+            .ir_hash = 1,
+            .entry_index = 0,
+            .functions = &.{.{
+                .symbol_name = "root",
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 0,
+                .first_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 1,
+            }},
+            .requirements = &.{},
+            .ops = &.{},
+            .outputs = &.{},
+            .locals = &.{},
+            .blocks = &.{.{
+                .first_instruction = 0,
+                .instruction_count = 1,
+                .terminator_index = 0,
+            }},
+            .terminators = &.{.{ .kind = .return_unit }},
+            .instructions = &.{.{
+                .kind = .return_value,
+                .index = 0,
+            }},
+        },
+    };
+
+    const file = try std.fs.createFileAbsolute(plan_path, .{ .truncate = true });
+    defer file.close();
+    var buffer: [1024]u8 = undefined;
+    var writer = file.writer(&buffer);
+    try std.json.Stringify.value(legacy_plan_file, .{}, &writer.interface);
+    try writer.interface.writeByte('\n');
+    try writer.interface.flush();
+
+    try std.testing.expectError(error.InvalidInstructionLocalIndex, readPlanFile(allocator, plan_path));
 }

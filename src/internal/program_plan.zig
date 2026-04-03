@@ -226,7 +226,9 @@ pub const ProgramPlan = struct {
                             return error.InvalidInstructionLocalIndex;
                         }
                     },
-                    .const_string => {},
+                    .const_string => {
+                        if (!isValidFunctionLocal(function.local_count, instruction.dst)) return error.InvalidInstructionLocalIndex;
+                    },
                     .add_const_i32, .compare_eq_zero, .const_i32, .sub_one => {
                         if (!isValidFunctionLocal(function.local_count, instruction.dst)) return error.InvalidInstructionLocalIndex;
                         if (instruction.kind != .const_i32 and !isValidFunctionLocal(function.local_count, instruction.operand)) {
@@ -1872,6 +1874,44 @@ test "ProgramPlan.validate rejects value-producing op destinations outside the o
             .dst = 0,
             .operand = 0,
             .aux = std.math.maxInt(u16),
+        }},
+    };
+
+    try std.testing.expectError(error.InvalidInstructionLocalIndex, plan.validate());
+}
+
+test "ProgramPlan.validate rejects const_string destinations outside the owning function locals" {
+    const plan = ProgramPlan{
+        .label = "invalid.const_string_local",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 1,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{
+            .kind = .const_string,
+            .dst = 0,
+            .string_literal = "persisted literal",
         }},
     };
 
