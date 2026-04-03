@@ -582,6 +582,24 @@ fn pathStartsWithRootRuntime(path: []const u8, root: []const u8) bool {
     return path.len == root.len or path[root.len] == '/' or path[root.len] == '\\';
 }
 
+fn pathEqualsRuntime(lhs: []const u8, rhs: []const u8) bool {
+    if (lhs.len != rhs.len) return false;
+    const case_insensitive = pathsUseCaseInsensitiveComparison(lhs, rhs);
+    for (rhs, 0..) |expected, index| {
+        const actual = lhs[index];
+        if (expected == '/' or expected == '\\') {
+            if (actual != '/' and actual != '\\') return false;
+            continue;
+        }
+        if (case_insensitive) {
+            if (asciiLowerPathByte(actual) != asciiLowerPathByte(expected)) return false;
+            continue;
+        }
+        if (actual != expected) return false;
+    }
+    return true;
+}
+
 fn asciiLowerPathByte(byte: u8) u8 {
     return if (byte >= 'A' and byte <= 'Z') byte + ('a' - 'A') else byte;
 }
@@ -1745,7 +1763,7 @@ fn runtimeRegistryContainsLine(registry: []const u8, candidate: []const u8) bool
         var end = start;
         while (end < registry.len and registry[end] != '\n') : (end += 1) {}
         const line = registry[start..end];
-        if (line.len != 0 and std.mem.eql(u8, line, candidate)) return true;
+        if (line.len != 0 and pathEqualsRuntime(line, candidate)) return true;
         start = end + 1;
     }
     return false;
@@ -2783,8 +2801,19 @@ test "windows ownership portability accepts separator-normalized owned repo path
     try std.testing.expect(comptime repoPathIsOwned("examples\\open_row_state_writer.zig"));
 }
 
+test "windows ownership portability accepts separator-normalized owned repo paths at runtime" {
+    try std.testing.expect(runtimeRegistryContainsLine(
+        build_options.repo_zig_paths,
+        "examples\\open_row_state_writer.zig",
+    ));
+}
+
 test "windows ownership portability matches Windows checkout roots case-insensitively" {
     try std.testing.expect(pathEquals(
+        "C:\\Repo\\Examples\\Open_Row_State_Writer.zig",
+        "c:/repo/examples/open_row_state_writer.zig",
+    ));
+    try std.testing.expect(pathEqualsRuntime(
         "C:\\Repo\\Examples\\Open_Row_State_Writer.zig",
         "c:/repo/examples/open_row_state_writer.zig",
     ));
@@ -3981,3 +4010,4 @@ test "executeLoweredDispatch rejects return-value terminators without a return i
 
     try std.testing.expectError(error.ProgramContractViolation, executeLoweredDispatch(plan, &handlers, 0, &.{}));
 }
+{"id":"lrn-20260403T204958Z-a4e500ef","captured_at":"2026-04-03T20:49:58Z","status":"codify_now","learning":"When shift runtime ownership checks compare repo-path registry entries, use runtime path semantics instead of raw byte equality so Windows separator-normalized owned paths still match the build-time registry.","evidence":["Review seed identified runtimeRegistryContainsLine comparing raw bytes against build.zig repo_zig_paths entries.","Focused proof hook failed before the fix on examples\\open_row_state_writer.zig and passed after switching to pathEqualsRuntime."],"application":"For runtime repo ownership or snapshot validation lookups, compare paths with separator normalization and Windows case-folding rather than std.mem.eql on raw path bytes.","context":{"repo":"tkersey/shift","branch":"feature/binding-packet-portability","paths":["src/public_lowering.zig"]},"source":"codex","fingerprint":"a4e500efab261e12","tags":["zig","shift","lowering","ownership","portability","windows"]}
