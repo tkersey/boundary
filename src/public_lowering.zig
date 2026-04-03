@@ -52,15 +52,21 @@ fn sentinelBytes(comptime bytes: []const u8) [:0]const u8 {
     return raw[0..bytes.len :0];
 }
 
+fn entryOutputsForPlan(comptime compiled_plan: program_plan.ProgramPlan) []const program_plan.OutputPlan {
+    const entry_function = compiled_plan.functions[compiled_plan.entry_index];
+    return compiled_plan.outputs[entry_function.first_output..][0..entry_function.output_count];
+}
+
 fn ResultOutputsTypeForPlan(comptime compiled_plan: program_plan.ProgramPlan) type {
+    const outputs = comptime entryOutputsForPlan(compiled_plan);
     var fields = [_]std.builtin.Type.StructField{.{
         .name = "",
         .type = void,
         .default_value_ptr = null,
         .is_comptime = false,
         .alignment = @alignOf(void),
-    }} ** compiled_plan.outputs.len;
-    inline for (compiled_plan.outputs, 0..) |output, index| {
+    }} ** outputs.len;
+    inline for (outputs, 0..) |output, index| {
         fields[index] = .{
             .name = sentinelBytes(output.label),
             .type = runtimeValueType(output.codec),
@@ -465,8 +471,9 @@ fn helperArgStorageCapacity(comptime compiled_plan: program_plan.ProgramPlan) us
 }
 
 fn collectLoweredOutputsForPlan(comptime compiled_plan: program_plan.ProgramPlan, handlers_ptr: anytype) anyerror!ResultOutputsTypeForPlan(compiled_plan) {
+    const outputs = comptime entryOutputsForPlan(compiled_plan);
     var value: ResultOutputsTypeForPlan(compiled_plan) = std.mem.zeroInit(ResultOutputsTypeForPlan(compiled_plan), .{});
-    inline for (compiled_plan.outputs) |output| {
+    inline for (outputs) |output| {
         const handler_ptr = &@field(handlers_ptr.*, output.label);
         @field(value, output.label) = try resolveMaybeError(handler_ptr.finish());
     }

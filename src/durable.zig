@@ -1871,5 +1871,5 @@ test "readPlanFile frees migrated legacy plan ownership when validation fails" {
     try writer.interface.writeByte('\n');
     try writer.interface.flush();
 
-    try std.testing.expectError(error.InvalidInstructionLocalIndex, readPlanFile(allocator, plan_path));
+    try std.testing.expectError(error.InvalidTerminatorInstruction, readPlanFile(allocator, plan_path));
 }

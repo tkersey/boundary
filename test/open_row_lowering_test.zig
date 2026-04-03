@@ -624,6 +624,103 @@ test "explicit ir compilation respects an explicit non-zero entry index" {
     try std.testing.expectEqual(@as(u16, 1), ProgramType.runtime_plan.entry_index);
 }
 
+test "explicit ir run result outputs stay scoped to the entry function" {
+    const helper_symbol: shift.ir.SymbolRef = .{
+        .module_path = "test/open_row_lowering_test.zig",
+        .symbol_name = "helperOutputOnly",
+    };
+    const root_symbol: shift.ir.SymbolRef = .{
+        .module_path = "test/open_row_lowering_test.zig",
+        .symbol_name = "entryOutputOnly",
+    };
+    const ProgramType = shift.ir.compile("example.entry_scoped_outputs", .{
+        .entry_index = 1,
+        .functions = &.{
+            .{
+                .symbol = helper_symbol,
+                .row = shift.ir.rowFromSpec(.{
+                    .helper = .{
+                        .noop = shift.ir.Transform(void, void),
+                    },
+                }),
+                .ValueType = i32,
+                .outputs = &.{.{ .label = "helper", .OutputType = i32 }},
+            },
+            .{
+                .symbol = root_symbol,
+                .row = shift.ir.rowFromSpec(.{
+                    .entry = .{
+                        .noop = shift.ir.Transform(void, void),
+                    },
+                }),
+                .ValueType = i32,
+                .outputs = &.{.{ .label = "entry", .OutputType = i32 }},
+            },
+        },
+        .call_edges = &.{},
+        .function_bodies = &.{
+            .{
+                .local_codecs = &.{.i32},
+                .entry_block = 0,
+                .blocks = &.{.{
+                    .instructions = &.{
+                        .{ .kind = .const_i32, .dst = 0, .operand = 3 },
+                        .{ .kind = .return_value, .operand = 0 },
+                    },
+                    .terminator = .{ .kind = .return_value },
+                }},
+            },
+            .{
+                .local_codecs = &.{.i32},
+                .entry_block = 0,
+                .blocks = &.{.{
+                    .instructions = &.{
+                        .{ .kind = .const_i32, .dst = 0, .operand = 11 },
+                        .{ .kind = .return_value, .operand = 0 },
+                    },
+                    .terminator = .{ .kind = .return_value },
+                }},
+            },
+        },
+    });
+
+    const OutputHandler = struct {
+        value: i32,
+        finish_calls: usize = 0,
+
+        /// Satisfy the requirement label used only to define one output surface.
+        pub fn noop(_: *@This()) anyerror!void {
+            // Intentionally empty: this requirement is never invoked in the regression.
+        }
+
+        /// Record that this output handler was finalized for the public run result.
+        pub fn finish(self: *@This()) i32 {
+            self.finish_calls += 1;
+            return self.value;
+        }
+    };
+    const Handlers = struct {
+        helper: OutputHandler,
+        entry: OutputHandler,
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var handlers: Handlers = .{
+        .helper = .{ .value = 3 },
+        .entry = .{ .value = 11 },
+    };
+    const result = try ProgramType.run(&runtime, &handlers);
+
+    try std.testing.expect(@hasField(@TypeOf(result.outputs), "entry"));
+    try std.testing.expect(!@hasField(@TypeOf(result.outputs), "helper"));
+    try std.testing.expectEqual(@as(i32, 11), result.outputs.entry);
+    try std.testing.expectEqual(@as(i32, 11), result.value);
+    try std.testing.expectEqual(@as(usize, 0), handlers.helper.finish_calls);
+    try std.testing.expectEqual(@as(usize, 1), handlers.entry.finish_calls);
+}
+
 test "root lowerAt matches the example-owned same-module lowering" {
     const ExplicitProgramType = shift.lowering.lowerAt(
         example_open_row_state_writer.loweringSourcePath(),

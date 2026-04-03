@@ -194,11 +194,11 @@ pub const ProgramPlan = struct {
                 if (instruction_end > function_instruction_end) return error.InvalidFunctionInstructionSpan;
                 covered_instruction_end = instruction_end;
                 var block_has_return_value = false;
-                for (self.instructions[block.first_instruction..instruction_end]) |instruction| switch (instruction.kind) {
+                for (self.instructions[block.first_instruction..instruction_end], 0..) |instruction, relative_index| switch (instruction.kind) {
                     .call_helper => {
                         if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
                         if (self.functions[instruction.operand].value_codec != .unit and
-                            !isValidFunctionLocal(function.local_count, instruction.dst))
+                            !functionLocalHasCodec(self, function, instruction.dst, self.functions[instruction.operand].value_codec))
                         {
                             return error.InvalidInstructionLocalIndex;
                         }
@@ -216,28 +216,55 @@ pub const ProgramPlan = struct {
                             return error.InvalidCallOpTarget;
                         }
                         if (self.ops[instruction.operand].resume_codec != .unit and
-                            !isValidFunctionLocal(function.local_count, instruction.dst))
+                            !functionLocalHasCodec(self, function, instruction.dst, self.ops[instruction.operand].resume_codec))
                         {
                             return error.InvalidInstructionLocalIndex;
                         }
                         if (self.ops[instruction.operand].payload_codec != .unit and
-                            !isValidFunctionLocal(function.local_count, instruction.aux))
+                            !functionLocalHasCodec(self, function, instruction.aux, self.ops[instruction.operand].payload_codec))
                         {
                             return error.InvalidInstructionLocalIndex;
                         }
                     },
                     .const_string => {
-                        if (!isValidFunctionLocal(function.local_count, instruction.dst)) return error.InvalidInstructionLocalIndex;
+                        if (!functionLocalHasCodec(self, function, instruction.dst, .string)) return error.InvalidInstructionLocalIndex;
                     },
                     .add_const_i32, .compare_eq_zero, .const_i32, .sub_one => {
-                        if (!isValidFunctionLocal(function.local_count, instruction.dst)) return error.InvalidInstructionLocalIndex;
-                        if (instruction.kind != .const_i32 and !isValidFunctionLocal(function.local_count, instruction.operand)) {
-                            return error.InvalidInstructionLocalIndex;
+                        switch (instruction.kind) {
+                            .add_const_i32 => {
+                                if (!functionLocalHasCodec(self, function, instruction.dst, .i32) or
+                                    !functionLocalHasCodec(self, function, instruction.operand, .i32))
+                                {
+                                    return error.InvalidInstructionLocalIndex;
+                                }
+                            },
+                            .compare_eq_zero => {
+                                const operand_codec = functionLocalCodec(self, function, instruction.operand) orelse
+                                    return error.InvalidInstructionLocalIndex;
+                                if (operand_codec != .i32 and operand_codec != .usize) return error.InvalidInstructionLocalIndex;
+                                if (!functionLocalHasCodec(self, function, instruction.dst, .bool)) return error.InvalidInstructionLocalIndex;
+                            },
+                            .const_i32 => {
+                                if (!functionLocalHasCodec(self, function, instruction.dst, .i32)) return error.InvalidInstructionLocalIndex;
+                            },
+                            .sub_one => {
+                                const operand_codec = functionLocalCodec(self, function, instruction.operand) orelse
+                                    return error.InvalidInstructionLocalIndex;
+                                if (operand_codec != .i32 and operand_codec != .usize) return error.InvalidInstructionLocalIndex;
+                                if (!functionLocalHasCodec(self, function, instruction.dst, operand_codec)) {
+                                    return error.InvalidInstructionLocalIndex;
+                                }
+                            },
+                            else => unreachable,
                         }
                     },
                     .return_value => {
                         block_has_return_value = true;
-                        if (!isValidFunctionLocal(function.local_count, instruction.operand)) return error.InvalidInstructionLocalIndex;
+                        if (!function_returns_value) return error.InvalidTerminatorInstruction;
+                        if (relative_index + 1 != block.instruction_count) return error.InvalidTerminatorInstruction;
+                        if (!functionLocalHasCodec(self, function, instruction.operand, function.value_codec)) {
+                            return error.InvalidInstructionLocalIndex;
+                        }
                     },
                 };
 
@@ -500,6 +527,15 @@ fn rangeEnd(start: u16, len: u16) ?usize {
 
 fn isValidFunctionLocal(local_count: u16, local_id: u16) bool {
     return local_id < local_count;
+}
+
+fn functionLocalCodec(self: ProgramPlan, function: FunctionPlan, local_id: u16) ?ValueCodec {
+    if (!isValidFunctionLocal(function.local_count, local_id)) return null;
+    return self.locals[function.first_local + local_id].codec;
+}
+
+fn functionLocalHasCodec(self: ProgramPlan, function: FunctionPlan, local_id: u16, expected: ValueCodec) bool {
+    return functionLocalCodec(self, function, local_id) == expected;
 }
 
 fn isOwnedBlockTarget(first_block: u16, block_end: usize, target: u16) bool {
