@@ -580,8 +580,7 @@ fn sourceOwnershipMatches(comptime source_ref: SourceRef) bool {
     if (source_ref.caller_hash != null or source_ref.caller_source != null) {
         return sourceHashMatches(source_ref);
     }
-    return absoluteOwnedRepoPathMatches(source_ref) or
-        relativeOwnedRepoPathMatches(source_ref.caller_file, source_ref.repo_path);
+    return absoluteOwnedRepoPathMatches(source_ref);
 }
 
 fn hashSourceBytes(comptime bytes: []const u8) u64 {
@@ -1732,10 +1731,8 @@ fn resolveOwnedValidationImportPathAlloc(
     }
 
     if (!std.fs.path.isAbsolute(source_path)) return error.UnsupportedHelperGraph;
-    const normalized_import_path = try normalizeRelativeRepoPathAlloc(allocator, import_path);
-    defer allocator.free(normalized_import_path);
     const base_dir = std.fs.path.dirname(source_path) orelse return error.UnsupportedHelperGraph;
-    const joined_path = std.fs.path.join(allocator, &.{ base_dir, normalized_import_path }) catch |err| switch (err) {
+    const joined_path = std.fs.path.join(allocator, &.{ base_dir, import_path }) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => unreachable,
     };
@@ -2186,8 +2183,8 @@ test "same-module lowerAt preserves caller-provided source ownership" {
     try std.testing.expectEqual(@as(usize, 2), ProgramType.runtime_plan.outputs.len);
 }
 
-test "source ownership requires a true repo-path suffix, not a basename-only match" {
-    try std.testing.expect(sourceOwnershipMatches(.{
+test "source ownership rejects relative no-content repo-path witnesses and basename-only mismatches" {
+    try std.testing.expect(!sourceOwnershipMatches(.{
         .repo_path = "examples/open_row_state_writer.zig",
         .caller_file = "examples/open_row_state_writer.zig",
     }));
@@ -2304,6 +2301,16 @@ test "source ownership accepts basename-only content witnesses when repo_path is
         .caller_hash = hashSourceBytes(downstream_source),
         .caller_source = downstream_source,
     }));
+}
+
+test "importedSource preserves parent-directory helpers for absolute caller-owned roots" {
+    const imported = comptime importedSource("/tmp/shift-owned-open-row/nested/entry.zig", "../helpers/util.zig",
+        \\pub fn emit(eff: anytype) !void {
+        \\    _ = eff;
+        \\}
+    );
+
+    try std.testing.expectEqualStrings("/tmp/shift-owned-open-row/helpers/util.zig", imported.path);
 }
 
 test "source helper preserves basename-only callers so ownership still fails closed" {
@@ -2448,6 +2455,17 @@ test "source ownership accepts absolute caller-owned content witnesses outside o
         .caller_hash = hashSourceBytes(caller_source),
         .caller_source = caller_source,
     }));
+}
+
+test "owned validation resolves parent-directory helpers for absolute caller-owned roots" {
+    const resolved = try resolveOwnedValidationImportPathAlloc(
+        std.testing.allocator,
+        "/tmp/shift-owned-open-row/nested/entry.zig",
+        "../helpers/util.zig",
+    );
+    defer std.testing.allocator.free(resolved);
+
+    try std.testing.expectEqualStrings("/tmp/shift-owned-open-row/helpers/util.zig", resolved);
 }
 
 test "after hook naming preserves underscore boundaries" {

@@ -1245,6 +1245,12 @@ pub fn build(b: *std.Build) void {
     ) catch std.process.fatal("unable to allocate external downstream public lowering fixture path", .{});
     const down_test_path_literal = zigStringLiteralEscapeAlloc(b.allocator, down_test_path) catch
         std.process.fatal("unable to escape downstream public lowering fixture path", .{});
+    const nested_down_test_path = std.fs.path.join(
+        b.allocator,
+        &.{ externalBoundaryFixtureRoot(b), "nested", "downstream_public_lowering_test.zig" },
+    ) catch std.process.fatal("unable to allocate nested external downstream public lowering fixture path", .{});
+    const nested_down_test_path_literal = zigStringLiteralEscapeAlloc(b.allocator, nested_down_test_path) catch
+        std.process.fatal("unable to escape nested downstream public lowering fixture path", .{});
     const down_helper_src =
         \\pub fn emit(eff: anytype) !void {
         \\    try eff.writer.tell("query=artifact-search");
@@ -1259,6 +1265,7 @@ pub fn build(b: *std.Build) void {
     const down_test_src = std.fmt.allocPrint(
         b.allocator,
         \\const downstream_source_path = "{s}";
+        \\const nested_downstream_source_path = "{s}";
         \\const shift = @import("shift");
         \\const std = @import("std");
         \\const helpers = @import("downstream_public_lowering_helper.zig");
@@ -1268,6 +1275,16 @@ pub fn build(b: *std.Build) void {
         \\    \\const synthetic_helpers = @import("downstream_public_lowering_synthetic_helper.zig");
         \\    \\
         \\    \\pub fn syntheticRunBody(eff: anytype) ![]const u8 {{
+        \\    \\    const before = try eff.state.get();
+        \\    \\    try synthetic_helpers.emit(eff);
+        \\    \\    try eff.state.set(before + 1);
+        \\    \\    return "done";
+        \\    \\}}
+        \\;
+        \\const synthetic_parent_import_root_source =
+        \\    \\const synthetic_helpers = @import("../helpers/downstream_public_lowering_synthetic_helper.zig");
+        \\    \\
+        \\    \\pub fn syntheticRunBodyFromParentHelper(eff: anytype) ![]const u8 {{
         \\    \\    const before = try eff.state.get();
         \\    \\    try synthetic_helpers.emit(eff);
         \\    \\    try eff.state.set(before + 1);
@@ -1325,6 +1342,17 @@ pub fn build(b: *std.Build) void {
         \\    }};
         \\}}
         \\
+        \\fn nestedExplicitLoweringCaller() std.builtin.SourceLocation {{
+        \\    const src = @src();
+        \\    return .{{
+        \\        .module = src.module,
+        \\        .file = nested_downstream_source_path,
+        \\        .line = src.line,
+        \\        .column = src.column,
+        \\        .fn_name = src.fn_name,
+        \\    }};
+        \\}}
+        \\
         \\fn loweringSource() shift.lowering.SourceRef {{
         \\    return shift.lowering.sourceWithContentAndImports(
         \\        downstream_source_path,
@@ -1333,6 +1361,19 @@ pub fn build(b: *std.Build) void {
         \\        &.{{shift.lowering.importedSource(
         \\            downstream_source_path,
         \\            "downstream_public_lowering_synthetic_helper.zig",
+        \\            synthetic_helper_source,
+        \\        )}},
+        \\    );
+        \\}}
+        \\
+        \\fn loweringSourceWithParentImport() shift.lowering.SourceRef {{
+        \\    return shift.lowering.sourceWithContentAndImports(
+        \\        nested_downstream_source_path,
+        \\        nestedExplicitLoweringCaller(),
+        \\        synthetic_parent_import_root_source,
+        \\        &.{{shift.lowering.importedSource(
+        \\            nested_downstream_source_path,
+        \\            "../helpers/downstream_public_lowering_synthetic_helper.zig",
         \\            synthetic_helper_source,
         \\        )}},
         \\    );
@@ -1365,6 +1406,12 @@ pub fn build(b: *std.Build) void {
         \\    try LoweredFromSource.validate(std.testing.allocator);
         \\}}
         \\
+        \\test "downstream sourceWithContent preserves parent-directory helper imports for absolute caller-owned roots" {{
+        \\    const LoweredFromSource = shift.lower(loweringSourceWithParentImport(), loweringSpec("syntheticRunBodyFromParentHelper"));
+        \\    try std.testing.expectEqualStrings(nested_downstream_source_path, LoweredFromSource.source_path);
+        \\    try LoweredFromSource.validate(std.testing.allocator);
+        \\}}
+        \\
         \\test "downstream shift.lower remains executable outside the shift checkout" {{
         \\    const LoweredFromSource = shift.lower(loweringSource(), loweringSpec("syntheticRunBody"));
         \\
@@ -1386,7 +1433,7 @@ pub fn build(b: *std.Build) void {
         \\    try std.testing.expectEqualStrings("workflow=queued", source_result.outputs.writer[1]);
         \\}}
     ,
-        .{down_test_path_literal},
+        .{ down_test_path_literal, nested_down_test_path_literal },
     ) catch std.process.fatal("unable to allocate downstream public lowering test fixture", .{});
     _ = writeExternalBoundaryFixtureFile(
         b,
@@ -1987,7 +2034,8 @@ pub fn build(b: *std.Build) void {
         .{ .name = "cf-source-ownership-mismatch", .path = "test/compile_fail/source_ownership_mismatch_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
         .{ .name = "cf-source-ownership-content-mirror", .path = "test/compile_fail/source_ownership_content_mirror_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
         .{ .name = "cf-source-ownership-absolute-content-mirror", .path = "test/compile_fail/source_ownership_absolute_content_mirror_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-absolute-owned-helper-import-escape", .path = "test/compile_fail/absolute_owned_helper_import_escape_fails.zig", .expected = "public lowering imported source helper requires a non-escaping relative .zig import path" },
+        .{ .name = "cf-absolute-owned-helper-import-absolute-path", .path = "test/compile_fail/absolute_owned_helper_import_absolute_path_fails.zig", .expected = "public lowering imported source helper requires a non-escaping relative .zig import path" },
+        .{ .name = "cf-source-ownership-relative-no-content", .path = "test/compile_fail/source_ownership_relative_no_content_witness_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
         .{ .name = "cf-source-ownership-basename-witness", .path = "test/compile_fail/source_ownership_basename_witness_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
         .{ .name = "cf-source-ownership-owned-root-suffix-spoof", .path = "test/compile_fail/source_ownership_owned_root_suffix_spoof_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
         .{ .name = "cf-source-with-content-parse-error", .path = "test/compile_fail/source_with_content_parse_error_fails.zig", .expected = "public lowering rejected source text that does not parse as Zig" },
@@ -2032,7 +2080,8 @@ pub fn build(b: *std.Build) void {
         .{ .name = "cf-source-ownership-mismatch", .path = "test/compile_fail/source_ownership_mismatch_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
         .{ .name = "cf-source-ownership-content-mirror", .path = "test/compile_fail/source_ownership_content_mirror_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
         .{ .name = "cf-source-ownership-absolute-content-mirror", .path = "test/compile_fail/source_ownership_absolute_content_mirror_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-absolute-owned-helper-import-escape", .path = "test/compile_fail/absolute_owned_helper_import_escape_fails.zig", .expected = "public lowering imported source helper requires a non-escaping relative .zig import path" },
+        .{ .name = "cf-absolute-owned-helper-import-absolute-path", .path = "test/compile_fail/absolute_owned_helper_import_absolute_path_fails.zig", .expected = "public lowering imported source helper requires a non-escaping relative .zig import path" },
+        .{ .name = "cf-source-ownership-relative-no-content", .path = "test/compile_fail/source_ownership_relative_no_content_witness_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
         .{ .name = "cf-source-ownership-basename-witness", .path = "test/compile_fail/source_ownership_basename_witness_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
         .{ .name = "cf-source-ownership-owned-root-suffix-spoof", .path = "test/compile_fail/source_ownership_owned_root_suffix_spoof_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
         .{ .name = "cf-source-with-content-parse-error", .path = "test/compile_fail/source_with_content_parse_error_fails.zig", .expected = "public lowering rejected source text that does not parse as Zig" },

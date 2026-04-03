@@ -4,7 +4,7 @@ const std = @import("std");
 const entry_path = "/tmp/shift-owned-open-row/nested/deeper/entry.zig";
 
 const root_source =
-    \\const helpers = @import("../../outside_helper.zig");
+    \\const helpers = @import("/tmp/outside_helper.zig");
     \\
     \\pub fn runBody(eff: anytype) !void {
     \\    try helpers.helper(eff);
@@ -37,12 +37,12 @@ comptime {
             root_source,
             &.{shift.lowering.importedSource(
                 entry_path,
-                "../../outside_helper.zig",
+                "/tmp/outside_helper.zig",
                 helper_source,
             )},
         ),
         .{
-            .label = "compile_fail.absolute_owned_helper_import_escape",
+            .label = "compile_fail.absolute_owned_helper_import_absolute_path",
             .entry_symbol = "runBody",
             .row = shift.ir.rowFromSpec(.{
                 .writer = .{

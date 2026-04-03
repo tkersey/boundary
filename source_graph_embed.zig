@@ -316,17 +316,10 @@ fn resolveImportPath(comptime from_path: []const u8, comptime import_path: []con
     else
         repoRelativePath(from_path);
     const base_dir = dirname(normalized_from_path);
-    const normalized_import_path = if (std.fs.path.isAbsolute(normalized_from_path))
-        normalizeRelativePath(import_path) catch |err| switch (err) {
-            error.EmptyPath, error.EscapesRoot => return error.UnsupportedImportPath,
-            error.TooManySegments => return error.TooManyImports,
-        }
-    else
-        import_path;
     const joined = if (base_dir.len == 0)
-        normalized_import_path
+        import_path
     else
-        std.fmt.comptimePrint("{s}/{s}", .{ base_dir, normalized_import_path });
+        std.fmt.comptimePrint("{s}/{s}", .{ base_dir, import_path });
 
     return if (std.fs.path.isAbsolute(normalized_from_path))
         normalizeAbsolutePath(joined) catch |err| switch (err) {
@@ -543,5 +536,15 @@ test "repoRelativeAbsolutePath accepts mixed separator spellings for checkout ro
             "C:\\repo\\examples\\open_row_state_writer.zig",
             "C:/repo",
         ).?,
+    );
+}
+
+test "resolveImportPathAt preserves parent-directory helpers for absolute caller-owned roots" {
+    try std.testing.expectEqualStrings(
+        "/tmp/shift-owned-open-row/helpers/util.zig",
+        try resolveImportPathAt(
+            "/tmp/shift-owned-open-row/nested/entry.zig",
+            "../helpers/util.zig",
+        ),
     );
 }
