@@ -7,6 +7,7 @@ const EncodedValue = lowered_machine.ProgramValue;
 
 const FrameBase = struct {
     prompt_token: prompt_contract.PromptToken,
+    prompt_identity: *const anyopaque,
     runtime_previous_for_token: ?*FrameBase = null,
     compat_previous_for_token: ?*FrameBase = null,
 };
@@ -463,7 +464,7 @@ pub fn transformProgramWithContext(
     comptime assertContinuationType(Resume, PromptType, Continuation);
     return .{
         .transform = .{
-            .handler_ctx = @ptrCast(handler_ctx),
+            .handler_ctx = @ptrCast(@constCast(handler_ctx)),
             .resumeValueFn = struct {
                 fn invoke(raw_ctx: ?*anyopaque) lowered_machine.ControlError(PromptType.ErrorSet)!EncodedValue {
                     const typed_ctx: ContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
@@ -545,7 +546,7 @@ pub fn choiceProgramWithHandlerContext(
     comptime assertContinuationType(Resume, PromptType, Continuation);
     return .{
         .choice = .{
-            .handler_ctx = @ptrCast(handler_ctx),
+            .handler_ctx = @ptrCast(@constCast(handler_ctx)),
             .decisionFn = struct {
                 fn invoke(raw_ctx: ?*anyopaque) lowered_machine.ControlError(PromptType.ErrorSet)!DecisionValue(PromptType) {
                     const typed_ctx: ContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
@@ -594,7 +595,7 @@ pub fn choiceProgramWithContexts(
     }
     return .{
         .choice = .{
-            .handler_ctx = @ptrCast(handler_ctx),
+            .handler_ctx = @ptrCast(@constCast(handler_ctx)),
             .decisionFn = struct {
                 fn invoke(raw_ctx: ?*anyopaque) lowered_machine.ControlError(PromptType.ErrorSet)!DecisionValue(PromptType) {
                     const typed_ctx: HandlerContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
@@ -689,7 +690,7 @@ pub fn abortProgramWithContext(
     comptime assertHandlerProtocolWithContext(void, PromptType, ContextPtrType, Handler);
     return .{
         .abort = .{
-            .handler_ctx = @ptrCast(handler_ctx),
+            .handler_ctx = @ptrCast(@constCast(handler_ctx)),
             .directReturnFn = struct {
                 fn invoke(raw_ctx: ?*anyopaque) lowered_machine.ControlError(PromptType.ErrorSet)!PromptType.OutAnswer {
                     const typed_ctx: ContextPtrType = @ptrCast(@alignCast(raw_ctx.?));
@@ -759,7 +760,10 @@ fn Frame(comptime PromptType: type) type {
 
         fn init(allocator: std.mem.Allocator, prompt: *const PromptType) @This() {
             return .{
-                .base = .{ .prompt_token = prompt.token },
+                .base = .{
+                    .prompt_token = prompt.token,
+                    .prompt_identity = @ptrCast(prompt),
+                },
                 .allocator = allocator,
             };
         }
@@ -947,8 +951,17 @@ fn persistHandlerContext(
 }
 
 fn findFrame(comptime PromptType: type, prompt: *const PromptType) ?*Frame(PromptType) {
-    const base = portable_core.compatFrameFind(*FrameBase, prompt.token) orelse return null;
-    return @fieldParentPtr("base", base);
+    if (lowered_machine.activeRuntime()) |runtime| {
+        const base = runtime.core.frames.find(*FrameBase, prompt.token) orelse return null;
+        return @fieldParentPtr("base", base);
+    }
+
+    var compat_base = portable_core.compatFrameFind(*FrameBase, prompt.token) orelse return null;
+    const prompt_identity: *const anyopaque = @ptrCast(prompt);
+    while (true) {
+        if (compat_base.prompt_identity == prompt_identity) return @fieldParentPtr("base", compat_base);
+        compat_base = compat_base.compat_previous_for_token orelse return null;
+    }
 }
 
 fn pushActiveFrame(runtime: *lowered_machine.Runtime, base: *FrameBase) lowered_machine.Error!void {
@@ -1688,6 +1701,49 @@ test "compat frame pop restores the shadowed frame when runtimes reuse a prompt 
     popActiveFrame(&first_runtime, &first_frame.base);
     try std.testing.expect(findFrame(Prompt, &first_prompt) == null);
     try std.testing.expect(first_runtime.core.frames.find(*FrameBase, first_prompt.token) == null);
+}
+
+test "compat frame lookup keeps prompt-token collisions isolated while both runtimes stay active" {
+    const Prompt = prompt_contract.Prompt(.resume_then_transform, i32, i32, error{});
+    const handler = struct {
+        /// Return one distinct resumptive value for the collision regression.
+        pub fn resumeValue() i32 {
+            return 41;
+        }
+
+        /// Preserve the resumed answer so only frame routing affects the test.
+        pub fn afterResume(answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    var first_runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer first_runtime.deinit();
+    var second_runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer second_runtime.deinit();
+
+    var first_prompt = Prompt.initWithToken(41);
+    var second_prompt = Prompt.initWithToken(41);
+
+    var first_frame = Frame(Prompt).init(lowered_machine.runtimeAllocator(&first_runtime), &first_prompt);
+    defer first_frame.deinit();
+    try pushActiveFrame(&first_runtime, &first_frame.base);
+    defer popActiveFrame(&first_runtime, &first_frame.base);
+
+    var second_frame = Frame(Prompt).init(lowered_machine.runtimeAllocator(&second_runtime), &second_prompt);
+    defer second_frame.deinit();
+    try pushActiveFrame(&second_runtime, &second_frame.base);
+    defer popActiveFrame(&second_runtime, &second_frame.base);
+
+    try std.testing.expect(findFrame(Prompt, &first_prompt) == &first_frame);
+    try std.testing.expect(findFrame(Prompt, &second_prompt) == &second_frame);
+
+    try lowered_machine.beginExecution(&first_runtime);
+    defer lowered_machine.endExecution(&first_runtime);
+
+    try std.testing.expectError(error.FrontendSuspend, transform(i32, &first_prompt, handler));
+    try std.testing.expectEqual(@as(usize, 1), first_frame.records.items.len);
+    try std.testing.expectEqual(@as(usize, 0), second_frame.records.items.len);
 }
 
 test "choiceWithContext persists a copy of handler context for replay" {
