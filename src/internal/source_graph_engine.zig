@@ -177,6 +177,56 @@ fn unquoteImportPath(literal: []const u8) ?[]const u8 {
     return literal[1 .. literal.len - 1];
 }
 
+/// Decode one unquoted Zig import path string using Zig string-literal escapes.
+pub fn decodeImportPathLiteral(import_path: []const u8, buffer: []u8) ?[]const u8 {
+    if (std.mem.indexOfScalar(u8, import_path, '\\') == null) {
+        if (std.mem.indexOfAny(u8, import_path, "\"\n") != null) return null;
+        return import_path;
+    }
+
+    var out_index: usize = 0;
+    var index: usize = 0;
+    while (index < import_path.len) {
+        switch (import_path[index]) {
+            '\\' => {
+                const escape_char_index = index + 1;
+                const parsed = std.zig.string_literal.parseEscapeSequence(import_path, &index);
+                const codepoint = switch (parsed) {
+                    .success => |value| value,
+                    .failure => return null,
+                };
+                if (escape_char_index >= import_path.len) return null;
+                if (import_path[escape_char_index] == 'u') {
+                    var utf8_buffer: [4]u8 = undefined;
+                    const utf8_len = std.unicode.utf8Encode(codepoint, &utf8_buffer) catch return null;
+                    if (out_index + utf8_len > buffer.len) return null;
+                    @memcpy(buffer[out_index .. out_index + utf8_len], utf8_buffer[0..utf8_len]);
+                    out_index += utf8_len;
+                } else {
+                    if (out_index >= buffer.len) return null;
+                    buffer[out_index] = @as(u8, @intCast(codepoint));
+                    out_index += 1;
+                }
+            },
+            '"' => return null,
+            '\n' => return null,
+            else => {
+                if (out_index >= buffer.len) return null;
+                buffer[out_index] = import_path[index];
+                out_index += 1;
+                index += 1;
+            },
+        }
+    }
+    return buffer[0..out_index];
+}
+
+fn importPathEndsWithZig(import_path: []const u8) bool {
+    var decoded_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const decoded = decodeImportPathLiteral(import_path, &decoded_buffer) orelse return false;
+    return std.mem.endsWith(u8, decoded, ".zig");
+}
+
 const RuntimeCollector = struct {
     allocator: std.mem.Allocator,
     functions: std.ArrayList(FunctionNode) = .empty,
@@ -833,7 +883,7 @@ fn statementMatchesSupportedHelperCall(
     if (tokens[index + 3].tag != .l_paren) return false;
     if (tokens[tokens.len - 1].tag != .r_paren) return false;
     const import_alias = findImportAlias(imports, tokens[index].lexeme) orelse return false;
-    if (!std.mem.endsWith(u8, import_alias.import_path, ".zig")) return false;
+    if (!importPathEndsWithZig(import_alias.import_path)) return false;
     return helperCallArgsSupported(tokens[index + 4 .. tokens.len - 1]);
 }
 
@@ -1019,7 +1069,7 @@ fn maybeQualifiedHelperUse(
         return null;
     }
     const import_alias = findImportAlias(imports, tail[0].lexeme) orelse return null;
-    if (!std.mem.endsWith(u8, import_alias.import_path, ".zig")) return null;
+    if (!importPathEndsWithZig(import_alias.import_path)) return null;
     return .{
         .import_alias = tail[0].lexeme,
         .callee_name = tail[2].lexeme,
@@ -1492,6 +1542,26 @@ test "shared engine finds helper edges and direct op uses" {
     try std.testing.expectEqualStrings("helper", graph.helper_edges[0].callee_name);
     try std.testing.expectEqualStrings("writer", graph.direct_op_uses[0].requirement_label);
     try std.testing.expectEqualStrings("tell", graph.direct_op_uses[0].op_name);
+}
+
+test "shared engine decodes escaped helper import strings before helper classification" {
+    const graph = try analyzeComptime(
+        \\const helpers = @import("helpers\x2futil\x2ezig");
+        \\pub fn runBody(eff: anytype) !void {
+        \\    try helpers.helper(eff);
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), graph.imports.len);
+    try std.testing.expectEqual(@as(usize, 1), graph.helper_uses.len);
+    try std.testing.expectEqualStrings("helpers\\x2futil\\x2ezig", graph.imports[0].import_path);
+    try std.testing.expectEqualStrings("helper", graph.helper_uses[0].callee_name);
 }
 
 test "shared engine supports alias-based effect access" {

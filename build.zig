@@ -327,27 +327,29 @@ fn addAbsoluteSymlinkCommand(
     return cmd;
 }
 
-fn compileFailEscapeSymlinkSupported(b: *std.Build) bool {
-    const cache_root_path = b.cache_root.path orelse return false;
-    const absolute_cache_root = if (std.fs.path.isAbsolute(cache_root_path))
-        cache_root_path
-    else
-        std.fs.path.resolve(b.allocator, &.{ b.pathFromRoot("."), cache_root_path }) catch
-            std.process.fatal("unable to resolve absolute cache root path", .{});
-    var cache_root_dir = std.fs.openDirAbsolute(absolute_cache_root, .{}) catch return false;
-    defer cache_root_dir.close();
-    cache_root_dir.makePath("boundary-fixture-probes") catch return false;
-    const target_path = std.fs.path.join(
-        b.allocator,
-        &.{ absolute_cache_root, "boundary-fixture-probes", "compile_fail_escape_helper_target.zig" },
-    ) catch std.process.fatal("unable to allocate compile-fail helper probe target path", .{});
-    const link_path = std.fs.path.join(
-        b.allocator,
-        &.{ absolute_cache_root, "boundary-fixture-probes", "compile_fail_escape_helper_link.zig" },
-    ) catch std.process.fatal("unable to allocate compile-fail helper probe link path", .{});
+fn compileFailEscapeProbeLinkPath(allocator: std.mem.Allocator, fixture_link_path: []const u8) ![]u8 {
+    const fixture_dir = std.fs.path.dirname(fixture_link_path) orelse return error.MissingCompileFailFixtureDir;
+    return std.fs.path.join(
+        allocator,
+        &.{ fixture_dir, ".compile_fail_escape_helper_probe_link.zig" },
+    );
+}
+
+fn compileFailEscapeSymlinkSupported(
+    b: *std.Build,
+    target_path: []const u8,
+    fixture_link_path: []const u8,
+) bool {
+    const probe_link_path = compileFailEscapeProbeLinkPath(b.allocator, fixture_link_path) catch
+        std.process.fatal("unable to allocate compile-fail helper probe link path", .{});
+    defer clearAliasPath(
+        probe_link_path,
+        "unable to clear compile-fail helper probe symlink directory",
+        "unable to clear compile-fail helper probe symlink path",
+    );
     return ensureOptionalAbsoluteSymlink(
         target_path,
-        link_path,
+        probe_link_path,
         "unable to clear compile-fail helper probe symlink directory",
         "unable to clear compile-fail helper probe symlink path",
     );
@@ -466,6 +468,19 @@ test "externalBoundaryFixtureRootPath namespaces sibling checkouts" {
         "/tmp/shift-parent/.shift_external_boundary_fixtures/",
     ));
     try std.testing.expect(!std.mem.eql(u8, first, second));
+}
+
+test "compileFailEscapeProbeLinkPath stays in the fixture directory" {
+    const probe_path = try compileFailEscapeProbeLinkPath(
+        std.testing.allocator,
+        "/tmp/shift/test/compile_fail_inputs/.compile_fail_escape_helper_link.zig",
+    );
+    defer std.testing.allocator.free(probe_path);
+
+    try std.testing.expectEqualStrings(
+        "/tmp/shift/test/compile_fail_inputs/.compile_fail_escape_helper_probe_link.zig",
+        probe_path,
+    );
 }
 
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.
@@ -1529,7 +1544,11 @@ pub fn build(b: *std.Build) void {
         &.{ externalBoundaryFixtureRoot(b), "compile_fail_escape_helper_target.zig" },
     ) catch std.process.fatal("unable to allocate compile-fail helper target fixture path", .{});
     const cf_escape_helper_link = b.pathFromRoot("test/compile_fail_inputs/.compile_fail_escape_helper_link.zig");
-    const compile_fail_escape_symlink_ok = compileFailEscapeSymlinkSupported(b);
+    const compile_fail_escape_symlink_ok = compileFailEscapeSymlinkSupported(
+        b,
+        cf_escape_helper_target,
+        cf_escape_helper_link,
+    );
     const write_cf_escape_helper = addWriteTextFileCommand(
         b,
         cf_escape_helper_target,

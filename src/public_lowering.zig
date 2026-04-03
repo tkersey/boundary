@@ -1726,8 +1726,13 @@ fn resolveValidationImportPathAlloc(
     source_path: []const u8,
     import_path: []const u8,
 ) ValidationError![]u8 {
-    if (source_graph_embed.pathIsAbsoluteCrossPlatform(import_path)) return error.UnsupportedHelperGraph;
-    if (!std.mem.endsWith(u8, import_path, ".zig")) return error.UnsupportedHelperGraph;
+    var decoded_import_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const decoded_import_path = source_graph_engine.decodeImportPathLiteral(
+        import_path,
+        &decoded_import_path_buffer,
+    ) orelse return error.UnsupportedHelperGraph;
+    if (source_graph_embed.pathIsAbsoluteCrossPlatform(decoded_import_path)) return error.UnsupportedHelperGraph;
+    if (!std.mem.endsWith(u8, decoded_import_path, ".zig")) return error.UnsupportedHelperGraph;
 
     if (packageRootRelativeSlice(source_path)) |repo_source_path| {
         const normalized_repo_source_path = try normalizeRelativeRepoPathAlloc(allocator, repo_source_path);
@@ -1740,7 +1745,7 @@ fn resolveValidationImportPathAlloc(
             try joined.appendSlice(allocator, base_dir);
             try joined.append(allocator, '/');
         }
-        try joined.appendSlice(allocator, import_path);
+        try joined.appendSlice(allocator, decoded_import_path);
         const imported_repo_path = try normalizeRelativeRepoPathAlloc(allocator, joined.items);
         defer allocator.free(imported_repo_path);
         return try canonicalPackageRootRelativePathAlloc(allocator, imported_repo_path);
@@ -1750,7 +1755,7 @@ fn resolveValidationImportPathAlloc(
     const canonical_source_path = try canonicalValidationSourcePathAlloc(allocator, source_path);
     defer allocator.free(canonical_source_path);
     const repo_source_path = packageRootRelativeSlice(canonical_source_path) orelse return error.UnsupportedHelperGraph;
-    return try resolveValidationImportPathAlloc(allocator, repo_source_path, import_path);
+    return try resolveValidationImportPathAlloc(allocator, repo_source_path, decoded_import_path);
 }
 
 fn resolveOwnedValidationImportPathAlloc(
@@ -1758,8 +1763,13 @@ fn resolveOwnedValidationImportPathAlloc(
     source_path: []const u8,
     import_path: []const u8,
 ) ValidationError![]u8 {
-    if (source_graph_embed.pathIsAbsoluteCrossPlatform(import_path)) return error.UnsupportedHelperGraph;
-    if (!std.mem.endsWith(u8, import_path, ".zig")) return error.UnsupportedHelperGraph;
+    var decoded_import_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const decoded_import_path = source_graph_engine.decodeImportPathLiteral(
+        import_path,
+        &decoded_import_path_buffer,
+    ) orelse return error.UnsupportedHelperGraph;
+    if (source_graph_embed.pathIsAbsoluteCrossPlatform(decoded_import_path)) return error.UnsupportedHelperGraph;
+    if (!std.mem.endsWith(u8, decoded_import_path, ".zig")) return error.UnsupportedHelperGraph;
 
     if (packageRootRelativeSlice(source_path)) |repo_source_path| {
         const normalized_repo_source_path = try normalizeRelativeRepoPathAlloc(allocator, repo_source_path);
@@ -1772,16 +1782,16 @@ fn resolveOwnedValidationImportPathAlloc(
             try joined.appendSlice(allocator, base_dir);
             try joined.append(allocator, '/');
         }
-        try joined.appendSlice(allocator, import_path);
+        try joined.appendSlice(allocator, decoded_import_path);
         const imported_repo_path = try normalizeRelativeRepoPathAlloc(allocator, joined.items);
         defer allocator.free(imported_repo_path);
         return try lexicalPackageRootRelativePathAlloc(allocator, imported_repo_path);
     }
 
     if (!std.fs.path.isAbsolute(source_path)) return error.UnsupportedHelperGraph;
-    if (!source_graph_embed.absoluteOwnedImportWithinEntryTree(import_path)) return error.UnsupportedHelperGraph;
+    if (!source_graph_embed.absoluteOwnedImportWithinEntryTree(decoded_import_path)) return error.UnsupportedHelperGraph;
     const base_dir = std.fs.path.dirname(source_path) orelse return error.UnsupportedHelperGraph;
-    const joined_path = std.fs.path.join(allocator, &.{ base_dir, import_path }) catch |err| switch (err) {
+    const joined_path = std.fs.path.join(allocator, &.{ base_dir, decoded_import_path }) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => unreachable,
     };

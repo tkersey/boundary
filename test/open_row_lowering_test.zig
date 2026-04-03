@@ -940,6 +940,38 @@ test "file-backed validation resolves cross-file helper imports for explicit-pat
     try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
 }
 
+test "file-backed validation resolves escaped helper import strings for explicit-path lowering" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("helpers");
+    try tmp.dir.writeFile(.{
+        .sub_path = "helpers/util.zig",
+        .data =
+        \\pub fn helper(eff: anytype) !void {
+        \\    try eff.writer.tell("escaped-path");
+        \\}
+        ,
+    });
+    try tmp.dir.writeFile(.{
+        .sub_path = "entry.zig",
+        .data =
+        \\const helpers = @import("helpers\x2futil\x2ezig");
+        \\
+        \\pub fn runBody(eff: anytype) !void {
+        \\    try helpers.helper(eff);
+        \\}
+        ,
+    });
+
+    const tmp_path = try tmp.dir.realpathAlloc(std.testing.allocator, "entry.zig");
+    defer std.testing.allocator.free(tmp_path);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
+}
+
 test "file-backed validation resolves cross-file helper imports from checkout aliases" {
     const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(original_cwd);
