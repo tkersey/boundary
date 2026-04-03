@@ -219,11 +219,27 @@ fn boundaryAliasRoot(b: *std.Build) []const u8 {
         std.process.fatal("unable to allocate package-root alias root", .{});
 }
 
-fn externalBoundaryFixtureRoot(b: *std.Build) []const u8 {
-    const repo_root = b.pathFromRoot(".");
+fn externalBoundaryFixtureNamespace(allocator: std.mem.Allocator, repo_root: []const u8) ![]u8 {
+    return std.fmt.allocPrint(
+        allocator,
+        "shift_repo_{x}",
+        .{std.hash.Wyhash.hash(0, repo_root)},
+    );
+}
+
+fn externalBoundaryFixtureRootPath(allocator: std.mem.Allocator, repo_root: []const u8) ![]u8 {
     const repo_parent = std.fs.path.dirname(repo_root) orelse
-        std.process.fatal("unable to derive external boundary fixture parent", .{});
-    return std.fs.path.join(b.allocator, &.{ repo_parent, ".shift_external_boundary_fixtures" }) catch
+        return error.MissingExternalBoundaryFixtureParent;
+    const fixture_namespace = try externalBoundaryFixtureNamespace(allocator, repo_root);
+    defer allocator.free(fixture_namespace);
+    return std.fs.path.join(
+        allocator,
+        &.{ repo_parent, ".shift_external_boundary_fixtures", fixture_namespace },
+    );
+}
+
+fn externalBoundaryFixtureRoot(b: *std.Build) []const u8 {
+    return externalBoundaryFixtureRootPath(b.allocator, b.pathFromRoot(".")) catch
         std.process.fatal("unable to allocate external boundary fixture root", .{});
 }
 
@@ -275,34 +291,66 @@ fn packageRootAlias(b: *std.Build) PackageRootAlias {
     };
 }
 
-fn writeExternalBoundaryFixtureFile(b: *std.Build, basename: []const u8, contents: []const u8) []const u8 {
-    const fixture_root = externalBoundaryFixtureRoot(b);
-    std.fs.makeDirAbsolute(fixture_root) catch |err| switch (err) {
-        error.PathAlreadyExists => {},
-        else => std.process.fatal("unable to prepare external boundary fixture root", .{}),
-    };
-    const fixture_path = std.fs.path.join(b.allocator, &.{ fixture_root, basename }) catch
-        std.process.fatal("unable to allocate external boundary fixture path", .{});
-    const file = std.fs.createFileAbsolute(fixture_path, .{ .truncate = true }) catch |err| switch (err) {
-        error.IsDir => blk: {
-            clearAliasPath(
-                fixture_path,
-                "unable to clear existing external boundary fixture directory",
-                "unable to clear existing external boundary fixture path",
-            );
-            break :blk std.fs.createFileAbsolute(fixture_path, .{ .truncate = true }) catch
-                std.process.fatal("unable to recreate external boundary fixture file", .{});
-        },
-        else => std.process.fatal("unable to create external boundary fixture file", .{}),
-    };
-    defer file.close();
-    var writer_buffer: [4096]u8 = undefined;
-    var file_writer = file.writer(&writer_buffer);
-    file_writer.interface.writeAll(contents) catch
-        std.process.fatal("unable to write external boundary fixture file", .{});
-    file_writer.interface.flush() catch
-        std.process.fatal("unable to flush external boundary fixture file", .{});
-    return fixture_path;
+fn addWriteTextFileCommand(
+    b: *std.Build,
+    path: []const u8,
+    contents: []const u8,
+    name: []const u8,
+) *std.Build.Step.Run {
+    const cmd = b.addSystemCommand(&.{
+        "sh",
+        "-c",
+        "p=\"$1\"; d=${p%/*}; mkdir -p \"$d\" && printf '%s' \"$2\" > \"$1\"",
+        "sh",
+        path,
+        contents,
+    });
+    cmd.step.name = name;
+    return cmd;
+}
+
+fn addAbsoluteSymlinkCommand(
+    b: *std.Build,
+    target_path: []const u8,
+    link_path: []const u8,
+    name: []const u8,
+) *std.Build.Step.Run {
+    const cmd = b.addSystemCommand(&.{
+        "sh",
+        "-c",
+        "p=\"$2\"; d=${p%/*}; mkdir -p \"$d\" && rm -f \"$2\" && ln -s \"$1\" \"$2\"",
+        "sh",
+        target_path,
+        link_path,
+    });
+    cmd.step.name = name;
+    return cmd;
+}
+
+fn compileFailEscapeSymlinkSupported(b: *std.Build) bool {
+    const cache_root_path = b.cache_root.path orelse return false;
+    const absolute_cache_root = if (std.fs.path.isAbsolute(cache_root_path))
+        cache_root_path
+    else
+        std.fs.path.resolve(b.allocator, &.{ b.pathFromRoot("."), cache_root_path }) catch
+            std.process.fatal("unable to resolve absolute cache root path", .{});
+    var cache_root_dir = std.fs.openDirAbsolute(absolute_cache_root, .{}) catch return false;
+    defer cache_root_dir.close();
+    cache_root_dir.makePath("boundary-fixture-probes") catch return false;
+    const target_path = std.fs.path.join(
+        b.allocator,
+        &.{ absolute_cache_root, "boundary-fixture-probes", "compile_fail_escape_helper_target.zig" },
+    ) catch std.process.fatal("unable to allocate compile-fail helper probe target path", .{});
+    const link_path = std.fs.path.join(
+        b.allocator,
+        &.{ absolute_cache_root, "boundary-fixture-probes", "compile_fail_escape_helper_link.zig" },
+    ) catch std.process.fatal("unable to allocate compile-fail helper probe link path", .{});
+    return ensureOptionalAbsoluteSymlink(
+        target_path,
+        link_path,
+        "unable to clear compile-fail helper probe symlink directory",
+        "unable to clear compile-fail helper probe symlink path",
+    );
 }
 
 fn ensureOptionalAbsoluteSymlink(
@@ -393,6 +441,31 @@ test "zigStringLiteralEscapeAlloc escapes path bytes for generated fixture sourc
         "C:\\\\Users\\\\\\\"tk\\\"\\\\shift\\\\downstream_public_lowering_test.zig",
         escaped,
     );
+}
+
+test "externalBoundaryFixtureRootPath namespaces sibling checkouts" {
+    const first = try externalBoundaryFixtureRootPath(
+        std.testing.allocator,
+        "/tmp/shift-parent/shift-a",
+    );
+    defer std.testing.allocator.free(first);
+    const second = try externalBoundaryFixtureRootPath(
+        std.testing.allocator,
+        "/tmp/shift-parent/shift-b",
+    );
+    defer std.testing.allocator.free(second);
+
+    try std.testing.expect(std.mem.startsWith(
+        u8,
+        first,
+        "/tmp/shift-parent/.shift_external_boundary_fixtures/",
+    ));
+    try std.testing.expect(std.mem.startsWith(
+        u8,
+        second,
+        "/tmp/shift-parent/.shift_external_boundary_fixtures/",
+    ));
+    try std.testing.expect(!std.mem.eql(u8, first, second));
 }
 
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.
@@ -1251,16 +1324,21 @@ pub fn build(b: *std.Build) void {
     ) catch std.process.fatal("unable to allocate nested external downstream public lowering fixture path", .{});
     const nested_down_test_path_literal = zigStringLiteralEscapeAlloc(b.allocator, nested_down_test_path) catch
         std.process.fatal("unable to escape nested downstream public lowering fixture path", .{});
+    const down_helper_path = std.fs.path.join(
+        b.allocator,
+        &.{ externalBoundaryFixtureRoot(b), "downstream_public_lowering_helper.zig" },
+    ) catch std.process.fatal("unable to allocate external downstream public lowering helper fixture path", .{});
     const down_helper_src =
         \\pub fn emit(eff: anytype) !void {
         \\    try eff.writer.tell("query=artifact-search");
         \\    try eff.writer.tell("workflow=queued");
         \\}
     ;
-    _ = writeExternalBoundaryFixtureFile(
+    const write_down_helper_fixture = addWriteTextFileCommand(
         b,
-        "downstream_public_lowering_helper.zig",
+        down_helper_path,
         down_helper_src,
+        "write-downstream-public-lowering-helper-fixture",
     );
     const down_test_src = std.fmt.allocPrint(
         b.allocator,
@@ -1435,28 +1513,36 @@ pub fn build(b: *std.Build) void {
     ,
         .{ down_test_path_literal, nested_down_test_path_literal },
     ) catch std.process.fatal("unable to allocate downstream public lowering test fixture", .{});
-    _ = writeExternalBoundaryFixtureFile(
+    const write_down_test_fixture = addWriteTextFileCommand(
         b,
-        "downstream_public_lowering_test.zig",
+        down_test_path,
         down_test_src,
+        "write-downstream-public-lowering-test-fixture",
     );
     const compile_fail_escape_helper_src =
         \\pub fn helper(eff: anytype) !void {
         \\    try eff.writer.tell("escaped");
         \\}
     ;
-    const cf_escape_helper_target = writeExternalBoundaryFixtureFile(
-        b,
-        "compile_fail_escape_helper_target.zig",
-        compile_fail_escape_helper_src,
-    );
+    const cf_escape_helper_target = std.fs.path.join(
+        b.allocator,
+        &.{ externalBoundaryFixtureRoot(b), "compile_fail_escape_helper_target.zig" },
+    ) catch std.process.fatal("unable to allocate compile-fail helper target fixture path", .{});
     const cf_escape_helper_link = b.pathFromRoot("test/compile_fail_inputs/.compile_fail_escape_helper_link.zig");
-    const compile_fail_escape_symlink_ok = ensureOptionalAbsoluteSymlink(
+    const compile_fail_escape_symlink_ok = compileFailEscapeSymlinkSupported(b);
+    const write_cf_escape_helper = addWriteTextFileCommand(
+        b,
+        cf_escape_helper_target,
+        compile_fail_escape_helper_src,
+        "write-compile-fail-escape-helper-fixture",
+    );
+    const prep_cf_escape_symlink = addAbsoluteSymlinkCommand(
+        b,
         cf_escape_helper_target,
         cf_escape_helper_link,
-        "unable to clear compile-fail helper symlink directory",
-        "unable to clear compile-fail helper symlink path",
+        "write-compile-fail-escape-helper-symlink",
     );
+    prep_cf_escape_symlink.step.dependOn(&write_cf_escape_helper.step);
     const down_mod = createShiftConsumerModule(
         b,
         down_test_path,
@@ -1467,6 +1553,8 @@ pub fn build(b: *std.Build) void {
     const down_tests = b.addTest(.{
         .root_module = down_mod,
     });
+    down_tests.step.dependOn(&write_down_helper_fixture.step);
+    down_tests.step.dependOn(&write_down_test_fixture.step);
     const run_down_tests = b.addRunArtifact(down_tests);
     const down_step = b.step("downstream-public-lowering", "Run public lowering proofs from an external consumer module.");
     down_step.dependOn(&run_down_tests.step);
@@ -2144,6 +2232,7 @@ pub fn build(b: *std.Build) void {
                 .name = fixture.name,
                 .root_module = fixture_mod,
             });
+            fixture_check.step.dependOn(&prep_cf_escape_symlink.step);
             fixture_check.expect_errors = .{ .contains = fixture.expected };
             compile_fail_step.dependOn(&fixture_check.step);
             test_step.dependOn(&fixture_check.step);
