@@ -2172,11 +2172,18 @@ test "same-module lowerAt preserves caller-provided source ownership" {
                 },
             }),
         }),
+        .ValueType = []const u8,
+        .outputs = &.{
+            .{ .label = "state", .OutputType = i32 },
+            .{ .label = "writer", .OutputType = [][]const u8 },
+        },
     });
 
     try std.testing.expectEqualStrings("examples/open_row_state_writer.zig", ProgramType.source_path);
     try std.testing.expectEqualStrings("runBody", ProgramType.entry_symbol);
     try std.testing.expectEqual(@as(usize, 3), ProgramType.runtime_plan.functions.len);
+    try std.testing.expectEqual(program_plan.ValueCodec.string, ProgramType.runtime_plan.functions[ProgramType.runtime_plan.entry_index].value_codec);
+    try std.testing.expectEqual(@as(usize, 2), ProgramType.runtime_plan.outputs.len);
 }
 
 test "source ownership requires a true repo-path suffix, not a basename-only match" {
