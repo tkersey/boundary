@@ -186,6 +186,7 @@ pub const ProgramPlan = struct {
         for (self.functions) |function| {
             const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
             const function_instruction_end = rangeEnd(function.first_instruction, function.instruction_count) orelse return error.InvalidFunctionInstructionSpan;
+            const function_returns_value = function.value_codec != .unit;
             var covered_instruction_end: usize = function.first_instruction;
             for (self.blocks[function.first_block..block_end]) |block| {
                 if (block.first_instruction != covered_instruction_end) return error.InvalidFunctionInstructionSpan;
@@ -220,7 +221,6 @@ pub const ProgramPlan = struct {
                             return error.InvalidInstructionLocalIndex;
                         }
                         if (self.ops[instruction.operand].payload_codec != .unit and
-                            instruction.aux != std.math.maxInt(u16) and
                             !isValidFunctionLocal(function.local_count, instruction.aux))
                         {
                             return error.InvalidInstructionLocalIndex;
@@ -253,9 +253,11 @@ pub const ProgramPlan = struct {
                     .jump => {
                         if (!isOwnedBlockTarget(function.first_block, block_end, terminator.primary)) return error.InvalidTerminatorTarget;
                     },
-                    .return_unit => {},
+                    .return_unit => {
+                        if (function_returns_value) return error.InvalidTerminatorInstruction;
+                    },
                     .return_value => {
-                        if (!block_has_return_value) return error.InvalidTerminatorInstruction;
+                        if (!function_returns_value or !block_has_return_value) return error.InvalidTerminatorInstruction;
                     },
                 }
             }
@@ -658,7 +660,7 @@ fn rowOnlyFunctionSynthesis(
         if (value_result_codec.? != function_value_codec.?) return error.InvalidProgramBodyShape;
         break :blk local_id;
     } else blk: {
-        if (function.parameter_codecs.len == 0) return error.InvalidProgramBodyShape;
+        if (function.parameter_codecs.len != 1) return error.InvalidProgramBodyShape;
         if (codecFromEffectIrBody(function.parameter_codecs[0]) != function_value_codec.?) {
             return error.InvalidProgramBodyShape;
         }

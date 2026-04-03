@@ -145,6 +145,145 @@ test "planFromProgram preserves row-only parameter returns inside the function l
     try plan.validate();
 }
 
+test "planFromProgram rejects ambiguous row-only multi-parameter returns without explicit bodies" {
+    const program = effect_ir.Program{
+        .functions = &.{.{
+            .symbol = .{
+                .module_path = "examples/pick.zig",
+                .symbol_name = "pick",
+            },
+            .row = effect_ir.rowFromSpec(.{}),
+            .parameter_codecs = &.{ .bool, .bool },
+            .ValueType = bool,
+        }},
+        .call_edges = &.{},
+    };
+
+    const result = comptime internal_program_plan.planFromProgram("example.row_only_ambiguous_param_return", program);
+    try std.testing.expectError(error.InvalidProgramBodyShape, result);
+}
+
+test "ProgramPlan.validate rejects payload-bearing call_op instructions without a payload local" {
+    const plan = internal_program_plan.ProgramPlan{
+        .label = "invalid.call_op_missing_payload_local",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{.{
+            .label = "req",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "call",
+            .mode = .transform,
+            .payload_codec = .i32,
+            .resume_codec = .unit,
+        }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 1,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{
+            .kind = .call_op,
+            .dst = 0,
+            .operand = 0,
+            .aux = std.math.maxInt(u16),
+        }},
+    };
+
+    try std.testing.expectError(error.InvalidInstructionLocalIndex, plan.validate());
+}
+
+test "ProgramPlan.validate rejects return_unit terminators for value-returning functions" {
+    const plan = internal_program_plan.ProgramPlan{
+        .label = "invalid.return_unit_value_function",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 1,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{.{ .label = "result", .codec = .i32 }},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 0,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+
+    try std.testing.expectError(error.InvalidTerminatorInstruction, plan.validate());
+}
+
+test "ProgramPlan.validate rejects return_value terminators for unit-returning functions" {
+    const plan = internal_program_plan.ProgramPlan{
+        .label = "invalid.return_value_unit_function",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 1,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{.{
+            .kind = .return_value,
+            .operand = 0,
+        }},
+    };
+
+    try std.testing.expectError(error.InvalidTerminatorInstruction, plan.validate());
+}
+
 test "planFromProgram rejects bodyless helper fan-out without explicit bodies" {
     const row = effect_ir.rowFromSpec(.{});
     const root_symbol = effect_ir.SymbolRef{
