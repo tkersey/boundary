@@ -39,6 +39,7 @@ pub const ValidationError = error{
     EntryMissing,
     OutOfMemory,
     ParseError,
+    SourceDrifted,
     SourceUnreadable,
     UnsupportedHelperGraph,
     UnsupportedEffectAccess,
@@ -584,7 +585,7 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
             if (std.fs.path.isAbsolute(source_ref.repo_path)) {
                 if (!pathEquals(source_ref.caller_file, source_ref.repo_path)) return false;
             } else {
-                if (!absoluteOwnedRepoPathMatches(source_ref)) return false;
+                if (!absoluteOwnedSourceMatchesRepo(source_ref, caller_source)) return false;
             }
         } else {
             if (!relativeOwnedSourceMatchesRepo(source_ref, caller_source)) return false;
@@ -604,6 +605,16 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
 fn relativeOwnedSourceMatchesRepo(comptime source_ref: SourceRef, comptime caller_source: []const u8) bool {
     if (std.fs.path.isAbsolute(source_ref.repo_path)) return false;
     if (!pathEquals(source_ref.caller_file, source_ref.repo_path)) return false;
+    return comptime blk: {
+        if (!repoPathIsOwned(source_ref.repo_path)) break :blk false;
+        const repo_source = source_graph_embed.embeddedSource(source_ref.repo_path);
+        break :blk std.mem.eql(u8, caller_source, repo_source);
+    };
+}
+
+fn absoluteOwnedSourceMatchesRepo(comptime source_ref: SourceRef, comptime caller_source: []const u8) bool {
+    if (std.fs.path.isAbsolute(source_ref.repo_path)) return false;
+    if (!absoluteOwnedRepoPathMatches(source_ref)) return false;
     return comptime blk: {
         if (!repoPathIsOwned(source_ref.repo_path)) break :blk false;
         const repo_source = source_graph_embed.embeddedSource(source_ref.repo_path);
@@ -1201,6 +1212,47 @@ fn buildFunctionBodiesForGraph(
     );
 }
 
+fn buildValidationSnapshotImportedSources(
+    comptime graph: source_graph_embed.ProgramGraph,
+    comptime source_path: []const u8,
+) []const ImportedSource {
+    const reachable = reachableFunctions(graph);
+
+    return comptime blk: {
+        var module_paths: [graph.functions.len][]const u8 = undefined;
+        var count: usize = 0;
+
+        for (graph.functions, 0..) |function, function_index| {
+            if (!reachable[function_index]) continue;
+            if (pathEquals(function.module_path, source_path)) continue;
+
+            var seen = false;
+            for (module_paths[0..count]) |existing| {
+                if (pathEquals(existing, function.module_path)) {
+                    seen = true;
+                    break;
+                }
+            }
+            if (seen) continue;
+
+            module_paths[count] = function.module_path;
+            count += 1;
+        }
+
+        const exact_imported_sources = exact: {
+            var imported_sources: [count]ImportedSource = undefined;
+            for (module_paths[0..count], 0..) |module_path, index| {
+                imported_sources[index] = .{
+                    .path = cloneBytes(module_path),
+                    .content = source_graph_embed.embeddedSource(module_path),
+                };
+            }
+            break :exact imported_sources;
+        };
+        break :blk &exact_imported_sources;
+    };
+}
+
 /// Build one explicit-path open-row payload with a caller-visible source path.
 fn openRowAt(comptime source_path: []const u8, comptime spec: LowerSpec) program_frontend.OpenRowProgram {
     return openRowWithRootSource(source_path, null, &.{}, spec);
@@ -1735,6 +1787,7 @@ fn analyzeValidationModuleGraph(
     source_path: []const u8,
     entry_symbol: ?[]const u8,
     source_graph: ?*const ValidationSourceGraph,
+    expected_graph: ?*const ValidationSourceGraph,
 ) ValidationError!source_graph_engine.ModuleGraph {
     if (source_graph) |owned_graph| {
         if (owned_graph.contentForPath(source_path)) |source_bytes| {
@@ -1778,6 +1831,10 @@ fn analyzeValidationModuleGraph(
         else => unreachable,
     };
     defer analysis.deinit(allocator);
+    if (expected_graph) |expected| {
+        const expected_source = expected.contentForPath(source_path) orelse return error.SourceDrifted;
+        if (!std.mem.eql(u8, expected_source, analysis.parsed.source_z)) return error.SourceDrifted;
+    }
 
     if (!analysis.isParseClean()) return error.ParseError;
     const graph = source_graph_engine.analyzeRuntime(allocator, analysis.parsed.source_z, .{
@@ -1807,6 +1864,7 @@ fn collectValidationModule(
     source_path: []const u8,
     entry_symbol: ?[]const u8,
     source_graph: ?*const ValidationSourceGraph,
+    expected_graph: ?*const ValidationSourceGraph,
 ) ValidationError!usize {
     if (state.findModuleIndex(source_path)) |existing_index| {
         if (entry_symbol) |required_entry| {
@@ -1817,7 +1875,7 @@ fn collectValidationModule(
         return existing_index;
     }
 
-    const graph = try analyzeValidationModuleGraph(state.allocator, source_path, entry_symbol, source_graph);
+    const graph = try analyzeValidationModuleGraph(state.allocator, source_path, entry_symbol, source_graph, expected_graph);
     defer deinitValidationGraph(state.allocator, graph);
 
     var module_owned_by_state = false;
@@ -1878,7 +1936,7 @@ fn collectValidationModule(
             try resolveValidationImportPathAlloc(state.allocator, source_path, import_row.import_path);
         defer state.allocator.free(imported_path);
 
-        const imported_index = try collectValidationModule(state, imported_path, null, source_graph);
+        const imported_index = try collectValidationModule(state, imported_path, null, source_graph, expected_graph);
         if (findValidationFunctionIndex(state.modules.items[imported_index].functions, helper_use.callee_name) == null) {
             return error.UnsupportedHelperGraph;
         }
@@ -1901,7 +1959,25 @@ pub fn validateFileBackedOpenRowAt(
 
     var validation = ValidationState{ .allocator = allocator };
     defer validation.deinit();
-    _ = try collectValidationModule(&validation, canonical_source_path, entry_symbol, null);
+    _ = try collectValidationModule(&validation, canonical_source_path, entry_symbol, null, null);
+}
+
+fn validateFileBackedOpenRowAgainstSnapshot(
+    allocator: std.mem.Allocator,
+    source_path: []const u8,
+    root_source: [:0]const u8,
+    imported_sources: []const ImportedSource,
+    entry_symbol: []const u8,
+) ValidationError!void {
+    const canonical_source_path = try canonicalValidationSourcePathAlloc(allocator, source_path);
+    defer allocator.free(canonical_source_path);
+
+    var expected_graph = try ValidationSourceGraph.init(allocator, canonical_source_path, root_source, imported_sources);
+    defer expected_graph.deinit();
+
+    var validation = ValidationState{ .allocator = allocator };
+    defer validation.deinit();
+    _ = try collectValidationModule(&validation, canonical_source_path, entry_symbol, null, &expected_graph);
 }
 
 fn validateOwnedOpenRowAt(
@@ -1916,7 +1992,7 @@ fn validateOwnedOpenRowAt(
 
     var validation = ValidationState{ .allocator = allocator };
     defer validation.deinit();
-    _ = try collectValidationModule(&validation, source_graph.root_path, entry_symbol, &source_graph);
+    _ = try collectValidationModule(&validation, source_graph.root_path, entry_symbol, &source_graph, null);
 }
 
 const ValidationSpec = struct {
@@ -1924,6 +2000,8 @@ const ValidationSpec = struct {
     entry_symbol: []const u8,
     root_source: ?[:0]const u8 = null,
     imported_sources: []const ImportedSource = &.{},
+    snapshot_root_source: ?[:0]const u8 = null,
+    snapshot_imported_sources: []const ImportedSource = &.{},
 };
 
 fn GeneratedProgramType(
@@ -1959,6 +2037,15 @@ fn GeneratedProgramType(
                     active_spec.entry_symbol,
                 );
             }
+            if (active_spec.snapshot_root_source) |root_source| {
+                return try validateFileBackedOpenRowAgainstSnapshot(
+                    allocator,
+                    active_spec.source_path,
+                    root_source,
+                    active_spec.snapshot_imported_sources,
+                    active_spec.entry_symbol,
+                );
+            }
             return try validateFileBackedOpenRowAt(allocator, active_spec.source_path, active_spec.entry_symbol);
         }
 
@@ -1984,8 +2071,9 @@ fn GeneratedProgramType(
 
 fn LowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) type {
     comptime {
-        @setEvalBranchQuota(20_000);
+        @setEvalBranchQuota(1_000_000);
     }
+    const graph = analyzeProgramGraphAt(source_path, spec.entry_symbol);
     const lowered_program = source_lowering.lowerOpenRowProgram(openRowAt(source_path, spec)) catch |err| switch (err) {
         error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
         error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
@@ -2028,6 +2116,8 @@ fn LowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) type {
         .{
             .source_path = source_path,
             .entry_symbol = spec.entry_symbol,
+            .snapshot_root_source = source_graph_embed.embeddedSource(source_path),
+            .snapshot_imported_sources = buildValidationSnapshotImportedSources(graph, source_path),
         },
     );
 }
@@ -2219,6 +2309,35 @@ test "source ownership accepts canonical absolute paths and requires content wit
         .repo_path = "examples/open_row_state_writer.zig",
         .caller_file = "/tmp/foreign/examples/open_row_state_writer.zig",
     }));
+}
+
+test "source ownership rejects forged caller_source for owned absolute repo paths" {
+    const forged_source =
+        \\pub fn runBody() void {}
+    ;
+    const canonical_owned = comptime std.fmt.comptimePrint(
+        "{s}/examples/open_row_state_writer.zig",
+        .{build_options.package_root},
+    );
+
+    try std.testing.expect(!sourceOwnershipMatches(.{
+        .repo_path = "examples/open_row_state_writer.zig",
+        .caller_file = canonical_owned,
+        .caller_hash = hashSourceBytes(forged_source),
+        .caller_source = forged_source,
+    }));
+    if (build_options.package_root_alias_available) {
+        const alias_owned = comptime std.fmt.comptimePrint(
+            "{s}/examples/open_row_state_writer.zig",
+            .{build_options.package_root_alias},
+        );
+        try std.testing.expect(!sourceOwnershipMatches(.{
+            .repo_path = "examples/open_row_state_writer.zig",
+            .caller_file = alias_owned,
+            .caller_hash = hashSourceBytes(forged_source),
+            .caller_source = forged_source,
+        }));
+    }
 }
 
 test "source ownership rejects absolute paths whose root only shares a prefix with the checkout root" {

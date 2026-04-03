@@ -1130,6 +1130,42 @@ test "file-backed validation rejects repo-relative symlink helper imports that c
     );
 }
 
+test "generated validate rejects file-backed helper-body drift against its compile-time snapshot" {
+    const fixture_path = "examples/open_row_cross_file_helpers.zig";
+    const ProgramType = shift.lowering.lowerAt(
+        "examples/open_row_cross_file_writer.zig",
+        example_open_row_cross_file_writer.loweringSpec(),
+    );
+    const original = try std.fs.cwd().readFileAlloc(std.testing.allocator, fixture_path, std.math.maxInt(usize));
+    defer std.testing.allocator.free(original);
+    defer std.fs.cwd().writeFile(.{
+        .sub_path = fixture_path,
+        .data = original,
+    }) catch unreachable;
+
+    var initial_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer initial_arena.deinit();
+    try ProgramType.validate(initial_arena.allocator());
+
+    try std.fs.cwd().writeFile(.{
+        .sub_path = fixture_path,
+        .data =
+        \\pub fn queueQuery(_: anytype) void {}
+        \\
+        \\pub fn advanceState() void {
+        \\    var keep_running = true;
+        \\    while (keep_running) {
+        \\        keep_running = false;
+        \\    }
+        \\}
+        ,
+    });
+
+    var drifted_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer drifted_arena.deinit();
+    try std.testing.expectError(error.SourceDrifted, ProgramType.validate(drifted_arena.allocator()));
+}
+
 test "recursive same-file workflow lowers through the public root surface" {
     const lowered = try example_open_row_recursive_writer.loweredProgram();
 
