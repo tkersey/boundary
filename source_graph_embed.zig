@@ -376,24 +376,48 @@ fn optionalPathEquals(comptime lhs: ?[]const u8, comptime rhs: ?[]const u8) bool
     return pathEquals(lhs.?, rhs.?);
 }
 
-/// Keep absolute caller-owned helper imports inside the entry directory or one parent sibling tree.
-pub fn absoluteOwnedImportWithinEntryTree(path: []const u8) bool {
-    var iterator = std.mem.tokenizeAny(u8, path, "/\\");
+/// Normalized boundary classification for absolute caller-owned helper imports.
+pub const AbsoluteOwnedImportBoundary = struct {
+    leading_parent_count: usize,
+    normalized_segment_count: usize,
+    first_segment: []const u8,
+};
+
+/// Normalize one absolute caller-owned helper import into its admitted-tree descriptor.
+pub fn absoluteOwnedImportBoundary(path: []const u8) ?AbsoluteOwnedImportBoundary {
+    var segments = [_][]const u8{""} ** 64;
+    var segment_count: usize = 0;
     var leading_parent_count: usize = 0;
-    var entered_subtree = false;
+    var iterator = std.mem.tokenizeAny(u8, path, "/\\");
 
     while (iterator.next()) |segment| {
         if (segment.len == 0 or std.mem.eql(u8, segment, ".")) continue;
         if (std.mem.eql(u8, segment, "..")) {
-            if (entered_subtree) return false;
+            if (segment_count != 0) {
+                segment_count -= 1;
+                continue;
+            }
             leading_parent_count += 1;
-            if (leading_parent_count > 1) return false;
+            if (leading_parent_count > 1) return null;
             continue;
         }
-        entered_subtree = true;
+        if (segment_count >= segments.len) return null;
+        segments[segment_count] = segment;
+        segment_count += 1;
     }
 
-    return entered_subtree;
+    if (segment_count == 0) return null;
+    if (leading_parent_count == 1 and segment_count < 2) return null;
+    return .{
+        .leading_parent_count = leading_parent_count,
+        .normalized_segment_count = segment_count,
+        .first_segment = segments[0],
+    };
+}
+
+/// Keep absolute caller-owned helper imports inside the entry directory or one parent sibling tree.
+pub fn absoluteOwnedImportWithinEntryTree(path: []const u8) bool {
+    return absoluteOwnedImportBoundary(path) != null;
 }
 
 /// Treat POSIX, UNC, and drive-letter forms as absolute so helper-import checks fail closed across hosts.
@@ -438,7 +462,7 @@ fn resolveImportPath(
         std.fmt.comptimePrint("{s}/{s}", .{ base_dir, import_path });
 
     if (std.fs.path.isAbsolute(normalized_from_path)) {
-        if (!absoluteOwnedImportWithinEntryTree(import_path)) return error.UnsupportedImportPath;
+        const boundary = absoluteOwnedImportBoundary(import_path) orelse return error.UnsupportedImportPath;
         const resolved_path = normalizeAbsolutePath(joined) catch |err| switch (err) {
             error.EmptyPath, error.EscapesRoot => error.UnsupportedImportPath,
             error.TooManySegments => error.TooManyImports,
@@ -446,7 +470,17 @@ fn resolveImportPath(
         const next_absolute_entry_tree_root = if (absolute_entry_tree_root) |tree_root| blk: {
             if (!pathStartsWithRoot(resolved_path, tree_root)) return error.UnsupportedImportPath;
             break :blk tree_root;
-        } else dirname(resolved_path);
+        } else switch (boundary.leading_parent_count) {
+            0 => base_dir,
+            1 => normalizeAbsolutePath(std.fmt.comptimePrint(
+                "{s}/{s}",
+                .{ dirname(base_dir), boundary.first_segment },
+            )) catch |err| switch (err) {
+                error.EmptyPath, error.EscapesRoot => error.UnsupportedImportPath,
+                error.TooManySegments => error.TooManyImports,
+            },
+            else => unreachable,
+        };
         return .{
             .path = resolved_path,
             .absolute_entry_tree_root = next_absolute_entry_tree_root,

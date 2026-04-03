@@ -496,6 +496,9 @@ fn resolveMaybeError(value: anytype) anyerror!switch (@typeInfo(@TypeOf(value)))
 }
 
 fn cloneBytes(comptime bytes: []const u8) []const u8 {
+    comptime {
+        @setEvalBranchQuota(20_000);
+    }
     return std.fmt.comptimePrint("{s}", .{bytes});
 }
 
@@ -1429,7 +1432,7 @@ const ValidationState = struct {
 
 const ResolvedOwnedValidationImport = struct {
     path: []u8,
-    absolute_entry_tree_root: ?[]const u8,
+    absolute_entry_tree_root: ?[]u8,
 };
 
 fn freeValidationGraphBuffers(allocator: std.mem.Allocator, graph: source_graph_engine.ModuleGraph) void {
@@ -1728,6 +1731,18 @@ fn normalizeValidationOwnedPathAlloc(allocator: std.mem.Allocator, source_path: 
     return std.fs.path.resolve(allocator, &.{source_path}) catch return error.OutOfMemory;
 }
 
+fn absoluteOwnedImportTreeRootAlloc(
+    allocator: std.mem.Allocator,
+    base_dir: []const u8,
+    boundary: source_graph_embed.AbsoluteOwnedImportBoundary,
+) ValidationError![]u8 {
+    return switch (boundary.leading_parent_count) {
+        0 => allocator.dupe(u8, base_dir) catch return error.OutOfMemory,
+        1 => std.fs.path.resolve(allocator, &.{ base_dir, "..", boundary.first_segment }) catch return error.OutOfMemory,
+        else => unreachable,
+    };
+}
+
 fn resolveValidationImportPathAlloc(
     allocator: std.mem.Allocator,
     source_path: []const u8,
@@ -1800,7 +1815,7 @@ fn resolveOwnedValidationImportPathAlloc(
     }
 
     if (!std.fs.path.isAbsolute(source_path)) return error.UnsupportedHelperGraph;
-    if (!source_graph_embed.absoluteOwnedImportWithinEntryTree(decoded_import_path)) return error.UnsupportedHelperGraph;
+    const boundary = source_graph_embed.absoluteOwnedImportBoundary(decoded_import_path) orelse return error.UnsupportedHelperGraph;
     const base_dir = std.fs.path.dirname(source_path) orelse return error.UnsupportedHelperGraph;
     const joined_path = std.fs.path.join(allocator, &.{ base_dir, decoded_import_path }) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -1811,8 +1826,9 @@ fn resolveOwnedValidationImportPathAlloc(
     errdefer allocator.free(resolved_path);
     const next_absolute_entry_tree_root = if (absolute_entry_tree_root) |tree_root| blk: {
         if (!pathStartsWithRootRuntime(resolved_path, tree_root)) return error.UnsupportedHelperGraph;
-        break :blk tree_root;
-    } else std.fs.path.dirname(resolved_path) orelse return error.UnsupportedHelperGraph;
+        break :blk allocator.dupe(u8, tree_root) catch return error.OutOfMemory;
+    } else try absoluteOwnedImportTreeRootAlloc(allocator, base_dir, boundary);
+    errdefer allocator.free(next_absolute_entry_tree_root);
     return .{
         .path = resolved_path,
         .absolute_entry_tree_root = next_absolute_entry_tree_root,
@@ -1996,6 +2012,7 @@ fn collectValidationModule(
                 .absolute_entry_tree_root = null,
             };
         defer state.allocator.free(imported_path.path);
+        defer if (imported_path.absolute_entry_tree_root) |tree_root| state.allocator.free(tree_root);
 
         const imported_index = try collectValidationModule(
             state,
@@ -2329,6 +2346,100 @@ test "same-module lowerAt preserves caller-provided source ownership" {
     try std.testing.expectEqual(@as(usize, 3), ProgramType.runtime_plan.functions.len);
     try std.testing.expectEqual(program_plan.ValueCodec.string, ProgramType.runtime_plan.functions[ProgramType.runtime_plan.entry_index].value_codec);
     try std.testing.expectEqual(@as(usize, 2), ProgramType.runtime_plan.outputs.len);
+}
+
+test "absolute caller-owned helper regression: lowering accepts normalized sibling-tree imports" {
+    const current_src = @src();
+    const caller: std.builtin.SourceLocation = .{
+        .module = current_src.module,
+        .file = "/tmp/shift-owned-open-row/nested/entry.zig",
+        .line = 1,
+        .column = 1,
+        .fn_name = "normalizedSiblingLoweringCaller",
+    };
+    const ProgramType = lower(sourceWithContentAndImports(
+        "/tmp/shift-owned-open-row/nested/entry.zig",
+        caller,
+        \\const other = @import("../helpers/../other/util.zig");
+        \\
+        \\pub fn runBody(eff: anytype) !void {
+        \\    try other.emit(eff);
+        \\}
+    ,
+        &.{importedSource(
+            "/tmp/shift-owned-open-row/nested/entry.zig",
+            "../helpers/../other/util.zig",
+            \\pub fn emit(eff: anytype) !void {
+            \\    try eff.writer.tell("normalized");
+            \\}
+            ,
+        )},
+    ), .{
+        .label = "public_lowering.normalized_sibling_helper",
+        .entry_symbol = "runBody",
+        .row = effect_ir.rowFromSpec(.{
+            .writer = .{
+                .tell = effect_ir.Transform([]const u8, void),
+            },
+        }),
+    });
+
+    try std.testing.expectEqual(@as(usize, 2), ProgramType.runtime_plan.functions.len);
+    try ProgramType.validate(std.testing.allocator);
+}
+
+test "absolute caller-owned helper regression: lowering accepts shared helper subtrees" {
+    const current_src = @src();
+    const caller: std.builtin.SourceLocation = .{
+        .module = current_src.module,
+        .file = "/tmp/shift-owned-open-row/nested/entry.zig",
+        .line = 1,
+        .column = 1,
+        .fn_name = "sharedHelperSubtreeLoweringCaller",
+    };
+    const ProgramType = lower(sourceWithContentAndImports(
+        "/tmp/shift-owned-open-row/nested/entry.zig",
+        caller,
+        \\const direct = @import("helpers/sub/b.zig");
+        \\const helpers = @import("helpers/a.zig");
+        \\
+        \\pub fn runBody(eff: anytype) !void {
+        \\    try direct.emit(eff);
+        \\    try helpers.emit(eff);
+        \\}
+    ,
+        &.{
+            importedSource(
+                "/tmp/shift-owned-open-row/nested/entry.zig",
+                "helpers/a.zig",
+                \\const shared = @import("sub/b.zig");
+                \\
+                \\pub fn emit(eff: anytype) !void {
+                \\    try shared.emit(eff);
+                \\}
+                ,
+            ),
+            importedSource(
+                "/tmp/shift-owned-open-row/nested/entry.zig",
+                "helpers/sub/b.zig",
+                \\pub fn emit(eff: anytype) !void {
+                \\    try eff.writer.tell("shared");
+                \\}
+                ,
+            ),
+        },
+    ), .{
+        .label = "public_lowering.shared_helper_subtree",
+        .entry_symbol = "runBody",
+        .row = effect_ir.rowFromSpec(.{
+            .writer = .{
+                .tell = effect_ir.Transform([]const u8, void),
+            },
+        }),
+    });
+
+    try std.testing.expectEqual(@as(usize, 3), ProgramType.runtime_plan.functions.len);
+    try ProgramType.validate(std.testing.allocator);
 }
 
 test "source ownership rejects relative no-content repo-path witnesses and basename-only mismatches" {
@@ -2671,8 +2782,22 @@ test "owned validation resolves parent-directory helpers for absolute caller-own
         null,
     );
     defer std.testing.allocator.free(resolved.path);
+    defer if (resolved.absolute_entry_tree_root) |tree_root| std.testing.allocator.free(tree_root);
 
     try std.testing.expectEqualStrings("/tmp/shift-owned-open-row/helpers/util.zig", resolved.path);
+}
+
+test "absolute caller-owned helper regression: validation accepts normalized sibling-tree imports" {
+    const resolved = try resolveOwnedValidationImportPathAlloc(
+        std.testing.allocator,
+        "/tmp/shift-owned-open-row/nested/entry.zig",
+        "../helpers/../other/util.zig",
+        null,
+    );
+    defer std.testing.allocator.free(resolved.path);
+    defer if (resolved.absolute_entry_tree_root) |tree_root| std.testing.allocator.free(tree_root);
+
+    try std.testing.expectEqualStrings("/tmp/shift-owned-open-row/other/util.zig", resolved.path);
 }
 
 test "owned validation rejects helper imports that climb above the admitted absolute entry tree" {
@@ -2907,6 +3032,42 @@ test "owned-source validation rejects transitive helper imports that leave the f
             },
             "runBody",
         ),
+    );
+}
+
+test "absolute caller-owned helper regression: validation accepts shared helper subtrees" {
+    try validateOwnedOpenRowAt(
+        std.testing.allocator,
+        "/tmp/shift-owned-open-row/nested/entry.zig",
+        \\const direct = @import("helpers/sub/b.zig");
+        \\const helpers = @import("helpers/a.zig");
+        \\
+        \\pub fn runBody(eff: anytype) !void {
+        \\    try direct.emit(eff);
+        \\    try helpers.emit(eff);
+        \\}
+    ,
+        &.{
+            .{
+                .path = "/tmp/shift-owned-open-row/nested/helpers/a.zig",
+                .content =
+                \\const shared = @import("sub/b.zig");
+                \\
+                \\pub fn emit(eff: anytype) !void {
+                \\    try shared.emit(eff);
+                \\}
+                ,
+            },
+            .{
+                .path = "/tmp/shift-owned-open-row/nested/helpers/sub/b.zig",
+                .content =
+                \\pub fn emit(eff: anytype) !void {
+                \\    try eff.writer.tell("shared");
+                \\}
+                ,
+            },
+        },
+        "runBody",
     );
 }
 
