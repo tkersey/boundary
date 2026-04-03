@@ -1402,6 +1402,7 @@ const ValidationSourceGraph = struct {
         source_path: []const u8,
         root_source: [:0]const u8,
         imported_sources: []const ImportedSource,
+        mirror_repo_sources: bool,
     ) ValidationError!@This() {
         var owned_sources = std.ArrayList(ValidationOwnedSource).empty;
         errdefer {
@@ -1410,16 +1411,29 @@ const ValidationSourceGraph = struct {
         }
 
         const normalized_root_path = try normalizeValidationOwnedPathAlloc(allocator, source_path);
+        var root_path_owned_by_list = false;
+        errdefer if (!root_path_owned_by_list) allocator.free(normalized_root_path);
         try owned_sources.append(allocator, .{
             .path = normalized_root_path,
-            .content = root_source,
+            .content = if (mirror_repo_sources)
+                try validationOwnedSourceContent(allocator, normalized_root_path, root_source)
+            else
+                root_source,
         });
+        root_path_owned_by_list = true;
 
         for (imported_sources) |imported_source| {
+            const normalized_path = try normalizeValidationOwnedPathAlloc(allocator, imported_source.path);
+            var path_owned_by_list = false;
+            errdefer if (!path_owned_by_list) allocator.free(normalized_path);
             try owned_sources.append(allocator, .{
-                .path = try normalizeValidationOwnedPathAlloc(allocator, imported_source.path),
-                .content = imported_source.content,
+                .path = normalized_path,
+                .content = if (mirror_repo_sources)
+                    try validationOwnedSourceContent(allocator, normalized_path, imported_source.content)
+                else
+                    imported_source.content,
             });
+            path_owned_by_list = true;
         }
 
         const slice = try owned_sources.toOwnedSlice(allocator);
@@ -1695,6 +1709,73 @@ fn packageRootRelativeSlice(source_path: []const u8) ?[]const u8 {
     const separator = source_path[build_options.package_root.len];
     if (separator != '/' and separator != '\\') return null;
     return source_path[build_options.package_root.len + 1 ..];
+}
+
+fn runtimeRegistryContainsLine(registry: []const u8, candidate: []const u8) bool {
+    var start: usize = 0;
+    while (start < registry.len) {
+        var end = start;
+        while (end < registry.len and registry[end] != '\n') : (end += 1) {}
+        const line = registry[start..end];
+        if (line.len != 0 and std.mem.eql(u8, line, candidate)) return true;
+        start = end + 1;
+    }
+    return false;
+}
+
+fn validationOwnedRepoCanonicalPathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ValidationError!?[]u8 {
+    if (!std.fs.path.isAbsolute(source_path)) {
+        const repo_path = try normalizeRelativeRepoPathAlloc(allocator, source_path);
+        errdefer allocator.free(repo_path);
+        if (!runtimeRegistryContainsLine(build_options.repo_zig_paths, repo_path)) {
+            allocator.free(repo_path);
+            return null;
+        }
+        const canonical_repo_path = try canonicalPackageRootRelativePathAlloc(allocator, repo_path);
+        allocator.free(repo_path);
+        return canonical_repo_path;
+    }
+
+    const canonical_source_path = canonicalValidationSourcePathAlloc(allocator, source_path) catch |err| switch (err) {
+        error.UnsupportedHelperGraph => return null,
+        else => return err,
+    };
+    errdefer allocator.free(canonical_source_path);
+
+    const repo_path = packageRootRelativeSlice(canonical_source_path) orelse return null;
+    const normalized_repo_path = try normalizeRelativeRepoPathAlloc(allocator, repo_path);
+    errdefer allocator.free(normalized_repo_path);
+    if (!runtimeRegistryContainsLine(build_options.repo_zig_paths, normalized_repo_path)) {
+        allocator.free(normalized_repo_path);
+        allocator.free(canonical_source_path);
+        return null;
+    }
+    allocator.free(normalized_repo_path);
+    return canonical_source_path;
+}
+
+fn validationOwnedSourceContent(
+    allocator: std.mem.Allocator,
+    source_path: []const u8,
+    source_content: [:0]const u8,
+) ValidationError![:0]const u8 {
+    const canonical_repo_path = try validationOwnedRepoCanonicalPathAlloc(allocator, source_path);
+    defer if (canonical_repo_path) |repo_path| allocator.free(repo_path);
+
+    if (canonical_repo_path) |repo_path| {
+        const repo_file = std.fs.openFileAbsolute(repo_path, .{}) catch return error.SourceUnreadable;
+        defer repo_file.close();
+        const repo_source = repo_file.readToEndAllocOptions(
+            allocator,
+            std.math.maxInt(usize),
+            null,
+            .of(u8),
+            0,
+        ) catch return error.SourceUnreadable;
+        defer allocator.free(repo_source);
+        if (!std.mem.eql(u8, repo_source, source_content)) return error.UnsupportedHelperGraph;
+    }
+    return source_content;
 }
 
 fn normalizeRelativeRepoPathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ValidationError![]u8 {
@@ -2186,7 +2267,7 @@ fn validateFileBackedOpenRowAgainstSnapshot(
     const canonical_source_path = try canonicalValidationSourcePathAlloc(allocator, source_path);
     defer allocator.free(canonical_source_path);
 
-    var expected_graph = try ValidationSourceGraph.init(allocator, canonical_source_path, root_source, imported_sources);
+    var expected_graph = try ValidationSourceGraph.init(allocator, canonical_source_path, root_source, imported_sources, false);
     defer expected_graph.deinit();
 
     var validation = ValidationState{ .allocator = allocator };
@@ -2201,7 +2282,7 @@ fn validateOwnedOpenRowAt(
     imported_sources: []const ImportedSource,
     entry_symbol: []const u8,
 ) ValidationError!void {
-    var source_graph = try ValidationSourceGraph.init(allocator, source_path, root_source, imported_sources);
+    var source_graph = try ValidationSourceGraph.init(allocator, source_path, root_source, imported_sources, true);
     defer source_graph.deinit();
 
     var validation = ValidationState{ .allocator = allocator };
@@ -3182,6 +3263,39 @@ test "owned-source validation rejects transitive helper imports that leave the f
                     ,
                 },
             },
+            "runBody",
+        ),
+    );
+}
+
+test "owned validation rejects repo-resolving absolute helper overrides for external roots" {
+    const repo_parent = comptime std.fs.path.dirname(build_options.package_root) orelse
+        @compileError("package_root must have a parent directory");
+    const root_path = comptime std.fmt.comptimePrint("{s}/shift-external-entry/entry.zig", .{repo_parent});
+    const helper_path = comptime std.fmt.comptimePrint(
+        "{s}/examples/open_row_cross_file_helpers.zig",
+        .{build_options.package_root},
+    );
+
+    try std.testing.expectError(
+        error.UnsupportedHelperGraph,
+        validateOwnedOpenRowAt(
+            std.testing.allocator,
+            root_path,
+            \\const helpers = @import("../shift/examples/open_row_cross_file_helpers.zig");
+            \\
+            \\pub fn runBody(eff: anytype) !void {
+            \\    try helpers.advanceState(eff);
+            \\}
+        ,
+            &.{.{
+                .path = helper_path,
+                .content =
+                \\pub fn advanceState(eff: anytype) !void {
+                \\    _ = eff;
+                \\}
+                ,
+            }},
             "runBody",
         ),
     );

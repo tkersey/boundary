@@ -197,17 +197,23 @@ pub const ProgramPlan = struct {
                 for (self.instructions[block.first_instruction..instruction_end], 0..) |instruction, relative_index| switch (instruction.kind) {
                     .call_helper => {
                         if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
-                        if (self.functions[instruction.operand].value_codec != .unit and
-                            !functionLocalHasCodec(self, function, instruction.dst, self.functions[instruction.operand].value_codec))
+                        const callee = self.functions[instruction.operand];
+                        if (callee.value_codec != .unit and
+                            !functionLocalHasCodec(self, function, instruction.dst, callee.value_codec))
                         {
                             return error.InvalidInstructionLocalIndex;
                         }
-                        const target_parameter_count = self.functions[instruction.operand].parameter_count;
+                        const target_parameter_count = callee.parameter_count;
                         if (target_parameter_count != 0) {
                             const call_arg_end = rangeEnd(instruction.aux, target_parameter_count) orelse return error.InvalidCallHelperArgSpan;
                             if (call_arg_end > self.call_args.len) return error.InvalidCallHelperArgSpan;
-                            for (self.call_args[instruction.aux..call_arg_end]) |local_id| {
+                            for (self.call_args[instruction.aux..call_arg_end], 0..) |local_id, parameter_index| {
                                 if (!isValidFunctionLocal(function.local_count, local_id)) return error.InvalidCallHelperArgSpan;
+                                const expected_codec = functionLocalCodec(self, callee, @intCast(parameter_index)) orelse
+                                    return error.InvalidFunctionLocalSpan;
+                                if (!functionLocalHasCodec(self, function, local_id, expected_codec)) {
+                                    return error.InvalidInstructionLocalIndex;
+                                }
                             }
                         }
                     },

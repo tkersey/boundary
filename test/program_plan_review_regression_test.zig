@@ -163,6 +163,76 @@ test "planFromProgram rejects ambiguous row-only multi-parameter returns without
     try std.testing.expectError(error.InvalidProgramBodyShape, result);
 }
 
+test "ProgramPlan.validate rejects helper call arguments whose codecs disagree with the callee parameters" {
+    const plan = internal_program_plan.ProgramPlan{
+        .label = "invalid.helper_call_arg_codec",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "root",
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 1,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .unit,
+                .parameter_count = 1,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 1,
+                .local_count = 1,
+                .first_block = 1,
+                .block_count = 1,
+                .first_instruction = 1,
+                .instruction_count = 0,
+            },
+        },
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{
+            .{ .codec = .i32 },
+            .{ .codec = .bool },
+        },
+        .call_args = &.{0},
+        .blocks = &.{
+            .{
+                .first_instruction = 0,
+                .instruction_count = 1,
+                .terminator_index = 0,
+            },
+            .{
+                .first_instruction = 1,
+                .instruction_count = 0,
+                .terminator_index = 1,
+            },
+        },
+        .terminators = &.{
+            .{ .kind = .return_unit },
+            .{ .kind = .return_unit },
+        },
+        .instructions = &.{.{
+            .kind = .call_helper,
+            .operand = 1,
+            .aux = 0,
+        }},
+    };
+
+    try std.testing.expectError(error.InvalidInstructionLocalIndex, plan.validate());
+}
+
 test "ProgramPlan.validate rejects payload-bearing call_op instructions without a payload local" {
     const plan = internal_program_plan.ProgramPlan{
         .label = "invalid.call_op_missing_payload_local",

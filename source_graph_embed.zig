@@ -331,13 +331,10 @@ pub fn sourceBytes(
     comptime imported_sources: []const OwnedSource,
 ) Error![:0]const u8 {
     if (ownedSourceContent(source_path, root_source_path, root_source, imported_sources)) |owned_source| {
-        if (root_source_path) |root_path| {
-            if (ownedRepoSourcePath(root_path)) |_| {
-                const repo_source_path = ownedRepoSourcePath(source_path) orelse return error.MissingImport;
-                const repo_source = embeddedSource(repo_source_path);
-                if (!std.mem.eql(u8, owned_source, repo_source)) return error.MissingImport;
-                return repo_source;
-            }
+        if (ownedRepoSourcePath(source_path)) |repo_source_path| {
+            const repo_source = embeddedSource(repo_source_path);
+            if (!std.mem.eql(u8, owned_source, repo_source)) return error.MissingImport;
+            return repo_source;
         }
         return owned_source;
     }
@@ -373,6 +370,48 @@ test "sourceBytes requires owned helper imports to mirror repo bytes" {
             repo_source,
             &.{.{
                 .path = "examples/open_row_cross_file_helpers.zig",
+                .content = embeddedSource("examples/open_row_cross_file_helpers.zig"),
+            }},
+        ),
+    );
+}
+
+test "sourceBytes requires repo-resolving absolute helper imports to mirror repo bytes for external roots" {
+    const repo_helper_path = comptime std.fmt.comptimePrint(
+        "{s}/examples/open_row_cross_file_helpers.zig",
+        .{build_options.package_root},
+    );
+    const repo_parent = comptime std.fs.path.dirname(build_options.package_root) orelse
+        @compileError("package_root must have a parent directory");
+    const external_root_path = comptime std.fmt.comptimePrint(
+        "{s}/shift-external-entry/entry.zig",
+        .{repo_parent},
+    );
+
+    try std.testing.expectError(
+        error.MissingImport,
+        sourceBytes(
+            repo_helper_path,
+            external_root_path,
+            embeddedSource("examples/open_row_cross_file_writer.zig"),
+            &.{.{
+                .path = repo_helper_path,
+                .content =
+                \\pub fn advanceState(eff: anytype) !void {
+                \\    _ = eff;
+                \\}
+                ,
+            }},
+        ),
+    );
+    try std.testing.expectEqualStrings(
+        embeddedSource("examples/open_row_cross_file_helpers.zig"),
+        try sourceBytes(
+            repo_helper_path,
+            external_root_path,
+            embeddedSource("examples/open_row_cross_file_writer.zig"),
+            &.{.{
+                .path = repo_helper_path,
                 .content = embeddedSource("examples/open_row_cross_file_helpers.zig"),
             }},
         ),
