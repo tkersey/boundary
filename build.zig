@@ -174,7 +174,9 @@ fn collectRepoZigPaths(
         if (entry.kind == .sym_link) continue;
         if (std.mem.eql(u8, entry.name, ".git") or
             std.mem.eql(u8, entry.name, ".zig-cache") or
+            std.mem.eql(u8, entry.name, "zig-cache") or
             std.mem.eql(u8, entry.name, ".zig-global-cache") or
+            std.mem.eql(u8, entry.name, "zig-global-cache") or
             std.mem.eql(u8, entry.name, "zig-out"))
         {
             continue;
@@ -2372,7 +2374,9 @@ pub fn build(b: *std.Build) void {
         builder.addPaths(.{
             .exclude = &.{
                 b.path(".zig-cache"),
+                b.path("zig-cache"),
                 b.path(".zig-global-cache"),
+                b.path("zig-global-cache"),
                 b.path("src/error_witness.zig"),
                 b.path("src/op_compat.zig"),
                 // Public API intentionally exposes lower-case type-callable entrypoints here.

@@ -16,6 +16,7 @@ comptime {
         .call_edges = &.{},
     };
     const ProgramType = shift.ir.compile("compile_fail.public_ir_entry_value_run", Program);
+    // zlinter-disable-next-line no_undefined - compile-fail fixture rejects entry parameters before any runtime state is observed
     var runtime: shift.Runtime = undefined;
     _ = ProgramType.run(&runtime, .{});
 }
