@@ -60,6 +60,7 @@ const ModuleSummary = struct {
 
 const ModuleEntry = struct {
     path: []const u8,
+    absolute_entry_tree_root: ?[]const u8,
     summary: ModuleSummary,
 };
 
@@ -94,6 +95,7 @@ const Buffers = struct {
     direct_op_use_count: usize = 0,
     modules: [64]ModuleEntry = [_]ModuleEntry{.{
         .path = "",
+        .absolute_entry_tree_root = null,
         .summary = .{
             .first_function_index = 0,
             .function_count = 0,
@@ -368,6 +370,12 @@ fn dirname(comptime path: []const u8) []const u8 {
     return std.fs.path.dirname(path) orelse "";
 }
 
+fn optionalPathEquals(comptime lhs: ?[]const u8, comptime rhs: ?[]const u8) bool {
+    if (lhs == null and rhs == null) return true;
+    if (lhs == null or rhs == null) return false;
+    return pathEquals(lhs.?, rhs.?);
+}
+
 /// Keep absolute caller-owned helper imports inside the entry directory or one parent sibling tree.
 pub fn absoluteOwnedImportWithinEntryTree(path: []const u8) bool {
     var iterator = std.mem.tokenizeAny(u8, path, "/\\");
@@ -399,7 +407,23 @@ pub fn pathIsAbsoluteCrossPlatform(path: []const u8) bool {
         (path[2] == '/' or path[2] == '\\');
 }
 
-fn resolveImportPath(comptime from_path: []const u8, comptime import_path: []const u8) Error![]const u8 {
+const ResolvedImportPath = struct {
+    path: []const u8,
+    absolute_entry_tree_root: ?[]const u8,
+};
+
+const CollectModuleContext = struct {
+    root_source_path: ?[]const u8,
+    root_source: ?[:0]const u8,
+    imported_sources: []const OwnedSource,
+    absolute_entry_tree_root: ?[]const u8,
+};
+
+fn resolveImportPath(
+    comptime from_path: []const u8,
+    comptime import_path: []const u8,
+    comptime absolute_entry_tree_root: ?[]const u8,
+) Error!ResolvedImportPath {
     if (pathIsAbsoluteCrossPlatform(import_path)) return error.UnsupportedImportPath;
     if (!std.mem.endsWith(u8, import_path, ".zig")) return error.UnsupportedImportPath;
 
@@ -407,35 +431,45 @@ fn resolveImportPath(comptime from_path: []const u8, comptime import_path: []con
         absoluteSourcePath(from_path)
     else
         repoRelativePath(from_path);
-    if (std.fs.path.isAbsolute(normalized_from_path) and !absoluteOwnedImportWithinEntryTree(import_path)) {
-        return error.UnsupportedImportPath;
-    }
     const base_dir = dirname(normalized_from_path);
     const joined = if (base_dir.len == 0)
         import_path
     else
         std.fmt.comptimePrint("{s}/{s}", .{ base_dir, import_path });
 
-    return if (std.fs.path.isAbsolute(normalized_from_path))
-        normalizeAbsolutePath(joined) catch |err| switch (err) {
-            error.EmptyPath, error.EscapesRoot => error.UnsupportedImportPath,
-            error.TooManySegments => error.TooManyImports,
-        }
-    else
-        normalizeRelativePath(joined) catch |err| switch (err) {
+    if (std.fs.path.isAbsolute(normalized_from_path)) {
+        if (!absoluteOwnedImportWithinEntryTree(import_path)) return error.UnsupportedImportPath;
+        const resolved_path = normalizeAbsolutePath(joined) catch |err| switch (err) {
             error.EmptyPath, error.EscapesRoot => error.UnsupportedImportPath,
             error.TooManySegments => error.TooManyImports,
         };
+        const next_absolute_entry_tree_root = if (absolute_entry_tree_root) |tree_root| blk: {
+            if (!pathStartsWithRoot(resolved_path, tree_root)) return error.UnsupportedImportPath;
+            break :blk tree_root;
+        } else dirname(resolved_path);
+        return .{
+            .path = resolved_path,
+            .absolute_entry_tree_root = next_absolute_entry_tree_root,
+        };
+    }
+
+    return .{
+        .path = normalizeRelativePath(joined) catch |err| switch (err) {
+            error.EmptyPath, error.EscapesRoot => error.UnsupportedImportPath,
+            error.TooManySegments => error.TooManyImports,
+        },
+        .absolute_entry_tree_root = null,
+    };
 }
 
 /// Resolve one helper import relative to its owning repo-relative module path.
 pub fn resolveImportPathAt(comptime from_path: []const u8, comptime import_path: []const u8) Error![]const u8 {
-    return try resolveImportPath(from_path, import_path);
+    return (try resolveImportPath(from_path, import_path, null)).path;
 }
 
-fn findModule(buffers: *const Buffers, comptime path: []const u8) ?ModuleSummary {
+fn findModule(buffers: *const Buffers, comptime path: []const u8) ?ModuleEntry {
     for (buffers.modules[0..buffers.module_count]) |module| {
-        if (std.mem.eql(u8, module.path, path)) return module.summary;
+        if (std.mem.eql(u8, module.path, path)) return module;
     }
     return null;
 }
@@ -499,19 +533,22 @@ fn analyzeOwnedModule(
 
 fn collectModule(
     comptime source_path: []const u8,
-    comptime root_source_path: ?[]const u8,
-    comptime root_source: ?[:0]const u8,
-    comptime imported_sources: []const OwnedSource,
+    comptime context: CollectModuleContext,
     buffers: *Buffers,
 ) Error!ModuleSummary {
-    if (findModule(buffers, source_path)) |existing| return existing;
+    if (findModule(buffers, source_path)) |existing| {
+        if (!optionalPathEquals(existing.absolute_entry_tree_root, context.absolute_entry_tree_root)) {
+            return error.UnsupportedImportPath;
+        }
+        return existing.summary;
+    }
 
     if (buffers.module_count >= buffers.modules.len) return error.TooManyImports;
     const graph = try analyzeOwnedModule(
         source_path,
-        root_source_path,
-        root_source,
-        imported_sources,
+        context.root_source_path,
+        context.root_source,
+        context.imported_sources,
         null,
     );
     const first_function_index = buffers.function_count;
@@ -552,6 +589,7 @@ fn collectModule(
     };
     buffers.modules[buffers.module_count] = .{
         .path = source_path,
+        .absolute_entry_tree_root = context.absolute_entry_tree_root,
         .summary = summary,
     };
     buffers.module_count += 1;
@@ -603,8 +641,21 @@ fn expandReachableImports(
                     if (graph.functions[helper_use.caller_index].effect_param == null) continue;
 
                     const import_row = findImportAlias(graph.imports, import_alias) orelse return error.MissingImport;
-                    const imported_path = try resolveImportPath(module.path, import_row.import_path);
-                    const imported = try collectModule(imported_path, root_source_path, root_source, imported_sources, buffers);
+                    const imported_path = try resolveImportPath(
+                        module.path,
+                        import_row.import_path,
+                        module.absolute_entry_tree_root,
+                    );
+                    const imported = try collectModule(
+                        imported_path.path,
+                        .{
+                            .root_source_path = root_source_path,
+                            .root_source = root_source,
+                            .imported_sources = imported_sources,
+                            .absolute_entry_tree_root = imported_path.absolute_entry_tree_root,
+                        },
+                        buffers,
+                    );
                     const callee_local_index = findLocalFunctionIndex(imported.graph, helper_use.callee_name) orelse return error.MissingImport;
                     const callee_index = imported.first_function_index + callee_local_index;
                     try pushHelperEdge(
@@ -644,7 +695,12 @@ pub fn analyzeProgramWithRootSource(
 ) Error!ProgramGraph {
     var buffers = Buffers{};
     const root_source_path = if (root_source != null) source_path else null;
-    const root = try collectModule(source_path, root_source_path, root_source, imported_sources, &buffers);
+    const root = try collectModule(source_path, .{
+        .root_source_path = root_source_path,
+        .root_source = root_source,
+        .imported_sources = imported_sources,
+        .absolute_entry_tree_root = null,
+    }, &buffers);
     const root_graph = try analyzeOwnedModule(source_path, root_source_path, root_source, imported_sources, entry_symbol);
     const entry_local_index = root_graph.entry_index orelse return error.EntryMissing;
     const entry_index = root.first_function_index + entry_local_index;
@@ -712,6 +768,42 @@ test "resolveImportPathAt rejects helper imports that climb above the admitted a
         resolveImportPathAt(
             "/tmp/shift-owned-open-row/nested/entry.zig",
             "helpers/../../outside_helper.zig",
+        ),
+    );
+}
+
+test "analyzeProgramWithRootSource rejects transitive helper imports that leave the first admitted absolute helper tree" {
+    try std.testing.expectError(
+        error.UnsupportedImportPath,
+        analyzeProgramWithRootSource(
+            "/tmp/shift-owned-open-row/nested/entry.zig",
+            \\const helpers = @import("../helpers/a.zig");
+            \\
+            \\pub fn runBody(eff: anytype) !void {
+            \\    try helpers.emit(eff);
+            \\}
+        ,
+            &.{
+                .{
+                    .path = "/tmp/shift-owned-open-row/helpers/a.zig",
+                    .content =
+                    \\const other = @import("../other/b.zig");
+                    \\
+                    \\pub fn emit(eff: anytype) !void {
+                    \\    try other.emit(eff);
+                    \\}
+                    ,
+                },
+                .{
+                    .path = "/tmp/shift-owned-open-row/other/b.zig",
+                    .content =
+                    \\pub fn emit(eff: anytype) !void {
+                    \\    try eff.writer.tell("escaped");
+                    \\}
+                    ,
+                },
+            },
+            "runBody",
         ),
     );
 }

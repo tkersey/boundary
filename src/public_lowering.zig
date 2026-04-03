@@ -1384,6 +1384,7 @@ const ValidationSourceGraph = struct {
 
 const ValidationModule = struct {
     path: []u8,
+    absolute_entry_tree_root: ?[]u8,
     functions: []ValidationFunction,
     imports: []ValidationImport,
     helper_uses: []ValidationHelperUse,
@@ -1401,6 +1402,7 @@ const ValidationState = struct {
     fn deinit(self: *@This()) void {
         for (self.modules.items) |*module| {
             self.allocator.free(module.path);
+            if (module.absolute_entry_tree_root) |tree_root| self.allocator.free(tree_root);
             for (module.functions) |function| self.allocator.free(function.name);
             self.allocator.free(module.functions);
             for (module.imports) |import_alias| {
@@ -1423,6 +1425,11 @@ const ValidationState = struct {
         }
         return null;
     }
+};
+
+const ResolvedOwnedValidationImport = struct {
+    path: []u8,
+    absolute_entry_tree_root: ?[]const u8,
 };
 
 fn freeValidationGraphBuffers(allocator: std.mem.Allocator, graph: source_graph_engine.ModuleGraph) void {
@@ -1762,7 +1769,8 @@ fn resolveOwnedValidationImportPathAlloc(
     allocator: std.mem.Allocator,
     source_path: []const u8,
     import_path: []const u8,
-) ValidationError![]u8 {
+    absolute_entry_tree_root: ?[]const u8,
+) ValidationError!ResolvedOwnedValidationImport {
     var decoded_import_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
     const decoded_import_path = source_graph_engine.decodeImportPathLiteral(
         import_path,
@@ -1785,7 +1793,10 @@ fn resolveOwnedValidationImportPathAlloc(
         try joined.appendSlice(allocator, decoded_import_path);
         const imported_repo_path = try normalizeRelativeRepoPathAlloc(allocator, joined.items);
         defer allocator.free(imported_repo_path);
-        return try lexicalPackageRootRelativePathAlloc(allocator, imported_repo_path);
+        return .{
+            .path = try lexicalPackageRootRelativePathAlloc(allocator, imported_repo_path),
+            .absolute_entry_tree_root = null,
+        };
     }
 
     if (!std.fs.path.isAbsolute(source_path)) return error.UnsupportedHelperGraph;
@@ -1796,7 +1807,16 @@ fn resolveOwnedValidationImportPathAlloc(
         else => unreachable,
     };
     defer allocator.free(joined_path);
-    return std.fs.path.resolve(allocator, &.{joined_path}) catch return error.OutOfMemory;
+    const resolved_path = std.fs.path.resolve(allocator, &.{joined_path}) catch return error.OutOfMemory;
+    errdefer allocator.free(resolved_path);
+    const next_absolute_entry_tree_root = if (absolute_entry_tree_root) |tree_root| blk: {
+        if (!pathStartsWithRootRuntime(resolved_path, tree_root)) return error.UnsupportedHelperGraph;
+        break :blk tree_root;
+    } else std.fs.path.dirname(resolved_path) orelse return error.UnsupportedHelperGraph;
+    return .{
+        .path = resolved_path,
+        .absolute_entry_tree_root = next_absolute_entry_tree_root,
+    };
 }
 
 fn analyzeValidationModuleGraph(
@@ -1882,8 +1902,18 @@ fn collectValidationModule(
     entry_symbol: ?[]const u8,
     source_graph: ?*const ValidationSourceGraph,
     expected_graph: ?*const ValidationSourceGraph,
+    absolute_entry_tree_root: ?[]const u8,
 ) ValidationError!usize {
     if (state.findModuleIndex(source_path)) |existing_index| {
+        const existing_absolute_entry_tree_root = state.modules.items[existing_index].absolute_entry_tree_root;
+        if ((absolute_entry_tree_root == null) != (existing_absolute_entry_tree_root == null)) {
+            return error.UnsupportedHelperGraph;
+        }
+        if (absolute_entry_tree_root) |tree_root| {
+            if (!std.mem.eql(u8, tree_root, existing_absolute_entry_tree_root.?)) {
+                return error.UnsupportedHelperGraph;
+            }
+        }
         if (entry_symbol) |required_entry| {
             if (findValidationFunctionIndex(state.modules.items[existing_index].functions, required_entry) == null) {
                 return error.EntryMissing;
@@ -1898,6 +1928,11 @@ fn collectValidationModule(
     var module_owned_by_state = false;
     const owned_path = try state.allocator.dupe(u8, source_path);
     errdefer if (!module_owned_by_state) state.allocator.free(owned_path);
+    const owned_absolute_entry_tree_root = if (absolute_entry_tree_root) |tree_root|
+        try state.allocator.dupe(u8, tree_root)
+    else
+        null;
+    errdefer if (!module_owned_by_state) if (owned_absolute_entry_tree_root) |tree_root| state.allocator.free(tree_root);
     const owned_functions = try cloneValidationFunctionsAlloc(state.allocator, graph.functions);
     errdefer if (!module_owned_by_state) {
         for (owned_functions) |function| state.allocator.free(function.name);
@@ -1923,6 +1958,7 @@ fn collectValidationModule(
     if (state.modules.items.len >= max_validation_modules) return error.UnsupportedHelperGraph;
     try state.modules.append(state.allocator, .{
         .path = owned_path,
+        .absolute_entry_tree_root = owned_absolute_entry_tree_root,
         .functions = owned_functions,
         .imports = owned_imports,
         .helper_uses = owned_helper_uses,
@@ -1947,13 +1983,28 @@ fn collectValidationModule(
         if (!module.functions[helper_use.caller_index].effect_param_present) continue;
 
         const import_row = findValidationImport(module.imports, import_alias) orelse return error.UnsupportedHelperGraph;
-        const imported_path = if (source_graph != null)
-            try resolveOwnedValidationImportPathAlloc(state.allocator, source_path, import_row.import_path)
+        const imported_path: ResolvedOwnedValidationImport = if (source_graph != null)
+            try resolveOwnedValidationImportPathAlloc(
+                state.allocator,
+                source_path,
+                import_row.import_path,
+                module.absolute_entry_tree_root,
+            )
         else
-            try resolveValidationImportPathAlloc(state.allocator, source_path, import_row.import_path);
-        defer state.allocator.free(imported_path);
+            .{
+                .path = try resolveValidationImportPathAlloc(state.allocator, source_path, import_row.import_path),
+                .absolute_entry_tree_root = null,
+            };
+        defer state.allocator.free(imported_path.path);
 
-        const imported_index = try collectValidationModule(state, imported_path, null, source_graph, expected_graph);
+        const imported_index = try collectValidationModule(
+            state,
+            imported_path.path,
+            null,
+            source_graph,
+            expected_graph,
+            imported_path.absolute_entry_tree_root,
+        );
         if (findValidationFunctionIndex(state.modules.items[imported_index].functions, helper_use.callee_name) == null) {
             return error.UnsupportedHelperGraph;
         }
@@ -1976,7 +2027,7 @@ pub fn validateFileBackedOpenRowAt(
 
     var validation = ValidationState{ .allocator = allocator };
     defer validation.deinit();
-    _ = try collectValidationModule(&validation, canonical_source_path, entry_symbol, null, null);
+    _ = try collectValidationModule(&validation, canonical_source_path, entry_symbol, null, null, null);
 }
 
 fn validateFileBackedOpenRowAgainstSnapshot(
@@ -1994,7 +2045,7 @@ fn validateFileBackedOpenRowAgainstSnapshot(
 
     var validation = ValidationState{ .allocator = allocator };
     defer validation.deinit();
-    _ = try collectValidationModule(&validation, canonical_source_path, entry_symbol, null, &expected_graph);
+    _ = try collectValidationModule(&validation, canonical_source_path, entry_symbol, null, &expected_graph, null);
 }
 
 fn validateOwnedOpenRowAt(
@@ -2009,7 +2060,7 @@ fn validateOwnedOpenRowAt(
 
     var validation = ValidationState{ .allocator = allocator };
     defer validation.deinit();
-    _ = try collectValidationModule(&validation, source_graph.root_path, entry_symbol, &source_graph, null);
+    _ = try collectValidationModule(&validation, source_graph.root_path, entry_symbol, &source_graph, null, null);
 }
 
 const ValidationSpec = struct {
@@ -2617,10 +2668,11 @@ test "owned validation resolves parent-directory helpers for absolute caller-own
         std.testing.allocator,
         "/tmp/shift-owned-open-row/nested/entry.zig",
         "../helpers/util.zig",
+        null,
     );
-    defer std.testing.allocator.free(resolved);
+    defer std.testing.allocator.free(resolved.path);
 
-    try std.testing.expectEqualStrings("/tmp/shift-owned-open-row/helpers/util.zig", resolved);
+    try std.testing.expectEqualStrings("/tmp/shift-owned-open-row/helpers/util.zig", resolved.path);
 }
 
 test "owned validation rejects helper imports that climb above the admitted absolute entry tree" {
@@ -2630,6 +2682,7 @@ test "owned validation rejects helper imports that climb above the admitted abso
             std.testing.allocator,
             "/tmp/shift-owned-open-row/nested/deeper/entry.zig",
             "../../outside_helper.zig",
+            null,
         ),
     );
     try std.testing.expectError(
@@ -2638,6 +2691,7 @@ test "owned validation rejects helper imports that climb above the admitted abso
             std.testing.allocator,
             "/tmp/shift-owned-open-row/nested/entry.zig",
             "helpers/../../outside_helper.zig",
+            null,
         ),
     );
 }
@@ -2649,6 +2703,7 @@ test "owned validation rejects Windows absolute helper imports" {
             std.testing.allocator,
             "/tmp/shift-owned-open-row/nested/entry.zig",
             "C:/tmp/helper.zig",
+            null,
         ),
     );
     try std.testing.expectError(
@@ -2657,6 +2712,7 @@ test "owned validation rejects Windows absolute helper imports" {
             std.testing.allocator,
             "/tmp/shift-owned-open-row/nested/entry.zig",
             "\\\\server\\share\\helper.zig",
+            null,
         ),
     );
 }
@@ -2810,6 +2866,47 @@ test "owned-source validation rejects absolute helper imports that climb outside
             .path = helper_path,
             .content = helper_source,
         }}, "runBody"),
+    );
+}
+
+test "owned-source validation rejects transitive helper imports that leave the first admitted absolute helper tree" {
+    const entry_path = "/tmp/shift-owned-open-row/nested/entry.zig";
+    const helper_path = "/tmp/shift-owned-open-row/helpers/a.zig";
+    const escaped_helper_path = "/tmp/shift-owned-open-row/other/b.zig";
+
+    try std.testing.expectError(
+        error.UnsupportedHelperGraph,
+        validateOwnedOpenRowAt(
+            std.testing.allocator,
+            entry_path,
+            \\const helpers = @import("../helpers/a.zig");
+            \\
+            \\pub fn runBody(eff: anytype) !void {
+            \\    try helpers.emit(eff);
+            \\}
+        ,
+            &.{
+                .{
+                    .path = helper_path,
+                    .content =
+                    \\const other = @import("../other/b.zig");
+                    \\
+                    \\pub fn emit(eff: anytype) !void {
+                    \\    try other.emit(eff);
+                    \\}
+                    ,
+                },
+                .{
+                    .path = escaped_helper_path,
+                    .content =
+                    \\pub fn emit(eff: anytype) !void {
+                    \\    try eff.writer.tell("escaped");
+                    \\}
+                    ,
+                },
+            },
+            "runBody",
+        ),
     );
 }
 
