@@ -480,6 +480,31 @@ test "explicit ir compilation matches the generated runtime plan shape" {
     try std.testing.expectEqual(@as(usize, 7), ExplicitIrProgramType.runtime_plan.ops.len);
 }
 
+test "explicit ir compilation stays executable through run" {
+    const ExplicitIrProgramType = shift.ir.compile(
+        "example.open_row_state_writer",
+        example_open_row_state_writer.irProgram(),
+    );
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var handlers: LoweredStateWriterHandlers = .{
+        .state = .{ .value = 5 },
+        .writer = .{ .allocator = std.testing.allocator },
+    };
+    defer handlers.writer.deinit();
+
+    const result = try ExplicitIrProgramType.run(&runtime, &handlers);
+    defer std.testing.allocator.free(result.outputs.writer);
+
+    try std.testing.expectEqual(@as(i32, 6), result.outputs.state);
+    try std.testing.expectEqual(@as(usize, 2), result.outputs.writer.len);
+    try std.testing.expectEqualStrings("query=artifact-search", result.outputs.writer[0]);
+    try std.testing.expectEqualStrings("workflow=queued", result.outputs.writer[1]);
+    try std.testing.expectEqualStrings("done", result.value);
+}
+
 test "explicit ir compilation accepts row-only helper params and helper return values" {
     const helper_symbol: shift.ir.SymbolRef = .{
         .module_path = "examples/row_only_value.zig",

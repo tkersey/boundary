@@ -3,6 +3,7 @@ const std = @import("std");
 
 /// Error surface for comptime helper/source graph extraction.
 pub const Error = shared.Error;
+
 /// One top-level function discovered by the shared source extractor.
 pub const FunctionNode = shared.FunctionNode;
 /// One helper-call edge between top-level functions in the same source file.
@@ -18,6 +19,7 @@ pub fn analyzeModule(comptime source: [:0]const u8, comptime entry_symbol: []con
         .entry_symbol = entry_symbol,
         .reject_recursive_helpers = true,
         .reject_indirect_effect_access = true,
+        .reject_malformed_statements = true,
     });
 }
 

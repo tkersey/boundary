@@ -396,6 +396,7 @@ fn analyzeOwnedModule(
         .entry_symbol = entry_symbol,
         .reject_recursive_helpers = false,
         .reject_indirect_effect_access = true,
+        .reject_malformed_statements = true,
     });
 }
 

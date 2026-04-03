@@ -4,6 +4,7 @@ const std = @import("std");
 pub const Error = error{
     EntryMissing,
     MissingImport,
+    ParseError,
     RecursiveHelpers,
     TooManyFunctions,
     TooManyFunctionParams,
@@ -20,6 +21,7 @@ pub const AnalyzeOptions = struct {
     entry_symbol: ?[]const u8 = null,
     reject_recursive_helpers: bool = false,
     reject_indirect_effect_access: bool = false,
+    reject_malformed_statements: bool = false,
 };
 
 /// One supported scalar or string value shape discovered in a function signature.
@@ -938,6 +940,38 @@ fn statementSupportsBodyLowering(
     return false;
 }
 
+fn statementLooksMalformed(statement_window: *const StatementWindow) bool {
+    const statement = statementTrimSemicolon(statement_window.slice());
+    if (statement.len == 0) return false;
+
+    var paren_depth: usize = 0;
+    var bracket_depth: usize = 0;
+    for (statement) |token| switch (token.tag) {
+        .l_paren => paren_depth += 1,
+        .r_paren => {
+            if (paren_depth == 0) return true;
+            paren_depth -= 1;
+        },
+        .l_bracket => bracket_depth += 1,
+        .r_bracket => {
+            if (bracket_depth == 0) return true;
+            bracket_depth -= 1;
+        },
+        else => {},
+    };
+    if (paren_depth != 0 or bracket_depth != 0) return true;
+
+    return switch (statement[statement.len - 1].tag) {
+        .equal,
+        .period,
+        .comma,
+        .colon,
+        .keyword_try,
+        => true,
+        else => false,
+    };
+}
+
 fn findImportAlias(imports: []const ImportAlias, name: []const u8) ?ImportAlias {
     for (imports) |import_alias| {
         if (std.mem.eql(u8, import_alias.name, name)) return import_alias;
@@ -1077,7 +1111,10 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
     while (body_depth != 0) {
         const token = context.tokenizer.next();
         switch (token.tag) {
-            .eof => break,
+            .eof => {
+                if (context.options.reject_malformed_statements) return error.ParseError;
+                break;
+            },
             .l_brace => {
                 body_depth += 1;
                 body_lowering_supported = false;
@@ -1136,6 +1173,12 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
             });
         }
         if (current.tag == .semicolon) {
+            if (context.options.reject_malformed_statements and
+                statement_window.count < statement_window.items.len and
+                statementLooksMalformed(&statement_window))
+            {
+                return error.ParseError;
+            }
             if (!statementSupportsBodyLowering(
                 context.effect_param,
                 aliases[0..alias_count],
@@ -1205,7 +1248,10 @@ fn scanSource(source: [:0]const u8, collector: anytype, options: AnalyzeOptions)
 
                 while (true) {
                     const next = tokenizer.next();
-                    if (next.tag == .eof) break;
+                    if (next.tag == .eof) {
+                        if (options.reject_malformed_statements) return error.ParseError;
+                        break;
+                    }
                     if (isIgnorable(next.tag)) continue;
                     if (next.tag == .l_paren) {
                         param_depth = 1;
@@ -1215,7 +1261,10 @@ fn scanSource(source: [:0]const u8, collector: anytype, options: AnalyzeOptions)
 
                 while (param_depth != 0) {
                     const next = tokenizer.next();
-                    if (next.tag == .eof) break;
+                    if (next.tag == .eof) {
+                        if (options.reject_malformed_statements) return error.ParseError;
+                        break;
+                    }
                     if (isIgnorable(next.tag)) continue;
                     switch (next.tag) {
                         .l_paren => param_depth += 1,
@@ -1289,7 +1338,10 @@ fn scanSource(source: [:0]const u8, collector: anytype, options: AnalyzeOptions)
                 var body_start: ?std.zig.Token = null;
                 while (body_start == null) {
                     const next = tokenizer.next();
-                    if (next.tag == .eof) break;
+                    if (next.tag == .eof) {
+                        if (options.reject_malformed_statements) return error.ParseError;
+                        break;
+                    }
                     if (isIgnorable(next.tag)) continue;
                     if (next.tag == .l_brace or next.tag == .semicolon) {
                         body_start = next;
@@ -1355,6 +1407,8 @@ fn scanSource(source: [:0]const u8, collector: anytype, options: AnalyzeOptions)
             }
         }
     }
+
+    if (options.reject_malformed_statements and depth != 0) return error.ParseError;
 }
 
 fn finalizeGraph(source: [:0]const u8, collector: anytype, options: AnalyzeOptions) AnalysisError!?usize {
@@ -1398,6 +1452,7 @@ pub fn analyzeComptime(
     const entry_index = finalizeGraph(source, &collector, options) catch |err| switch (err) {
         error.OutOfMemory => unreachable,
         error.EntryMissing => return error.EntryMissing,
+        error.ParseError => return error.ParseError,
         error.MissingImport => return error.MissingImport,
         error.RecursiveHelpers => return error.RecursiveHelpers,
         error.TooManyFunctions => return error.TooManyFunctions,

@@ -51,21 +51,21 @@ fn sentinelBytes(comptime bytes: []const u8) [:0]const u8 {
     return raw[0..bytes.len :0];
 }
 
-fn ResultOutputsType(comptime outputs: []const effect_ir.OutputSpec) type {
+fn ResultOutputsTypeForPlan(comptime compiled_plan: program_plan.ProgramPlan) type {
     var fields = [_]std.builtin.Type.StructField{.{
         .name = "",
         .type = void,
         .default_value_ptr = null,
         .is_comptime = false,
         .alignment = @alignOf(void),
-    }} ** outputs.len;
-    for (outputs, 0..) |output, index| {
+    }} ** compiled_plan.outputs.len;
+    inline for (compiled_plan.outputs, 0..) |output, index| {
         fields[index] = .{
             .name = sentinelBytes(output.label),
-            .type = output.OutputType,
+            .type = runtimeValueType(output.codec),
             .default_value_ptr = null,
             .is_comptime = false,
-            .alignment = @alignOf(output.OutputType),
+            .alignment = @alignOf(runtimeValueType(output.codec)),
         };
     }
     return @Type(.{
@@ -78,10 +78,10 @@ fn ResultOutputsType(comptime outputs: []const effect_ir.OutputSpec) type {
     });
 }
 
-fn LoweredRunResultType(comptime value_type: type, comptime outputs: []const effect_ir.OutputSpec) type {
+fn LoweredRunResultTypeForPlan(comptime compiled_plan: program_plan.ProgramPlan) type {
     return struct {
-        outputs: ResultOutputsType(outputs),
-        value: value_type,
+        outputs: ResultOutputsTypeForPlan(compiled_plan),
+        value: runtimeValueType(compiled_plan.functions[compiled_plan.entry_index].value_codec),
     };
 }
 
@@ -463,9 +463,9 @@ fn helperArgStorageCapacity(comptime compiled_plan: program_plan.ProgramPlan) us
     return @max(@as(usize, 1), maxFunctionParameterCount(compiled_plan));
 }
 
-fn collectLoweredOutputs(comptime outputs: []const effect_ir.OutputSpec, handlers_ptr: anytype) anyerror!ResultOutputsType(outputs) {
-    var value: ResultOutputsType(outputs) = std.mem.zeroInit(ResultOutputsType(outputs), .{});
-    inline for (outputs) |output| {
+fn collectLoweredOutputsForPlan(comptime compiled_plan: program_plan.ProgramPlan, handlers_ptr: anytype) anyerror!ResultOutputsTypeForPlan(compiled_plan) {
+    var value: ResultOutputsTypeForPlan(compiled_plan) = std.mem.zeroInit(ResultOutputsTypeForPlan(compiled_plan), .{});
+    inline for (compiled_plan.outputs) |output| {
         const handler_ptr = &@field(handlers_ptr.*, output.label);
         @field(value, output.label) = try resolveMaybeError(handler_ptr.finish());
     }
@@ -949,6 +949,7 @@ fn analyzeProgramGraphWithRootSource(
     comptime entry_symbol: []const u8,
 ) source_graph_embed.ProgramGraph {
     return source_graph_embed.analyzeProgramWithRootSource(source_path, root_source, imported_sources, entry_symbol) catch |err| switch (err) {
+        error.ParseError => @compileError("public lowering rejected source text that does not parse as Zig"),
         error.EntryMissing => @compileError("public lowering could not find the requested entry symbol in the embedded source"),
         error.MissingImport => @compileError("public lowering could not resolve one imported helper module or helper symbol"),
         error.RecursiveHelpers => @compileError("public lowering encountered an unexpected recursive helper analysis failure"),
@@ -1756,6 +1757,7 @@ fn analyzeValidationModuleGraph(
             }) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.EntryMissing => return error.EntryMissing,
+                error.ParseError => return error.ParseError,
                 error.MissingImport => return error.UnsupportedHelperGraph,
                 error.RecursiveHelpers => return error.UnsupportedHelperGraph,
                 error.TooManyFunctions => return error.UnsupportedHelperGraph,
@@ -1797,6 +1799,7 @@ fn analyzeValidationModuleGraph(
     }) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.EntryMissing => return error.EntryMissing,
+        error.ParseError => return error.ParseError,
         error.MissingImport => return error.UnsupportedHelperGraph,
         error.RecursiveHelpers => return error.UnsupportedHelperGraph,
         error.TooManyFunctions => return error.UnsupportedHelperGraph,
@@ -1936,21 +1939,16 @@ const ValidationSpec = struct {
     imported_sources: []const ImportedSource = &.{},
 };
 
-const RunSpec = struct {
-    ValueType: type,
-    outputs: []const effect_ir.OutputSpec,
-};
-
 fn GeneratedProgramType(
     comptime label_value: []const u8,
     comptime source_path_value: []const u8,
     comptime entry_symbol_value: []const u8,
     comptime compiled_plan: program_plan.ProgramPlan,
-    comptime run_spec: ?RunSpec,
+    comptime supports_run: bool,
     comptime validate_spec: ?ValidationSpec,
 ) type {
     return struct {
-        const RunResult = if (run_spec) |active| LoweredRunResultType(active.ValueType, active.outputs) else void;
+        const RunResult = if (supports_run) LoweredRunResultTypeForPlan(compiled_plan) else void;
         /// Stable label for this compiled additive lowering request.
         pub const label = label_value;
         /// Caller-visible source path for this compiled additive lowering request.
@@ -1979,7 +1977,9 @@ fn GeneratedProgramType(
 
         /// Execute this lowered program through its runtime_plan using explicit handler objects.
         pub fn run(runtime: *lowered_machine.Runtime, handlers: anytype) anyerror!RunResult {
-            const active_run_spec = run_spec orelse @compileError("public lowered-program execution is available only on source-lowered generated program types");
+            if (!supports_run) {
+                @compileError("public lowered-program execution is available only when the entry function has no value parameters");
+            }
             try lowered_machine.beginExecution(runtime);
             defer lowered_machine.endExecution(runtime);
             const outcome = try executeLoweredDispatch(compiled_plan, handlers, compiled_plan.entry_index, &.{});
@@ -1988,7 +1988,7 @@ fn GeneratedProgramType(
                 .terminal => |typed| typed,
             };
             return .{
-                .outputs = try collectLoweredOutputs(active_run_spec.outputs, handlers),
+                .outputs = try collectLoweredOutputsForPlan(compiled_plan, handlers),
                 .value = decodeRuntimeValue(compiled_plan.functions[compiled_plan.entry_index].value_codec, value),
             };
         }
@@ -2032,13 +2032,17 @@ fn LowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) type {
         error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
     };
     assertExecutableCodecSupport(compiled_plan);
-    return GeneratedProgramType(spec.label, source_path, spec.entry_symbol, compiled_plan, .{
-        .ValueType = spec.ValueType,
-        .outputs = spec.outputs,
-    }, .{
-        .source_path = source_path,
-        .entry_symbol = spec.entry_symbol,
-    });
+    return GeneratedProgramType(
+        spec.label,
+        source_path,
+        spec.entry_symbol,
+        compiled_plan,
+        true,
+        .{
+            .source_path = source_path,
+            .entry_symbol = spec.entry_symbol,
+        },
+    );
 }
 
 fn Lower(comptime source_ref: SourceRef, comptime spec: LowerSpec) type {
@@ -2082,15 +2086,19 @@ fn Lower(comptime source_ref: SourceRef, comptime spec: LowerSpec) type {
             error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
         };
         assertExecutableCodecSupport(compiled_plan);
-        return GeneratedProgramType(spec.label, source_path, spec.entry_symbol, compiled_plan, .{
-            .ValueType = spec.ValueType,
-            .outputs = spec.outputs,
-        }, .{
-            .source_path = source_path,
-            .entry_symbol = spec.entry_symbol,
-            .root_source = caller_source,
-            .imported_sources = source_ref.imported_sources,
-        });
+        return GeneratedProgramType(
+            spec.label,
+            source_path,
+            spec.entry_symbol,
+            compiled_plan,
+            true,
+            .{
+                .source_path = source_path,
+                .entry_symbol = spec.entry_symbol,
+                .root_source = caller_source,
+                .imported_sources = source_ref.imported_sources,
+            },
+        );
     }
     return LowerAt(sourcePathForLowering(source_ref), spec);
 }
@@ -2134,7 +2142,14 @@ fn CompileIrType(comptime label: []const u8, comptime program: effect_ir.Program
         error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
     };
     assertExecutableCodecSupport(compiled_plan);
-    return GeneratedProgramType(label, "<ir>", entry_function.symbol.symbol_name, compiled_plan, null, null);
+    return GeneratedProgramType(
+        label,
+        "<ir>",
+        entry_function.symbol.symbol_name,
+        compiled_plan,
+        entry_function.parameter_codecs.len == 0,
+        null,
+    );
 }
 
 /// Compile one explicit public effect-ir program into the same runtime-owned plan shape.
