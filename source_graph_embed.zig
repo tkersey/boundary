@@ -283,14 +283,18 @@ pub fn ownedSourceContent(
     return null;
 }
 
-/// Resolve one module path to caller-owned bytes first, then fall back to repo-embedded bytes.
+/// Resolve one module path to caller-owned bytes first; owned graphs must provide every helper explicitly.
 pub fn sourceBytes(
     comptime source_path: []const u8,
     comptime root_source_path: ?[]const u8,
     comptime root_source: ?[:0]const u8,
     comptime imported_sources: []const OwnedSource,
-) [:0]const u8 {
-    return ownedSourceContent(source_path, root_source_path, root_source, imported_sources) orelse embeddedSource(source_path);
+) Error![:0]const u8 {
+    if (ownedSourceContent(source_path, root_source_path, root_source, imported_sources)) |owned_source| {
+        return owned_source;
+    }
+    if (root_source_path != null) return error.MissingImport;
+    return embeddedSource(source_path);
 }
 
 /// Embed one repo-relative source file through a repo-root module so examples remain package-visible.
@@ -419,7 +423,7 @@ fn analyzeOwnedModule(
     comptime imported_sources: []const OwnedSource,
     comptime entry_symbol: ?[]const u8,
 ) Error!source_graph_engine.ModuleGraph {
-    return source_graph_engine.analyzeComptime(sourceBytes(source_path, root_source_path, root_source, imported_sources), .{
+    return source_graph_engine.analyzeComptime(try sourceBytes(source_path, root_source_path, root_source, imported_sources), .{
         .entry_symbol = entry_symbol,
         .reject_recursive_helpers = false,
         .reject_indirect_effect_access = true,

@@ -113,7 +113,10 @@ fn bodyTokensForFunction(
         root_source.path,
         root_source.content,
         root_source.imported_sources,
-    );
+    ) catch |err| switch (err) {
+        error.MissingImport => @compileError("public lowering recursive helper subset could not resolve one caller-owned helper module"),
+        else => unreachable,
+    };
     return comptime blk: {
         var tokenizer = std.zig.Tokenizer.init(module_source);
         var token_count: usize = 0;
@@ -665,12 +668,13 @@ fn helperImportModulePath(
     comptime import_alias: []const u8,
     comptime root_source: RootSource,
 ) ?[]const u8 {
-    const caller_graph = source_graph_engine.analyzeComptime(source_graph_embed.sourceBytes(
+    const caller_source = source_graph_embed.sourceBytes(
         caller_module_path,
         root_source.path,
         root_source.content,
         root_source.imported_sources,
-    ), .{
+    ) catch return null;
+    const caller_graph = source_graph_engine.analyzeComptime(caller_source, .{
         .entry_symbol = null,
         .reject_recursive_helpers = false,
         .reject_indirect_effect_access = true,
