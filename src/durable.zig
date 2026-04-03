@@ -181,8 +181,18 @@ fn isPlanReplayRebuildError(err: anyerror) bool {
         error.InvalidReturnValueIndex,
         error.InvalidTerminatorInstruction,
         error.InvalidTerminatorTarget,
+        error.FileNotFound,
         error.UnsupportedPlanSchema,
         error.UnsupportedSchemaVersion,
+        => true,
+        else => false,
+    };
+}
+
+fn isArtifactReplayRebuildError(err: anyerror) bool {
+    return switch (err) {
+        error.FileNotFound,
+        error.UnsupportedArtifactSchema,
         => true,
         else => false,
     };
@@ -473,17 +483,19 @@ pub const Store = struct {
         defer self.allocator.free(artifact_path);
         const legacy_artifact_path = try legacyArtifactPath(self.allocator, self.manifest_path);
         defer self.allocator.free(legacy_artifact_path);
-        const artifact_file = readArtifactFileWithLegacyFallback(self.allocator, artifact_path, legacy_artifact_path) catch |err| switch (err) {
-            error.UnsupportedArtifactSchema => return .{
-                .status = .rebuild_required,
-                .manifest = manifest,
-                .state = null,
-            },
-            else => return .{
+        const artifact_file = readArtifactFileWithLegacyFallback(self.allocator, artifact_path, legacy_artifact_path) catch |err| {
+            if (isArtifactReplayRebuildError(err)) {
+                return .{
+                    .status = .rebuild_required,
+                    .manifest = manifest,
+                    .state = null,
+                };
+            }
+            return .{
                 .status = .failed,
                 .manifest = manifest,
                 .state = null,
-            },
+            };
         };
         defer freeArtifact(self.allocator, &artifact_file.artifact);
         if (artifact_file.stored_schema_version != expected_artifact_schema) {
@@ -538,17 +550,19 @@ pub const Store = struct {
         defer self.allocator.free(artifact_path);
         const legacy_artifact_path = try legacyArtifactPath(self.allocator, self.manifest_path);
         defer self.allocator.free(legacy_artifact_path);
-        const artifact_file = readArtifactFileWithLegacyFallback(self.allocator, artifact_path, legacy_artifact_path) catch |err| switch (err) {
-            error.UnsupportedArtifactSchema => return .{
-                .status = .rebuild_required,
-                .manifest = manifest,
-                .state = null,
-            },
-            else => return .{
+        const artifact_file = readArtifactFileWithLegacyFallback(self.allocator, artifact_path, legacy_artifact_path) catch |err| {
+            if (isArtifactReplayRebuildError(err)) {
+                return .{
+                    .status = .rebuild_required,
+                    .manifest = manifest,
+                    .state = null,
+                };
+            }
+            return .{
                 .status = .failed,
                 .manifest = manifest,
                 .state = null,
-            },
+            };
         };
         defer freeArtifact(self.allocator, &artifact_file.artifact);
         if (artifact_file.stored_schema_version != expected_artifact_schema) {

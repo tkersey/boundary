@@ -1303,6 +1303,33 @@ test "durable restore reports rebuild required on unknown artifact schema" {
     try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
+test "durable restore reports rebuild required when the persisted artifact sidecar is missing" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const artifact = shift.durable.ProgramArtifact{
+        .label = "missing_artifact_sidecar",
+        .program_hash = 0x8335,
+        .steps = &.{
+            .{ .emit = .{ .note = "artifact-backed" } },
+            .{ .emit = .{ .final_string = "done" } },
+        },
+    };
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    _ = try store.saveArtifact(artifact, null);
+
+    try std.fs.deleteFileAbsolute(paths.artifact_path);
+
+    const inspected = try store.inspectRestore();
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, inspected.status);
+
+    const restored = try store.restore();
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+}
+
 test "durable restore reports rebuild required on unknown plan schema" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -1326,6 +1353,26 @@ test "durable restore reports rebuild required on unknown plan schema" {
     }
 
     const restored = try store.restoreArtifact(artifact);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+}
+
+test "durable restore reports rebuild required when the persisted plan sidecar is missing" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const artifact = makePlanBackedArtifact(0x6235, 0x6235, "demo.plan", "runBody");
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    _ = try store.saveArtifact(artifact, null);
+
+    try std.fs.deleteFileAbsolute(paths.plan_path);
+
+    const inspected = try store.inspectRestore();
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, inspected.status);
+
+    const restored = try store.restore();
     try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
