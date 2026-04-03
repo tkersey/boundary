@@ -1325,7 +1325,6 @@ const max_validation_direct_op_uses = 2048;
 
 const ValidationFunction = struct {
     name: []u8,
-    effect_param_present: bool,
 };
 
 const ValidationImport = struct {
@@ -1562,7 +1561,6 @@ fn cloneValidationFunctionsAlloc(
         errdefer for (out[0..index]) |owned| allocator.free(owned.name);
         out[index] = .{
             .name = try allocator.dupe(u8, function.name),
-            .effect_param_present = function.effect_param != null,
         };
     }
     return out;
@@ -2006,7 +2004,6 @@ fn collectValidationModule(
 
     for (module.helper_uses) |helper_use| {
         const import_alias = helper_use.import_alias orelse continue;
-        if (!module.functions[helper_use.caller_index].effect_param_present) continue;
 
         const import_row = findValidationImport(module.imports, import_alias) orelse return error.UnsupportedHelperGraph;
         const imported_path: ResolvedOwnedValidationImport = if (source_graph != null)
@@ -3078,6 +3075,92 @@ test "absolute caller-owned helper regression: validation accepts shared helper 
             },
         },
         "runBody",
+    );
+}
+
+test "file-backed validation detects drift in nested imported pure helper chains" {
+    const root_source =
+        \\const helpers = @import("helpers/a.zig");
+        \\
+        \\pub fn runBody(eff: anytype) ![]const u8 {
+        \\    const count = try eff.state.get();
+        \\    const label = try helpers.classify("nested-selected", count);
+        \\    try eff.writer.tell(label);
+        \\    return "done";
+        \\}
+    ;
+    const helper_source =
+        \\const nested = @import("sub/b.zig");
+        \\
+        \\pub fn classify(label: []const u8, count: i32) ![]const u8 {
+        \\    return try nested.classify(label, count);
+        \\}
+    ;
+    const nested_source =
+        \\pub fn classify(label: []const u8, _: i32) ![]const u8 {
+        \\    return label;
+        \\}
+    ;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.makePath("helpers/sub");
+    try tmp.dir.writeFile(.{
+        .sub_path = "entry.zig",
+        .data = root_source,
+    });
+    try tmp.dir.writeFile(.{
+        .sub_path = "helpers/a.zig",
+        .data = helper_source,
+    });
+    try tmp.dir.writeFile(.{
+        .sub_path = "helpers/sub/b.zig",
+        .data = nested_source,
+    });
+
+    const root_path = try tmp.dir.realpathAlloc(std.testing.allocator, "entry.zig");
+    defer std.testing.allocator.free(root_path);
+    const helper_path = try tmp.dir.realpathAlloc(std.testing.allocator, "helpers/a.zig");
+    defer std.testing.allocator.free(helper_path);
+    const nested_path = try tmp.dir.realpathAlloc(std.testing.allocator, "helpers/sub/b.zig");
+    defer std.testing.allocator.free(nested_path);
+    const imported_sources = [_]ImportedSource{
+        .{ .path = helper_path, .content = helper_source },
+        .{ .path = nested_path, .content = nested_source },
+    };
+
+    try validateFileBackedOpenRowAt(std.testing.allocator, root_path, "runBody");
+    try validateFileBackedOpenRowAgainstSnapshot(
+        std.testing.allocator,
+        root_path,
+        root_source,
+        &imported_sources,
+        "runBody",
+    );
+
+    try tmp.dir.writeFile(.{
+        .sub_path = "helpers/sub/b.zig",
+        .data =
+        \\pub fn renamed(label: []const u8, _: i32) ![]const u8 {
+        \\    _ = label;
+        \\    return "drifted";
+        \\}
+        ,
+    });
+
+    try std.testing.expectError(
+        error.UnsupportedHelperGraph,
+        validateFileBackedOpenRowAt(std.testing.allocator, root_path, "runBody"),
+    );
+    try std.testing.expectError(
+        error.SourceDrifted,
+        validateFileBackedOpenRowAgainstSnapshot(
+            std.testing.allocator,
+            root_path,
+            root_source,
+            &imported_sources,
+            "runBody",
+        ),
     );
 }
 
