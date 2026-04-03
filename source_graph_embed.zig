@@ -307,6 +307,26 @@ fn dirname(comptime path: []const u8) []const u8 {
     return std.fs.path.dirname(path) orelse "";
 }
 
+/// Keep absolute caller-owned helper imports inside the entry directory or one parent sibling tree.
+pub fn absoluteOwnedImportWithinEntryTree(path: []const u8) bool {
+    var iterator = std.mem.tokenizeAny(u8, path, "/\\");
+    var leading_parent_count: usize = 0;
+    var entered_subtree = false;
+
+    while (iterator.next()) |segment| {
+        if (segment.len == 0 or std.mem.eql(u8, segment, ".")) continue;
+        if (std.mem.eql(u8, segment, "..")) {
+            if (entered_subtree) return false;
+            leading_parent_count += 1;
+            if (leading_parent_count > 1) return false;
+            continue;
+        }
+        entered_subtree = true;
+    }
+
+    return entered_subtree;
+}
+
 fn resolveImportPath(comptime from_path: []const u8, comptime import_path: []const u8) Error![]const u8 {
     if (std.mem.startsWith(u8, import_path, "/")) return error.UnsupportedImportPath;
     if (!std.mem.endsWith(u8, import_path, ".zig")) return error.UnsupportedImportPath;
@@ -315,6 +335,9 @@ fn resolveImportPath(comptime from_path: []const u8, comptime import_path: []con
         absoluteSourcePath(from_path)
     else
         repoRelativePath(from_path);
+    if (std.fs.path.isAbsolute(normalized_from_path) and !absoluteOwnedImportWithinEntryTree(import_path)) {
+        return error.UnsupportedImportPath;
+    }
     const base_dir = dirname(normalized_from_path);
     const joined = if (base_dir.len == 0)
         import_path
@@ -545,6 +568,23 @@ test "resolveImportPathAt preserves parent-directory helpers for absolute caller
         try resolveImportPathAt(
             "/tmp/shift-owned-open-row/nested/entry.zig",
             "../helpers/util.zig",
+        ),
+    );
+}
+
+test "resolveImportPathAt rejects helper imports that climb above the admitted absolute entry tree" {
+    try std.testing.expectError(
+        error.UnsupportedImportPath,
+        resolveImportPathAt(
+            "/tmp/shift-owned-open-row/nested/deeper/entry.zig",
+            "../../outside_helper.zig",
+        ),
+    );
+    try std.testing.expectError(
+        error.UnsupportedImportPath,
+        resolveImportPathAt(
+            "/tmp/shift-owned-open-row/nested/entry.zig",
+            "helpers/../../outside_helper.zig",
         ),
     );
 }

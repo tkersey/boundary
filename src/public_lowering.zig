@@ -1731,6 +1731,7 @@ fn resolveOwnedValidationImportPathAlloc(
     }
 
     if (!std.fs.path.isAbsolute(source_path)) return error.UnsupportedHelperGraph;
+    if (!source_graph_embed.absoluteOwnedImportWithinEntryTree(import_path)) return error.UnsupportedHelperGraph;
     const base_dir = std.fs.path.dirname(source_path) orelse return error.UnsupportedHelperGraph;
     const joined_path = std.fs.path.join(allocator, &.{ base_dir, import_path }) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -2466,6 +2467,25 @@ test "owned validation resolves parent-directory helpers for absolute caller-own
     defer std.testing.allocator.free(resolved);
 
     try std.testing.expectEqualStrings("/tmp/shift-owned-open-row/helpers/util.zig", resolved);
+}
+
+test "owned validation rejects helper imports that climb above the admitted absolute entry tree" {
+    try std.testing.expectError(
+        error.UnsupportedHelperGraph,
+        resolveOwnedValidationImportPathAlloc(
+            std.testing.allocator,
+            "/tmp/shift-owned-open-row/nested/deeper/entry.zig",
+            "../../outside_helper.zig",
+        ),
+    );
+    try std.testing.expectError(
+        error.UnsupportedHelperGraph,
+        resolveOwnedValidationImportPathAlloc(
+            std.testing.allocator,
+            "/tmp/shift-owned-open-row/nested/entry.zig",
+            "helpers/../../outside_helper.zig",
+        ),
+    );
 }
 
 test "after hook naming preserves underscore boundaries" {
