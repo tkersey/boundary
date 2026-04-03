@@ -131,10 +131,15 @@ fn joinRelativePathSegments(comptime segments: []const []const u8) []const u8 {
 
 fn pathEquals(comptime lhs: []const u8, comptime rhs: []const u8) bool {
     if (lhs.len != rhs.len) return false;
+    const case_insensitive = comptime pathsUseCaseInsensitiveComparison(lhs, rhs);
     inline for (rhs, 0..) |expected, index| {
         const actual = lhs[index];
         if (expected == '/' or expected == '\\') {
             if (actual != '/' and actual != '\\') return false;
+            continue;
+        }
+        if (case_insensitive) {
+            if (asciiLowerPathByte(actual) != asciiLowerPathByte(expected)) return false;
             continue;
         }
         if (actual != expected) return false;
@@ -144,15 +149,33 @@ fn pathEquals(comptime lhs: []const u8, comptime rhs: []const u8) bool {
 
 fn pathStartsWithRoot(comptime path: []const u8, comptime root: []const u8) bool {
     if (path.len < root.len) return false;
+    const case_insensitive = comptime pathsUseCaseInsensitiveComparison(path, root);
     inline for (root, 0..) |expected, index| {
         const actual = path[index];
         if (expected == '/' or expected == '\\') {
             if (actual != '/' and actual != '\\') return false;
             continue;
         }
+        if (case_insensitive) {
+            if (asciiLowerPathByte(actual) != asciiLowerPathByte(expected)) return false;
+            continue;
+        }
         if (actual != expected) return false;
     }
     return path.len == root.len or path[root.len] == '/' or path[root.len] == '\\';
+}
+
+fn asciiLowerPathByte(byte: u8) u8 {
+    return if (byte >= 'A' and byte <= 'Z') byte + ('a' - 'A') else byte;
+}
+
+fn pathUsesWindowsCaseFolding(path: []const u8) bool {
+    if (path.len >= 2 and std.ascii.isAlphabetic(path[0]) and path[1] == ':') return true;
+    return path.len >= 2 and ((path[0] == '\\' and path[1] == '\\') or (path[0] == '/' and path[1] == '/'));
+}
+
+fn pathsUseCaseInsensitiveComparison(lhs: []const u8, rhs: []const u8) bool {
+    return pathUsesWindowsCaseFolding(lhs) and pathUsesWindowsCaseFolding(rhs);
 }
 
 fn normalizeRelativePath(comptime source_path: []const u8) NormalizeRelativePathError![]const u8 {
@@ -226,7 +249,7 @@ fn registryContainsLine(comptime registry: []const u8, comptime candidate: []con
         var end = start;
         while (end < registry.len and registry[end] != '\n') : (end += 1) {}
         const line = registry[start..end];
-        if (line.len != 0 and std.mem.eql(u8, line, candidate)) return true;
+        if (line.len != 0 and pathEquals(line, candidate)) return true;
         start = end + 1;
     }
     return false;
@@ -775,6 +798,23 @@ test "repoRelativeAbsolutePath accepts mixed separator spellings for checkout ro
         repoRelativeAbsolutePath(
             "C:\\repo\\examples\\open_row_state_writer.zig",
             "C:/repo",
+        ).?,
+    );
+}
+
+test "windows ownership portability accepts checkout roots that differ only by casing" {
+    try std.testing.expectEqualStrings(
+        "examples/open_row_state_writer.zig",
+        repoRelativeAbsolutePath(
+            "C:/Repo/examples/open_row_state_writer.zig",
+            "c:\\repo",
+        ).?,
+    );
+    try std.testing.expectEqualStrings(
+        "examples\\open_row_state_writer.zig",
+        repoRelativeAbsolutePath(
+            "C:\\Repo\\examples\\open_row_state_writer.zig",
+            "c:/repo",
         ).?,
     );
 }

@@ -530,10 +530,15 @@ fn cloneBytes(comptime bytes: []const u8) []const u8 {
 
 fn pathEquals(comptime lhs: []const u8, comptime rhs: []const u8) bool {
     if (lhs.len != rhs.len) return false;
+    const case_insensitive = comptime pathsUseCaseInsensitiveComparison(lhs, rhs);
     inline for (rhs, 0..) |expected, index| {
         const actual = lhs[index];
         if (expected == '/' or expected == '\\') {
             if (actual != '/' and actual != '\\') return false;
+            continue;
+        }
+        if (case_insensitive) {
+            if (asciiLowerPathByte(actual) != asciiLowerPathByte(expected)) return false;
             continue;
         }
         if (actual != expected) return false;
@@ -543,10 +548,15 @@ fn pathEquals(comptime lhs: []const u8, comptime rhs: []const u8) bool {
 
 fn pathStartsWithRoot(comptime path: []const u8, comptime root: []const u8) bool {
     if (path.len < root.len) return false;
+    const case_insensitive = comptime pathsUseCaseInsensitiveComparison(path, root);
     inline for (root, 0..) |expected, index| {
         const actual = path[index];
         if (expected == '/' or expected == '\\') {
             if (actual != '/' and actual != '\\') return false;
+            continue;
+        }
+        if (case_insensitive) {
+            if (asciiLowerPathByte(actual) != asciiLowerPathByte(expected)) return false;
             continue;
         }
         if (actual != expected) return false;
@@ -556,15 +566,33 @@ fn pathStartsWithRoot(comptime path: []const u8, comptime root: []const u8) bool
 
 fn pathStartsWithRootRuntime(path: []const u8, root: []const u8) bool {
     if (path.len < root.len) return false;
+    const case_insensitive = pathsUseCaseInsensitiveComparison(path, root);
     for (root, 0..) |expected, index| {
         const actual = path[index];
         if (expected == '/' or expected == '\\') {
             if (actual != '/' and actual != '\\') return false;
             continue;
         }
+        if (case_insensitive) {
+            if (asciiLowerPathByte(actual) != asciiLowerPathByte(expected)) return false;
+            continue;
+        }
         if (actual != expected) return false;
     }
     return path.len == root.len or path[root.len] == '/' or path[root.len] == '\\';
+}
+
+fn asciiLowerPathByte(byte: u8) u8 {
+    return if (byte >= 'A' and byte <= 'Z') byte + ('a' - 'A') else byte;
+}
+
+fn pathUsesWindowsCaseFolding(path: []const u8) bool {
+    if (path.len >= 2 and std.ascii.isAlphabetic(path[0]) and path[1] == ':') return true;
+    return path.len >= 2 and ((path[0] == '\\' and path[1] == '\\') or (path[0] == '/' and path[1] == '/'));
+}
+
+fn pathsUseCaseInsensitiveComparison(lhs: []const u8, rhs: []const u8) bool {
+    return pathUsesWindowsCaseFolding(lhs) and pathUsesWindowsCaseFolding(rhs);
 }
 
 fn pathUsesCheckoutRoot(comptime caller_file: []const u8) bool {
@@ -678,7 +706,7 @@ fn registryContainsLine(comptime registry: []const u8, comptime candidate: []con
         var end = start;
         while (end < registry.len and registry[end] != '\n') : (end += 1) {}
         const line = registry[start..end];
-        if (line.len != 0 and std.mem.eql(u8, line, candidate)) return true;
+        if (line.len != 0 and pathEquals(line, candidate)) return true;
         start = end + 1;
     }
     return false;
@@ -2640,6 +2668,29 @@ test "source ownership rejects absolute paths whose root only shares a prefix wi
             .caller_file = prefixed_alias_root,
         }));
     }
+}
+
+test "windows ownership portability accepts separator-normalized owned repo paths" {
+    try std.testing.expect(comptime repoPathIsOwned("examples\\open_row_state_writer.zig"));
+}
+
+test "windows ownership portability matches Windows checkout roots case-insensitively" {
+    try std.testing.expect(pathEquals(
+        "C:\\Repo\\Examples\\Open_Row_State_Writer.zig",
+        "c:/repo/examples/open_row_state_writer.zig",
+    ));
+    try std.testing.expect(pathStartsWithRoot(
+        "C:\\Repo\\Examples\\Open_Row_State_Writer.zig",
+        "c:/repo",
+    ));
+    try std.testing.expect(pathStartsWithRootRuntime(
+        "C:\\Repo\\Examples\\Open_Row_State_Writer.zig",
+        "c:/repo",
+    ));
+    try std.testing.expect(!pathStartsWithRoot(
+        "C:\\Repox\\Examples\\Open_Row_State_Writer.zig",
+        "c:/repo",
+    ));
 }
 
 test "source ownership accepts helper-authored content witnesses when caller bytes match their explicit witness" {
