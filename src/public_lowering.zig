@@ -606,26 +606,45 @@ fn pathUsesPackageRootAlias(comptime caller_file: []const u8) bool {
     return pathStartsWithRoot(caller_file, build_options.package_root_alias);
 }
 
+fn ownedRootRelativeSlice(comptime path: []const u8, comptime root: []const u8) ?[]const u8 {
+    if (!pathStartsWithRoot(path, root)) return null;
+    if (path.len <= root.len) return null;
+    const separator = path[root.len];
+    if (separator != '/' and separator != '\\') return null;
+    return path[root.len + 1 ..];
+}
+
 fn pathMatchesOwnedRootRelative(
     comptime caller_file: []const u8,
     comptime root: []const u8,
     comptime repo_path: []const u8,
 ) bool {
-    if (!pathStartsWithRoot(caller_file, root)) return false;
-    if (caller_file.len <= root.len) return false;
-    const separator = caller_file[root.len];
-    if (separator != '/' and separator != '\\') return false;
-    return pathEquals(caller_file[root.len + 1 ..], repo_path);
+    const relative_path = comptime ownedRootRelativeSlice(caller_file, root) orelse return false;
+    return pathEquals(relative_path, repo_path);
+}
+
+fn absoluteOwnedRepoRelativePath(comptime absolute_path: []const u8) ?[]const u8 {
+    if (pathUsesCheckoutRoot(absolute_path)) {
+        return ownedRootRelativeSlice(absolute_path, build_options.package_root);
+    }
+    if (pathUsesPackageRootAlias(absolute_path)) {
+        return ownedRootRelativeSlice(absolute_path, build_options.package_root_alias);
+    }
+    return null;
 }
 
 fn absoluteOwnedRepoPathMatches(comptime source_ref: SourceRef) bool {
+    if (std.fs.path.isAbsolute(source_ref.repo_path)) return false;
     if (!std.fs.path.isAbsolute(source_ref.caller_file)) return false;
-    if (pathUsesCheckoutRoot(source_ref.caller_file)) {
-        return pathMatchesOwnedRootRelative(source_ref.caller_file, build_options.package_root, source_ref.repo_path);
-    }
-    if (!pathUsesPackageRootAlias(source_ref.caller_file)) return false;
-    if (source_ref.caller_hash == null or source_ref.caller_source == null) return false;
-    return pathMatchesOwnedRootRelative(source_ref.caller_file, build_options.package_root_alias, source_ref.repo_path);
+    return comptime blk: {
+        const caller_repo_path = absoluteOwnedRepoRelativePath(source_ref.caller_file) orelse break :blk false;
+        if (pathUsesPackageRootAlias(source_ref.caller_file) and
+            (source_ref.caller_hash == null or source_ref.caller_source == null))
+        {
+            break :blk false;
+        }
+        break :blk pathEquals(caller_repo_path, source_ref.repo_path);
+    };
 }
 
 fn sourceOwnershipMatches(comptime source_ref: SourceRef) bool {
@@ -648,6 +667,15 @@ fn sourceHashMatches(comptime source_ref: SourceRef) bool {
         if (std.fs.path.isAbsolute(source_ref.caller_file)) {
             if (std.fs.path.isAbsolute(source_ref.repo_path)) {
                 if (!pathEquals(source_ref.caller_file, source_ref.repo_path)) return false;
+                const absolute_owned_repo_match: ?bool = comptime blk: {
+                    const owned_repo_path = absoluteOwnedRepoRelativePath(source_ref.repo_path) orelse break :blk null;
+                    if (!repoPathIsOwned(owned_repo_path)) break :blk false;
+                    const repo_source = source_graph_embed.embeddedSource(owned_repo_path);
+                    break :blk std.mem.eql(u8, caller_source, repo_source);
+                };
+                if (absolute_owned_repo_match) |matches_repo| {
+                    if (!matches_repo) return false;
+                }
             } else {
                 if (!absoluteOwnedSourceMatchesRepo(source_ref, caller_source)) return false;
             }
@@ -2983,6 +3011,35 @@ test "source ownership accepts absolute caller-owned content witnesses inside ow
             .caller_file = alias_caller_path,
             .caller_hash = hashSourceBytes(caller_source),
             .caller_source = caller_source,
+        }));
+    }
+}
+
+test "source ownership rejects forged absolute caller-owned content witnesses inside owned roots" {
+    const caller_path = comptime std.fmt.comptimePrint(
+        "{s}/examples/open_row_state_writer.zig",
+        .{build_options.package_root},
+    );
+    const forged_source =
+        \\pub fn runBody() void {}
+    ;
+
+    try std.testing.expect(!sourceOwnershipMatches(.{
+        .repo_path = caller_path,
+        .caller_file = caller_path,
+        .caller_hash = hashSourceBytes(forged_source),
+        .caller_source = forged_source,
+    }));
+    if (build_options.package_root_alias_available) {
+        const alias_caller_path = comptime std.fmt.comptimePrint(
+            "{s}/examples/open_row_state_writer.zig",
+            .{build_options.package_root_alias},
+        );
+        try std.testing.expect(!sourceOwnershipMatches(.{
+            .repo_path = alias_caller_path,
+            .caller_file = alias_caller_path,
+            .caller_hash = hashSourceBytes(forged_source),
+            .caller_source = forged_source,
         }));
     }
 }
