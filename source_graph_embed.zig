@@ -447,6 +447,15 @@ fn findImportAlias(imports: []const source_graph_engine.ImportAlias, comptime na
     return null;
 }
 
+fn findModuleForFunctionIndex(buffers: *const Buffers, function_index: usize) ?ModuleEntry {
+    for (buffers.modules[0..buffers.module_count]) |module| {
+        const start = module.summary.first_function_index;
+        const end = start + module.summary.function_count;
+        if (function_index >= start and function_index < end) return module;
+    }
+    return null;
+}
+
 fn findLocalFunctionIndex(graph: source_graph_engine.ModuleGraph, comptime name: []const u8) ?usize {
     for (graph.functions, 0..) |function, index| {
         if (std.mem.eql(u8, function.name, name)) return index;
@@ -557,23 +566,68 @@ fn collectModule(
         );
     }
 
-    for (graph.helper_uses) |helper_use| {
-        const import_alias = helper_use.import_alias orelse continue;
-        if (graph.functions[helper_use.caller_index].effect_param == null) continue;
-        const import_row = findImportAlias(graph.imports, import_alias) orelse return error.MissingImport;
-        const imported_path = try resolveImportPath(source_path, import_row.import_path);
-        const imported = try collectModule(imported_path, root_source_path, root_source, imported_sources, buffers);
-        const callee_local_index = findLocalFunctionIndex(imported.graph, helper_use.callee_name) orelse return error.MissingImport;
-        try pushHelperEdge(
-            buffers,
-            first_function_index + helper_use.caller_index,
-            imported.first_function_index + callee_local_index,
-            helper_use.line,
-            helper_use.column,
-        );
-    }
-
     return summary;
+}
+
+// Imported helper expansion must follow the entry-reachable call graph, otherwise dead helper imports
+// can fail lowering before the later runtime-plan reachability pruning drops them.
+fn expandReachableImports(
+    comptime root_source_path: ?[]const u8,
+    comptime root_source: ?[:0]const u8,
+    comptime imported_sources: []const OwnedSource,
+    buffers: *Buffers,
+    entry_index: usize,
+) Error!void {
+    var reachable = [_]bool{false} ** buffers.functions.len;
+    var expanded_imports = [_]bool{false} ** buffers.functions.len;
+    reachable[entry_index] = true;
+
+    var changed = true;
+    while (changed) {
+        changed = false;
+
+        var function_index: usize = 0;
+        while (function_index < buffers.function_count) : (function_index += 1) {
+            if (!reachable[function_index]) continue;
+
+            if (!expanded_imports[function_index]) {
+                expanded_imports[function_index] = true;
+
+                const module = findModuleForFunctionIndex(buffers, function_index) orelse return error.MissingImport;
+                const local_index = function_index - module.summary.first_function_index;
+                const graph = module.summary.graph;
+
+                for (graph.helper_uses) |helper_use| {
+                    if (helper_use.caller_index != local_index) continue;
+                    const import_alias = helper_use.import_alias orelse continue;
+                    if (graph.functions[helper_use.caller_index].effect_param == null) continue;
+
+                    const import_row = findImportAlias(graph.imports, import_alias) orelse return error.MissingImport;
+                    const imported_path = try resolveImportPath(module.path, import_row.import_path);
+                    const imported = try collectModule(imported_path, root_source_path, root_source, imported_sources, buffers);
+                    const callee_local_index = findLocalFunctionIndex(imported.graph, helper_use.callee_name) orelse return error.MissingImport;
+                    const callee_index = imported.first_function_index + callee_local_index;
+                    try pushHelperEdge(
+                        buffers,
+                        function_index,
+                        callee_index,
+                        helper_use.line,
+                        helper_use.column,
+                    );
+                    if (!reachable[callee_index]) {
+                        reachable[callee_index] = true;
+                        changed = true;
+                    }
+                }
+            }
+
+            for (buffers.helper_edges[0..buffers.helper_edge_count]) |edge| {
+                if (edge.caller_index != function_index or reachable[edge.callee_index]) continue;
+                reachable[edge.callee_index] = true;
+                changed = true;
+            }
+        }
+    }
 }
 
 /// Analyze one repo-relative source file and flatten same-file plus imported helper graphs into one explicit program graph.
@@ -594,6 +648,7 @@ pub fn analyzeProgramWithRootSource(
     const root_graph = try analyzeOwnedModule(source_path, root_source_path, root_source, imported_sources, entry_symbol);
     const entry_local_index = root_graph.entry_index orelse return error.EntryMissing;
     const entry_index = root.first_function_index + entry_local_index;
+    try expandReachableImports(root_source_path, root_source, imported_sources, &buffers, entry_index);
 
     return .{
         .entry_index = entry_index,

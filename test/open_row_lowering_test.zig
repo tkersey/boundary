@@ -1655,6 +1655,76 @@ test "explicit-path lowering disambiguates imported helpers by alias" {
     try std.testing.expectEqualStrings("b", result.outputs.writer[1]);
 }
 
+test "explicit-path lowering ignores unreachable imported helper failures outside the entry subgraph" {
+    const root_path = "/tmp/open_row_unreachable_imported_helper/entry.zig";
+    const root_source =
+        \\const dead_helper = @import("dead_helper.zig");
+        \\const live_helper = @import("live_helper.zig");
+        \\
+        \\pub fn runBody(eff: anytype) !void {
+        \\    try live_helper.emit(eff);
+        \\}
+        \\
+        \\pub fn unreachableDeadImport(eff: anytype) !void {
+        \\    try dead_helper.emit(eff);
+        \\}
+    ;
+    const live_source =
+        \\pub fn emit(eff: anytype) !void {
+        \\    try eff.writer.tell("live");
+        \\}
+    ;
+    const dead_source =
+        \\const missing_nested = @import("missing_nested.zig");
+        \\
+        \\pub fn emit(eff: anytype) !void {
+        \\    try missing_nested.emit(eff);
+        \\}
+    ;
+    const spec: shift.lowering.LowerSpec = .{
+        .label = "test.open_row_unreachable_imported_helper",
+        .entry_symbol = "runBody",
+        .row = shift.ir.rowFromSpec(.{
+            .writer = .{
+                .tell = shift.ir.Transform([]const u8, void),
+            },
+        }),
+        .outputs = &.{
+            .{ .label = "writer", .OutputType = [][]const u8 },
+        },
+    };
+
+    const Lowered = shift.lower(
+        .{
+            .repo_path = root_path,
+            .caller_file = root_path,
+            .caller_hash = std.hash.Wyhash.hash(0, root_source),
+            .caller_source = root_source,
+            .imported_sources = &.{
+                shift.lowering.importedSource(root_path, "live_helper.zig", live_source),
+                shift.lowering.importedSource(root_path, "dead_helper.zig", dead_source),
+            },
+        },
+        spec,
+    );
+
+    try std.testing.expectEqual(@as(usize, 2), Lowered.runtime_plan.functions.len);
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var handlers = LoweredWriterOnlyHandlers{
+        .writer = .{ .allocator = std.testing.allocator },
+    };
+    defer handlers.writer.deinit();
+
+    const result = try Lowered.run(&runtime, &handlers);
+    defer std.testing.allocator.free(result.outputs.writer);
+
+    try std.testing.expectEqual(@as(usize, 1), result.outputs.writer.len);
+    try std.testing.expectEqualStrings("live", result.outputs.writer[0]);
+}
+
 test "explicit-path lowering ignores ordinary line comments inside retained helper bodies" {
     const spec: shift.lowering.LowerSpec = .{
         .label = "test.open_row_helper_line_comment",
