@@ -267,6 +267,21 @@ fn normalizeAbsolutePath(comptime source_path: []const u8) NormalizeRelativePath
     return normalizeAbsolutePathWithType(path_type, source_path);
 }
 
+fn ownedRepoSourcePath(comptime source_path: []const u8) ?[]const u8 {
+    const repo_path = if (std.fs.path.isAbsolute(source_path)) blk: {
+        if (repoRelativeAbsolutePath(source_path, build_options.package_root)) |repo_source_path| {
+            break :blk normalizeRelativePath(repo_source_path) catch return null;
+        }
+        if (repoRelativeAbsolutePath(source_path, build_options.package_root_alias)) |repo_source_path| {
+            break :blk normalizeRelativePath(repo_source_path) catch return null;
+        }
+        return null;
+    } else normalizeRelativePath(source_path) catch return null;
+
+    if (!registryContainsLine(build_options.repo_zig_paths, repo_path)) return null;
+    return repo_path;
+}
+
 /// Return caller-owned source bytes for one exact module path when provided explicitly.
 pub fn ownedSourceContent(
     comptime source_path: []const u8,
@@ -291,10 +306,52 @@ pub fn sourceBytes(
     comptime imported_sources: []const OwnedSource,
 ) Error![:0]const u8 {
     if (ownedSourceContent(source_path, root_source_path, root_source, imported_sources)) |owned_source| {
+        if (root_source_path) |root_path| {
+            if (ownedRepoSourcePath(root_path)) |_| {
+                const repo_source_path = ownedRepoSourcePath(source_path) orelse return error.MissingImport;
+                const repo_source = embeddedSource(repo_source_path);
+                if (!std.mem.eql(u8, owned_source, repo_source)) return error.MissingImport;
+                return repo_source;
+            }
+        }
         return owned_source;
     }
     if (root_source_path != null) return error.MissingImport;
     return embeddedSource(source_path);
+}
+
+test "sourceBytes requires owned helper imports to mirror repo bytes" {
+    const repo_path = "examples/open_row_cross_file_writer.zig";
+    const repo_source = embeddedSource(repo_path);
+
+    try std.testing.expectError(
+        error.MissingImport,
+        sourceBytes(
+            "examples/open_row_cross_file_helpers.zig",
+            repo_path,
+            repo_source,
+            &.{.{
+                .path = "examples/open_row_cross_file_helpers.zig",
+                .content =
+                \\pub fn advanceState(eff: anytype) !void {
+                \\    _ = eff;
+                \\}
+                ,
+            }},
+        ),
+    );
+    try std.testing.expectEqualStrings(
+        embeddedSource("examples/open_row_cross_file_helpers.zig"),
+        try sourceBytes(
+            "examples/open_row_cross_file_helpers.zig",
+            repo_path,
+            repo_source,
+            &.{.{
+                .path = "examples/open_row_cross_file_helpers.zig",
+                .content = embeddedSource("examples/open_row_cross_file_helpers.zig"),
+            }},
+        ),
+    );
 }
 
 /// Embed one repo-relative source file through a repo-root module so examples remain package-visible.

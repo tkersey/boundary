@@ -3,6 +3,7 @@ const std = @import("std");
 
 comptime {
     @setEvalBranchQuota(1_000_000);
+    const absolute_repo_path = "/tmp/source_with_content_parse_error_fails.zig";
     const malformed_source =
         \\pub fn runBody(eff: anytype) !void {
         \\    _ = try eff.state.get();
@@ -13,8 +14,8 @@ comptime {
         \\}
     ;
     _ = shift.lower(.{
-        .repo_path = "examples/open_row_state_writer.zig",
-        .caller_file = "examples/open_row_state_writer.zig",
+        .repo_path = absolute_repo_path,
+        .caller_file = absolute_repo_path,
         .caller_hash = std.hash.Wyhash.hash(0, malformed_source),
         .caller_source = malformed_source,
     }, .{

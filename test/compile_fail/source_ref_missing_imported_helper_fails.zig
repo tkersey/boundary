@@ -1,7 +1,7 @@
 const shift = @import("shift");
 const std = @import("std");
 
-const repo_path = "examples/open_row_helper_value_flow_cross.zig";
+const repo_path = "/tmp/source_ref_missing_imported_helper_fails.zig";
 
 const root_source =
     \\const helpers = @import("open_row_helper_value_flow_cross_helpers.zig");

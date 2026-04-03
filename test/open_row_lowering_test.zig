@@ -228,6 +228,7 @@ test "public lowered runner preserves escaped helper string literal semantics" {
 }
 
 test "public lowered runner decodes escaped return string literals before const_string emission" {
+    const source_path = "/tmp/inline_escaped_return_literal.zig";
     const source_bytes =
         \\pub fn runBody(eff: anytype) ![]const u8 {
         \\    try eff.writer.tell("tick");
@@ -235,8 +236,8 @@ test "public lowered runner decodes escaped return string literals before const_
         \\}
     ;
     const EscapedReturn = shift.lower(.{
-        .repo_path = "test/inline_escaped_return_literal.zig",
-        .caller_file = "test/inline_escaped_return_literal.zig",
+        .repo_path = source_path,
+        .caller_file = source_path,
         .caller_hash = std.hash.Wyhash.hash(0, source_bytes),
         .caller_source = source_bytes,
     }, .{
