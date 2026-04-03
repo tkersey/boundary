@@ -291,44 +291,23 @@ fn applyLoweredAfter(
     };
 }
 
-fn applyLoweredAfterStack(
-    comptime compiled_plan: program_plan.ProgramPlan,
-    handlers_ptr: anytype,
-    comptime function_value_codec: program_plan.ValueCodec,
-    applied_after: []const u16,
-    answer: lowered_machine.ProgramValue,
-) anyerror!lowered_machine.ProgramValue {
-    var transformed = answer;
-    var index = applied_after.len;
-    while (index > 0) {
-        index -= 1;
-        transformed = try applyLoweredAfter(compiled_plan, handlers_ptr, function_value_codec, applied_after[index], transformed);
-    }
-    return transformed;
-}
-
-fn executeLoweredFunction(
+fn continueLoweredFunction(
     comptime compiled_plan: program_plan.ProgramPlan,
     handlers_ptr: anytype,
     comptime function_index: usize,
-    args: []const lowered_machine.ProgramValue,
+    locals: []lowered_machine.ProgramValue,
+    initial_block_index: u16,
+    initial_instruction_index: u16,
+    initial_return_local: ?u16,
 ) anyerror!LoweredFunctionResult {
     const function = compiled_plan.functions[function_index];
-    var locals_storage: [function.local_count]lowered_machine.ProgramValue = [_]lowered_machine.ProgramValue{.none} ** function.local_count;
-    const locals = locals_storage[0..];
-    var applied_after_storage: [@max(@as(usize, 1), function.instruction_count)]u16 = undefined;
-    var applied_after_len: usize = 0;
-    if (args.len != function.parameter_count) return error.ProgramContractViolation;
-    for (args, 0..) |arg, arg_index| {
-        setLocal(locals, @intCast(arg_index), arg);
-    }
-    var current_block_index: u16 = function.first_block + function.entry_block;
+    var current_block_index = initial_block_index;
+    var instruction_index = initial_instruction_index;
+    var return_local = initial_return_local;
 
     while (true) {
         const block = compiled_plan.blocks[current_block_index];
         const instruction_end = block.first_instruction + block.instruction_count;
-        var instruction_index = block.first_instruction;
-        var return_local: ?u16 = null;
         while (instruction_index < instruction_end) : (instruction_index += 1) {
             const instruction = compiled_plan.instructions[instruction_index];
             switch (instruction.kind) {
@@ -356,13 +335,7 @@ fn executeLoweredFunction(
                                 setLocal(locals, instruction.dst, typed);
                             }
                         },
-                        .terminal => |terminal| return .{ .terminal = try applyLoweredAfterStack(
-                            compiled_plan,
-                            handlers_ptr,
-                            function.value_codec,
-                            applied_after_storage[0..applied_after_len],
-                            terminal,
-                        ) },
+                        .terminal => |terminal| return .{ .terminal = terminal },
                     }
                 },
                 .call_op => {
@@ -376,22 +349,39 @@ fn executeLoweredFunction(
                     const result = try callLoweredOp(compiled_plan, handlers_ptr, function.value_codec, instruction.operand, payload);
                     switch (result) {
                         .resumed => |resumed_value| {
-                            if (resumed_value.apply_after) {
-                                if (applied_after_len >= applied_after_storage.len) return error.ProgramContractViolation;
-                                applied_after_storage[applied_after_len] = instruction.operand;
-                                applied_after_len += 1;
-                            }
                             if (instruction.dst < locals.len and op.resume_codec != .unit) {
                                 setLocal(locals, instruction.dst, resumed_value.value);
                             }
+                            if (resumed_value.apply_after) {
+                                // Looping bodies can resume the same op more times than the static instruction span.
+                                const continued = try continueLoweredFunction(
+                                    compiled_plan,
+                                    handlers_ptr,
+                                    function_index,
+                                    locals,
+                                    current_block_index,
+                                    instruction_index + 1,
+                                    return_local,
+                                );
+                                return switch (continued) {
+                                    .value => |typed| .{ .value = try applyLoweredAfter(
+                                        compiled_plan,
+                                        handlers_ptr,
+                                        function.value_codec,
+                                        instruction.operand,
+                                        typed,
+                                    ) },
+                                    .terminal => |typed| .{ .terminal = try applyLoweredAfter(
+                                        compiled_plan,
+                                        handlers_ptr,
+                                        function.value_codec,
+                                        instruction.operand,
+                                        typed,
+                                    ) },
+                                };
+                            }
                         },
-                        .terminal => |terminal| return .{ .terminal = try applyLoweredAfterStack(
-                            compiled_plan,
-                            handlers_ptr,
-                            function.value_codec,
-                            applied_after_storage[0..applied_after_len],
-                            terminal,
-                        ) },
+                        .terminal => |terminal| return .{ .terminal = terminal },
                     }
                 },
                 .compare_eq_zero => setLocal(locals, instruction.dst, .{
@@ -425,24 +415,44 @@ fn executeLoweredFunction(
                     else => return error.ProgramContractViolation,
                 };
                 current_block_index = if (predicate) terminator.primary else terminator.secondary;
+                instruction_index = compiled_plan.blocks[current_block_index].first_instruction;
+                return_local = null;
             },
-            .jump => current_block_index = terminator.primary,
-            .return_unit => return .{ .value = try applyLoweredAfterStack(
-                compiled_plan,
-                handlers_ptr,
-                function.value_codec,
-                applied_after_storage[0..applied_after_len],
-                .none,
-            ) },
-            .return_value => return .{ .value = try applyLoweredAfterStack(
-                compiled_plan,
-                handlers_ptr,
-                function.value_codec,
-                applied_after_storage[0..applied_after_len],
-                getLocal(locals, return_local orelse return error.ProgramContractViolation),
-            ) },
+            .jump => {
+                current_block_index = terminator.primary;
+                instruction_index = compiled_plan.blocks[current_block_index].first_instruction;
+                return_local = null;
+            },
+            .return_unit => return .{ .value = .none },
+            .return_value => return .{ .value = getLocal(locals, return_local orelse return error.ProgramContractViolation) },
         }
     }
+}
+
+fn executeLoweredFunction(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    handlers_ptr: anytype,
+    comptime function_index: usize,
+    args: []const lowered_machine.ProgramValue,
+) anyerror!LoweredFunctionResult {
+    const function = compiled_plan.functions[function_index];
+    var locals_storage: [function.local_count]lowered_machine.ProgramValue = [_]lowered_machine.ProgramValue{.none} ** function.local_count;
+    const locals = locals_storage[0..];
+    if (args.len != function.parameter_count) return error.ProgramContractViolation;
+    for (args, 0..) |arg, arg_index| {
+        setLocal(locals, @intCast(arg_index), arg);
+    }
+
+    const entry_block_index = function.first_block + function.entry_block;
+    return continueLoweredFunction(
+        compiled_plan,
+        handlers_ptr,
+        function_index,
+        locals,
+        entry_block_index,
+        compiled_plan.blocks[entry_block_index].first_instruction,
+        null,
+    );
 }
 
 fn executeLoweredDispatch(
@@ -3163,6 +3173,184 @@ test "executeLoweredDispatch runs choice ops across resume and return-now branch
         .value => |_| return error.TestUnexpectedResult,
     }
     try std.testing.expectEqual(@as(usize, 0), early_handlers.picker.after_calls);
+}
+
+test "executeLoweredDispatch applies after handlers for repeated loop resumes" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "example.loop_after_root",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "loopAfterRoot",
+            .value_codec = .i32,
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 3,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 2,
+            .first_instruction = 0,
+            .instruction_count = 4,
+        }},
+        .requirements = &.{.{
+            .label = "counter",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "step",
+            .mode = .transform,
+            .payload_codec = .i32,
+            .resume_codec = .i32,
+        }},
+        .outputs = &.{},
+        .locals = &.{
+            .{ .codec = .i32 },
+            .{ .codec = .bool },
+            .{ .codec = .i32 },
+        },
+        .blocks = &.{
+            .{
+                .first_instruction = 0,
+                .instruction_count = 2,
+                .terminator_index = 0,
+            },
+            .{
+                .first_instruction = 2,
+                .instruction_count = 2,
+                .terminator_index = 1,
+            },
+        },
+        .terminators = &.{
+            .{ .kind = .branch_if, .primary = 1, .secondary = 0 },
+            .{ .kind = .return_value },
+        },
+        .instructions = &.{
+            .{
+                .kind = .call_op,
+                .dst = 0,
+                .operand = 0,
+                .aux = 0,
+            },
+            .{
+                .kind = .compare_eq_zero,
+                .dst = 1,
+                .operand = 0,
+            },
+            .{
+                .kind = .const_i32,
+                .dst = 2,
+                .operand = 7,
+            },
+            .{
+                .kind = .return_value,
+                .operand = 2,
+            },
+        },
+    };
+    const Handlers = struct {
+        counter: struct {
+            step_calls: usize = 0,
+            after_calls: usize = 0,
+
+            pub fn step(self: *@This(), remaining: i32) anyerror!i32 {
+                self.step_calls += 1;
+                return remaining - 1;
+            }
+
+            pub fn afterStep(self: *@This(), answer: i32) anyerror!i32 {
+                self.after_calls += 1;
+                return answer + 100;
+            }
+        } = .{},
+    };
+
+    var handlers: Handlers = .{};
+    const result = try executeLoweredDispatch(plan, &handlers, 0, &.{.{ .i32 = 5 }});
+    switch (result) {
+        .value => |answer| try std.testing.expectEqual(@as(i32, 507), decodeRuntimeValue(.i32, answer)),
+        .terminal => |_| return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqual(@as(usize, 5), handlers.counter.step_calls);
+    try std.testing.expectEqual(@as(usize, 5), handlers.counter.after_calls);
+}
+
+test "CompileIr run applies after handlers for repeated loop resumes" {
+    const symbol: effect_ir.SymbolRef = .{
+        .module_path = "test/public_ir_loop_after.zig",
+        .symbol_name = "loopAfterRoot",
+    };
+    const ProgramType = CompileIr("example.public_ir_loop_after", .{
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol = symbol,
+            .row = effect_ir.rowFromSpec(.{
+                .counter = .{
+                    .step = effect_ir.Transform(i32, i32),
+                },
+            }),
+            .ValueType = i32,
+        }},
+        .call_edges = &.{},
+        .function_bodies = &.{.{
+            .local_codecs = &.{ .i32, .bool, .i32 },
+            .entry_block = 0,
+            .blocks = &.{
+                .{
+                    .instructions = &.{.{
+                        .kind = .const_i32,
+                        .dst = 0,
+                        .operand = 6,
+                    }},
+                    .terminator = .{ .kind = .jump, .primary = 1 },
+                },
+                .{
+                    .instructions = &.{
+                        .{ .kind = .call_op, .dst = 0, .operand = 0, .aux = 0 },
+                        .{ .kind = .compare_eq_zero, .dst = 1, .operand = 0 },
+                    },
+                    .terminator = .{ .kind = .branch_if, .primary = 2, .secondary = 1 },
+                },
+                .{
+                    .instructions = &.{
+                        .{ .kind = .const_i32, .dst = 2, .operand = 7 },
+                        .{ .kind = .return_value, .operand = 2 },
+                    },
+                    .terminator = .{ .kind = .return_value },
+                },
+            },
+        }},
+    });
+    const Handlers = struct {
+        counter: struct {
+            step_calls: usize = 0,
+            after_calls: usize = 0,
+
+            pub fn step(self: *@This(), remaining: i32) anyerror!i32 {
+                self.step_calls += 1;
+                return remaining - 1;
+            }
+
+            pub fn afterStep(self: *@This(), answer: i32) anyerror!i32 {
+                self.after_calls += 1;
+                return answer + 100;
+            }
+        } = .{},
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var handlers: Handlers = .{};
+    const result = try ProgramType.run(&runtime, &handlers);
+    try std.testing.expectEqual(@as(i32, 607), result.value);
+    try std.testing.expectEqual(@as(usize, 6), handlers.counter.step_calls);
+    try std.testing.expectEqual(@as(usize, 6), handlers.counter.after_calls);
 }
 
 test "executeLoweredDispatch returns abort answers through terminal control" {
