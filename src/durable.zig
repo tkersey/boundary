@@ -222,7 +222,7 @@ const session_manifest_migrators = [_]SessionManifestMigrator{
         .to_schema = 3,
         .migrate = struct {
             fn run(state: *SessionManifestState) void {
-                state.plan_schema_version = if (state.plan_hash != null) 0 else null;
+                state.plan_schema_version = null;
                 state.schema_version = 3;
             }
         }.run,

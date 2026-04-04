@@ -1339,6 +1339,18 @@ pub fn build(b: *std.Build) void {
     ) catch std.process.fatal("unable to allocate nested external downstream public lowering fixture path", .{});
     const nested_down_test_path_literal = zigStringLiteralEscapeAlloc(b.allocator, nested_down_test_path) catch
         std.process.fatal("unable to escape nested downstream public lowering fixture path", .{});
+    const synthetic_helper_path = std.fs.path.join(
+        b.allocator,
+        &.{ externalBoundaryFixtureRoot(b), "downstream_public_lowering_synthetic_helper.zig" },
+    ) catch std.process.fatal("unable to allocate external downstream synthetic helper fixture path", .{});
+    const synthetic_helper_path_literal = zigStringLiteralEscapeAlloc(b.allocator, synthetic_helper_path) catch
+        std.process.fatal("unable to escape external downstream synthetic helper fixture path", .{});
+    const nested_synthetic_helper_path = std.fs.path.join(
+        b.allocator,
+        &.{ externalBoundaryFixtureRoot(b), "helpers", "downstream_public_lowering_synthetic_helper.zig" },
+    ) catch std.process.fatal("unable to allocate nested external downstream synthetic helper fixture path", .{});
+    const nested_synthetic_helper_path_literal = zigStringLiteralEscapeAlloc(b.allocator, nested_synthetic_helper_path) catch
+        std.process.fatal("unable to escape nested external downstream synthetic helper fixture path", .{});
     const down_helper_path = std.fs.path.join(
         b.allocator,
         &.{ externalBoundaryFixtureRoot(b), "downstream_public_lowering_helper.zig" },
@@ -1359,6 +1371,8 @@ pub fn build(b: *std.Build) void {
         b.allocator,
         \\const downstream_source_path = "{s}";
         \\const nested_downstream_source_path = "{s}";
+        \\const synthetic_helper_path = "{s}";
+        \\const nested_synthetic_helper_path = "{s}";
         \\const shift = @import("shift");
         \\const std = @import("std");
         \\const helpers = @import("downstream_public_lowering_helper.zig");
@@ -1446,6 +1460,31 @@ pub fn build(b: *std.Build) void {
         \\    }};
         \\}}
         \\
+        \\fn ensureDir(path: []const u8) !void {{
+        \\    if (path.len == 0 or std.mem.eql(u8, path, "/")) return;
+        \\    const parent = std.fs.path.dirname(path) orelse return;
+        \\    if (!std.mem.eql(u8, parent, path)) try ensureDir(parent);
+        \\    std.fs.makeDirAbsolute(path) catch |err| switch (err) {{
+        \\        error.PathAlreadyExists => {{}},
+        \\        else => return err,
+        \\    }};
+        \\}}
+        \\
+        \\fn writeFixture(path: []const u8, data: []const u8) !void {{
+        \\    const parent = std.fs.path.dirname(path) orelse return error.FileNotFound;
+        \\    try ensureDir(parent);
+        \\    const file = try std.fs.createFileAbsolute(path, .{{ .truncate = true }});
+        \\    defer file.close();
+        \\    try file.writeAll(data);
+        \\}}
+        \\
+        \\fn materializeLoweringInputs() !void {{
+        \\    try writeFixture(downstream_source_path, synthetic_root_source);
+        \\    try writeFixture(synthetic_helper_path, synthetic_helper_source);
+        \\    try writeFixture(nested_downstream_source_path, synthetic_parent_import_root_source);
+        \\    try writeFixture(nested_synthetic_helper_path, synthetic_helper_source);
+        \\}}
+        \\
         \\fn loweringSource() shift.lowering.SourceRef {{
         \\    return shift.lowering.sourceWithContentAndImports(
         \\        downstream_source_path,
@@ -1488,21 +1527,38 @@ pub fn build(b: *std.Build) void {
         \\}}
         \\
         \\test "downstream sourceWithContent lowers and validates from caller-owned content" {{
+        \\    try materializeLoweringInputs();
         \\    const LoweredFromSource = shift.lower(loweringSource(), loweringSpec("syntheticRunBody"));
         \\    try std.testing.expectEqualStrings(downstream_source_path, LoweredFromSource.source_path);
         \\    try LoweredFromSource.validate(std.testing.allocator);
         \\}}
         \\
         \\test "downstream sourceWithContent validates caller-owned root-only content" {{
+        \\    try materializeLoweringInputs();
+        \\    try writeFixture(downstream_source_path, synthetic_root_only_source);
         \\    const LoweredFromSource = shift.lower(loweringSourceWithoutImports(), loweringSpec("rootOnlyRunBody"));
         \\    try std.testing.expectEqualStrings(downstream_source_path, LoweredFromSource.source_path);
         \\    try LoweredFromSource.validate(std.testing.allocator);
         \\}}
         \\
         \\test "downstream sourceWithContent preserves parent-directory helper imports for absolute caller-owned roots" {{
+        \\    try materializeLoweringInputs();
         \\    const LoweredFromSource = shift.lower(loweringSourceWithParentImport(), loweringSpec("syntheticRunBodyFromParentHelper"));
         \\    try std.testing.expectEqualStrings(nested_downstream_source_path, LoweredFromSource.source_path);
         \\    try LoweredFromSource.validate(std.testing.allocator);
+        \\}}
+        \\
+        \\test "downstream sourceWithContent detects on-disk helper drift" {{
+        \\    try materializeLoweringInputs();
+        \\    const LoweredFromSource = shift.lower(loweringSource(), loweringSpec("syntheticRunBody"));
+        \\    try LoweredFromSource.validate(std.testing.allocator);
+        \\    try writeFixture(
+        \\        synthetic_helper_path,
+        \\        \\pub fn emit(eff: anytype) !void {{
+        \\        \\    try eff.writer.tell("query=drifted");
+        \\        \\}}
+        \\    );
+        \\    try std.testing.expectError(error.SourceDrifted, LoweredFromSource.validate(std.testing.allocator));
         \\}}
         \\
         \\test "downstream shift.lower remains executable outside the shift checkout" {{
@@ -1526,7 +1582,12 @@ pub fn build(b: *std.Build) void {
         \\    try std.testing.expectEqualStrings("workflow=queued", source_result.outputs.writer[1]);
         \\}}
     ,
-        .{ down_test_path_literal, nested_down_test_path_literal },
+        .{
+            down_test_path_literal,
+            nested_down_test_path_literal,
+            synthetic_helper_path_literal,
+            nested_synthetic_helper_path_literal,
+        },
     ) catch std.process.fatal("unable to allocate downstream public lowering test fixture", .{});
     const write_down_test_fixture = addWriteTextFileCommand(
         b,

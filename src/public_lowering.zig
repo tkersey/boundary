@@ -1808,18 +1808,23 @@ fn validationOwnedSourceContent(
     const canonical_repo_path = try validationOwnedRepoCanonicalPathAlloc(allocator, source_path);
     defer if (canonical_repo_path) |repo_path| allocator.free(repo_path);
 
-    if (canonical_repo_path) |repo_path| {
-        const repo_file = std.fs.openFileAbsolute(repo_path, .{}) catch return error.SourceUnreadable;
-        defer repo_file.close();
-        const repo_source = repo_file.readToEndAllocOptions(
-            allocator,
-            std.math.maxInt(usize),
-            null,
-            .of(u8),
-            0,
-        ) catch return error.SourceUnreadable;
-        defer allocator.free(repo_source);
-        if (!std.mem.eql(u8, repo_source, source_content)) return error.UnsupportedHelperGraph;
+    const disk_path = canonical_repo_path orelse if (std.fs.path.isAbsolute(source_path))
+        source_path
+    else
+        return source_content;
+
+    const repo_file = std.fs.openFileAbsolute(disk_path, .{}) catch return error.SourceUnreadable;
+    defer repo_file.close();
+    const repo_source = repo_file.readToEndAllocOptions(
+        allocator,
+        std.math.maxInt(usize),
+        null,
+        .of(u8),
+        0,
+    ) catch return error.SourceUnreadable;
+    defer allocator.free(repo_source);
+    if (!std.mem.eql(u8, repo_source, source_content)) {
+        return if (canonical_repo_path == null) error.SourceDrifted else error.UnsupportedHelperGraph;
     }
     return source_content;
 }
@@ -2410,6 +2415,24 @@ fn GeneratedProgramType(
     };
 }
 
+fn ensureAbsoluteTestDir(path: []const u8) !void {
+    if (path.len == 0 or std.mem.eql(u8, path, "/")) return;
+    const parent = std.fs.path.dirname(path) orelse return;
+    if (!std.mem.eql(u8, parent, path)) try ensureAbsoluteTestDir(parent);
+    std.fs.makeDirAbsolute(path) catch |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => return err,
+    };
+}
+
+fn writeAbsoluteTestFile(path: []const u8, data: []const u8) !void {
+    const parent = std.fs.path.dirname(path) orelse return error.UnsupportedHelperGraph;
+    try ensureAbsoluteTestDir(parent);
+    const file = try std.fs.createFileAbsolute(path, .{ .truncate = true });
+    defer file.close();
+    try file.writeAll(data);
+}
+
 fn LowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) type {
     comptime {
         @setEvalBranchQuota(1_000_000);
@@ -2605,6 +2628,23 @@ test "same-module lowerAt preserves caller-provided source ownership" {
 }
 
 test "absolute caller-owned helper regression: lowering accepts normalized sibling-tree imports" {
+    try writeAbsoluteTestFile(
+        "/tmp/shift-owned-open-row/nested/entry.zig",
+        \\const other = @import("../helpers/../other/util.zig");
+        \\
+        \\pub fn runBody(eff: anytype) !void {
+        \\    try other.emit(eff);
+        \\}
+        ,
+    );
+    try writeAbsoluteTestFile(
+        "/tmp/shift-owned-open-row/other/util.zig",
+        \\pub fn emit(eff: anytype) !void {
+        \\    try eff.writer.tell("normalized");
+        \\}
+        ,
+    );
+
     const current_src = @src();
     const caller: std.builtin.SourceLocation = .{
         .module = current_src.module,
@@ -2645,6 +2685,34 @@ test "absolute caller-owned helper regression: lowering accepts normalized sibli
 }
 
 test "absolute caller-owned helper regression: lowering accepts shared helper subtrees" {
+    try writeAbsoluteTestFile(
+        "/tmp/shift-owned-open-row/nested/entry.zig",
+        \\const direct = @import("helpers/sub/b.zig");
+        \\const helpers = @import("helpers/a.zig");
+        \\
+        \\pub fn runBody(eff: anytype) !void {
+        \\    try direct.emit(eff);
+        \\    try helpers.emit(eff);
+        \\}
+        ,
+    );
+    try writeAbsoluteTestFile(
+        "/tmp/shift-owned-open-row/nested/helpers/a.zig",
+        \\const shared = @import("sub/b.zig");
+        \\
+        \\pub fn emit(eff: anytype) !void {
+        \\    try shared.emit(eff);
+        \\}
+        ,
+    );
+    try writeAbsoluteTestFile(
+        "/tmp/shift-owned-open-row/nested/helpers/sub/b.zig",
+        \\pub fn emit(eff: anytype) !void {
+        \\    try eff.writer.tell("shared");
+        \\}
+        ,
+    );
+
     const current_src = @src();
     const caller: std.builtin.SourceLocation = .{
         .module = current_src.module,
@@ -3318,6 +3386,32 @@ test "owned-source validation rejects transitive helper imports that leave the f
     const helper_path = "/tmp/shift-owned-open-row/helpers/a.zig";
     const escaped_helper_path = "/tmp/shift-owned-open-row/other/b.zig";
 
+    try writeAbsoluteTestFile(
+        entry_path,
+        \\const helpers = @import("../helpers/a.zig");
+        \\
+        \\pub fn runBody(eff: anytype) !void {
+        \\    try helpers.emit(eff);
+        \\}
+        ,
+    );
+    try writeAbsoluteTestFile(
+        helper_path,
+        \\const other = @import("../other/b.zig");
+        \\
+        \\pub fn emit(eff: anytype) !void {
+        \\    try other.emit(eff);
+        \\}
+        ,
+    );
+    try writeAbsoluteTestFile(
+        escaped_helper_path,
+        \\pub fn emit(eff: anytype) !void {
+        \\    try eff.writer.tell("escaped");
+        \\}
+        ,
+    );
+
     try std.testing.expectError(
         error.UnsupportedHelperGraph,
         validateOwnedOpenRowAt(
@@ -3363,6 +3457,16 @@ test "owned validation rejects repo-resolving absolute helper overrides for exte
         .{build_options.package_root},
     );
 
+    try writeAbsoluteTestFile(
+        root_path,
+        \\const helpers = @import("../shift/examples/open_row_cross_file_helpers.zig");
+        \\
+        \\pub fn runBody(eff: anytype) !void {
+        \\    try helpers.advanceState(eff);
+        \\}
+        ,
+    );
+
     try std.testing.expectError(
         error.UnsupportedHelperGraph,
         validateOwnedOpenRowAt(
@@ -3388,6 +3492,34 @@ test "owned validation rejects repo-resolving absolute helper overrides for exte
 }
 
 test "absolute caller-owned helper regression: validation accepts shared helper subtrees" {
+    try writeAbsoluteTestFile(
+        "/tmp/shift-owned-open-row/nested/entry.zig",
+        \\const direct = @import("helpers/sub/b.zig");
+        \\const helpers = @import("helpers/a.zig");
+        \\
+        \\pub fn runBody(eff: anytype) !void {
+        \\    try direct.emit(eff);
+        \\    try helpers.emit(eff);
+        \\}
+        ,
+    );
+    try writeAbsoluteTestFile(
+        "/tmp/shift-owned-open-row/nested/helpers/a.zig",
+        \\const shared = @import("sub/b.zig");
+        \\
+        \\pub fn emit(eff: anytype) !void {
+        \\    try shared.emit(eff);
+        \\}
+        ,
+    );
+    try writeAbsoluteTestFile(
+        "/tmp/shift-owned-open-row/nested/helpers/sub/b.zig",
+        \\pub fn emit(eff: anytype) !void {
+        \\    try eff.writer.tell("shared");
+        \\}
+        ,
+    );
+
     try validateOwnedOpenRowAt(
         std.testing.allocator,
         "/tmp/shift-owned-open-row/nested/entry.zig",

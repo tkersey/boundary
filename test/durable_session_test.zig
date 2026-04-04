@@ -1014,6 +1014,100 @@ test "durable restoreArtifact accepts schema-3 plan files when the current plan 
     try std.testing.expect(report.rewrote_plan_file);
 }
 
+test "durable restore accepts schema-2 manifests backed by legacy schema-3 plan files" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const artifact = makePlanBackedArtifact(0x5238, 0x5238, "demo.plan", "runBody");
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    _ = try store.saveArtifact(artifact, null);
+
+    var legacy_plan_hash: u64 = undefined;
+    {
+        const plan_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.plan_path, std.math.maxInt(usize));
+        defer std.testing.allocator.free(plan_bytes);
+        const parsed_plan = try std.json.parseFromSlice(shift.durable.PlanFile, std.testing.allocator, plan_bytes, .{});
+        defer parsed_plan.deinit();
+
+        var legacy_plan = parsed_plan.value;
+        legacy_plan.schema_version = 3;
+        legacy_plan.plan.schema_version = 3;
+        legacy_plan.plan_hash = legacy_plan.plan.hash();
+        legacy_plan_hash = legacy_plan.plan_hash;
+
+        const file = try std.fs.cwd().createFile(paths.plan_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        try std.json.Stringify.value(legacy_plan, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+    {
+        const legacy_manifest = shift.durable.SessionManifest{
+            .schema_version = 2,
+            .scenario_id = null,
+            .program_hash = artifact.plan.?.ir_hash,
+            .plan_hash = legacy_plan_hash,
+            .plan_schema_version = null,
+            .last_seq = 2,
+        };
+
+        const file = try std.fs.cwd().createFile(paths.manifest_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        try std.json.Stringify.value(legacy_manifest, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+    {
+        const file = try std.fs.cwd().createFile(paths.events_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        const LegacyEventRecord = struct {
+            seq: usize,
+            event: shift.interpreter.Event,
+        };
+        try std.json.Stringify.value(LegacyEventRecord{ .seq = 0, .event = .{ .note = "plan-backed" } }, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try std.json.Stringify.value(LegacyEventRecord{ .seq = 1, .event = .{ .final_i32 = 7 } }, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+
+    var stripped = artifact;
+    stripped.plan = null;
+
+    const inspected = try store.inspectRestoreArtifact(stripped);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.migrated_replay, inspected.status);
+    const inspected_report = inspected.migration_report orelse return error.TestExpectedEqual;
+    try std.testing.expectEqual(@as(u32, 2), inspected_report.manifest_schema.?.from);
+    try std.testing.expectEqual(@as(u32, 5), inspected_report.manifest_schema.?.to_schema);
+    try std.testing.expectEqual(@as(u32, 0), inspected_report.plan_file_schema.?.from);
+    try std.testing.expectEqual(@as(u32, 4), inspected_report.plan_file_schema.?.to_schema);
+    try std.testing.expect(!inspected_report.rewrote_manifest);
+    try std.testing.expect(!inspected_report.rewrote_plan_file);
+
+    const restored = try store.restoreArtifact(stripped);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.migrated_replay, restored.status);
+    const report = restored.migration_report orelse return error.TestExpectedEqual;
+    try std.testing.expectEqual(@as(u32, 2), report.manifest_schema.?.from);
+    try std.testing.expectEqual(@as(u32, 5), report.manifest_schema.?.to_schema);
+    try std.testing.expectEqual(@as(u32, 0), report.plan_file_schema.?.from);
+    try std.testing.expectEqual(@as(u32, 4), report.plan_file_schema.?.to_schema);
+    try std.testing.expect(report.rewrote_manifest);
+    try std.testing.expect(report.rewrote_plan_file);
+
+    const restored_again = try store.restoreArtifact(stripped);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored_again.status);
+    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored_again.migration_report);
+}
+
 test "durable restoreArtifact rolls back migrated plan rewriteback when a later write fails" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
