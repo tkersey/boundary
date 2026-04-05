@@ -296,17 +296,8 @@ fn addWriteTextFileCommand(
     path: []const u8,
     contents: []const u8,
     name: []const u8,
-) *std.Build.Step.Run {
-    const cmd = b.addSystemCommand(&.{
-        "sh",
-        "-c",
-        "p=\"$1\"; d=${p%/*}; mkdir -p \"$d\" && printf '%s' \"$2\" > \"$1\"",
-        "sh",
-        path,
-        contents,
-    });
-    cmd.step.name = name;
-    return cmd;
+) *std.Build.Step {
+    return &WriteTextFileStep.create(b, path, contents, name).step;
 }
 
 fn addAbsoluteSymlinkCommand(
@@ -314,18 +305,79 @@ fn addAbsoluteSymlinkCommand(
     target_path: []const u8,
     link_path: []const u8,
     name: []const u8,
-) *std.Build.Step.Run {
-    const cmd = b.addSystemCommand(&.{
-        "sh",
-        "-c",
-        "p=\"$2\"; d=${p%/*}; mkdir -p \"$d\" && rm -f \"$2\" && ln -s \"$1\" \"$2\"",
-        "sh",
-        target_path,
-        link_path,
-    });
-    cmd.step.name = name;
-    return cmd;
+) *std.Build.Step {
+    return &AbsoluteSymlinkStep.create(b, target_path, link_path, name).step;
 }
+
+const WriteTextFileStep = struct {
+    step: std.Build.Step,
+    path: []const u8,
+    contents: []const u8,
+
+    fn create(b: *std.Build, path: []const u8, contents: []const u8, name: []const u8) *WriteTextFileStep {
+        const self = b.allocator.create(WriteTextFileStep) catch
+            std.process.fatal("unable to allocate write-text build step", .{});
+        self.* = .{
+            .step = std.Build.Step.init(.{
+                .id = .custom,
+                .name = name,
+                .owner = b,
+                .makeFn = make,
+            }),
+            .path = b.dupePath(path),
+            .contents = b.dupe(contents),
+        };
+        return self;
+    }
+
+    fn make(step: *std.Build.Step, _: std.Build.Step.MakeOptions) !void {
+        const self: *WriteTextFileStep = @fieldParentPtr("step", step);
+        if (std.fs.path.dirname(self.path)) |dir_name| {
+            try std.fs.cwd().makePath(dir_name);
+        }
+        var file = try std.fs.createFileAbsolute(self.path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [4096]u8 = undefined;
+        var writer = file.writer(&buffer);
+        try writer.interface.writeAll(self.contents);
+        try writer.interface.flush();
+    }
+};
+
+const AbsoluteSymlinkStep = struct {
+    step: std.Build.Step,
+    target_path: []const u8,
+    link_path: []const u8,
+
+    fn create(b: *std.Build, target_path: []const u8, link_path: []const u8, name: []const u8) *AbsoluteSymlinkStep {
+        const self = b.allocator.create(AbsoluteSymlinkStep) catch
+            std.process.fatal("unable to allocate absolute-symlink build step", .{});
+        self.* = .{
+            .step = std.Build.Step.init(.{
+                .id = .custom,
+                .name = name,
+                .owner = b,
+                .makeFn = make,
+            }),
+            .target_path = b.dupePath(target_path),
+            .link_path = b.dupePath(link_path),
+        };
+        return self;
+    }
+
+    fn make(step: *std.Build.Step, _: std.Build.Step.MakeOptions) !void {
+        const self: *AbsoluteSymlinkStep = @fieldParentPtr("step", step);
+        if (std.fs.path.dirname(self.link_path)) |dir_name| {
+            try std.fs.cwd().makePath(dir_name);
+        }
+        clearAliasPath(
+            self.link_path,
+            "unable to clear fixture symlink directory",
+            "unable to clear fixture symlink path",
+        );
+        try std.fs.symLinkAbsolute(self.target_path, self.link_path, .{});
+    }
+};
 
 fn compileFailEscapeProbeLinkPath(allocator: std.mem.Allocator, fixture_link_path: []const u8) ![]u8 {
     const fixture_dir = std.fs.path.dirname(fixture_link_path) orelse return error.MissingCompileFailFixtureDir;
@@ -1349,7 +1401,7 @@ pub fn build(b: *std.Build) void {
         b.allocator,
         &.{ externalBoundaryFixtureRoot(b), "helpers", "downstream_public_lowering_synthetic_helper.zig" },
     ) catch std.process.fatal("unable to allocate nested external downstream synthetic helper fixture path", .{});
-    const nested_synthetic_helper_path_literal = zigStringLiteralEscapeAlloc(b.allocator, nested_synthetic_helper_path) catch
+    const nested_helper_literal = zigStringLiteralEscapeAlloc(b.allocator, nested_synthetic_helper_path) catch
         std.process.fatal("unable to escape nested external downstream synthetic helper fixture path", .{});
     const down_helper_path = std.fs.path.join(
         b.allocator,
@@ -1586,7 +1638,7 @@ pub fn build(b: *std.Build) void {
             down_test_path_literal,
             nested_down_test_path_literal,
             synthetic_helper_path_literal,
-            nested_synthetic_helper_path_literal,
+            nested_helper_literal,
         },
     ) catch std.process.fatal("unable to allocate downstream public lowering test fixture", .{});
     const write_down_test_fixture = addWriteTextFileCommand(
@@ -1622,7 +1674,7 @@ pub fn build(b: *std.Build) void {
         cf_escape_helper_link,
         "write-compile-fail-escape-helper-symlink",
     );
-    prep_cf_escape_symlink.step.dependOn(&write_cf_escape_helper.step);
+    prep_cf_escape_symlink.dependOn(write_cf_escape_helper);
     const down_mod = createShiftConsumerModule(
         b,
         down_test_path,
@@ -1633,8 +1685,8 @@ pub fn build(b: *std.Build) void {
     const down_tests = b.addTest(.{
         .root_module = down_mod,
     });
-    down_tests.step.dependOn(&write_down_helper_fixture.step);
-    down_tests.step.dependOn(&write_down_test_fixture.step);
+    down_tests.step.dependOn(write_down_helper_fixture);
+    down_tests.step.dependOn(write_down_test_fixture);
     const run_down_tests = b.addRunArtifact(down_tests);
     const down_step = b.step("downstream-public-lowering", "Run public lowering proofs from an external consumer module.");
     down_step.dependOn(&run_down_tests.step);
@@ -2326,7 +2378,7 @@ pub fn build(b: *std.Build) void {
                 .name = fixture.name,
                 .root_module = fixture_mod,
             });
-            fixture_check.step.dependOn(&prep_cf_escape_symlink.step);
+            fixture_check.step.dependOn(prep_cf_escape_symlink);
             fixture_check.expect_errors = .{ .contains = fixture.expected };
             compile_fail_step.dependOn(&fixture_check.step);
             test_step.dependOn(&fixture_check.step);
