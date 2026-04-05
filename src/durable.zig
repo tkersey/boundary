@@ -1367,19 +1367,8 @@ fn cloneLegacyProgramPlanV2(allocator: std.mem.Allocator, plan: LegacyProgramPla
         for (functions[0..function_count]) |function| allocator.free(function.symbol_name);
     }
     for (plan.functions, 0..) |function, index| {
-        functions[index] = .{
-            .symbol_name = try allocator.dupe(u8, function.symbol_name),
-            .first_requirement = function.first_requirement,
-            .requirement_count = function.requirement_count,
-            .first_output = function.first_output,
-            .output_count = function.output_count,
-            .first_local = function.first_local,
-            .local_count = function.local_count,
-            .first_block = function.first_block,
-            .block_count = function.block_count,
-            .first_instruction = function.first_instruction,
-            .instruction_count = function.instruction_count,
-        };
+        functions[index] = function;
+        functions[index].symbol_name = try allocator.dupe(u8, function.symbol_name);
         function_count += 1;
     }
     allocator.free(cloned.functions);
@@ -1886,4 +1875,135 @@ test "readPlanFile frees migrated legacy plan ownership when validation fails" {
     try writer.interface.flush();
 
     try std.testing.expectError(error.InvalidTerminatorInstruction, readPlanFile(allocator, plan_path));
+}
+
+test "readPlanFile preserves legacy function metadata when cloning schema-3 plans" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const allocator = std.testing.allocator;
+    const dir_path = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(dir_path);
+    const plan_path = try std.fs.path.join(allocator, &.{ dir_path, "legacy.plan.json" });
+    defer allocator.free(plan_path);
+
+    const legacy_plan_file = LegacyPlanFileV3{
+        .schema_version = 3,
+        .plan_hash = 0x5678,
+        .plan = .{
+            .schema_version = 2,
+            .label = "legacy.function.metadata",
+            .ir_hash = 2,
+            .entry_index = 0,
+            .functions = &.{.{
+                .symbol_name = "root",
+                .value_codec = .i32,
+                .parameter_count = 2,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 3,
+                .first_block = 0,
+                .entry_block = 1,
+                .block_count = 2,
+                .first_instruction = 0,
+                .instruction_count = 1,
+            }},
+            .requirements = &.{},
+            .ops = &.{},
+            .outputs = &.{},
+            .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 }, .{ .codec = .i32 } },
+            .blocks = &.{
+                .{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 },
+                .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 1 },
+            },
+            .terminators = &.{
+                .{ .kind = .jump, .primary = 1 },
+                .{ .kind = .return_value },
+            },
+            .instructions = &.{.{ .kind = .return_value, .index = 2 }},
+        },
+    };
+
+    const file = try std.fs.createFileAbsolute(plan_path, .{ .truncate = true });
+    defer file.close();
+    var buffer: [1024]u8 = undefined;
+    var writer = file.writer(&buffer);
+    try std.json.Stringify.value(legacy_plan_file, .{}, &writer.interface);
+    try writer.interface.writeByte('\n');
+    try writer.interface.flush();
+
+    const result = try readPlanFile(allocator, plan_path);
+    defer freePlan(allocator, &result.plan);
+
+    const function = result.plan.functions[0];
+    try std.testing.expectEqual(kernel.ValueCodec.i32, function.value_codec);
+    try std.testing.expectEqual(@as(u16, 2), function.parameter_count);
+    try std.testing.expectEqual(@as(u16, 1), function.entry_block);
+    try std.testing.expectEqual(legacy_plan_file.plan_hash, result.comparison_plan_hash);
+}
+
+test "readPlanFile preserves legacy function metadata when cloning raw schema-2 plans" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const allocator = std.testing.allocator;
+    const dir_path = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(dir_path);
+    const plan_path = try std.fs.path.join(allocator, &.{ dir_path, "legacy-raw.plan.json" });
+    defer allocator.free(plan_path);
+
+    const legacy_plan = LegacyProgramPlanV2{
+        .schema_version = 2,
+        .label = "legacy.raw.function.metadata",
+        .ir_hash = 3,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 2,
+            .first_block = 0,
+            .entry_block = 1,
+            .block_count = 2,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .blocks = &.{
+            .{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 },
+            .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 1 },
+        },
+        .terminators = &.{
+            .{ .kind = .jump, .primary = 1 },
+            .{ .kind = .return_value },
+        },
+        .instructions = &.{.{ .kind = .return_value, .index = 1 }},
+    };
+
+    const file = try std.fs.createFileAbsolute(plan_path, .{ .truncate = true });
+    defer file.close();
+    var buffer: [1024]u8 = undefined;
+    var writer = file.writer(&buffer);
+    try std.json.Stringify.value(legacy_plan, .{}, &writer.interface);
+    try writer.interface.writeByte('\n');
+    try writer.interface.flush();
+
+    const result = try readPlanFile(allocator, plan_path);
+    defer freePlan(allocator, &result.plan);
+
+    const function = result.plan.functions[0];
+    try std.testing.expectEqual(kernel.ValueCodec.i32, function.value_codec);
+    try std.testing.expectEqual(@as(u16, 1), function.parameter_count);
+    try std.testing.expectEqual(@as(u16, 1), function.entry_block);
 }
