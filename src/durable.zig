@@ -943,6 +943,103 @@ fn hashPlan(plan: kernel.ProgramPlan) u64 {
     return plan.hash();
 }
 
+fn hashLegacyProgramPlanSchema1(plan: kernel.ProgramPlan) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    hasher.update(std.mem.asBytes(&plan.schema_version));
+    hashBytes(&hasher, plan.label);
+    hasher.update(std.mem.asBytes(&plan.ir_hash));
+    hasher.update(std.mem.asBytes(&plan.entry_index));
+    for (plan.functions) |function| {
+        hashBytes(&hasher, function.symbol_name);
+        hasher.update(std.mem.asBytes(&function.first_requirement));
+        hasher.update(std.mem.asBytes(&function.requirement_count));
+        hasher.update(std.mem.asBytes(&function.first_output));
+        hasher.update(std.mem.asBytes(&function.output_count));
+        hasher.update(std.mem.asBytes(&function.first_instruction));
+        hasher.update(std.mem.asBytes(&function.instruction_count));
+    }
+    for (plan.requirements) |requirement| {
+        hashBytes(&hasher, requirement.label);
+        hasher.update(std.mem.asBytes(&requirement.first_op));
+        hasher.update(std.mem.asBytes(&requirement.op_count));
+    }
+    for (plan.ops) |op| {
+        hasher.update(std.mem.asBytes(&op.requirement_index));
+        hashBytes(&hasher, op.op_name);
+        hashBytes(&hasher, @tagName(op.mode));
+        hashBytes(&hasher, @tagName(op.payload_codec));
+        hashBytes(&hasher, @tagName(op.resume_codec));
+    }
+    for (plan.outputs) |output| {
+        hashBytes(&hasher, output.label);
+        hashBytes(&hasher, @tagName(output.codec));
+    }
+    for (plan.instructions) |instruction| {
+        hashBytes(&hasher, @tagName(instruction.kind));
+        hasher.update(std.mem.asBytes(&instruction.operand));
+    }
+    return hasher.final();
+}
+
+fn hashLegacyProgramPlanSchema2(plan: LegacyProgramPlanV2) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    hasher.update(std.mem.asBytes(&plan.schema_version));
+    hashBytes(&hasher, plan.label);
+    hasher.update(std.mem.asBytes(&plan.ir_hash));
+    hasher.update(std.mem.asBytes(&plan.entry_index));
+    for (plan.functions) |function| {
+        hashBytes(&hasher, function.symbol_name);
+        hasher.update(std.mem.asBytes(&function.first_requirement));
+        hasher.update(std.mem.asBytes(&function.requirement_count));
+        hasher.update(std.mem.asBytes(&function.first_output));
+        hasher.update(std.mem.asBytes(&function.output_count));
+        hasher.update(std.mem.asBytes(&function.first_instruction));
+        hasher.update(std.mem.asBytes(&function.instruction_count));
+    }
+    for (plan.requirements) |requirement| {
+        hashBytes(&hasher, requirement.label);
+        hasher.update(std.mem.asBytes(&requirement.first_op));
+        hasher.update(std.mem.asBytes(&requirement.op_count));
+    }
+    for (plan.ops) |op| {
+        hasher.update(std.mem.asBytes(&op.requirement_index));
+        hashBytes(&hasher, op.op_name);
+        hashBytes(&hasher, @tagName(op.mode));
+        hashBytes(&hasher, @tagName(op.payload_codec));
+        hashBytes(&hasher, @tagName(op.resume_codec));
+    }
+    for (plan.outputs) |output| {
+        hashBytes(&hasher, output.label);
+        hashBytes(&hasher, @tagName(output.codec));
+    }
+    for (plan.locals) |local| {
+        hashBytes(&hasher, @tagName(local.codec));
+    }
+    for (plan.blocks) |block| {
+        hasher.update(std.mem.asBytes(&block.first_instruction));
+        hasher.update(std.mem.asBytes(&block.instruction_count));
+        hasher.update(std.mem.asBytes(&block.terminator_index));
+    }
+    for (plan.terminators) |terminator| {
+        hashBytes(&hasher, @tagName(terminator.kind));
+        hasher.update(std.mem.asBytes(&terminator.primary));
+        hasher.update(std.mem.asBytes(&terminator.secondary));
+    }
+    for (plan.instructions) |instruction| {
+        hashBytes(&hasher, @tagName(instruction.kind));
+        hasher.update(std.mem.asBytes(&instruction.index));
+    }
+    return hasher.final();
+}
+
+fn hashLegacyRawPlan(plan: kernel.ProgramPlan) u64 {
+    return switch (plan.schema_version) {
+        1 => hashLegacyProgramPlanSchema1(plan),
+        2, 3 => hashPlan(plan),
+        else => hashPlan(plan),
+    };
+}
+
 const FileSnapshot = struct {
     existed: bool,
     bytes: ?[]u8 = null,
@@ -1193,46 +1290,60 @@ fn readPlanFile(allocator: std.mem.Allocator, path: []const u8) !ReadPlanFileRes
         break :blk try reader.interface.allocRemaining(allocator, .limited(std.math.maxInt(usize)));
     } else try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
     defer allocator.free(bytes);
-    const state = if (std.json.parseFromSlice(PlanFile, allocator, bytes, .{})) |parsed| blk: {
+    const state, const comparison_plan_hash = if (std.json.parseFromSlice(PlanFile, allocator, bytes, .{})) |parsed| blk: {
         defer parsed.deinit();
-        break :blk PlanFileState{
-            .schema_version = parsed.value.schema_version,
-            .plan_hash = parsed.value.plan_hash,
-            .plan = try clonePlan(allocator, parsed.value.plan),
+        break :blk .{
+            PlanFileState{
+                .schema_version = parsed.value.schema_version,
+                .plan_hash = parsed.value.plan_hash,
+                .plan = try clonePlan(allocator, parsed.value.plan),
+            },
+            parsed.value.plan_hash,
         };
     } else |_| if (std.json.parseFromSlice(LegacyPlanFileV3, allocator, bytes, .{})) |parsed| blk: {
         defer parsed.deinit();
-        break :blk PlanFileState{
-            .schema_version = parsed.value.schema_version,
-            .plan_hash = parsed.value.plan_hash,
-            .plan = try cloneLegacyProgramPlanV2(allocator, parsed.value.plan),
+        break :blk .{
+            PlanFileState{
+                .schema_version = parsed.value.schema_version,
+                .plan_hash = parsed.value.plan_hash,
+                .plan = try cloneLegacyProgramPlanV2(allocator, parsed.value.plan),
+            },
+            parsed.value.plan_hash,
         };
     } else |_| if (std.json.parseFromSlice(LegacyPlanFileV1, allocator, bytes, .{})) |parsed| blk: {
         defer parsed.deinit();
-        break :blk PlanFileState{
-            .schema_version = parsed.value.schema_version,
-            .plan_hash = null,
-            .plan = try clonePlan(allocator, parsed.value.plan),
+        break :blk .{
+            PlanFileState{
+                .schema_version = parsed.value.schema_version,
+                .plan_hash = null,
+                .plan = try clonePlan(allocator, parsed.value.plan),
+            },
+            hashLegacyRawPlan(parsed.value.plan),
         };
     } else |_| blk: {
         if (std.json.parseFromSlice(LegacyProgramPlanV2, allocator, bytes, .{})) |legacy_v2| {
             defer legacy_v2.deinit();
-            break :blk PlanFileState{
-                .schema_version = 0,
-                .plan_hash = null,
-                .plan = try cloneLegacyProgramPlanV2(allocator, legacy_v2.value),
+            break :blk .{
+                PlanFileState{
+                    .schema_version = 0,
+                    .plan_hash = null,
+                    .plan = try cloneLegacyProgramPlanV2(allocator, legacy_v2.value),
+                },
+                hashLegacyProgramPlanSchema2(legacy_v2.value),
             };
         } else |_| {
             const legacy = try std.json.parseFromSlice(kernel.ProgramPlan, allocator, bytes, .{});
             defer legacy.deinit();
-            break :blk PlanFileState{
-                .schema_version = 0,
-                .plan_hash = null,
-                .plan = try clonePlan(allocator, legacy.value),
+            break :blk .{
+                PlanFileState{
+                    .schema_version = 0,
+                    .plan_hash = null,
+                    .plan = try clonePlan(allocator, legacy.value),
+                },
+                hashLegacyRawPlan(legacy.value),
             };
         }
     };
-    const comparison_plan_hash = state.plan_hash orelse hashPlan(state.plan);
 
     var migrated = state;
     errdefer freePlan(allocator, &migrated.plan);
@@ -2006,4 +2117,60 @@ test "readPlanFile preserves legacy function metadata when cloning raw schema-2 
     try std.testing.expectEqual(kernel.ValueCodec.i32, function.value_codec);
     try std.testing.expectEqual(@as(u16, 1), function.parameter_count);
     try std.testing.expectEqual(@as(u16, 1), function.entry_block);
+    try std.testing.expectEqual(hashLegacyProgramPlanSchema2(legacy_plan), result.comparison_plan_hash);
+}
+
+test "readPlanFile preserves comparison hashes when cloning raw schema-3 plans" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const allocator = std.testing.allocator;
+    const dir_path = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(dir_path);
+    const plan_path = try std.fs.path.join(allocator, &.{ dir_path, "legacy-raw-schema3.plan.json" });
+    defer allocator.free(plan_path);
+
+    const legacy_plan = kernel.ProgramPlan{
+        .schema_version = 3,
+        .label = "legacy.raw.schema3.hash",
+        .ir_hash = 4,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 2,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .call_args = &.{0},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{.{ .kind = .return_value, .dst = 1, .operand = 1, .aux = 0 }},
+    };
+
+    const file = try std.fs.createFileAbsolute(plan_path, .{ .truncate = true });
+    defer file.close();
+    var buffer: [1024]u8 = undefined;
+    var writer = file.writer(&buffer);
+    try std.json.Stringify.value(legacy_plan, .{}, &writer.interface);
+    try writer.interface.writeByte('\n');
+    try writer.interface.flush();
+
+    const result = try readPlanFile(allocator, plan_path);
+    defer freePlan(allocator, &result.plan);
+
+    try std.testing.expectEqual(hashPlan(legacy_plan), result.comparison_plan_hash);
 }

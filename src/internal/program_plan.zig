@@ -458,35 +458,37 @@ pub fn upgradeLegacyProgramPlan(allocator: std.mem.Allocator, plan: *ProgramPlan
     if (plan.schema_version == 1) {
         const functions = try allocator.alloc(FunctionPlan, plan.functions.len);
         errdefer allocator.free(functions);
-        const blocks = try allocator.alloc(BlockPlan, plan.functions.len);
+        const locals = try allocator.dupe(LocalPlan, plan.locals);
+        errdefer allocator.free(locals);
+        const preserve_existing_blocks = plan.blocks.len != 0 or plan.terminators.len != 0;
+        const blocks = if (preserve_existing_blocks)
+            try allocator.dupe(BlockPlan, plan.blocks)
+        else
+            try allocator.alloc(BlockPlan, plan.functions.len);
         errdefer allocator.free(blocks);
-        const terminators = try allocator.alloc(Terminator, plan.functions.len);
+        const terminators = if (preserve_existing_blocks)
+            try allocator.dupe(Terminator, plan.terminators)
+        else
+            try allocator.alloc(Terminator, plan.functions.len);
         errdefer allocator.free(terminators);
 
         for (plan.functions, 0..) |function, index| {
-            functions[index] = .{
-                .symbol_name = function.symbol_name,
-                .first_requirement = function.first_requirement,
-                .requirement_count = function.requirement_count,
-                .first_output = function.first_output,
-                .output_count = function.output_count,
-                .first_local = 0,
-                .local_count = 0,
-                .first_block = @intCast(index),
-                .block_count = 1,
-                .first_instruction = function.first_instruction,
-                .instruction_count = function.instruction_count,
-            };
-            blocks[index] = .{
-                .first_instruction = function.first_instruction,
-                .instruction_count = function.instruction_count,
-                .terminator_index = @intCast(index),
-            };
-            terminators[index] = .{
-                .kind = .return_value,
-                .primary = 0,
-                .secondary = 0,
-            };
+            functions[index] = function;
+            if (!preserve_existing_blocks) {
+                functions[index].first_block = @intCast(index);
+                functions[index].entry_block = 0;
+                functions[index].block_count = 1;
+                blocks[index] = .{
+                    .first_instruction = function.first_instruction,
+                    .instruction_count = function.instruction_count,
+                    .terminator_index = @intCast(index),
+                };
+                terminators[index] = .{
+                    .kind = if (function.value_codec == .unit) .return_unit else .return_value,
+                    .primary = 0,
+                    .secondary = 0,
+                };
+            }
         }
 
         allocator.free(plan.functions);
@@ -494,7 +496,7 @@ pub fn upgradeLegacyProgramPlan(allocator: std.mem.Allocator, plan: *ProgramPlan
         allocator.free(plan.blocks);
         allocator.free(plan.terminators);
         plan.functions = functions;
-        plan.locals = try allocator.alloc(LocalPlan, 0);
+        plan.locals = locals;
         plan.blocks = blocks;
         plan.terminators = terminators;
         plan.schema_version = 2;
@@ -1661,6 +1663,69 @@ test "ProgramPlan.validate rejects functions without owned blocks" {
     };
 
     try std.testing.expectError(error.InvalidFunctionEntryBlock, plan.validate());
+}
+
+test "upgradeLegacyProgramPlan preserves schema-1 function metadata when present" {
+    var plan = ProgramPlan{
+        .schema_version = 1,
+        .label = "legacy.schema1.metadata",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .parameter_count = 2,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 1,
+            .first_local = 0,
+            .local_count = 3,
+            .first_block = 0,
+            .entry_block = 1,
+            .block_count = 2,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{.{ .label = "result", .codec = .i32 }},
+        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 }, .{ .codec = .i32 } },
+        .call_args = &.{},
+        .blocks = &.{
+            .{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 },
+            .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 1 },
+        },
+        .terminators = &.{
+            .{ .kind = .jump, .primary = 1 },
+            .{ .kind = .return_value },
+        },
+        .instructions = &.{.{ .kind = .return_value, .dst = 0, .operand = 2, .aux = 0 }},
+    };
+
+    try upgradeLegacyProgramPlan(std.testing.allocator, &plan);
+    defer {
+        std.testing.allocator.free(plan.functions);
+        std.testing.allocator.free(plan.requirements);
+        std.testing.allocator.free(plan.ops);
+        std.testing.allocator.free(plan.outputs);
+        std.testing.allocator.free(plan.locals);
+        std.testing.allocator.free(plan.call_args);
+        std.testing.allocator.free(plan.blocks);
+        std.testing.allocator.free(plan.terminators);
+        std.testing.allocator.free(plan.instructions);
+    }
+
+    try std.testing.expectEqual(ProgramPlan.current_schema_version, plan.schema_version);
+    const function = plan.functions[0];
+    try std.testing.expectEqual(ValueCodec.i32, function.value_codec);
+    try std.testing.expectEqual(@as(u16, 2), function.parameter_count);
+    try std.testing.expectEqual(@as(u16, 3), function.local_count);
+    try std.testing.expectEqual(@as(u16, 1), function.entry_block);
+    try std.testing.expectEqual(@as(usize, 3), plan.locals.len);
+    try std.testing.expectEqual(@as(usize, 2), plan.blocks.len);
+    try std.testing.expectEqual(TerminatorKind.return_value, plan.terminators[1].kind);
+    try plan.validate();
 }
 
 test "ProgramPlan.validate rejects call_op payload locals outside the owning function locals" {
