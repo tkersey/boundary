@@ -354,7 +354,13 @@ fn continueLoweredFunction(
                                 setLocal(locals, instruction.dst, typed);
                             }
                         },
-                        .terminal => |terminal| return .{ .terminal = terminal },
+                        .terminal => |terminal| return unwindLoweredAfterStack(
+                            compiled_plan,
+                            handlers_ptr,
+                            function.value_codec,
+                            after_stack,
+                            .{ .terminal = terminal },
+                        ),
                     }
                 },
                 .call_op => {
@@ -4085,6 +4091,143 @@ test "executeLoweredDispatch returns abort answers through terminal control" {
         .value => |_| return error.TestUnexpectedResult,
     }
     try std.testing.expectEqualStrings("missing-name", handlers.guard.payload);
+}
+
+test "executeLoweredDispatch unwinds caller after handlers across terminal helper returns" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "example.helper_terminal_after_root",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "root",
+                .value_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 3,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 1,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 1,
+                .local_count = 0,
+                .first_block = 1,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 3,
+                .instruction_count = 1,
+            },
+        },
+        .requirements = &.{
+            .{
+                .label = "picker",
+                .first_op = 0,
+                .op_count = 1,
+            },
+            .{
+                .label = "guard",
+                .first_op = 1,
+                .op_count = 1,
+            },
+        },
+        .ops = &.{
+            .{
+                .requirement_index = 0,
+                .op_name = "pick",
+                .mode = .choice,
+                .payload_codec = .unit,
+                .resume_codec = .string,
+            },
+            .{
+                .requirement_index = 1,
+                .op_name = "fail",
+                .mode = .abort,
+                .payload_codec = .unit,
+                .resume_codec = .unit,
+            },
+        },
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .call_args = &.{},
+        .blocks = &.{
+            .{
+                .first_instruction = 0,
+                .instruction_count = 3,
+                .terminator_index = 0,
+            },
+            .{
+                .first_instruction = 3,
+                .instruction_count = 1,
+                .terminator_index = 1,
+            },
+        },
+        .terminators = &.{
+            .{ .kind = .return_value },
+            .{ .kind = .return_unit },
+        },
+        .instructions = &.{
+            .{
+                .kind = .call_op,
+                .dst = 0,
+                .operand = 0,
+            },
+            .{
+                .kind = .call_helper,
+                .operand = 1,
+                .aux = std.math.maxInt(u16),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+            .{
+                .kind = .call_op,
+                .operand = 1,
+            },
+        },
+    };
+    const Handlers = struct {
+        picker: struct {
+            after_calls: usize = 0,
+
+            pub fn pick(_: *@This()) anyerror!@import("root.zig").Decision([]const u8, []const u8) {
+                return @import("root.zig").Decision([]const u8, []const u8).resumeWith("answer=42");
+            }
+
+            pub fn afterPick(self: *@This(), answer: []const u8) anyerror![]const u8 {
+                self.after_calls += 1;
+                try std.testing.expectEqualStrings("result=early", answer);
+                return "wrapped-early";
+            }
+        } = .{},
+        guard: struct {
+            pub fn fail(_: *@This()) anyerror![]const u8 {
+                return "result=early";
+            }
+        } = .{},
+    };
+
+    var handlers: Handlers = .{};
+    const result = try executeLoweredDispatch(plan, &handlers, 0, &.{});
+    switch (result) {
+        .terminal => |answer| try std.testing.expectEqualStrings("wrapped-early", decodeRuntimeValue(.string, answer)),
+        .value => |_| return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqual(@as(usize, 1), handlers.picker.after_calls);
 }
 
 test "executeLoweredDispatch rejects return-value terminators without a return instruction" {

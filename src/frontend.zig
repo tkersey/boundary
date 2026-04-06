@@ -952,8 +952,14 @@ fn persistHandlerContext(
 
 fn findFrame(comptime PromptType: type, prompt: *const PromptType) ?*Frame(PromptType) {
     if (lowered_machine.activeRuntime()) |runtime| {
-        const base = runtime.core.frames.find(*FrameBase, prompt.token) orelse return null;
-        return @fieldParentPtr("base", base);
+        const runtime_head = runtime.core.frames.find(*FrameBase, prompt.token) orelse return null;
+        var runtime_base = runtime_head;
+        const prompt_identity: *const anyopaque = @ptrCast(prompt);
+        while (true) {
+            if (runtime_base.prompt_identity == prompt_identity) return @fieldParentPtr("base", runtime_base);
+            runtime_base = runtime_base.runtime_previous_for_token orelse break;
+        }
+        return @fieldParentPtr("base", runtime_head);
     }
 
     var compat_base = portable_core.compatFrameFind(*FrameBase, prompt.token) orelse return null;
@@ -1740,6 +1746,48 @@ test "compat frame lookup keeps prompt-token collisions isolated while both runt
 
     try lowered_machine.beginExecution(&first_runtime);
     defer lowered_machine.endExecution(&first_runtime);
+
+    try std.testing.expectError(error.FrontendSuspend, transform(i32, &first_prompt, handler));
+    try std.testing.expectEqual(@as(usize, 1), first_frame.records.items.len);
+    try std.testing.expectEqual(@as(usize, 0), second_frame.records.items.len);
+}
+
+test "runtime frame lookup keeps prompt-token collisions isolated inside one runtime" {
+    const Prompt = prompt_contract.Prompt(.resume_then_transform, i32, i32, error{});
+    const handler = struct {
+        /// Return one distinct resumptive value for the same-runtime collision regression.
+        pub fn resumeValue() i32 {
+            return 41;
+        }
+
+        /// Preserve the resumed answer so only frame routing affects the test.
+        pub fn afterResume(answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var first_prompt = Prompt.initWithToken(41);
+    var second_prompt = Prompt.initWithToken(41);
+
+    var first_frame = Frame(Prompt).init(lowered_machine.runtimeAllocator(&runtime), &first_prompt);
+    defer first_frame.deinit();
+    try pushActiveFrame(&runtime, &first_frame.base);
+    defer popActiveFrame(&runtime, &first_frame.base);
+
+    var second_frame = Frame(Prompt).init(lowered_machine.runtimeAllocator(&runtime), &second_prompt);
+    defer second_frame.deinit();
+    try pushActiveFrame(&runtime, &second_frame.base);
+    defer popActiveFrame(&runtime, &second_frame.base);
+
+    try std.testing.expect(runtime.core.frames.find(*FrameBase, first_prompt.token) == &second_frame.base);
+    try std.testing.expect(findFrame(Prompt, &first_prompt) == &first_frame);
+    try std.testing.expect(findFrame(Prompt, &second_prompt) == &second_frame);
+
+    try lowered_machine.beginExecution(&runtime);
+    defer lowered_machine.endExecution(&runtime);
 
     try std.testing.expectError(error.FrontendSuspend, transform(i32, &first_prompt, handler));
     try std.testing.expectEqual(@as(usize, 1), first_frame.records.items.len);

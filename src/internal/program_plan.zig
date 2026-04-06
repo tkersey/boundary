@@ -560,6 +560,16 @@ fn functionOwnsOpTarget(self: ProgramPlan, function: FunctionPlan, target: u16) 
     return false;
 }
 
+fn validateFunctionBodyParameterPrefix(
+    comptime function: effect_ir.Function,
+    comptime body: effect_ir.FunctionBody,
+) PlanError!void {
+    if (body.local_codecs.len < function.parameter_codecs.len) return error.InvalidProgramBodyShape;
+    for (function.parameter_codecs, 0..) |codec, parameter_index| {
+        if (body.local_codecs[parameter_index] != codec) return error.InvalidProgramBodyShape;
+    }
+}
+
 fn symbolIndex(comptime program: effect_ir.Program, comptime symbol: effect_ir.SymbolRef) ?u16 {
     for (program.functions, 0..) |function, index| {
         if (function.symbol.eql(symbol)) return @intCast(index);
@@ -1057,6 +1067,9 @@ pub fn planFromOpenRowProgram(
 ) PlanError!ProgramPlan {
     if (program.function_bodies.len == 0) {
         return try planFromProgram(label, program.asEffectProgram());
+    }
+    for (program.functions, program.function_bodies) |function, body| {
+        try validateFunctionBodyParameterPrefix(function, body);
     }
     const summary_program = program.asEffectProgram();
     const requirement_total = comptime blk: {

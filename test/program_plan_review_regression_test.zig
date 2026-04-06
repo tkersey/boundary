@@ -537,3 +537,58 @@ test "planFromProgram rejects bodyless recursive helper graphs without explicit 
     const result = comptime internal_program_plan.planFromProgram("example.invalid_bodyless_cycle", program);
     try std.testing.expectError(error.InvalidProgramBodyShape, result);
 }
+
+test "planFromProgram rejects explicit helper bodies whose local prefix disagrees with declared parameters" {
+    const row = effect_ir.rowFromSpec(.{});
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/mismatched_helper.zig",
+        .symbol_name = "root",
+    };
+    const helper_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/mismatched_helper.zig",
+        .symbol_name = "helper",
+    };
+    const program = effect_ir.Program{
+        .functions = &.{
+            .{
+                .symbol = root_symbol,
+                .row = row,
+            },
+            .{
+                .symbol = helper_symbol,
+                .row = row,
+                .parameter_codecs = &.{.bool},
+            },
+        },
+        .call_edges = &.{.{
+            .caller = root_symbol,
+            .callee = helper_symbol,
+        }},
+        .function_bodies = &.{
+            .{
+                .local_codecs = &.{.i32},
+                .call_arg_locals = &.{0},
+                .entry_block = 0,
+                .blocks = &.{.{
+                    .instructions = &.{.{
+                        .kind = .call_helper,
+                        .operand = 1,
+                        .aux = 0,
+                    }},
+                    .terminator = .{ .kind = .return_unit },
+                }},
+            },
+            .{
+                .local_codecs = &.{.i32},
+                .entry_block = 0,
+                .blocks = &.{.{
+                    .instructions = &.{},
+                    .terminator = .{ .kind = .return_unit },
+                }},
+            },
+        },
+    };
+
+    const result = comptime internal_program_plan.planFromProgram("example.invalid_explicit_param_prefix", program);
+    try std.testing.expectError(error.InvalidProgramBodyShape, result);
+}
