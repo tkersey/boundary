@@ -151,7 +151,7 @@ fn assertExecutableCodecSupport(comptime compiled_plan: program_plan.ProgramPlan
 }
 
 fn afterMethodName(comptime op_name: []const u8) []const u8 {
-    var buffer: [128]u8 = undefined;
+    var buffer: [5 + op_name.len]u8 = undefined;
     var len: usize = 0;
     buffer[len..][0..5].* = "after".*;
     len += 5;
@@ -3274,6 +3274,25 @@ test "after hook naming preserves underscore boundaries" {
             std.mem.eql(u8, foo__bar, _foo_bar))
         {
             @compileError("after hook naming must keep underscored op names distinct");
+        }
+    }
+}
+
+test "after hook naming supports long operation names" {
+    comptime {
+        var long_name_buffer: [124]u8 = undefined;
+        long_name_buffer[0] = 'a';
+        for (1..long_name_buffer.len) |index| long_name_buffer[index] = 'x';
+        const long_name = long_name_buffer[0..];
+
+        var expected_buffer: [129]u8 = undefined;
+        expected_buffer[0..6].* = "afterA".*;
+        for (6..expected_buffer.len) |index| expected_buffer[index] = 'x';
+        const expected = expected_buffer[0..];
+
+        const after_name = afterMethodName(long_name);
+        if (!std.mem.eql(u8, after_name, expected)) {
+            @compileError("after hook naming must support long operation names without truncation");
         }
     }
 }
