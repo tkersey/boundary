@@ -117,6 +117,15 @@ fn isArtifactReplayRebuildError(err: anyerror) bool {
     };
 }
 
+fn isEventReplayRebuildError(err: anyerror) bool {
+    return switch (err) {
+        error.FileNotFound,
+        error.UnsupportedEventSchema,
+        => true,
+        else => false,
+    };
+}
+
 /// Restore result for one durable session replay attempt.
 pub const RestoreResult = struct {
     status: RestoreStatus,
@@ -386,13 +395,15 @@ pub const Store = struct {
         }
         try kernel.validateStepCapacity(artifact.steps);
         const state = kernel.runSteps(artifact.steps);
-        const event_match = eventsMatch(self.allocator, self.events_path, expected_event_schema, &state, manifest.last_seq) catch |err| switch (err) {
-            error.UnsupportedEventSchema => return .{
-                .status = .rebuild_required,
-                .manifest = manifest,
-                .state = null,
-            },
-            else => return err,
+        const event_match = eventsMatch(self.allocator, self.events_path, expected_event_schema, &state, manifest.last_seq) catch |err| {
+            if (isEventReplayRebuildError(err)) {
+                return .{
+                    .status = .rebuild_required,
+                    .manifest = manifest,
+                    .state = null,
+                };
+            }
+            return err;
         };
         if (!event_match.matches) {
             return .{
@@ -575,7 +586,14 @@ fn restoreFileSnapshot(snapshot: FileSnapshot, path: []const u8) !void {
     };
 }
 
+fn ensureParentPath(path: []const u8) !void {
+    const parent = std.fs.path.dirname(path) orelse return;
+    if (parent.len == 0) return;
+    try std.fs.cwd().makePath(parent);
+}
+
 fn writeRawFile(path: []const u8, bytes: []const u8) !void {
+    try ensureParentPath(path);
     const file = if (std.fs.path.isAbsolute(path))
         try std.fs.createFileAbsolute(path, .{ .truncate = true })
     else
@@ -595,6 +613,7 @@ fn deleteFileIfExists(path: []const u8) !void {
 }
 
 fn writeManifest(path: []const u8, manifest: SessionManifest) !void {
+    try ensureParentPath(path);
     const file = if (std.fs.path.isAbsolute(path))
         try std.fs.createFileAbsolute(path, .{ .truncate = true })
     else
@@ -608,6 +627,7 @@ fn writeManifest(path: []const u8, manifest: SessionManifest) !void {
 }
 
 fn writeArtifact(path: []const u8, artifact: ProgramArtifact) !void {
+    try ensureParentPath(path);
     const file = if (std.fs.path.isAbsolute(path))
         try std.fs.createFileAbsolute(path, .{ .truncate = true })
     else
@@ -628,6 +648,7 @@ fn writeArtifact(path: []const u8, artifact: ProgramArtifact) !void {
 
 fn writePlan(path: []const u8, plan: kernel.ProgramPlan) !void {
     try plan.validate();
+    try ensureParentPath(path);
     const file = if (std.fs.path.isAbsolute(path))
         try std.fs.createFileAbsolute(path, .{ .truncate = true })
     else
@@ -646,6 +667,7 @@ fn writePlan(path: []const u8, plan: kernel.ProgramPlan) !void {
 }
 
 fn writeEvents(path: []const u8, state: *const kernel.State) !void {
+    try ensureParentPath(path);
     const file = if (std.fs.path.isAbsolute(path))
         try std.fs.createFileAbsolute(path, .{ .truncate = true })
     else

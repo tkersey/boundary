@@ -214,6 +214,22 @@ test "durable restore reports rebuild required on artifact mismatch" {
     try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
+test "durable restore reports rebuild required when the event log is missing" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    _ = try store.saveScenario(.direct_return);
+
+    try std.fs.deleteFileAbsolute(paths.events_path);
+
+    const restored = try store.restore();
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+}
+
 test "durable restore fails when the event log is tampered" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -267,6 +283,43 @@ test "durable saveArtifact persists plan-backed identity and plan.json" {
     try std.testing.expectEqual(@as(u32, 1), parsed_artifact.value.schema_version);
     try std.testing.expectEqual(@as(u64, 0x1234), parsed_artifact.value.identity_hash);
     try std.testing.expectEqualStrings("plan_backed", parsed_artifact.value.label);
+
+    const restored = try store.restoreArtifact(artifact);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
+}
+
+test "durable saveScenario creates parent directories for fresh store paths" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.initNamed(&tmp, "fresh/session");
+    defer paths.deinit();
+
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    _ = try store.saveScenario(.direct_return);
+
+    _ = try std.fs.cwd().statFile(paths.manifest_path);
+    _ = try std.fs.cwd().statFile(paths.events_path);
+
+    const restored = try store.restore();
+    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
+}
+
+test "durable saveArtifact creates parent directories for fresh store paths" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.initNamed(&tmp, "fresh/plan_session");
+    defer paths.deinit();
+
+    const artifact = makePlanBackedArtifact(0x7234, 0x7234, "fresh.plan", "runBody");
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    _ = try store.saveArtifact(artifact, null);
+
+    _ = try std.fs.cwd().statFile(paths.manifest_path);
+    _ = try std.fs.cwd().statFile(paths.events_path);
+    _ = try std.fs.cwd().statFile(paths.artifact_path);
+    _ = try std.fs.cwd().statFile(paths.plan_path);
 
     const restored = try store.restoreArtifact(artifact);
     try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
@@ -516,11 +569,17 @@ test "durable saveArtifact restores the previous checkpoint when a later write f
     const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(baseline_artifact, null);
 
+    const blocked_parent = try std.fs.path.join(std.testing.allocator, &.{ paths.dir_path, "missing" });
+    defer std.testing.allocator.free(blocked_parent);
+    {
+        const file = try std.fs.cwd().createFile(blocked_parent, .{ .truncate = true });
+        defer file.close();
+    }
     const bad_events_path = try std.fs.path.join(std.testing.allocator, &.{ paths.dir_path, "missing", "events.jsonl" });
     defer std.testing.allocator.free(bad_events_path);
     const failing_store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, bad_events_path);
     const replacement_artifact = makePlanBackedArtifact(0x8822, 0x5678, "replacement.plan", "replacementBody");
-    try std.testing.expectError(error.FileNotFound, failing_store.saveArtifact(replacement_artifact, null));
+    try std.testing.expectError(error.NotDir, failing_store.saveArtifact(replacement_artifact, null));
 
     const artifact_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.artifact_path, std.math.maxInt(usize));
     defer std.testing.allocator.free(artifact_bytes);
