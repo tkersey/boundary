@@ -745,6 +745,13 @@ fn absoluteOwnedSourceMatchesRepo(comptime source_ref: SourceRef, comptime calle
 }
 
 fn sourcePathForLowering(comptime source_ref: SourceRef) []const u8 {
+    if (std.fs.path.isAbsolute(source_ref.caller_file) and source_ref.caller_source != null) {
+        for (source_ref.imported_sources) |imported_source| {
+            if (std.fs.path.isAbsolute(imported_source.path)) {
+                return cloneBytes(source_ref.caller_file);
+            }
+        }
+    }
     if (std.fs.path.isAbsolute(source_ref.caller_file) and !absoluteOwnedRepoPathMatches(source_ref)) {
         return cloneBytes(source_ref.caller_file);
     }
@@ -2782,6 +2789,67 @@ test "absolute caller-owned helper regression: lowering accepts shared helper su
     try ProgramType.validate(std.testing.allocator);
 }
 
+test "owned repo alias callers preserve absolute helper witness paths during lowering" {
+    if (!build_options.package_root_alias_available) return error.SkipZigTest;
+
+    const spec: LowerSpec = .{
+        .label = "example.open_row_cross_file_writer.alias_owned_source",
+        .entry_symbol = "runBody",
+        .row = effect_ir.mergeRows(.{
+            effect_ir.rowFromSpec(.{
+                .state = .{
+                    .get = effect_ir.Transform(void, i32),
+                    .set = effect_ir.Transform(i32, void),
+                },
+            }),
+            effect_ir.rowFromSpec(.{
+                .writer = .{
+                    .tell = effect_ir.Transform([]const u8, void),
+                },
+            }),
+        }),
+        .ValueType = []const u8,
+        .outputs = &.{
+            .{ .label = "state", .OutputType = i32 },
+            .{ .label = "writer", .OutputType = [][]const u8 },
+        },
+    };
+    const alias_source_path = comptime std.fmt.comptimePrint(
+        "{s}/examples/open_row_cross_file_writer.zig",
+        .{build_options.package_root_alias},
+    );
+    const current_src = @src();
+    const caller: std.builtin.SourceLocation = .{
+        .module = current_src.module,
+        .file = alias_source_path,
+        .line = 1,
+        .column = 1,
+        .fn_name = "aliasOwnedSourceCrossFileWriterCaller",
+    };
+
+    const AliasOwned = lower(sourceWithContentAndImports(
+        "examples/open_row_cross_file_writer.zig",
+        caller,
+        source_graph_embed.embeddedSource("examples/open_row_cross_file_writer.zig"),
+        &.{importedSource(
+            alias_source_path,
+            "open_row_cross_file_helpers.zig",
+            source_graph_embed.embeddedSource("examples/open_row_cross_file_helpers.zig"),
+        )},
+    ), spec);
+    const Canonical = lowerAt("examples/open_row_cross_file_writer.zig", spec);
+
+    try std.testing.expectEqualStrings(alias_source_path, AliasOwned.source_path);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.functions, AliasOwned.runtime_plan.functions);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.requirements, AliasOwned.runtime_plan.requirements);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.ops, AliasOwned.runtime_plan.ops);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.outputs, AliasOwned.runtime_plan.outputs);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.locals, AliasOwned.runtime_plan.locals);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.blocks, AliasOwned.runtime_plan.blocks);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.terminators, AliasOwned.runtime_plan.terminators);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.instructions, AliasOwned.runtime_plan.instructions);
+}
+
 test "source ownership rejects relative no-content repo-path witnesses and basename-only mismatches" {
     try std.testing.expect(!sourceOwnershipMatches(.{
         .repo_path = "examples/open_row_state_writer.zig",
@@ -3003,9 +3071,7 @@ test "source ownership accepts repo-owned relative content witnesses only when b
 test "validation owned source content reports SourceDrifted for repo-owned witness drift" {
     try std.testing.expectError(
         error.SourceDrifted,
-        validationOwnedSourceContent(
-            std.testing.allocator,
-            "examples/open_row_state_writer.zig",
+        validationOwnedSourceContent(std.testing.allocator, "examples/open_row_state_writer.zig",
             \\pub fn runBody() void {}
         ),
     );
