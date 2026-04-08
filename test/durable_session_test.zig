@@ -1697,8 +1697,56 @@ test "durable restore accepts schema-4 non-scenario manifests without artifact m
     defer rewritten_manifest.deinit();
     try std.testing.expectEqual(@as(u32, 5), rewritten_manifest.value.schema_version);
     try std.testing.expectEqual(@as(?u32, 1), rewritten_manifest.value.artifact_schema_version);
+    try std.testing.expect(rewritten_manifest.value.artifact_hash != null);
 
     const restored_again = try store.restore();
     try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored_again.status);
     try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored_again.migration_report);
+}
+
+test "durable restoreArtifact rejects changed plan-backed artifacts while backfilling schema-4 artifact hashes" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const paths = try TestPaths.init(&tmp);
+    defer paths.deinit();
+
+    const original = shift.durable.ProgramArtifact{
+        .label = "plan_backed_original",
+        .program_hash = 0x6235,
+        .steps = &.{},
+        .plan = makePlanBackedArtifact(0x6235, 0x6235, "demo.plan", "runBody").plan,
+    };
+    const changed = shift.durable.ProgramArtifact{
+        .label = "plan_backed_changed",
+        .program_hash = original.program_hash,
+        .steps = original.steps,
+        .plan = original.plan,
+    };
+
+    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    _ = try store.saveArtifact(original, null);
+
+    {
+        const manifest_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.manifest_path, std.math.maxInt(usize));
+        defer std.testing.allocator.free(manifest_bytes);
+        const parsed_manifest = try std.json.parseFromSlice(shift.durable.SessionManifest, std.testing.allocator, manifest_bytes, .{});
+        defer parsed_manifest.deinit();
+
+        var legacy_manifest = parsed_manifest.value;
+        legacy_manifest.schema_version = 4;
+        legacy_manifest.artifact_hash = null;
+        legacy_manifest.artifact_schema_version = null;
+
+        const file = try std.fs.cwd().createFile(paths.manifest_path, .{ .truncate = true });
+        defer file.close();
+        var buffer: [1024]u8 = undefined;
+        var writer = file.writer(&buffer);
+        try std.json.Stringify.value(legacy_manifest, .{}, &writer.interface);
+        try writer.interface.writeByte('\n');
+        try writer.interface.flush();
+    }
+
+    const restored = try store.restoreArtifact(changed);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
 }

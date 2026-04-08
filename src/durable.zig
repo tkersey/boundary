@@ -585,6 +585,20 @@ pub const Store = struct {
         return try self.restoreArtifactInternal(artifact, .inspect_only);
     }
 
+    fn recoverLegacyArtifactHash(self: @This(), manifest: SessionManifest) anyerror!?u64 {
+        if (manifest.scenario_id != null or manifest.artifact_hash != null) return manifest.artifact_hash;
+
+        const expected_artifact_schema = manifest.artifact_schema_version orelse return null;
+        const artifact_path = try derivedArtifactPath(self.allocator, self.manifest_path);
+        defer self.allocator.free(artifact_path);
+        const legacy_artifact_path = try legacyArtifactPath(self.allocator, self.manifest_path);
+        defer self.allocator.free(legacy_artifact_path);
+        const artifact_file = readArtifactFileWithLegacyFallback(self.allocator, artifact_path, legacy_artifact_path) catch return null;
+        defer freeArtifact(self.allocator, &artifact_file.artifact);
+        if (artifact_file.stored_schema_version != expected_artifact_schema) return null;
+        return hashProgram(artifact_file.artifact.label, artifact_file.artifact.steps);
+    }
+
     fn restoreArtifactInternal(self: @This(), artifact: ProgramArtifact, rewrite_mode: RestoreRewriteMode) anyerror!RestoreResult {
         const read_manifest = readManifest(self.allocator, self.manifest_path) catch |err| switch (err) {
             error.UnsupportedManifestSchema => return .{
@@ -607,8 +621,9 @@ pub const Store = struct {
             };
         }
         var manifest_migrated = read_manifest.stored_schema_version != current_manifest_schema;
-        if (manifest.artifact_hash) |expected_artifact_hash| {
-            if (hashProgram(artifact.label, artifact.steps) != expected_artifact_hash) {
+        const expected_artifact_hash = try self.recoverLegacyArtifactHash(manifest);
+        if (expected_artifact_hash) |expected_hash| {
+            if (hashProgram(artifact.label, artifact.steps) != expected_hash) {
                 return .{
                     .status = .rebuild_required,
                     .manifest = manifest,
@@ -728,7 +743,7 @@ pub const Store = struct {
                 .schema_version = current_manifest_schema,
                 .scenario_id = manifest.scenario_id,
                 .program_hash = manifest.program_hash,
-                .artifact_hash = manifest.artifact_hash orelse hashProgram(artifact.label, artifact.steps),
+                .artifact_hash = expected_artifact_hash orelse hashProgram(artifact.label, artifact.steps),
                 .artifact_schema_version = if (manifest.scenario_id == null) current_artifact_schema else null,
                 .plan_hash = current_plan_hash,
                 .plan_schema_version = if (current_plan_hash != null) current_plan_schema else null,

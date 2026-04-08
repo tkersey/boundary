@@ -1834,7 +1834,7 @@ fn validationOwnedSourceContent(
     ) catch return error.SourceUnreadable;
     defer allocator.free(repo_source);
     if (!std.mem.eql(u8, repo_source, source_content)) {
-        return if (canonical_repo_path == null) error.SourceDrifted else error.UnsupportedHelperGraph;
+        return error.SourceDrifted;
     }
     return source_content;
 }
@@ -2994,6 +2994,17 @@ test "source ownership accepts repo-owned relative content witnesses only when b
     }));
 }
 
+test "validation owned source content reports SourceDrifted for repo-owned witness drift" {
+    try std.testing.expectError(
+        error.SourceDrifted,
+        validationOwnedSourceContent(
+            std.testing.allocator,
+            "examples/open_row_state_writer.zig",
+            \\pub fn runBody() void {}
+        ),
+    );
+}
+
 test "importedSource preserves parent-directory helpers for absolute caller-owned roots" {
     const imported = comptime importedSource("/tmp/shift-owned-open-row/nested/entry.zig", "../helpers/util.zig",
         \\pub fn emit(eff: anytype) !void {
@@ -3511,7 +3522,7 @@ test "owned validation rejects repo-resolving absolute helper overrides for exte
     );
 
     try std.testing.expectError(
-        error.UnsupportedHelperGraph,
+        error.SourceDrifted,
         validateOwnedOpenRowAt(
             std.testing.allocator,
             root_path,
