@@ -1623,7 +1623,7 @@ pub fn build(b: *std.Build) void {
         \\    }};
         \\    defer source_handlers.writer.deinit();
         \\    const source_result = try LoweredFromSource.run(&runtime, &source_handlers);
-        \\    defer std.testing.allocator.free(source_result.outputs.writer);
+        \\    defer runtime_support.deinitWriterOutputs(std.testing.allocator, source_result.outputs.writer);
         \\
         \\    try std.testing.expectEqualStrings("done", source_result.value);
         \\    try std.testing.expectEqual(@as(i32, 1), source_result.outputs.state);

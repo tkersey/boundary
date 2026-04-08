@@ -127,17 +127,17 @@ const ActiveRuntimeRegistry = struct {
         try self.map.put(std.heap.page_allocator, runtime.thread_id, entry);
     }
 
-    fn end(self: *@This(), runtime: *Runtime) void {
+    fn end(self: *@This(), runtime: *Runtime) bool {
         self.lock_state.lock();
         defer self.lock_state.unlock();
 
-        const entry = self.map.get(runtime.thread_id).?;
-        std.debug.assert(entry.runtime == runtime);
+        const entry = self.map.get(runtime.thread_id) orelse return false;
+        if (entry.runtime != runtime) return false;
         if (entry.previous) |previous| {
             self.map.getPtr(runtime.thread_id).?.* = previous;
             // zlinter-disable-next-line no_hidden_allocations - registry nodes must unwind through the same non-runtime allocator
             std.heap.page_allocator.destroy(entry);
-            return;
+            return true;
         }
         _ = self.map.remove(runtime.thread_id);
         // zlinter-disable-next-line no_hidden_allocations - registry nodes must unwind through the same non-runtime allocator
@@ -146,6 +146,7 @@ const ActiveRuntimeRegistry = struct {
             self.map.deinit(std.heap.page_allocator);
             self.map = .empty;
         }
+        return true;
     }
 
     fn current(self: *@This(), thread_id: std.Thread.Id) ?*Runtime {
@@ -171,8 +172,44 @@ pub fn beginExecution(runtime: *Runtime) (RuntimeError || SetupError)!void {
 
 /// Leave one frontend execution against the host runtime.
 pub fn endExecution(runtime: *Runtime) void {
+    endExecutionChecked(runtime) catch |err| std.debug.panic("runtime execution teardown misuse: {s}", .{@errorName(err)});
+}
+
+/// Leave one frontend execution against the host runtime, returning an error on misuse.
+pub fn endExecutionChecked(runtime: *Runtime) RuntimeError!void {
+    try runtime.ensureThread();
+    if (runtime.core.active_reset_count == 0) return error.RuntimeBusy;
+    if (!active_runtimes.end(runtime)) return error.RuntimeBusy;
     runtime.core.active_reset_count -= 1;
-    active_runtimes.end(runtime);
+}
+
+test "endExecutionChecked rejects mismatched nested runtime shutdown without corrupting active runtime state" {
+    var outer_runtime = Runtime.init(std.testing.allocator);
+    defer outer_runtime.deinit();
+    var inner_runtime = Runtime.init(std.testing.allocator);
+    defer inner_runtime.deinit();
+
+    var outer_active = false;
+    var inner_active = false;
+    defer if (inner_active) endExecution(&inner_runtime);
+    defer if (outer_active) endExecution(&outer_runtime);
+
+    try beginExecution(&outer_runtime);
+    outer_active = true;
+    try beginExecution(&inner_runtime);
+    inner_active = true;
+
+    try std.testing.expect(activeRuntime() == &inner_runtime);
+    try std.testing.expectError(error.RuntimeBusy, endExecutionChecked(&outer_runtime));
+    try std.testing.expect(activeRuntime() == &inner_runtime);
+
+    try endExecutionChecked(&inner_runtime);
+    inner_active = false;
+    try std.testing.expect(activeRuntime() == &outer_runtime);
+
+    try endExecutionChecked(&outer_runtime);
+    outer_active = false;
+    try std.testing.expect(activeRuntime() == null);
 }
 
 /// Stable scenario ids re-exported from the canonical scenario registry.

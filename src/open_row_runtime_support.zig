@@ -30,10 +30,18 @@ pub const WriterHandler = struct {
         try self.items.append(self.allocator, try self.allocator.dupe(u8, value));
     }
 
-    /// Finish writer collection for one lowered run.
+    /// Finish writer collection for one lowered run. Release the returned outputs with `deinitWriterOutputs`.
     pub fn finish(self: *@This()) anyerror![][]const u8 {
         const outputs = try self.allocator.alloc([]const u8, self.items.items.len);
-        for (self.items.items, outputs) |item, *output| output.* = item;
+        var initialized: usize = 0;
+        errdefer {
+            for (outputs[0..initialized]) |item| self.allocator.free(item);
+            self.allocator.free(outputs);
+        }
+        for (self.items.items, outputs) |item, *output| {
+            output.* = try self.allocator.dupe(u8, item);
+            initialized += 1;
+        }
         return outputs;
     }
 
@@ -43,6 +51,12 @@ pub const WriterHandler = struct {
         self.items.deinit(self.allocator);
     }
 };
+
+/// Release one writer output bundle returned from `WriterHandler.finish()`.
+pub fn deinitWriterOutputs(allocator: std.mem.Allocator, outputs: [][]const u8) void {
+    for (outputs) |item| allocator.free(item);
+    allocator.free(outputs);
+}
 
 /// One combined state-plus-writer handler bundle for lowered open-row examples.
 pub const StateWriterHandlers = struct {
@@ -59,8 +73,20 @@ test "writer handler snapshots transient payload bytes" {
     transient[0] = 'n';
 
     const outputs = try handler.finish();
-    defer std.testing.allocator.free(outputs);
+    defer deinitWriterOutputs(std.testing.allocator, outputs);
 
     try std.testing.expectEqual(@as(usize, 1), outputs.len);
     try std.testing.expectEqualStrings("ok", outputs[0]);
+}
+
+test "writer handler returned outputs stay valid after handler deinit" {
+    var handler: WriterHandler = .{ .allocator = std.testing.allocator };
+
+    try handler.tell("kept");
+    const outputs = try handler.finish();
+    defer deinitWriterOutputs(std.testing.allocator, outputs);
+    handler.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), outputs.len);
+    try std.testing.expectEqualStrings("kept", outputs[0]);
 }

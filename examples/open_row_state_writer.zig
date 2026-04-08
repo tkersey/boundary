@@ -101,7 +101,7 @@ fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void
     defer handlers.writer.deinit();
 
     const result = try CompiledProgram.run(&runtime, &handlers);
-    defer allocator.free(result.outputs.writer);
+    defer runtime_support.deinitWriterOutputs(allocator, result.outputs.writer);
 
     for (result.outputs.writer) |item| {
         try writer.print("item={s}\n", .{item});
