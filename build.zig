@@ -136,12 +136,8 @@ fn canonicalSourceHash(b: *std.Build, path: []const u8) [32]u8 {
 }
 
 fn repoZigPathRegistry(b: *std.Build) []const u8 {
-    var root_dir = std.fs.cwd().openDir(b.pathFromRoot("."), .{ .iterate = true }) catch
-        std.process.fatal("unable to open repo root for source registry", .{});
-    defer root_dir.close();
-
     var paths = std.ArrayList([]const u8).empty;
-    collectRepoZigPaths(b, root_dir, "", &paths);
+    collectTrackedRepoZigPaths(b, &paths);
 
     var left: usize = 0;
     while (left < paths.items.len) : (left += 1) {
@@ -163,46 +159,29 @@ fn repoZigPathRegistry(b: *std.Build) []const u8 {
     return registry.items;
 }
 
-fn collectRepoZigPaths(
-    b: *std.Build,
-    dir: std.fs.Dir,
-    prefix: []const u8,
-    paths: *std.ArrayList([]const u8),
-) void {
-    var iterator = dir.iterate();
-    while (iterator.next() catch std.process.fatal("unable to iterate repo source directory", .{})) |entry| {
-        if (entry.kind == .sym_link) continue;
-        if (std.mem.eql(u8, entry.name, ".git") or
-            std.mem.eql(u8, entry.name, ".zig-cache") or
-            std.mem.eql(u8, entry.name, "zig-cache") or
-            std.mem.eql(u8, entry.name, ".zig-global-cache") or
-            std.mem.eql(u8, entry.name, "zig-global-cache") or
-            std.mem.eql(u8, entry.name, "zig-out"))
-        {
-            continue;
-        }
+fn collectTrackedRepoZigPaths(b: *std.Build, paths: *std.ArrayList([]const u8)) void {
+    const repo_root = b.pathFromRoot(".");
+    const result = std.process.Child.run(.{
+        .allocator = b.allocator,
+        .argv = &.{ "git", "-C", repo_root, "ls-files", "--", "*.zig" },
+        .max_output_bytes = 512 * 1024,
+    }) catch |err| std.process.fatal("unable to list tracked repo Zig paths: {s}", .{@errorName(err)});
+    defer b.allocator.free(result.stdout);
+    defer b.allocator.free(result.stderr);
 
-        const owned_relative_path = (if (prefix.len == 0)
-            std.fmt.allocPrint(b.allocator, "{s}", .{entry.name})
-        else
-            std.fmt.allocPrint(b.allocator, "{s}/{s}", .{ prefix, entry.name })) catch
-            std.process.fatal("unable to allocate repo source path", .{});
+    switch (result.term) {
+        .Exited => |code| if (code != 0) {
+            std.process.fatal("git ls-files failed while building repo source registry: {s}", .{result.stderr});
+        },
+        else => std.process.fatal("git ls-files terminated unexpectedly while building repo source registry", .{}),
+    }
 
-        switch (entry.kind) {
-            .directory => {
-                var child_dir = dir.openDir(entry.name, .{ .iterate = true }) catch
-                    std.process.fatal("unable to descend into repo source directory", .{});
-                defer child_dir.close();
-                collectRepoZigPaths(b, child_dir, owned_relative_path, paths);
-            },
-            .file => {
-                if (std.mem.endsWith(u8, owned_relative_path, ".zig")) {
-                    paths.append(b.allocator, owned_relative_path) catch
-                        std.process.fatal("unable to record repo source path", .{});
-                }
-            },
-            else => {},
-        }
+    var lines = std.mem.tokenizeScalar(u8, result.stdout, '\n');
+    while (lines.next()) |line| {
+        if (!std.mem.endsWith(u8, line, ".zig")) continue;
+        paths.append(b.allocator, b.allocator.dupe(u8, line) catch
+            std.process.fatal("unable to allocate tracked repo source path", .{})) catch
+            std.process.fatal("unable to record tracked repo source path", .{});
     }
 }
 
@@ -1771,25 +1750,6 @@ pub fn build(b: *std.Build) void {
     src_lower_err_wit_cmd.step.dependOn(&source_lowering_tool_install.step);
     const src_lower_err_wit_step = b.step("source-lowering-error-witness-check", "Check that the source-lowering tool emits the checked public witness surface.");
     src_lower_err_wit_step.dependOn(&src_lower_err_wit_cmd.step);
-    const dur_migrate_tool_mod = b.createModule(.{
-        .root_source_file = b.path("tools/shift_durable_migrate.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    dur_migrate_tool_mod.addImport("shift", shift_mod);
-    const dur_migrate_tool_exe = b.addExecutable(.{
-        .name = "shift-durable-migrate",
-        .root_module = dur_migrate_tool_mod,
-    });
-    const dur_migrate_tool_install = b.addInstallArtifact(dur_migrate_tool_exe, .{});
-    const dur_migrate_tool_step = b.step("durable-migration-tool", "Build the durable migration tool.");
-    dur_migrate_tool_step.dependOn(&dur_migrate_tool_exe.step);
-    dur_migrate_tool_step.dependOn(&dur_migrate_tool_install.step);
-    const dur_migrate_contract = b.addSystemCommand(&.{ "sh", "test/durable_migration_tool/run.sh" });
-    dur_migrate_contract.step.dependOn(&dur_migrate_tool_install.step);
-    const dur_migrate_contract_step = b.step("durable-migration-tool-contract", "Check durable migration inspect and upgrade behavior through the tool surface.");
-    dur_migrate_contract_step.dependOn(&dur_migrate_contract.step);
-    test_step.dependOn(&dur_migrate_contract.step);
     const public_error_api_ban_cmd = b.addSystemCommand(&.{ "sh", "test/public_error_api_ban/run.sh" });
     const public_error_api_ban_step = b.step("public-error-api-ban", "Fail closed if retired public root spellings reappear.");
     public_error_api_ban_step.dependOn(&public_error_api_ban_cmd.step);

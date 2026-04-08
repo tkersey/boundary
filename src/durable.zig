@@ -34,7 +34,6 @@ pub const ProgramArtifact = struct {
 pub const RestoreStatus = enum {
     exact_replay,
     failed,
-    migrated_replay,
     rebuild_required,
 };
 
@@ -71,86 +70,6 @@ pub const PlanFile = struct {
 /// One append-only persisted event row.
 pub const EventRecord = struct {
     schema_version: u32 = current_event_schema,
-    seq: usize,
-    event: kernel.Event,
-};
-
-const LegacySessionManifestV2 = struct {
-    schema_version: u32 = 2,
-    scenario_id: ?kernel.ScenarioId = null,
-    program_hash: u64,
-    plan_hash: ?u64 = null,
-    last_seq: usize,
-    restore_status: RestoreStatus = .exact_replay,
-};
-
-const LegacySessionManifestV3 = struct {
-    schema_version: u32 = 3,
-    scenario_id: ?kernel.ScenarioId = null,
-    program_hash: u64,
-    plan_hash: ?u64 = null,
-    plan_schema_version: ?u32 = null,
-    last_seq: usize,
-    restore_status: RestoreStatus = .exact_replay,
-};
-
-const SessionManifestState = struct {
-    schema_version: u32,
-    scenario_id: ?kernel.ScenarioId,
-    program_hash: u64,
-    artifact_hash: ?u64,
-    artifact_schema_version: ?u32,
-    plan_hash: ?u64,
-    plan_schema_version: ?u32,
-    event_schema_version: ?u32,
-    last_seq: usize,
-    restore_status: RestoreStatus,
-};
-
-const LegacyPlanFileV1 = struct {
-    schema_version: u32 = 1,
-    plan: kernel.ProgramPlan,
-};
-
-const LegacyInstructionV2 = struct {
-    kind: kernel.InstructionKind,
-    index: u16,
-};
-
-const LegacyProgramPlanV2 = struct {
-    schema_version: u32 = 2,
-    label: []const u8,
-    ir_hash: u64,
-    entry_index: u16,
-    functions: []const kernel.FunctionPlan,
-    requirements: []const kernel.RequirementPlan,
-    ops: []const kernel.OpPlan,
-    outputs: []const kernel.OutputPlan,
-    locals: []const kernel.LocalPlan = &.{},
-    blocks: []const kernel.BlockPlan = &.{},
-    terminators: []const kernel.Terminator = &.{},
-    instructions: []const LegacyInstructionV2,
-};
-
-const LegacyPlanFileV3 = struct {
-    schema_version: u32 = 3,
-    plan_hash: u64,
-    plan: LegacyProgramPlanV2,
-};
-
-const LegacyEventRecordV0 = struct {
-    seq: usize,
-    event: kernel.Event,
-};
-
-const PlanFileState = struct {
-    schema_version: u32,
-    plan_hash: ?u64,
-    plan: kernel.ProgramPlan,
-};
-
-const EventRecordState = struct {
-    schema_version: u32,
     seq: usize,
     event: kernel.Event,
 };
@@ -198,143 +117,11 @@ fn isArtifactReplayRebuildError(err: anyerror) bool {
     };
 }
 
-const SessionManifestMigrator = struct {
-    from: u32,
-    to_schema: u32,
-    migrate: *const fn (*SessionManifestState) void,
-};
-
-const PlanFileMigrator = struct {
-    from: u32,
-    to_schema: u32,
-    migrate: *const fn (std.mem.Allocator, *PlanFileState) anyerror!void,
-};
-
-const EventRecordMigrator = struct {
-    from: u32,
-    to_schema: u32,
-    migrate: *const fn (*EventRecordState) void,
-};
-
-const session_manifest_migrators = [_]SessionManifestMigrator{
-    .{
-        .from = 2,
-        .to_schema = 3,
-        .migrate = struct {
-            fn run(state: *SessionManifestState) void {
-                state.plan_schema_version = null;
-                state.schema_version = 3;
-            }
-        }.run,
-    },
-    .{
-        .from = 3,
-        .to_schema = 4,
-        .migrate = struct {
-            fn run(state: *SessionManifestState) void {
-                state.event_schema_version = 0;
-                state.schema_version = 4;
-            }
-        }.run,
-    },
-    .{
-        .from = 4,
-        .to_schema = 5,
-        .migrate = struct {
-            fn run(state: *SessionManifestState) void {
-                state.artifact_schema_version = if (state.scenario_id == null)
-                    state.artifact_schema_version orelse current_artifact_schema
-                else
-                    null;
-                state.schema_version = 5;
-            }
-        }.run,
-    },
-};
-
-const plan_file_migrators = [_]PlanFileMigrator{
-    .{
-        .from = 0,
-        .to_schema = 1,
-        .migrate = struct {
-            fn run(_: std.mem.Allocator, state: *PlanFileState) !void {
-                state.schema_version = 1;
-            }
-        }.run,
-    },
-    .{
-        .from = 1,
-        .to_schema = 2,
-        .migrate = struct {
-            fn run(_: std.mem.Allocator, state: *PlanFileState) !void {
-                state.plan_hash = hashPlan(state.plan);
-                state.schema_version = 2;
-            }
-        }.run,
-    },
-    .{
-        .from = 2,
-        .to_schema = 3,
-        .migrate = struct {
-            fn run(allocator: std.mem.Allocator, state: *PlanFileState) !void {
-                try kernel.upgradeLegacyProgramPlan(allocator, &state.plan);
-                state.plan_hash = hashPlan(state.plan);
-                state.schema_version = 3;
-            }
-        }.run,
-    },
-    .{
-        .from = 3,
-        .to_schema = 4,
-        .migrate = struct {
-            fn run(allocator: std.mem.Allocator, state: *PlanFileState) !void {
-                try kernel.upgradeLegacyProgramPlan(allocator, &state.plan);
-                state.plan_hash = hashPlan(state.plan);
-                state.schema_version = 4;
-            }
-        }.run,
-    },
-};
-
-const event_record_migrators = [_]EventRecordMigrator{
-    .{
-        .from = 0,
-        .to_schema = 1,
-        .migrate = struct {
-            fn run(state: *EventRecordState) void {
-                state.schema_version = 1;
-            }
-        }.run,
-    },
-};
-
 /// Restore result for one durable session replay attempt.
-pub const VersionHop = struct {
-    from: u32,
-    to_schema: u32,
-};
-
-/// Detailed schema-hop and rewriteback facts for one migrated restore.
-pub const MigrationReport = struct {
-    event_schema: ?VersionHop = null,
-    manifest_schema: ?VersionHop = null,
-    plan_file_schema: ?VersionHop = null,
-    rewrote_events: bool = false,
-    rewrote_manifest: bool = false,
-    rewrote_plan_file: bool = false,
-};
-
-/// Restore result for one durable session replay attempt, including optional migration provenance.
 pub const RestoreResult = struct {
-    migration_report: ?MigrationReport = null,
     status: RestoreStatus,
     manifest: SessionManifest,
     state: ?kernel.State = null,
-};
-
-const ReadManifestResult = struct {
-    stored_schema_version: u32,
-    manifest: SessionManifest,
 };
 
 const ReadArtifactFileResult = struct {
@@ -342,20 +129,7 @@ const ReadArtifactFileResult = struct {
     artifact: ProgramArtifact,
 };
 
-const ReadEventRecordResult = struct {
-    stored_schema_version: u32,
-    record: EventRecord,
-};
-
-const EventsMatchResult = struct {
-    matches: bool,
-    migrated: bool,
-};
-
-const RestoreRewriteMode = enum {
-    inspect_only,
-    rewriteback,
-};
+const EventsMatchResult = struct { matches: bool };
 
 /// Local append-only store for one durable interpreter session.
 pub const Store = struct {
@@ -444,7 +218,7 @@ pub const Store = struct {
 
     /// Restore one persisted session by replaying the canonical scenario and checking the event log.
     pub fn restore(self: @This()) anyerror!RestoreResult {
-        const read_manifest = readManifest(self.allocator, self.manifest_path) catch |err| switch (err) {
+        const manifest = readManifest(self.allocator, self.manifest_path) catch |err| switch (err) {
             error.UnsupportedManifestSchema => return .{
                 .status = .rebuild_required,
                 .manifest = .{
@@ -456,16 +230,8 @@ pub const Store = struct {
             },
             else => return err,
         };
-        const manifest = read_manifest.manifest;
-        if (!isSupportedManifestSchema(manifest.schema_version)) {
-            return .{
-                .status = .rebuild_required,
-                .manifest = manifest,
-                .state = null,
-            };
-        }
         if (manifest.scenario_id) |id| {
-            return try self.restoreArtifactInternal(ProgramArtifact.fromScenario(id), .rewriteback);
+            return try self.restoreArtifactInternal(ProgramArtifact.fromScenario(id));
         }
         const expected_artifact_schema = manifest.artifact_schema_version orelse return .{
             .status = .rebuild_required,
@@ -481,9 +247,7 @@ pub const Store = struct {
         }
         const artifact_path = try derivedArtifactPath(self.allocator, self.manifest_path);
         defer self.allocator.free(artifact_path);
-        const legacy_artifact_path = try legacyArtifactPath(self.allocator, self.manifest_path);
-        defer self.allocator.free(legacy_artifact_path);
-        const artifact_file = readArtifactFileWithLegacyFallback(self.allocator, artifact_path, legacy_artifact_path) catch |err| {
+        const artifact_file = readArtifactFile(self.allocator, artifact_path) catch |err| {
             if (isArtifactReplayRebuildError(err)) {
                 return .{
                     .status = .rebuild_required,
@@ -505,102 +269,26 @@ pub const Store = struct {
                 .state = null,
             };
         }
-        return try self.restoreArtifactInternal(artifact_file.artifact, .rewriteback);
+        return try self.restoreArtifactInternal(artifact_file.artifact);
     }
 
-    /// Inspect one persisted session restore without rewriting migrated artifacts back to disk.
+    /// Inspect one persisted session restore without mutating durable files.
     pub fn inspectRestore(self: @This()) anyerror!RestoreResult {
-        const read_manifest = readManifest(self.allocator, self.manifest_path) catch |err| switch (err) {
-            error.UnsupportedManifestSchema => return .{
-                .status = .rebuild_required,
-                .manifest = .{
-                    .schema_version = 0,
-                    .program_hash = 0,
-                    .last_seq = 0,
-                },
-                .state = null,
-            },
-            else => return err,
-        };
-        const manifest = read_manifest.manifest;
-        if (!isSupportedManifestSchema(manifest.schema_version)) {
-            return .{
-                .status = .rebuild_required,
-                .manifest = manifest,
-                .state = null,
-            };
-        }
-
-        if (manifest.scenario_id) |id| {
-            return try self.restoreArtifactInternal(ProgramArtifact.fromScenario(id), .inspect_only);
-        }
-        const expected_artifact_schema = manifest.artifact_schema_version orelse return .{
-            .status = .rebuild_required,
-            .manifest = manifest,
-            .state = null,
-        };
-        if (expected_artifact_schema != current_artifact_schema) {
-            return .{
-                .status = .rebuild_required,
-                .manifest = manifest,
-                .state = null,
-            };
-        }
-        const artifact_path = try derivedArtifactPath(self.allocator, self.manifest_path);
-        defer self.allocator.free(artifact_path);
-        const legacy_artifact_path = try legacyArtifactPath(self.allocator, self.manifest_path);
-        defer self.allocator.free(legacy_artifact_path);
-        const artifact_file = readArtifactFileWithLegacyFallback(self.allocator, artifact_path, legacy_artifact_path) catch |err| {
-            if (isArtifactReplayRebuildError(err)) {
-                return .{
-                    .status = .rebuild_required,
-                    .manifest = manifest,
-                    .state = null,
-                };
-            }
-            return .{
-                .status = .failed,
-                .manifest = manifest,
-                .state = null,
-            };
-        };
-        defer freeArtifact(self.allocator, &artifact_file.artifact);
-        if (artifact_file.stored_schema_version != expected_artifact_schema) {
-            return .{
-                .status = .rebuild_required,
-                .manifest = manifest,
-                .state = null,
-            };
-        }
-        return try self.restoreArtifactInternal(artifact_file.artifact, .inspect_only);
+        return try self.restore();
     }
 
     /// Restore one persisted session by replaying the supplied artifact and checking the event log.
     pub fn restoreArtifact(self: @This(), artifact: ProgramArtifact) anyerror!RestoreResult {
-        return try self.restoreArtifactInternal(artifact, .rewriteback);
+        return try self.restoreArtifactInternal(artifact);
     }
 
-    /// Inspect one persisted artifact restore without rewriting migrated artifacts back to disk.
+    /// Inspect one persisted artifact restore without mutating durable files.
     pub fn inspectRestoreArtifact(self: @This(), artifact: ProgramArtifact) anyerror!RestoreResult {
-        return try self.restoreArtifactInternal(artifact, .inspect_only);
+        return try self.restoreArtifactInternal(artifact);
     }
 
-    fn recoverLegacyArtifactHash(self: @This(), manifest: SessionManifest) anyerror!?u64 {
-        if (manifest.scenario_id != null or manifest.artifact_hash != null) return manifest.artifact_hash;
-
-        const expected_artifact_schema = manifest.artifact_schema_version orelse return null;
-        const artifact_path = try derivedArtifactPath(self.allocator, self.manifest_path);
-        defer self.allocator.free(artifact_path);
-        const legacy_artifact_path = try legacyArtifactPath(self.allocator, self.manifest_path);
-        defer self.allocator.free(legacy_artifact_path);
-        const artifact_file = readArtifactFileWithLegacyFallback(self.allocator, artifact_path, legacy_artifact_path) catch return null;
-        defer freeArtifact(self.allocator, &artifact_file.artifact);
-        if (artifact_file.stored_schema_version != expected_artifact_schema) return null;
-        return hashProgram(artifact_file.artifact.label, artifact_file.artifact.steps);
-    }
-
-    fn restoreArtifactInternal(self: @This(), artifact: ProgramArtifact, rewrite_mode: RestoreRewriteMode) anyerror!RestoreResult {
-        const read_manifest = readManifest(self.allocator, self.manifest_path) catch |err| switch (err) {
+    fn restoreArtifactInternal(self: @This(), artifact: ProgramArtifact) anyerror!RestoreResult {
+        const manifest = readManifest(self.allocator, self.manifest_path) catch |err| switch (err) {
             error.UnsupportedManifestSchema => return .{
                 .status = .rebuild_required,
                 .manifest = .{
@@ -612,18 +300,8 @@ pub const Store = struct {
             },
             else => return err,
         };
-        const manifest = read_manifest.manifest;
-        if (!isSupportedManifestSchema(manifest.schema_version)) {
-            return .{
-                .status = .rebuild_required,
-                .manifest = manifest,
-                .state = null,
-            };
-        }
-        var manifest_migrated = read_manifest.stored_schema_version != current_manifest_schema;
-        const expected_artifact_hash = try self.recoverLegacyArtifactHash(manifest);
-        if (expected_artifact_hash) |expected_hash| {
-            if (hashProgram(artifact.label, artifact.steps) != expected_hash) {
+        if (manifest.artifact_hash) |expected_artifact_hash| {
+            if (hashProgram(artifact.label, artifact.steps) != expected_artifact_hash) {
                 return .{
                     .status = .rebuild_required,
                     .manifest = manifest,
@@ -640,13 +318,10 @@ pub const Store = struct {
         }
         const plan_path = try derivedPlanPath(self.allocator, self.manifest_path);
         defer self.allocator.free(plan_path);
-        const legacy_plan_path = try legacyPlanPath(self.allocator, self.manifest_path);
-        defer self.allocator.free(legacy_plan_path);
         var loaded_plan: ?kernel.ProgramPlan = null;
         defer if (loaded_plan) |plan| freePlan(self.allocator, &plan);
-        var plan_migrated = false;
         if (manifest.plan_hash) |expected_plan_hash| {
-            const plan_file = readPlanFileWithLegacyFallback(self.allocator, plan_path, legacy_plan_path) catch |err| {
+            const plan_file = readPlanFile(self.allocator, plan_path) catch |err| {
                 if (isPlanReplayRebuildError(err)) {
                     return .{
                         .status = .rebuild_required,
@@ -661,7 +336,6 @@ pub const Store = struct {
                 };
             };
             loaded_plan = plan_file.plan;
-            plan_migrated = plan_file.stored_schema_version != current_plan_schema;
             if (manifest.plan_schema_version) |expected_plan_schema| {
                 if (plan_file.stored_schema_version != expected_plan_schema) {
                     return .{
@@ -672,7 +346,6 @@ pub const Store = struct {
                 }
             }
             const stored_plan = loaded_plan.?;
-            const migrated_plan_hash = hashPlan(stored_plan);
             if (plan_file.comparison_plan_hash != expected_plan_hash or stored_plan.ir_hash != manifest.program_hash) {
                 return .{
                     .status = .failed,
@@ -681,7 +354,7 @@ pub const Store = struct {
                 };
             }
             if (artifact.plan) |current_plan| {
-                if (current_plan.ir_hash != stored_plan.ir_hash or hashPlan(current_plan) != migrated_plan_hash) {
+                if (current_plan.ir_hash != stored_plan.ir_hash or hashPlan(current_plan) != hashPlan(stored_plan)) {
                     return .{
                         .status = .rebuild_required,
                         .manifest = manifest,
@@ -699,7 +372,11 @@ pub const Store = struct {
             };
         }
 
-        const expected_event_schema = manifest.event_schema_version orelse 0;
+        const expected_event_schema = manifest.event_schema_version orelse return .{
+            .status = .rebuild_required,
+            .manifest = manifest,
+            .state = null,
+        };
         if (!isSupportedEventSchema(expected_event_schema)) {
             return .{
                 .status = .rebuild_required,
@@ -722,76 +399,6 @@ pub const Store = struct {
                 .status = .failed,
                 .manifest = manifest,
                 .state = null,
-            };
-        }
-        if (manifest.plan_hash != null and manifest.plan_schema_version != current_plan_schema) manifest_migrated = true;
-        if (expected_event_schema != current_event_schema) manifest_migrated = true;
-        if (manifest_migrated or plan_migrated or event_match.migrated) {
-            const migration_report = MigrationReport{
-                .event_schema = versionHopIfMigrated(expected_event_schema, current_event_schema, event_match.migrated),
-                .manifest_schema = versionHopIfMigrated(read_manifest.stored_schema_version, current_manifest_schema, read_manifest.stored_schema_version != current_manifest_schema),
-                .plan_file_schema = if (manifest.plan_hash != null)
-                    versionHopIfMigrated(manifest.plan_schema_version orelse 0, current_plan_schema, plan_migrated)
-                else
-                    null,
-                .rewrote_events = rewrite_mode == .rewriteback and event_match.migrated,
-                .rewrote_manifest = rewrite_mode == .rewriteback,
-                .rewrote_plan_file = rewrite_mode == .rewriteback and plan_migrated,
-            };
-            const current_plan_hash = if (loaded_plan) |plan| hashPlan(plan) else null;
-            var persisted_manifest = SessionManifest{
-                .schema_version = current_manifest_schema,
-                .scenario_id = manifest.scenario_id,
-                .program_hash = manifest.program_hash,
-                .artifact_hash = expected_artifact_hash orelse hashProgram(artifact.label, artifact.steps),
-                .artifact_schema_version = if (manifest.scenario_id == null) current_artifact_schema else null,
-                .plan_hash = current_plan_hash,
-                .plan_schema_version = if (current_plan_hash != null) current_plan_schema else null,
-                .event_schema_version = current_event_schema,
-                .last_seq = kernel.events(&state).len,
-                .restore_status = .exact_replay,
-            };
-            if (rewrite_mode == .rewriteback) {
-                var manifest_snapshot = try captureFileSnapshot(self.allocator, self.manifest_path);
-                defer manifest_snapshot.deinit(self.allocator);
-                errdefer {
-                    restoreFileSnapshot(manifest_snapshot, self.manifest_path) catch |restore_err| {
-                        std.log.err("durable rollback failed for manifest rewriteback: {s}", .{@errorName(restore_err)});
-                    };
-                }
-                var plan_snapshot: ?FileSnapshot = null;
-                defer if (plan_snapshot) |*snapshot| snapshot.deinit(self.allocator);
-                errdefer {
-                    if (plan_snapshot) |snapshot| restoreFileSnapshot(snapshot, plan_path) catch |restore_err| {
-                        std.log.err("durable rollback failed for plan rewriteback: {s}", .{@errorName(restore_err)});
-                    };
-                }
-                if (plan_migrated) {
-                    plan_snapshot = try captureFileSnapshot(self.allocator, plan_path);
-                }
-                var events_snapshot: ?FileSnapshot = null;
-                defer if (events_snapshot) |*snapshot| snapshot.deinit(self.allocator);
-                errdefer {
-                    if (events_snapshot) |snapshot| restoreFileSnapshot(snapshot, self.events_path) catch |restore_err| {
-                        std.log.err("durable rollback failed for events rewriteback: {s}", .{@errorName(restore_err)});
-                    };
-                }
-                if (event_match.migrated) {
-                    events_snapshot = try captureFileSnapshot(self.allocator, self.events_path);
-                }
-                if (plan_migrated) try writePlan(plan_path, loaded_plan.?);
-                if (event_match.migrated) try writeEvents(self.events_path, &state);
-                try writeManifest(self.manifest_path, persisted_manifest);
-            } else {
-                persisted_manifest = manifest;
-            }
-
-            persisted_manifest.restore_status = .migrated_replay;
-            return .{
-                .migration_report = migration_report,
-                .status = .migrated_replay,
-                .manifest = persisted_manifest,
-                .state = state,
             };
         }
         return .{
@@ -822,13 +429,6 @@ fn derivedSidecarPath(allocator: std.mem.Allocator, manifest_path: []const u8, s
     return try allocator.dupe(u8, sidecar_name);
 }
 
-fn legacySidecarPath(allocator: std.mem.Allocator, manifest_path: []const u8, sidecar_name: []const u8) ![]u8 {
-    if (std.fs.path.dirname(manifest_path)) |dir_name| {
-        if (dir_name.len != 0) return try std.fs.path.join(allocator, &.{ dir_name, sidecar_name });
-    }
-    return try allocator.dupe(u8, sidecar_name);
-}
-
 fn derivedPlanPath(allocator: std.mem.Allocator, manifest_path: []const u8) ![]u8 {
     return try derivedSidecarPath(allocator, manifest_path, "plan");
 }
@@ -837,28 +437,8 @@ fn derivedArtifactPath(allocator: std.mem.Allocator, manifest_path: []const u8) 
     return try derivedSidecarPath(allocator, manifest_path, "artifact");
 }
 
-fn legacyPlanPath(allocator: std.mem.Allocator, manifest_path: []const u8) ![]u8 {
-    return try legacySidecarPath(allocator, manifest_path, "plan.json");
-}
-
-fn legacyArtifactPath(allocator: std.mem.Allocator, manifest_path: []const u8) ![]u8 {
-    return try legacySidecarPath(allocator, manifest_path, "artifact.json");
-}
-
-fn isSupportedManifestSchema(schema_version: u32) bool {
-    return schema_version >= 2 and schema_version <= current_manifest_schema;
-}
-
 fn isSupportedEventSchema(schema_version: u32) bool {
-    return schema_version == 0 or schema_version == current_event_schema;
-}
-
-fn versionHopIfMigrated(from: u32, to_schema: u32, migrated: bool) ?VersionHop {
-    if (!migrated) return null;
-    return .{
-        .from = from,
-        .to_schema = to_schema,
-    };
+    return schema_version == current_event_schema;
 }
 
 fn hashBytes(hasher: *std.hash.Wyhash, value: []const u8) void {
@@ -956,103 +536,6 @@ fn artifactMatchesCanonicalScenario(artifact: ProgramArtifact, canonical: Progra
 
 fn hashPlan(plan: kernel.ProgramPlan) u64 {
     return plan.hash();
-}
-
-fn hashLegacyProgramPlanSchema1(plan: kernel.ProgramPlan) u64 {
-    var hasher = std.hash.Wyhash.init(0);
-    hasher.update(std.mem.asBytes(&plan.schema_version));
-    hashBytes(&hasher, plan.label);
-    hasher.update(std.mem.asBytes(&plan.ir_hash));
-    hasher.update(std.mem.asBytes(&plan.entry_index));
-    for (plan.functions) |function| {
-        hashBytes(&hasher, function.symbol_name);
-        hasher.update(std.mem.asBytes(&function.first_requirement));
-        hasher.update(std.mem.asBytes(&function.requirement_count));
-        hasher.update(std.mem.asBytes(&function.first_output));
-        hasher.update(std.mem.asBytes(&function.output_count));
-        hasher.update(std.mem.asBytes(&function.first_instruction));
-        hasher.update(std.mem.asBytes(&function.instruction_count));
-    }
-    for (plan.requirements) |requirement| {
-        hashBytes(&hasher, requirement.label);
-        hasher.update(std.mem.asBytes(&requirement.first_op));
-        hasher.update(std.mem.asBytes(&requirement.op_count));
-    }
-    for (plan.ops) |op| {
-        hasher.update(std.mem.asBytes(&op.requirement_index));
-        hashBytes(&hasher, op.op_name);
-        hashBytes(&hasher, @tagName(op.mode));
-        hashBytes(&hasher, @tagName(op.payload_codec));
-        hashBytes(&hasher, @tagName(op.resume_codec));
-    }
-    for (plan.outputs) |output| {
-        hashBytes(&hasher, output.label);
-        hashBytes(&hasher, @tagName(output.codec));
-    }
-    for (plan.instructions) |instruction| {
-        hashBytes(&hasher, @tagName(instruction.kind));
-        hasher.update(std.mem.asBytes(&instruction.operand));
-    }
-    return hasher.final();
-}
-
-fn hashLegacyProgramPlanSchema2(plan: LegacyProgramPlanV2) u64 {
-    var hasher = std.hash.Wyhash.init(0);
-    hasher.update(std.mem.asBytes(&plan.schema_version));
-    hashBytes(&hasher, plan.label);
-    hasher.update(std.mem.asBytes(&plan.ir_hash));
-    hasher.update(std.mem.asBytes(&plan.entry_index));
-    for (plan.functions) |function| {
-        hashBytes(&hasher, function.symbol_name);
-        hasher.update(std.mem.asBytes(&function.first_requirement));
-        hasher.update(std.mem.asBytes(&function.requirement_count));
-        hasher.update(std.mem.asBytes(&function.first_output));
-        hasher.update(std.mem.asBytes(&function.output_count));
-        hasher.update(std.mem.asBytes(&function.first_instruction));
-        hasher.update(std.mem.asBytes(&function.instruction_count));
-    }
-    for (plan.requirements) |requirement| {
-        hashBytes(&hasher, requirement.label);
-        hasher.update(std.mem.asBytes(&requirement.first_op));
-        hasher.update(std.mem.asBytes(&requirement.op_count));
-    }
-    for (plan.ops) |op| {
-        hasher.update(std.mem.asBytes(&op.requirement_index));
-        hashBytes(&hasher, op.op_name);
-        hashBytes(&hasher, @tagName(op.mode));
-        hashBytes(&hasher, @tagName(op.payload_codec));
-        hashBytes(&hasher, @tagName(op.resume_codec));
-    }
-    for (plan.outputs) |output| {
-        hashBytes(&hasher, output.label);
-        hashBytes(&hasher, @tagName(output.codec));
-    }
-    for (plan.locals) |local| {
-        hashBytes(&hasher, @tagName(local.codec));
-    }
-    for (plan.blocks) |block| {
-        hasher.update(std.mem.asBytes(&block.first_instruction));
-        hasher.update(std.mem.asBytes(&block.instruction_count));
-        hasher.update(std.mem.asBytes(&block.terminator_index));
-    }
-    for (plan.terminators) |terminator| {
-        hashBytes(&hasher, @tagName(terminator.kind));
-        hasher.update(std.mem.asBytes(&terminator.primary));
-        hasher.update(std.mem.asBytes(&terminator.secondary));
-    }
-    for (plan.instructions) |instruction| {
-        hashBytes(&hasher, @tagName(instruction.kind));
-        hasher.update(std.mem.asBytes(&instruction.index));
-    }
-    return hasher.final();
-}
-
-fn hashLegacyRawPlan(plan: kernel.ProgramPlan) u64 {
-    return switch (plan.schema_version) {
-        1 => hashLegacyProgramPlanSchema1(plan),
-        2, 3 => hashPlan(plan),
-        else => hashPlan(plan),
-    };
 }
 
 const FileSnapshot = struct {
@@ -1182,74 +665,15 @@ fn writeEvents(path: []const u8, state: *const kernel.State) !void {
     try writer.interface.flush();
 }
 
-fn readManifest(allocator: std.mem.Allocator, path: []const u8) !ReadManifestResult {
+fn readManifest(allocator: std.mem.Allocator, path: []const u8) !SessionManifest {
     const bytes = if (std.fs.path.isAbsolute(path)) blk: {
         break :blk try readAbsoluteFileAlloc(allocator, path);
     } else try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
     defer allocator.free(bytes);
-    const state = if (std.json.parseFromSlice(SessionManifest, allocator, bytes, .{})) |parsed| blk: {
-        defer parsed.deinit();
-        break :blk SessionManifestState{
-            .schema_version = parsed.value.schema_version,
-            .scenario_id = parsed.value.scenario_id,
-            .program_hash = parsed.value.program_hash,
-            .artifact_hash = parsed.value.artifact_hash,
-            .artifact_schema_version = parsed.value.artifact_schema_version,
-            .plan_hash = parsed.value.plan_hash,
-            .plan_schema_version = parsed.value.plan_schema_version,
-            .event_schema_version = parsed.value.event_schema_version,
-            .last_seq = parsed.value.last_seq,
-            .restore_status = parsed.value.restore_status,
-        };
-    } else |_| if (std.json.parseFromSlice(LegacySessionManifestV3, allocator, bytes, .{})) |parsed| blk: {
-        defer parsed.deinit();
-        break :blk SessionManifestState{
-            .schema_version = parsed.value.schema_version,
-            .scenario_id = parsed.value.scenario_id,
-            .program_hash = parsed.value.program_hash,
-            .artifact_hash = null,
-            .artifact_schema_version = null,
-            .plan_hash = parsed.value.plan_hash,
-            .plan_schema_version = parsed.value.plan_schema_version,
-            .event_schema_version = null,
-            .last_seq = parsed.value.last_seq,
-            .restore_status = parsed.value.restore_status,
-        };
-    } else |_| blk: {
-        const parsed = try std.json.parseFromSlice(LegacySessionManifestV2, allocator, bytes, .{});
-        defer parsed.deinit();
-        break :blk SessionManifestState{
-            .schema_version = parsed.value.schema_version,
-            .scenario_id = parsed.value.scenario_id,
-            .program_hash = parsed.value.program_hash,
-            .artifact_hash = null,
-            .artifact_schema_version = null,
-            .plan_hash = parsed.value.plan_hash,
-            .plan_schema_version = null,
-            .event_schema_version = null,
-            .last_seq = parsed.value.last_seq,
-            .restore_status = parsed.value.restore_status,
-        };
-    };
-
-    const stored_schema_version = state.schema_version;
-    var migrated = state;
-    try migrateSessionManifest(&migrated);
-    return .{
-        .stored_schema_version = stored_schema_version,
-        .manifest = .{
-            .schema_version = migrated.schema_version,
-            .scenario_id = migrated.scenario_id,
-            .program_hash = migrated.program_hash,
-            .artifact_hash = migrated.artifact_hash,
-            .artifact_schema_version = migrated.artifact_schema_version,
-            .plan_hash = migrated.plan_hash,
-            .plan_schema_version = migrated.plan_schema_version,
-            .event_schema_version = migrated.event_schema_version,
-            .last_seq = migrated.last_seq,
-            .restore_status = migrated.restore_status,
-        },
-    };
+    const parsed = try std.json.parseFromSlice(SessionManifest, allocator, bytes, .{});
+    defer parsed.deinit();
+    if (parsed.value.schema_version != current_manifest_schema) return error.UnsupportedManifestSchema;
+    return parsed.value;
 }
 
 fn readAbsoluteFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
@@ -1285,17 +709,6 @@ fn readArtifactFile(allocator: std.mem.Allocator, path: []const u8) !ReadArtifac
     };
 }
 
-fn readArtifactFileWithLegacyFallback(
-    allocator: std.mem.Allocator,
-    path: []const u8,
-    legacy_path: []const u8,
-) !ReadArtifactFileResult {
-    return readArtifactFile(allocator, path) catch |err| switch (err) {
-        error.FileNotFound => try readArtifactFile(allocator, legacy_path),
-        else => return err,
-    };
-}
-
 fn readPlanFile(allocator: std.mem.Allocator, path: []const u8) !ReadPlanFileResult {
     const bytes = if (std.fs.path.isAbsolute(path)) blk: {
         const file = try std.fs.openFileAbsolute(path, .{});
@@ -1305,82 +718,16 @@ fn readPlanFile(allocator: std.mem.Allocator, path: []const u8) !ReadPlanFileRes
         break :blk try reader.interface.allocRemaining(allocator, .limited(std.math.maxInt(usize)));
     } else try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
     defer allocator.free(bytes);
-    const state, const comparison_plan_hash = if (std.json.parseFromSlice(PlanFile, allocator, bytes, .{})) |parsed| blk: {
-        defer parsed.deinit();
-        break :blk .{
-            PlanFileState{
-                .schema_version = parsed.value.schema_version,
-                .plan_hash = parsed.value.plan_hash,
-                .plan = try clonePlan(allocator, parsed.value.plan),
-            },
-            parsed.value.plan_hash,
-        };
-    } else |_| if (std.json.parseFromSlice(LegacyPlanFileV3, allocator, bytes, .{})) |parsed| blk: {
-        defer parsed.deinit();
-        break :blk .{
-            PlanFileState{
-                .schema_version = parsed.value.schema_version,
-                .plan_hash = parsed.value.plan_hash,
-                .plan = try cloneLegacyProgramPlanV2(allocator, parsed.value.plan),
-            },
-            parsed.value.plan_hash,
-        };
-    } else |_| if (std.json.parseFromSlice(LegacyPlanFileV1, allocator, bytes, .{})) |parsed| blk: {
-        defer parsed.deinit();
-        break :blk .{
-            PlanFileState{
-                .schema_version = parsed.value.schema_version,
-                .plan_hash = null,
-                .plan = try clonePlan(allocator, parsed.value.plan),
-            },
-            hashLegacyRawPlan(parsed.value.plan),
-        };
-    } else |_| blk: {
-        if (std.json.parseFromSlice(LegacyProgramPlanV2, allocator, bytes, .{})) |legacy_v2| {
-            defer legacy_v2.deinit();
-            break :blk .{
-                PlanFileState{
-                    .schema_version = 0,
-                    .plan_hash = null,
-                    .plan = try cloneLegacyProgramPlanV2(allocator, legacy_v2.value),
-                },
-                hashLegacyProgramPlanSchema2(legacy_v2.value),
-            };
-        } else |_| {
-            const legacy = try std.json.parseFromSlice(kernel.ProgramPlan, allocator, bytes, .{});
-            defer legacy.deinit();
-            break :blk .{
-                PlanFileState{
-                    .schema_version = 0,
-                    .plan_hash = null,
-                    .plan = try clonePlan(allocator, legacy.value),
-                },
-                hashLegacyRawPlan(legacy.value),
-            };
-        }
-    };
-
-    var migrated = state;
-    errdefer freePlan(allocator, &migrated.plan);
-    const stored_schema_version = migrated.schema_version;
-    try migratePlanFile(allocator, &migrated);
-    if (migrated.schema_version != current_plan_schema) return error.UnsupportedPlanSchema;
-    try migrated.plan.validate();
+    const parsed = try std.json.parseFromSlice(PlanFile, allocator, bytes, .{});
+    defer parsed.deinit();
+    if (parsed.value.schema_version != current_plan_schema) return error.UnsupportedPlanSchema;
+    var cloned = try clonePlan(allocator, parsed.value.plan);
+    errdefer freePlan(allocator, &cloned);
+    try cloned.validate();
     return .{
-        .stored_schema_version = stored_schema_version,
-        .comparison_plan_hash = comparison_plan_hash,
-        .plan = migrated.plan,
-    };
-}
-
-fn readPlanFileWithLegacyFallback(
-    allocator: std.mem.Allocator,
-    path: []const u8,
-    legacy_path: []const u8,
-) !ReadPlanFileResult {
-    return readPlanFile(allocator, path) catch |err| switch (err) {
-        error.FileNotFound => try readPlanFile(allocator, legacy_path),
-        else => return err,
+        .stored_schema_version = parsed.value.schema_version,
+        .comparison_plan_hash = parsed.value.plan_hash,
+        .plan = cloned,
     };
 }
 
@@ -1443,15 +790,6 @@ fn cloneValue(allocator: std.mem.Allocator, value: kernel.Value) !kernel.Value {
     };
 }
 
-fn cloneLegacyInstructionV2IntoCurrent(instruction: LegacyInstructionV2) kernel.Instruction {
-    return .{
-        .kind = instruction.kind,
-        .dst = 0,
-        .operand = instruction.index,
-        .aux = 0,
-    };
-}
-
 fn instructionOwnsStringLiteral(instruction: kernel.Instruction) bool {
     return instruction.kind == .const_string or instruction.string_literal.len != 0;
 }
@@ -1466,112 +804,6 @@ fn cloneInstruction(allocator: std.mem.Allocator, instruction: kernel.Instructio
 
 fn freeInstruction(allocator: std.mem.Allocator, instruction: kernel.Instruction) void {
     if (instructionOwnsStringLiteral(instruction)) allocator.free(instruction.string_literal);
-}
-
-fn cloneLegacyProgramPlanV2(allocator: std.mem.Allocator, plan: LegacyProgramPlanV2) !kernel.ProgramPlan {
-    var cloned = kernel.ProgramPlan{
-        .schema_version = plan.schema_version,
-        .label = try allocator.dupe(u8, plan.label),
-        .ir_hash = plan.ir_hash,
-        .entry_index = plan.entry_index,
-        .functions = try allocator.alloc(kernel.FunctionPlan, 0),
-        .requirements = try allocator.alloc(kernel.RequirementPlan, 0),
-        .ops = try allocator.alloc(kernel.OpPlan, 0),
-        .outputs = try allocator.alloc(kernel.OutputPlan, 0),
-        .locals = try allocator.alloc(kernel.LocalPlan, 0),
-        .call_args = try allocator.alloc(u16, 0),
-        .blocks = try allocator.alloc(kernel.BlockPlan, 0),
-        .terminators = try allocator.alloc(kernel.Terminator, 0),
-        .instructions = try allocator.alloc(kernel.Instruction, 0),
-    };
-    errdefer freePlan(allocator, &cloned);
-
-    var functions = try allocator.alloc(kernel.FunctionPlan, plan.functions.len);
-    errdefer allocator.free(functions);
-    var function_count: usize = 0;
-    errdefer {
-        for (functions[0..function_count]) |function| allocator.free(function.symbol_name);
-    }
-    for (plan.functions, 0..) |function, index| {
-        functions[index] = function;
-        functions[index].symbol_name = try allocator.dupe(u8, function.symbol_name);
-        function_count += 1;
-    }
-    allocator.free(cloned.functions);
-    cloned.functions = functions;
-
-    var requirements = try allocator.alloc(kernel.RequirementPlan, plan.requirements.len);
-    errdefer allocator.free(requirements);
-    var requirement_count: usize = 0;
-    errdefer {
-        for (requirements[0..requirement_count]) |requirement| allocator.free(requirement.label);
-    }
-    for (plan.requirements, 0..) |requirement, index| {
-        requirements[index] = .{
-            .label = try allocator.dupe(u8, requirement.label),
-            .first_op = requirement.first_op,
-            .op_count = requirement.op_count,
-        };
-        requirement_count += 1;
-    }
-    allocator.free(cloned.requirements);
-    cloned.requirements = requirements;
-
-    var ops = try allocator.alloc(kernel.OpPlan, plan.ops.len);
-    errdefer allocator.free(ops);
-    var op_count: usize = 0;
-    errdefer {
-        for (ops[0..op_count]) |op| allocator.free(op.op_name);
-    }
-    for (plan.ops, 0..) |op, index| {
-        ops[index] = .{
-            .requirement_index = op.requirement_index,
-            .op_name = try allocator.dupe(u8, op.op_name),
-            .mode = op.mode,
-            .payload_codec = op.payload_codec,
-            .resume_codec = op.resume_codec,
-        };
-        op_count += 1;
-    }
-    allocator.free(cloned.ops);
-    cloned.ops = ops;
-
-    var outputs = try allocator.alloc(kernel.OutputPlan, plan.outputs.len);
-    errdefer allocator.free(outputs);
-    var output_count: usize = 0;
-    errdefer {
-        for (outputs[0..output_count]) |output| allocator.free(output.label);
-    }
-    for (plan.outputs, 0..) |output, index| {
-        outputs[index] = .{
-            .label = try allocator.dupe(u8, output.label),
-            .codec = output.codec,
-        };
-        output_count += 1;
-    }
-    allocator.free(cloned.outputs);
-    cloned.outputs = outputs;
-
-    const locals = try allocator.dupe(kernel.LocalPlan, plan.locals);
-    allocator.free(cloned.locals);
-    cloned.locals = locals;
-
-    const blocks = try allocator.dupe(kernel.BlockPlan, plan.blocks);
-    allocator.free(cloned.blocks);
-    cloned.blocks = blocks;
-
-    const terminators = try allocator.dupe(kernel.Terminator, plan.terminators);
-    allocator.free(cloned.terminators);
-    cloned.terminators = terminators;
-
-    var instructions = try allocator.alloc(kernel.Instruction, plan.instructions.len);
-    errdefer allocator.free(instructions);
-    for (plan.instructions, 0..) |instruction, index| {
-        instructions[index] = cloneLegacyInstructionV2IntoCurrent(instruction);
-    }
-    allocator.free(cloned.instructions);
-    cloned.instructions = instructions;
-    return cloned;
 }
 
 fn clonePlan(allocator: std.mem.Allocator, plan: kernel.ProgramPlan) !kernel.ProgramPlan {
@@ -1703,48 +935,6 @@ fn clonePlan(allocator: std.mem.Allocator, plan: kernel.ProgramPlan) !kernel.Pro
     return cloned;
 }
 
-fn migrateSessionManifest(state: *SessionManifestState) !void {
-    while (state.schema_version < current_manifest_schema) {
-        var advanced = false;
-        for (session_manifest_migrators) |migrator| {
-            if (migrator.from != state.schema_version) continue;
-            migrator.migrate(state);
-            advanced = true;
-            break;
-        }
-        if (!advanced) return error.UnsupportedManifestSchema;
-    }
-    if (state.schema_version != current_manifest_schema) return error.UnsupportedManifestSchema;
-}
-
-fn migratePlanFile(allocator: std.mem.Allocator, state: *PlanFileState) !void {
-    while (state.schema_version < current_plan_schema) {
-        var advanced = false;
-        for (plan_file_migrators) |migrator| {
-            if (migrator.from != state.schema_version) continue;
-            try migrator.migrate(allocator, state);
-            advanced = true;
-            break;
-        }
-        if (!advanced) return error.UnsupportedPlanSchema;
-    }
-    if (state.schema_version != current_plan_schema) return error.UnsupportedPlanSchema;
-}
-
-fn migrateEventRecord(state: *EventRecordState) !void {
-    while (state.schema_version < current_event_schema) {
-        var advanced = false;
-        for (event_record_migrators) |migrator| {
-            if (migrator.from != state.schema_version) continue;
-            migrator.migrate(state);
-            advanced = true;
-            break;
-        }
-        if (!advanced) return error.UnsupportedEventSchema;
-    }
-    if (state.schema_version != current_event_schema) return error.UnsupportedEventSchema;
-}
-
 fn freePlan(allocator: std.mem.Allocator, plan: *const kernel.ProgramPlan) void {
     allocator.free(plan.label);
     for (plan.functions) |function| allocator.free(function.symbol_name);
@@ -1780,35 +970,14 @@ fn freeSteps(allocator: std.mem.Allocator, steps: []const kernel.Step) void {
     };
 }
 
-fn readEventRecord(allocator: std.mem.Allocator, line: []const u8, schema_version: u32) !ReadEventRecordResult {
-    var state = if (schema_version == 0) blk: {
-        const parsed = try std.json.parseFromSlice(LegacyEventRecordV0, allocator, line, .{});
-        defer parsed.deinit();
-        break :blk EventRecordState{
-            .schema_version = 0,
-            .seq = parsed.value.seq,
-            .event = try cloneEvent(allocator, parsed.value.event),
-        };
-    } else blk: {
-        const parsed = try std.json.parseFromSlice(EventRecord, allocator, line, .{});
-        defer parsed.deinit();
-        if (parsed.value.schema_version != schema_version) return error.UnsupportedEventSchema;
-        break :blk EventRecordState{
-            .schema_version = parsed.value.schema_version,
-            .seq = parsed.value.seq,
-            .event = try cloneEvent(allocator, parsed.value.event),
-        };
-    };
-    errdefer freeEvent(allocator, state.event);
-    const stored_schema_version = state.schema_version;
-    try migrateEventRecord(&state);
+fn readEventRecord(allocator: std.mem.Allocator, line: []const u8, schema_version: u32) !EventRecord {
+    const parsed = try std.json.parseFromSlice(EventRecord, allocator, line, .{});
+    defer parsed.deinit();
+    if (parsed.value.schema_version != schema_version) return error.UnsupportedEventSchema;
     return .{
-        .stored_schema_version = stored_schema_version,
-        .record = .{
-            .schema_version = state.schema_version,
-            .seq = state.seq,
-            .event = state.event,
-        },
+        .schema_version = parsed.value.schema_version,
+        .seq = parsed.value.seq,
+        .event = try cloneEvent(allocator, parsed.value.event),
     };
 }
 
@@ -1829,26 +998,21 @@ fn eventsMatch(
     defer allocator.free(bytes);
 
     const expected_events = kernel.events(state);
-    if (expected_events.len != expected_len) return .{ .matches = false, .migrated = false };
+    if (expected_events.len != expected_len) return .{ .matches = false };
 
     var line_iter = std.mem.splitScalar(u8, bytes, '\n');
     var seq: usize = 0;
-    var migrated = false;
     while (line_iter.next()) |line| {
         if (line.len == 0) continue;
-        if (seq >= expected_events.len) return .{ .matches = false, .migrated = migrated };
+        if (seq >= expected_events.len) return .{ .matches = false };
 
         const parsed = try readEventRecord(allocator, line, schema_version);
-        defer freeEvent(allocator, parsed.record.event);
-        if (parsed.stored_schema_version != current_event_schema) migrated = true;
-        if (parsed.record.seq != seq) return .{ .matches = false, .migrated = migrated };
-        if (!eventEql(parsed.record.event, expected_events[seq])) return .{ .matches = false, .migrated = migrated };
+        defer freeEvent(allocator, parsed.event);
+        if (parsed.seq != seq) return .{ .matches = false };
+        if (!eventEql(parsed.event, expected_events[seq])) return .{ .matches = false };
         seq += 1;
     }
-    return .{
-        .matches = seq == expected_events.len,
-        .migrated = migrated,
-    };
+    return .{ .matches = seq == expected_events.len };
 }
 
 fn eventEql(lhs: kernel.Event, rhs: kernel.Event) bool {
@@ -1944,66 +1108,7 @@ test "clonePlan owns const_string literals before parse teardown" {
     try std.testing.expectEqualStrings("persisted literal", cloned.instructions[0].string_literal);
 }
 
-test "readPlanFile frees migrated legacy plan ownership when validation fails" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const allocator = std.testing.allocator;
-    const dir_path = try tmp.dir.realpathAlloc(allocator, ".");
-    defer allocator.free(dir_path);
-    const plan_path = try std.fs.path.join(allocator, &.{ dir_path, "invalid-legacy.plan.json" });
-    defer allocator.free(plan_path);
-
-    const legacy_plan_file = LegacyPlanFileV3{
-        .schema_version = 3,
-        .plan_hash = 0x1234,
-        .plan = .{
-            .schema_version = 2,
-            .label = "invalid.legacy.plan",
-            .ir_hash = 1,
-            .entry_index = 0,
-            .functions = &.{.{
-                .symbol_name = "root",
-                .first_requirement = 0,
-                .requirement_count = 0,
-                .first_output = 0,
-                .output_count = 0,
-                .first_local = 0,
-                .local_count = 0,
-                .first_block = 0,
-                .block_count = 1,
-                .first_instruction = 0,
-                .instruction_count = 1,
-            }},
-            .requirements = &.{},
-            .ops = &.{},
-            .outputs = &.{},
-            .locals = &.{},
-            .blocks = &.{.{
-                .first_instruction = 0,
-                .instruction_count = 1,
-                .terminator_index = 0,
-            }},
-            .terminators = &.{.{ .kind = .return_unit }},
-            .instructions = &.{.{
-                .kind = .return_value,
-                .index = 0,
-            }},
-        },
-    };
-
-    const file = try std.fs.createFileAbsolute(plan_path, .{ .truncate = true });
-    defer file.close();
-    var buffer: [1024]u8 = undefined;
-    var writer = file.writer(&buffer);
-    try std.json.Stringify.value(legacy_plan_file, .{}, &writer.interface);
-    try writer.interface.writeByte('\n');
-    try writer.interface.flush();
-
-    try std.testing.expectError(error.InvalidTerminatorInstruction, readPlanFile(allocator, plan_path));
-}
-
-test "readPlanFile preserves legacy function metadata when cloning schema-3 plans" {
+test "readPlanFile rejects wrapped schema-3 plans" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -2013,7 +1118,7 @@ test "readPlanFile preserves legacy function metadata when cloning schema-3 plan
     const plan_path = try std.fs.path.join(allocator, &.{ dir_path, "legacy.plan.json" });
     defer allocator.free(plan_path);
 
-    const legacy_plan_file = LegacyPlanFileV3{
+    const legacy_plan_file = .{
         .schema_version = 3,
         .plan_hash = 0x5678,
         .plan = .{
@@ -2061,17 +1166,10 @@ test "readPlanFile preserves legacy function metadata when cloning schema-3 plan
     try writer.interface.writeByte('\n');
     try writer.interface.flush();
 
-    const result = try readPlanFile(allocator, plan_path);
-    defer freePlan(allocator, &result.plan);
-
-    const function = result.plan.functions[0];
-    try std.testing.expectEqual(kernel.ValueCodec.i32, function.value_codec);
-    try std.testing.expectEqual(@as(u16, 2), function.parameter_count);
-    try std.testing.expectEqual(@as(u16, 1), function.entry_block);
-    try std.testing.expectEqual(legacy_plan_file.plan_hash, result.comparison_plan_hash);
+    try std.testing.expectError(error.UnsupportedPlanSchema, readPlanFile(allocator, plan_path));
 }
 
-test "readPlanFile preserves legacy function metadata when cloning raw schema-2 plans" {
+test "readPlanFile rejects raw schema-2 plans" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -2081,61 +1179,20 @@ test "readPlanFile preserves legacy function metadata when cloning raw schema-2 
     const plan_path = try std.fs.path.join(allocator, &.{ dir_path, "legacy-raw.plan.json" });
     defer allocator.free(plan_path);
 
-    const legacy_plan = LegacyProgramPlanV2{
-        .schema_version = 2,
-        .label = "legacy.raw.function.metadata",
-        .ir_hash = 3,
-        .entry_index = 0,
-        .functions = &.{.{
-            .symbol_name = "root",
-            .value_codec = .i32,
-            .parameter_count = 1,
-            .first_requirement = 0,
-            .requirement_count = 0,
-            .first_output = 0,
-            .output_count = 0,
-            .first_local = 0,
-            .local_count = 2,
-            .first_block = 0,
-            .entry_block = 1,
-            .block_count = 2,
-            .first_instruction = 0,
-            .instruction_count = 1,
-        }},
-        .requirements = &.{},
-        .ops = &.{},
-        .outputs = &.{},
-        .locals = &.{ .{ .codec = .i32 }, .{ .codec = .i32 } },
-        .blocks = &.{
-            .{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 },
-            .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 1 },
-        },
-        .terminators = &.{
-            .{ .kind = .jump, .primary = 1 },
-            .{ .kind = .return_value },
-        },
-        .instructions = &.{.{ .kind = .return_value, .index = 1 }},
-    };
-
     const file = try std.fs.createFileAbsolute(plan_path, .{ .truncate = true });
     defer file.close();
     var buffer: [1024]u8 = undefined;
     var writer = file.writer(&buffer);
-    try std.json.Stringify.value(legacy_plan, .{}, &writer.interface);
+    try writer.interface.writeAll(
+        \\{"schema_version":2,"label":"legacy.raw.function.metadata","ir_hash":3,"entry_index":0,"functions":[{"symbol_name":"root","value_codec":"i32","parameter_count":1,"first_requirement":0,"requirement_count":0,"first_output":0,"output_count":0,"first_local":0,"local_count":2,"first_block":0,"entry_block":1,"block_count":2,"first_instruction":0,"instruction_count":1}],"requirements":[],"ops":[],"outputs":[],"locals":[{"codec":"i32"},{"codec":"i32"}],"blocks":[{"first_instruction":0,"instruction_count":0,"terminator_index":0},{"first_instruction":0,"instruction_count":1,"terminator_index":1}],"terminators":[{"kind":"jump","primary":1},{"kind":"return_value"}],"instructions":[{"kind":"return_value","index":1}]}
+    );
     try writer.interface.writeByte('\n');
     try writer.interface.flush();
 
-    const result = try readPlanFile(allocator, plan_path);
-    defer freePlan(allocator, &result.plan);
-
-    const function = result.plan.functions[0];
-    try std.testing.expectEqual(kernel.ValueCodec.i32, function.value_codec);
-    try std.testing.expectEqual(@as(u16, 1), function.parameter_count);
-    try std.testing.expectEqual(@as(u16, 1), function.entry_block);
-    try std.testing.expectEqual(hashLegacyProgramPlanSchema2(legacy_plan), result.comparison_plan_hash);
+    try std.testing.expectError(error.UnsupportedPlanSchema, readPlanFile(allocator, plan_path));
 }
 
-test "readPlanFile preserves comparison hashes when cloning raw schema-3 plans" {
+test "readPlanFile rejects raw schema-3 plans" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -2184,8 +1241,5 @@ test "readPlanFile preserves comparison hashes when cloning raw schema-3 plans" 
     try writer.interface.writeByte('\n');
     try writer.interface.flush();
 
-    const result = try readPlanFile(allocator, plan_path);
-    defer freePlan(allocator, &result.plan);
-
-    try std.testing.expectEqual(hashPlan(legacy_plan), result.comparison_plan_hash);
+    try std.testing.expectError(error.UnsupportedPlanSchema, readPlanFile(allocator, plan_path));
 }

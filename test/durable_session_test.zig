@@ -105,12 +105,6 @@ fn makePlanBackedArtifact(
     };
 }
 
-fn legacyPlanPathAlloc(allocator: std.mem.Allocator, manifest_path: []const u8) ![]u8 {
-    const dir_path = std.fs.path.dirname(manifest_path) orelse "";
-    if (dir_path.len != 0) return try std.fs.path.join(allocator, &.{ dir_path, "plan.json" });
-    return try allocator.dupe(u8, "plan.json");
-}
-
 fn allocRepeatedNoteSteps(allocator: std.mem.Allocator, count: usize) ![]shift.interpreter.Step {
     const steps = try allocator.alloc(shift.interpreter.Step, count);
     for (steps) |*step| {
@@ -132,7 +126,6 @@ test "durable store replays the canonical event log exactly" {
     try std.testing.expect(manifest.program_hash != 0);
     const restored = try store.restore();
     try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
-    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
     try std.testing.expectEqual(@as(usize, 2), shift.interpreter.events(&restored.state.?).len);
 }
 
@@ -157,7 +150,6 @@ test "durable restore replays owned string event payloads" {
 
     const restored = try store.restoreArtifact(artifact);
     try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
-    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
     const events = shift.interpreter.events(&restored.state.?);
     try std.testing.expectEqual(@as(usize, 2), events.len);
     try std.testing.expectEqualStrings("plan-backed", switch (events[0]) {
@@ -278,7 +270,6 @@ test "durable saveArtifact persists plan-backed identity and plan.json" {
 
     const restored = try store.restoreArtifact(artifact);
     try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
-    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
 }
 
 test "durable saveArtifact rejects structurally invalid plan-backed artifacts" {
@@ -551,7 +542,6 @@ test "durable saveArtifact restores the previous checkpoint when a later write f
 
     const restored = try store.restore();
     try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
-    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
 }
 
 test "durable stores keep manifest-scoped sidecars when two sessions share one directory" {
@@ -596,11 +586,9 @@ test "durable restore and inspect use persisted non-scenario artifact provenance
 
     const inspected = try store.inspectRestore();
     try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, inspected.status);
-    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), inspected.migration_report);
 
     const restored = try store.restore();
     try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
-    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
 }
 
 test "durable restore preserves plan-backed helper ABI fields across persisted plan reload" {
@@ -666,7 +654,6 @@ test "durable restore preserves plan-backed helper ABI fields across persisted p
 
     const restored = try store.restore();
     try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
-    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
 }
 
 test "durable restore preserves plan-backed const_string literals across persisted plan reload" {
@@ -738,7 +725,6 @@ test "durable restore preserves plan-backed const_string literals across persist
 
     const restored = try store.restoreArtifact(artifact);
     try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
-    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
 }
 
 test "durable restore accepts a matching step bridge when persisted plan.json is valid" {
@@ -757,10 +743,9 @@ test "durable restore accepts a matching step bridge when persisted plan.json is
 
     const restored = try store.restoreArtifact(stripped);
     try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
-    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored.migration_report);
 }
 
-test "durable restore accepts legacy schema manifest and raw plan.json" {
+test "durable restore rebuilds when only legacy raw plan.json is present" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -768,7 +753,8 @@ test "durable restore accepts legacy schema manifest and raw plan.json" {
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(0x5234, 0x5234, "demo.plan", "runBody");
-    const legacy_plan_path = try legacyPlanPathAlloc(std.testing.allocator, paths.manifest_path);
+    const manifest_dir = std.fs.path.dirname(paths.manifest_path) orelse return error.TestExpectedEqual;
+    const legacy_plan_path = try std.fs.path.join(std.testing.allocator, &.{ manifest_dir, "plan.json" });
     defer std.testing.allocator.free(legacy_plan_path);
     const legacy_manifest = shift.durable.SessionManifest{
         .schema_version = 2,
@@ -821,56 +807,18 @@ test "durable restore accepts legacy schema manifest and raw plan.json" {
 
     const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     const inspected_with_current_plan = try store.inspectRestoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.migrated_replay, inspected_with_current_plan.status);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, inspected_with_current_plan.status);
     var stripped = artifact;
     stripped.plan = null;
 
     const inspected = try store.inspectRestoreArtifact(stripped);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.migrated_replay, inspected.status);
-    const inspected_report = inspected.migration_report orelse return error.TestExpectedEqual;
-    try std.testing.expectEqual(@as(u32, 0), inspected_report.event_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 1), inspected_report.event_schema.?.to_schema);
-    try std.testing.expectEqual(@as(u32, 2), inspected_report.manifest_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 5), inspected_report.manifest_schema.?.to_schema);
-    try std.testing.expectEqual(@as(u32, 0), inspected_report.plan_file_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 4), inspected_report.plan_file_schema.?.to_schema);
-    try std.testing.expect(!inspected_report.rewrote_events);
-    try std.testing.expect(!inspected_report.rewrote_manifest);
-    try std.testing.expect(!inspected_report.rewrote_plan_file);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, inspected.status);
 
     const restored = try store.restoreArtifact(stripped);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.migrated_replay, restored.status);
-    const report = restored.migration_report orelse return error.TestExpectedEqual;
-    try std.testing.expectEqual(@as(u32, 0), report.event_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 1), report.event_schema.?.to_schema);
-    try std.testing.expectEqual(@as(u32, 2), report.manifest_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 5), report.manifest_schema.?.to_schema);
-    try std.testing.expectEqual(@as(u32, 0), report.plan_file_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 4), report.plan_file_schema.?.to_schema);
-    try std.testing.expect(report.rewrote_events);
-    try std.testing.expect(report.rewrote_manifest);
-    try std.testing.expect(report.rewrote_plan_file);
-
-    const rewritten_manifest_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.manifest_path, std.math.maxInt(usize));
-    defer std.testing.allocator.free(rewritten_manifest_bytes);
-    const rewritten_manifest = try std.json.parseFromSlice(shift.durable.SessionManifest, std.testing.allocator, rewritten_manifest_bytes, .{});
-    defer rewritten_manifest.deinit();
-    try std.testing.expectEqual(@as(u32, 5), rewritten_manifest.value.schema_version);
-    try std.testing.expectEqual(@as(?u32, 4), rewritten_manifest.value.plan_schema_version);
-    try std.testing.expectEqual(@as(?u32, 1), rewritten_manifest.value.event_schema_version);
-
-    const rewritten_plan_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.plan_path, std.math.maxInt(usize));
-    defer std.testing.allocator.free(rewritten_plan_bytes);
-    const rewritten_plan = try std.json.parseFromSlice(shift.durable.PlanFile, std.testing.allocator, rewritten_plan_bytes, .{});
-    defer rewritten_plan.deinit();
-    try std.testing.expectEqual(@as(u32, 4), rewritten_plan.value.schema_version);
-
-    const restored_again = try store.restoreArtifact(stripped);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored_again.status);
-    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored_again.migration_report);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
-test "durable restoreArtifact accepts schema-3 plan files emitted by the previous durable format" {
+test "durable restoreArtifact rebuilds on schema-3 plan files emitted by the previous durable format" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -922,37 +870,19 @@ test "durable restoreArtifact accepts schema-3 plan files emitted by the previou
     }
 
     const inspected_with_current_plan = try store.inspectRestoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.migrated_replay, inspected_with_current_plan.status);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, inspected_with_current_plan.status);
 
     var stripped = artifact;
     stripped.plan = null;
 
     const inspected = try store.inspectRestoreArtifact(stripped);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.migrated_replay, inspected.status);
-    const inspected_report = inspected.migration_report orelse return error.TestExpectedEqual;
-    try std.testing.expectEqual(@as(?shift.durable.VersionHop, null), inspected_report.manifest_schema);
-    try std.testing.expectEqual(@as(u32, 3), inspected_report.plan_file_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 4), inspected_report.plan_file_schema.?.to_schema);
-    try std.testing.expect(!inspected_report.rewrote_manifest);
-    try std.testing.expect(!inspected_report.rewrote_events);
-    try std.testing.expect(!inspected_report.rewrote_plan_file);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, inspected.status);
 
     const restored = try store.restoreArtifact(stripped);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.migrated_replay, restored.status);
-    const report = restored.migration_report orelse return error.TestExpectedEqual;
-    try std.testing.expectEqual(@as(?shift.durable.VersionHop, null), report.manifest_schema);
-    try std.testing.expectEqual(@as(u32, 3), report.plan_file_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 4), report.plan_file_schema.?.to_schema);
-    try std.testing.expect(report.rewrote_manifest);
-    try std.testing.expect(!report.rewrote_events);
-    try std.testing.expect(report.rewrote_plan_file);
-
-    const restored_again = try store.restoreArtifact(stripped);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored_again.status);
-    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored_again.migration_report);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
-test "durable restoreArtifact accepts schema-3 plan files when the current plan is present" {
+test "durable restoreArtifact rebuilds on schema-3 plan files when the current plan is present" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1004,17 +934,10 @@ test "durable restoreArtifact accepts schema-3 plan files when the current plan 
     }
 
     const restored = try store.restoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.migrated_replay, restored.status);
-    const report = restored.migration_report orelse return error.TestExpectedEqual;
-    try std.testing.expectEqual(@as(?shift.durable.VersionHop, null), report.manifest_schema);
-    try std.testing.expectEqual(@as(u32, 3), report.plan_file_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 4), report.plan_file_schema.?.to_schema);
-    try std.testing.expect(report.rewrote_manifest);
-    try std.testing.expect(!report.rewrote_events);
-    try std.testing.expect(report.rewrote_plan_file);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
-test "durable restore accepts schema-2 manifests backed by legacy schema-3 plan files" {
+test "durable restore rebuilds on schema-2 manifests backed by legacy schema-3 plan files" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1084,31 +1007,13 @@ test "durable restore accepts schema-2 manifests backed by legacy schema-3 plan 
     stripped.plan = null;
 
     const inspected = try store.inspectRestoreArtifact(stripped);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.migrated_replay, inspected.status);
-    const inspected_report = inspected.migration_report orelse return error.TestExpectedEqual;
-    try std.testing.expectEqual(@as(u32, 2), inspected_report.manifest_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 5), inspected_report.manifest_schema.?.to_schema);
-    try std.testing.expectEqual(@as(u32, 0), inspected_report.plan_file_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 4), inspected_report.plan_file_schema.?.to_schema);
-    try std.testing.expect(!inspected_report.rewrote_manifest);
-    try std.testing.expect(!inspected_report.rewrote_plan_file);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, inspected.status);
 
     const restored = try store.restoreArtifact(stripped);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.migrated_replay, restored.status);
-    const report = restored.migration_report orelse return error.TestExpectedEqual;
-    try std.testing.expectEqual(@as(u32, 2), report.manifest_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 5), report.manifest_schema.?.to_schema);
-    try std.testing.expectEqual(@as(u32, 0), report.plan_file_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 4), report.plan_file_schema.?.to_schema);
-    try std.testing.expect(report.rewrote_manifest);
-    try std.testing.expect(report.rewrote_plan_file);
-
-    const restored_again = try store.restoreArtifact(stripped);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored_again.status);
-    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored_again.migration_report);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
-test "durable restoreArtifact rolls back migrated plan rewriteback when a later write fails" {
+test "durable restoreArtifact rebuilds before any rewriteback on legacy durable inputs" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1139,7 +1044,10 @@ test "durable restoreArtifact rolls back migrated plan rewriteback when a later 
         defer file.close();
         var buffer: [1024]u8 = undefined;
         var writer = file.writer(&buffer);
-        try std.json.Stringify.value(artifact.plan.?, .{}, &writer.interface);
+        try std.json.Stringify.value(.{
+            .schema_version = @as(u32, 1),
+            .plan = artifact.plan.?,
+        }, .{}, &writer.interface);
         try writer.interface.writeByte('\n');
         try writer.interface.flush();
     }
@@ -1164,7 +1072,8 @@ test "durable restoreArtifact rolls back migrated plan rewriteback when a later 
     const failing_store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, bad_events_path);
     var stripped = artifact;
     stripped.plan = null;
-    try std.testing.expectError(error.FileNotFound, failing_store.restoreArtifact(stripped));
+    const restored = try failing_store.restoreArtifact(stripped);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
 
     const manifest_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.manifest_path, std.math.maxInt(usize));
     defer std.testing.allocator.free(manifest_bytes);
@@ -1176,10 +1085,15 @@ test "durable restoreArtifact rolls back migrated plan rewriteback when a later 
 
     const plan_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.plan_path, std.math.maxInt(usize));
     defer std.testing.allocator.free(plan_bytes);
-    const parsed_plan = try std.json.parseFromSlice(@TypeOf(artifact.plan.?), std.testing.allocator, plan_bytes, .{});
+    const LegacyPlanFileV1 = struct {
+        schema_version: u32 = 1,
+        plan: @TypeOf(artifact.plan.?),
+    };
+    const parsed_plan = try std.json.parseFromSlice(LegacyPlanFileV1, std.testing.allocator, plan_bytes, .{});
     defer parsed_plan.deinit();
-    try std.testing.expectEqualStrings("demo.plan", parsed_plan.value.label);
-    try std.testing.expectEqual(@as(u64, 0x6234), parsed_plan.value.ir_hash);
+    try std.testing.expectEqual(@as(u32, 1), parsed_plan.value.schema_version);
+    try std.testing.expectEqualStrings("demo.plan", parsed_plan.value.plan.label);
+    try std.testing.expectEqual(@as(u64, 0x6234), parsed_plan.value.plan.ir_hash);
 }
 
 test "durable saveArtifact writes versioned event rows" {
@@ -1260,7 +1174,7 @@ test "durable restoreArtifact rejects oversized transcripts before replay" {
     try std.testing.expectError(error.TooManyEvents, store.restoreArtifact(artifact));
 }
 
-test "durable restore accepts legacy raw event rows" {
+test "durable restore rebuilds on legacy raw event rows" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1304,44 +1218,10 @@ test "durable restore accepts legacy raw event rows" {
     }
 
     const inspected = try store.inspectRestoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.migrated_replay, inspected.status);
-    const inspected_report = inspected.migration_report orelse return error.TestExpectedEqual;
-    try std.testing.expectEqual(@as(u32, 0), inspected_report.event_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 1), inspected_report.event_schema.?.to_schema);
-    try std.testing.expectEqual(@as(?shift.durable.VersionHop, null), inspected_report.manifest_schema);
-    try std.testing.expectEqual(@as(?shift.durable.VersionHop, null), inspected_report.plan_file_schema);
-    try std.testing.expect(!inspected_report.rewrote_events);
-    try std.testing.expect(!inspected_report.rewrote_manifest);
-    try std.testing.expect(!inspected_report.rewrote_plan_file);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, inspected.status);
 
     const restored = try store.restoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.migrated_replay, restored.status);
-    const report = restored.migration_report orelse return error.TestExpectedEqual;
-    try std.testing.expectEqual(@as(u32, 0), report.event_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 1), report.event_schema.?.to_schema);
-    try std.testing.expectEqual(@as(?shift.durable.VersionHop, null), report.manifest_schema);
-    try std.testing.expectEqual(@as(?shift.durable.VersionHop, null), report.plan_file_schema);
-    try std.testing.expect(report.rewrote_events);
-    try std.testing.expect(report.rewrote_manifest);
-    try std.testing.expect(!report.rewrote_plan_file);
-
-    const rewritten_manifest_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.manifest_path, std.math.maxInt(usize));
-    defer std.testing.allocator.free(rewritten_manifest_bytes);
-    const rewritten_manifest = try std.json.parseFromSlice(shift.durable.SessionManifest, std.testing.allocator, rewritten_manifest_bytes, .{});
-    defer rewritten_manifest.deinit();
-    try std.testing.expectEqual(@as(?u32, 1), rewritten_manifest.value.event_schema_version);
-
-    const events_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.events_path, std.math.maxInt(usize));
-    defer std.testing.allocator.free(events_bytes);
-    var lines = std.mem.splitScalar(u8, events_bytes, '\n');
-    const first = lines.next() orelse return error.TestExpectedEqual;
-    const parsed = try std.json.parseFromSlice(shift.durable.EventRecord, std.testing.allocator, first, .{});
-    defer parsed.deinit();
-    try std.testing.expectEqual(@as(u32, 1), parsed.value.schema_version);
-
-    const restored_again = try store.restoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored_again.status);
-    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored_again.migration_report);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restore reports rebuild required on unknown event schema" {
@@ -1670,38 +1550,10 @@ test "durable restore accepts schema-4 non-scenario manifests without artifact m
     }
 
     const inspected = try store.inspectRestore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.migrated_replay, inspected.status);
-    const inspected_report = inspected.migration_report orelse return error.TestExpectedEqual;
-    try std.testing.expectEqual(@as(u32, 4), inspected_report.manifest_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 5), inspected_report.manifest_schema.?.to_schema);
-    try std.testing.expectEqual(@as(?shift.durable.VersionHop, null), inspected_report.plan_file_schema);
-    try std.testing.expectEqual(@as(?shift.durable.VersionHop, null), inspected_report.event_schema);
-    try std.testing.expect(!inspected_report.rewrote_manifest);
-    try std.testing.expect(!inspected_report.rewrote_events);
-    try std.testing.expect(!inspected_report.rewrote_plan_file);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, inspected.status);
 
     const restored = try store.restore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.migrated_replay, restored.status);
-    const report = restored.migration_report orelse return error.TestExpectedEqual;
-    try std.testing.expectEqual(@as(u32, 4), report.manifest_schema.?.from);
-    try std.testing.expectEqual(@as(u32, 5), report.manifest_schema.?.to_schema);
-    try std.testing.expectEqual(@as(?shift.durable.VersionHop, null), report.plan_file_schema);
-    try std.testing.expectEqual(@as(?shift.durable.VersionHop, null), report.event_schema);
-    try std.testing.expect(report.rewrote_manifest);
-    try std.testing.expect(!report.rewrote_events);
-    try std.testing.expect(!report.rewrote_plan_file);
-
-    const rewritten_manifest_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.manifest_path, std.math.maxInt(usize));
-    defer std.testing.allocator.free(rewritten_manifest_bytes);
-    const rewritten_manifest = try std.json.parseFromSlice(shift.durable.SessionManifest, std.testing.allocator, rewritten_manifest_bytes, .{});
-    defer rewritten_manifest.deinit();
-    try std.testing.expectEqual(@as(u32, 5), rewritten_manifest.value.schema_version);
-    try std.testing.expectEqual(@as(?u32, 1), rewritten_manifest.value.artifact_schema_version);
-    try std.testing.expect(rewritten_manifest.value.artifact_hash != null);
-
-    const restored_again = try store.restore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored_again.status);
-    try std.testing.expectEqual(@as(?shift.durable.MigrationReport, null), restored_again.migration_report);
+    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restoreArtifact rejects changed plan-backed artifacts while backfilling schema-4 artifact hashes" {
