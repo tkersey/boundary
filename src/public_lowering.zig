@@ -1756,11 +1756,15 @@ fn findValidationImport(imports: []const ValidationImport, name: []const u8) ?Va
 }
 
 fn packageRootRelativeSlice(source_path: []const u8) ?[]const u8 {
-    if (!std.mem.startsWith(u8, source_path, build_options.package_root)) return null;
-    if (source_path.len <= build_options.package_root.len) return null;
-    const separator = source_path[build_options.package_root.len];
+    return runtimeRootRelativeSlice(source_path, build_options.package_root);
+}
+
+fn runtimeRootRelativeSlice(path: []const u8, root: []const u8) ?[]const u8 {
+    if (!pathStartsWithRootRuntime(path, root)) return null;
+    if (path.len <= root.len) return null;
+    const separator = path[root.len];
     if (separator != '/' and separator != '\\') return null;
-    return source_path[build_options.package_root.len + 1 ..];
+    return path[root.len + 1 ..];
 }
 
 fn runtimeRegistryContainsLine(registry: []const u8, candidate: []const u8) bool {
@@ -2903,6 +2907,20 @@ test "windows ownership portability matches Windows checkout roots case-insensit
         "C:\\Repox\\Examples\\Open_Row_State_Writer.zig",
         "c:/repo",
     ));
+}
+
+test "runtime root relative slice normalizes Windows checkout roots" {
+    try std.testing.expectEqualStrings(
+        "Examples\\Open_Row_State_Writer.zig",
+        runtimeRootRelativeSlice(
+            "C:\\Repo\\Examples\\Open_Row_State_Writer.zig",
+            "c:/repo",
+        ).?,
+    );
+    try std.testing.expect(runtimeRootRelativeSlice(
+        "C:\\Repox\\Examples\\Open_Row_State_Writer.zig",
+        "c:/repo",
+    ) == null);
 }
 
 test "source ownership accepts helper-authored content witnesses when caller bytes match their explicit witness" {
