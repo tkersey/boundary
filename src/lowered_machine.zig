@@ -2,20 +2,6 @@ const kernel = @import("internal_kernel");
 const portable_core = @import("portable_core");
 const std = @import("std");
 
-const SpinLock = struct {
-    state: u8 = 0,
-
-    fn lock(self: *@This()) void {
-        while (@cmpxchgWeak(u8, &self.state, 0, 1, .acquire, .monotonic) != null) {
-            std.atomic.spinLoopHint();
-        }
-    }
-
-    fn unlock(self: *@This()) void {
-        @atomicStore(u8, &self.state, 0, .release);
-    }
-};
-
 /// Public runtime misuse and semantic-contract errors surfaced by `shift`.
 pub const RuntimeError = error{
     MissingPrompt,
@@ -103,70 +89,40 @@ pub fn runtimeAllocator(runtime: *const Runtime) std.mem.Allocator {
     return runtime.core.allocator;
 }
 
-const ActiveRuntimeRegistry = struct {
-    const Entry = struct {
-        runtime: *Runtime,
-        previous: ?*Entry,
-    };
-
-    lock_state: SpinLock = .{},
-    map: std.AutoHashMapUnmanaged(std.Thread.Id, *Entry) = .empty,
-
-    fn begin(self: *@This(), runtime: *Runtime) (RuntimeError || SetupError)!void {
-        self.lock_state.lock();
-        defer self.lock_state.unlock();
-
-        // zlinter-disable-next-line no_hidden_allocations - registry nodes must not perturb runtime-owned allocation accounting
-        const entry = try std.heap.page_allocator.create(Entry);
-        // zlinter-disable-next-line no_hidden_allocations - registry nodes must unwind through the same non-runtime allocator
-        errdefer std.heap.page_allocator.destroy(entry);
-        entry.* = .{
-            .runtime = runtime,
-            .previous = self.map.get(runtime.thread_id),
-        };
-        try self.map.put(std.heap.page_allocator, runtime.thread_id, entry);
-    }
-
-    fn end(self: *@This(), runtime: *Runtime) bool {
-        self.lock_state.lock();
-        defer self.lock_state.unlock();
-
-        const entry = self.map.get(runtime.thread_id) orelse return false;
-        if (entry.runtime != runtime) return false;
-        if (entry.previous) |previous| {
-            self.map.getPtr(runtime.thread_id).?.* = previous;
-            // zlinter-disable-next-line no_hidden_allocations - registry nodes must unwind through the same non-runtime allocator
-            std.heap.page_allocator.destroy(entry);
-            return true;
-        }
-        _ = self.map.remove(runtime.thread_id);
-        // zlinter-disable-next-line no_hidden_allocations - registry nodes must unwind through the same non-runtime allocator
-        std.heap.page_allocator.destroy(entry);
-        if (self.map.count() == 0) {
-            self.map.deinit(std.heap.page_allocator);
-            self.map = .empty;
-        }
-        return true;
-    }
-
-    fn current(self: *@This(), thread_id: std.Thread.Id) ?*Runtime {
-        self.lock_state.lock();
-        defer self.lock_state.unlock();
-        return if (self.map.get(thread_id)) |entry| entry.runtime else null;
-    }
+const ActiveRuntimeOverflowEntry = struct {
+    runtime: *Runtime,
+    previous: ?*@This(),
 };
 
-var active_runtimes = ActiveRuntimeRegistry{};
+threadlocal var active_runtime_stack: [256]?*Runtime = [_]?*Runtime{null} ** 256;
+threadlocal var active_runtime_stack_len: usize = 0;
+threadlocal var active_runtime_overflow: ?*ActiveRuntimeOverflowEntry = null;
 
 /// Return the currently active runtime on this thread, if one is executing.
 pub fn activeRuntime() ?*Runtime {
-    return active_runtimes.current(std.Thread.getCurrentId());
+    if (active_runtime_overflow) |entry| return entry.runtime;
+    if (active_runtime_stack_len == 0) return null;
+    return active_runtime_stack[active_runtime_stack_len - 1];
 }
 
 /// Enter one frontend execution against the host runtime.
 pub fn beginExecution(runtime: *Runtime) (RuntimeError || SetupError)!void {
     try runtime.ensureThread();
-    try active_runtimes.begin(runtime);
+    if (active_runtime_stack_len < active_runtime_stack.len) {
+        active_runtime_stack[active_runtime_stack_len] = runtime;
+        active_runtime_stack_len += 1;
+    } else {
+        // Keep overflow bookkeeping off the runtime allocator so perf probes stay comparable.
+        // zlinter-disable-next-line no_hidden_allocations - overflow bookkeeping must stay off the runtime allocator
+        const entry = try std.heap.page_allocator.create(ActiveRuntimeOverflowEntry);
+        // zlinter-disable-next-line no_hidden_allocations - overflow bookkeeping must unwind through the same non-runtime allocator
+        errdefer std.heap.page_allocator.destroy(entry);
+        entry.* = .{
+            .runtime = runtime,
+            .previous = active_runtime_overflow,
+        };
+        active_runtime_overflow = entry;
+    }
     runtime.core.active_reset_count += 1;
 }
 
@@ -179,7 +135,18 @@ pub fn endExecution(runtime: *Runtime) void {
 pub fn endExecutionChecked(runtime: *Runtime) RuntimeError!void {
     try runtime.ensureThread();
     if (runtime.core.active_reset_count == 0) return error.RuntimeBusy;
-    if (!active_runtimes.end(runtime)) return error.RuntimeBusy;
+    if (active_runtime_overflow) |entry| {
+        if (entry.runtime != runtime) return error.RuntimeBusy;
+        active_runtime_overflow = entry.previous;
+        // zlinter-disable-next-line no_hidden_allocations - overflow bookkeeping must unwind through the same non-runtime allocator
+        std.heap.page_allocator.destroy(entry);
+        runtime.core.active_reset_count -= 1;
+        return;
+    }
+    if (active_runtime_stack_len == 0) return error.RuntimeBusy;
+    if (active_runtime_stack[active_runtime_stack_len - 1] != runtime) return error.RuntimeBusy;
+    active_runtime_stack_len -= 1;
+    active_runtime_stack[active_runtime_stack_len] = null;
     runtime.core.active_reset_count -= 1;
 }
 
@@ -210,6 +177,31 @@ test "endExecutionChecked rejects mismatched nested runtime shutdown without cor
     try endExecutionChecked(&outer_runtime);
     outer_active = false;
     try std.testing.expect(activeRuntime() == null);
+}
+
+test "beginExecution spills beyond the fast runtime stack without changing nesting semantics" {
+    var runtimes: [active_runtime_stack.len + 1]Runtime = undefined;
+    for (&runtimes) |*runtime| runtime.* = Runtime.init(std.testing.allocator);
+    defer for (&runtimes) |*runtime| runtime.deinit();
+
+    var active_count: usize = 0;
+    defer while (active_count > 0) {
+        active_count -= 1;
+        endExecution(&runtimes[active_count]);
+    };
+
+    for (&runtimes) |*runtime| {
+        try beginExecution(runtime);
+        active_count += 1;
+    }
+
+    try std.testing.expect(activeRuntime() == &runtimes[runtimes.len - 1]);
+    try std.testing.expectError(error.RuntimeBusy, endExecutionChecked(&runtimes[0]));
+    try std.testing.expect(activeRuntime() == &runtimes[runtimes.len - 1]);
+
+    try endExecutionChecked(&runtimes[runtimes.len - 1]);
+    active_count -= 1;
+    try std.testing.expect(activeRuntime() == &runtimes[runtimes.len - 2]);
 }
 
 /// Stable scenario ids re-exported from the canonical scenario registry.
