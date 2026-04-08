@@ -145,6 +145,7 @@ pub const ProgramPlan = struct {
         if (self.label.len == 0) return error.EmptyLabel;
         if (self.functions.len == 0) return error.EmptyProgram;
         if (self.entry_index >= self.functions.len) return error.InvalidEntryIndex;
+        var reachable_blocks = [_]bool{false} ** (std.math.maxInt(u16) + 1);
         var terminal_reachability = [_]bool{false} ** (std.math.maxInt(u16) + 1);
 
         for (self.functions) |function| {
@@ -184,34 +185,44 @@ pub const ProgramPlan = struct {
             if (block.terminator_index >= self.terminators.len) return error.InvalidBlockTerminatorIndex;
         }
 
+        for (self.functions) |function| {
+            try markFunctionReachableBlocks(self, function, &reachable_blocks);
+        }
+
         var changed = true;
         while (changed) {
             changed = false;
             for (self.functions, 0..) |function, function_index| {
                 if (terminal_reachability[function_index]) continue;
-                const instruction_end = rangeEnd(function.first_instruction, function.instruction_count) orelse return error.InvalidFunctionInstructionSpan;
-                for (self.instructions[function.first_instruction..instruction_end]) |instruction| {
-                    switch (instruction.kind) {
-                        .call_helper => {
-                            if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
-                            if (terminal_reachability[instruction.operand]) {
-                                terminal_reachability[function_index] = true;
-                                changed = true;
-                                break;
-                            }
-                        },
-                        .call_op => {
-                            if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
-                                return error.InvalidCallOpTarget;
-                            }
-                            if (self.ops[instruction.operand].mode != .transform) {
-                                terminal_reachability[function_index] = true;
-                                changed = true;
-                                break;
-                            }
-                        },
-                        else => {},
+                const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
+                for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
+                    const block_index = @as(usize, function.first_block) + relative_block_index;
+                    if (!reachable_blocks[block_index]) continue;
+                    const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
+                    for (self.instructions[block.first_instruction..instruction_end]) |instruction| {
+                        switch (instruction.kind) {
+                            .call_helper => {
+                                if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
+                                if (terminal_reachability[instruction.operand]) {
+                                    terminal_reachability[function_index] = true;
+                                    changed = true;
+                                    break;
+                                }
+                            },
+                            .call_op => {
+                                if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
+                                    return error.InvalidCallOpTarget;
+                                }
+                                if (self.ops[instruction.operand].mode != .transform) {
+                                    terminal_reachability[function_index] = true;
+                                    changed = true;
+                                    break;
+                                }
+                            },
+                            else => {},
+                        }
                     }
+                    if (terminal_reachability[function_index]) break;
                 }
             }
         }
@@ -221,17 +232,19 @@ pub const ProgramPlan = struct {
             const function_instruction_end = rangeEnd(function.first_instruction, function.instruction_count) orelse return error.InvalidFunctionInstructionSpan;
             const function_returns_value = function.value_codec != .unit;
             var covered_instruction_end: usize = function.first_instruction;
-            for (self.blocks[function.first_block..block_end]) |block| {
+            for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
                 if (block.first_instruction != covered_instruction_end) return error.InvalidFunctionInstructionSpan;
                 const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
                 if (instruction_end > function_instruction_end) return error.InvalidFunctionInstructionSpan;
                 covered_instruction_end = instruction_end;
+                const block_index = @as(usize, function.first_block) + relative_block_index;
+                const block_is_reachable = reachable_blocks[block_index];
                 var block_has_return_value = false;
                 for (self.instructions[block.first_instruction..instruction_end], 0..) |instruction, relative_index| switch (instruction.kind) {
                     .call_helper => {
                         if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
                         const callee = self.functions[instruction.operand];
-                        if (callee.value_codec != function.value_codec and terminal_reachability[instruction.operand]) {
+                        if (block_is_reachable and callee.value_codec != function.value_codec and terminal_reachability[instruction.operand]) {
                             return error.InvalidInstructionLocalIndex;
                         }
                         if (callee.value_codec != .unit and
@@ -585,6 +598,51 @@ fn functionLocalHasCodec(self: ProgramPlan, function: FunctionPlan, local_id: u1
 fn isOwnedBlockTarget(first_block: u16, block_end: usize, target: u16) bool {
     const target_index: usize = target;
     return target_index >= first_block and target_index < block_end;
+}
+
+fn markFunctionReachableBlocks(
+    self: ProgramPlan,
+    function: FunctionPlan,
+    reachable_blocks: *[std.math.maxInt(u16) + 1]bool,
+) ValidationError!void {
+    const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
+    const entry_block_index = @as(usize, function.first_block) + function.entry_block;
+    reachable_blocks[entry_block_index] = true;
+
+    var changed = true;
+    while (changed) {
+        changed = false;
+        for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
+            const block_index = @as(usize, function.first_block) + relative_block_index;
+            if (!reachable_blocks[block_index]) continue;
+            const terminator = self.terminators[block.terminator_index];
+            switch (terminator.kind) {
+                .branch_if => {
+                    if (isOwnedBlockTarget(function.first_block, block_end, terminator.primary) and
+                        !reachable_blocks[terminator.primary])
+                    {
+                        reachable_blocks[terminator.primary] = true;
+                        changed = true;
+                    }
+                    if (isOwnedBlockTarget(function.first_block, block_end, terminator.secondary) and
+                        !reachable_blocks[terminator.secondary])
+                    {
+                        reachable_blocks[terminator.secondary] = true;
+                        changed = true;
+                    }
+                },
+                .jump => {
+                    if (isOwnedBlockTarget(function.first_block, block_end, terminator.primary) and
+                        !reachable_blocks[terminator.primary])
+                    {
+                        reachable_blocks[terminator.primary] = true;
+                        changed = true;
+                    }
+                },
+                .return_unit, .return_value => {},
+            }
+        }
+    }
 }
 
 fn functionOwnsOpTarget(self: ProgramPlan, function: FunctionPlan, target: u16) bool {
