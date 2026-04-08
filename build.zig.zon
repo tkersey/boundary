@@ -6,6 +6,10 @@
             .url = "git+https://github.com/tkersey/zlinter.git?ref=zig015-fixes#42461509e68f2f947f7594fdf4d63f46db40ab87",
             .hash = "zlinter-0.0.1-OjQ08dCnCwBINQWXHHWuaDi4eSx9hRXBbJUtySTqfcU3",
         },
+        .zprof = .{
+            .url = "https://github.com/ANDRVV/zprof/archive/v3.0.1.zip",
+            .hash = "zprof-3.0.0-Z3ILTYpyAABVThrMKcGO58SgE-kGtctSugefMGgSPEyy",
+        },
     },
     .minimum_zig_version = "0.15.2",
     .paths = .{

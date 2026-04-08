@@ -302,6 +302,14 @@ zig build bench-family-builder-decompose
 
 Use them to localize storage/finalization/cleanup or abortive fixed-tax costs before changing code; they are investigative and do not define the checked public benchmark contract.
 
+Allocator-focused profiling for the remaining writer/resource hotspot lanes lives at:
+
+```bash
+zig build zprof-hotspots
+```
+
+That lane reports allocation counts, bytes, live-peak, and leak status for representative raw-vs-effect writer/resource workloads. It is explanatory profiling, not a benchmark-proof gate.
+
 The checked state-effect artifact lives at
 `bench/baselines/state_effect_v1.json`. Refresh it with:
 

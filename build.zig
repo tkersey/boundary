@@ -538,6 +538,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
+    const zprof_dep = b.dependency("zprof", .{
+        .target = target,
+        .optimize = bench_optimize,
+    });
 
     absolutizeZlinterRuntimePaths(b);
 
@@ -775,7 +779,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     witness_sources_mod.addImport("lowered_machine", lowered_machine_mod);
-    witness_sources_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    witness_sources_mod.addImport("shift", shift_mod);
     witness_sources_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
     witness_sources_mod.addImport("frontend_support", frontend_support_mod);
     witnesses_mod.addImport("witness_sources", witness_sources_mod);
@@ -2504,11 +2508,27 @@ pub fn build(b: *std.Build) void {
     }
 
     const shift_bench_mod = b.createModule(.{
-        .root_source_file = b.path("src/root.zig"),
+        .root_source_file = b.path("src/bench_support.zig"),
         .target = target,
         .optimize = bench_optimize,
     });
+    shift_bench_mod.addImport("portable_core", portable_core_mod);
+    shift_bench_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
+    shift_bench_mod.addImport("frontend_support", frontend_support_mod);
+    shift_bench_mod.addImport("error_witness", error_witness_mod);
+    shift_bench_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    shift_bench_mod.addImport("effect_ir", effect_ir_mod);
+    shift_bench_mod.addImport("internal_kernel", internal_kernel_mod);
+    shift_bench_mod.addImport("internal_program_plan", internal_program_plan_mod);
+    shift_bench_mod.addImport("interpreter", interpreter_mod);
+    shift_bench_mod.addImport("source_graph_engine", source_graph_engine_mod);
+    shift_bench_mod.addImport("source_graph_comptime", source_graph_comptime_mod);
     shift_bench_mod.addImport("lowered_machine", lowered_machine_mod);
+    shift_bench_mod.addImport("program_frontend", program_frontend_mod);
+    shift_bench_mod.addImport("authoring_build_options", authoring_build_options_mod);
+    shift_bench_mod.addImport("source_graph_embed", source_graph_embed_mod);
+    shift_bench_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
+    shift_bench_mod.addImport("source_lowering", source_lowering_mod);
     const bench_specs = [_]struct {
         name: []const u8,
         src: []const u8,
@@ -2597,6 +2617,21 @@ pub fn build(b: *std.Build) void {
     const runtime_backend_bench_run = b.addRunArtifact(runtime_backend_bench_exe);
     const runtime_backend_bench_step = b.step("bench-runtime-backends", "Compare the current stack runtime against the lowered runtime over the supported bridge corpus.");
     runtime_backend_bench_step.dependOn(&runtime_backend_bench_run.step);
+
+    const zprof_hotspots_mod = b.createModule(.{
+        .root_source_file = b.path("bench/zprof_hotspots.zig"),
+        .target = target,
+        .optimize = bench_optimize,
+    });
+    zprof_hotspots_mod.addImport("shift", shift_bench_mod);
+    zprof_hotspots_mod.addImport("zprof", zprof_dep.module("zprof"));
+    const zprof_hotspots_exe = b.addExecutable(.{
+        .name = "shift-zprof-hotspots",
+        .root_module = zprof_hotspots_mod,
+    });
+    const zprof_hotspots_run = b.addRunArtifact(zprof_hotspots_exe);
+    const zprof_hotspots_step = b.step("zprof-hotspots", "Profile writer/resource allocator hotspots with zprof.");
+    zprof_hotspots_step.dependOn(&zprof_hotspots_run.step);
 
     const bench_artifact_write_cmd = b.addSystemCommand(&.{ "sh", "bench/state_effect_artifact.sh", "write" });
     const bench_artifact_write_step = b.step("bench-state-effect-write", "Refresh the checked state-effect benchmark artifact.");
