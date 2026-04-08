@@ -52,6 +52,12 @@ fn sentinelBytes(comptime bytes: []const u8) [:0]const u8 {
     return raw[0..bytes.len :0];
 }
 
+fn decodeI32InstructionLiteral(instruction: program_plan.Instruction) i32 {
+    const low = @as(u32, instruction.operand);
+    const high = @as(u32, instruction.aux) << 16;
+    return @bitCast(high | low);
+}
+
 fn entryOutputsForPlan(comptime compiled_plan: program_plan.ProgramPlan) []const program_plan.OutputPlan {
     const entry_function = compiled_plan.functions[compiled_plan.entry_index];
     return compiled_plan.outputs[entry_function.first_output..][0..entry_function.output_count];
@@ -397,7 +403,7 @@ fn continueLoweredFunction(
                         else => unreachable,
                     },
                 }),
-                .const_i32 => setLocal(locals, instruction.dst, .{ .i32 = @as(i32, @intCast(instruction.operand)) }),
+                .const_i32 => setLocal(locals, instruction.dst, .{ .i32 = decodeI32InstructionLiteral(instruction) }),
                 .const_string => setLocal(locals, instruction.dst, .{ .string = instruction.string_literal }),
                 .return_value => return_local = instruction.operand,
                 .sub_one => setLocal(locals, instruction.dst, switch (getLocal(locals, instruction.operand)) {
@@ -3998,6 +4004,227 @@ test "executeLoweredDispatch unwinds after handlers iteratively across large loo
     }
     try std.testing.expectEqual(@as(usize, loop_count), handlers.counter.step_calls);
     try std.testing.expectEqual(@as(usize, loop_count), handlers.counter.after_calls);
+}
+
+test "executeLoweredDispatch decodes full-width const_i32 literals" {
+    const negative_bits: u32 = @bitCast(@as(i32, -1));
+    const large_bits: u32 = @bitCast(@as(i32, 70_000));
+
+    const negative_plan: program_plan.ProgramPlan = .{
+        .label = "example.full_width_const_i32",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "literalRoot",
+            .value_codec = .i32,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{.{
+            .label = "unused",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "noop",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .unit,
+        }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 2,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{
+                .kind = .const_i32,
+                .dst = 0,
+                .operand = @truncate(negative_bits),
+                .aux = @truncate(negative_bits >> 16),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+        },
+    };
+
+    const large_plan: program_plan.ProgramPlan = .{
+        .label = "example.full_width_const_i32_large",
+        .ir_hash = 2,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "literalRoot",
+            .value_codec = .i32,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{.{
+            .label = "unused",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "noop",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .unit,
+        }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 2,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{
+                .kind = .const_i32,
+                .dst = 0,
+                .operand = @truncate(large_bits),
+                .aux = @truncate(large_bits >> 16),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+        },
+    };
+
+    const Handlers = struct {
+        unused: struct {
+            pub fn noop(_: *@This()) anyerror!void {}
+        } = .{},
+    };
+    var handlers: Handlers = .{};
+
+    const negative = try executeLoweredDispatch(negative_plan, &handlers, 0, &.{});
+    switch (negative) {
+        .value => |answer| try std.testing.expectEqual(@as(i32, -1), decodeRuntimeValue(.i32, answer)),
+        .terminal => |_| return error.TestUnexpectedResult,
+    }
+
+    const large = try executeLoweredDispatch(large_plan, &handlers, 0, &.{});
+    switch (large) {
+        .value => |answer| try std.testing.expectEqual(@as(i32, 70_000), decodeRuntimeValue(.i32, answer)),
+        .terminal => |_| return error.TestUnexpectedResult,
+    }
+}
+
+test "CompileIr run decodes full-width const_i32 literals" {
+    const negative_bits: u32 = @bitCast(@as(i32, -1));
+    const large_bits: u32 = @bitCast(@as(i32, 70_000));
+
+    const negative_symbol: effect_ir.SymbolRef = .{
+        .module_path = "test/public_ir_full_width_const_i32_negative.zig",
+        .symbol_name = "literalRoot",
+    };
+    const NegativeProgram = CompileIr("example.public_ir_full_width_const_i32_negative", .{
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol = negative_symbol,
+            .row = effect_ir.rowFromSpec(.{
+                .unused = .{
+                    .noop = effect_ir.Transform(void, void),
+                },
+            }),
+            .ValueType = i32,
+        }},
+        .call_edges = &.{},
+        .function_bodies = &.{.{
+            .local_codecs = &.{.i32},
+            .entry_block = 0,
+            .blocks = &.{.{
+                .instructions = &.{
+                    .{
+                        .kind = .const_i32,
+                        .dst = 0,
+                        .operand = @truncate(negative_bits),
+                        .aux = @truncate(negative_bits >> 16),
+                    },
+                    .{ .kind = .return_value, .operand = 0 },
+                },
+                .terminator = .{ .kind = .return_value },
+            }},
+        }},
+    });
+
+    const large_symbol: effect_ir.SymbolRef = .{
+        .module_path = "test/public_ir_full_width_const_i32_large.zig",
+        .symbol_name = "literalRoot",
+    };
+    const LargeProgram = CompileIr("example.public_ir_full_width_const_i32_large", .{
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol = large_symbol,
+            .row = effect_ir.rowFromSpec(.{
+                .unused = .{
+                    .noop = effect_ir.Transform(void, void),
+                },
+            }),
+            .ValueType = i32,
+        }},
+        .call_edges = &.{},
+        .function_bodies = &.{.{
+            .local_codecs = &.{.i32},
+            .entry_block = 0,
+            .blocks = &.{.{
+                .instructions = &.{
+                    .{
+                        .kind = .const_i32,
+                        .dst = 0,
+                        .operand = @truncate(large_bits),
+                        .aux = @truncate(large_bits >> 16),
+                    },
+                    .{ .kind = .return_value, .operand = 0 },
+                },
+                .terminator = .{ .kind = .return_value },
+            }},
+        }},
+    });
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    const Handlers = struct {
+        unused: struct {
+            pub fn noop(_: *@This()) anyerror!void {}
+        } = .{},
+    };
+    var negative_handlers: Handlers = .{};
+    var large_handlers: Handlers = .{};
+
+    const negative = try NegativeProgram.run(&runtime, &negative_handlers);
+    try std.testing.expectEqual(@as(i32, -1), negative.value);
+
+    const large = try LargeProgram.run(&runtime, &large_handlers);
+    try std.testing.expectEqual(@as(i32, 70_000), large.value);
 }
 
 test "CompileIr run applies after handlers for repeated loop resumes" {

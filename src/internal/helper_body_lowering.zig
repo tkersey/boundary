@@ -73,6 +73,16 @@ fn cloneBytes(comptime bytes: []const u8) []const u8 {
     return std.fmt.comptimePrint("{s}", .{bytes});
 }
 
+fn encodeI32LiteralInstruction(value: i32) program_frontend.BodyInstruction {
+    const bits: u32 = @bitCast(value);
+    return .{
+        .kind = .const_i32,
+        .dst = 0,
+        .operand = @truncate(bits),
+        .aux = @truncate(bits >> 16),
+    };
+}
+
 fn failUnsupportedBodyLowering(comptime function: source_graph_embed.ProgramFunction) noreturn {
     @compileError(std.fmt.comptimePrint(
         "public lowering cannot synthesize unsupported helper or entry bodies; {s}:{s} must stay within the retained lowered-body subset",
@@ -820,11 +830,9 @@ fn emitPayloadValueForDirectCall(
             .number_literal => blk: {
                 const value = std.fmt.parseInt(i32, direct_call.args[0].lexeme, 10) catch return null;
                 const dst = appendAnonymousLocal(&state.local_storage, .i32);
-                appendInstruction(state.instructions, state.instruction_count, .{
-                    .kind = .const_i32,
-                    .dst = dst,
-                    .operand = @bitCast(value),
-                });
+                var instruction = encodeI32LiteralInstruction(value);
+                instruction.dst = dst;
+                appendInstruction(state.instructions, state.instruction_count, instruction);
                 break :blk dst;
             },
             .string_literal => blk: {
@@ -879,11 +887,9 @@ fn emitValueForExpectedCodec(
                 if (expected_codec != .i32) return null;
                 const value = std.fmt.parseInt(i32, value_tokens[0].lexeme, 10) catch return null;
                 const dst = appendAnonymousLocal(&state.local_storage, .i32);
-                appendInstruction(state.instructions, state.instruction_count, .{
-                    .kind = .const_i32,
-                    .dst = dst,
-                    .operand = @bitCast(value),
-                });
+                var instruction = encodeI32LiteralInstruction(value);
+                instruction.dst = dst;
+                appendInstruction(state.instructions, state.instruction_count, instruction);
                 break :blk dst;
             },
             .string_literal => blk: {
@@ -1255,11 +1261,9 @@ fn buildLinearBodyForFunction(
                     .i32_value => |value| {
                         if (context.functions[context.lowered_function_index].ValueType != i32) break :blk null;
                         const dst = appendAnonymousLocal(&local_storage, .i32);
-                        appendInstruction(instructions[0..], &instruction_count, .{
-                            .kind = .const_i32,
-                            .dst = dst,
-                            .operand = @bitCast(value),
-                        });
+                        var instruction = encodeI32LiteralInstruction(value);
+                        instruction.dst = dst;
+                        appendInstruction(instructions[0..], &instruction_count, instruction);
                         appendInstruction(instructions[0..], &instruction_count, .{
                             .kind = .return_value,
                             .operand = dst,
@@ -1360,11 +1364,7 @@ fn buildReturnLiteralBodyForFunction(
         }
 
         switch (return_literal) {
-            .i32_value => |value| buffer[index] = .{
-                .kind = .const_i32,
-                .dst = 0,
-                .operand = @bitCast(value),
-            },
+            .i32_value => |value| buffer[index] = encodeI32LiteralInstruction(value),
             .string_value => |value| buffer[index] = .{
                 .kind = .const_string,
                 .dst = 0,
