@@ -9,6 +9,7 @@
         .zprof = .{
             .url = "https://github.com/ANDRVV/zprof/archive/v3.0.1.zip",
             .hash = "zprof-3.0.0-Z3ILTYpyAABVThrMKcGO58SgE-kGtctSugefMGgSPEyy",
+            .lazy = true,
         },
     },
     .minimum_zig_version = "0.15.2",

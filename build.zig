@@ -538,10 +538,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
-    const zprof_dep = b.dependency("zprof", .{
-        .target = target,
-        .optimize = bench_optimize,
-    });
 
     absolutizeZlinterRuntimePaths(b);
 
@@ -2618,20 +2614,25 @@ pub fn build(b: *std.Build) void {
     const runtime_backend_bench_step = b.step("bench-runtime-backends", "Compare the current stack runtime against the lowered runtime over the supported bridge corpus.");
     runtime_backend_bench_step.dependOn(&runtime_backend_bench_run.step);
 
-    const zprof_hotspots_mod = b.createModule(.{
-        .root_source_file = b.path("bench/zprof_hotspots.zig"),
+    const zprof_hotspots_step = b.step("zprof-hotspots", "Profile writer/resource allocator hotspots with zprof.");
+    if (b.lazyDependency("zprof", .{
         .target = target,
         .optimize = bench_optimize,
-    });
-    zprof_hotspots_mod.addImport("shift", shift_bench_mod);
-    zprof_hotspots_mod.addImport("zprof", zprof_dep.module("zprof"));
-    const zprof_hotspots_exe = b.addExecutable(.{
-        .name = "shift-zprof-hotspots",
-        .root_module = zprof_hotspots_mod,
-    });
-    const zprof_hotspots_run = b.addRunArtifact(zprof_hotspots_exe);
-    const zprof_hotspots_step = b.step("zprof-hotspots", "Profile writer/resource allocator hotspots with zprof.");
-    zprof_hotspots_step.dependOn(&zprof_hotspots_run.step);
+    })) |zprof_dep| {
+        const zprof_hotspots_mod = b.createModule(.{
+            .root_source_file = b.path("bench/zprof_hotspots.zig"),
+            .target = target,
+            .optimize = bench_optimize,
+        });
+        zprof_hotspots_mod.addImport("shift", shift_bench_mod);
+        zprof_hotspots_mod.addImport("zprof", zprof_dep.module("zprof"));
+        const zprof_hotspots_exe = b.addExecutable(.{
+            .name = "shift-zprof-hotspots",
+            .root_module = zprof_hotspots_mod,
+        });
+        const zprof_hotspots_run = b.addRunArtifact(zprof_hotspots_exe);
+        zprof_hotspots_step.dependOn(&zprof_hotspots_run.step);
+    }
 
     const bench_artifact_write_cmd = b.addSystemCommand(&.{ "sh", "bench/state_effect_artifact.sh", "write" });
     const bench_artifact_write_step = b.step("bench-state-effect-write", "Refresh the checked state-effect benchmark artifact.");
