@@ -806,15 +806,28 @@ fn assertSourceOwnership(comptime source_ref: SourceRef) void {
     }
 }
 
+fn sourceHelperOwnedRepoSource(
+    comptime repo_path: []const u8,
+    comptime caller_file: []const u8,
+) ?[:0]const u8 {
+    if (!std.fs.path.isAbsolute(caller_file)) return null;
+    if (std.fs.path.isAbsolute(repo_path)) return null;
+    const caller_repo_path = absoluteOwnedRepoRelativePath(caller_file) orelse return null;
+    if (!pathEquals(caller_repo_path, repo_path)) return null;
+    if (!repoPathIsOwned(repo_path)) return null;
+    return sentinelBytes(source_graph_embed.embeddedSource(repo_path));
+}
+
 /// Build one caller-owned lowering provenance witness from an explicit repo path plus `@src()`.
 pub fn source(comptime repo_path: []const u8, comptime caller: std.builtin.SourceLocation) SourceRef {
     if (repo_path.len == 0) @compileError("public lowering source helper requires a non-empty repo path");
     if (caller.file.len == 0) @compileError("public lowering source helper requires a non-empty caller source file");
+    const caller_source = comptime sourceHelperOwnedRepoSource(repo_path, caller.file);
     return .{
         .repo_path = cloneBytes(repo_path),
         .caller_file = cloneBytes(caller.file),
-        .caller_hash = null,
-        .caller_source = null,
+        .caller_hash = if (caller_source) |owned_source| hashSourceBytes(owned_source) else null,
+        .caller_source = caller_source,
     };
 }
 
@@ -2864,6 +2877,58 @@ test "owned repo alias callers preserve absolute helper witness paths during low
     try std.testing.expectEqualDeep(Canonical.runtime_plan.instructions, AliasOwned.runtime_plan.instructions);
 }
 
+test "source helper admits alias-root absolute repo callers when the owned repo path is canonical" {
+    if (!build_options.package_root_alias_available) return error.SkipZigTest;
+
+    const spec: LowerSpec = .{
+        .label = "example.open_row_state_writer.alias_source_helper",
+        .entry_symbol = "runBody",
+        .row = effect_ir.mergeRows(.{
+            effect_ir.rowFromSpec(.{
+                .state = .{
+                    .get = effect_ir.Transform(void, i32),
+                    .set = effect_ir.Transform(i32, void),
+                },
+            }),
+            effect_ir.rowFromSpec(.{
+                .writer = .{
+                    .tell = effect_ir.Transform([]const u8, void),
+                },
+            }),
+        }),
+        .ValueType = []const u8,
+        .outputs = &.{
+            .{ .label = "state", .OutputType = i32 },
+            .{ .label = "writer", .OutputType = [][]const u8 },
+        },
+    };
+    const alias_source_path = comptime std.fmt.comptimePrint(
+        "{s}/examples/open_row_state_writer.zig",
+        .{build_options.package_root_alias},
+    );
+    const current_src = @src();
+    const alias_caller: std.builtin.SourceLocation = .{
+        .module = current_src.module,
+        .file = alias_source_path,
+        .line = 1,
+        .column = 1,
+        .fn_name = "aliasOwnedSourceHelperCaller",
+    };
+
+    const AliasOwned = lower(source("examples/open_row_state_writer.zig", alias_caller), spec);
+    const Canonical = lowerAt("examples/open_row_state_writer.zig", spec);
+
+    try std.testing.expectEqualStrings("examples/open_row_state_writer.zig", AliasOwned.source_path);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.functions, AliasOwned.runtime_plan.functions);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.requirements, AliasOwned.runtime_plan.requirements);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.ops, AliasOwned.runtime_plan.ops);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.outputs, AliasOwned.runtime_plan.outputs);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.locals, AliasOwned.runtime_plan.locals);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.blocks, AliasOwned.runtime_plan.blocks);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.terminators, AliasOwned.runtime_plan.terminators);
+    try std.testing.expectEqualDeep(Canonical.runtime_plan.instructions, AliasOwned.runtime_plan.instructions);
+}
+
 test "source ownership rejects relative no-content repo-path witnesses and basename-only mismatches" {
     try std.testing.expect(!sourceOwnershipMatches(.{
         .repo_path = "examples/open_row_state_writer.zig",
@@ -2890,6 +2955,13 @@ test "source ownership accepts canonical absolute paths and requires content wit
         .caller_file = canonical_owned,
     }));
     if (build_options.package_root_alias_available) {
+        try std.testing.expect(sourceOwnershipMatches(source("examples/open_row_state_writer.zig", .{
+            .module = @src().module,
+            .file = alias_owned,
+            .line = 1,
+            .column = 1,
+            .fn_name = "aliasOwnedSourceWitness",
+        })));
         try std.testing.expect(!sourceOwnershipMatches(.{
             .repo_path = "examples/open_row_state_writer.zig",
             .caller_file = alias_owned,

@@ -5,7 +5,7 @@ fn explicitCaller() std.builtin.SourceLocation {
     const src = @src();
     return .{
         .module = src.module,
-        .file = "examples/open_row_state_writer.zig",
+        .file = "open_row_state_writer.zig",
         .line = src.line,
         .column = src.column,
         .fn_name = src.fn_name,
