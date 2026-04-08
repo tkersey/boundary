@@ -57,10 +57,23 @@ fn runWriterRaw(allocator: std.mem.Allocator) !usize {
     return checksum;
 }
 
-fn runWriterEffect(allocator: std.mem.Allocator) !usize {
-    var runtime = shift.Runtime.init(allocator);
-    defer runtime.deinit();
-    var instance = WriterInstance.init();
+fn runWriterEffect(runtime: *shift.Runtime, instance: *WriterInstance, profiler: *Zprof(.{})) !usize {
+    const allocator = profiler.allocator();
+
+    // Exclude one-time runtime/handler bootstrap from the steady-state profile.
+    const warmup = preserveValue(try shift.effect.writer.handle(usize, usize, runtime, instance, allocator, struct {
+        /// Append one fixed number of writer items.
+        pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!usize {
+            var current: usize = 0;
+            while (current < writer_items_per_body) : (current += 1) {
+                try shift.effect.writer.tell(Cap, ctx, current + 1);
+            }
+            return 0;
+        }
+    }));
+    allocator.free(warmup.items);
+    profiler.profiler.reset();
+
     var checksum: usize = 0;
     var iteration: usize = 0;
     while (iteration < profile_iterations) : (iteration += 1) {
@@ -75,7 +88,7 @@ fn runWriterEffect(allocator: std.mem.Allocator) !usize {
             }
         };
 
-        const result = preserveValue(try shift.effect.writer.handle(usize, usize, &runtime, &instance, allocator, body));
+        const result = preserveValue(try shift.effect.writer.handle(usize, usize, runtime, instance, allocator, body));
         defer allocator.free(result.items);
         std.mem.doNotOptimizeAway(result.items.ptr);
 
@@ -130,10 +143,33 @@ fn runResourceRaw(allocator: std.mem.Allocator) !usize {
     return checksum;
 }
 
-fn runResourceEffect(allocator: std.mem.Allocator) !usize {
-    var runtime = shift.Runtime.init(allocator);
-    defer runtime.deinit();
-    var instance = ResourceInstance.init();
+fn runResourceEffect(runtime: *shift.Runtime, instance: *ResourceInstance, profiler: *Zprof(.{})) !usize {
+    resource_synth.current_base = profile_iterations * resource_items_per_body;
+    resource_synth.acquire_count = 0;
+    resource_synth.release_sink = 0;
+    _ = preserveValue(try shift.effect.resource.handle(usize, runtime, instance, struct {
+        /// Acquire one synthetic resource value.
+        pub fn acquire() usize {
+            return resource_synth.acquire();
+        }
+
+        /// Release one synthetic resource value.
+        pub fn release(resource: usize) void {
+            resource_synth.release(resource);
+        }
+    }, struct {
+        /// Acquire a fixed number of resources under the effect handler.
+        pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!usize {
+            var lane_checksum: usize = 0;
+            var current: usize = 0;
+            while (current < resource_items_per_body) : (current += 1) {
+                lane_checksum +%= try shift.effect.resource.acquire(Cap, ctx);
+            }
+            return lane_checksum;
+        }
+    }));
+    profiler.profiler.reset();
+
     var checksum: usize = 0;
     var iteration: usize = 0;
     while (iteration < profile_iterations) : (iteration += 1) {
@@ -165,7 +201,7 @@ fn runResourceEffect(allocator: std.mem.Allocator) !usize {
             }
         };
 
-        checksum +%= preserveValue(try shift.effect.resource.handle(usize, &runtime, &instance, manager, body));
+        checksum +%= preserveValue(try shift.effect.resource.handle(usize, runtime, instance, manager, body));
     }
     return checksum;
 }
@@ -180,13 +216,19 @@ pub fn main() anyerror!void {
     try printProfileLine(stdout, "writer_raw_batch64", try runWriterRaw(raw_writer_profiler.allocator()), &raw_writer_profiler);
 
     var effect_writer_profiler: Zprof(.{}) = .init(std.heap.smp_allocator, stdout);
-    try printProfileLine(stdout, "writer_effect_batch64", try runWriterEffect(effect_writer_profiler.allocator()), &effect_writer_profiler);
+    var effect_writer_runtime = shift.Runtime.init(effect_writer_profiler.allocator());
+    defer effect_writer_runtime.deinit();
+    var effect_writer_instance = WriterInstance.init();
+    try printProfileLine(stdout, "writer_effect_batch64", try runWriterEffect(&effect_writer_runtime, &effect_writer_instance, &effect_writer_profiler), &effect_writer_profiler);
 
     var raw_resource_profiler: Zprof(.{}) = .init(std.heap.smp_allocator, stdout);
     try printProfileLine(stdout, "resource_raw_32", try runResourceRaw(raw_resource_profiler.allocator()), &raw_resource_profiler);
 
     var effect_resource_profiler: Zprof(.{}) = .init(std.heap.smp_allocator, stdout);
-    try printProfileLine(stdout, "resource_effect_32", try runResourceEffect(effect_resource_profiler.allocator()), &effect_resource_profiler);
+    var effect_resource_runtime = shift.Runtime.init(effect_resource_profiler.allocator());
+    defer effect_resource_runtime.deinit();
+    var effect_resource_instance = ResourceInstance.init();
+    try printProfileLine(stdout, "resource_effect_32", try runResourceEffect(&effect_resource_runtime, &effect_resource_instance, &effect_resource_profiler), &effect_resource_profiler);
 
     try stdout.flush();
 }

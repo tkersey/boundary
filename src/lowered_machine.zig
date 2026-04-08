@@ -89,11 +89,18 @@ pub fn runtimeAllocator(runtime: *const Runtime) std.mem.Allocator {
     return runtime.core.allocator;
 }
 
+const ActiveRuntimeOverflowEntry = struct {
+    runtime: *Runtime,
+    previous: ?*@This(),
+};
+
 threadlocal var active_runtime_stack: [256]?*Runtime = [_]?*Runtime{null} ** 256;
 threadlocal var active_runtime_stack_len: usize = 0;
+threadlocal var active_runtime_overflow: ?*ActiveRuntimeOverflowEntry = null;
 
 /// Return the currently active runtime on this thread, if one is executing.
 pub fn activeRuntime() ?*Runtime {
+    if (active_runtime_overflow) |entry| return entry.runtime;
     if (active_runtime_stack_len == 0) return null;
     return active_runtime_stack[active_runtime_stack_len - 1];
 }
@@ -101,9 +108,21 @@ pub fn activeRuntime() ?*Runtime {
 /// Enter one frontend execution against the host runtime.
 pub fn beginExecution(runtime: *Runtime) (RuntimeError || SetupError)!void {
     try runtime.ensureThread();
-    if (active_runtime_stack_len >= active_runtime_stack.len) return error.OutOfMemory;
-    active_runtime_stack[active_runtime_stack_len] = runtime;
-    active_runtime_stack_len += 1;
+    if (active_runtime_stack_len < active_runtime_stack.len) {
+        active_runtime_stack[active_runtime_stack_len] = runtime;
+        active_runtime_stack_len += 1;
+    } else {
+        // Keep overflow bookkeeping off the runtime allocator so perf probes stay comparable.
+        // zlinter-disable-next-line no_hidden_allocations - overflow bookkeeping must stay off the runtime allocator
+        const entry = try std.heap.page_allocator.create(ActiveRuntimeOverflowEntry);
+        // zlinter-disable-next-line no_hidden_allocations - overflow bookkeeping must unwind through the same non-runtime allocator
+        errdefer std.heap.page_allocator.destroy(entry);
+        entry.* = .{
+            .runtime = runtime,
+            .previous = active_runtime_overflow,
+        };
+        active_runtime_overflow = entry;
+    }
     runtime.core.active_reset_count += 1;
 }
 
@@ -116,6 +135,14 @@ pub fn endExecution(runtime: *Runtime) void {
 pub fn endExecutionChecked(runtime: *Runtime) RuntimeError!void {
     try runtime.ensureThread();
     if (runtime.core.active_reset_count == 0) return error.RuntimeBusy;
+    if (active_runtime_overflow) |entry| {
+        if (entry.runtime != runtime) return error.RuntimeBusy;
+        active_runtime_overflow = entry.previous;
+        // zlinter-disable-next-line no_hidden_allocations - overflow bookkeeping must unwind through the same non-runtime allocator
+        std.heap.page_allocator.destroy(entry);
+        runtime.core.active_reset_count -= 1;
+        return;
+    }
     if (active_runtime_stack_len == 0) return error.RuntimeBusy;
     if (active_runtime_stack[active_runtime_stack_len - 1] != runtime) return error.RuntimeBusy;
     active_runtime_stack_len -= 1;
@@ -150,6 +177,31 @@ test "endExecutionChecked rejects mismatched nested runtime shutdown without cor
     try endExecutionChecked(&outer_runtime);
     outer_active = false;
     try std.testing.expect(activeRuntime() == null);
+}
+
+test "beginExecution spills beyond the fast runtime stack without changing nesting semantics" {
+    var runtimes: [active_runtime_stack.len + 1]Runtime = undefined;
+    for (&runtimes) |*runtime| runtime.* = Runtime.init(std.testing.allocator);
+    defer for (&runtimes) |*runtime| runtime.deinit();
+
+    var active_count: usize = 0;
+    defer while (active_count > 0) {
+        active_count -= 1;
+        endExecution(&runtimes[active_count]);
+    };
+
+    for (&runtimes) |*runtime| {
+        try beginExecution(runtime);
+        active_count += 1;
+    }
+
+    try std.testing.expect(activeRuntime() == &runtimes[runtimes.len - 1]);
+    try std.testing.expectError(error.RuntimeBusy, endExecutionChecked(&runtimes[0]));
+    try std.testing.expect(activeRuntime() == &runtimes[runtimes.len - 1]);
+
+    try endExecutionChecked(&runtimes[runtimes.len - 1]);
+    active_count -= 1;
+    try std.testing.expect(activeRuntime() == &runtimes[runtimes.len - 2]);
 }
 
 /// Stable scenario ids re-exported from the canonical scenario registry.
