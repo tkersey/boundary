@@ -145,6 +145,7 @@ pub const ProgramPlan = struct {
         if (self.label.len == 0) return error.EmptyLabel;
         if (self.functions.len == 0) return error.EmptyProgram;
         if (self.entry_index >= self.functions.len) return error.InvalidEntryIndex;
+        var terminal_reachability = [_]bool{false} ** (std.math.maxInt(u16) + 1);
 
         for (self.functions) |function| {
             if (function.symbol_name.len == 0) return error.EmptyFunctionSymbol;
@@ -183,6 +184,38 @@ pub const ProgramPlan = struct {
             if (block.terminator_index >= self.terminators.len) return error.InvalidBlockTerminatorIndex;
         }
 
+        var changed = true;
+        while (changed) {
+            changed = false;
+            for (self.functions, 0..) |function, function_index| {
+                if (terminal_reachability[function_index]) continue;
+                const instruction_end = rangeEnd(function.first_instruction, function.instruction_count) orelse return error.InvalidFunctionInstructionSpan;
+                for (self.instructions[function.first_instruction..instruction_end]) |instruction| {
+                    switch (instruction.kind) {
+                        .call_helper => {
+                            if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
+                            if (terminal_reachability[instruction.operand]) {
+                                terminal_reachability[function_index] = true;
+                                changed = true;
+                                break;
+                            }
+                        },
+                        .call_op => {
+                            if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
+                                return error.InvalidCallOpTarget;
+                            }
+                            if (self.ops[instruction.operand].mode != .transform) {
+                                terminal_reachability[function_index] = true;
+                                changed = true;
+                                break;
+                            }
+                        },
+                        else => {},
+                    }
+                }
+            }
+        }
+
         for (self.functions) |function| {
             const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
             const function_instruction_end = rangeEnd(function.first_instruction, function.instruction_count) orelse return error.InvalidFunctionInstructionSpan;
@@ -198,6 +231,9 @@ pub const ProgramPlan = struct {
                     .call_helper => {
                         if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
                         const callee = self.functions[instruction.operand];
+                        if (callee.value_codec != function.value_codec and terminal_reachability[instruction.operand]) {
+                            return error.InvalidInstructionLocalIndex;
+                        }
                         if (callee.value_codec != .unit and
                             !functionLocalHasCodec(self, function, instruction.dst, callee.value_codec))
                         {

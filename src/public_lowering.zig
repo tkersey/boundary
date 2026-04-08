@@ -132,6 +132,17 @@ fn decodeRuntimeValue(comptime codec: program_plan.ValueCodec, value: lowered_ma
     };
 }
 
+fn runtimeValueMatchesCodec(comptime codec: program_plan.ValueCodec, value: lowered_machine.ProgramValue) bool {
+    return switch (codec) {
+        .unit => value == .none,
+        .bool => value == .bool,
+        .i32 => value == .i32,
+        .string => value == .string,
+        .usize => value == .usize,
+        .string_list => false,
+    };
+}
+
 fn encodeRuntimeValue(comptime codec: program_plan.ValueCodec, value: anytype) lowered_machine.ProgramValue {
     return switch (codec) {
         .unit => .none,
@@ -360,13 +371,16 @@ fn continueLoweredFunction(
                                 setLocal(locals, instruction.dst, typed);
                             }
                         },
-                        .terminal => |terminal| return unwindLoweredAfterStack(
-                            compiled_plan,
-                            handlers_ptr,
-                            function.value_codec,
-                            after_stack,
-                            .{ .terminal = terminal },
-                        ),
+                        .terminal => |terminal| {
+                            if (!runtimeValueMatchesCodec(function.value_codec, terminal)) return error.ProgramContractViolation;
+                            return unwindLoweredAfterStack(
+                                compiled_plan,
+                                handlers_ptr,
+                                function.value_codec,
+                                after_stack,
+                                .{ .terminal = terminal },
+                            );
+                        },
                     }
                 },
                 .call_op => {
@@ -4625,4 +4639,11 @@ test "executeLoweredDispatch rejects return-value terminators without a return i
     var handlers: Handlers = .{};
 
     try std.testing.expectError(error.ProgramContractViolation, executeLoweredDispatch(plan, &handlers, 0, &.{}));
+}
+
+test "runtimeValueMatchesCodec rejects mismatched program-value tags" {
+    try std.testing.expect(runtimeValueMatchesCodec(.i32, .{ .i32 = 42 }));
+    try std.testing.expect(!runtimeValueMatchesCodec(.i32, .{ .string = "result=early" }));
+    try std.testing.expect(runtimeValueMatchesCodec(.unit, .none));
+    try std.testing.expect(!runtimeValueMatchesCodec(.string, .{ .i32 = 1 }));
 }
