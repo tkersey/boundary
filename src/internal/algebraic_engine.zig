@@ -383,6 +383,7 @@ fn Binding(
 
         spec: SpecType,
         prompt: PromptType,
+        prompt_identity: ?*const anyopaque = null,
         threadlocal var direct_binding: ?*Self = null;
         threadlocal var direct_payload: ?Op.Payload = null;
 
@@ -410,13 +411,18 @@ fn Binding(
             return PromptTypeForOp(Op, ContinueAnswerType, Answer, ProgramErrorSetWithContext(ContextPtrType, Continuation));
         }
 
+        fn activePrompt(self: *const Self) *const PromptType {
+            if (self.prompt_identity) |prompt| return @ptrCast(@alignCast(prompt));
+            return &self.prompt;
+        }
+
         fn promptRef(self: *@This(), comptime Continuation: anytype) *const ProgramPromptType(Continuation) {
-            // Prompt layout is token-only, so reusing the active delimiter identity across widened error sets is safe.
-            return @ptrCast(&self.prompt);
+            // Prompt layout stays token-only, so the shared live prompt identity can be widened safely.
+            return @ptrCast(self.activePrompt());
         }
 
         fn promptRefWithContext(self: *@This(), comptime ContextPtrType: type, comptime Continuation: type) *const ProgramPromptTypeWithContext(ContextPtrType, Continuation) {
-            return @ptrCast(&self.prompt);
+            return @ptrCast(self.activePrompt());
         }
 
         /// Build one binding with a fresh prompt token.
@@ -432,6 +438,15 @@ fn Binding(
             return .{
                 .spec = spec,
                 .prompt = .{ .token = token },
+            };
+        }
+
+        /// Build one binding that reuses an externally supplied prompt identity and token.
+        pub fn initWithPrompt(spec: SpecType, prompt: anytype) @This() {
+            return .{
+                .spec = spec,
+                .prompt = .{ .token = prompt.token },
+                .prompt_identity = @ptrCast(prompt),
             };
         }
 
@@ -566,7 +581,7 @@ fn Binding(
                         }
                     };
 
-                    break :blk try frontend.transformWithBorrowedAfterContext(Op.Resume, &self.prompt, resume_value, self, handler);
+                    break :blk try frontend.transformWithBorrowedAfterContext(Op.Resume, self.activePrompt(), resume_value, self, handler);
                 },
                 .choice => blk: {
                     const decision = try BindingType.callResumeOrReturn(self.spec, payload);
@@ -577,7 +592,7 @@ fn Binding(
                         }
                     };
 
-                    break :blk try frontend.choiceWithBorrowedAfterContext(Op.Resume, &self.prompt, decision, self, handler);
+                    break :blk try frontend.choiceWithBorrowedAfterContext(Op.Resume, self.activePrompt(), decision, self, handler);
                 },
                 .abort => {
                     const Carrier = HandlerCarrier();
@@ -589,7 +604,7 @@ fn Binding(
                         }
                     };
 
-                    return try frontend.abortWithContext(&self.prompt, &carrier, handler);
+                    return try frontend.abortWithContext(self.activePrompt(), &carrier, handler);
                 },
             };
         }
@@ -652,7 +667,7 @@ fn Binding(
                     break :blk .{
                         .carrier = .{ .binding = self, .payload = payload },
                         .prompt = self.promptRef(Continuation),
-                        .program = frontend.abortProgramWithContext(PromptType, &self.prompt, handler),
+                        .program = frontend.abortProgramWithContext(PromptType, @constCast(self.activePrompt()), handler),
                     };
                 },
             };
@@ -773,6 +788,11 @@ fn BindingChainType(
                 return .{};
             }
 
+            /// Build an empty binding chain terminator for a reused prompt identity.
+            pub fn initWithPrompt(_: SpecsTupleType, _: anytype) @This() {
+                return .{};
+            }
+
             /// Resolve one binding pointer from the empty chain terminator.
             pub fn bindingPtr(_: *@This(), comptime target: usize) *BindingAtType(SpecsTupleType, ContinueAnswer, Answer, ErrorSet, target) {
                 @compileError("invalid algebraic binding index");
@@ -799,6 +819,14 @@ fn BindingChainType(
             return .{
                 .current = CurrentBinding.initWithToken(specs[index], token),
                 .next = NextChain.initWithToken(specs, token),
+            };
+        }
+
+        /// Build one binding chain whose bindings all share one live prompt identity.
+        pub fn initWithPrompt(specs: SpecsTupleType, prompt: anytype) @This() {
+            return .{
+                .current = CurrentBinding.initWithPrompt(specs[index], prompt),
+                .next = NextChain.initWithPrompt(specs, prompt),
             };
         }
 

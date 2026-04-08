@@ -627,13 +627,13 @@ fn runWithSealedEngine(comptime Contract: type, config: anytype, comptime Body: 
 
     const RunnerState = struct {
         runtime: *shift.Runtime,
-        prompt_token: prompt_contract.PromptToken,
+        prompt_identity: *const anyopaque,
         engine_ctx: *EngineContextType,
         lexical_state: ?*anyopaque = null,
     };
     const runner_state = RunnerState{
         .runtime = config.runtime,
-        .prompt_token = config.prompt_token,
+        .prompt_identity = config.prompt_identity,
         .engine_ctx = config.engine_ctx,
         .lexical_state = if (@hasField(@TypeOf(config), "lexical_state")) config.lexical_state else null,
     };
@@ -641,7 +641,7 @@ fn runWithSealedEngine(comptime Contract: type, config: anytype, comptime Body: 
     const runner = struct {
         /// Execute one generated-family body under the installed exact context and engine bindings.
         pub fn run(state: RunnerState, comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSetType)!AnswerType {
-            var prompt = PromptType{ .token = state.prompt_token };
+            const prompt: *const PromptType = @ptrCast(@alignCast(state.prompt_identity));
             if (comptime family.hasDeclSafe(Body, "program")) {
                 const AuthoredType = @TypeOf(Body.program(Cap, ctx));
                 if (@typeInfo(AuthoredType) == .@"struct") {
@@ -650,15 +650,19 @@ fn runWithSealedEngine(comptime Contract: type, config: anytype, comptime Body: 
                     defer authored.deactivate();
                     return try frontend.run(state.runtime, authored.prompt, authored.program);
                 }
-                return try frontend.run(state.runtime, &prompt, Body.program(Cap, ctx));
+                return try frontend.run(state.runtime, prompt, Body.program(Cap, ctx));
             }
             if (comptime family.hasDeclSafe(Body, "body")) {
-                return try frontend.run(state.runtime, &prompt, computeProgramForPrompt(Cap, ctx, PromptType, Body.body));
+                return try frontend.run(state.runtime, prompt, computeProgramForPrompt(Cap, ctx, PromptType, Body.body));
             }
             @compileError("generated effect body must declare program or body");
         }
     };
     return try family.withCapability(family.ContextSpec(StateType, AnswerType, ErrorSetType), capability_decls, runner_state, AnswerType, runner);
+}
+
+fn promptIdentity(prompt: anytype) *const anyopaque {
+    return @ptrCast(prompt);
 }
 
 /// Build one sealed generated effect family from a declarative comptime spec.
@@ -1127,7 +1131,7 @@ pub fn Build(comptime spec: anytype) type {
             const specs = buildSpecs(AnswerType, RunErrorSetType, handler_ptr);
             const Configured = @TypeOf(internal.Program(AnswerType, AnswerType, RunErrorSetType, op_specs).handlers(specs));
             const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-            var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+            var bindings = BindingsType.initWithPrompt(specs, &instance.prompt);
             var engine_ctx = Configured.Context{ .bindings = &bindings };
 
             const capability_meta = struct {
@@ -1148,7 +1152,7 @@ pub fn Build(comptime spec: anytype) type {
             };
             const value = try runWithSealedEngine(
                 sealed_contract,
-                .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = lexical_state },
+                .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = lexical_state },
                 Body,
             );
             if (mode == .resume_then_transform) {

@@ -84,13 +84,13 @@ fn runWithSealedEngine(
 
     const RunnerState = struct {
         runtime: *shift.Runtime,
-        prompt_token: prompt_contract.PromptToken,
+        prompt_identity: *const anyopaque,
         engine_ctx: *EngineContextType,
         lexical_state: ?*anyopaque = null,
     };
     const runner_state = RunnerState{
         .runtime = config.runtime,
-        .prompt_token = config.prompt_token,
+        .prompt_identity = config.prompt_identity,
         .engine_ctx = config.engine_ctx,
         .lexical_state = if (@hasField(@TypeOf(config), "lexical_state")) config.lexical_state else null,
     };
@@ -98,7 +98,7 @@ fn runWithSealedEngine(
     const runner = struct {
         /// Run one sealed effect body with both exact context and shared engine context installed.
         pub fn run(state: RunnerState, comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSetType)!AnswerType {
-            var prompt = PromptType{ .token = state.prompt_token };
+            const prompt: *const PromptType = @ptrCast(@alignCast(state.prompt_identity));
             if (comptime family.hasDeclSafe(Body, "program")) {
                 const AuthoredType = @TypeOf(Body.program(Cap, ctx));
                 if (@typeInfo(AuthoredType) == .@"struct") {
@@ -107,15 +107,19 @@ fn runWithSealedEngine(
                     defer authored.deactivate();
                     return try frontend.run(state.runtime, authored.prompt, authored.program);
                 }
-                return try frontend.run(state.runtime, &prompt, Body.program(Cap, ctx));
+                return try frontend.run(state.runtime, prompt, Body.program(Cap, ctx));
             }
             if (comptime family.hasDeclSafe(Body, "body")) {
-                return try frontend.run(state.runtime, &prompt, computeProgramForPrompt(Cap, ctx, PromptType, Body.body));
+                return try frontend.run(state.runtime, prompt, computeProgramForPrompt(Cap, ctx, PromptType, Body.body));
             }
             @compileError("effect body must declare program or body");
         }
     };
     return try family.withCapability(family.ContextSpec(StateType, AnswerType, ErrorSetType), capability_decls, runner_state, AnswerType, runner);
+}
+
+fn promptIdentity(prompt: anytype) *const anyopaque {
+    return @ptrCast(prompt);
 }
 
 /// Read the current state value through the shared algebraic engine.
@@ -180,7 +184,7 @@ pub fn handleState(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, ErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -209,7 +213,7 @@ pub fn handleState(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    const value = try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    const value = try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
     return .{ .state = state_cell, .value = value };
 }
 
@@ -274,7 +278,7 @@ pub fn handleStateWithErrorSetLexical(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, config.instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &config.instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -303,7 +307,7 @@ pub fn handleStateWithErrorSetLexical(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    const value = try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_token = config.instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
+    const value = try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
     return .{ .state = state_cell, .value = value };
 }
 
@@ -345,7 +349,7 @@ pub fn handleReader(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, ErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -369,7 +373,7 @@ pub fn handleReader(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
 }
 
 /// Handle the public reader capability with an explicit error set.
@@ -416,7 +420,7 @@ pub fn handleReaderWithErrorSetLexical(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, config.instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &config.instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -440,7 +444,7 @@ pub fn handleReaderWithErrorSetLexical(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_token = config.instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
 }
 
 /// Append one item through the shared algebraic engine.
@@ -488,7 +492,7 @@ pub fn handleWriter(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, ErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -512,7 +516,7 @@ pub fn handleWriter(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    const value = try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    const value = try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
     const items = try writer_state.intoOwnedSlice();
     return .{ .items = items, .value = value };
 }
@@ -570,7 +574,7 @@ pub fn handleWriterWithErrorSetLexical(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, config.instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &config.instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -594,7 +598,7 @@ pub fn handleWriterWithErrorSetLexical(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    const value = try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_token = config.instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
+    const value = try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
     const items = try writer_state.intoOwnedSlice();
     return .{ .items = items, .value = value };
 }
@@ -744,7 +748,7 @@ pub fn handleOptional(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), ResumeType, AnswerType, ErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -773,7 +777,7 @@ pub fn handleOptional(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
 }
 
 /// Handle the public optional capability with an explicit error set.
@@ -819,7 +823,7 @@ pub fn handleOptionalWithErrorSet(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), ResumeType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -848,7 +852,7 @@ pub fn handleOptionalWithErrorSet(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
 }
 
 /// Run a continuation-taking lexical optional family through the shared algebraic engine.
@@ -891,7 +895,7 @@ pub fn handleOptionalLexical(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, ErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -920,7 +924,7 @@ pub fn handleOptionalLexical(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
 }
 
 /// Handle the public optional lexical capability with an explicit error set.
@@ -965,7 +969,7 @@ pub fn handleOptionalLexicalWithErrorSet(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, config.instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &config.instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -994,7 +998,7 @@ pub fn handleOptionalLexicalWithErrorSet(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_token = config.instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
 }
 
 /// Assert the catch policy shape required by an exception family.
@@ -1089,7 +1093,7 @@ pub fn handleException(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, ErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -1118,7 +1122,7 @@ pub fn handleException(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
 }
 
 /// Handle the public exception capability with an explicit error set.
@@ -1171,7 +1175,7 @@ pub fn handleExceptionWithErrorSetLexical(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, config.instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &config.instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -1200,7 +1204,7 @@ pub fn handleExceptionWithErrorSetLexical(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_token = config.instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
 }
 
 /// Assert the manager shape required by a bracketed resource family.
@@ -1314,7 +1318,7 @@ pub fn handleResource(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, ErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -1345,7 +1349,7 @@ pub fn handleResource(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    const answer = runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body) catch |err| blk: {
+    const answer = runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body) catch |err| blk: {
         body_error = err;
         break :blk null;
     };
@@ -1443,7 +1447,7 @@ pub fn handleResourceWithErrorSetLexical(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, config.instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &config.instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -1474,7 +1478,7 @@ pub fn handleResourceWithErrorSetLexical(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    const answer = runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_token = config.instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body) catch |err| blk: {
+    const answer = runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body) catch |err| blk: {
         body_error = err;
         break :blk null;
     };

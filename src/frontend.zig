@@ -951,19 +951,18 @@ fn persistHandlerContext(
 }
 
 fn findFrame(comptime PromptType: type, prompt: *const PromptType) ?*Frame(PromptType) {
+    const prompt_identity: *const anyopaque = @ptrCast(prompt);
     if (lowered_machine.activeRuntime()) |runtime| {
-        const runtime_head = runtime.core.frames.find(*FrameBase, prompt.token) orelse return null;
-        var runtime_base = runtime_head;
-        const prompt_identity: *const anyopaque = @ptrCast(prompt);
-        while (true) {
-            if (runtime_base.prompt_identity == prompt_identity) return @fieldParentPtr("base", runtime_base);
-            runtime_base = runtime_base.runtime_previous_for_token orelse break;
+        if (runtime.core.frames.find(*FrameBase, prompt.token)) |runtime_head| {
+            var runtime_base = runtime_head;
+            while (true) {
+                if (runtime_base.prompt_identity == prompt_identity) return @fieldParentPtr("base", runtime_base);
+                runtime_base = runtime_base.runtime_previous_for_token orelse break;
+            }
         }
-        return null;
     }
 
     var compat_base = portable_core.compatFrameFind(*FrameBase, prompt.token) orelse return null;
-    const prompt_identity: *const anyopaque = @ptrCast(prompt);
     while (true) {
         if (compat_base.prompt_identity == prompt_identity) return @fieldParentPtr("base", compat_base);
         compat_base = compat_base.compat_previous_for_token orelse return null;
@@ -1824,6 +1823,49 @@ test "runtime frame lookup returns null for same-token prompts that were never p
 
     try std.testing.expect(findFrame(Prompt, &orphan_prompt) == null);
     try std.testing.expectError(error.MissingPrompt, transform(i32, &orphan_prompt, handler));
+}
+
+test "findFrame falls back to compat frames when an active inner runtime misses an outer prompt" {
+    const Prompt = prompt_contract.Prompt(.resume_then_transform, i32, i32, error{});
+    const handler = struct {
+        /// Return one distinct resumptive value for the active-runtime fallback regression.
+        pub fn resumeValue() i32 {
+            return 41;
+        }
+
+        /// Preserve the resumed answer so only frame routing affects the test.
+        pub fn afterResume(answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    var outer_runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer outer_runtime.deinit();
+    var inner_runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer inner_runtime.deinit();
+
+    var outer_prompt = Prompt.initWithToken(41);
+    var inner_prompt = Prompt.initWithToken(42);
+
+    var outer_frame = Frame(Prompt).init(lowered_machine.runtimeAllocator(&outer_runtime), &outer_prompt);
+    defer outer_frame.deinit();
+    try pushActiveFrame(&outer_runtime, &outer_frame.base);
+    defer popActiveFrame(&outer_runtime, &outer_frame.base);
+
+    var inner_frame = Frame(Prompt).init(lowered_machine.runtimeAllocator(&inner_runtime), &inner_prompt);
+    defer inner_frame.deinit();
+    try pushActiveFrame(&inner_runtime, &inner_frame.base);
+    defer popActiveFrame(&inner_runtime, &inner_frame.base);
+
+    try lowered_machine.beginExecution(&outer_runtime);
+    defer lowered_machine.endExecution(&outer_runtime);
+    try lowered_machine.beginExecution(&inner_runtime);
+    defer lowered_machine.endExecution(&inner_runtime);
+
+    try std.testing.expect(findFrame(Prompt, &outer_prompt) == &outer_frame);
+    try std.testing.expectError(error.FrontendSuspend, transform(i32, &outer_prompt, handler));
+    try std.testing.expectEqual(@as(usize, 1), outer_frame.records.items.len);
+    try std.testing.expectEqual(@as(usize, 0), inner_frame.records.items.len);
 }
 
 test "choiceWithContext persists a copy of handler context for replay" {
