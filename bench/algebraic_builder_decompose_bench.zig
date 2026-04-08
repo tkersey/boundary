@@ -54,9 +54,13 @@ const raw_transform = struct {
         }
     };
 
-    fn body() shift.ResetError(NoError)!usize {
-        const value = try shift.frontend.transform(usize, prompt_ptr.?, handler);
-        return value + 1;
+    fn program() shift.Program(RawTransformPrompt) {
+        return shift.transformProgram(RawTransformPrompt, usize, handler, struct {
+            /// Preserve the raw resumed value plus the benchmark's one-step tail.
+            pub fn apply(value: usize) usize {
+                return value + 1;
+            }
+        });
     }
 };
 
@@ -82,10 +86,19 @@ const effect_algebraic_transform = struct {
     const empty_configured = empty_program.handlers(.{});
 
     const transform_body = struct {
-        /// Execute one algebraic transform operation.
-        pub fn body(ctx: *@TypeOf(transform_configured).Context) shift.ResetError(NoError)!usize {
-            const value = try ctx.perform(AlgebraicTransformOp, raw_transform.current_value);
-            return value + 1;
+        /// Execute one algebraic transform operation through the explicit program path.
+        pub fn program(ctx: *@TypeOf(transform_configured).Context) @TypeOf(ctx.performProgram(AlgebraicTransformOp, 0, struct {
+            /// Preserve the resumed algebraic value plus the benchmark's one-step tail.
+            pub fn apply(value: usize) usize {
+                return value + 1;
+            }
+        })) {
+            return ctx.performProgram(AlgebraicTransformOp, raw_transform.current_value, struct {
+                /// Preserve the resumed algebraic value plus the benchmark's one-step tail.
+                pub fn apply(value: usize) usize {
+                    return value + 1;
+                }
+            });
         }
     };
 
@@ -98,8 +111,14 @@ const effect_algebraic_transform = struct {
 };
 
 fn runRawTransformSample(runtime: *shift.Runtime, prompt: *RawTransformPrompt, iterations: usize) !Sample {
-    _ = prompt;
-    return try runConfiguredTransformSample(runtime, iterations);
+    var timer = try std.time.Timer.start();
+    var checksum: usize = 0;
+    var index: usize = 0;
+    while (index < iterations) : (index += 1) {
+        raw_transform.current_value = index;
+        checksum += preserveValue(try shift.reset(runtime, prompt, raw_transform.program()));
+    }
+    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
 
 fn runConfiguredShellSample(runtime: *shift.Runtime, iterations: usize) !Sample {
