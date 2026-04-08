@@ -2,8 +2,11 @@ const std = @import("std");
 
 const allowed_exports = &[_][]const u8{
     "compat",
+    "durable",
     "effect",
     "interpreter",
+    "lowering",
+    "lower",
     "ir",
     "With",
     "with",
@@ -77,9 +80,13 @@ pub fn main() anyerror!void {
         const trimmed = trimWhitespace(line);
         if (depth == 0 and trimmed.len != 0) {
             const pub_const = "pub const ";
+            const pub_inline_fn = "pub inline fn ";
             const pub_fn = "pub fn ";
             if (trimmed.len > pub_const.len and std.mem.startsWith(u8, trimmed, pub_const)) {
                 const name = readIdentifier(trimmed, pub_const.len);
+                if (name.len != 0 and !contains(names.items, name)) try names.append(allocator, name);
+            } else if (trimmed.len > pub_inline_fn.len and std.mem.startsWith(u8, trimmed, pub_inline_fn)) {
+                const name = readIdentifier(trimmed, pub_inline_fn.len);
                 if (name.len != 0 and !contains(names.items, name)) try names.append(allocator, name);
             } else if (trimmed.len > pub_fn.len and std.mem.startsWith(u8, trimmed, pub_fn)) {
                 const name = readIdentifier(trimmed, pub_fn.len);

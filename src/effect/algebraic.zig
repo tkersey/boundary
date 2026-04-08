@@ -84,13 +84,13 @@ fn runWithSealedEngine(
 
     const RunnerState = struct {
         runtime: *shift.Runtime,
-        prompt_token: prompt_contract.PromptToken,
+        prompt_identity: *const anyopaque,
         engine_ctx: *EngineContextType,
         lexical_state: ?*anyopaque = null,
     };
     const runner_state = RunnerState{
         .runtime = config.runtime,
-        .prompt_token = config.prompt_token,
+        .prompt_identity = config.prompt_identity,
         .engine_ctx = config.engine_ctx,
         .lexical_state = if (@hasField(@TypeOf(config), "lexical_state")) config.lexical_state else null,
     };
@@ -98,17 +98,28 @@ fn runWithSealedEngine(
     const runner = struct {
         /// Run one sealed effect body with both exact context and shared engine context installed.
         pub fn run(state: RunnerState, comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSetType)!AnswerType {
-            var prompt = PromptType{ .token = state.prompt_token };
+            const prompt: *const PromptType = @ptrCast(@alignCast(state.prompt_identity));
             if (comptime family.hasDeclSafe(Body, "program")) {
-                return try frontend.run(state.runtime, &prompt, Body.program(Cap, ctx));
+                const AuthoredType = @TypeOf(Body.program(Cap, ctx));
+                if (@typeInfo(AuthoredType) == .@"struct") {
+                    var authored = Body.program(Cap, ctx);
+                    authored.activate();
+                    defer authored.deactivate();
+                    return try frontend.run(state.runtime, authored.prompt, authored.program);
+                }
+                return try frontend.run(state.runtime, prompt, Body.program(Cap, ctx));
             }
             if (comptime family.hasDeclSafe(Body, "body")) {
-                return try frontend.run(state.runtime, &prompt, computeProgramForPrompt(Cap, ctx, PromptType, Body.body));
+                return try frontend.run(state.runtime, prompt, computeProgramForPrompt(Cap, ctx, PromptType, Body.body));
             }
             @compileError("effect body must declare program or body");
         }
     };
     return try family.withCapability(family.ContextSpec(StateType, AnswerType, ErrorSetType), capability_decls, runner_state, AnswerType, runner);
+}
+
+fn promptIdentity(prompt: anytype) *const anyopaque {
+    return @ptrCast(prompt);
 }
 
 /// Read the current state value through the shared algebraic engine.
@@ -173,7 +184,7 @@ pub fn handleState(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, ErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -202,7 +213,7 @@ pub fn handleState(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    const value = try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    const value = try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
     return .{ .state = state_cell, .value = value };
 }
 
@@ -267,7 +278,7 @@ pub fn handleStateWithErrorSetLexical(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, config.instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &config.instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -296,7 +307,7 @@ pub fn handleStateWithErrorSetLexical(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    const value = try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_token = config.instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
+    const value = try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
     return .{ .state = state_cell, .value = value };
 }
 
@@ -338,7 +349,7 @@ pub fn handleReader(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, ErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -362,7 +373,7 @@ pub fn handleReader(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
 }
 
 /// Handle the public reader capability with an explicit error set.
@@ -409,7 +420,7 @@ pub fn handleReaderWithErrorSetLexical(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, config.instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &config.instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -433,7 +444,7 @@ pub fn handleReaderWithErrorSetLexical(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_token = config.instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
 }
 
 /// Append one item through the shared algebraic engine.
@@ -481,7 +492,7 @@ pub fn handleWriter(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, ErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -505,7 +516,7 @@ pub fn handleWriter(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    const value = try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    const value = try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
     const items = try writer_state.intoOwnedSlice();
     return .{ .items = items, .value = value };
 }
@@ -563,7 +574,7 @@ pub fn handleWriterWithErrorSetLexical(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, config.instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &config.instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -587,7 +598,7 @@ pub fn handleWriterWithErrorSetLexical(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    const value = try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_token = config.instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
+    const value = try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
     const items = try writer_state.intoOwnedSlice();
     return .{ .items = items, .value = value };
 }
@@ -711,10 +722,12 @@ pub fn handleOptional(
     const hidden_program = internal.Program(ResumeType, AnswerType, ErrorSetType, .{optional_request_op});
     const OptionalState = struct {
         cleanup_marker: ?*cleanup.Frame,
+        cleanup_stack: *cleanup.Stack,
     };
-    const cleanup_marker = cleanup.checkpoint();
+    const cleanup_stack = &runtime.core.cleanup;
+    const cleanup_marker = cleanup_stack.checkpoint();
     const specs = .{
-        internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker }, struct {
+        internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker, .cleanup_stack = cleanup_stack }, struct {
             /// Choose whether the optional request resumes or returns now.
             pub fn resumeOrReturn(_: OptionalState, _: void) lowered_machine.ResetError(ErrorSetType)!choice.Decision(ResumeType, AnswerType) {
                 const DecisionFn = @TypeOf(Policy.resumeOrReturn);
@@ -723,8 +736,8 @@ pub fn handleOptional(
             }
             /// Finish the optional request by applying cleanup and the policy's after-resume path.
             pub fn afterResume(state: OptionalState, value: ResumeType) lowered_machine.ResetError(ErrorSetType)!AnswerType {
-                if (cleanup.checkpoint() != state.cleanup_marker) {
-                    cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
+                if (state.cleanup_stack.checkpoint() != state.cleanup_marker) {
+                    state.cleanup_stack.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
                 }
                 const AfterFn = @TypeOf(Policy.afterResume);
                 if (AfterFn == fn (ResumeType) AnswerType) return Policy.afterResume(value);
@@ -735,7 +748,7 @@ pub fn handleOptional(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), ResumeType, AnswerType, ErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -764,7 +777,7 @@ pub fn handleOptional(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
 }
 
 /// Handle the public optional capability with an explicit error set.
@@ -784,10 +797,12 @@ pub fn handleOptionalWithErrorSet(
     const hidden_program = internal.Program(ResumeType, AnswerType, RunErrorSetType, .{optional_request_op});
     const OptionalState = struct {
         cleanup_marker: ?*cleanup.Frame,
+        cleanup_stack: *cleanup.Stack,
     };
-    const cleanup_marker = cleanup.checkpoint();
+    const cleanup_stack = &runtime.core.cleanup;
+    const cleanup_marker = cleanup_stack.checkpoint();
     const specs = .{
-        internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker }, struct {
+        internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker, .cleanup_stack = cleanup_stack }, struct {
             /// Decide whether this public hook resumes or returns.
             pub fn resumeOrReturn(_: OptionalState, _: void) lowered_machine.ResetError(RunErrorSetType)!choice.Decision(ResumeType, AnswerType) {
                 const DecisionFn = @TypeOf(Policy.resumeOrReturn);
@@ -796,8 +811,8 @@ pub fn handleOptionalWithErrorSet(
             }
             /// Finish this public resumed path.
             pub fn afterResume(state: OptionalState, value: ResumeType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-                if (cleanup.checkpoint() != state.cleanup_marker) {
-                    cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
+                if (state.cleanup_stack.checkpoint() != state.cleanup_marker) {
+                    state.cleanup_stack.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
                 }
                 const AfterFn = @TypeOf(Policy.afterResume);
                 if (AfterFn == fn (ResumeType) AnswerType) return Policy.afterResume(value);
@@ -808,7 +823,7 @@ pub fn handleOptionalWithErrorSet(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), ResumeType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -837,7 +852,7 @@ pub fn handleOptionalWithErrorSet(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
 }
 
 /// Run a continuation-taking lexical optional family through the shared algebraic engine.
@@ -857,7 +872,7 @@ pub fn handleOptionalLexical(
     const OptionalState = struct {
         cleanup_marker: ?*cleanup.Frame,
     };
-    const cleanup_marker = cleanup.checkpoint();
+    const cleanup_marker = runtime.core.cleanup.checkpoint();
     const specs = .{
         internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker }, struct {
             /// Choose whether the lexical optional request resumes or returns now.
@@ -868,8 +883,8 @@ pub fn handleOptionalLexical(
             }
             /// Finish one resumed lexical optional answer by applying cleanup and the policy's final answer transform.
             pub fn afterResume(state: OptionalState, answer: AnswerType) lowered_machine.ResetError(ErrorSetType)!AnswerType {
-                if (cleanup.checkpoint() != state.cleanup_marker) {
-                    cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
+                if (runtime.core.cleanup.checkpoint() != state.cleanup_marker) {
+                    runtime.core.cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
                 }
                 const AfterFn = @TypeOf(Policy.afterResume);
                 if (AfterFn == fn (AnswerType) AnswerType) return Policy.afterResume(answer);
@@ -880,7 +895,7 @@ pub fn handleOptionalLexical(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, ErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -909,7 +924,7 @@ pub fn handleOptionalLexical(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
 }
 
 /// Handle the public optional lexical capability with an explicit error set.
@@ -928,10 +943,12 @@ pub fn handleOptionalLexicalWithErrorSet(
     const hidden_program = internal.Program(AnswerType, AnswerType, RunErrorSetType, .{optional_request_op});
     const OptionalState = struct {
         cleanup_marker: ?*cleanup.Frame,
+        cleanup_stack: *cleanup.Stack,
     };
-    const cleanup_marker = cleanup.checkpoint();
+    const cleanup_stack = &config.runtime.core.cleanup;
+    const cleanup_marker = cleanup_stack.checkpoint();
     const specs = .{
-        internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker }, struct {
+        internal.handleChoice(optional_request_op, OptionalState{ .cleanup_marker = cleanup_marker, .cleanup_stack = cleanup_stack }, struct {
             /// Decide whether this public hook resumes or returns.
             pub fn resumeOrReturn(_: OptionalState, _: void) lowered_machine.ResetError(RunErrorSetType)!choice.Decision(ResumeType, AnswerType) {
                 const DecisionFn = @TypeOf(Policy.resumeOrReturn);
@@ -940,8 +957,8 @@ pub fn handleOptionalLexicalWithErrorSet(
             }
             /// Finish this public resumed path.
             pub fn afterResume(state: OptionalState, answer: AnswerType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-                if (cleanup.checkpoint() != state.cleanup_marker) {
-                    cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
+                if (state.cleanup_stack.checkpoint() != state.cleanup_marker) {
+                    state.cleanup_stack.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
                 }
                 const AfterFn = @TypeOf(Policy.afterResume);
                 if (AfterFn == fn (AnswerType) AnswerType) return Policy.afterResume(answer);
@@ -952,7 +969,7 @@ pub fn handleOptionalLexicalWithErrorSet(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, config.instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &config.instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -981,7 +998,7 @@ pub fn handleOptionalLexicalWithErrorSet(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_token = config.instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
 }
 
 /// Assert the catch policy shape required by an exception family.
@@ -1058,13 +1075,15 @@ pub fn handleException(
     const hidden_program = internal.Program(AnswerType, AnswerType, ErrorSetType, .{exception_throw_op});
     const ExceptionState = struct {
         cleanup_marker: ?*cleanup.Frame,
+        cleanup_stack: *cleanup.Stack,
     };
-    const cleanup_marker = cleanup.checkpoint();
+    const cleanup_stack = &runtime.core.cleanup;
+    const cleanup_marker = cleanup_stack.checkpoint();
     const specs = .{
-        internal.handleAbort(exception_throw_op, ExceptionState{ .cleanup_marker = cleanup_marker }, struct {
+        internal.handleAbort(exception_throw_op, ExceptionState{ .cleanup_marker = cleanup_marker, .cleanup_stack = cleanup_stack }, struct {
             /// Convert one thrown payload into the caught answer while unwinding cleanup.
             pub fn directReturn(state: ExceptionState, payload: PayloadType) lowered_machine.ResetError(ErrorSetType)!AnswerType {
-                cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
+                state.cleanup_stack.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
                 const DirectFn = @TypeOf(Catch.directReturn);
                 if (DirectFn == fn (PayloadType) AnswerType) return Catch.directReturn(payload);
                 return try Catch.directReturn(payload);
@@ -1074,7 +1093,7 @@ pub fn handleException(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, ErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -1103,7 +1122,7 @@ pub fn handleException(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
 }
 
 /// Handle the public exception capability with an explicit error set.
@@ -1138,13 +1157,15 @@ pub fn handleExceptionWithErrorSetLexical(
     const hidden_program = internal.Program(AnswerType, AnswerType, RunErrorSetType, .{exception_throw_op});
     const ExceptionState = struct {
         cleanup_marker: ?*cleanup.Frame,
+        cleanup_stack: *cleanup.Stack,
     };
-    const cleanup_marker = cleanup.checkpoint();
+    const cleanup_stack = &config.runtime.core.cleanup;
+    const cleanup_marker = cleanup_stack.checkpoint();
     const specs = .{
-        internal.handleAbort(exception_throw_op, ExceptionState{ .cleanup_marker = cleanup_marker }, struct {
+        internal.handleAbort(exception_throw_op, ExceptionState{ .cleanup_marker = cleanup_marker, .cleanup_stack = cleanup_stack }, struct {
             /// Return directly through this public hook.
             pub fn directReturn(state: ExceptionState, payload: PayloadType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-                cleanup.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
+                state.cleanup_stack.unwindTo(state.cleanup_marker) catch |err| return @errorCast(err);
                 const DirectFn = @TypeOf(Catch.directReturn);
                 if (DirectFn == fn (PayloadType) AnswerType) return Catch.directReturn(payload);
                 return try Catch.directReturn(payload);
@@ -1154,7 +1175,7 @@ pub fn handleExceptionWithErrorSetLexical(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, config.instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &config.instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -1183,7 +1204,7 @@ pub fn handleExceptionWithErrorSetLexical(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_token = config.instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
+    return try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
 }
 
 /// Assert the manager shape required by a bracketed resource family.
@@ -1297,7 +1318,7 @@ pub fn handleResource(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, ErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -1319,7 +1340,7 @@ pub fn handleResource(
         }
     };
 
-    cleanup.push(&frame.cleanup_frame);
+    runtime.core.cleanup.push(&frame.cleanup_frame);
     var body_error: ?lowered_machine.ResetError(ErrorSetType) = null;
     const contract = struct {
         const PromptTypeV = prompt_contract.Prompt(.resume_then_transform, AnswerType, AnswerType, ErrorSetType);
@@ -1328,14 +1349,14 @@ pub fn handleResource(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    const answer = runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_token = instance.prompt.token, .engine_ctx = &engine_ctx }, Body) catch |err| blk: {
+    const answer = runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body) catch |err| blk: {
         body_error = err;
         break :blk null;
     };
 
     const cleanup_marker = frame.cleanup_frame.previous;
     var cleanup_error: ?lowered_machine.ResetError(ErrorSetType) = null;
-    cleanup.unwindTo(cleanup_marker) catch |err| {
+    runtime.core.cleanup.unwindTo(cleanup_marker) catch |err| {
         cleanup_error = @errorCast(err);
     };
 
@@ -1426,7 +1447,7 @@ pub fn handleResourceWithErrorSetLexical(
     const configured = hidden_program.handlers(specs);
     const GeneratedEngineContextType = @TypeOf(configured).Context;
     const BindingsType = internal.BindingChainFor(@TypeOf(specs), AnswerType, AnswerType, RunErrorSetType);
-    var bindings = BindingsType.initWithToken(specs, config.instance.prompt.token);
+    var bindings = BindingsType.initWithPrompt(specs, &config.instance.prompt);
     var engine_ctx = GeneratedEngineContextType{ .bindings = &bindings };
 
     const capability_meta = struct {
@@ -1448,7 +1469,7 @@ pub fn handleResourceWithErrorSetLexical(
         }
     };
 
-    cleanup.push(&frame.cleanup_frame);
+    config.runtime.core.cleanup.push(&frame.cleanup_frame);
     var body_error: ?lowered_machine.ResetError(RunErrorSetType) = null;
     const contract = struct {
         const PromptTypeV = prompt_contract.Prompt(.resume_then_transform, AnswerType, AnswerType, RunErrorSetType);
@@ -1457,14 +1478,14 @@ pub fn handleResourceWithErrorSetLexical(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    const answer = runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_token = config.instance.prompt.token, .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body) catch |err| blk: {
+    const answer = runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body) catch |err| blk: {
         body_error = err;
         break :blk null;
     };
 
     const cleanup_marker = frame.cleanup_frame.previous;
     var cleanup_error: ?lowered_machine.ResetError(RunErrorSetType) = null;
-    cleanup.unwindTo(cleanup_marker) catch |err| {
+    config.runtime.core.cleanup.unwindTo(cleanup_marker) catch |err| {
         cleanup_error = @errorCast(err);
     };
 

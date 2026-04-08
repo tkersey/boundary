@@ -1,6 +1,20 @@
 const effect_ir = @import("effect_ir");
+const helper_body_ir = @import("helper_body_ir");
 const parity_scenarios = @import("parity_scenarios");
 const std = @import("std");
+
+/// One lowered helper-body basic block carried by the internal front end.
+pub const BodyBlock = helper_body_ir.Block;
+/// One lowered helper-body instruction carried by the internal front end.
+pub const BodyInstruction = helper_body_ir.Instruction;
+/// One lowered helper-body local codec carried by the internal front end.
+pub const BodyLocalCodec = helper_body_ir.LocalCodec;
+/// One lowered helper-body terminator carried by the internal front end.
+pub const BodyTerminator = helper_body_ir.Terminator;
+/// One lowered helper-body terminator kind carried by the internal front end.
+pub const BodyTerminatorKind = helper_body_ir.TerminatorKind;
+/// One lowered helper-body payload aligned to one front-end function.
+pub const FunctionBody = helper_body_ir.FunctionBody;
 
 /// Witness programs exposed through the internal structured-program front end.
 pub const WitnessProgram = enum {
@@ -43,20 +57,27 @@ pub const LoweredProgram = struct {
 /// One open-row program payload lowered through the new Effect IR semantic center.
 pub const OpenRowProgram = struct {
     label: []const u8,
-    function: effect_ir.Function,
+    entry_symbol: []const u8,
+    entry_module_path: ?[]const u8 = null,
+    functions: []const effect_ir.Function,
     call_edges: []const effect_ir.CallEdge = &.{},
+    function_bodies: []const FunctionBody = &.{},
 };
 
-/// One lowered open-row program that owns its single-function storage.
+/// One lowered open-row program that owns its function storage.
 pub const LoweredOpenRowProgram = struct {
-    functions: [1]effect_ir.Function,
+    entry_index: usize,
+    functions: []const effect_ir.Function,
     call_edges: []const effect_ir.CallEdge = &.{},
+    function_bodies: []const FunctionBody = &.{},
 
-    /// Project the owned single-function storage back into the generic Effect IR view.
+    /// Project the owned function storage back into the generic Effect IR view.
     pub fn asEffectProgram(self: *const @This()) effect_ir.Program {
         return .{
-            .functions = self.functions[0..],
+            .entry_index = @intCast(self.entry_index),
+            .functions = self.functions,
             .call_edges = self.call_edges,
+            .function_bodies = self.function_bodies,
         };
     }
 };
@@ -80,17 +101,18 @@ pub const open_rows = struct {
         });
         return .{
             .label = "example.open_row_state_writer",
-            .function = .{
+            .entry_symbol = "runBody",
+            .functions = &.{.{
                 .symbol = .{
                     .module_path = "examples/open_row_state_writer.zig",
-                    .symbol_name = "body",
+                    .symbol_name = "runBody",
                 },
                 .row = row,
                 .outputs = &.{
                     .{ .label = "state", .OutputType = i32 },
                     .{ .label = "writer", .OutputType = [][]const u8 },
                 },
-            },
+            }},
         };
     }
 };
@@ -311,32 +333,132 @@ fn cloneCallEdges(comptime call_edges: []const effect_ir.CallEdge) []const effec
     };
 }
 
+fn cloneBodyInstructions(comptime instructions: []const helper_body_ir.Instruction) []const helper_body_ir.Instruction {
+    return comptime blk: {
+        var buffer: [instructions.len]helper_body_ir.Instruction = undefined;
+        for (instructions, 0..) |instruction, index| {
+            buffer[index] = instruction;
+        }
+        break :blk buffer[0..];
+    };
+}
+
+fn cloneBodyBlocks(comptime blocks: []const helper_body_ir.Block) []const helper_body_ir.Block {
+    return comptime blk: {
+        var buffer: [blocks.len]helper_body_ir.Block = undefined;
+        for (blocks, 0..) |block, index| {
+            buffer[index] = .{
+                .instructions = cloneBodyInstructions(block.instructions),
+                .terminator = block.terminator,
+            };
+        }
+        break :blk buffer[0..];
+    };
+}
+
+fn cloneLocalCodecs(comptime codecs: []const helper_body_ir.LocalCodec) []const helper_body_ir.LocalCodec {
+    return comptime blk: {
+        var buffer: [codecs.len]helper_body_ir.LocalCodec = undefined;
+        for (codecs, 0..) |codec, index| {
+            buffer[index] = codec;
+        }
+        break :blk buffer[0..];
+    };
+}
+
+fn cloneLocalIds(comptime local_ids: []const helper_body_ir.LocalId) []const helper_body_ir.LocalId {
+    return comptime blk: {
+        var buffer: [local_ids.len]helper_body_ir.LocalId = undefined;
+        for (local_ids, 0..) |local_id, index| {
+            buffer[index] = local_id;
+        }
+        break :blk buffer[0..];
+    };
+}
+
+fn cloneFunctionBodies(comptime function_bodies: []const helper_body_ir.FunctionBody) []const helper_body_ir.FunctionBody {
+    return comptime blk: {
+        var buffer: [function_bodies.len]helper_body_ir.FunctionBody = undefined;
+        for (function_bodies, 0..) |body, index| {
+            buffer[index] = .{
+                .local_codecs = cloneLocalCodecs(body.local_codecs),
+                .call_arg_locals = cloneLocalIds(body.call_arg_locals),
+                .entry_block = body.entry_block,
+                .blocks = cloneBodyBlocks(body.blocks),
+            };
+        }
+        break :blk buffer[0..];
+    };
+}
+
 fn cloneFunction(comptime function: effect_ir.Function) effect_ir.Function {
     return .{
         .symbol = cloneSymbolRef(function.symbol),
         .row = cloneRow(function.row),
+        .parameter_codecs = cloneLocalCodecs(function.parameter_codecs),
+        .ValueType = function.ValueType,
         .outputs = cloneOutputSpecs(function.outputs),
     };
 }
 
-fn validateOpenRowCallEdges(
-    comptime function: effect_ir.Function,
-    comptime call_edges: []const effect_ir.CallEdge,
-) effect_ir.NormalizeError!void {
-    for (call_edges) |edge| {
-        if (!edge.caller.eql(function.symbol) or !edge.callee.eql(function.symbol)) {
-            return error.UnsupportedHelperCallEdge;
+fn cloneFunctions(comptime functions: []const effect_ir.Function) []const effect_ir.Function {
+    return comptime blk: {
+        var buffer: [functions.len]effect_ir.Function = undefined;
+        for (functions, 0..) |function, index| {
+            buffer[index] = cloneFunction(function);
         }
-    }
+        break :blk buffer[0..];
+    };
 }
 
-/// Lower one open-row frontend payload into stable single-function storage.
-/// The returned Effect IR owns one function, so only self-call edges are admissible.
+fn validateOpenRowGraph(
+    comptime functions: []const effect_ir.Function,
+    comptime call_edges: []const effect_ir.CallEdge,
+) effect_ir.NormalizeError!void {
+    const symbols = comptime blk: {
+        var buffer: [functions.len]effect_ir.SymbolRef = undefined;
+        for (functions, 0..) |function, index| {
+            buffer[index] = function.symbol;
+        }
+        break :blk buffer;
+    };
+    try effect_ir.validateGraph(.{
+        .symbols = &symbols,
+        .edges = call_edges,
+    });
+}
+
+fn entryIndex(
+    comptime functions: []const effect_ir.Function,
+    comptime entry_symbol: []const u8,
+    comptime entry_module_path: ?[]const u8,
+) effect_ir.NormalizeError!usize {
+    var found_index: ?usize = null;
+    for (functions, 0..) |function, index| {
+        if (!std.mem.eql(u8, function.symbol.symbol_name, entry_symbol)) continue;
+        if (entry_module_path) |module_path| {
+            if (!std.mem.eql(u8, function.symbol.module_path, module_path)) continue;
+        }
+        if (found_index != null) return error.DuplicateSymbol;
+        found_index = index;
+    }
+    return found_index orelse error.UnknownSymbol;
+}
+
+/// Lower one open-row frontend payload into stable function storage.
 pub fn lowerOpenRow(program: OpenRowProgram) effect_ir.NormalizeError!LoweredOpenRowProgram {
-    try validateOpenRowCallEdges(program.function, program.call_edges);
+    try validateOpenRowGraph(program.functions, program.call_edges);
+    if (program.function_bodies.len != 0 and program.function_bodies.len != program.functions.len) {
+        return error.UnsupportedHelperCallEdge;
+    }
     return .{
-        .functions = .{cloneFunction(program.function)},
+        .entry_index = try entryIndex(program.functions, program.entry_symbol, program.entry_module_path),
+        .functions = cloneFunctions(program.functions),
         .call_edges = cloneCallEdges(program.call_edges),
+        .function_bodies = if (program.function_bodies.len == 0)
+            &.{}
+        else
+            cloneFunctionBodies(program.function_bodies),
     };
 }
 
@@ -359,10 +481,13 @@ test "lowerOpenRow preserves the function payload" {
     };
     const program = try lowerOpenRow(.{
         .label = "example.open_row.workflow",
-        .function = function,
+        .entry_symbol = "workflow",
+        .functions = &.{function},
     });
 
     try @import("std").testing.expectEqual(@as(usize, 1), program.functions.len);
+    try @import("std").testing.expectEqual(@as(usize, 0), program.entry_index);
+    try @import("std").testing.expectEqual(@as(usize, 0), program.function_bodies.len);
     try @import("std").testing.expectEqualStrings("workflow", program.functions[0].symbol.symbol_name);
     const digest = try effect_ir.rowDigest(program.functions[0].row, program.functions[0].outputs);
     try @import("std").testing.expectEqual(@as(usize, 1), digest.requirement_count);
@@ -373,17 +498,135 @@ test "lowerOpenRow preserves the function payload" {
 test "open row state-writer workflow carries both requirements and outputs" {
     const program = try lowerOpenRow(open_rows.stateWriterWorkflow());
     try @import("std").testing.expectEqual(@as(usize, 1), program.functions.len);
-    try @import("std").testing.expectEqualStrings("body", program.functions[0].symbol.symbol_name);
+    try @import("std").testing.expectEqual(@as(usize, 0), program.function_bodies.len);
+    try @import("std").testing.expectEqualStrings("runBody", program.functions[0].symbol.symbol_name);
     const digest = try effect_ir.rowDigest(program.functions[0].row, program.functions[0].outputs);
     try @import("std").testing.expectEqual(@as(usize, 2), digest.requirement_count);
     try @import("std").testing.expectEqual(@as(usize, 3), digest.op_count);
     try @import("std").testing.expectEqual(@as(usize, 2), digest.output_count);
 }
 
+test "lowerOpenRow preserves row-only helper-call metadata without synthesizing body storage" {
+    const helper_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/synth.zig",
+        .symbol_name = "helper",
+    };
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/synth.zig",
+        .symbol_name = "root",
+    };
+    const row = effect_ir.rowFromSpec(.{
+        .state = .{
+            .get = effect_ir.Transform(void, i32),
+        },
+    });
+    const program = try lowerOpenRow(.{
+        .label = "example.synth",
+        .entry_symbol = "root",
+        .functions = &.{
+            .{ .symbol = root_symbol, .row = row, .outputs = &.{.{ .label = "state", .OutputType = i32 }} },
+            .{ .symbol = helper_symbol, .row = row, .outputs = &.{} },
+        },
+        .call_edges = &.{.{
+            .caller = root_symbol,
+            .callee = helper_symbol,
+        }},
+    });
+
+    try @import("std").testing.expectEqual(@as(usize, 0), program.function_bodies.len);
+    try @import("std").testing.expectEqual(@as(usize, 1), program.call_edges.len);
+    try @import("std").testing.expect(program.call_edges[0].caller.eql(root_symbol));
+    try @import("std").testing.expect(program.call_edges[0].callee.eql(helper_symbol));
+}
+
+test "lowerOpenRow preserves helper-call metadata even when helpers carry parameters" {
+    const helper_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/synth_args.zig",
+        .symbol_name = "helper",
+    };
+    const root_symbol = effect_ir.SymbolRef{
+        .module_path = "examples/synth_args.zig",
+        .symbol_name = "root",
+    };
+
+    const program = try lowerOpenRow(.{
+        .label = "example.synth_args",
+        .entry_symbol = "root",
+        .functions = &.{
+            .{
+                .symbol = root_symbol,
+                .row = effect_ir.rowFromSpec(.{}),
+            },
+            .{
+                .symbol = helper_symbol,
+                .row = effect_ir.rowFromSpec(.{}),
+                .parameter_codecs = &.{.i32},
+            },
+        },
+        .call_edges = &.{.{
+            .caller = root_symbol,
+            .callee = helper_symbol,
+        }},
+    });
+
+    try @import("std").testing.expectEqual(@as(usize, 0), program.function_bodies.len);
+    try @import("std").testing.expectEqual(@as(usize, 1), program.call_edges.len);
+}
+
+test "lowerOpenRow preserves row-only value-returning payloads without inventing bodies" {
+    const program = try lowerOpenRow(.{
+        .label = "example.synth_value",
+        .entry_symbol = "root",
+        .functions = &.{.{
+            .symbol = .{
+                .module_path = "examples/synth_value.zig",
+                .symbol_name = "root",
+            },
+            .row = effect_ir.rowFromSpec(.{}),
+            .ValueType = i32,
+        }},
+    });
+
+    try @import("std").testing.expectEqual(@as(usize, 0), program.function_bodies.len);
+    try @import("std").testing.expectEqual(@as(@TypeOf(program.functions[0].ValueType), i32), program.functions[0].ValueType);
+}
+
+test "lowerOpenRow preserves attached helper body storage" {
+    const program = try lowerOpenRow(.{
+        .label = "example.body_storage",
+        .entry_symbol = "runBody",
+        .functions = &.{.{
+            .symbol = .{
+                .module_path = "examples/body_storage.zig",
+                .symbol_name = "runBody",
+            },
+            .row = effect_ir.rowFromSpec(.{
+                .state = .{
+                    .get = effect_ir.Transform(void, i32),
+                },
+            }),
+        }},
+        .function_bodies = &.{.{
+            .local_codecs = &.{},
+            .call_arg_locals = &.{},
+            .entry_block = 0,
+            .blocks = &.{.{
+                .instructions = &.{},
+                .terminator = .{ .kind = .return_unit },
+            }},
+        }},
+    });
+
+    try @import("std").testing.expectEqual(@as(usize, 1), program.function_bodies.len);
+    try @import("std").testing.expectEqual(@as(usize, 1), program.function_bodies[0].blocks.len);
+    try @import("std").testing.expectEqual(@as(helper_body_ir.BlockId, 0), program.function_bodies[0].entry_block);
+}
+
 test "lowerOpenRow keeps prior lowered functions stable across later calls" {
     const alpha = try lowerOpenRow(.{
         .label = "example.alpha",
-        .function = .{
+        .entry_symbol = "alpha",
+        .functions = &.{.{
             .symbol = .{
                 .module_path = "examples/alpha.zig",
                 .symbol_name = "alpha",
@@ -393,11 +636,12 @@ test "lowerOpenRow keeps prior lowered functions stable across later calls" {
                     .get = effect_ir.Transform(void, i32),
                 },
             }),
-        },
+        }},
     });
     const beta = try lowerOpenRow(.{
         .label = "example.beta",
-        .function = .{
+        .entry_symbol = "beta",
+        .functions = &.{.{
             .symbol = .{
                 .module_path = "examples/beta.zig",
                 .symbol_name = "beta",
@@ -407,7 +651,7 @@ test "lowerOpenRow keeps prior lowered functions stable across later calls" {
                     .tell = effect_ir.Transform([]const u8, void),
                 },
             }),
-        },
+        }},
     });
 
     try @import("std").testing.expectEqualStrings("alpha", alpha.functions[0].symbol.symbol_name);
@@ -415,10 +659,11 @@ test "lowerOpenRow keeps prior lowered functions stable across later calls" {
     try @import("std").testing.expectEqualStrings("alpha", alpha.asEffectProgram().functions[0].symbol.symbol_name);
 }
 
-test "lowerOpenRow rejects helper call edges that cannot be materialized" {
-    try @import("std").testing.expectError(error.UnsupportedHelperCallEdge, lowerOpenRow(.{
+test "lowerOpenRow rejects helper call edges with unknown callee symbols" {
+    try @import("std").testing.expectError(error.UnknownSymbol, lowerOpenRow(.{
         .label = "example.helper_edge",
-        .function = .{
+        .entry_symbol = "workflow",
+        .functions = &.{.{
             .symbol = .{
                 .module_path = "examples/open_row.zig",
                 .symbol_name = "workflow",
@@ -428,7 +673,7 @@ test "lowerOpenRow rejects helper call edges that cannot be materialized" {
                     .get = effect_ir.Transform(void, i32),
                 },
             }),
-        },
+        }},
         .call_edges = &.{.{
             .caller = .{
                 .module_path = "examples/open_row.zig",

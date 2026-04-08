@@ -1,17 +1,25 @@
 const compat_api = @import("compat.zig");
-const effect_ir = @import("effect_ir");
+const durable_api = @import("durable.zig");
+const public_ir = @import("public_ir.zig");
 const effect_root = @import("effect/root.zig");
 const interpreter_api = @import("interpreter");
+const public_lowering = @import("public_lowering.zig");
 const with_api = @import("with_api.zig");
 
 /// Transitional compatibility namespace for the prior root-kernel front door.
 pub const compat = compat_api;
 /// Public lexical effect namespace.
 pub const effect = effect_root;
+/// Public durable session helpers over the interpreter core.
+pub const durable = durable_api;
 /// Public Effect IR helpers.
-pub const ir = effect_ir;
+pub const ir = public_ir;
 /// Public explicit interpreter state and step helpers.
 pub const interpreter = interpreter_api;
+/// Public additive lowering namespace over the retained open-row/effect-ir path.
+pub const lowering = public_lowering;
+/// Public provenance-bearing additive lowering entrypoint requiring explicit caller-supplied source ownership.
+pub const lower = public_lowering.lower;
 
 /// Build the public lexical metadata type.
 pub fn With(comptime HandlersType: type, comptime Body: type) type {
@@ -54,9 +62,12 @@ test {
     _ = Runtime;
     _ = RuntimeError;
     _ = compat;
+    _ = durable;
     _ = effect;
     _ = interpreter;
     _ = ir;
+    _ = lower;
+    _ = lowering;
     _ = with;
     _ = run;
 }

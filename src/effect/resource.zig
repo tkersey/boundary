@@ -229,13 +229,13 @@ test "resource handle releases before outer exception catch returns" {
     const scenario = struct {
         var runtime_ptr: ?*shift.Runtime = null;
         var resource_ptr: ?*const ResourceInstance = null;
-        threadlocal var outer_exception_ctx: ?*const anyopaque = null;
+        var outer_exception_ctx: ?*const anyopaque = null;
 
         /// Open a resource handle and throw through the outer exception capability.
         pub fn outer(comptime ExceptionCap: type, exception_ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             const ExceptionCtxType = @TypeOf(exception_ctx);
             const inner = struct {
-                threadlocal var active_exception_ctx: ?ExceptionCtxType = null;
+                var active_exception_ctx: ?ExceptionCtxType = null;
 
                 /// Acquire once, then abort through the outer exception handler.
                 pub fn program(comptime ResourceCap: type, resource_ctx: anytype) @TypeOf(computeProgram(ResourceCap, resource_ctx, struct {
@@ -346,13 +346,13 @@ test "resource handle releases before outer optional return-now completes" {
     const scenario = struct {
         var runtime_ptr: ?*shift.Runtime = null;
         var resource_ptr: ?*const ResourceInstance = null;
-        threadlocal var outer_optional_ctx: ?*const anyopaque = null;
+        var outer_optional_ctx: ?*const anyopaque = null;
 
         /// Open a resource handle and trigger the outer optional return-now branch.
         pub fn outer(comptime OptionalCap: type, optional_ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             const OptionalCtxType = @TypeOf(optional_ctx);
             const inner = struct {
-                threadlocal var active_optional_ctx: ?OptionalCtxType = null;
+                var active_optional_ctx: ?OptionalCtxType = null;
 
                 /// Acquire once, then early-return through the outer optional handler.
                 pub fn program(comptime ResourceCap: type, resource_ctx: anytype) @TypeOf(computeProgram(ResourceCap, resource_ctx, struct {

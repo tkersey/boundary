@@ -15,13 +15,17 @@ test "prompt shell stays compact" {
     try std.testing.expect(@sizeOf(DemoPrompt) <= @sizeOf(usize));
 }
 
-test "public root exposes the lexical surface plus kernel compatibility aliases" {
+test "public root keeps the lexical surface, additive lowering, and compatibility aliases" {
     try std.testing.expect(@hasDecl(shift, "compat"));
+    try std.testing.expect(@hasDecl(shift, "durable"));
     try std.testing.expect(@hasDecl(shift, "effect"));
     try std.testing.expect(@hasDecl(shift, "interpreter"));
+    try std.testing.expect(@hasDecl(shift, "lowering"));
+    try std.testing.expect(@hasDecl(shift, "lower"));
     try std.testing.expect(@hasDecl(shift, "With"));
     try std.testing.expect(@hasDecl(shift, "with"));
     try std.testing.expect(@hasDecl(shift, "ir"));
+    try std.testing.expect(@hasDecl(shift.ir, "compile"));
 
     try std.testing.expect(@hasDecl(shift, "Runtime"));
     try std.testing.expect(@hasDecl(shift, "RuntimeError"));
@@ -61,9 +65,37 @@ test "public root exposes the lexical surface plus kernel compatibility aliases"
     try std.testing.expect(@hasDecl(shift.compat, "run"));
     try std.testing.expect(!@hasDecl(shift.compat, "effect"));
     try std.testing.expect(!@hasDecl(shift.compat, "interpreter"));
+    try std.testing.expect(!@hasDecl(shift.compat, "durable"));
+    try std.testing.expect(!@hasDecl(shift.compat, "lower"));
+    try std.testing.expect(!@hasDecl(shift, "lowerAt"));
+    try std.testing.expect(!@hasDecl(shift.compat, "lowerAt"));
+    try std.testing.expect(!@hasDecl(shift.compat, "lowering"));
     try std.testing.expect(!@hasDecl(shift.compat, "With"));
     try std.testing.expect(!@hasDecl(shift.compat, "with"));
     try std.testing.expect(!@hasDecl(shift.compat, "ir"));
+
+    try std.testing.expect(!@hasDecl(shift.lowering, "openRow"));
+    try std.testing.expect(!@hasDecl(shift.lowering, "OpenRowProgram"));
+    try std.testing.expect(!@hasDecl(shift.lowering, "LoweredProgram"));
+    try std.testing.expect(!@hasDecl(shift.lowering, "ProgramPlan"));
+    try std.testing.expect(!@hasDecl(shift.lowering, "lowerOpenRow"));
+    try std.testing.expect(!@hasDecl(shift.lowering, "irProgram"));
+    try std.testing.expect(!@hasDecl(shift.lowering, "validateFileBackedOpenRow"));
+    try std.testing.expect(!@hasDecl(shift.lowering, "CompileOpenRow"));
+    try std.testing.expect(!@hasDecl(shift.lowering, "CompileOpenRowAt"));
+    try std.testing.expect(@hasDecl(shift.lowering, "source"));
+}
+
+test "shift.ir preserves the prior effect_ir compatibility surface" {
+    try std.testing.expect(@hasDecl(shift.ir, "Program"));
+    try std.testing.expect(@hasDecl(shift.ir, "compile"));
+    try std.testing.expect(@hasDecl(shift.ir, "ControlMode"));
+    try std.testing.expect(@hasDecl(shift.ir, "OpSpec"));
+    try std.testing.expect(@hasDecl(shift.ir, "Requirement"));
+    try std.testing.expect(@hasDecl(shift.ir, "NormalizeError"));
+
+    try std.testing.expect(hasErrorName(shift.ir.NormalizeError, "DuplicateRequirementLabel"));
+    try std.testing.expect(hasErrorName(shift.ir.NormalizeError, "OutputWithoutRequirement"));
 }
 
 test "public interpreter runs pure step data without host runtime ownership" {
@@ -76,6 +108,46 @@ test "public interpreter runs pure step data without host runtime ownership" {
     try std.testing.expectEqual(@as(usize, 1), shift.interpreter.events(&state).len);
     try std.testing.expectEqual(@as(usize, 0), shift.interpreter.checkpoints(&state).len);
     try std.testing.expectEqual(@as(?shift.interpreter.PromptId, .primary), state.active_prompt);
+}
+
+test "public additive lowering exposes the retained runtime-owned plan" {
+    const spec: shift.lowering.LowerSpec = .{
+        .label = "example.open_row_state_writer",
+        .entry_symbol = "runBody",
+        .row = shift.ir.mergeRows(.{
+            shift.ir.rowFromSpec(.{
+                .state = .{
+                    .get = shift.ir.Transform(void, i32),
+                    .set = shift.ir.Transform(i32, void),
+                },
+            }),
+            shift.ir.rowFromSpec(.{
+                .writer = .{
+                    .tell = shift.ir.Transform([]const u8, void),
+                },
+            }),
+        }),
+        .ValueType = []const u8,
+        .outputs = &.{
+            .{ .label = "state", .OutputType = i32 },
+            .{ .label = "writer", .OutputType = [][]const u8 },
+        },
+    };
+
+    const lowered = shift.lowering.lowerAt("examples/open_row_state_writer.zig", spec);
+    const explicit = shift.ir.compile(spec.label, shift.lowering.irProgramAt("examples/open_row_state_writer.zig", spec));
+
+    try std.testing.expectEqualStrings("example.open_row_state_writer", lowered.label);
+    try std.testing.expectEqualStrings("runBody", lowered.entry_symbol);
+    try std.testing.expectEqualStrings("examples/open_row_state_writer.zig", lowered.source_path);
+    try std.testing.expectEqual(@as(usize, 3), lowered.runtime_plan.functions.len);
+    try std.testing.expectEqual(@as(usize, 5), lowered.runtime_plan.requirements.len);
+    try std.testing.expectEqual(@as(usize, 7), lowered.runtime_plan.ops.len);
+
+    try std.testing.expectEqual(lowered.ir_hash, explicit.ir_hash);
+    try std.testing.expectEqual(@as(usize, lowered.runtime_plan.functions.len), explicit.runtime_plan.functions.len);
+    try std.testing.expectEqual(@as(usize, lowered.runtime_plan.requirements.len), explicit.runtime_plan.requirements.len);
+    try std.testing.expectEqual(@as(usize, lowered.runtime_plan.ops.len), explicit.runtime_plan.ops.len);
 }
 
 test "public runtime error surface still exposes the current contract" {

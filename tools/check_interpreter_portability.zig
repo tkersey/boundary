@@ -15,14 +15,21 @@ pub fn main() anyerror!void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const source_path = "src/interpreter.zig";
-    const contents = try std.fs.cwd().readFileAlloc(allocator, source_path, std.math.maxInt(usize));
+    const source_paths = &[_][]const u8{
+        "src/interpreter.zig",
+        "src/internal/kernel.zig",
+    };
 
     var violations: usize = 0;
-    for (banned_fragments) |fragment| {
-        if (std.mem.indexOf(u8, contents, fragment) != null) {
-            std.debug.print("portable interpreter violation in {s}: found banned fragment `{s}`\n", .{ source_path, fragment });
-            violations += 1;
+    for (source_paths) |source_path| {
+        const contents = try std.fs.cwd().readFileAlloc(allocator, source_path, std.math.maxInt(usize));
+        defer allocator.free(contents);
+
+        for (banned_fragments) |fragment| {
+            if (std.mem.indexOf(u8, contents, fragment) != null) {
+                std.debug.print("portable interpreter violation in {s}: found banned fragment `{s}`\n", .{ source_path, fragment });
+                violations += 1;
+            }
         }
     }
 

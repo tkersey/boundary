@@ -5,8 +5,11 @@ const expected_snapshot =
     \\  "root_exports": [
     \\    "compat",
     \\    "effect",
+    \\    "durable",
     \\    "ir",
     \\    "interpreter",
+    \\    "lowering",
+    \\    "lower",
     \\    "With",
     \\    "with",
     \\    "Runtime",
@@ -72,9 +75,12 @@ fn buildSnapshot(allocator: std.mem.Allocator) anyerror![]u8 {
         const trimmed = trimWhitespace(content[offset..line_end]);
         if (depth == 0 and trimmed.len != 0) {
             const pub_const = "pub const ";
+            const pub_inline_fn = "pub inline fn ";
             const pub_fn = "pub fn ";
             if (trimmed.len > pub_const.len and std.mem.startsWith(u8, trimmed, pub_const)) {
                 try exports.append(allocator, try allocator.dupe(u8, readIdentifier(trimmed, pub_const.len)));
+            } else if (trimmed.len > pub_inline_fn.len and std.mem.startsWith(u8, trimmed, pub_inline_fn)) {
+                try exports.append(allocator, try allocator.dupe(u8, readIdentifier(trimmed, pub_inline_fn.len)));
             } else if (trimmed.len > pub_fn.len and std.mem.startsWith(u8, trimmed, pub_fn)) {
                 try exports.append(allocator, try allocator.dupe(u8, readIdentifier(trimmed, pub_fn.len)));
             }

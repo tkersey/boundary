@@ -1,5 +1,20 @@
-const interpreter = @import("interpreter");
+const kernel = @import("internal_kernel");
+const portable_core = @import("portable_core");
 const std = @import("std");
+
+const SpinLock = struct {
+    state: u8 = 0,
+
+    fn lock(self: *@This()) void {
+        while (@cmpxchgWeak(u8, &self.state, 0, 1, .acquire, .monotonic) != null) {
+            std.atomic.spinLoopHint();
+        }
+    }
+
+    fn unlock(self: *@This()) void {
+        @atomicStore(u8, &self.state, 0, .release);
+    }
+};
 
 /// Public runtime misuse and semantic-contract errors surfaced by `shift`.
 pub const RuntimeError = error{
@@ -47,17 +62,14 @@ pub fn ResetError(comptime ErrorSet: type) type {
 /// Canonical thread-affine runtime backed by the lowered execution backend.
 pub const Runtime = struct {
     allocator: std.mem.Allocator,
+    core: portable_core.ExecutionCore,
     thread_id: std.Thread.Id,
-    state: enum {
-        alive,
-        destroyed,
-    } = .alive,
-    active_reset_count: usize = 0,
 
     /// Initialize a runtime on the current thread.
     pub fn init(allocator: std.mem.Allocator) Runtime {
         return .{
             .allocator = allocator,
+            .core = portable_core.ExecutionCore.init(allocator),
             .thread_id = std.Thread.getCurrentId(),
         };
     }
@@ -73,65 +85,165 @@ pub const Runtime = struct {
     /// Release runtime resources, returning an error on misuse.
     pub fn deinitChecked(self: *Runtime) RuntimeError!void {
         try self.ensureThread();
-        if (self.active_reset_count != 0) return error.RuntimeBusy;
-        self.state = .destroyed;
+        if (self.core.active_reset_count != 0) return error.RuntimeBusy;
+        self.core.state = .destroyed;
+        self.core.deinit();
+        portable_core.compatFrameDeinitIfIdle();
     }
 
     /// Confirm the runtime is live and accessed from the owning thread.
     pub fn ensureThread(self: *Runtime) RuntimeError!void {
         if (self.thread_id != std.Thread.getCurrentId()) return error.CrossThread;
-        if (self.state == .destroyed) return error.RuntimeDestroyed;
+        if (self.core.state == .destroyed) return error.RuntimeDestroyed;
     }
 };
 
 /// Return the allocator owned by the host runtime.
 pub fn runtimeAllocator(runtime: *const Runtime) std.mem.Allocator {
-    return runtime.allocator;
+    return runtime.core.allocator;
+}
+
+const ActiveRuntimeRegistry = struct {
+    const Entry = struct {
+        runtime: *Runtime,
+        previous: ?*Entry,
+    };
+
+    lock_state: SpinLock = .{},
+    map: std.AutoHashMapUnmanaged(std.Thread.Id, *Entry) = .empty,
+
+    fn begin(self: *@This(), runtime: *Runtime) (RuntimeError || SetupError)!void {
+        self.lock_state.lock();
+        defer self.lock_state.unlock();
+
+        // zlinter-disable-next-line no_hidden_allocations - registry nodes must not perturb runtime-owned allocation accounting
+        const entry = try std.heap.page_allocator.create(Entry);
+        // zlinter-disable-next-line no_hidden_allocations - registry nodes must unwind through the same non-runtime allocator
+        errdefer std.heap.page_allocator.destroy(entry);
+        entry.* = .{
+            .runtime = runtime,
+            .previous = self.map.get(runtime.thread_id),
+        };
+        try self.map.put(std.heap.page_allocator, runtime.thread_id, entry);
+    }
+
+    fn end(self: *@This(), runtime: *Runtime) bool {
+        self.lock_state.lock();
+        defer self.lock_state.unlock();
+
+        const entry = self.map.get(runtime.thread_id) orelse return false;
+        if (entry.runtime != runtime) return false;
+        if (entry.previous) |previous| {
+            self.map.getPtr(runtime.thread_id).?.* = previous;
+            // zlinter-disable-next-line no_hidden_allocations - registry nodes must unwind through the same non-runtime allocator
+            std.heap.page_allocator.destroy(entry);
+            return true;
+        }
+        _ = self.map.remove(runtime.thread_id);
+        // zlinter-disable-next-line no_hidden_allocations - registry nodes must unwind through the same non-runtime allocator
+        std.heap.page_allocator.destroy(entry);
+        if (self.map.count() == 0) {
+            self.map.deinit(std.heap.page_allocator);
+            self.map = .empty;
+        }
+        return true;
+    }
+
+    fn current(self: *@This(), thread_id: std.Thread.Id) ?*Runtime {
+        self.lock_state.lock();
+        defer self.lock_state.unlock();
+        return if (self.map.get(thread_id)) |entry| entry.runtime else null;
+    }
+};
+
+var active_runtimes = ActiveRuntimeRegistry{};
+
+/// Return the currently active runtime on this thread, if one is executing.
+pub fn activeRuntime() ?*Runtime {
+    return active_runtimes.current(std.Thread.getCurrentId());
 }
 
 /// Enter one frontend execution against the host runtime.
-pub fn beginExecution(runtime: *Runtime) RuntimeError!void {
+pub fn beginExecution(runtime: *Runtime) (RuntimeError || SetupError)!void {
     try runtime.ensureThread();
-    runtime.active_reset_count += 1;
+    try active_runtimes.begin(runtime);
+    runtime.core.active_reset_count += 1;
 }
 
 /// Leave one frontend execution against the host runtime.
 pub fn endExecution(runtime: *Runtime) void {
-    runtime.active_reset_count -= 1;
+    endExecutionChecked(runtime) catch |err| std.debug.panic("runtime execution teardown misuse: {s}", .{@errorName(err)});
+}
+
+/// Leave one frontend execution against the host runtime, returning an error on misuse.
+pub fn endExecutionChecked(runtime: *Runtime) RuntimeError!void {
+    try runtime.ensureThread();
+    if (runtime.core.active_reset_count == 0) return error.RuntimeBusy;
+    if (!active_runtimes.end(runtime)) return error.RuntimeBusy;
+    runtime.core.active_reset_count -= 1;
+}
+
+test "endExecutionChecked rejects mismatched nested runtime shutdown without corrupting active runtime state" {
+    var outer_runtime = Runtime.init(std.testing.allocator);
+    defer outer_runtime.deinit();
+    var inner_runtime = Runtime.init(std.testing.allocator);
+    defer inner_runtime.deinit();
+
+    var outer_active = false;
+    var inner_active = false;
+    defer if (inner_active) endExecution(&inner_runtime);
+    defer if (outer_active) endExecution(&outer_runtime);
+
+    try beginExecution(&outer_runtime);
+    outer_active = true;
+    try beginExecution(&inner_runtime);
+    inner_active = true;
+
+    try std.testing.expect(activeRuntime() == &inner_runtime);
+    try std.testing.expectError(error.RuntimeBusy, endExecutionChecked(&outer_runtime));
+    try std.testing.expect(activeRuntime() == &inner_runtime);
+
+    try endExecutionChecked(&inner_runtime);
+    inner_active = false;
+    try std.testing.expect(activeRuntime() == &outer_runtime);
+
+    try endExecutionChecked(&outer_runtime);
+    outer_active = false;
+    try std.testing.expect(activeRuntime() == null);
 }
 
 /// Stable scenario ids re-exported from the canonical scenario registry.
-pub const ScenarioId = interpreter.ScenarioId;
+pub const ScenarioId = kernel.ScenarioId;
 /// Stable prompt ids re-exported from the canonical scenario registry.
-pub const PromptId = interpreter.PromptId;
+pub const PromptId = kernel.PromptId;
 /// Pending continuation kinds re-exported from the canonical scenario registry.
-pub const PendingKind = interpreter.PendingKind;
+pub const PendingKind = kernel.PendingKind;
 /// Typed proof values re-exported from the canonical scenario registry.
-pub const Value = interpreter.Value;
+pub const Value = kernel.Value;
 /// Narrow typed program values used by the explicit canonical program path.
-pub const ProgramValue = interpreter.ProgramValue;
+pub const ProgramValue = kernel.ProgramValue;
 /// Transcript events re-exported from the canonical scenario registry.
-pub const Event = interpreter.Event;
+pub const Event = kernel.Event;
 /// Checkpoint tags re-exported from the canonical scenario registry.
-pub const CheckpointTag = interpreter.CheckpointTag;
+pub const CheckpointTag = kernel.CheckpointTag;
 /// Pending frames re-exported from the canonical scenario registry.
-pub const PendingFrame = interpreter.PendingFrame;
+pub const PendingFrame = kernel.PendingFrame;
 /// Trace checkpoints re-exported from the canonical scenario registry.
-pub const TraceCheckpoint = interpreter.TraceCheckpoint;
+pub const TraceCheckpoint = kernel.TraceCheckpoint;
 /// Lowered proof steps re-exported from the canonical scenario registry.
-pub const Step = interpreter.Step;
+pub const Step = kernel.Step;
 /// Full typed execution state for one lowered-machine execution.
-pub const MachineState = interpreter.MachineState;
+pub const MachineState = kernel.State;
 /// Pure interpreter state alias for new callers.
-pub const InterpreterState = interpreter.State;
+pub const InterpreterState = kernel.State;
 /// Execute one sequence of lowered machine steps to completion.
-pub const runSteps = interpreter.runSteps;
+pub const runSteps = kernel.runSteps;
 /// Return the captured checkpoints for one machine execution.
-pub const checkpoints = interpreter.checkpoints;
+pub const checkpoints = kernel.checkpoints;
 /// Return the transcript-projection events for one machine execution.
-pub const events = interpreter.events;
+pub const events = kernel.events;
 /// Render the exact-output transcript for one machine execution.
-pub const writeTranscript = interpreter.writeTranscript;
+pub const writeTranscript = kernel.writeTranscript;
 
 /// Execute one explicit typed-value pure program to completion.
 pub fn runExplicitPure(
@@ -147,9 +259,9 @@ pub fn runExplicitTransform(
     comptime PromptType: type,
     node: anytype,
 ) anyerror!PromptType.OutAnswer {
-    const resume_value = try node.resumeValueFn();
+    const resume_value = try node.resumeValueFn(node.handler_ctx);
     const in_answer = try node.continueFn(resume_value);
-    return try node.afterResumeFn(in_answer);
+    return try node.afterResumeFn(node.handler_ctx, in_answer);
 }
 
 /// Execute one explicit typed-value choice program to completion.
@@ -157,11 +269,11 @@ pub fn runExplicitChoice(
     comptime PromptType: type,
     node: anytype,
 ) anyerror!PromptType.OutAnswer {
-    const decision = try node.decisionFn();
+    const decision = try node.decisionFn(node.handler_ctx);
     return switch (decision) {
         .resume_with => |resume_value| blk: {
             const in_answer = try node.continueFn(node.continue_ctx, resume_value);
-            break :blk try node.afterResumeFn(in_answer);
+            break :blk try node.afterResumeFn(node.handler_ctx, in_answer);
         },
         .return_now => |answer| answer,
     };
@@ -172,5 +284,5 @@ pub fn runExplicitAbort(
     comptime PromptType: type,
     node: anytype,
 ) anyerror!PromptType.OutAnswer {
-    return try node.directReturnFn();
+    return try node.directReturnFn(node.handler_ctx);
 }

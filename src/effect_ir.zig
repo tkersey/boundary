@@ -210,6 +210,72 @@ pub const CallEdge = struct {
     callee: SymbolRef,
 };
 
+/// Stable local slot identifier inside one public helper body.
+pub const LocalId = u16;
+
+/// Stable basic-block identifier inside one public helper body.
+pub const BlockId = u16;
+
+/// Serializable local codec admitted by the public helper-body machine.
+pub const LocalCodec = enum {
+    bool,
+    i32,
+    string,
+    string_list,
+    unit,
+    usize,
+};
+
+/// Public helper-body instruction tags.
+pub const InstructionKind = enum {
+    add_const_i32,
+    call_helper,
+    call_op,
+    compare_eq_zero,
+    const_i32,
+    const_string,
+    return_value,
+    sub_one,
+};
+
+/// Public helper-body instruction.
+pub const Instruction = struct {
+    kind: InstructionKind,
+    dst: LocalId = 0,
+    operand: u16 = 0,
+    aux: u16 = 0,
+    string_literal: []const u8 = "",
+};
+
+/// Public helper-body terminator tags.
+pub const TerminatorKind = enum {
+    branch_if,
+    jump,
+    return_unit,
+    return_value,
+};
+
+/// Public helper-body terminator.
+pub const Terminator = struct {
+    kind: TerminatorKind,
+    primary: u16 = 0,
+    secondary: u16 = 0,
+};
+
+/// Public helper-body basic block.
+pub const Block = struct {
+    instructions: []const Instruction,
+    terminator: Terminator,
+};
+
+/// Public helper-body payload aligned to one function.
+pub const FunctionBody = struct {
+    local_codecs: []const LocalCodec = &.{},
+    call_arg_locals: []const LocalId = &.{},
+    entry_block: BlockId = 0,
+    blocks: []const Block = &.{},
+};
+
 /// One graph owned by the symbol/SCC resolver.
 pub const ResolverGraph = struct {
     symbols: []const SymbolRef,
@@ -225,13 +291,17 @@ pub const SccGroup = struct {
 pub const Function = struct {
     symbol: SymbolRef,
     row: Row,
+    parameter_codecs: []const LocalCodec = &.{},
+    ValueType: type = void,
     outputs: []const OutputSpec = &.{},
 };
 
 /// One resolved program plus the call graph it was elaborated from.
 pub const Program = struct {
+    entry_index: u16 = 0,
     functions: []const Function,
     call_edges: []const CallEdge,
+    function_bodies: []const FunctionBody = &.{},
 };
 
 /// One strongly connected component over symbolic functions.
@@ -270,6 +340,7 @@ pub const NormalizeError = error{
     InvalidRowShape,
     OutputWithoutRequirement,
     DuplicateSymbol,
+    InvalidProgramBodyShape,
     UnknownSymbol,
     UnsupportedHelperCallEdge,
     OutOfMemory,
