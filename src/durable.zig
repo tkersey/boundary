@@ -690,6 +690,15 @@ const ReadPlanFileResult = struct {
     plan: kernel.ProgramPlan,
 };
 
+const PlanFileSchemaProbe = struct {
+    schema_version: u32 = current_plan_schema,
+    plan: ?PlanSchemaProbe = null,
+};
+
+const PlanSchemaProbe = struct {
+    schema_version: u32 = kernel.ProgramPlan.current_schema_version,
+};
+
 fn readArtifactFile(allocator: std.mem.Allocator, path: []const u8) !ReadArtifactFileResult {
     const bytes = if (std.fs.path.isAbsolute(path)) blk: {
         const file = try std.fs.openFileAbsolute(path, .{});
@@ -718,6 +727,16 @@ fn readPlanFile(allocator: std.mem.Allocator, path: []const u8) !ReadPlanFileRes
         break :blk try reader.interface.allocRemaining(allocator, .limited(std.math.maxInt(usize)));
     } else try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
     defer allocator.free(bytes);
+
+    const schema_probe = try std.json.parseFromSlice(PlanFileSchemaProbe, allocator, bytes, .{
+        .ignore_unknown_fields = true,
+    });
+    defer schema_probe.deinit();
+    if (schema_probe.value.schema_version != current_plan_schema) return error.UnsupportedPlanSchema;
+    if (schema_probe.value.plan) |plan_probe| {
+        if (plan_probe.schema_version != kernel.ProgramPlan.current_schema_version) return error.UnsupportedPlanSchema;
+    }
+
     const parsed = try std.json.parseFromSlice(PlanFile, allocator, bytes, .{});
     defer parsed.deinit();
     if (parsed.value.schema_version != current_plan_schema) return error.UnsupportedPlanSchema;
