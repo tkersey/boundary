@@ -959,7 +959,7 @@ fn findFrame(comptime PromptType: type, prompt: *const PromptType) ?*Frame(Promp
             if (runtime_base.prompt_identity == prompt_identity) return @fieldParentPtr("base", runtime_base);
             runtime_base = runtime_base.runtime_previous_for_token orelse break;
         }
-        return @fieldParentPtr("base", runtime_head);
+        return null;
     }
 
     var compat_base = portable_core.compatFrameFind(*FrameBase, prompt.token) orelse return null;
@@ -1792,6 +1792,38 @@ test "runtime frame lookup keeps prompt-token collisions isolated inside one run
     try std.testing.expectError(error.FrontendSuspend, transform(i32, &first_prompt, handler));
     try std.testing.expectEqual(@as(usize, 1), first_frame.records.items.len);
     try std.testing.expectEqual(@as(usize, 0), second_frame.records.items.len);
+}
+
+test "runtime frame lookup returns null for same-token prompts that were never pushed" {
+    const Prompt = prompt_contract.Prompt(.resume_then_transform, i32, i32, error{});
+    const handler = struct {
+        /// Return one distinct resumptive value for the MissingPrompt regression.
+        pub fn resumeValue() i32 {
+            return 41;
+        }
+
+        /// Preserve the resumed answer so only frame routing affects the test.
+        pub fn afterResume(answer: i32) i32 {
+            return answer;
+        }
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    var pushed_prompt = Prompt.initWithToken(41);
+    var orphan_prompt = Prompt.initWithToken(41);
+
+    var frame = Frame(Prompt).init(lowered_machine.runtimeAllocator(&runtime), &pushed_prompt);
+    defer frame.deinit();
+    try pushActiveFrame(&runtime, &frame.base);
+    defer popActiveFrame(&runtime, &frame.base);
+
+    try lowered_machine.beginExecution(&runtime);
+    defer lowered_machine.endExecution(&runtime);
+
+    try std.testing.expect(findFrame(Prompt, &orphan_prompt) == null);
+    try std.testing.expectError(error.MissingPrompt, transform(i32, &orphan_prompt, handler));
 }
 
 test "choiceWithContext persists a copy of handler context for replay" {

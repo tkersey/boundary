@@ -137,7 +137,9 @@ fn canonicalSourceHash(b: *std.Build, path: []const u8) [32]u8 {
 
 fn repoZigPathRegistry(b: *std.Build) []const u8 {
     var paths = std.ArrayList([]const u8).empty;
-    collectTrackedRepoZigPaths(b, &paths);
+    if (!collectTrackedRepoZigPaths(b, &paths)) {
+        return readCommittedRepoZigPathRegistry(b);
+    }
 
     var left: usize = 0;
     while (left < paths.items.len) : (left += 1) {
@@ -159,21 +161,19 @@ fn repoZigPathRegistry(b: *std.Build) []const u8 {
     return registry.items;
 }
 
-fn collectTrackedRepoZigPaths(b: *std.Build, paths: *std.ArrayList([]const u8)) void {
+fn collectTrackedRepoZigPaths(b: *std.Build, paths: *std.ArrayList([]const u8)) bool {
     const repo_root = b.pathFromRoot(".");
     const result = std.process.Child.run(.{
         .allocator = b.allocator,
         .argv = &.{ "git", "-C", repo_root, "ls-files", "--", "*.zig" },
         .max_output_bytes = 512 * 1024,
-    }) catch |err| std.process.fatal("unable to list tracked repo Zig paths: {s}", .{@errorName(err)});
+    }) catch return false;
     defer b.allocator.free(result.stdout);
     defer b.allocator.free(result.stderr);
 
     switch (result.term) {
-        .Exited => |code| if (code != 0) {
-            std.process.fatal("git ls-files failed while building repo source registry: {s}", .{result.stderr});
-        },
-        else => std.process.fatal("git ls-files terminated unexpectedly while building repo source registry", .{}),
+        .Exited => |code| if (code != 0) return false,
+        else => return false,
     }
 
     var lines = std.mem.tokenizeScalar(u8, result.stdout, '\n');
@@ -183,6 +183,25 @@ fn collectTrackedRepoZigPaths(b: *std.Build, paths: *std.ArrayList([]const u8)) 
             std.process.fatal("unable to allocate tracked repo source path", .{})) catch
             std.process.fatal("unable to record tracked repo source path", .{});
     }
+    return true;
+}
+
+fn readCommittedRepoZigPathRegistry(b: *std.Build) []const u8 {
+    const registry_path = b.pathFromRoot("repo_zig_paths.txt");
+    const registry_dir_path = std.fs.path.dirname(registry_path) orelse
+        std.process.fatal("unable to derive committed repo Zig path registry directory", .{});
+    var registry_dir = std.fs.openDirAbsolute(registry_dir_path, .{}) catch |err|
+        std.process.fatal("unable to open committed repo Zig path registry directory: {s}", .{@errorName(err)});
+    defer registry_dir.close();
+    return registry_dir.readFileAllocOptions(
+        b.allocator,
+        std.fs.path.basename(registry_path),
+        512 * 1024,
+        null,
+        .of(u8),
+        0,
+    ) catch |err|
+        std.process.fatal("unable to read committed repo Zig path registry: {s}", .{@errorName(err)});
 }
 
 const PackageRootAlias = struct {
