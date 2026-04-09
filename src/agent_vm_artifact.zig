@@ -96,6 +96,8 @@ pub const ArtifactV1 = struct {
     /// Validate that the artifact manifest and rebuilt program plan are self-consistent.
     pub fn validate(self: @This()) anyerror!void {
         try validateManifest(self.build_fingerprint_blake3_256, self.capabilities);
+        if (self.entry_function_index >= self.functions.len) return error.InvalidEntryFunctionIndex;
+        if (self.functions[self.entry_function_index].parameter_count != 0) return error.UnsupportedEntryParameters;
         const plan = try self.toProgramPlan(std.heap.page_allocator);
         defer deepFreeProgramPlan(std.heap.page_allocator, plan);
         try plan.validate();
@@ -143,12 +145,15 @@ pub const DecodeError = error{
     DuplicateCapabilityId,
     DuplicateCapabilityOpId,
     DuplicateDirectorySection,
+    InvalidToolId,
     InvalidDirectoryBounds,
     InvalidEntryFunctionIndex,
     InvalidHashKind,
     InvalidRequiredSection,
     NonZeroReserved,
     StringRefOutOfBounds,
+    UnsortedDirectorySection,
+    UnsupportedEntryParameters,
     UnsupportedVersion,
     ArtifactHashMismatch,
 };
@@ -214,6 +219,7 @@ pub fn encodeProgramPlan(
     manifest: CapabilityManifestV1,
 ) anyerror![]u8 {
     try plan.validate();
+    if (plan.functions[plan.entry_index].parameter_count != 0) return error.UnsupportedEntryParameters;
     try validateManifest(manifest.build_fingerprint_blake3_256, manifest.capabilities);
 
     var strings = StringTable.init(allocator);
@@ -343,8 +349,14 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
     defer directories.deinit(allocator);
 
     var cursor: usize = @intCast(directory_offset);
+    var previous_section_id: ?u16 = null;
     while (cursor < directory_offset + directory_bytes_len) : (cursor += 32) {
-        const section_id = std.enums.fromInt(SectionId, readU16(bytes, cursor)) orelse return error.InvalidRequiredSection;
+        const raw_section_id = readU16(bytes, cursor);
+        if (previous_section_id) |previous| {
+            if (raw_section_id < previous) return error.UnsortedDirectorySection;
+        }
+        previous_section_id = raw_section_id;
+        const section_id = std.enums.fromInt(SectionId, raw_section_id) orelse return error.InvalidRequiredSection;
         if (required_seen.contains(section_id)) return error.DuplicateDirectorySection;
         required_seen.insert(section_id);
         const flags = readU16(bytes, cursor + 2);
@@ -458,6 +470,7 @@ fn validateManifest(build_fingerprint: [32]u8, capabilities: []const CapabilityV
             if (capability.capability_id == other.capability_id) return error.DuplicateCapabilityId;
         }
         if (capability.kind != .tool) return error.UnsupportedVersion;
+        try validateToolIdV1(capability.label);
         var expected_next: ?u16 = null;
         for (capability.ops, 0..) |op, op_index| {
             if (op.capability_id != capability.capability_id) return error.DuplicateCapabilityOpId;
@@ -470,6 +483,39 @@ fn validateManifest(build_fingerprint: [32]u8, capabilities: []const CapabilityV
                 if (op.op_id == other_op.op_id) return error.DuplicateCapabilityOpId;
             }
         }
+    }
+}
+
+fn validateToolIdV1(tool_id: []const u8) !void {
+    const slash_index = std.mem.indexOfScalar(u8, tool_id, '/') orelse return error.InvalidToolId;
+    if (slash_index == 0) return error.InvalidToolId;
+    if (std.mem.indexOfScalarPos(u8, tool_id, slash_index + 1, '/') != null) return error.InvalidToolId;
+
+    const version_index = std.mem.lastIndexOf(u8, tool_id, "@v") orelse return error.InvalidToolId;
+    if (version_index <= slash_index + 1) return error.InvalidToolId;
+    if (version_index + 2 >= tool_id.len) return error.InvalidToolId;
+
+    try validateToolIdSegment(tool_id[0..slash_index]);
+    try validateToolIdSegment(tool_id[slash_index + 1 .. version_index]);
+
+    const major = tool_id[version_index + 2 ..];
+    var has_digit = false;
+    var has_non_zero = false;
+    for (major) |byte| {
+        if (byte < '0' or byte > '9') return error.InvalidToolId;
+        has_digit = true;
+        if (byte != '0') has_non_zero = true;
+    }
+    if (!has_digit or !has_non_zero) return error.InvalidToolId;
+}
+
+fn validateToolIdSegment(segment: []const u8) !void {
+    if (segment.len == 0) return error.InvalidToolId;
+    for (segment) |byte| {
+        const is_lower = byte >= 'a' and byte <= 'z';
+        const is_digit = byte >= '0' and byte <= '9';
+        const is_punct = byte == '.' or byte == '_' or byte == '-';
+        if (!is_lower and !is_digit and !is_punct) return error.InvalidToolId;
     }
 }
 
@@ -1180,6 +1226,39 @@ pub fn deepFreeCapabilities(allocator: std.mem.Allocator, items: []CapabilityV1)
     allocator.free(items);
 }
 
+fn recomputeEncodedArtifactHash(bytes: []u8) void {
+    @memset(bytes[40..72], 0);
+    var digest = std.mem.zeroes([32]u8);
+    std.crypto.hash.Blake3.hash(bytes, &digest, .{});
+    @memcpy(bytes[40..72], &digest);
+}
+
+fn swapDirectoryEntries(bytes: []u8, first_index: usize, second_index: usize) void {
+    const directory_offset: usize = 72;
+    const entry_len: usize = 32;
+    const first_start = directory_offset + first_index * entry_len;
+    const second_start = directory_offset + second_index * entry_len;
+    var tmp = std.mem.zeroes([entry_len]u8);
+    @memcpy(&tmp, bytes[first_start .. first_start + entry_len]);
+    @memcpy(bytes[first_start .. first_start + entry_len], bytes[second_start .. second_start + entry_len]);
+    @memcpy(bytes[second_start .. second_start + entry_len], &tmp);
+    recomputeEncodedArtifactHash(bytes);
+}
+
+fn patchEntryParameterCount(bytes: []u8, parameter_count: u16) void {
+    const directory_offset: usize = 72;
+    const directory_count = readU16(bytes, 20);
+    var cursor: usize = directory_offset;
+    while (cursor < directory_offset + @as(usize, directory_count) * 32) : (cursor += 32) {
+        if (readU16(bytes, cursor) != @intFromEnum(SectionId.function_table)) continue;
+        const function_table_offset: usize = @intCast(readU64(bytes, cursor + 8));
+        std.mem.writeInt(u16, bytes[function_table_offset + 12 ..][0..2], parameter_count, .little);
+        recomputeEncodedArtifactHash(bytes);
+        return;
+    }
+    unreachable;
+}
+
 test "ArtifactV1 encode/decode preserves plan structure and capability manifest" {
     const build_fingerprint = buildFingerprintFromSeed("artifact-v1-test");
     const plan: program_plan.ProgramPlan = .{
@@ -1214,7 +1293,7 @@ test "ArtifactV1 encode/decode preserves plan structure and capability manifest"
     const capabilities = [_]CapabilityV1{.{
         .capability_id = 1,
         .kind = .tool,
-        .label = "tooling",
+        .label = "generated/tooling@v1",
         .ops = &.{.{
             .capability_id = 1,
             .op_id = 0,
@@ -1235,7 +1314,7 @@ test "ArtifactV1 encode/decode preserves plan structure and capability manifest"
 
     try std.testing.expectEqual(@as(u64, plan.ir_hash), decoded.semantic_ir_hash64);
     try std.testing.expectEqual(@as(usize, 1), decoded.capabilities.len);
-    try std.testing.expectEqualStrings("tooling", decoded.capabilities[0].label);
+    try std.testing.expectEqualStrings("generated/tooling@v1", decoded.capabilities[0].label);
     try std.testing.expectEqualStrings("tool.call", decoded.capabilities[0].ops[0].global_op_name);
     try std.testing.expectEqual(@as(usize, 1), decoded.functions.len);
     try std.testing.expectEqualStrings("entry", decoded.functions[0].symbol_name);
@@ -1326,7 +1405,7 @@ test "ArtifactV1 rejects exact-label custom capabilities whose op codecs do not 
             .first_instruction = 0,
             .instruction_count = 0,
         }},
-        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .requirements = &.{.{ .label = "repo/tooling@v1", .first_op = 0, .op_count = 1 }},
         .ops = &.{.{ .requirement_index = 0, .op_name = "first", .mode = .transform, .payload_codec = .unit, .resume_codec = .string }},
         .outputs = &.{},
         .locals = &.{},
@@ -1338,7 +1417,7 @@ test "ArtifactV1 rejects exact-label custom capabilities whose op codecs do not 
     const capabilities = [_]CapabilityV1{.{
         .capability_id = 10,
         .kind = .tool,
-        .label = "tooling",
+        .label = "repo/tooling@v1",
         .ops = &.{.{
             .capability_id = 10,
             .op_id = 0,
@@ -1406,4 +1485,181 @@ test "ArtifactV1 encoding is deterministic and disasm is readable" {
     defer std.testing.allocator.free(disasm);
     try std.testing.expect(std.mem.indexOf(u8, disasm, "ArtifactV1 ir_hash=145") != null);
     try std.testing.expect(std.mem.indexOf(u8, disasm, "functions=1") != null);
+}
+
+test "ArtifactV1 rejects entry functions with parameters during encode" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.entry_param",
+        .ir_hash = 0xaa,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .i32,
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{.{ .kind = .return_value, .operand = 0 }},
+    };
+
+    try std.testing.expectError(error.UnsupportedEntryParameters, encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = buildFingerprintFromSeed("artifact-entry-param-encode"),
+        .capabilities = &.{},
+    }));
+}
+
+test "ArtifactV1 decode rejects entry functions with parameters" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.entry_param_decode",
+        .ir_hash = 0xab,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .i32,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{.{ .kind = .return_value, .operand = 0 }},
+    };
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = buildFingerprintFromSeed("artifact-entry-param-decode"),
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(encoded);
+
+    patchEntryParameterCount(encoded, 1);
+    try std.testing.expectError(error.UnsupportedEntryParameters, decode(std.testing.allocator, encoded));
+}
+
+test "ArtifactV1 decode rejects unsorted section directories" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.unsorted_dir",
+        .ir_hash = 0xac,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = buildFingerprintFromSeed("artifact-unsorted-dir"),
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(encoded);
+
+    swapDirectoryEntries(encoded, 0, 1);
+    try std.testing.expectError(error.UnsortedDirectorySection, decode(std.testing.allocator, encoded));
+}
+
+test "ArtifactV1 rejects malformed capability tool ids during encode and decode" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-invalid-tool-id");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.invalid_tool_id",
+        .ir_hash = 0xad,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "first", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const invalid_capabilities = [_]CapabilityV1{.{
+        .capability_id = 4,
+        .kind = .tool,
+        .label = "Generated/tooling@v1",
+        .ops = &.{.{
+            .capability_id = 4,
+            .op_id = 0,
+            .global_op_name = "tool.call",
+            .payload_codec = .unit,
+            .result_codec = .unit,
+        }},
+    }};
+    try std.testing.expectError(error.InvalidToolId, encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &invalid_capabilities,
+    }));
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(encoded);
+
+    const label_offset = std.mem.indexOf(u8, encoded, "generated/tooling@v1").?;
+    encoded[label_offset] = 'G';
+    recomputeEncodedArtifactHash(encoded);
+    try std.testing.expectError(error.InvalidToolId, decode(std.testing.allocator, encoded));
 }
