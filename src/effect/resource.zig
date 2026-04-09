@@ -3,7 +3,7 @@ const family = @import("family.zig");
 const lexical_with = @import("../with_api.zig");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
-const shift = @import("../root.zig");
+const shift = lowered_machine;
 const std = @import("std");
 
 fn ReturnTypeErrorSet(comptime ReturnType: type) type {

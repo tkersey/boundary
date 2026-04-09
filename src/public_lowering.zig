@@ -3909,10 +3909,10 @@ test "executeLoweredDispatch runs choice ops across resume and return-now branch
         branch: enum { resume_with, return_now },
         after_calls: usize = 0,
 
-        pub fn pick(self: *@This()) anyerror!@import("root.zig").Decision([]const u8, []const u8) {
+        pub fn pick(self: *@This()) anyerror!@import("program_api.zig").Decision([]const u8, []const u8) {
             return switch (self.branch) {
-                .resume_with => @import("root.zig").Decision([]const u8, []const u8).resumeWith("answer=42"),
-                .return_now => @import("root.zig").Decision([]const u8, []const u8).returnNow("result=early"),
+                .resume_with => @import("program_api.zig").Decision([]const u8, []const u8).resumeWith("answer=42"),
+                .return_now => @import("program_api.zig").Decision([]const u8, []const u8).returnNow("result=early"),
             };
         }
 
@@ -4631,8 +4631,8 @@ test "executeLoweredDispatch unwinds caller after handlers across terminal helpe
         picker: struct {
             after_calls: usize = 0,
 
-            pub fn pick(_: *@This()) anyerror!@import("root.zig").Decision([]const u8, []const u8) {
-                return @import("root.zig").Decision([]const u8, []const u8).resumeWith("answer=42");
+            pub fn pick(_: *@This()) anyerror!@import("program_api.zig").Decision([]const u8, []const u8) {
+                return @import("program_api.zig").Decision([]const u8, []const u8).resumeWith("answer=42");
             }
 
             pub fn afterPick(self: *@This(), answer: []const u8) anyerror![]const u8 {

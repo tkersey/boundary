@@ -1107,7 +1107,7 @@ test "transform program resumes and observes final answer" {
         }
     };
 
-    var runtime = @import("../root.zig").Runtime.init(std.testing.allocator);
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     const result = try configured.run(&runtime, body);
     try std.testing.expectEqual(@as(i32, 42), result);
@@ -1153,7 +1153,7 @@ test "const authored transform programs stay activatable" {
         }
     };
 
-    var runtime = @import("../root.zig").Runtime.init(std.testing.allocator);
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     const result = try configured.run(&runtime, body);
     try std.testing.expectEqual(@as(i32, 42), result);
@@ -1196,7 +1196,7 @@ test "choice program may return now" {
         }
     };
 
-    var runtime = @import("../root.zig").Runtime.init(std.testing.allocator);
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     const result = try configured.run(&runtime, body);
     try std.testing.expectEqualStrings("early", result);
@@ -1240,7 +1240,7 @@ test "const authored choice programs with context stay activatable" {
     authored.activate();
     defer authored.deactivate();
 
-    var runtime = @import("../root.zig").Runtime.init(std.testing.allocator);
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     const result = try frontend.run(&runtime, authored.prompt, authored.program);
     try std.testing.expectEqualStrings("early", result);
@@ -1283,7 +1283,7 @@ test "abort program never resumes body tail" {
         }
     };
 
-    var runtime = @import("../root.zig").Runtime.init(std.testing.allocator);
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     body.after_abort = false;
     const result = try configured.run(&runtime, body);
@@ -1377,7 +1377,7 @@ test "warmed algebraic perform path adds no allocator traffic" {
     };
 
     var counting = CountingAllocator.init(std.testing.allocator);
-    var runtime = @import("../root.zig").Runtime.init(counting.allocator());
+    var runtime = lowered_machine.Runtime.init(counting.allocator());
     defer runtime.deinit();
 
     const warm = try configured.run(&runtime, body);

@@ -14,10 +14,14 @@ The public docs now frame `shift` around the effects-library surface:
 - lexical authoring through `shift.with(...)`
 - built-in and custom families through `shift.effect.*` and
   `shift.effect.Define(...)`
-- structural row vocabulary through `shift.ir`
+- structural row vocabulary through `shift_compile.ir`
+- lowering and source-provenance entrypoints through
+  `shift_compile.lowering` and `shift_compile.lower`
 - explicit `shift.Runtime` ownership beneath those public lanes
-- `shift.Program(...)`, `shift.Decl`, `shift.Op`, `shift.Decision(...)`, and
-  `shift.run(...)` as supported compatibility surfaces over the same substrate
+- `shift_vm.Program(...)`, `shift_vm.Decl`, `shift_vm.Op`,
+  `shift_vm.Decision(...)`, `shift_vm.run(...)`, `shift_vm.interpreter`,
+  `shift_vm.durable`, and `shift_vm.ErrorWitnessV1` as supported compatibility
+  surfaces over the same substrate
 
 Current authored frontends lower into that public boundary, but the
 source-lowering toolchain remains restricted internal proof scaffolding beneath
