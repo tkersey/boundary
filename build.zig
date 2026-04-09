@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const shipped_open_row_corpus = @import("src/shipped_open_row_corpus_registry.zig");
 const std = @import("std");
 const zlinter = @import("zlinter");
@@ -136,6 +137,46 @@ fn canonicalSourceHash(b: *std.Build, path: []const u8) [32]u8 {
 
     var digest = std.mem.zeroes([32]u8);
     std.crypto.hash.Blake3.hash(normalized, &digest, .{});
+    return digest;
+}
+
+fn hashBuildIdentityFile(hasher: *std.crypto.hash.Blake3, b: *std.Build, path: []const u8) void {
+    const bytes = std.fs.cwd().readFileAlloc(b.allocator, b.pathFromRoot(path), 1 << 20) catch
+        std.process.fatal("unable to read build identity file '{s}'", .{path});
+    defer b.allocator.free(bytes);
+
+    hasher.update(path);
+    hasher.update(bytes);
+}
+
+fn defaultArtifactBuildFingerprint(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) [32]u8 {
+    const registry = repoZigPathRegistry(b);
+    var hasher = std.crypto.hash.Blake3.init(.{});
+    hasher.update("shift-default-artifact-build-fingerprint-v1");
+    hasher.update(builtin.zig_version_string);
+    hasher.update(@tagName(optimize));
+    hasher.update(@tagName(target.result.cpu.arch));
+    hasher.update(@tagName(target.result.os.tag));
+    hasher.update(@tagName(target.result.abi));
+    hasher.update(@tagName(target.result.ofmt));
+    hasher.update(registry);
+    hashBuildIdentityFile(&hasher, b, "build.zig");
+    hashBuildIdentityFile(&hasher, b, "build.zig.zon");
+
+    var lines = std.mem.tokenizeScalar(u8, registry, '\n');
+    while (lines.next()) |path| {
+        if (path.len == 0) continue;
+        const digest = canonicalSourceHash(b, path);
+        hasher.update(path);
+        hasher.update(&digest);
+    }
+
+    var digest = std.mem.zeroes([32]u8);
+    hasher.final(&digest);
     return digest;
 }
 
@@ -565,6 +606,13 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const artifact_build_options = b.addOptions();
+    artifact_build_options.addOption(
+        [32]u8,
+        "default_artifact_build_fingerprint",
+        defaultArtifactBuildFingerprint(b, target, optimize),
+    );
+    shift_shared_mod.addOptions("artifact_build_options", artifact_build_options);
     const portable_core_mod = b.createModule(.{
         .root_source_file = b.path("src/portable_core.zig"),
         .target = target,

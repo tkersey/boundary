@@ -33,11 +33,12 @@ It does not reuse the current proof transcript shapes from
 
 HostAdapterV1 uses one recursive typed value tree:
 
-`DataValueV1 = null | bool | i64 | string | bytes | array<DataValueV1> | object<(string, DataValueV1)>`
+`DataValueV1 = null | bool | i64 | u64 | string | bytes | array<DataValueV1> | object<(string, DataValueV1)>`
 
 Canonical rules:
 
 - strings are UTF-8
+- `u64` carries full-range unsigned payloads such as `ValueCodec.usize`
 - object keys are unique
 - object entries are serialized in ascending UTF-8 byte order by key
 - bytes are explicit byte arrays, not base64-in-string hacks

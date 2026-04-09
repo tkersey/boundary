@@ -16,6 +16,7 @@ pub const DataValueV1 = union(enum) {
     null,
     object: []ObjectFieldV1,
     string: []const u8,
+    u64: u64,
 
     /// Clone one typed payload tree into allocator-owned memory.
     pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!DataValueV1 {
@@ -23,22 +24,33 @@ pub const DataValueV1 = union(enum) {
             .null => .null,
             .bool => |value| .{ .bool = value },
             .i64 => |value| .{ .i64 = value },
+            .u64 => |value| .{ .u64 = value },
             .string => |value| .{ .string = try allocator.dupe(u8, value) },
             .bytes => |value| .{ .bytes = try allocator.dupe(u8, value) },
             .array => |items| blk: {
                 const cloned = try allocator.alloc(DataValueV1, items.len);
                 errdefer allocator.free(cloned);
-                for (items, 0..) |item, index| cloned[index] = try item.clone(allocator);
+                var cloned_len: usize = 0;
+                errdefer for (cloned[0..cloned_len]) |*item| item.deinit(allocator);
+                for (items, 0..) |item, index| {
+                    cloned[index] = try item.clone(allocator);
+                    cloned_len += 1;
+                }
                 break :blk .{ .array = cloned };
             },
             .object => |fields| blk: {
                 const cloned = try allocator.alloc(ObjectFieldV1, fields.len);
                 errdefer allocator.free(cloned);
+                var cloned_len: usize = 0;
+                errdefer {
+                    for (cloned[0..cloned_len]) |*field| {
+                        allocator.free(field.key);
+                        field.value.deinit(allocator);
+                    }
+                }
                 for (fields, 0..) |field, index| {
-                    cloned[index] = .{
-                        .key = try allocator.dupe(u8, field.key),
-                        .value = try field.value.clone(allocator),
-                    };
+                    cloned[index] = try cloneObjectField(field, allocator);
+                    cloned_len += 1;
                 }
                 break :blk .{ .object = cloned };
             },
@@ -48,7 +60,7 @@ pub const DataValueV1 = union(enum) {
     /// Release any allocator-owned memory held by this typed payload tree.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         switch (self.*) {
-            .null, .bool, .i64 => {},
+            .null, .bool, .i64, .u64 => {},
             .string => |value| allocator.free(value),
             .bytes => |value| allocator.free(value),
             .array => |items| {
@@ -73,6 +85,20 @@ pub const ObjectFieldV1 = struct {
     value: DataValueV1,
 };
 
+fn cloneObjectField(field: ObjectFieldV1, allocator: std.mem.Allocator) !ObjectFieldV1 {
+    const key = try allocator.dupe(u8, field.key);
+    errdefer allocator.free(key);
+    const value = try field.value.clone(allocator);
+    errdefer {
+        var owned_value = value;
+        owned_value.deinit(allocator);
+    }
+    return .{
+        .key = key,
+        .value = value,
+    };
+}
+
 /// Typed tool-call request body used by HostAdapterV1.
 pub const ToolCallRequestV1 = struct {
     tool_id: []const u8,
@@ -82,11 +108,20 @@ pub const ToolCallRequestV1 = struct {
 
     /// Clone one tool-call request into allocator-owned memory.
     pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
+        const tool_id = try allocator.dupe(u8, self.tool_id);
+        errdefer allocator.free(tool_id);
+        const op_name = try allocator.dupe(u8, self.op_name);
+        errdefer allocator.free(op_name);
+        const arguments = try self.arguments.clone(allocator);
+        errdefer {
+            var owned_arguments = arguments;
+            owned_arguments.deinit(allocator);
+        }
         return .{
-            .tool_id = try allocator.dupe(u8, self.tool_id),
+            .tool_id = tool_id,
             .call_id = self.call_id,
-            .op_name = try allocator.dupe(u8, self.op_name),
-            .arguments = try self.arguments.clone(allocator),
+            .op_name = op_name,
+            .arguments = arguments,
         };
     }
 
@@ -108,11 +143,18 @@ pub const ToolCallResultV1 = struct {
 
     /// Clone one tool-call result into allocator-owned memory.
     pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
+        const tool_id = try allocator.dupe(u8, self.tool_id);
+        errdefer allocator.free(tool_id);
+        const value = try self.value.clone(allocator);
+        errdefer {
+            var owned_value = value;
+            owned_value.deinit(allocator);
+        }
         return .{
-            .tool_id = try allocator.dupe(u8, self.tool_id),
+            .tool_id = tool_id,
             .call_id = self.call_id,
             .control = self.control,
-            .value = try self.value.clone(allocator),
+            .value = value,
         };
     }
 
@@ -131,8 +173,10 @@ pub const FailureV1 = struct {
 
     /// Clone one failure payload into allocator-owned memory.
     pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
+        const code = try allocator.dupe(u8, self.code);
+        errdefer allocator.free(code);
         return .{
-            .code = try allocator.dupe(u8, self.code),
+            .code = code,
             .message = try allocator.dupe(u8, self.message),
         };
     }

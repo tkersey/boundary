@@ -80,3 +80,25 @@ test "BundleEnvelopeV1 rejects header fingerprints that disagree with the embedd
 
     try std.testing.expectError(error.BuildFingerprintMismatch, shift_vm.bundle.importBundle(std.testing.allocator, mismatched, wrong_expected));
 }
+
+test "BundleEnvelopeV1 default compile path carries the current build fingerprint" {
+    const bytes = try shift_compile.compileAndEncode(
+        std.testing.allocator,
+        "examples/open_row_state_writer.zig",
+        example.loweringSpec(),
+        .{},
+    );
+    defer std.testing.allocator.free(bytes);
+
+    const envelope_bytes = try shift_vm.bundle.exportBundle(std.testing.allocator, bytes);
+    defer std.testing.allocator.free(envelope_bytes);
+
+    const expected = shift_vm.artifact.defaultBuildFingerprint();
+    var imported = try shift_vm.bundle.importBundle(std.testing.allocator, envelope_bytes, expected);
+    defer imported.deinit(std.testing.allocator);
+
+    try std.testing.expectEqualSlices(u8, bytes, imported.artifact_bytes);
+
+    const wrong = shift_vm.artifact.buildFingerprintFromSeed("bundle-envelope-default-wrong");
+    try std.testing.expectError(error.BuildFingerprintMismatch, shift_vm.bundle.importBundle(std.testing.allocator, envelope_bytes, wrong));
+}

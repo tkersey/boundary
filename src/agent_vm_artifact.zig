@@ -1,3 +1,4 @@
+const artifact_build_options = @import("artifact_build_options");
 const program_plan = @import("internal_program_plan");
 const std = @import("std");
 
@@ -163,6 +164,11 @@ pub fn buildFingerprintFromSeed(seed: []const u8) [32]u8 {
     var digest = std.mem.zeroes([32]u8);
     std.crypto.hash.Blake3.hash(seed, &digest, .{});
     return digest;
+}
+
+/// Return the current build-derived exact-build fingerprint used by default ArtifactV1 emission.
+pub fn defaultBuildFingerprint() [32]u8 {
+    return artifact_build_options.default_artifact_build_fingerprint;
 }
 
 /// Map one ProgramPlan codec into the external capability codec surface.

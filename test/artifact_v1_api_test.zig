@@ -43,3 +43,21 @@ test "compileAndEncode produces readable disasm" {
     try std.testing.expect(std.mem.indexOf(u8, disasm, "ArtifactV1") != null);
     try std.testing.expect(std.mem.indexOf(u8, disasm, "functions=") != null);
 }
+
+test "CompileSource defaults build fingerprint to the current build identity" {
+    const bytes = try shift_compile.compileAndEncode(
+        std.testing.allocator,
+        "examples/open_row_state_writer.zig",
+        example.loweringSpec(),
+        .{},
+    );
+    defer std.testing.allocator.free(bytes);
+
+    var decoded = try shift_vm.artifact.decode(std.testing.allocator, bytes);
+    defer decoded.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(
+        shift_vm.artifact.defaultBuildFingerprint(),
+        decoded.build_fingerprint_blake3_256,
+    );
+}

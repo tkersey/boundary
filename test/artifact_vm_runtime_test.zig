@@ -128,6 +128,11 @@ const IntegerDispatchContext = struct {
     value: i64,
 };
 
+const UnsignedIntegerDispatchContext = struct {
+    value: u64,
+    seen_argument: ?u64 = null,
+};
+
 fn dispatchStringResults(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
@@ -184,6 +189,29 @@ fn dispatchIntegerResult(
             .call_id = request.body.tool_call.call_id,
             .control = .@"resume",
             .value = .{ .i64 = runtime_ctx.value },
+        } },
+    };
+}
+
+fn dispatchUnsignedIntegerRoundTrip(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    const runtime_ctx: *UnsignedIntegerDispatchContext = @ptrCast(@alignCast(ctx));
+    if (request.op_id == 1) {
+        runtime_ctx.seen_argument = switch (request.body.tool_call.arguments) {
+            .u64 => |typed| typed,
+            else => return error.TestUnexpectedResult,
+        };
+    }
+    return .{
+        .request_id = request.request_id,
+        .body = .{ .success = .{
+            .tool_id = try allocator.dupe(u8, request.body.tool_call.tool_id),
+            .call_id = request.body.tool_call.call_id,
+            .control = .@"resume",
+            .value = .{ .u64 = runtime_ctx.value },
         } },
     };
 }
@@ -537,6 +565,88 @@ test "ArtifactV1 runtime rejects negative usize host integers" {
         .ctx = &context,
         .dispatchFn = dispatchIntegerResult,
     }));
+}
+
+test "ArtifactV1 runtime round-trips usize values above maxInt(i64)" {
+    const large_value = @as(u64, std.math.maxInt(i64)) + 1;
+    const build_fingerprint = shift_vm.artifact.buildFingerprintFromSeed("artifact-runtime-usize-roundtrip");
+    const plan: internal_program_plan.ProgramPlan = .{
+        .label = "artifact.runtime.usize_roundtrip",
+        .ir_hash = 0xb1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .usize,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 2,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 3,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 2 }},
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "load", .mode = .transform, .payload_codec = .unit, .resume_codec = .usize },
+            .{ .requirement_index = 0, .op_name = "echo", .mode = .transform, .payload_codec = .usize, .resume_codec = .usize },
+        },
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .usize }, .{ .codec = .usize } },
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 3, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .call_op, .dst = 0, .operand = 0 },
+            .{ .kind = .call_op, .dst = 1, .operand = 1, .aux = 0 },
+            .{ .kind = .return_value, .operand = 1 },
+        },
+    };
+    const capabilities = [_]shift_vm.CapabilityV1{.{
+        .capability_id = 9,
+        .kind = .tool,
+        .label = "generated/tooling@v1",
+        .ops = &.{
+            .{
+                .capability_id = 9,
+                .op_id = 0,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .data_value,
+            },
+            .{
+                .capability_id = 9,
+                .op_id = 1,
+                .global_op_name = "tool.call",
+                .payload_codec = .data_value,
+                .result_codec = .data_value,
+            },
+        },
+    }};
+
+    const bytes = try shift_vm.artifact.encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    });
+    defer std.testing.allocator.free(bytes);
+
+    var context = UnsignedIntegerDispatchContext{ .value = large_value };
+    var run_result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchUnsignedIntegerRoundTrip,
+    });
+    defer run_result.deinit(std.testing.allocator);
+    const result = try expectCompleted(&run_result);
+
+    try std.testing.expectEqual(@as(?u64, large_value), context.seen_argument);
+    try std.testing.expectEqual(@as(usize, @intCast(large_value)), result.value.usize);
+    try std.testing.expectEqual(@as(usize, 2), result.logs.len);
+    try std.testing.expectEqual(large_value, result.logs[1].request.body.tool_call.arguments.u64);
+    try std.testing.expectEqual(large_value, result.logs[1].result.body.success.value.u64);
 }
 
 test "ArtifactV1 runtime rejects successful host replies with mismatched tool metadata" {

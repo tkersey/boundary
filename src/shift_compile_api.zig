@@ -5,7 +5,8 @@ const std = @import("std");
 
 /// Compile-time options for ArtifactV1 emission and default capability derivation.
 pub const CompileOptionsV1 = struct {
-    build_fingerprint_seed: []const u8 = "shift-compile-v1",
+    /// Empty uses the current build-derived exact-build fingerprint.
+    build_fingerprint_seed: []const u8 = "",
     capabilities: []const artifact.CapabilityV1 = &.{},
 };
 
@@ -32,8 +33,12 @@ fn CompileSourceType(
                 owned_capabilities = try artifact.deriveToolCapabilitiesFromPlan(allocator, runtime_plan);
                 break :blk owned_capabilities.?;
             } else options.capabilities;
+            const build_fingerprint = if (options.build_fingerprint_seed.len == 0)
+                artifact.defaultBuildFingerprint()
+            else
+                artifact.buildFingerprintFromSeed(options.build_fingerprint_seed);
             return artifact.encodeProgramPlan(allocator, runtime_plan, .{
-                .build_fingerprint_blake3_256 = artifact.buildFingerprintFromSeed(options.build_fingerprint_seed),
+                .build_fingerprint_blake3_256 = build_fingerprint,
                 .capabilities = capabilities,
             });
         }

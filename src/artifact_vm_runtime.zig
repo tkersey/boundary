@@ -367,7 +367,7 @@ fn programValueToDataValue(
             else => error.ProgramContractViolation,
         },
         .usize => switch (value) {
-            .usize => |typed| .{ .i64 = std.math.cast(i64, typed) orelse return error.ProgramContractViolation },
+            .usize => |typed| .{ .u64 = typed },
             else => error.ProgramContractViolation,
         },
         .string_list => error.ProgramContractViolation,
@@ -394,6 +394,7 @@ fn dataValueToProgramValue(
             else => error.ProgramContractViolation,
         },
         .usize => switch (value) {
+            .u64 => |typed| .{ .usize = std.math.cast(usize, typed) orelse return error.ProgramContractViolation },
             .i64 => |typed| .{ .usize = std.math.cast(usize, typed) orelse return error.ProgramContractViolation },
             else => error.ProgramContractViolation,
         },
