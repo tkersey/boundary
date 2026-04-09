@@ -335,7 +335,9 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
 
     if (directory_offset != 72) return error.InvalidDirectoryBounds;
     const directory_bytes_len = @as(usize, directory_count) * 32;
-    if (directory_offset + directory_bytes_len > bytes.len) return error.InvalidDirectoryBounds;
+    const bytes_len_u64: u64 = @intCast(bytes.len);
+    const directory_end = checkedSectionEnd(directory_offset, directory_bytes_len) orelse return error.InvalidDirectoryBounds;
+    if (directory_end > bytes_len_u64) return error.InvalidDirectoryBounds;
 
     var hash_input = try allocator.dupe(u8, bytes);
     defer allocator.free(hash_input);
@@ -350,7 +352,7 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
 
     var cursor: usize = @intCast(directory_offset);
     var previous_section_id: ?u16 = null;
-    while (cursor < directory_offset + directory_bytes_len) : (cursor += 32) {
+    while (@as(u64, @intCast(cursor)) < directory_end) : (cursor += 32) {
         const raw_section_id = readU16(bytes, cursor);
         if (previous_section_id) |previous| {
             if (raw_section_id < previous) return error.UnsortedDirectorySection;
@@ -365,7 +367,8 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
         const size = readU64(bytes, cursor + 16);
         const entry_count = readU32(bytes, cursor + 24);
         if (readU32(bytes, cursor + 28) != 0) return error.NonZeroReserved;
-        if (offset + size > bytes.len or offset < directory_offset + directory_bytes_len) return error.InvalidDirectoryBounds;
+        const section_end = checkedSectionEnd(offset, size) orelse return error.InvalidDirectoryBounds;
+        if (section_end > bytes_len_u64 or offset < directory_end) return error.InvalidDirectoryBounds;
         try directories.append(allocator, .{
             .section_id = section_id,
             .flags = flags,
@@ -1034,6 +1037,11 @@ fn readU64(bytes: []const u8, offset: usize) u64 {
     return std.mem.readInt(u64, bytes[offset..][0..8], .little);
 }
 
+fn checkedSectionEnd(offset: u64, size: anytype) ?u64 {
+    const size_u64: u64 = @intCast(size);
+    return std.math.add(u64, offset, size_u64) catch null;
+}
+
 fn encodeDirectoryEntry(list: *std.ArrayList(u8), allocator: std.mem.Allocator, directory: SectionDirectoryEntryV1) !void {
     try appendU16(list, allocator, @intFromEnum(directory.section_id));
     try appendU16(list, allocator, directory.flags);
@@ -1253,6 +1261,20 @@ fn patchEntryParameterCount(bytes: []u8, parameter_count: u16) void {
         if (readU16(bytes, cursor) != @intFromEnum(SectionId.function_table)) continue;
         const function_table_offset: usize = @intCast(readU64(bytes, cursor + 8));
         std.mem.writeInt(u16, bytes[function_table_offset + 12 ..][0..2], parameter_count, .little);
+        recomputeEncodedArtifactHash(bytes);
+        return;
+    }
+    unreachable;
+}
+
+fn patchDirectoryEntryBounds(bytes: []u8, section_id: SectionId, offset: u64, size: u64) void {
+    const directory_offset: usize = 72;
+    const directory_count = readU16(bytes, 20);
+    var cursor: usize = directory_offset;
+    while (cursor < directory_offset + @as(usize, directory_count) * 32) : (cursor += 32) {
+        if (readU16(bytes, cursor) != @intFromEnum(section_id)) continue;
+        std.mem.writeInt(u64, bytes[cursor + 8 ..][0..8], offset, .little);
+        std.mem.writeInt(u64, bytes[cursor + 16 ..][0..8], size, .little);
         recomputeEncodedArtifactHash(bytes);
         return;
     }
@@ -1662,4 +1684,44 @@ test "ArtifactV1 rejects malformed capability tool ids during encode and decode"
     encoded[label_offset] = 'G';
     recomputeEncodedArtifactHash(encoded);
     try std.testing.expectError(error.InvalidToolId, decode(std.testing.allocator, encoded));
+}
+
+test "ArtifactV1 decode rejects directory sections whose checked bounds overflow" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.directory_overflow",
+        .ir_hash = 0xae,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = buildFingerprintFromSeed("artifact-directory-overflow"),
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(encoded);
+
+    patchDirectoryEntryBounds(encoded, .string_table, std.math.maxInt(u64), 16);
+    try std.testing.expectError(error.InvalidDirectoryBounds, decode(std.testing.allocator, encoded));
 }

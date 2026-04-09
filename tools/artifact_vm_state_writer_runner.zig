@@ -85,6 +85,18 @@ pub fn main() anyerror!void {
     });
     defer result.deinit(allocator);
 
+    const completed = switch (result) {
+        .completed => |*completed| completed,
+        .rejected => |failure| {
+            std.debug.print("host rejected request: {s}: {s}\n", .{ failure.failure.code, failure.failure.message });
+            return error.UnexpectedHostRejection;
+        },
+        .failed => |failure| {
+            std.debug.print("host failed request: {s}: {s}\n", .{ failure.failure.code, failure.failure.message });
+            return error.UnexpectedHostFailure;
+        },
+    };
+
     var stdout_buffer: [256]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     const stdout = &stdout_writer.interface;
@@ -92,7 +104,7 @@ pub fn main() anyerror!void {
         try stdout.print("item={s}\n", .{item});
     }
     try stdout.print("final_state={d}\n", .{context.state});
-    try stdout.print("value={s}\n", .{result.value.string});
-    try stdout.print("requests={d}\n", .{result.logs.len});
+    try stdout.print("value={s}\n", .{completed.value.string});
+    try stdout.print("requests={d}\n", .{completed.logs.len});
     try stdout.flush();
 }

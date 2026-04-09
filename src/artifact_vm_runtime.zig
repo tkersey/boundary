@@ -21,12 +21,43 @@ pub const ExecutionResultV1 = struct {
     }
 };
 
+/// Typed host failure returned by the ArtifactV1 runtime with the captured host transcript.
+pub const HostFailureResultV1 = struct {
+    failure: host.FailureV1,
+    logs: []host.HostLogEntryV1,
+
+    /// Release the owned host failure payload and captured host logs.
+    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        self.failure.deinit(allocator);
+        for (self.logs) |*entry| entry.deinit(allocator);
+        allocator.free(self.logs);
+        self.* = undefined;
+    }
+};
+
+/// Result of executing ArtifactV1 bytes through the synchronous HostAdapterV1 runtime.
+pub const RunArtifactResultV1 = union(enum) {
+    completed: ExecutionResultV1,
+    failed: HostFailureResultV1,
+    rejected: HostFailureResultV1,
+
+    /// Release the owned execution or host-failure result.
+    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            .completed => |*result| result.deinit(allocator),
+            .rejected => |*failure| failure.deinit(allocator),
+            .failed => |*failure| failure.deinit(allocator),
+        }
+        self.* = undefined;
+    }
+};
+
 /// Decode ArtifactV1 bytes, execute the entry function, and capture the host-effect transcript.
 pub fn runArtifact(
     allocator: std.mem.Allocator,
     bytes: []const u8,
     adapter: host.HostAdapterV1,
-) anyerror!ExecutionResultV1 {
+) anyerror!RunArtifactResultV1 {
     var decoded = try artifact.decode(allocator, bytes);
     defer decoded.deinit(allocator);
     const plan = try decoded.toProgramPlan(allocator);
@@ -55,17 +86,57 @@ pub fn runArtifact(
         plan.entry_index,
         &.{},
     );
-    const owned_value = try cloneProgramValue(allocator, switch (result) {
-        .terminal => |value| value,
-        .value => |value| value,
-    });
-    return .{
-        .value = owned_value,
-        .logs = try logs.toOwnedSlice(allocator),
+    return switch (result) {
+        .terminal => |value| blk: {
+            var owned_value = try cloneProgramValue(allocator, value);
+            errdefer deinitProgramValue(allocator, &owned_value);
+            break :blk .{
+                .completed = .{
+                    .value = owned_value,
+                    .logs = try logs.toOwnedSlice(allocator),
+                },
+            };
+        },
+        .value => |value| blk: {
+            var owned_value = try cloneProgramValue(allocator, value);
+            errdefer deinitProgramValue(allocator, &owned_value);
+            break :blk .{
+                .completed = .{
+                    .value = owned_value,
+                    .logs = try logs.toOwnedSlice(allocator),
+                },
+            };
+        },
+        .rejected => |failure| blk: {
+            errdefer {
+                var owned_failure = failure;
+                owned_failure.deinit(allocator);
+            }
+            break :blk .{
+                .rejected = .{
+                    .failure = failure,
+                    .logs = try logs.toOwnedSlice(allocator),
+                },
+            };
+        },
+        .failed => |failure| blk: {
+            errdefer {
+                var owned_failure = failure;
+                owned_failure.deinit(allocator);
+            }
+            break :blk .{
+                .failed = .{
+                    .failure = failure,
+                    .logs = try logs.toOwnedSlice(allocator),
+                },
+            };
+        },
     };
 }
 
 const FunctionResult = union(enum) {
+    failed: host.FailureV1,
+    rejected: host.FailureV1,
     terminal: lowered_machine.ProgramValue,
     value: lowered_machine.ProgramValue,
 };
@@ -120,6 +191,8 @@ fn executeFunction(
                             if (callee.value_codec != .unit) locals[instruction.dst] = value;
                         },
                         .terminal => |value| return .{ .terminal = value },
+                        .rejected => |failure| return .{ .rejected = failure },
+                        .failed => |failure| return .{ .failed = failure },
                     }
                 },
                 .call_op => {
@@ -131,6 +204,8 @@ fn executeFunction(
                             if (op.resume_codec != .unit) locals[instruction.dst] = value;
                         },
                         .terminal => |value| return .{ .terminal = value },
+                        .rejected => |failure| return .{ .rejected = failure },
+                        .failed => |failure| return .{ .failed = failure },
                     }
                 },
                 .compare_eq_zero => locals[instruction.dst] = switch (locals[instruction.operand]) {
@@ -173,6 +248,8 @@ fn executeFunction(
 }
 
 const OpDispatchResult = union(enum) {
+    failed: host.FailureV1,
+    rejected: host.FailureV1,
     resumed: lowered_machine.ProgramValue,
     terminal: lowered_machine.ProgramValue,
 };
@@ -220,7 +297,8 @@ fn callHostOp(
             .@"resume" => .{ .resumed = try dataValueToProgramValue(ctx.value_allocator, op.resume_codec, tool_result.value) },
             .return_now, .abort => .{ .terminal = try dataValueToProgramValue(ctx.value_allocator, functionValueCodecForOp(ctx.plan, op_index), tool_result.value) },
         },
-        .rejected, .failed => error.ProgramContractViolation,
+        .rejected => |failure| .{ .rejected = try failure.clone(ctx.allocator) },
+        .failed => |failure| .{ .failed = try failure.clone(ctx.allocator) },
     };
 }
 

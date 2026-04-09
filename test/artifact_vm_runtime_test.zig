@@ -69,6 +69,13 @@ fn deinitLoweredWriterOutputs(allocator: std.mem.Allocator, outputs: [][]const u
     allocator.free(outputs);
 }
 
+fn expectCompleted(result: *shift_vm.runtime.RunArtifactResultV1) !*shift_vm.runtime.ExecutionResultV1 {
+    return switch (result.*) {
+        .completed => |*completed| completed,
+        else => error.TestUnexpectedResult,
+    };
+}
+
 fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.host_adapter.HostEffectRequestV1) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
     const runtime_ctx: *RuntimeContext = @ptrCast(@alignCast(ctx));
     const tool_call = request.body.tool_call;
@@ -269,11 +276,12 @@ test "ArtifactV1 runtime executes transform-only lowered programs with sequentia
     var context = RuntimeContext{ .state = 5 };
     defer context.deinit(std.testing.allocator);
 
-    var result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+    var run_result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
         .ctx = &context,
         .dispatchFn = dispatch,
     });
-    defer result.deinit(std.testing.allocator);
+    defer run_result.deinit(std.testing.allocator);
+    const result = try expectCompleted(&run_result);
 
     try std.testing.expectEqualStrings("done", result.value.string);
     try std.testing.expectEqual(@as(i32, 6), context.state);
@@ -314,11 +322,12 @@ test "ArtifactV1 runtime matches lowered runner outputs on open_row_state_writer
     var context = RuntimeContext{ .state = 5 };
     defer context.deinit(std.testing.allocator);
 
-    var artifact_result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+    var run_result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
         .ctx = &context,
         .dispatchFn = dispatch,
     });
-    defer artifact_result.deinit(std.testing.allocator);
+    defer run_result.deinit(std.testing.allocator);
+    const artifact_result = try expectCompleted(&run_result);
 
     try std.testing.expectEqualStrings(lowered_result.value, artifact_result.value.string);
     try std.testing.expectEqual(lowered_result.outputs.state, context.state);
@@ -395,11 +404,12 @@ test "ArtifactV1 runtime uses manifest capability ids and keeps resumed strings 
     defer std.testing.allocator.free(bytes);
 
     var context = string_dispatch_context{};
-    var result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+    var run_result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
         .ctx = &context,
         .dispatchFn = dispatchStringResults,
     });
-    defer result.deinit(std.testing.allocator);
+    defer run_result.deinit(std.testing.allocator);
+    const result = try expectCompleted(&run_result);
 
     try std.testing.expectEqualStrings("keepalive0", result.value.string);
     try std.testing.expectEqual(@as(usize, 2), result.logs.len);
@@ -495,11 +505,12 @@ test "ArtifactV1 runtime decodes terminal string results for later requirement o
     defer std.testing.allocator.free(bytes);
 
     var context = string_dispatch_context{};
-    var result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+    var run_result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
         .ctx = &context,
         .dispatchFn = dispatchTerminalReturn,
     });
-    defer result.deinit(std.testing.allocator);
+    defer run_result.deinit(std.testing.allocator);
+    const result = try expectCompleted(&run_result);
 
     try std.testing.expectEqualStrings("early", result.value.string);
     try std.testing.expectEqual(@as(usize, 1), result.logs.len);
@@ -543,4 +554,80 @@ test "ArtifactV1 runtime rejects successful host replies with mismatched tool me
         .ctx = &wrong_call,
         .dispatchFn = dispatchMismatchedSuccess,
     }));
+}
+
+fn dispatchRejectedFailure(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    _ = ctx;
+    return .{
+        .request_id = request.request_id,
+        .body = .{ .rejected = .{
+            .code = try allocator.dupe(u8, "invalid_arguments"),
+            .message = try allocator.dupe(u8, "bad payload"),
+        } },
+    };
+}
+
+fn dispatchFailedFailure(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    _ = ctx;
+    return .{
+        .request_id = request.request_id,
+        .body = .{ .failed = .{
+            .code = try allocator.dupe(u8, "provider_failure"),
+            .message = try allocator.dupe(u8, "backend unavailable"),
+        } },
+    };
+}
+
+test "ArtifactV1 runtime surfaces rejected host failures with typed payloads and logs" {
+    const bytes = try encodeSingleResumeArtifact(std.testing.allocator, .i32, "artifact-runtime-rejected");
+    defer std.testing.allocator.free(bytes);
+
+    var context = string_dispatch_context{};
+    var result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchRejectedFailure,
+    });
+    defer result.deinit(std.testing.allocator);
+
+    switch (result) {
+        .rejected => |failure| {
+            try std.testing.expectEqualStrings("invalid_arguments", failure.failure.code);
+            try std.testing.expectEqualStrings("bad payload", failure.failure.message);
+            try std.testing.expectEqual(@as(usize, 1), failure.logs.len);
+            try std.testing.expectEqualStrings("generated/tooling@v1", failure.logs[0].request.body.tool_call.tool_id);
+            try std.testing.expectEqualStrings("value", failure.logs[0].request.body.tool_call.op_name);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "ArtifactV1 runtime surfaces failed host failures with typed payloads and logs" {
+    const bytes = try encodeSingleResumeArtifact(std.testing.allocator, .i32, "artifact-runtime-failed");
+    defer std.testing.allocator.free(bytes);
+
+    var context = string_dispatch_context{};
+    var result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchFailedFailure,
+    });
+    defer result.deinit(std.testing.allocator);
+
+    switch (result) {
+        .failed => |failure| {
+            try std.testing.expectEqualStrings("provider_failure", failure.failure.code);
+            try std.testing.expectEqualStrings("backend unavailable", failure.failure.message);
+            try std.testing.expectEqual(@as(usize, 1), failure.logs.len);
+            try std.testing.expectEqualStrings("generated/tooling@v1", failure.logs[0].request.body.tool_call.tool_id);
+            try std.testing.expectEqualStrings("value", failure.logs[0].request.body.tool_call.op_name);
+        },
+        else => return error.TestUnexpectedResult,
+    }
 }
