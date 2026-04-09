@@ -105,6 +105,9 @@ pub const ToolCallRequestV1 = struct {
     call_id: u64,
     op_name: []const u8,
     arguments: DataValueV1,
+    owns_tool_id: bool = false,
+    owns_op_name: bool = false,
+    owns_arguments: bool = false,
 
     /// Clone one tool-call request into allocator-owned memory.
     pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
@@ -122,14 +125,17 @@ pub const ToolCallRequestV1 = struct {
             .call_id = self.call_id,
             .op_name = op_name,
             .arguments = arguments,
+            .owns_tool_id = true,
+            .owns_op_name = true,
+            .owns_arguments = true,
         };
     }
 
     /// Release any allocator-owned memory held by this tool-call request.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-        allocator.free(self.tool_id);
-        allocator.free(self.op_name);
-        self.arguments.deinit(allocator);
+        if (self.owns_tool_id) allocator.free(self.tool_id);
+        if (self.owns_op_name) allocator.free(self.op_name);
+        if (self.owns_arguments) self.arguments.deinit(allocator);
         self.* = undefined;
     }
 };
@@ -140,6 +146,8 @@ pub const ToolCallResultV1 = struct {
     call_id: u64,
     control: ToolControlV1 = .@"resume",
     value: DataValueV1,
+    owns_tool_id: bool = false,
+    owns_value: bool = false,
 
     /// Clone one tool-call result into allocator-owned memory.
     pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
@@ -155,13 +163,15 @@ pub const ToolCallResultV1 = struct {
             .call_id = self.call_id,
             .control = self.control,
             .value = value,
+            .owns_tool_id = true,
+            .owns_value = true,
         };
     }
 
     /// Release any allocator-owned memory held by this tool-call result.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-        allocator.free(self.tool_id);
-        self.value.deinit(allocator);
+        if (self.owns_tool_id) allocator.free(self.tool_id);
+        if (self.owns_value) self.value.deinit(allocator);
         self.* = undefined;
     }
 };
@@ -170,6 +180,8 @@ pub const ToolCallResultV1 = struct {
 pub const FailureV1 = struct {
     code: []const u8,
     message: []const u8,
+    owns_code: bool = false,
+    owns_message: bool = false,
 
     /// Clone one failure payload into allocator-owned memory.
     pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
@@ -178,13 +190,15 @@ pub const FailureV1 = struct {
         return .{
             .code = code,
             .message = try allocator.dupe(u8, self.message),
+            .owns_code = true,
+            .owns_message = true,
         };
     }
 
     /// Release any allocator-owned memory held by this failure payload.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-        allocator.free(self.code);
-        allocator.free(self.message);
+        if (self.owns_code) allocator.free(self.code);
+        if (self.owns_message) allocator.free(self.message);
         self.* = undefined;
     }
 };

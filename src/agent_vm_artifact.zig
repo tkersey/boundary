@@ -285,6 +285,7 @@ pub fn encodeProgramPlan(
     try validateExecutableCodecSupport(plan);
     if (plan.functions[plan.entry_index].parameter_count != 0) return error.UnsupportedEntryParameters;
     try validateManifest(manifest.build_fingerprint_blake3_256, manifest.capabilities);
+    try validateRequirementCapabilityOpNameDisambiguation(plan, manifest.capabilities);
 
     var strings = StringTable.init(allocator);
     defer strings.deinit();
@@ -974,6 +975,36 @@ fn toolCapabilityMatchesRequirement(plan: program_plan.ProgramPlan, requirement_
         if (capability_op.payload_codec != mapPlanCodecToCapabilityCodec(plan_op.payload_codec)) return false;
         const expected_result_codec = capabilityResultCodecForOp(plan, op_start + op_offset) catch return false;
         if (capability_op.result_codec != mapPlanCodecToCapabilityCodec(expected_result_codec)) return false;
+    }
+    return true;
+}
+
+fn validateRequirementCapabilityOpNameDisambiguation(
+    plan: program_plan.ProgramPlan,
+    capabilities: []const CapabilityV1,
+) !void {
+    for (plan.requirements, 0..) |_, requirement_index| {
+        for (plan.requirements[requirement_index + 1 ..], requirement_index + 1..) |_, other_requirement_index| {
+            if (requirementOpNamesMatch(plan, requirement_index, other_requirement_index)) continue;
+            for (capabilities) |capability| {
+                if (toolCapabilityMatchesRequirement(plan, requirement_index, capability) and
+                    toolCapabilityMatchesRequirement(plan, other_requirement_index, capability))
+                {
+                    return error.InvalidRequiredSection;
+                }
+            }
+        }
+    }
+}
+
+fn requirementOpNamesMatch(plan: program_plan.ProgramPlan, requirement_index: usize, other_requirement_index: usize) bool {
+    const requirement = plan.requirements[requirement_index];
+    const other = plan.requirements[other_requirement_index];
+    if (requirement.op_count != other.op_count) return false;
+    const requirement_ops = plan.ops[requirement.first_op .. requirement.first_op + requirement.op_count];
+    const other_ops = plan.ops[other.first_op .. other.first_op + other.op_count];
+    for (requirement_ops, other_ops) |requirement_op, other_op| {
+        if (!std.mem.eql(u8, requirement_op.op_name, other_op.op_name)) return false;
     }
     return true;
 }
@@ -2669,6 +2700,78 @@ test "ArtifactV1 decode rejects repeated requirements that alias one capability 
 
     patchRequirementCapabilityId(encoded, 1, 11);
     try std.testing.expectError(error.InvalidRequiredSection, decode(std.testing.allocator, encoded));
+}
+
+test "ArtifactV1 rejects custom capabilities that ambiguously match repeated requirement op names" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-repeated-requirement-op-name-disambiguation");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.repeated_requirement_op_name_disambiguation",
+        .ir_hash = 0xb2,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 2,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{
+            .{ .label = "tooling", .first_op = 0, .op_count = 1 },
+            .{ .label = "tooling", .first_op = 1, .op_count = 1 },
+        },
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "first", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+            .{ .requirement_index = 1, .op_name = "second", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+        },
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const capabilities = [_]CapabilityV1{
+        .{
+            .capability_id = 11,
+            .kind = .tool,
+            .label = "generated/tooling@v1",
+            .ops = &.{.{
+                .capability_id = 11,
+                .op_id = 0,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .string,
+                .plan_op_ordinal = 0,
+            }},
+        },
+        .{
+            .capability_id = 29,
+            .kind = .tool,
+            .label = "generated/tooling@v1",
+            .ops = &.{.{
+                .capability_id = 29,
+                .op_id = 1,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .string,
+                .plan_op_ordinal = 0,
+            }},
+        },
+    };
+
+    try std.testing.expectError(error.InvalidRequiredSection, encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    }));
 }
 
 test "ArtifactV1 rejects conflicting terminal owner codecs during encode and decode" {

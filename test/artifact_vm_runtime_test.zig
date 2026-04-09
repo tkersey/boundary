@@ -87,6 +87,7 @@ fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.hos
                 .call_id = tool_call.call_id,
                 .control = shift_vm.host_adapter.ToolControlV1.@"resume",
                 .value = .{ .i64 = runtime_ctx.state },
+                .owns_tool_id = true,
             } },
         };
     }
@@ -99,6 +100,7 @@ fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.hos
                 .call_id = tool_call.call_id,
                 .control = shift_vm.host_adapter.ToolControlV1.@"resume",
                 .value = .null,
+                .owns_tool_id = true,
             } },
         };
     }
@@ -111,6 +113,7 @@ fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.hos
                 .call_id = tool_call.call_id,
                 .control = shift_vm.host_adapter.ToolControlV1.@"resume",
                 .value = .null,
+                .owns_tool_id = true,
             } },
         };
     }
@@ -119,6 +122,8 @@ fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.hos
         .body = .{ .failed = .{
             .code = try allocator.dupe(u8, "unknown_op"),
             .message = try allocator.dupe(u8, tool_call.op_name),
+            .owns_code = true,
+            .owns_message = true,
         } },
     };
 }
@@ -161,6 +166,8 @@ fn dispatchManifestOpIdentityStringResults(
             .call_id = request.body.tool_call.call_id,
             .control = .@"resume",
             .value = .{ .string = try allocator.dupe(u8, value) },
+            .owns_tool_id = true,
+            .owns_value = true,
         } },
     };
 }
@@ -187,6 +194,8 @@ fn dispatchHelperStringOwnership(
             .call_id = request.body.tool_call.call_id,
             .control = .@"resume",
             .value = .{ .string = try allocator.dupe(u8, value) },
+            .owns_tool_id = true,
+            .owns_value = true,
         } },
     };
 }
@@ -206,6 +215,8 @@ fn dispatchTerminalReturn(
             .call_id = request.body.tool_call.call_id,
             .control = .return_now,
             .value = .{ .string = try allocator.dupe(u8, "early") },
+            .owns_tool_id = true,
+            .owns_value = true,
         } },
     };
 }
@@ -225,6 +236,8 @@ fn dispatchTerminalAbort(
             .call_id = request.body.tool_call.call_id,
             .control = .abort,
             .value = .{ .string = try allocator.dupe(u8, "early-abort") },
+            .owns_tool_id = true,
+            .owns_value = true,
         } },
     };
 }
@@ -242,6 +255,7 @@ fn dispatchIntegerResult(
             .call_id = request.body.tool_call.call_id,
             .control = .@"resume",
             .value = .{ .i64 = runtime_ctx.value },
+            .owns_tool_id = true,
         } },
     };
 }
@@ -265,6 +279,7 @@ fn dispatchUnsignedIntegerRoundTrip(
             .call_id = request.body.tool_call.call_id,
             .control = .@"resume",
             .value = .{ .u64 = runtime_ctx.value },
+            .owns_tool_id = true,
         } },
     };
 }
@@ -285,6 +300,8 @@ fn dispatchFixedControlResult(
                 .null
             else
                 .{ .string = try allocator.dupe(u8, runtime_ctx.string_value) },
+            .owns_tool_id = true,
+            .owns_value = !runtime_ctx.use_null_value,
         } },
     };
 }
@@ -302,6 +319,7 @@ fn dispatchMismatchedSuccess(
             .call_id = if (runtime_ctx.value == 0) request.body.tool_call.call_id else request.body.tool_call.call_id + 1,
             .control = .@"resume",
             .value = .{ .i64 = 1 },
+            .owns_tool_id = true,
         } },
     };
 }
@@ -320,6 +338,7 @@ fn dispatchWrongSchemaVersion(
             .call_id = request.body.tool_call.call_id,
             .control = .@"resume",
             .value = .{ .i64 = 1 },
+            .owns_tool_id = true,
         } },
     };
 }
@@ -337,6 +356,8 @@ fn dispatchNonNullUnitResult(
             .call_id = request.body.tool_call.call_id,
             .control = .@"resume",
             .value = .{ .string = try allocator.dupe(u8, "not-null") },
+            .owns_tool_id = true,
+            .owns_value = true,
         } },
     };
 }
@@ -1189,6 +1210,8 @@ fn dispatchRejectedFailure(
         .body = .{ .rejected = .{
             .code = try allocator.dupe(u8, "invalid_arguments"),
             .message = try allocator.dupe(u8, "bad payload"),
+            .owns_code = true,
+            .owns_message = true,
         } },
     };
 }
@@ -1204,6 +1227,8 @@ fn dispatchFailedFailure(
         .body = .{ .failed = .{
             .code = try allocator.dupe(u8, "provider_failure"),
             .message = try allocator.dupe(u8, "backend unavailable"),
+            .owns_code = true,
+            .owns_message = true,
         } },
     };
 }

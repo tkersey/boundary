@@ -14,6 +14,9 @@ test "host adapter conformance helper enforces sequential ids and tool echo" {
                     .call_id = 1,
                     .op_name = try std.testing.allocator.dupe(u8, "tell"),
                     .arguments = .{ .string = try std.testing.allocator.dupe(u8, "queued") },
+                    .owns_tool_id = true,
+                    .owns_op_name = true,
+                    .owns_arguments = true,
                 } },
             },
             .result = .{
@@ -23,6 +26,7 @@ test "host adapter conformance helper enforces sequential ids and tool echo" {
                     .call_id = 1,
                     .control = .@"resume",
                     .value = .null,
+                    .owns_tool_id = true,
                 } },
             },
         },
@@ -97,4 +101,28 @@ test "ToolCallRequestV1 clone unwinds owned fields on allocator failure" {
 
 test "ToolCallResultV1 clone unwinds owned fields on allocator failure" {
     try std.testing.checkAllAllocationFailures(std.testing.allocator, cloneToolCallResult, .{});
+}
+
+test "HostAdapterV1 request, result, and failure deinit accept borrowed literals by default" {
+    var request: host.ToolCallRequestV1 = .{
+        .tool_id = "generated/tooling@v1",
+        .call_id = 1,
+        .op_name = "echo",
+        .arguments = .{ .string = "hello" },
+    };
+    request.deinit(std.testing.allocator);
+
+    var result: host.ToolCallResultV1 = .{
+        .tool_id = "generated/tooling@v1",
+        .call_id = 1,
+        .control = .@"resume",
+        .value = .{ .string = "world" },
+    };
+    result.deinit(std.testing.allocator);
+
+    var failure: host.FailureV1 = .{
+        .code = "provider_failure",
+        .message = "backend unavailable",
+    };
+    failure.deinit(std.testing.allocator);
 }

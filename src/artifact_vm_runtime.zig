@@ -325,6 +325,9 @@ fn callHostOp(
             .call_id = ctx.next_request_id.*,
             .op_name = try ctx.allocator.dupe(u8, op.op_name),
             .arguments = try programValueToDataValue(ctx.allocator, op.payload_codec, payload),
+            .owns_tool_id = true,
+            .owns_op_name = true,
+            .owns_arguments = true,
         } },
     };
     ctx.next_request_id.* += 1;
@@ -335,6 +338,8 @@ fn callHostOp(
         .body = .{ .failed = .{
             .code = try ctx.allocator.dupe(u8, "provider_failure"),
             .message = try std.fmt.allocPrint(ctx.allocator, "host_adapter_dispatch:{s}", .{@errorName(err)}),
+            .owns_code = true,
+            .owns_message = true,
         } },
     };
     defer response.deinit(ctx.allocator);
