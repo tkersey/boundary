@@ -280,6 +280,24 @@ fn dispatchMismatchedSuccess(
     };
 }
 
+fn dispatchWrongSchemaVersion(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    _ = ctx;
+    return .{
+        .schema_version = 2,
+        .request_id = request.request_id,
+        .body = .{ .success = .{
+            .tool_id = try allocator.dupe(u8, request.body.tool_call.tool_id),
+            .call_id = request.body.tool_call.call_id,
+            .control = .@"resume",
+            .value = .{ .i64 = 1 },
+        } },
+    };
+}
+
 fn dispatchNonNullUnitResult(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
@@ -903,15 +921,15 @@ test "ArtifactV1 runtime round-trips usize values above maxInt(i64)" {
                 .op_id = 0,
                 .global_op_name = "tool.call",
                 .payload_codec = .unit,
-                .result_codec = .data_value,
+                .result_codec = .usize,
                 .plan_op_ordinal = 0,
             },
             .{
                 .capability_id = 9,
                 .op_id = 1,
                 .global_op_name = "tool.call",
-                .payload_codec = .data_value,
-                .result_codec = .data_value,
+                .payload_codec = .usize,
+                .result_codec = .usize,
                 .plan_op_ordinal = 1,
             },
         },
@@ -973,6 +991,16 @@ test "ArtifactV1 runtime rejects successful host replies with mismatched tool me
     try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
         .ctx = &wrong_call,
         .dispatchFn = dispatchMismatchedSuccess,
+    }));
+}
+
+test "ArtifactV1 runtime rejects host replies with non-v1 schema versions" {
+    const bytes = try encodeSingleResumeArtifact(std.testing.allocator, .i32, "artifact-runtime-schema-version");
+    defer std.testing.allocator.free(bytes);
+
+    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = undefined,
+        .dispatchFn = dispatchWrongSchemaVersion,
     }));
 }
 

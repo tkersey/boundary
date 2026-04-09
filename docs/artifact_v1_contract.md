@@ -168,6 +168,19 @@ Each capability-op row has:
 - `result_codec: u8`
 - `plan_op_ordinal: u16`
 
+Capability codec tags are:
+
+- `1 = unit`
+- `2 = bool`
+- `3 = i32`
+- `4 = string`
+- `5 = bytes`
+- `6 = data_value`
+- `7 = usize`
+
+`usize` is the precise manifest codec for `ValueCodec.usize`.
+Hosts must not treat `usize`-typed ops as generic `data_value` rows.
+
 The canonical global op id for v1 is `tool.call`.
 `plan_op_ordinal` links the manifest op back to the lowered requirement-op slot so
 runtime dispatch does not depend on capability-op row order.

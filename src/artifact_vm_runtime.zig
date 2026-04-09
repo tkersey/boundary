@@ -297,6 +297,7 @@ fn callHostOp(
         } },
     };
     defer response.deinit(ctx.allocator);
+    if (response.schema_version != 1) return error.ProgramContractViolation;
     if (response.request_id != request.request_id) return error.ProgramContractViolation;
     switch (response.body) {
         .success => |tool_result| {

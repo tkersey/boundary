@@ -35,6 +35,7 @@ pub const CapabilityCodecV1 = enum(u8) {
     i32 = 3,
     string = 4,
     unit = 1,
+    usize = 7,
 };
 
 /// One string-table reference inside ArtifactV1.
@@ -182,7 +183,7 @@ pub fn mapPlanCodecToCapabilityCodec(codec: program_plan.ValueCodec) CapabilityC
         .i32 => .i32,
         .string => .string,
         .string_list => .data_value,
-        .usize => .data_value,
+        .usize => .usize,
     };
 }
 
@@ -1567,8 +1568,8 @@ test "ArtifactV1 rejects exact-label custom capabilities whose op codecs do not 
     }));
 }
 
-test "ArtifactV1 advertises usize capability codecs as data_value" {
-    try std.testing.expectEqual(CapabilityCodecV1.data_value, mapPlanCodecToCapabilityCodec(.usize));
+test "ArtifactV1 advertises usize capability codecs precisely" {
+    try std.testing.expectEqual(CapabilityCodecV1.usize, mapPlanCodecToCapabilityCodec(.usize));
 }
 
 test "ArtifactV1 rejects executable string_list codecs during encode" {

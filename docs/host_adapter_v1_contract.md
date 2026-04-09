@@ -76,6 +76,8 @@ Every host effect result has this outer shape:
 - `status: enum { success, rejected, failed }`
 - `body: variant`
 
+Requests or results whose `schema_version` is not `1` fail closed.
+
 ## Tool Contract
 
 The canonical tool op id is `tool.call`.
