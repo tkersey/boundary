@@ -1,7 +1,9 @@
 const helpers = @import("open_row_helper_value_flow_cross_helpers.zig");
-const shift = @import("shift");
+const shift_compile = @import("shift_compile");
+const shift_vm = @import("shift_vm");
 const std = @import("std");
-const runtime_support = shift.lowering.runtime_support;
+const shift = shift_vm;
+const runtime_support = shift_compile.lowering.runtime_support;
 
 /// Run one cross-file helper value-flow workflow through the open-row kernel.
 pub fn runBody(eff: anytype) ![]const u8 {
@@ -12,19 +14,19 @@ pub fn runBody(eff: anytype) ![]const u8 {
 }
 
 /// Return the additive public lowering spec for this cross-file helper value-flow workflow.
-pub fn loweringSpec() shift.lowering.LowerSpec {
+pub fn loweringSpec() shift_compile.lowering.LowerSpec {
     return .{
         .label = "example.open_row_helper_value_flow_cross",
         .entry_symbol = "runBody",
-        .row = shift.ir.mergeRows(.{
-            shift.ir.rowFromSpec(.{
+        .row = shift_compile.ir.mergeRows(.{
+            shift_compile.ir.rowFromSpec(.{
                 .state = .{
-                    .get = shift.ir.Transform(void, i32),
+                    .get = shift_compile.ir.Transform(void, i32),
                 },
             }),
-            shift.ir.rowFromSpec(.{
+            shift_compile.ir.rowFromSpec(.{
                 .writer = .{
-                    .tell = shift.ir.Transform([]const u8, void),
+                    .tell = shift_compile.ir.Transform([]const u8, void),
                 },
             }),
         }),
@@ -52,12 +54,12 @@ fn explicitLoweringCaller() std.builtin.SourceLocation {
 }
 
 /// Return the explicit caller-owned lowering provenance witness for this module.
-pub fn loweringSource() shift.lowering.SourceRef {
-    return shift.lowering.sourceWithContentAndImports(
+pub fn loweringSource() shift_compile.lowering.SourceRef {
+    return shift_compile.lowering.sourceWithContentAndImports(
         loweringSourcePath(),
         explicitLoweringCaller(),
         @embedFile(@src().file),
-        &.{shift.lowering.importedSource(
+        &.{shift_compile.lowering.importedSource(
             loweringSourcePath(),
             "open_row_helper_value_flow_cross_helpers.zig",
             @embedFile("open_row_helper_value_flow_cross_helpers.zig"),
@@ -66,17 +68,17 @@ pub fn loweringSource() shift.lowering.SourceRef {
 }
 
 /// Return the additive public lowered artifact for this cross-file helper value-flow workflow.
-pub fn loweredProgram() @TypeOf(shift.lowering.lowerOpenRowAt(loweringSourcePath(), loweringSpec())) {
-    return try shift.lowering.lowerOpenRowAt(loweringSourcePath(), loweringSpec());
+pub fn loweredProgram() @TypeOf(shift_compile.lowering.lowerOpenRowAt(loweringSourcePath(), loweringSpec())) {
+    return try shift_compile.lowering.lowerOpenRowAt(loweringSourcePath(), loweringSpec());
 }
 
 /// Return the explicit IR view paired with this cross-file lowering request.
-pub fn irProgram() shift.ir.Program {
-    return shift.lowering.irProgramAt(loweringSourcePath(), loweringSpec());
+pub fn irProgram() shift_compile.ir.Program {
+    return shift_compile.lowering.irProgramAt(loweringSourcePath(), loweringSpec());
 }
 
 fn CompiledProgramType() type {
-    return shift.lower(loweringSource(), loweringSpec());
+    return shift_compile.lower(loweringSource(), loweringSpec());
 }
 
 /// Generated additive program type exposing the runtime-owned plan bridge.

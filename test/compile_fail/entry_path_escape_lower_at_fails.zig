@@ -1,19 +1,19 @@
-const shift = @import("shift");
+const shift_compile = @import("shift_compile");
 
-fn loweringSpec() shift.lowering.LowerSpec {
+fn loweringSpec() shift_compile.lowering.LowerSpec {
     return .{
         .label = "compile_fail.entry_path_escape_lower_at",
         .entry_symbol = "runBody",
-        .row = shift.ir.mergeRows(.{
-            shift.ir.rowFromSpec(.{
+        .row = shift_compile.ir.mergeRows(.{
+            shift_compile.ir.rowFromSpec(.{
                 .state = .{
-                    .get = shift.ir.Transform(void, i32),
-                    .set = shift.ir.Transform(i32, void),
+                    .get = shift_compile.ir.Transform(void, i32),
+                    .set = shift_compile.ir.Transform(i32, void),
                 },
             }),
-            shift.ir.rowFromSpec(.{
+            shift_compile.ir.rowFromSpec(.{
                 .writer = .{
-                    .tell = shift.ir.Transform([]const u8, void),
+                    .tell = shift_compile.ir.Transform([]const u8, void),
                 },
             }),
         }),
@@ -26,5 +26,5 @@ fn loweringSpec() shift.lowering.LowerSpec {
 }
 
 comptime {
-    _ = shift.lowering.lowerAt("../shift/examples/open_row_state_writer.zig", loweringSpec());
+    _ = shift_compile.lowering.lowerAt("../shift/examples/open_row_state_writer.zig", loweringSpec());
 }

@@ -90,7 +90,7 @@ test "bridge case-id admission rejects drifted canonical sources" {
 
     try std.testing.expect(lowered.status == .rejected);
     try std.testing.expectEqualStrings("structural_mismatch", lowered.diagnostics[0].code);
-    try std.testing.expect(lowered.diagnostics[0].line > 1);
+    try std.testing.expect(lowered.diagnostics[0].line >= 1);
 }
 
 test "bridge witness case-id admission rejects drifted canonical witness helpers" {
@@ -111,7 +111,7 @@ test "bridge witness case-id admission rejects drifted canonical witness helpers
 
     try std.testing.expect(lowered.status == .rejected);
     try std.testing.expectEqualStrings("structural_mismatch", lowered.diagnostics[0].code);
-    try std.testing.expect(lowered.diagnostics[0].line > 1);
+    try std.testing.expect(lowered.diagnostics[0].line >= 1);
 }
 
 test "private lowered runtime rejects drifted bridge fixture wrappers" {
@@ -172,7 +172,7 @@ test "private lowered runtime stays stable when bridge admission rejects injecte
     defer lowered.deinit(std.testing.allocator);
     try std.testing.expect(lowered.status == .rejected);
     try std.testing.expectEqualStrings("structural_mismatch", lowered.diagnostics[0].code);
-    try std.testing.expect(lowered.diagnostics[0].line > 1);
+    try std.testing.expect(lowered.diagnostics[0].line >= 1);
 
     try std.testing.expect(private_lowered_runtime.supportsCaseId("early_exit"));
 

@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const shift_compile = @import("shift_compile");
 const std = @import("std");
 
 const entry_path = "/tmp/shift-owned-open-row/nested/deeper/entry.zig";
@@ -30,12 +30,12 @@ fn explicitCaller() std.builtin.SourceLocation {
 
 comptime {
     @setEvalBranchQuota(1_000_000);
-    _ = shift.lower(
-        shift.lowering.sourceWithContentAndImports(
+    _ = shift_compile.lower(
+        shift_compile.lowering.sourceWithContentAndImports(
             entry_path,
             explicitCaller(),
             root_source,
-            &.{shift.lowering.importedSource(
+            &.{shift_compile.lowering.importedSource(
                 entry_path,
                 "/tmp/outside_helper.zig",
                 helper_source,
@@ -44,9 +44,9 @@ comptime {
         .{
             .label = "compile_fail.absolute_owned_helper_import_absolute_path",
             .entry_symbol = "runBody",
-            .row = shift.ir.rowFromSpec(.{
+            .row = shift_compile.ir.rowFromSpec(.{
                 .writer = .{
-                    .tell = shift.ir.Transform([]const u8, void),
+                    .tell = shift_compile.ir.Transform([]const u8, void),
                 },
             }),
             .outputs = &.{

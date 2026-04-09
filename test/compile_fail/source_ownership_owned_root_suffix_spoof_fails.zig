@@ -1,5 +1,5 @@
 const authoring_build_options = @import("authoring_build_options");
-const shift = @import("shift");
+const shift_compile = @import("shift_compile");
 const std = @import("std");
 
 comptime {
@@ -7,19 +7,19 @@ comptime {
         "{s}/vendor/mirror/examples/open_row_state_writer.zig",
         .{authoring_build_options.package_root},
     );
-    _ = shift.lower(.{
+    _ = shift_compile.lower(.{
         .repo_path = "examples/open_row_state_writer.zig",
         .caller_file = spoofed_path,
     }, .{
         .label = "compile_fail.source_ownership_owned_root_suffix_spoof",
         .entry_symbol = "runBody",
-        .row = shift.ir.rowFromSpec(.{
+        .row = shift_compile.ir.rowFromSpec(.{
             .state = .{
-                .get = shift.ir.Transform(void, i32),
-                .set = shift.ir.Transform(i32, void),
+                .get = shift_compile.ir.Transform(void, i32),
+                .set = shift_compile.ir.Transform(i32, void),
             },
             .writer = .{
-                .tell = shift.ir.Transform([]const u8, void),
+                .tell = shift_compile.ir.Transform([]const u8, void),
             },
         }),
         .outputs = &.{

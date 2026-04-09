@@ -175,6 +175,28 @@ pub fn defaultBuildFingerprint() [32]u8 {
     return artifact_build_options.default_artifact_build_fingerprint;
 }
 
+/// Bind one exact-build fingerprint to the current build plus one explicit capability manifest.
+pub fn buildFingerprintForCapabilities(
+    allocator: std.mem.Allocator,
+    base_fingerprint: [32]u8,
+    capabilities: []const CapabilityV1,
+) ![32]u8 {
+    try validateManifest(base_fingerprint, capabilities);
+
+    var strings = StringTable.init(allocator);
+    defer strings.deinit();
+
+    const encoded_manifest = try encodeCapabilityManifest(allocator, &strings, .{
+        .build_fingerprint_blake3_256 = base_fingerprint,
+        .capabilities = capabilities,
+    });
+    defer allocator.free(encoded_manifest);
+
+    var digest = std.mem.zeroes([32]u8);
+    std.crypto.hash.Blake3.hash(encoded_manifest, &digest, .{});
+    return digest;
+}
+
 /// Map one ProgramPlan codec into the external capability codec surface.
 pub fn mapPlanCodecToCapabilityCodec(codec: program_plan.ValueCodec) CapabilityCodecV1 {
     return switch (codec) {
@@ -615,7 +637,11 @@ fn decodeCapabilityManifest(allocator: std.mem.Allocator, string_bytes: []const 
     if (op_bytes.len != @as(usize, op_count) * 16) return error.InvalidDirectoryBounds;
 
     const capabilities = try allocator.alloc(CapabilityV1, capability_count);
-    errdefer allocator.free(capabilities);
+    var initialized_capability_count: usize = 0;
+    errdefer {
+        deepFreeCapabilityPrefix(allocator, capabilities[0..initialized_capability_count]);
+        allocator.free(capabilities);
+    }
 
     var capability_cursor: usize = 0;
     for (capabilities) |*capability| {
@@ -623,9 +649,13 @@ fn decodeCapabilityManifest(allocator: std.mem.Allocator, string_bytes: []const 
         const kind = std.enums.fromInt(CapabilityKind, capability_bytes[capability_cursor + 2]) orelse return error.UnsupportedVersion;
         const flags = capability_bytes[capability_cursor + 3];
         const label = try readStringRefDup(allocator, string_bytes, capability_bytes[capability_cursor + 4 .. capability_cursor + 12]);
+        errdefer allocator.free(label);
         const first_op = readU16(capability_bytes, capability_cursor + 12);
         const op_count_for_capability = readU16(capability_bytes, capability_cursor + 14);
         const ops = try allocator.alloc(CapabilityOpV1, op_count_for_capability);
+        errdefer allocator.free(ops);
+        var initialized_op_count: usize = 0;
+        errdefer for (ops[0..initialized_op_count]) |op| allocator.free(op.global_op_name);
 
         var op_cursor = @as(usize, first_op) * 16;
         var all_ordinals_zero = true;
@@ -641,6 +671,7 @@ fn decodeCapabilityManifest(allocator: std.mem.Allocator, string_bytes: []const 
                 .result_codec = std.enums.fromInt(CapabilityCodecV1, op_bytes[op_cursor + 13]) orelse return error.UnsupportedVersion,
                 .plan_op_ordinal = plan_op_ordinal,
             };
+            initialized_op_count += 1;
             op_cursor += 16;
         }
         if (all_ordinals_zero) {
@@ -654,6 +685,7 @@ fn decodeCapabilityManifest(allocator: std.mem.Allocator, string_bytes: []const 
             .label = label,
             .ops = ops,
         };
+        initialized_capability_count += 1;
         capability_cursor += 16;
     }
 
@@ -1327,6 +1359,14 @@ pub fn deepFreeCapabilities(allocator: std.mem.Allocator, items: []CapabilityV1)
     allocator.free(items);
 }
 
+fn deepFreeCapabilityPrefix(allocator: std.mem.Allocator, items: []CapabilityV1) void {
+    for (items) |item| {
+        allocator.free(item.label);
+        for (item.ops) |op| allocator.free(op.global_op_name);
+        allocator.free(item.ops);
+    }
+}
+
 fn recomputeEncodedArtifactHash(bytes: []u8) void {
     @memset(bytes[40..72], 0);
     var digest = std.mem.zeroes([32]u8);
@@ -1566,6 +1606,61 @@ test "ArtifactV1 rejects exact-label custom capabilities whose op codecs do not 
         .build_fingerprint_blake3_256 = build_fingerprint,
         .capabilities = &capabilities,
     }));
+}
+
+fn expectMalformedCapabilityManifestDecodeCleanup(allocator: std.mem.Allocator) !void {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-v1-decode-cleanup");
+    const manifest = CapabilityManifestV1{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &.{.{
+            .capability_id = 7,
+            .kind = .tool,
+            .label = "generated/tooling@v1",
+            .ops = &.{
+                .{
+                    .capability_id = 7,
+                    .op_id = 0,
+                    .global_op_name = "tool.call",
+                    .payload_codec = .unit,
+                    .result_codec = .string,
+                    .plan_op_ordinal = 0,
+                },
+                .{
+                    .capability_id = 7,
+                    .op_id = 1,
+                    .global_op_name = "tool.call",
+                    .payload_codec = .string,
+                    .result_codec = .unit,
+                    .plan_op_ordinal = 1,
+                },
+            },
+        }},
+    };
+
+    var strings = StringTable.init(allocator);
+    defer strings.deinit();
+    const manifest_bytes = try encodeCapabilityManifest(allocator, &strings, manifest);
+    defer allocator.free(manifest_bytes);
+    const string_bytes = try strings.toOwnedBytes(allocator);
+    defer allocator.free(string_bytes);
+
+    var corrupted_manifest = try allocator.dupe(u8, manifest_bytes);
+    defer allocator.free(corrupted_manifest);
+    corrupted_manifest[52 + 16 + 12] = 0xff;
+
+    try std.testing.expectError(
+        error.UnsupportedVersion,
+        decodeCapabilityManifest(allocator, string_bytes, corrupted_manifest),
+    );
+}
+
+test "ArtifactV1 decode frees partially decoded capability manifests on malformed bytes and allocator failure" {
+    try expectMalformedCapabilityManifestDecodeCleanup(std.testing.allocator);
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        expectMalformedCapabilityManifestDecodeCleanup,
+        .{},
+    );
 }
 
 test "ArtifactV1 advertises usize capability codecs precisely" {

@@ -1,23 +1,23 @@
-const shift = @import("shift");
+const shift_compile = @import("shift_compile");
 
 fn callerFile() []const u8 {
     return @src().file;
 }
 
 comptime {
-    _ = shift.lower(.{
+    _ = shift_compile.lower(.{
         .repo_path = "examples/open_row_state_writer.zig",
         .caller_file = callerFile(),
     }, .{
         .label = "compile_fail.source_ownership",
         .entry_symbol = "runBody",
-        .row = shift.ir.rowFromSpec(.{
+        .row = shift_compile.ir.rowFromSpec(.{
             .state = .{
-                .get = shift.ir.Transform(void, i32),
-                .set = shift.ir.Transform(i32, void),
+                .get = shift_compile.ir.Transform(void, i32),
+                .set = shift_compile.ir.Transform(i32, void),
             },
             .writer = .{
-                .tell = shift.ir.Transform([]const u8, void),
+                .tell = shift_compile.ir.Transform([]const u8, void),
             },
         }),
         .outputs = &.{

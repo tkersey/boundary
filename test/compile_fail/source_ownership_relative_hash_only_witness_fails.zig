@@ -1,8 +1,8 @@
-const shift = @import("shift");
+const shift_compile = @import("shift_compile");
 const std = @import("std");
 
 comptime {
-    _ = shift.lower(.{
+    _ = shift_compile.lower(.{
         .repo_path = "test/compile_fail/source_ownership_relative_hash_only_witness_fails.zig",
         .caller_file = "test/compile_fail/source_ownership_relative_hash_only_witness_fails.zig",
         .caller_hash = std.hash.Wyhash.hash(
@@ -12,13 +12,13 @@ comptime {
     }, .{
         .label = "compile_fail.source_ownership_relative_hash_only",
         .entry_symbol = "runBody",
-        .row = shift.ir.rowFromSpec(.{
+        .row = shift_compile.ir.rowFromSpec(.{
             .state = .{
-                .get = shift.ir.Transform(void, i32),
-                .set = shift.ir.Transform(i32, void),
+                .get = shift_compile.ir.Transform(void, i32),
+                .set = shift_compile.ir.Transform(i32, void),
             },
             .writer = .{
-                .tell = shift.ir.Transform([]const u8, void),
+                .tell = shift_compile.ir.Transform([]const u8, void),
             },
         }),
         .outputs = &.{

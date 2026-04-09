@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const shift_compile = @import("shift_compile");
 const std = @import("std");
 
 const repo_path = "/tmp/source_with_content_missing_imported_helper_fails.zig";
@@ -24,8 +24,8 @@ fn explicitCaller() std.builtin.SourceLocation {
 
 comptime {
     @setEvalBranchQuota(1_000_000);
-    _ = shift.lower(
-        shift.lowering.sourceWithContent(
+    _ = shift_compile.lower(
+        shift_compile.lowering.sourceWithContent(
             repo_path,
             explicitCaller(),
             root_source,
@@ -33,15 +33,15 @@ comptime {
         .{
             .label = "compile_fail.source_with_content_missing_imported_helper",
             .entry_symbol = "runBody",
-            .row = shift.ir.mergeRows(.{
-                shift.ir.rowFromSpec(.{
+            .row = shift_compile.ir.mergeRows(.{
+                shift_compile.ir.rowFromSpec(.{
                     .state = .{
-                        .get = shift.ir.Transform(void, i32),
+                        .get = shift_compile.ir.Transform(void, i32),
                     },
                 }),
-                shift.ir.rowFromSpec(.{
+                shift_compile.ir.rowFromSpec(.{
                     .writer = .{
-                        .tell = shift.ir.Transform([]const u8, void),
+                        .tell = shift_compile.ir.Transform([]const u8, void),
                     },
                 }),
             }),

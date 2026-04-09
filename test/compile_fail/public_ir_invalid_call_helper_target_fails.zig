@@ -1,15 +1,15 @@
-const shift = @import("shift");
+const shift_compile = @import("shift_compile");
 
 comptime {
-    const entry_symbol: shift.ir.SymbolRef = .{
+    const entry_symbol: shift_compile.ir.SymbolRef = .{
         .module_path = "test/compile_fail/public_ir_invalid_call_helper_target_fails.zig",
         .symbol_name = "entry",
     };
-    const Program: shift.ir.Program = .{
+    const Program: shift_compile.ir.Program = .{
         .entry_index = 0,
         .functions = &.{.{
             .symbol = entry_symbol,
-            .row = shift.ir.rowFromSpec(.{}),
+            .row = shift_compile.ir.rowFromSpec(.{}),
         }},
         .call_edges = &.{},
         .function_bodies = &.{.{
@@ -28,5 +28,5 @@ comptime {
         }},
     };
 
-    _ = shift.ir.compile("compile_fail.public_ir_invalid_call_helper_target", Program);
+    _ = shift_compile.ir.compile("compile_fail.public_ir_invalid_call_helper_target", Program);
 }
