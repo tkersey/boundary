@@ -117,6 +117,9 @@ fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.hos
 }
 
 const string_dispatch_context = struct {};
+const IntegerDispatchContext = struct {
+    value: i64,
+};
 
 fn dispatchStringResults(
     ctx: *anyopaque,
@@ -159,6 +162,79 @@ fn dispatchTerminalReturn(
             .value = .{ .string = try allocator.dupe(u8, "early") },
         } },
     };
+}
+
+fn dispatchIntegerResult(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    const runtime_ctx: *IntegerDispatchContext = @ptrCast(@alignCast(ctx));
+    return .{
+        .request_id = request.request_id,
+        .body = .{ .success = .{
+            .tool_id = try allocator.dupe(u8, request.body.tool_call.tool_id),
+            .call_id = request.body.tool_call.call_id,
+            .control = .@"resume",
+            .value = .{ .i64 = runtime_ctx.value },
+        } },
+    };
+}
+
+fn encodeSingleResumeArtifact(
+    allocator: std.mem.Allocator,
+    codec: internal_program_plan.ValueCodec,
+    build_seed: []const u8,
+) ![]u8 {
+    const plan: internal_program_plan.ProgramPlan = .{
+        .label = "artifact.runtime.integer_boundary",
+        .ir_hash = 0xa1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = codec,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "value", .mode = .transform, .payload_codec = .unit, .resume_codec = codec }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = codec }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .call_op, .dst = 0, .operand = 0 },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+    const capabilities = [_]shift_vm.CapabilityV1{.{
+        .capability_id = 5,
+        .kind = .tool,
+        .label = "generated/tooling@v1",
+        .ops = &.{.{
+            .capability_id = 5,
+            .op_id = 0,
+            .global_op_name = "tool.call",
+            .payload_codec = .unit,
+            .result_codec = shift_vm.artifact.mapPlanCodecToCapabilityCodec(codec),
+        }},
+    }};
+
+    return shift_vm.artifact.encodeProgramPlan(allocator, plan, .{
+        .build_fingerprint_blake3_256 = shift_vm.artifact.buildFingerprintFromSeed(build_seed),
+        .capabilities = &capabilities,
+    });
 }
 
 test "ArtifactV1 runtime executes transform-only lowered programs with sequential request ids" {
@@ -411,4 +487,26 @@ test "ArtifactV1 runtime decodes terminal string results for later requirement o
     try std.testing.expectEqualStrings("early", result.value.string);
     try std.testing.expectEqual(@as(usize, 1), result.logs.len);
     try conformance.assertToolCallShape(result.logs[0], "generated/terminal@v1", "stop");
+}
+
+test "ArtifactV1 runtime rejects out-of-range i32 host integers" {
+    const bytes = try encodeSingleResumeArtifact(std.testing.allocator, .i32, "artifact-runtime-i32-overflow");
+    defer std.testing.allocator.free(bytes);
+
+    var context = IntegerDispatchContext{ .value = std.math.maxInt(i64) };
+    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchIntegerResult,
+    }));
+}
+
+test "ArtifactV1 runtime rejects negative usize host integers" {
+    const bytes = try encodeSingleResumeArtifact(std.testing.allocator, .usize, "artifact-runtime-usize-overflow");
+    defer std.testing.allocator.free(bytes);
+
+    var context = IntegerDispatchContext{ .value = -1 };
+    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchIntegerResult,
+    }));
 }

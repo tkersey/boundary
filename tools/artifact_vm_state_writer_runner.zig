@@ -19,7 +19,7 @@ fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.hos
     if (std.mem.eql(u8, tool_call.op_name, "get")) {
         return .{
             .request_id = request.request_id,
-            .body = .{ .ok = .{
+            .body = .{ .success = .{
                 .tool_id = try allocator.dupe(u8, tool_call.tool_id),
                 .call_id = tool_call.call_id,
                 .control = .@"resume",
@@ -31,7 +31,7 @@ fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.hos
         runtime_ctx.state = @intCast(tool_call.arguments.i64);
         return .{
             .request_id = request.request_id,
-            .body = .{ .ok = .{
+            .body = .{ .success = .{
                 .tool_id = try allocator.dupe(u8, tool_call.tool_id),
                 .call_id = tool_call.call_id,
                 .control = .@"resume",
@@ -43,7 +43,7 @@ fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.hos
         try runtime_ctx.writer_items.append(allocator, try allocator.dupe(u8, tool_call.arguments.string));
         return .{
             .request_id = request.request_id,
-            .body = .{ .ok = .{
+            .body = .{ .success = .{
                 .tool_id = try allocator.dupe(u8, tool_call.tool_id),
                 .call_id = tool_call.call_id,
                 .control = .@"resume",

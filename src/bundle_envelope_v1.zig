@@ -74,6 +74,7 @@ pub fn importBundle(
         else => return error.InvalidArtifact,
     };
     defer decoded.deinit(allocator);
+    if (!std.mem.eql(u8, &decoded.build_fingerprint_blake3_256, &build_fingerprint)) return error.BuildFingerprintMismatch;
     if (!std.mem.eql(u8, &decoded.artifact_hash_blake3_256, &artifact_hash)) return error.ArtifactHashMismatch;
 
     return .{

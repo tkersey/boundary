@@ -96,10 +96,10 @@ pub const ArtifactV1 = struct {
     /// Validate that the artifact manifest and rebuilt program plan are self-consistent.
     pub fn validate(self: @This()) anyerror!void {
         try validateManifest(self.build_fingerprint_blake3_256, self.capabilities);
-        try validateRequirementCapabilityMappings(self.requirements, self.requirement_capability_ids, self.capabilities);
         const plan = try self.toProgramPlan(std.heap.page_allocator);
         defer deepFreeProgramPlan(std.heap.page_allocator, plan);
         try plan.validate();
+        try validateRequirementCapabilityMappings(plan, self.requirement_capability_ids, self.capabilities);
     }
 
     /// Rebuild one runtime-owned ProgramPlan from this artifact payload.
@@ -193,7 +193,7 @@ pub fn deriveToolCapabilitiesFromPlan(
                 .op_id = @intCast(op_index),
                 .global_op_name = try allocator.dupe(u8, "tool.call"),
                 .payload_codec = mapPlanCodecToCapabilityCodec(op.payload_codec),
-                .result_codec = mapPlanCodecToCapabilityCodec(op.resume_codec),
+                .result_codec = mapPlanCodecToCapabilityCodec(capabilityResultCodecForOp(plan, op_start + op_index)),
             };
         }
         capabilities[index] = .{
@@ -221,7 +221,7 @@ pub fn encodeProgramPlan(
 
     const capability_manifest = try encodeCapabilityManifest(allocator, &strings, manifest);
     defer allocator.free(capability_manifest);
-    const requirement_table = try encodeRequirementTable(allocator, &strings, plan.requirements, manifest.capabilities);
+    const requirement_table = try encodeRequirementTable(allocator, &strings, plan, manifest.capabilities);
     defer allocator.free(requirement_table);
     const op_table = try encodeOpTable(allocator, &strings, plan.ops);
     defer allocator.free(op_table);
@@ -579,14 +579,14 @@ fn encodeCapabilityManifest(allocator: std.mem.Allocator, strings: *StringTable,
 fn encodeRequirementTable(
     allocator: std.mem.Allocator,
     strings: *StringTable,
-    requirements: []const program_plan.RequirementPlan,
+    plan: program_plan.ProgramPlan,
     capabilities: []const CapabilityV1,
 ) ![]u8 {
     var out = std.ArrayList(u8).empty;
     errdefer out.deinit(allocator);
-    for (requirements, 0..) |requirement, requirement_index| {
+    for (plan.requirements, 0..) |requirement, requirement_index| {
         const label_ref = try strings.add(requirement.label);
-        const capability_id = try resolveRequirementCapabilityId(requirements, requirement_index, capabilities);
+        const capability_id = try resolveRequirementCapabilityId(plan, requirement_index, capabilities);
         try encodeStringRef(&out, allocator, label_ref);
         try appendU16(&out, allocator, requirement.first_op);
         try appendU16(&out, allocator, requirement.op_count);
@@ -733,14 +733,10 @@ fn decodeRequirementTable(allocator: std.mem.Allocator, string_bytes: []const u8
     };
 }
 
-fn resolveRequirementCapabilityId(
-    requirements: []const program_plan.RequirementPlan,
-    requirement_index: usize,
-    capabilities: []const CapabilityV1,
-) !u16 {
-    const requirement = requirements[requirement_index];
+fn resolveRequirementCapabilityId(plan: program_plan.ProgramPlan, requirement_index: usize, capabilities: []const CapabilityV1) !u16 {
+    const requirement = plan.requirements[requirement_index];
     var wanted_ordinal: usize = 0;
-    for (requirements[0..requirement_index]) |previous| {
+    for (plan.requirements[0..requirement_index]) |previous| {
         if (previous.op_count == requirement.op_count and std.mem.eql(u8, previous.label, requirement.label)) {
             wanted_ordinal += 1;
         }
@@ -748,17 +744,15 @@ fn resolveRequirementCapabilityId(
 
     var current_ordinal: usize = 0;
     for (capabilities) |capability| {
-        if (!toolCapabilityMatchesRequirement(requirement, capability)) continue;
+        if (!toolCapabilityMatchesRequirement(plan, requirement_index, capability)) continue;
         if (current_ordinal == wanted_ordinal) return capability.capability_id;
         current_ordinal += 1;
     }
     return error.InvalidRequiredSection;
 }
 
-fn toolCapabilityMatchesRequirement(
-    requirement: program_plan.RequirementPlan,
-    capability: CapabilityV1,
-) bool {
+fn toolCapabilityMatchesRequirement(plan: program_plan.ProgramPlan, requirement_index: usize, capability: CapabilityV1) bool {
+    const requirement = plan.requirements[requirement_index];
     const generated_prefix = "generated/";
     const generated_suffix = "@v1";
     if (capability.kind != .tool) return false;
@@ -767,19 +761,48 @@ fn toolCapabilityMatchesRequirement(
     if (!std.mem.startsWith(u8, capability.label, generated_prefix)) return false;
     if (!std.mem.endsWith(u8, capability.label, generated_suffix)) return false;
     const inner = capability.label[generated_prefix.len .. capability.label.len - generated_suffix.len];
-    return std.mem.eql(u8, inner, requirement.label);
+    if (!std.mem.eql(u8, inner, requirement.label)) return false;
+    const op_start = requirement.first_op;
+    const op_end = op_start + requirement.op_count;
+    if (op_end > plan.ops.len) return false;
+    for (plan.ops[op_start..op_end], capability.ops, 0..) |plan_op, capability_op, op_offset| {
+        if (capability_op.payload_codec != mapPlanCodecToCapabilityCodec(plan_op.payload_codec)) return false;
+        if (capability_op.result_codec != mapPlanCodecToCapabilityCodec(capabilityResultCodecForOp(plan, op_start + op_offset))) return false;
+    }
+    return true;
 }
 
 fn validateRequirementCapabilityMappings(
-    requirements: []const program_plan.RequirementPlan,
+    plan: program_plan.ProgramPlan,
     capability_ids: []const u16,
     capabilities: []const CapabilityV1,
 ) !void {
-    if (requirements.len != capability_ids.len) return error.InvalidRequiredSection;
-    for (requirements, capability_ids) |requirement, capability_id| {
+    if (plan.requirements.len != capability_ids.len) return error.InvalidRequiredSection;
+    for (capability_ids, 0..) |capability_id, requirement_index| {
         const capability = findCapabilityById(capabilities, capability_id) orelse return error.InvalidRequiredSection;
-        if (!toolCapabilityMatchesRequirement(requirement, capability)) return error.InvalidRequiredSection;
+        if (!toolCapabilityMatchesRequirement(plan, requirement_index, capability)) return error.InvalidRequiredSection;
     }
+}
+
+fn capabilityResultCodecForOp(plan: program_plan.ProgramPlan, op_index: usize) program_plan.ValueCodec {
+    const op = plan.ops[op_index];
+    return switch (op.mode) {
+        .transform => op.resume_codec,
+        .abort, .choice => functionValueCodecForOp(plan, @intCast(op_index)),
+    };
+}
+
+fn functionValueCodecForOp(plan: program_plan.ProgramPlan, op_index: u16) program_plan.ValueCodec {
+    for (plan.functions) |function| {
+        const req_start: usize = function.first_requirement;
+        const req_end = req_start + function.requirement_count;
+        for (plan.requirements[req_start..req_end]) |requirement| {
+            const op_start = requirement.first_op;
+            const op_end = op_start + requirement.op_count;
+            if (op_index >= op_start and op_index < op_end) return function.value_codec;
+        }
+    }
+    return .unit;
 }
 
 fn findCapabilityById(capabilities: []const CapabilityV1, capability_id: u16) ?CapabilityV1 {
@@ -1215,6 +1238,68 @@ test "ArtifactV1 encode/decode preserves plan structure and capability manifest"
     try std.testing.expectEqual(@as(usize, 1), decoded.functions.len);
     try std.testing.expectEqualStrings("entry", decoded.functions[0].symbol_name);
     try std.testing.expectEqual(@as(usize, 1), decoded.instructions.len);
+}
+
+test "ArtifactV1 rejects custom capabilities whose op codecs do not match the compiled plan" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-v1-custom-capability-mismatch");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.test",
+        .ir_hash = 0x55,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 2 }},
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "first", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+            .{ .requirement_index = 0, .op_name = "second", .mode = .transform, .payload_codec = .string, .resume_codec = .unit },
+        },
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const capabilities = [_]CapabilityV1{.{
+        .capability_id = 9,
+        .kind = .tool,
+        .label = "generated/tooling@v1",
+        .ops = &.{
+            .{
+                .capability_id = 9,
+                .op_id = 0,
+                .global_op_name = "tool.call",
+                .payload_codec = .string,
+                .result_codec = .unit,
+            },
+            .{
+                .capability_id = 9,
+                .op_id = 1,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .string,
+            },
+        },
+    }};
+
+    try std.testing.expectError(error.InvalidRequiredSection, encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    }));
 }
 
 test "ArtifactV1 encoding is deterministic and disasm is readable" {

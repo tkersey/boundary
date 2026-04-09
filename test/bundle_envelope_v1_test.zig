@@ -57,3 +57,26 @@ test "BundleEnvelopeV1 rejects truncated headers and invalid embedded artifacts"
 
     try std.testing.expectError(error.InvalidArtifact, shift_vm.bundle.importBundle(std.testing.allocator, corrupted, expected));
 }
+
+test "BundleEnvelopeV1 rejects header fingerprints that disagree with the embedded artifact" {
+    const bytes = try shift_compile.compileAndEncode(
+        std.testing.allocator,
+        "examples/open_row_state_writer.zig",
+        example.loweringSpec(),
+        .{
+            .build_fingerprint_seed = "bundle-envelope-original",
+            .capabilities = &.{},
+        },
+    );
+    defer std.testing.allocator.free(bytes);
+
+    const envelope_bytes = try shift_vm.bundle.exportBundle(std.testing.allocator, bytes);
+    defer std.testing.allocator.free(envelope_bytes);
+
+    var mismatched = try std.testing.allocator.dupe(u8, envelope_bytes);
+    defer std.testing.allocator.free(mismatched);
+    const wrong_expected = shift_vm.artifact.buildFingerprintFromSeed("bundle-envelope-rewritten");
+    @memcpy(mismatched[12..44], &wrong_expected);
+
+    try std.testing.expectError(error.BuildFingerprintMismatch, shift_vm.bundle.importBundle(std.testing.allocator, mismatched, wrong_expected));
+}

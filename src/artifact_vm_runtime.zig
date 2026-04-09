@@ -281,7 +281,7 @@ fn programValueToDataValue(
             else => error.ProgramContractViolation,
         },
         .usize => switch (value) {
-            .usize => |typed| .{ .i64 = @intCast(typed) },
+            .usize => |typed| .{ .i64 = std.math.cast(i64, typed) orelse return error.ProgramContractViolation },
             else => error.ProgramContractViolation,
         },
         .string_list => error.ProgramContractViolation,
@@ -300,7 +300,7 @@ fn dataValueToProgramValue(
             else => error.ProgramContractViolation,
         },
         .i32 => switch (value) {
-            .i64 => |typed| .{ .i32 = @intCast(typed) },
+            .i64 => |typed| .{ .i32 = std.math.cast(i32, typed) orelse return error.ProgramContractViolation },
             else => error.ProgramContractViolation,
         },
         .string => switch (value) {
@@ -308,7 +308,7 @@ fn dataValueToProgramValue(
             else => error.ProgramContractViolation,
         },
         .usize => switch (value) {
-            .i64 => |typed| .{ .usize = @intCast(typed) },
+            .i64 => |typed| .{ .usize = std.math.cast(usize, typed) orelse return error.ProgramContractViolation },
             else => error.ProgramContractViolation,
         },
         .string_list => error.ProgramContractViolation,
