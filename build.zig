@@ -144,13 +144,381 @@ fn canonicalSourceHash(b: *std.Build, path: []const u8) [32]u8 {
     return digest;
 }
 
-fn hashBuildIdentityFile(hasher: *std.crypto.hash.Blake3, b: *std.Build, path: []const u8) void {
-    const bytes = std.fs.cwd().readFileAlloc(b.allocator, b.pathFromRoot(path), 1 << 20) catch
-        std.process.fatal("unable to read build identity file '{s}'", .{path});
-    defer b.allocator.free(bytes);
+fn hashBuildIdentityU64(hasher: *std.crypto.hash.Blake3, value: u64) void {
+    var buffer: [8]u8 = undefined;
+    std.mem.writeInt(u64, &buffer, value, .little);
+    hasher.update(&buffer);
+}
 
-    hasher.update(path);
-    hasher.update(bytes);
+fn hashBuildIdentityField(
+    hasher: *std.crypto.hash.Blake3,
+    label: []const u8,
+    value: []const u8,
+) void {
+    hasher.update(label);
+    hashBuildIdentityU64(hasher, @as(u64, @intCast(value.len)));
+    hasher.update(value);
+}
+
+fn pathExistsAtRoot(root_dir: std.fs.Dir, path: []const u8) bool {
+    const file = root_dir.openFile(path, .{}) catch return false;
+    file.close();
+    return true;
+}
+
+fn hashBuildIdentityFileAtRoot(
+    hasher: *std.crypto.hash.Blake3,
+    repo_root: []const u8,
+    path: []const u8,
+) void {
+    var root_dir = std.fs.openDirAbsolute(repo_root, .{}) catch |err|
+        std.process.fatal("unable to open build identity root '{s}': {s}", .{ repo_root, @errorName(err) });
+    defer root_dir.close();
+
+    var file = root_dir.openFile(path, .{}) catch |err|
+        std.process.fatal("unable to open build identity file '{s}': {s}", .{ path, @errorName(err) });
+    defer file.close();
+
+    const stat = file.stat() catch |err|
+        std.process.fatal("unable to stat build identity file '{s}': {s}", .{ path, @errorName(err) });
+
+    hashBuildIdentityField(hasher, "build-input-path", path);
+    hasher.update("build-input-bytes");
+    hashBuildIdentityU64(hasher, stat.size);
+
+    var buffer: [4096]u8 = undefined;
+    while (true) {
+        const read_len = file.read(&buffer) catch |err|
+            std.process.fatal("unable to read build identity file '{s}': {s}", .{ path, @errorName(err) });
+        if (read_len == 0) break;
+        hasher.update(buffer[0..read_len]);
+    }
+}
+
+fn appendOwnedPathIfMissing(
+    allocator: std.mem.Allocator,
+    paths: *std.ArrayList([]const u8),
+    path_set: *std.StringHashMap(void),
+    path: []const u8,
+) !void {
+    const owned = try allocator.dupe(u8, path);
+    errdefer allocator.free(owned);
+
+    const gop = try path_set.getOrPut(owned);
+    if (gop.found_existing) return allocator.free(owned);
+    try paths.append(allocator, owned);
+}
+
+fn sortOwnedPaths(paths: [][]const u8) void {
+    var left: usize = 0;
+    while (left < paths.len) : (left += 1) {
+        var right = left + 1;
+        while (right < paths.len) : (right += 1) {
+            if (std.mem.order(u8, paths[right], paths[left]) == .lt) {
+                const tmp = paths[left];
+                paths[left] = paths[right];
+                paths[right] = tmp;
+            }
+        }
+    }
+}
+
+fn freeOwnedPathList(allocator: std.mem.Allocator, paths: []const []const u8) void {
+    for (paths) |path| allocator.free(path);
+    allocator.free(paths);
+}
+
+fn stringLiteralInner(literal: []const u8) ?[]const u8 {
+    if (literal.len < 2) return null;
+    if (literal[0] != '"' or literal[literal.len - 1] != '"') return null;
+    return literal[1 .. literal.len - 1];
+}
+
+fn decodeStringLiteralAlloc(allocator: std.mem.Allocator, literal: []const u8) !?[]u8 {
+    const inner = stringLiteralInner(literal) orelse return null;
+    if (std.mem.indexOfScalar(u8, inner, '\\') == null) {
+        if (std.mem.indexOfAny(u8, inner, "\"\n") != null) return null;
+        return try allocator.dupe(u8, inner);
+    }
+
+    var out = std.ArrayList(u8).empty;
+    defer out.deinit(allocator);
+
+    var index: usize = 0;
+    while (index < inner.len) {
+        switch (inner[index]) {
+            '\\' => {
+                const escape_char_index = index + 1;
+                const parsed = std.zig.string_literal.parseEscapeSequence(inner, &index);
+                const codepoint = switch (parsed) {
+                    .success => |value| value,
+                    .failure => return null,
+                };
+                if (escape_char_index >= inner.len) return null;
+                if (inner[escape_char_index] == 'u') {
+                    var utf8_buffer: [4]u8 = undefined;
+                    const utf8_len = std.unicode.utf8Encode(codepoint, &utf8_buffer) catch return null;
+                    try out.appendSlice(allocator, utf8_buffer[0..utf8_len]);
+                } else {
+                    try out.append(allocator, @as(u8, @intCast(codepoint)));
+                }
+            },
+            '"' => return null,
+            '\n' => return null,
+            else => {
+                try out.append(allocator, inner[index]);
+            },
+        }
+        index += 1;
+    }
+
+    return try out.toOwnedSlice(allocator);
+}
+
+const BuildInputToken = struct {
+    tag: std.zig.Token.Tag,
+    lexeme: []const u8,
+};
+
+const BuildInputTokenWindow = struct {
+    items: [8]BuildInputToken = [_]BuildInputToken{.{
+        .tag = .invalid,
+        .lexeme = "",
+    }} ** 8,
+    count: usize = 0,
+
+    fn push(self: *@This(), item: BuildInputToken) void {
+        if (self.count < self.items.len) {
+            self.items[self.count] = item;
+            self.count += 1;
+            return;
+        }
+        var index: usize = 1;
+        while (index < self.items.len) : (index += 1) {
+            self.items[index - 1] = self.items[index];
+        }
+        self.items[self.items.len - 1] = item;
+    }
+};
+
+fn tokenSlice(source: [:0]const u8, token: anytype) []const u8 {
+    return source[token.loc.start..token.loc.end];
+}
+
+fn maybeEmbedFileLiteralPath(window: *const BuildInputTokenWindow) ?[]const u8 {
+    if (window.count < 4) return null;
+    const tail = window.items[window.count - 4 .. window.count];
+    if (!(tail[0].tag == .builtin and
+        std.mem.eql(u8, tail[0].lexeme, "@embedFile") and
+        tail[1].tag == .l_paren and
+        tail[2].tag == .string_literal and
+        tail[3].tag == .r_paren))
+    {
+        return null;
+    }
+    return tail[2].lexeme;
+}
+
+fn windowMatchesEmbedFileSelf(window: *const BuildInputTokenWindow) bool {
+    if (window.count < 8) return false;
+    const tail = window.items[window.count - 8 .. window.count];
+    return tail[0].tag == .builtin and
+        std.mem.eql(u8, tail[0].lexeme, "@embedFile") and
+        tail[1].tag == .l_paren and
+        tail[2].tag == .builtin and
+        std.mem.eql(u8, tail[2].lexeme, "@src") and
+        tail[3].tag == .l_paren and
+        tail[4].tag == .r_paren and
+        tail[5].tag == .period and
+        tail[6].tag == .identifier and
+        std.mem.eql(u8, tail[6].lexeme, "file") and
+        tail[7].tag == .r_paren;
+}
+
+fn tryRepoRelativePathFromAbsoluteAlloc(
+    allocator: std.mem.Allocator,
+    repo_root: []const u8,
+    absolute_path: []const u8,
+) !?[]u8 {
+    if (!std.mem.startsWith(u8, absolute_path, repo_root)) return null;
+    if (absolute_path.len == repo_root.len) return null;
+    if (absolute_path[repo_root.len] != std.fs.path.sep) return null;
+    return try allocator.dupe(u8, absolute_path[repo_root.len + 1 ..]);
+}
+
+fn collectEmbedFileBuildInputsForSource(
+    allocator: std.mem.Allocator,
+    repo_root: []const u8,
+    source_path: []const u8,
+    paths: *std.ArrayList([]const u8),
+    path_set: *std.StringHashMap(void),
+) !void {
+    const source_full_path = try std.fs.path.join(allocator, &.{ repo_root, source_path });
+    defer allocator.free(source_full_path);
+    const bytes = try std.fs.cwd().readFileAlloc(allocator, source_full_path, 1 << 20);
+    defer allocator.free(bytes);
+    const source_z = try allocator.dupeZ(u8, bytes);
+    defer allocator.free(source_z);
+
+    const source_dir = std.fs.path.dirname(source_path) orelse ".";
+    var tokenizer = std.zig.Tokenizer.init(source_z);
+    var window: BuildInputTokenWindow = .{};
+    while (true) {
+        const token = tokenizer.next();
+        if (token.tag == .eof) break;
+        window.push(.{
+            .tag = token.tag,
+            .lexeme = tokenSlice(source_z, token),
+        });
+
+        if (windowMatchesEmbedFileSelf(&window)) {
+            try appendOwnedPathIfMissing(allocator, paths, path_set, source_path);
+            continue;
+        }
+
+        const literal = maybeEmbedFileLiteralPath(&window) orelse continue;
+        const decoded = try decodeStringLiteralAlloc(allocator, literal) orelse continue;
+        defer allocator.free(decoded);
+
+        const resolved = try std.fs.path.resolve(allocator, &.{ repo_root, source_dir, decoded });
+        defer allocator.free(resolved);
+
+        const repo_relative = try tryRepoRelativePathFromAbsoluteAlloc(allocator, repo_root, resolved) orelse continue;
+        defer allocator.free(repo_relative);
+
+        var root_dir = std.fs.openDirAbsolute(repo_root, .{}) catch |err|
+            std.process.fatal("unable to open repo root for embed input scan '{s}': {s}", .{ repo_root, @errorName(err) });
+        defer root_dir.close();
+        if (!pathExistsAtRoot(root_dir, repo_relative)) continue;
+        try appendOwnedPathIfMissing(allocator, paths, path_set, repo_relative);
+    }
+}
+
+fn pathIsIgnoredBuildInput(path: []const u8) bool {
+    return std.mem.eql(u8, path, ".git") or
+        std.mem.startsWith(u8, path, ".git/") or
+        std.mem.eql(u8, path, ".zig-cache") or
+        std.mem.startsWith(u8, path, ".zig-cache/") or
+        std.mem.eql(u8, path, "zig-out") or
+        std.mem.startsWith(u8, path, "zig-out/");
+}
+
+fn collectFilesystemRepoZigPaths(
+    allocator: std.mem.Allocator,
+    repo_root: []const u8,
+    paths: *std.ArrayList([]const u8),
+    path_set: *std.StringHashMap(void),
+) void {
+    var root_dir = std.fs.openDirAbsolute(repo_root, .{ .iterate = true }) catch |err|
+        std.process.fatal("unable to open repo root for build input walk '{s}': {s}", .{ repo_root, @errorName(err) });
+    defer root_dir.close();
+
+    var walker = root_dir.walk(allocator) catch
+        std.process.fatal("unable to walk repo root for build inputs", .{});
+    defer walker.deinit();
+
+    while (walker.next() catch
+        std.process.fatal("unable to iterate repo build input walk", .{})) |entry|
+    {
+        if (pathIsIgnoredBuildInput(entry.path)) continue;
+        switch (entry.kind) {
+            .file, .sym_link => {},
+            else => continue,
+        }
+        if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
+        appendOwnedPathIfMissing(allocator, paths, path_set, entry.path) catch
+            std.process.fatal("unable to record repo Zig build input path", .{});
+    }
+}
+
+fn collectTrackedAndUntrackedRepoZigPaths(
+    allocator: std.mem.Allocator,
+    repo_root: []const u8,
+    paths: *std.ArrayList([]const u8),
+    path_set: *std.StringHashMap(void),
+) bool {
+    const result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "git", "-C", repo_root, "ls-files", "--cached", "--others", "--exclude-standard", "--", "*.zig" },
+        .max_output_bytes = 512 * 1024,
+    }) catch return false;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    switch (result.term) {
+        .Exited => |code| if (code != 0) return false,
+        else => return false,
+    }
+
+    var root_dir = std.fs.openDirAbsolute(repo_root, .{}) catch return false;
+    defer root_dir.close();
+
+    var lines = std.mem.tokenizeScalar(u8, result.stdout, '\n');
+    while (lines.next()) |line| {
+        if (!std.mem.endsWith(u8, line, ".zig")) continue;
+        if (!pathExistsAtRoot(root_dir, line)) continue;
+        appendOwnedPathIfMissing(allocator, paths, path_set, line) catch
+            std.process.fatal("unable to record tracked or untracked repo Zig path", .{});
+    }
+    return true;
+}
+
+fn artifactBuildInputPathsAlloc(
+    allocator: std.mem.Allocator,
+    repo_root: []const u8,
+) []const []const u8 {
+    var paths = std.ArrayList([]const u8).empty;
+    var path_set = std.StringHashMap(void).init(allocator);
+    defer path_set.deinit();
+
+    if (!collectTrackedAndUntrackedRepoZigPaths(allocator, repo_root, &paths, &path_set)) {
+        collectFilesystemRepoZigPaths(allocator, repo_root, &paths, &path_set);
+    }
+
+    const zig_count = paths.items.len;
+    var index: usize = 0;
+    while (index < zig_count) : (index += 1) {
+        collectEmbedFileBuildInputsForSource(
+            allocator,
+            repo_root,
+            paths.items[index],
+            &paths,
+            &path_set,
+        ) catch std.process.fatal("unable to collect embedded build inputs from '{s}'", .{paths.items[index]});
+    }
+
+    sortOwnedPaths(paths.items);
+    return paths.toOwnedSlice(allocator) catch
+        std.process.fatal("unable to allocate artifact build input path list", .{});
+}
+
+fn hashArtifactBuildInputs(
+    hasher: *std.crypto.hash.Blake3,
+    allocator: std.mem.Allocator,
+    repo_root: []const u8,
+) void {
+    const input_paths = artifactBuildInputPathsAlloc(allocator, repo_root);
+    defer freeOwnedPathList(allocator, input_paths);
+
+    for (input_paths) |path| {
+        hashBuildIdentityFileAtRoot(hasher, repo_root, path);
+    }
+
+    var root_dir = std.fs.openDirAbsolute(repo_root, .{}) catch |err|
+        std.process.fatal("unable to open repo root for build metadata '{s}': {s}", .{ repo_root, @errorName(err) });
+    defer root_dir.close();
+    if (pathExistsAtRoot(root_dir, "build.zig.zon")) {
+        hashBuildIdentityFileAtRoot(hasher, repo_root, "build.zig.zon");
+    }
+}
+
+fn artifactBuildInputFingerprint(allocator: std.mem.Allocator, repo_root: []const u8) [32]u8 {
+    var hasher = std.crypto.hash.Blake3.init(.{});
+    hasher.update("shift-artifact-build-input-fingerprint-v1");
+    hashArtifactBuildInputs(&hasher, allocator, repo_root);
+    var digest = std.mem.zeroes([32]u8);
+    hasher.final(&digest);
+    return digest;
 }
 
 fn hashBuildTargetIdentity(
@@ -207,23 +575,12 @@ fn defaultArtifactBuildFingerprint(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) [32]u8 {
-    const registry = repoZigPathRegistry(b);
     var hasher = std.crypto.hash.Blake3.init(.{});
     hasher.update("shift-default-artifact-build-fingerprint-v2");
     hasher.update(builtin.zig_version_string);
     hasher.update(@tagName(optimize));
     hashBuildTargetIdentity(&hasher, b, target);
-    hasher.update(registry);
-    hashBuildIdentityFile(&hasher, b, "build.zig");
-    hashBuildIdentityFile(&hasher, b, "build.zig.zon");
-
-    var lines = std.mem.tokenizeScalar(u8, registry, '\n');
-    while (lines.next()) |path| {
-        if (path.len == 0) continue;
-        const digest = canonicalSourceHash(b, path);
-        hasher.update(path);
-        hasher.update(&digest);
-    }
+    hashArtifactBuildInputs(&hasher, b.allocator, b.pathFromRoot("."));
 
     var digest = std.mem.zeroes([32]u8);
     hasher.final(&digest);
@@ -626,6 +983,99 @@ test "compileFailEscapeProbeLinkPath stays in the fixture directory" {
         "/tmp/shift/test/compile_fail_inputs/.compile_fail_escape_helper_probe_link.zig",
         probe_path,
     );
+}
+
+fn writeTmpFile(dir: std.fs.Dir, path: []const u8, contents: []const u8) !void {
+    if (std.fs.path.dirname(path)) |dir_name| {
+        try dir.makePath(dir_name);
+    }
+    var file = try dir.createFile(path, .{ .truncate = true });
+    defer file.close();
+    var buffer: [1024]u8 = undefined;
+    var writer = file.writer(&buffer);
+    try writer.interface.writeAll(contents);
+    try writer.interface.flush();
+}
+
+fn runChildExpectSuccess(allocator: std.mem.Allocator, argv: []const []const u8) !void {
+    const result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = argv,
+        .max_output_bytes = 32 * 1024,
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    switch (result.term) {
+        .Exited => |code| if (code == 0) return,
+        else => {},
+    }
+    std.debug.print("child command failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ argv[0], result.stdout, result.stderr });
+    return error.UnexpectedChildCommandFailure;
+}
+
+test "artifact build fingerprint changes on raw-byte-only Zig edits" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
+    try writeTmpFile(tmp.dir, "probe.zig",
+        \\pub fn main() void {
+        \\    const self = @embedFile(@src().file);
+        \\    _ = self;
+        \\}
+        \\
+    );
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "init", "-q" });
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "add", "probe.zig", "build.zig.zon" });
+
+    const before = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try writeTmpFile(tmp.dir, "probe.zig",
+        \\// whitespace/comment-only edit must still perturb exact-build identity
+        \\pub fn main() void {
+        \\    const self = @embedFile(@src().file);
+        \\    _ = self;
+        \\}
+        \\
+    );
+    const after = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try std.testing.expect(!std.mem.eql(u8, &before, &after));
+}
+
+test "artifact build fingerprint includes embedded non-Zig and untracked Zig inputs" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
+    try writeTmpFile(tmp.dir, "probe.zig",
+        \\pub fn main() void {
+        \\    const schema = @embedFile("schema.json");
+        \\    _ = schema;
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "schema.json", "{ \"version\": 1 }\n");
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "init", "-q" });
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "add", "probe.zig", "build.zig.zon" });
+
+    const before_asset = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try writeTmpFile(tmp.dir, "schema.json", "{ \"version\": 2 }\n");
+    const after_asset = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try std.testing.expect(!std.mem.eql(u8, &before_asset, &after_asset));
+
+    const before_untracked_zig = after_asset;
+    try writeTmpFile(tmp.dir, "helper.zig",
+        \\pub fn helper() void {}
+        \\
+    );
+    const after_untracked_zig = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try std.testing.expect(!std.mem.eql(u8, &before_untracked_zig, &after_untracked_zig));
 }
 
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.
