@@ -40,9 +40,6 @@ const custom_capabilities_a = [_]shift_vm.CapabilityV1{
             .plan_op_ordinal = 0,
         }},
     },
-};
-
-const custom_capabilities_b = [_]shift_vm.CapabilityV1{
     .{
         .capability_id = 41,
         .kind = .tool,
@@ -50,7 +47,7 @@ const custom_capabilities_b = [_]shift_vm.CapabilityV1{
         .ops = &.{
             .{
                 .capability_id = 41,
-                .op_id = 0,
+                .op_id = 14,
                 .global_op_name = "tool.call",
                 .payload_codec = .unit,
                 .result_codec = .i32,
@@ -58,7 +55,7 @@ const custom_capabilities_b = [_]shift_vm.CapabilityV1{
             },
             .{
                 .capability_id = 41,
-                .op_id = 1,
+                .op_id = 15,
                 .global_op_name = "tool.call",
                 .payload_codec = .i32,
                 .result_codec = .unit,
@@ -72,7 +69,108 @@ const custom_capabilities_b = [_]shift_vm.CapabilityV1{
         .label = "generated/writer@v1",
         .ops = &.{.{
             .capability_id = 53,
-            .op_id = 12,
+            .op_id = 19,
+            .global_op_name = "tool.call",
+            .payload_codec = .string,
+            .result_codec = .unit,
+            .plan_op_ordinal = 0,
+        }},
+    },
+    .{
+        .capability_id = 65,
+        .kind = .tool,
+        .label = "generated/writer@v1",
+        .ops = &.{.{
+            .capability_id = 65,
+            .op_id = 24,
+            .global_op_name = "tool.call",
+            .payload_codec = .string,
+            .result_codec = .unit,
+            .plan_op_ordinal = 0,
+        }},
+    },
+};
+
+const custom_capabilities_b = [_]shift_vm.CapabilityV1{
+    .{
+        .capability_id = 12,
+        .kind = .tool,
+        .label = "generated/state@v1",
+        .ops = &.{
+            .{
+                .capability_id = 12,
+                .op_id = 0,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .i32,
+                .plan_op_ordinal = 0,
+            },
+            .{
+                .capability_id = 12,
+                .op_id = 1,
+                .global_op_name = "tool.call",
+                .payload_codec = .i32,
+                .result_codec = .unit,
+                .plan_op_ordinal = 1,
+            },
+        },
+    },
+    .{
+        .capability_id = 28,
+        .kind = .tool,
+        .label = "generated/writer@v1",
+        .ops = &.{.{
+            .capability_id = 28,
+            .op_id = 6,
+            .global_op_name = "tool.call",
+            .payload_codec = .string,
+            .result_codec = .unit,
+            .plan_op_ordinal = 0,
+        }},
+    },
+    .{
+        .capability_id = 42,
+        .kind = .tool,
+        .label = "generated/state@v1",
+        .ops = &.{
+            .{
+                .capability_id = 42,
+                .op_id = 10,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .i32,
+                .plan_op_ordinal = 0,
+            },
+            .{
+                .capability_id = 42,
+                .op_id = 11,
+                .global_op_name = "tool.call",
+                .payload_codec = .i32,
+                .result_codec = .unit,
+                .plan_op_ordinal = 1,
+            },
+        },
+    },
+    .{
+        .capability_id = 54,
+        .kind = .tool,
+        .label = "generated/writer@v1",
+        .ops = &.{.{
+            .capability_id = 54,
+            .op_id = 16,
+            .global_op_name = "tool.call",
+            .payload_codec = .string,
+            .result_codec = .unit,
+            .plan_op_ordinal = 0,
+        }},
+    },
+    .{
+        .capability_id = 66,
+        .kind = .tool,
+        .label = "generated/writer@v1",
+        .ops = &.{.{
+            .capability_id = 66,
+            .op_id = 21,
             .global_op_name = "tool.call",
             .payload_codec = .string,
             .result_codec = .unit,

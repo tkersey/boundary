@@ -33,14 +33,17 @@ fn CompileSourceType(
                 owned_capabilities = try artifact.deriveToolCapabilitiesFromPlan(allocator, runtime_plan);
                 break :blk owned_capabilities.?;
             } else options.capabilities;
-            const build_fingerprint = if (options.build_fingerprint_seed.len != 0)
+
+            const base_fingerprint = if (options.build_fingerprint_seed.len != 0)
                 artifact.buildFingerprintFromSeed(options.build_fingerprint_seed)
-            else if (options.capabilities.len == 0)
-                artifact.defaultBuildFingerprint()
+            else
+                artifact.defaultBuildFingerprint();
+            const build_fingerprint = if (options.capabilities.len == 0)
+                base_fingerprint
             else blk: {
                 break :blk try artifact.buildFingerprintForCapabilities(
                     allocator,
-                    artifact.defaultBuildFingerprint(),
+                    base_fingerprint,
                     capabilities,
                 );
             };

@@ -191,10 +191,10 @@ pub fn buildFingerprintForCapabilities(
         .capabilities = capabilities,
     });
     defer allocator.free(encoded_manifest);
+    const string_bytes = try strings.toOwnedBytes(allocator);
+    defer allocator.free(string_bytes);
 
-    var digest = std.mem.zeroes([32]u8);
-    std.crypto.hash.Blake3.hash(encoded_manifest, &digest, .{});
-    return digest;
+    return hashCapabilityFingerprintSections(encoded_manifest, string_bytes);
 }
 
 /// Map one ProgramPlan codec into the external capability codec surface.
@@ -732,6 +732,23 @@ fn encodeCapabilityManifest(allocator: std.mem.Allocator, strings: *StringTable,
         }
     }
     return out.toOwnedSlice(allocator);
+}
+
+fn hashCapabilityFingerprintSections(manifest_bytes: []const u8, string_bytes: []const u8) [32]u8 {
+    var hasher = std.crypto.hash.Blake3.init(.{});
+    var len_bytes = std.mem.zeroes([8]u8);
+
+    hasher.update("shift-artifact-v1-capability-fingerprint-v2");
+    std.mem.writeInt(u64, &len_bytes, manifest_bytes.len, .little);
+    hasher.update(&len_bytes);
+    hasher.update(manifest_bytes);
+    std.mem.writeInt(u64, &len_bytes, string_bytes.len, .little);
+    hasher.update(&len_bytes);
+    hasher.update(string_bytes);
+
+    var digest = std.mem.zeroes([32]u8);
+    hasher.final(&digest);
+    return digest;
 }
 
 fn encodeRequirementTable(
@@ -1665,6 +1682,49 @@ test "ArtifactV1 decode frees partially decoded capability manifests on malforme
 
 test "ArtifactV1 advertises usize capability codecs precisely" {
     try std.testing.expectEqual(CapabilityCodecV1.usize, mapPlanCodecToCapabilityCodec(.usize));
+}
+
+test "ArtifactV1 exact-build fingerprints include custom capability label contents" {
+    const base_fingerprint = buildFingerprintFromSeed("artifact-v1-capability-fingerprint-label-contents");
+    const capabilities_alpha = [_]CapabilityV1{.{
+        .capability_id = 7,
+        .kind = .tool,
+        .label = "repo/alpha@v1",
+        .ops = &.{.{
+            .capability_id = 7,
+            .op_id = 0,
+            .global_op_name = "tool.call",
+            .payload_codec = .unit,
+            .result_codec = .string,
+            .plan_op_ordinal = 0,
+        }},
+    }};
+    const capabilities_bravo = [_]CapabilityV1{.{
+        .capability_id = 7,
+        .kind = .tool,
+        .label = "repo/bravo@v1",
+        .ops = &.{.{
+            .capability_id = 7,
+            .op_id = 0,
+            .global_op_name = "tool.call",
+            .payload_codec = .unit,
+            .result_codec = .string,
+            .plan_op_ordinal = 0,
+        }},
+    }};
+
+    const fingerprint_alpha = try buildFingerprintForCapabilities(
+        std.testing.allocator,
+        base_fingerprint,
+        &capabilities_alpha,
+    );
+    const fingerprint_bravo = try buildFingerprintForCapabilities(
+        std.testing.allocator,
+        base_fingerprint,
+        &capabilities_bravo,
+    );
+
+    try std.testing.expect(!std.mem.eql(u8, &fingerprint_alpha, &fingerprint_bravo));
 }
 
 test "ArtifactV1 rejects executable string_list codecs during encode" {

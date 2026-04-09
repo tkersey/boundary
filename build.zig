@@ -1271,6 +1271,7 @@ pub fn build(b: *std.Build) void {
     const agent_vm_spec_contract_cmd = b.addSystemCommand(&.{ "sh", "test/agent_vm_spec_contract/run.sh" });
     const agent_vm_spec_contract_step = b.step("agent-vm-spec-contract", "Check ArtifactV1 and HostAdapterV1 specification anchors.");
     agent_vm_spec_contract_step.dependOn(&agent_vm_spec_contract_cmd.step);
+    test_step.dependOn(&agent_vm_spec_contract_cmd.step);
 
     const artifact_v1_api_mod = b.createModule(.{
         .root_source_file = b.path("test/artifact_v1_api_test.zig"),
@@ -1296,6 +1297,7 @@ pub fn build(b: *std.Build) void {
     });
     const run_artifact_v1_api_tests = b.addRunArtifact(artifact_v1_api_tests);
     const artifact_v1_api_step = b.step("artifact-v1-api-check", "Check ArtifactV1 encode/decode/disasm and shift_compile artifact emission.");
+    test_step.dependOn(&run_artifact_v1_api_tests.step);
     artifact_v1_api_step.dependOn(&run_artifact_v1_api_tests.step);
 
     const artifact_vm_runtime_mod = b.createModule(.{
@@ -1330,6 +1332,7 @@ pub fn build(b: *std.Build) void {
     });
     const run_artifact_vm_runtime_tests = b.addRunArtifact(artifact_vm_runtime_tests);
     const artifact_vm_runtime_step = b.step("artifact-vm-runtime-check", "Check synchronous ArtifactV1 execution over HostAdapterV1.");
+    test_step.dependOn(&run_artifact_vm_runtime_tests.step);
     artifact_vm_runtime_step.dependOn(&run_artifact_vm_runtime_tests.step);
 
     const bundle_envelope_mod = b.createModule(.{
@@ -1356,6 +1359,7 @@ pub fn build(b: *std.Build) void {
     });
     const run_bundle_envelope_tests = b.addRunArtifact(bundle_envelope_tests);
     const bundle_envelope_step = b.step("bundle-envelope-v1-check", "Check BundleEnvelopeV1 export/import and exact-build rejection.");
+    test_step.dependOn(&run_bundle_envelope_tests.step);
     bundle_envelope_step.dependOn(&run_bundle_envelope_tests.step);
 
     const host_adapter_impl_mod = b.createModule(.{
@@ -1376,6 +1380,7 @@ pub fn build(b: *std.Build) void {
     });
     const run_host_adapter_tests = b.addRunArtifact(host_adapter_conformance_tests);
     const host_adapter_conformance_step = b.step("host-adapter-conformance-check", "Check HostAdapterV1 request/result conformance helpers.");
+    test_step.dependOn(&run_host_adapter_tests.step);
     host_adapter_conformance_step.dependOn(&run_host_adapter_tests.step);
 
     const artifact_dump_mod = b.createModule(.{
@@ -1423,23 +1428,70 @@ pub fn build(b: *std.Build) void {
         .cpu_arch = .wasm32,
         .os_tag = .wasi,
     });
+    const shift_shared_wasm_mod = b.createModule(.{
+        .root_source_file = b.path("src/shift_shared.zig"),
+        .target = wasm_target,
+        .optimize = optimize,
+    });
+    const artifact_build_options_wasm = b.addOptions();
+    artifact_build_options_wasm.addOption(
+        [32]u8,
+        "default_artifact_build_fingerprint",
+        defaultArtifactBuildFingerprint(b, wasm_target, optimize),
+    );
+    shift_shared_wasm_mod.addOptions("artifact_build_options", artifact_build_options_wasm);
+    shift_shared_wasm_mod.addImport("portable_core", portable_core_mod);
+    shift_shared_wasm_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
+    shift_shared_wasm_mod.addImport("frontend_support", frontend_support_mod);
+    shift_shared_wasm_mod.addImport("error_witness", error_witness_mod);
+    shift_shared_wasm_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    shift_shared_wasm_mod.addImport("effect_ir", effect_ir_mod);
+    shift_shared_wasm_mod.addImport("internal_kernel", internal_kernel_mod);
+    shift_shared_wasm_mod.addImport("internal_program_plan", internal_program_plan_mod);
+    shift_shared_wasm_mod.addImport("interpreter", interpreter_mod);
+    shift_shared_wasm_mod.addImport("source_graph_engine", source_graph_engine_mod);
+    shift_shared_wasm_mod.addImport("source_graph_comptime", source_graph_comptime_mod);
+    shift_shared_wasm_mod.addImport("lowered_machine", lowered_machine_mod);
+    shift_shared_wasm_mod.addImport("program_frontend", program_frontend_mod);
+    shift_shared_wasm_mod.addImport("authoring_build_options", authoring_build_options_mod);
+    shift_shared_wasm_mod.addImport("source_graph_embed", source_graph_embed_mod);
+    shift_shared_wasm_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
+    shift_shared_wasm_mod.addImport("source_lowering", source_lowering_mod);
+    const shift_wasm_mod = b.addModule("shift_wasm_artifact_runner", .{
+        .root_source_file = b.path("src/root.zig"),
+        .target = wasm_target,
+        .optimize = optimize,
+    });
+    shift_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
+    const shift_compile_wasm_mod = b.addModule("shift_compile_wasm_artifact_runner", .{
+        .root_source_file = b.path("src/shift_compile.zig"),
+        .target = wasm_target,
+        .optimize = optimize,
+    });
+    shift_compile_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
+    const shift_vm_wasm_mod = b.addModule("shift_vm_wasm_artifact_runner", .{
+        .root_source_file = b.path("src/shift_vm.zig"),
+        .target = wasm_target,
+        .optimize = optimize,
+    });
+    shift_vm_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
     const artifact_vm_wasm_runner_mod = b.createModule(.{
         .root_source_file = b.path("tools/artifact_vm_state_writer_runner.zig"),
         .target = wasm_target,
         .optimize = optimize,
     });
-    artifact_vm_wasm_runner_mod.addImport("shift_compile", shift_compile_mod);
-    artifact_vm_wasm_runner_mod.addImport("shift_vm", shift_vm_mod);
+    artifact_vm_wasm_runner_mod.addImport("shift_compile", shift_compile_wasm_mod);
+    artifact_vm_wasm_runner_mod.addImport("shift_vm", shift_vm_wasm_mod);
     artifact_vm_wasm_runner_mod.addImport("example_open_row_state_writer", createShiftConsumerModule(
         b,
         "examples/open_row_state_writer.zig",
         wasm_target,
         optimize,
         .{
-            .shift_mod = shift_mod,
-            .shift_compile_mod = shift_compile_mod,
-            .shift_vm_mod = shift_vm_mod,
-            .lowered_runtime_mod = private_lowered_runtime_mod,
+            .shift_mod = shift_wasm_mod,
+            .shift_compile_mod = shift_compile_wasm_mod,
+            .shift_vm_mod = shift_vm_wasm_mod,
+            .lowered_runtime_mod = null,
         },
     ));
     const artifact_vm_wasm_runner_exe = b.addExecutable(.{
