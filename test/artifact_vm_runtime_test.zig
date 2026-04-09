@@ -1,7 +1,7 @@
-const shift_compile = @import("shift_compile");
-const shift_vm = @import("shift_vm");
 const conformance = @import("host_adapter_v1_conformance");
 const example = @import("example_open_row_state_writer");
+const shift_compile = @import("shift_compile");
+const shift_vm = @import("shift_vm");
 const std = @import("std");
 
 const RuntimeContext = struct {
@@ -17,14 +17,17 @@ const RuntimeContext = struct {
 const LoweredStateHandler = struct {
     value: i32,
 
+    /// Return the current retained state value.
     pub fn get(self: *@This()) anyerror!i32 {
         return self.value;
     }
 
+    /// Replace the retained state value.
     pub fn set(self: *@This(), value: i32) anyerror!void {
         self.value = value;
     }
 
+    /// Finish the lowered state handler and surface the final state.
     pub fn finish(self: *@This()) i32 {
         return self.value;
     }
@@ -34,10 +37,12 @@ const LoweredWriterHandler = struct {
     allocator: std.mem.Allocator,
     items: std.ArrayList([]u8) = .empty,
 
+    /// Record one retained writer output.
     pub fn tell(self: *@This(), value: []const u8) anyerror!void {
         try self.items.append(self.allocator, try self.allocator.dupe(u8, value));
     }
 
+    /// Finish the lowered writer handler and clone its buffered outputs.
     pub fn finish(self: *@This()) anyerror![][]const u8 {
         const outputs = try self.allocator.alloc([]const u8, self.items.items.len);
         for (self.items.items, outputs) |item, *output| {
@@ -46,6 +51,7 @@ const LoweredWriterHandler = struct {
         return outputs;
     }
 
+    /// Release retained writer outputs buffered for parity testing.
     pub fn deinit(self: *@This()) void {
         for (self.items.items) |item| self.allocator.free(item);
         self.items.deinit(self.allocator);
@@ -68,7 +74,7 @@ fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.hos
     if (std.mem.eql(u8, tool_call.op_name, "get")) {
         return .{
             .request_id = request.request_id,
-            .body = .{ .ok = .{
+            .body = .{ .success = .{
                 .tool_id = try allocator.dupe(u8, tool_call.tool_id),
                 .call_id = tool_call.call_id,
                 .control = shift_vm.host_adapter.ToolControlV1.@"resume",
@@ -80,7 +86,7 @@ fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.hos
         runtime_ctx.state = @intCast(tool_call.arguments.i64);
         return .{
             .request_id = request.request_id,
-            .body = .{ .ok = .{
+            .body = .{ .success = .{
                 .tool_id = try allocator.dupe(u8, tool_call.tool_id),
                 .call_id = tool_call.call_id,
                 .control = shift_vm.host_adapter.ToolControlV1.@"resume",
@@ -92,7 +98,7 @@ fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.hos
         try runtime_ctx.writer_items.append(allocator, try allocator.dupe(u8, tool_call.arguments.string));
         return .{
             .request_id = request.request_id,
-            .body = .{ .ok = .{
+            .body = .{ .success = .{
                 .tool_id = try allocator.dupe(u8, tool_call.tool_id),
                 .call_id = tool_call.call_id,
                 .control = shift_vm.host_adapter.ToolControlV1.@"resume",

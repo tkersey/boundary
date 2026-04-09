@@ -1251,14 +1251,14 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const host_adapter_v1_conformance_for_runtime_mod = b.createModule(.{
+    const host_adapter_runtime_mod = b.createModule(.{
         .root_source_file = b.path("src/host_adapter_v1_conformance.zig"),
         .target = target,
         .optimize = optimize,
     });
-    host_adapter_v1_conformance_for_runtime_mod.addImport("shift_vm", shift_vm_mod);
+    host_adapter_runtime_mod.addImport("shift_vm", shift_vm_mod);
     artifact_vm_runtime_mod.addImport("shift", shift_shared_mod);
-    artifact_vm_runtime_mod.addImport("host_adapter_v1_conformance", host_adapter_v1_conformance_for_runtime_mod);
+    artifact_vm_runtime_mod.addImport("host_adapter_v1_conformance", host_adapter_runtime_mod);
     artifact_vm_runtime_mod.addImport("shift_compile", shift_compile_mod);
     artifact_vm_runtime_mod.addImport("shift_vm", shift_vm_mod);
     artifact_vm_runtime_mod.addImport("example_open_row_state_writer", createShiftConsumerModule(
@@ -1306,25 +1306,25 @@ pub fn build(b: *std.Build) void {
     const bundle_envelope_step = b.step("bundle-envelope-v1-check", "Check BundleEnvelopeV1 export/import and exact-build rejection.");
     bundle_envelope_step.dependOn(&run_bundle_envelope_tests.step);
 
-    const host_adapter_conformance_impl_mod = b.createModule(.{
+    const host_adapter_impl_mod = b.createModule(.{
         .root_source_file = b.path("src/host_adapter_v1_conformance.zig"),
         .target = target,
         .optimize = optimize,
     });
-    host_adapter_conformance_impl_mod.addImport("shift_vm", shift_vm_mod);
+    host_adapter_impl_mod.addImport("shift_vm", shift_vm_mod);
     const host_adapter_conformance_mod = b.createModule(.{
         .root_source_file = b.path("test/host_adapter_v1_conformance_test.zig"),
         .target = target,
         .optimize = optimize,
     });
     host_adapter_conformance_mod.addImport("shift_vm", shift_vm_mod);
-    host_adapter_conformance_mod.addImport("host_adapter_v1_conformance", host_adapter_conformance_impl_mod);
+    host_adapter_conformance_mod.addImport("host_adapter_v1_conformance", host_adapter_impl_mod);
     const host_adapter_conformance_tests = b.addTest(.{
         .root_module = host_adapter_conformance_mod,
     });
-    const run_host_adapter_conformance_tests = b.addRunArtifact(host_adapter_conformance_tests);
+    const run_host_adapter_tests = b.addRunArtifact(host_adapter_conformance_tests);
     const host_adapter_conformance_step = b.step("host-adapter-conformance-check", "Check HostAdapterV1 request/result conformance helpers.");
-    host_adapter_conformance_step.dependOn(&run_host_adapter_conformance_tests.step);
+    host_adapter_conformance_step.dependOn(&run_host_adapter_tests.step);
 
     const artifact_dump_mod = b.createModule(.{
         .root_source_file = b.path("tools/artifact_v1_dump.zig"),

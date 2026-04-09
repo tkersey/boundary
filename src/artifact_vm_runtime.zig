@@ -4,23 +4,29 @@ const lowered_machine = @import("shift_shared").lowered_machine_internal;
 const program_plan = @import("shift_shared").internal_program_plan;
 const std = @import("std");
 
+/// Result of executing ArtifactV1 bytes through the synchronous HostAdapterV1 runtime.
 pub const ExecutionResultV1 = struct {
     value: lowered_machine.ProgramValue,
     logs: []host.HostLogEntryV1,
 
+    /// Release the owned runtime value and captured host logs.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         deinitProgramValue(allocator, &self.value);
         for (self.logs) |*entry| entry.deinit(allocator);
         allocator.free(self.logs);
-        self.* = undefined;
+        self.* = .{
+            .value = .none,
+            .logs = &.{},
+        };
     }
 };
 
+/// Decode ArtifactV1 bytes, execute the entry function, and capture the host-effect transcript.
 pub fn runArtifact(
     allocator: std.mem.Allocator,
     bytes: []const u8,
     adapter: host.HostAdapterV1,
-) !ExecutionResultV1 {
+) anyerror!ExecutionResultV1 {
     var decoded = try artifact.decode(allocator, bytes);
     defer decoded.deinit(allocator);
     const plan = try decoded.toProgramPlan(allocator);
@@ -33,19 +39,22 @@ pub fn runArtifact(
     }
 
     var next_request_id: u64 = 1;
+    var execution: ExecutionContext = .{
+        .allocator = allocator,
+        .decoded = &decoded,
+        .plan = plan,
+        .adapter = adapter,
+        .logs = &logs,
+        .next_request_id = &next_request_id,
+    };
     const result = try executeFunction(
-        allocator,
-        &decoded,
-        plan,
+        &execution,
         plan.entry_index,
         &.{},
-        adapter,
-        &logs,
-        &next_request_id,
     );
     const owned_value = try cloneProgramValue(allocator, switch (result) {
-        .value => |value| value,
         .terminal => |value| value,
+        .value => |value| value,
     });
     return .{
         .value = owned_value,
@@ -54,50 +63,54 @@ pub fn runArtifact(
 }
 
 const FunctionResult = union(enum) {
-    value: lowered_machine.ProgramValue,
     terminal: lowered_machine.ProgramValue,
+    value: lowered_machine.ProgramValue,
 };
 
-fn executeFunction(
+const ExecutionContext = struct {
     allocator: std.mem.Allocator,
     decoded: *const artifact.ArtifactV1,
     plan: program_plan.ProgramPlan,
-    function_index: u16,
-    args: []const lowered_machine.ProgramValue,
     adapter: host.HostAdapterV1,
     logs: *std.ArrayList(host.HostLogEntryV1),
     next_request_id: *u64,
-) !FunctionResult {
-    const function = plan.functions[function_index];
-    var locals = try allocator.alloc(lowered_machine.ProgramValue, function.local_count);
-    defer allocator.free(locals);
+};
+
+fn executeFunction(
+    ctx: *ExecutionContext,
+    function_index: u16,
+    args: []const lowered_machine.ProgramValue,
+) anyerror!FunctionResult {
+    const function = ctx.plan.functions[function_index];
+    var locals = try ctx.allocator.alloc(lowered_machine.ProgramValue, function.local_count);
+    defer ctx.allocator.free(locals);
     @memset(locals, .none);
     if (args.len != function.parameter_count) return error.ProgramContractViolation;
     for (args, 0..) |arg, index| locals[index] = arg;
 
     var current_block_index = function.first_block + function.entry_block;
-    var instruction_index = plan.blocks[current_block_index].first_instruction;
+    var instruction_index = ctx.plan.blocks[current_block_index].first_instruction;
     var return_local: ?u16 = null;
 
     while (true) {
-        const block = plan.blocks[current_block_index];
+        const block = ctx.plan.blocks[current_block_index];
         const instruction_end = block.first_instruction + block.instruction_count;
         while (instruction_index < instruction_end) : (instruction_index += 1) {
-            const instruction = plan.instructions[instruction_index];
+            const instruction = ctx.plan.instructions[instruction_index];
             switch (instruction.kind) {
                 .add_const_i32 => locals[instruction.dst] = switch (locals[instruction.operand]) {
                     .i32 => |typed| .{ .i32 = typed + @as(i32, @intCast(instruction.aux)) },
                     else => return error.ProgramContractViolation,
                 },
                 .call_helper => {
-                    const callee = plan.functions[instruction.operand];
-                    const helper_args = try allocator.alloc(lowered_machine.ProgramValue, callee.parameter_count);
-                    defer allocator.free(helper_args);
+                    const callee = ctx.plan.functions[instruction.operand];
+                    const helper_args = try ctx.allocator.alloc(lowered_machine.ProgramValue, callee.parameter_count);
+                    defer ctx.allocator.free(helper_args);
                     for (helper_args, 0..) |*slot, arg_index| {
-                        const local_id = plan.call_args[instruction.aux + arg_index];
+                        const local_id = ctx.plan.call_args[instruction.aux + arg_index];
                         slot.* = locals[local_id];
                     }
-                    const helper_result = try executeFunction(allocator, decoded, plan, instruction.operand, helper_args, adapter, logs, next_request_id);
+                    const helper_result = try executeFunction(ctx, instruction.operand, helper_args);
                     switch (helper_result) {
                         .value => |value| {
                             if (callee.value_codec != .unit) locals[instruction.dst] = value;
@@ -106,9 +119,9 @@ fn executeFunction(
                     }
                 },
                 .call_op => {
-                    const op = plan.ops[instruction.operand];
+                    const op = ctx.plan.ops[instruction.operand];
                     const payload = if (op.payload_codec == .unit) .none else locals[instruction.aux];
-                    const op_result = try callHostOp(allocator, decoded, plan, instruction.operand, payload, adapter, logs, next_request_id);
+                    const op_result = try callHostOp(ctx, instruction.operand, payload);
                     switch (op_result) {
                         .resumed => |value| {
                             if (op.resume_codec != .unit) locals[instruction.dst] = value;
@@ -132,21 +145,21 @@ fn executeFunction(
             }
         }
 
-        const terminator = plan.terminators[block.terminator_index];
+        const terminator = ctx.plan.terminators[block.terminator_index];
         switch (terminator.kind) {
             .branch_if => {
-                const predicate_instruction = plan.instructions[instruction_end - 1];
+                const predicate_instruction = ctx.plan.instructions[instruction_end - 1];
                 const predicate = switch (locals[predicate_instruction.dst]) {
                     .bool => |typed| typed,
                     else => return error.ProgramContractViolation,
                 };
                 current_block_index = if (predicate) terminator.primary else terminator.secondary;
-                instruction_index = plan.blocks[current_block_index].first_instruction;
+                instruction_index = ctx.plan.blocks[current_block_index].first_instruction;
                 return_local = null;
             },
             .jump => {
                 current_block_index = terminator.primary;
-                instruction_index = plan.blocks[current_block_index].first_instruction;
+                instruction_index = ctx.plan.blocks[current_block_index].first_instruction;
                 return_local = null;
             },
             .return_unit => return .{ .value = .none },
@@ -161,46 +174,41 @@ const OpDispatchResult = union(enum) {
 };
 
 fn callHostOp(
-    allocator: std.mem.Allocator,
-    decoded: *const artifact.ArtifactV1,
-    plan: program_plan.ProgramPlan,
+    ctx: *ExecutionContext,
     op_index: u16,
     payload: lowered_machine.ProgramValue,
-    adapter: host.HostAdapterV1,
-    logs: *std.ArrayList(host.HostLogEntryV1),
-    next_request_id: *u64,
-) !OpDispatchResult {
-    const op = plan.ops[op_index];
-    const requirement = plan.requirements[op.requirement_index];
-    const capability = findCapability(decoded.capabilities, op.requirement_index) orelse return error.ProgramContractViolation;
+) anyerror!OpDispatchResult {
+    const op = ctx.plan.ops[op_index];
+    const requirement = ctx.plan.requirements[op.requirement_index];
+    const capability = findCapability(ctx.decoded.capabilities, op.requirement_index) orelse return error.ProgramContractViolation;
     const capability_op_id = op_index - requirement.first_op;
     var request = host.HostEffectRequestV1{
-        .request_id = next_request_id.*,
+        .request_id = ctx.next_request_id.*,
         .capability_id = capability.capability_id,
         .op_id = capability_op_id,
         .body = .{ .tool_call = .{
-            .tool_id = try allocator.dupe(u8, capability.label),
-            .call_id = next_request_id.*,
-            .op_name = try allocator.dupe(u8, op.op_name),
-            .arguments = try programValueToDataValue(allocator, op.payload_codec, payload),
+            .tool_id = try ctx.allocator.dupe(u8, capability.label),
+            .call_id = ctx.next_request_id.*,
+            .op_name = try ctx.allocator.dupe(u8, op.op_name),
+            .arguments = try programValueToDataValue(ctx.allocator, op.payload_codec, payload),
         } },
     };
-    next_request_id.* += 1;
-    defer request.deinit(allocator);
+    ctx.next_request_id.* += 1;
+    defer request.deinit(ctx.allocator);
 
-    var response = try adapter.dispatch(allocator, request);
-    defer response.deinit(allocator);
+    var response = try ctx.adapter.dispatch(ctx.allocator, request);
+    defer response.deinit(ctx.allocator);
     if (response.request_id != request.request_id) return error.ProgramContractViolation;
 
-    try logs.append(allocator, .{
-        .request = try request.clone(allocator),
-        .result = try response.clone(allocator),
+    try ctx.logs.append(ctx.allocator, .{
+        .request = try request.clone(ctx.allocator),
+        .result = try response.clone(ctx.allocator),
     });
 
     return switch (response.body) {
-        .ok => |tool_result| switch (tool_result.control) {
+        .success => |tool_result| switch (tool_result.control) {
             .@"resume" => .{ .resumed = try dataValueToProgramValue(op.resume_codec, tool_result.value) },
-            .return_now, .abort => .{ .terminal = try dataValueToProgramValue(functionValueCodecForOp(plan, op_index), tool_result.value) },
+            .return_now, .abort => .{ .terminal = try dataValueToProgramValue(functionValueCodecForOp(ctx.plan, op_index), tool_result.value) },
         },
         .rejected, .failed => error.ProgramContractViolation,
     };
@@ -310,5 +318,5 @@ fn deinitProgramValue(allocator: std.mem.Allocator, value: *lowered_machine.Prog
         .string => |typed| allocator.free(typed),
         else => {},
     }
-    value.* = undefined;
+    value.* = .none;
 }

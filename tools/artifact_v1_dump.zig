@@ -1,7 +1,8 @@
 const artifact = @import("shift_vm").artifact;
 const std = @import("std");
 
-pub fn main() !void {
+/// Decode and print one ArtifactV1 file in readable text form.
+pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();

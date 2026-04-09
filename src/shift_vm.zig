@@ -1,14 +1,24 @@
-const shared = @import("shift_shared");
+/// Exact-build bundle envelope helpers over ArtifactV1 bytes.
 pub const bundle = @import("bundle_envelope_v1.zig");
+/// Typed HostAdapterV1 request/result/logging boundary.
 pub const host_adapter = @import("host_adapter_v1.zig");
+/// Synchronous ArtifactV1 runtime execution over HostAdapterV1.
 pub const runtime = @import("artifact_vm_runtime.zig");
+const shared = @import("shift_shared");
 
+/// ArtifactV1 encoding and decoding helpers shared with `shift_compile`.
 pub const artifact = shared.artifact;
+/// Public ArtifactV1 binary representation.
 pub const ArtifactV1 = artifact.ArtifactV1;
+/// Public capability-manifest metadata carried by ArtifactV1.
 pub const CapabilityManifestV1 = artifact.CapabilityManifestV1;
+/// Public capability descriptor carried by ArtifactV1.
 pub const CapabilityV1 = artifact.CapabilityV1;
+/// Public capability-op descriptor carried by ArtifactV1.
 pub const CapabilityOpV1 = artifact.CapabilityOpV1;
+/// Public capability kind tag carried by ArtifactV1.
 pub const CapabilityKind = artifact.CapabilityKind;
+/// Public capability codec tag carried by ArtifactV1.
 pub const CapabilityCodecV1 = artifact.CapabilityCodecV1;
 
 /// Explicit compatibility namespace for the retained front-door runtime shell.

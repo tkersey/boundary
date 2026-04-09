@@ -1,6 +1,6 @@
+const example = @import("example_open_row_state_writer");
 const shift_compile = @import("shift_compile");
 const shift_vm = @import("shift_vm");
-const example = @import("example_open_row_state_writer");
 const std = @import("std");
 
 test "BundleEnvelopeV1 round-trips ArtifactV1 bytes and rejects build mismatches" {

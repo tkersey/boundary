@@ -1,10 +1,10 @@
+const example = @import("example_open_row_state_writer");
 const shift_compile = @import("shift_compile");
 const shift_vm = @import("shift_vm");
-const example = @import("example_open_row_state_writer");
 const std = @import("std");
 
-test "compileSource encodes repo-owned authored programs into ArtifactV1 bytes" {
-    const Compiler = shift_compile.compileSource(
+test "CompileSource encodes repo-owned authored programs into ArtifactV1 bytes" {
+    const Compiler = shift_compile.CompileSource(
         "examples/open_row_state_writer.zig",
         example.loweringSpec(),
         .{

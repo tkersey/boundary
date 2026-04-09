@@ -1,17 +1,20 @@
 const artifact = @import("shift_shared").artifact;
 const std = @import("std");
 
+/// One exact-build handoff envelope carrying ArtifactV1 bytes.
 pub const BundleEnvelopeV1 = struct {
     build_fingerprint_blake3_256: [32]u8,
     artifact_hash_blake3_256: [32]u8,
     artifact_bytes: []u8,
 
+    /// Release the owned artifact payload held by this envelope.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         allocator.free(self.artifact_bytes);
         self.* = undefined;
     }
 };
 
+/// Fail-closed import errors for BundleEnvelopeV1 payloads.
 pub const BundleImportError = error{
     ArtifactHashMismatch,
     BadMagic,
@@ -20,6 +23,7 @@ pub const BundleImportError = error{
     UnsupportedVersion,
 };
 
+/// Export ArtifactV1 bytes into one exact-build bundle envelope.
 pub fn exportBundle(
     allocator: std.mem.Allocator,
     artifact_bytes: []const u8,
@@ -39,21 +43,22 @@ pub fn exportBundle(
     return out.toOwnedSlice(allocator);
 }
 
+/// Import one exact-build bundle envelope and reject mismatched build fingerprints.
 pub fn importBundle(
     allocator: std.mem.Allocator,
     bytes: []const u8,
     expected_build_fingerprint: [32]u8,
-) !BundleEnvelopeV1 {
+) (BundleImportError || std.mem.Allocator.Error)!BundleEnvelopeV1 {
     if (bytes.len < 52) return error.InvalidLength;
     if (!std.mem.eql(u8, bytes[0..8], "SFTBNDV1")) return error.BadMagic;
     if (readU16(bytes, 8) != 1) return error.UnsupportedVersion;
     if (readU16(bytes, 10) != 0) return error.UnsupportedVersion;
 
-    var build_fingerprint: [32]u8 = undefined;
+    var build_fingerprint = std.mem.zeroes([32]u8);
     @memcpy(&build_fingerprint, bytes[12..44]);
     if (!std.mem.eql(u8, &build_fingerprint, &expected_build_fingerprint)) return error.BuildFingerprintMismatch;
 
-    var artifact_hash: [32]u8 = undefined;
+    var artifact_hash = std.mem.zeroes([32]u8);
     @memcpy(&artifact_hash, bytes[44..76]);
     const artifact_len = readU64(bytes, 76);
     if (84 + artifact_len != bytes.len) return error.InvalidLength;

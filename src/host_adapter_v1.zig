@@ -1,21 +1,24 @@
 const std = @import("std");
 
+/// Control outcome returned by one synchronous host tool call.
 pub const ToolControlV1 = enum {
     @"resume",
-    return_now,
     abort,
+    return_now,
 };
 
+/// Typed recursive value tree used by HostAdapterV1 request and result payloads.
 pub const DataValueV1 = union(enum) {
-    null,
-    bool: bool,
-    i64: i64,
-    string: []const u8,
-    bytes: []u8,
     array: []DataValueV1,
+    bool: bool,
+    bytes: []u8,
+    i64: i64,
+    null,
     object: []ObjectFieldV1,
+    string: []const u8,
 
-    pub fn clone(self: @This(), allocator: std.mem.Allocator) !DataValueV1 {
+    /// Clone one typed payload tree into allocator-owned memory.
+    pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!DataValueV1 {
         return switch (self) {
             .null => .null,
             .bool => |value| .{ .bool = value },
@@ -42,6 +45,7 @@ pub const DataValueV1 = union(enum) {
         };
     }
 
+    /// Release any allocator-owned memory held by this typed payload tree.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         switch (self.*) {
             .null, .bool, .i64 => {},
@@ -63,18 +67,21 @@ pub const DataValueV1 = union(enum) {
     }
 };
 
+/// One object field carried inside `DataValueV1.object`.
 pub const ObjectFieldV1 = struct {
     key: []const u8,
     value: DataValueV1,
 };
 
+/// Typed tool-call request body used by HostAdapterV1.
 pub const ToolCallRequestV1 = struct {
     tool_id: []const u8,
     call_id: u64,
     op_name: []const u8,
     arguments: DataValueV1,
 
-    pub fn clone(self: @This(), allocator: std.mem.Allocator) !@This() {
+    /// Clone one tool-call request into allocator-owned memory.
+    pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
         return .{
             .tool_id = try allocator.dupe(u8, self.tool_id),
             .call_id = self.call_id,
@@ -83,6 +90,7 @@ pub const ToolCallRequestV1 = struct {
         };
     }
 
+    /// Release any allocator-owned memory held by this tool-call request.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         allocator.free(self.tool_id);
         allocator.free(self.op_name);
@@ -91,13 +99,15 @@ pub const ToolCallRequestV1 = struct {
     }
 };
 
+/// Typed tool-call result body used by HostAdapterV1.
 pub const ToolCallResultV1 = struct {
     tool_id: []const u8,
     call_id: u64,
     control: ToolControlV1 = .@"resume",
     value: DataValueV1,
 
-    pub fn clone(self: @This(), allocator: std.mem.Allocator) !@This() {
+    /// Clone one tool-call result into allocator-owned memory.
+    pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
         return .{
             .tool_id = try allocator.dupe(u8, self.tool_id),
             .call_id = self.call_id,
@@ -106,6 +116,7 @@ pub const ToolCallResultV1 = struct {
         };
     }
 
+    /// Release any allocator-owned memory held by this tool-call result.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         allocator.free(self.tool_id);
         self.value.deinit(allocator);
@@ -113,17 +124,20 @@ pub const ToolCallResultV1 = struct {
     }
 };
 
+/// Typed failure payload returned across HostAdapterV1.
 pub const FailureV1 = struct {
     code: []const u8,
     message: []const u8,
 
-    pub fn clone(self: @This(), allocator: std.mem.Allocator) !@This() {
+    /// Clone one failure payload into allocator-owned memory.
+    pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
         return .{
             .code = try allocator.dupe(u8, self.code),
             .message = try allocator.dupe(u8, self.message),
         };
     }
 
+    /// Release any allocator-owned memory held by this failure payload.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         allocator.free(self.code);
         allocator.free(self.message);
@@ -131,20 +145,23 @@ pub const FailureV1 = struct {
     }
 };
 
+/// Host effect kinds supported by HostAdapterV1.
 pub const HostEffectKindV1 = enum {
-    model_turn,
-    tool_call,
     durable_load,
     durable_store,
+    model_turn,
+    tool_call,
 };
 
+/// Request-body variants supported by HostAdapterV1.
 pub const HostEffectRequestBodyV1 = union(HostEffectKindV1) {
-    model_turn: void,
-    tool_call: ToolCallRequestV1,
     durable_load: void,
     durable_store: void,
+    model_turn: void,
+    tool_call: ToolCallRequestV1,
 
-    pub fn clone(self: @This(), allocator: std.mem.Allocator) !@This() {
+    /// Clone one request-body variant into allocator-owned memory.
+    pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
         return switch (self) {
             .model_turn => .{ .model_turn = {} },
             .tool_call => |value| .{ .tool_call = try value.clone(allocator) },
@@ -153,6 +170,7 @@ pub const HostEffectRequestBodyV1 = union(HostEffectKindV1) {
         };
     }
 
+    /// Release any allocator-owned memory held by this request-body variant.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         switch (self.*) {
             .tool_call => |*value| value.deinit(allocator),
@@ -162,6 +180,7 @@ pub const HostEffectRequestBodyV1 = union(HostEffectKindV1) {
     }
 };
 
+/// One synchronous host-effect request.
 pub const HostEffectRequestV1 = struct {
     schema_version: u16 = 1,
     request_id: u64,
@@ -169,7 +188,8 @@ pub const HostEffectRequestV1 = struct {
     op_id: u16,
     body: HostEffectRequestBodyV1,
 
-    pub fn clone(self: @This(), allocator: std.mem.Allocator) !@This() {
+    /// Clone one host-effect request into allocator-owned memory.
+    pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
         return .{
             .schema_version = self.schema_version,
             .request_id = self.request_id,
@@ -179,34 +199,39 @@ pub const HostEffectRequestV1 = struct {
         };
     }
 
+    /// Release any allocator-owned memory held by this host-effect request.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         self.body.deinit(allocator);
         self.* = undefined;
     }
 };
 
+/// Result status returned by one synchronous host-effect request.
 pub const HostEffectStatusV1 = enum {
-    ok,
-    rejected,
     failed,
+    rejected,
+    success,
 };
 
+/// Result-body variants returned by HostAdapterV1.
 pub const HostEffectResultBodyV1 = union(HostEffectStatusV1) {
-    ok: ToolCallResultV1,
-    rejected: FailureV1,
     failed: FailureV1,
+    rejected: FailureV1,
+    success: ToolCallResultV1,
 
-    pub fn clone(self: @This(), allocator: std.mem.Allocator) !@This() {
+    /// Clone one result-body variant into allocator-owned memory.
+    pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
         return switch (self) {
-            .ok => |value| .{ .ok = try value.clone(allocator) },
+            .success => |value| .{ .success = try value.clone(allocator) },
             .rejected => |value| .{ .rejected = try value.clone(allocator) },
             .failed => |value| .{ .failed = try value.clone(allocator) },
         };
     }
 
+    /// Release any allocator-owned memory held by this result-body variant.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         switch (self.*) {
-            .ok => |*value| value.deinit(allocator),
+            .success => |*value| value.deinit(allocator),
             .rejected => |*value| value.deinit(allocator),
             .failed => |*value| value.deinit(allocator),
         }
@@ -214,12 +239,14 @@ pub const HostEffectResultBodyV1 = union(HostEffectStatusV1) {
     }
 };
 
+/// One synchronous host-effect result.
 pub const HostEffectResultV1 = struct {
     schema_version: u16 = 1,
     request_id: u64,
     body: HostEffectResultBodyV1,
 
-    pub fn clone(self: @This(), allocator: std.mem.Allocator) !@This() {
+    /// Clone one host-effect result into allocator-owned memory.
+    pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
         return .{
             .schema_version = self.schema_version,
             .request_id = self.request_id,
@@ -227,16 +254,19 @@ pub const HostEffectResultV1 = struct {
         };
     }
 
+    /// Release any allocator-owned memory held by this host-effect result.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         self.body.deinit(allocator);
         self.* = undefined;
     }
 };
 
+/// One logged HostAdapterV1 request/result pair.
 pub const HostLogEntryV1 = struct {
     request: HostEffectRequestV1,
     result: HostEffectResultV1,
 
+    /// Release any allocator-owned memory held by this logged request/result pair.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         self.request.deinit(allocator);
         self.result.deinit(allocator);
@@ -244,10 +274,12 @@ pub const HostLogEntryV1 = struct {
     }
 };
 
+/// Synchronous host dispatch interface used by the ArtifactV1 VM runtime.
 pub const HostAdapterV1 = struct {
     ctx: *anyopaque,
     dispatchFn: *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, request: HostEffectRequestV1) anyerror!HostEffectResultV1,
 
+    /// Dispatch one synchronous host-effect request.
     pub fn dispatch(self: @This(), allocator: std.mem.Allocator, request: HostEffectRequestV1) anyerror!HostEffectResultV1 {
         return self.dispatchFn(self.ctx, allocator, request);
     }

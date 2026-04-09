@@ -18,7 +18,7 @@ test "host adapter conformance helper enforces sequential ids and tool echo" {
             },
             .result = .{
                 .request_id = 1,
-                .body = .{ .ok = .{
+                .body = .{ .success = .{
                     .tool_id = try std.testing.allocator.dupe(u8, "generated/tooling@v1"),
                     .call_id = 1,
                     .control = .@"resume",

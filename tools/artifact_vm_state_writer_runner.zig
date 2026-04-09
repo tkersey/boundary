@@ -1,6 +1,6 @@
+const example = @import("example_open_row_state_writer");
 const shift_compile = @import("shift_compile");
 const shift_vm = @import("shift_vm");
-const example = @import("example_open_row_state_writer");
 const std = @import("std");
 
 const RuntimeContext = struct {
@@ -60,8 +60,12 @@ fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.hos
     };
 }
 
-pub fn main() !void {
-    const allocator = std.heap.page_allocator;
+/// Execute the retained state/writer example through the ArtifactV1 runtime and print the transcript summary.
+pub fn main() anyerror!void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
     const bytes = try shift_compile.compileAndEncode(
         allocator,
         "examples/open_row_state_writer.zig",
@@ -71,7 +75,6 @@ pub fn main() !void {
             .capabilities = &.{},
         },
     );
-    defer allocator.free(bytes);
 
     var context = RuntimeContext{ .state = 5 };
     defer context.deinit(allocator);

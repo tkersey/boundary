@@ -1,44 +1,50 @@
 const program_plan = @import("internal_program_plan");
 const std = @import("std");
 
+/// Stable section ids used by the ArtifactV1 binary layout.
 pub const SectionId = enum(u16) {
+    block_table = 0x0009,
+    call_arg_table = 0x0007,
     capability_manifest = 0x0001,
-    string_table = 0x0002,
-    requirement_table = 0x0003,
+    function_table = 0x0008,
+    instruction_table = 0x000b,
+    local_table = 0x0006,
     op_table = 0x0004,
     output_table = 0x0005,
-    local_table = 0x0006,
-    call_arg_table = 0x0007,
-    function_table = 0x0008,
-    block_table = 0x0009,
+    requirement_table = 0x0003,
+    string_table = 0x0002,
     terminator_table = 0x000a,
-    instruction_table = 0x000b,
 };
 
+/// Hash algorithm ids admitted by ArtifactV1.
 pub const HashKind = enum(u8) {
     blake3_256 = 1,
 };
 
+/// External capability kinds declared by ArtifactV1.
 pub const CapabilityKind = enum(u8) {
+    durable_state = 3,
     model = 1,
     tool = 2,
-    durable_state = 3,
 };
 
+/// Canonical capability codecs admitted by ArtifactV1.
 pub const CapabilityCodecV1 = enum(u8) {
-    unit = 1,
     bool = 2,
-    i32 = 3,
-    string = 4,
     bytes = 5,
     data_value = 6,
+    i32 = 3,
+    string = 4,
+    unit = 1,
 };
 
+/// One string-table reference inside ArtifactV1.
 pub const StringRef = struct {
     offset: u32,
     len: u32,
 };
 
+/// One section directory entry inside ArtifactV1.
 pub const SectionDirectoryEntryV1 = struct {
     section_id: SectionId,
     flags: u16 = 0,
@@ -47,6 +53,7 @@ pub const SectionDirectoryEntryV1 = struct {
     entry_count: u32,
 };
 
+/// One capability operation declared in ArtifactV1.
 pub const CapabilityOpV1 = struct {
     capability_id: u16,
     op_id: u16,
@@ -55,6 +62,7 @@ pub const CapabilityOpV1 = struct {
     result_codec: CapabilityCodecV1,
 };
 
+/// One external capability declared in ArtifactV1.
 pub const CapabilityV1 = struct {
     capability_id: u16,
     kind: CapabilityKind,
@@ -63,11 +71,13 @@ pub const CapabilityV1 = struct {
     ops: []const CapabilityOpV1,
 };
 
+/// Exact-build capability manifest carried by ArtifactV1.
 pub const CapabilityManifestV1 = struct {
     build_fingerprint_blake3_256: [32]u8,
     capabilities: []const CapabilityV1,
 };
 
+/// Public in-memory representation of one decoded ArtifactV1 payload.
 pub const ArtifactV1 = struct {
     semantic_ir_hash64: u64,
     artifact_hash_blake3_256: [32]u8,
@@ -84,14 +94,16 @@ pub const ArtifactV1 = struct {
     terminators: []program_plan.Terminator,
     instructions: []program_plan.Instruction,
 
-    pub fn validate(self: @This()) !void {
+    /// Validate that the artifact manifest and rebuilt program plan are self-consistent.
+    pub fn validate(self: @This()) anyerror!void {
         try validateManifest(self.build_fingerprint_blake3_256, self.capabilities);
         const plan = try self.toProgramPlan(std.heap.page_allocator);
         defer deepFreeProgramPlan(std.heap.page_allocator, plan);
         try plan.validate();
     }
 
-    pub fn toProgramPlan(self: @This(), allocator: std.mem.Allocator) !program_plan.ProgramPlan {
+    /// Rebuild one runtime-owned ProgramPlan from this artifact payload.
+    pub fn toProgramPlan(self: @This(), allocator: std.mem.Allocator) anyerror!program_plan.ProgramPlan {
         return .{
             .label = try allocator.dupe(u8, "artifact_v1"),
             .ir_hash = self.semantic_ir_hash64,
@@ -108,6 +120,7 @@ pub const ArtifactV1 = struct {
         };
     }
 
+    /// Release all allocator-owned memory held by this artifact.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         deepFreeCapabilities(allocator, self.capabilities);
         deepFreeFunctionPlans(allocator, self.functions);
@@ -123,6 +136,7 @@ pub const ArtifactV1 = struct {
     }
 };
 
+/// Decode-time failures for ArtifactV1 binary payloads.
 pub const DecodeError = error{
     BadMagic,
     DuplicateCapabilityId,
@@ -138,12 +152,14 @@ pub const DecodeError = error{
     ArtifactHashMismatch,
 };
 
+/// Build one exact-build fingerprint from an arbitrary seed string.
 pub fn buildFingerprintFromSeed(seed: []const u8) [32]u8 {
-    var digest: [32]u8 = undefined;
+    var digest = std.mem.zeroes([32]u8);
     std.crypto.hash.Blake3.hash(seed, &digest, .{});
     return digest;
 }
 
+/// Map one ProgramPlan codec into the external capability codec surface.
 pub fn mapPlanCodecToCapabilityCodec(codec: program_plan.ValueCodec) CapabilityCodecV1 {
     return switch (codec) {
         .unit => .unit,
@@ -155,10 +171,11 @@ pub fn mapPlanCodecToCapabilityCodec(codec: program_plan.ValueCodec) CapabilityC
     };
 }
 
+/// Derive one default tool capability manifest from ProgramPlan requirements.
 pub fn deriveToolCapabilitiesFromPlan(
     allocator: std.mem.Allocator,
     plan: program_plan.ProgramPlan,
-) ![]CapabilityV1 {
+) anyerror![]CapabilityV1 {
     const capabilities = try allocator.alloc(CapabilityV1, plan.requirements.len);
     errdefer allocator.free(capabilities);
 
@@ -189,11 +206,12 @@ pub fn deriveToolCapabilitiesFromPlan(
     return capabilities;
 }
 
+/// Encode one validated ProgramPlan into canonical ArtifactV1 bytes.
 pub fn encodeProgramPlan(
     allocator: std.mem.Allocator,
     plan: program_plan.ProgramPlan,
     manifest: CapabilityManifestV1,
-) ![]u8 {
+) anyerror![]u8 {
     try plan.validate();
     try validateManifest(manifest.build_fingerprint_blake3_256, manifest.capabilities);
 
@@ -224,21 +242,21 @@ pub fn encodeProgramPlan(
     defer allocator.free(string_table);
 
     const payloads = [_]struct {
-        id: SectionId,
+        section_id: SectionId,
         bytes: []const u8,
         entry_count: u32,
     }{
-        .{ .id = .capability_manifest, .bytes = capability_manifest, .entry_count = @intCast(manifest.capabilities.len) },
-        .{ .id = .string_table, .bytes = string_table, .entry_count = @intCast(strings.items.items.len) },
-        .{ .id = .requirement_table, .bytes = requirement_table, .entry_count = @intCast(plan.requirements.len) },
-        .{ .id = .op_table, .bytes = op_table, .entry_count = @intCast(plan.ops.len) },
-        .{ .id = .output_table, .bytes = output_table, .entry_count = @intCast(plan.outputs.len) },
-        .{ .id = .local_table, .bytes = local_table, .entry_count = @intCast(plan.locals.len) },
-        .{ .id = .call_arg_table, .bytes = call_arg_table, .entry_count = @intCast(plan.call_args.len) },
-        .{ .id = .function_table, .bytes = function_table, .entry_count = @intCast(plan.functions.len) },
-        .{ .id = .block_table, .bytes = block_table, .entry_count = @intCast(plan.blocks.len) },
-        .{ .id = .terminator_table, .bytes = terminator_table, .entry_count = @intCast(plan.terminators.len) },
-        .{ .id = .instruction_table, .bytes = instruction_table, .entry_count = @intCast(plan.instructions.len) },
+        .{ .section_id = .capability_manifest, .bytes = capability_manifest, .entry_count = @intCast(manifest.capabilities.len) },
+        .{ .section_id = .string_table, .bytes = string_table, .entry_count = @intCast(strings.items.items.len) },
+        .{ .section_id = .requirement_table, .bytes = requirement_table, .entry_count = @intCast(plan.requirements.len) },
+        .{ .section_id = .op_table, .bytes = op_table, .entry_count = @intCast(plan.ops.len) },
+        .{ .section_id = .output_table, .bytes = output_table, .entry_count = @intCast(plan.outputs.len) },
+        .{ .section_id = .local_table, .bytes = local_table, .entry_count = @intCast(plan.locals.len) },
+        .{ .section_id = .call_arg_table, .bytes = call_arg_table, .entry_count = @intCast(plan.call_args.len) },
+        .{ .section_id = .function_table, .bytes = function_table, .entry_count = @intCast(plan.functions.len) },
+        .{ .section_id = .block_table, .bytes = block_table, .entry_count = @intCast(plan.blocks.len) },
+        .{ .section_id = .terminator_table, .bytes = terminator_table, .entry_count = @intCast(plan.terminators.len) },
+        .{ .section_id = .instruction_table, .bytes = instruction_table, .entry_count = @intCast(plan.instructions.len) },
     };
 
     const header_len: usize = 72;
@@ -246,11 +264,11 @@ pub fn encodeProgramPlan(
     const directory_offset = header_len;
     const payload_offset_base = directory_offset + directory_entry_len * payloads.len;
 
-    var directories: [payloads.len]SectionDirectoryEntryV1 = undefined;
+    var directories = std.mem.zeroes([payloads.len]SectionDirectoryEntryV1);
     var payload_offset: usize = payload_offset_base;
     for (payloads, 0..) |payload, index| {
         directories[index] = .{
-            .section_id = payload.id,
+            .section_id = payload.section_id,
             .offset = @intCast(payload_offset),
             .size = payload.bytes.len,
             .entry_count = payload.entry_count,
@@ -281,14 +299,15 @@ pub fn encodeProgramPlan(
     var hash_input = try allocator.dupe(u8, out.items);
     defer allocator.free(hash_input);
     @memset(hash_input[hash_offset .. hash_offset + 32], 0);
-    var digest: [32]u8 = undefined;
+    var digest = std.mem.zeroes([32]u8);
     std.crypto.hash.Blake3.hash(hash_input, &digest, .{});
     @memcpy(out.items[hash_offset .. hash_offset + 32], &digest);
 
     return out.toOwnedSlice(allocator);
 }
 
-pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !ArtifactV1 {
+/// Decode canonical ArtifactV1 bytes into the in-memory artifact surface.
+pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!ArtifactV1 {
     if (bytes.len < 72) return error.InvalidDirectoryBounds;
     if (!std.mem.eql(u8, bytes[0..8], "SFTARTV1")) return error.BadMagic;
     if (readU16(bytes, 8) != 72) return error.UnsupportedVersion;
@@ -309,7 +328,7 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !ArtifactV1 {
     var hash_input = try allocator.dupe(u8, bytes);
     defer allocator.free(hash_input);
     @memset(hash_input[40..72], 0);
-    var actual_hash: [32]u8 = undefined;
+    var actual_hash = std.mem.zeroes([32]u8);
     std.crypto.hash.Blake3.hash(hash_input, &actual_hash, .{});
     if (!std.mem.eql(u8, expected_hash, &actual_hash)) return error.ArtifactHashMismatch;
 
@@ -319,7 +338,7 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !ArtifactV1 {
 
     var cursor: usize = @intCast(directory_offset);
     while (cursor < directory_offset + directory_bytes_len) : (cursor += 32) {
-        const section_id = std.meta.intToEnum(SectionId, readU16(bytes, cursor)) catch return error.InvalidRequiredSection;
+        const section_id = std.enums.fromInt(SectionId, readU16(bytes, cursor)) orelse return error.InvalidRequiredSection;
         if (required_seen.contains(section_id)) return error.DuplicateDirectorySection;
         required_seen.insert(section_id);
         const flags = readU16(bytes, cursor + 2);
@@ -348,7 +367,7 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !ArtifactV1 {
 
     var artifact = ArtifactV1{
         .semantic_ir_hash64 = ir_hash,
-        .artifact_hash_blake3_256 = undefined,
+        .artifact_hash_blake3_256 = std.mem.zeroes([32]u8),
         .build_fingerprint_blake3_256 = capability_result.build_fingerprint_blake3_256,
         .entry_function_index = entry_index,
         .capabilities = capability_result.capabilities,
@@ -368,27 +387,26 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !ArtifactV1 {
     return artifact;
 }
 
-pub fn disasmAlloc(allocator: std.mem.Allocator, bytes: []const u8) ![]u8 {
+/// Render one readable ArtifactV1 disassembly into allocator-owned text.
+pub fn disasmAlloc(allocator: std.mem.Allocator, bytes: []const u8) anyerror![]u8 {
     var artifact = try decode(allocator, bytes);
     defer artifact.deinit(allocator);
 
     var out = std.ArrayList(u8).empty;
     errdefer out.deinit(allocator);
-    const writer = out.writer(allocator);
-
-    try writer.print("ArtifactV1 ir_hash={d} entry={d}\n", .{ artifact.semantic_ir_hash64, artifact.entry_function_index });
-    try writer.print("build_fingerprint_bytes={d}\n", .{artifact.build_fingerprint_blake3_256.len});
-    try writer.print("artifact_hash_bytes={d}\n", .{artifact.artifact_hash_blake3_256.len});
-    try writer.print("capabilities={d}\n", .{artifact.capabilities.len});
+    try appendFmt(&out, allocator, "ArtifactV1 ir_hash={d} entry={d}\n", .{ artifact.semantic_ir_hash64, artifact.entry_function_index });
+    try appendFmt(&out, allocator, "build_fingerprint_bytes={d}\n", .{artifact.build_fingerprint_blake3_256.len});
+    try appendFmt(&out, allocator, "artifact_hash_bytes={d}\n", .{artifact.artifact_hash_blake3_256.len});
+    try appendFmt(&out, allocator, "capabilities={d}\n", .{artifact.capabilities.len});
     for (artifact.capabilities) |capability| {
-        try writer.print("capability id={d} kind={s} required={any} label={s}\n", .{
+        try appendFmt(&out, allocator, "capability id={d} kind={s} required={any} label={s}\n", .{
             capability.capability_id,
             @tagName(capability.kind),
             capability.required,
             capability.label,
         });
         for (capability.ops) |op| {
-            try writer.print("  op id={d} name={s} payload={s} result={s}\n", .{
+            try appendFmt(&out, allocator, "  op id={d} name={s} payload={s} result={s}\n", .{
                 op.op_id,
                 op.global_op_name,
                 @tagName(op.payload_codec),
@@ -396,7 +414,7 @@ pub fn disasmAlloc(allocator: std.mem.Allocator, bytes: []const u8) ![]u8 {
             });
         }
     }
-    try writer.print("functions={d} requirements={d} ops={d} outputs={d} locals={d} blocks={d} terminators={d} instructions={d}\n", .{
+    try appendFmt(&out, allocator, "functions={d} requirements={d} ops={d} outputs={d} locals={d} blocks={d} terminators={d} instructions={d}\n", .{
         artifact.functions.len,
         artifact.requirements.len,
         artifact.ops.len,
@@ -407,6 +425,12 @@ pub fn disasmAlloc(allocator: std.mem.Allocator, bytes: []const u8) ![]u8 {
         artifact.instructions.len,
     });
     return out.toOwnedSlice(allocator);
+}
+
+fn appendFmt(list: *std.ArrayList(u8), allocator: std.mem.Allocator, comptime format: []const u8, args: anytype) !void {
+    const rendered = try std.fmt.allocPrint(allocator, format, args);
+    defer allocator.free(rendered);
+    try list.appendSlice(allocator, rendered);
 }
 
 fn validateManifest(build_fingerprint: [32]u8, capabilities: []const CapabilityV1) !void {
@@ -444,7 +468,7 @@ fn decodeCapabilityManifest(allocator: std.mem.Allocator, string_bytes: []const 
     if (bytes.len < 52) return error.InvalidDirectoryBounds;
     if (readU16(bytes, 0) != 1) return error.UnsupportedVersion;
     if (readU16(bytes, 2) != 0) return error.NonZeroReserved;
-    var fingerprint: [32]u8 = undefined;
+    var fingerprint = std.mem.zeroes([32]u8);
     @memcpy(&fingerprint, bytes[4..36]);
     const capability_count = readU16(bytes, 36);
     const op_count = readU16(bytes, 38);
@@ -462,7 +486,7 @@ fn decodeCapabilityManifest(allocator: std.mem.Allocator, string_bytes: []const 
     var capability_cursor: usize = 0;
     for (capabilities) |*capability| {
         const capability_id = readU16(capability_bytes, capability_cursor);
-        const kind = std.meta.intToEnum(CapabilityKind, capability_bytes[capability_cursor + 2]) catch return error.UnsupportedVersion;
+        const kind = std.enums.fromInt(CapabilityKind, capability_bytes[capability_cursor + 2]) orelse return error.UnsupportedVersion;
         const flags = capability_bytes[capability_cursor + 3];
         const label = try readStringRefDup(allocator, string_bytes, capability_bytes[capability_cursor + 4 .. capability_cursor + 12]);
         const first_op = readU16(capability_bytes, capability_cursor + 12);
@@ -476,8 +500,8 @@ fn decodeCapabilityManifest(allocator: std.mem.Allocator, string_bytes: []const 
                 .capability_id = readU16(op_bytes, op_cursor),
                 .op_id = readU16(op_bytes, op_cursor + 2),
                 .global_op_name = try readStringRefDup(allocator, string_bytes, op_bytes[op_cursor + 4 .. op_cursor + 12]),
-                .payload_codec = std.meta.intToEnum(CapabilityCodecV1, op_bytes[op_cursor + 12]) catch return error.UnsupportedVersion,
-                .result_codec = std.meta.intToEnum(CapabilityCodecV1, op_bytes[op_cursor + 13]) catch return error.UnsupportedVersion,
+                .payload_codec = std.enums.fromInt(CapabilityCodecV1, op_bytes[op_cursor + 12]) orelse return error.UnsupportedVersion,
+                .result_codec = std.enums.fromInt(CapabilityCodecV1, op_bytes[op_cursor + 13]) orelse return error.UnsupportedVersion,
             };
             if (readU16(op_bytes, op_cursor + 14) != 0) return error.NonZeroReserved;
             op_cursor += 16;
@@ -686,9 +710,9 @@ fn decodeOpTable(allocator: std.mem.Allocator, string_bytes: []const u8, bytes: 
         item.* = .{
             .requirement_index = readU16(bytes, cursor),
             .op_name = try readStringRefDup(allocator, string_bytes, bytes[cursor + 8 .. cursor + 16]),
-            .mode = std.meta.intToEnum(program_plan.ControlMode, bytes[cursor + 2]) catch return error.UnsupportedVersion,
-            .payload_codec = std.meta.intToEnum(program_plan.ValueCodec, bytes[cursor + 3]) catch return error.UnsupportedVersion,
-            .resume_codec = std.meta.intToEnum(program_plan.ValueCodec, bytes[cursor + 4]) catch return error.UnsupportedVersion,
+            .mode = std.enums.fromInt(program_plan.ControlMode, bytes[cursor + 2]) orelse return error.UnsupportedVersion,
+            .payload_codec = std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 3]) orelse return error.UnsupportedVersion,
+            .resume_codec = std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 4]) orelse return error.UnsupportedVersion,
         };
         if (bytes[cursor + 5] != 0 or readU16(bytes, cursor + 6) != 0) return error.NonZeroReserved;
         cursor += 16;
@@ -704,7 +728,7 @@ fn decodeOutputTable(allocator: std.mem.Allocator, string_bytes: []const u8, byt
     for (items) |*item| {
         item.* = .{
             .label = try readStringRefDup(allocator, string_bytes, bytes[cursor .. cursor + 8]),
-            .codec = std.meta.intToEnum(program_plan.ValueCodec, bytes[cursor + 8]) catch return error.UnsupportedVersion,
+            .codec = std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 8]) orelse return error.UnsupportedVersion,
         };
         for (bytes[cursor + 9 .. cursor + 16]) |byte| if (byte != 0) return error.NonZeroReserved;
         cursor += 16;
@@ -719,7 +743,7 @@ fn decodeLocalTable(allocator: std.mem.Allocator, bytes: []const u8) ![]program_
     var cursor: usize = 0;
     for (items) |*item| {
         item.* = .{
-            .codec = std.meta.intToEnum(program_plan.ValueCodec, bytes[cursor]) catch return error.UnsupportedVersion,
+            .codec = std.enums.fromInt(program_plan.ValueCodec, bytes[cursor]) orelse return error.UnsupportedVersion,
         };
         for (bytes[cursor + 1 .. cursor + 8]) |byte| if (byte != 0) return error.NonZeroReserved;
         cursor += 8;
@@ -747,7 +771,7 @@ fn decodeFunctionTable(allocator: std.mem.Allocator, string_bytes: []const u8, b
     for (items) |*item| {
         item.* = .{
             .symbol_name = try readStringRefDup(allocator, string_bytes, bytes[cursor .. cursor + 8]),
-            .value_codec = std.meta.intToEnum(program_plan.ValueCodec, bytes[cursor + 8]) catch return error.UnsupportedVersion,
+            .value_codec = std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 8]) orelse return error.UnsupportedVersion,
             .parameter_count = readU16(bytes, cursor + 12),
             .first_requirement = readU16(bytes, cursor + 14),
             .requirement_count = readU16(bytes, cursor + 16),
@@ -791,7 +815,7 @@ fn decodeTerminatorTable(allocator: std.mem.Allocator, bytes: []const u8) ![]pro
     var cursor: usize = 0;
     for (items) |*item| {
         item.* = .{
-            .kind = std.meta.intToEnum(program_plan.TerminatorKind, bytes[cursor]) catch return error.UnsupportedVersion,
+            .kind = std.enums.fromInt(program_plan.TerminatorKind, bytes[cursor]) orelse return error.UnsupportedVersion,
             .primary = readU16(bytes, cursor + 2),
             .secondary = readU16(bytes, cursor + 4),
         };
@@ -809,7 +833,7 @@ fn decodeInstructionTable(allocator: std.mem.Allocator, string_bytes: []const u8
     var cursor: usize = 0;
     for (items) |*item| {
         item.* = .{
-            .kind = std.meta.intToEnum(program_plan.InstructionKind, bytes[cursor]) catch return error.UnsupportedVersion,
+            .kind = std.enums.fromInt(program_plan.InstructionKind, bytes[cursor]) orelse return error.UnsupportedVersion,
             .dst = readU16(bytes, cursor + 2),
             .operand = readU16(bytes, cursor + 4),
             .aux = readU16(bytes, cursor + 6),
@@ -1033,6 +1057,7 @@ fn deepFreeProgramPlan(allocator: std.mem.Allocator, plan: program_plan.ProgramP
     deepFreeInstructionsConst(allocator, plan.instructions);
 }
 
+/// Release allocator-owned capability manifests produced by ArtifactV1 helpers.
 pub fn deepFreeCapabilities(allocator: std.mem.Allocator, items: []CapabilityV1) void {
     for (items) |item| {
         allocator.free(item.label);
