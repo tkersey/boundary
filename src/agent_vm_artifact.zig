@@ -984,6 +984,13 @@ fn resolveRequirementCapabilityId(plan: program_plan.ProgramPlan, requirement_in
     return error.InvalidRequiredSection;
 }
 
+fn findCapabilityById(capabilities: []const CapabilityV1, capability_id: u16) ?CapabilityV1 {
+    for (capabilities) |capability| {
+        if (capability.capability_id == capability_id) return capability;
+    }
+    return null;
+}
+
 fn toolCapabilityMatchesRequirement(plan: program_plan.ProgramPlan, requirement_index: usize, capability: CapabilityV1) bool {
     const requirement = plan.requirements[requirement_index];
     const label_matches = std.mem.eql(u8, capability.label, requirement.label);
@@ -1079,8 +1086,13 @@ fn validateRequirementCapabilityMappings(
 ) !void {
     if (plan.requirements.len != capability_ids.len) return error.InvalidRequiredSection;
     for (capability_ids, 0..) |capability_id, requirement_index| {
-        const expected_capability_id = try resolveRequirementCapabilityId(plan, requirement_index, capabilities);
-        if (capability_id != expected_capability_id) return error.InvalidRequiredSection;
+        const capability = findCapabilityById(capabilities, capability_id) orelse return error.InvalidRequiredSection;
+        if (!toolCapabilityMatchesRequirement(plan, requirement_index, capability)) return error.InvalidRequiredSection;
+        for (capability_ids[requirement_index + 1 ..], requirement_index + 1..) |other_capability_id, other_requirement_index| {
+            if (capability_id != other_capability_id) continue;
+            if (requirementOpNamesMatch(plan, requirement_index, other_requirement_index)) continue;
+            return error.InvalidRequiredSection;
+        }
     }
 }
 
@@ -1548,6 +1560,19 @@ fn swapDirectoryEntries(bytes: []u8, first_index: usize, second_index: usize) vo
     const entry_len: usize = 32;
     const first_start = directory_offset + first_index * entry_len;
     const second_start = directory_offset + second_index * entry_len;
+    var tmp = std.mem.zeroes([entry_len]u8);
+    @memcpy(&tmp, bytes[first_start .. first_start + entry_len]);
+    @memcpy(bytes[first_start .. first_start + entry_len], bytes[second_start .. second_start + entry_len]);
+    @memcpy(bytes[second_start .. second_start + entry_len], &tmp);
+    recomputeEncodedArtifactHash(bytes);
+}
+
+fn swapCapabilityManifestEntries(bytes: []u8, first_index: usize, second_index: usize) void {
+    const capability_manifest_offset = sectionPayloadOffset(bytes, .capability_manifest);
+    const entry_len: usize = 16;
+    const capability_table_offset = capability_manifest_offset + 52;
+    const first_start = capability_table_offset + first_index * entry_len;
+    const second_start = capability_table_offset + second_index * entry_len;
     var tmp = std.mem.zeroes([entry_len]u8);
     @memcpy(&tmp, bytes[first_start .. first_start + entry_len]);
     @memcpy(bytes[first_start .. first_start + entry_len], bytes[second_start .. second_start + entry_len]);
@@ -2855,6 +2880,87 @@ test "ArtifactV1 decode rejects repeated requirements that alias one capability 
 
     patchRequirementCapabilityId(encoded, 1, 11);
     try std.testing.expectError(error.InvalidRequiredSection, decode(std.testing.allocator, encoded));
+}
+
+test "ArtifactV1 decode accepts reordered capability rows when repeated requirement bindings keep their ids" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-repeated-requirement-row-reorder");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.repeated_requirement_row_reorder",
+        .ir_hash = 0xb15,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 2,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{
+            .{ .label = "tooling", .first_op = 0, .op_count = 1 },
+            .{ .label = "tooling", .first_op = 1, .op_count = 1 },
+        },
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "first", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+            .{ .requirement_index = 1, .op_name = "second", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+        },
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const capabilities = [_]CapabilityV1{
+        .{
+            .capability_id = 11,
+            .kind = .tool,
+            .label = "generated/tooling@v1",
+            .ops = &.{.{
+                .capability_id = 11,
+                .op_id = 0,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .string,
+                .plan_op_ordinal = 0,
+            }},
+        },
+        .{
+            .capability_id = 29,
+            .kind = .tool,
+            .label = "generated/tooling@v1",
+            .ops = &.{.{
+                .capability_id = 29,
+                .op_id = 1,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .string,
+                .plan_op_ordinal = 0,
+            }},
+        },
+    };
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    });
+    defer std.testing.allocator.free(encoded);
+
+    swapCapabilityManifestEntries(encoded, 0, 1);
+
+    var decoded = try decode(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+
+    try std.testing.expectEqualSlices(u16, &.{ 11, 29 }, decoded.requirement_capability_ids);
+    try decoded.validate();
 }
 
 test "ArtifactV1 rejects custom capabilities that ambiguously match repeated requirement op names" {
