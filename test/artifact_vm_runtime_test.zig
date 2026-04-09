@@ -133,7 +133,7 @@ const UnsignedIntegerDispatchContext = struct {
     seen_argument: ?u64 = null,
 };
 
-fn dispatchStringResults(
+fn dispatchManifestOpIdentityStringResults(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
     request: shift_vm.host_adapter.HostEffectRequestV1,
@@ -141,11 +141,13 @@ fn dispatchStringResults(
     _ = ctx;
     try std.testing.expectEqual(@as(u16, 7), request.capability_id);
     try std.testing.expectEqualStrings("generated/tooling@v1", request.body.tool_call.tool_id);
-    const value = switch (request.op_id) {
-        3 => "keepalive0",
-        4 => "overwrite0",
-        else => return error.UnexpectedOpId,
-    };
+    const value = if (std.mem.eql(u8, request.body.tool_call.op_name, "first")) blk: {
+        try std.testing.expectEqual(@as(u16, 4), request.op_id);
+        break :blk "keepalive0";
+    } else if (std.mem.eql(u8, request.body.tool_call.op_name, "second")) blk: {
+        try std.testing.expectEqual(@as(u16, 3), request.op_id);
+        break :blk "overwrite0";
+    } else return error.UnexpectedOpName;
     return .{
         .request_id = request.request_id,
         .body = .{ .success = .{
@@ -233,6 +235,23 @@ fn dispatchMismatchedSuccess(
     };
 }
 
+fn dispatchNonNullUnitResult(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    _ = ctx;
+    return .{
+        .request_id = request.request_id,
+        .body = .{ .success = .{
+            .tool_id = try allocator.dupe(u8, request.body.tool_call.tool_id),
+            .call_id = request.body.tool_call.call_id,
+            .control = .@"resume",
+            .value = .{ .string = try allocator.dupe(u8, "not-null") },
+        } },
+    };
+}
+
 fn encodeSingleResumeArtifact(
     allocator: std.mem.Allocator,
     codec: internal_program_plan.ValueCodec,
@@ -280,6 +299,7 @@ fn encodeSingleResumeArtifact(
             .global_op_name = "tool.call",
             .payload_codec = .unit,
             .result_codec = shift_vm.artifact.mapPlanCodecToCapabilityCodec(codec),
+            .plan_op_ordinal = 0,
         }},
     }};
 
@@ -365,7 +385,7 @@ test "ArtifactV1 runtime matches lowered runner outputs on open_row_state_writer
     }
 }
 
-test "ArtifactV1 runtime uses manifest capability ids and keeps resumed strings alive" {
+test "ArtifactV1 runtime preserves op identity across reordered manifest rows and keeps resumed strings alive" {
     const build_fingerprint = shift_vm.artifact.buildFingerprintFromSeed("artifact-runtime-nonzero-capability");
     const plan: internal_program_plan.ProgramPlan = .{
         .label = "artifact.runtime.string_resume",
@@ -414,6 +434,7 @@ test "ArtifactV1 runtime uses manifest capability ids and keeps resumed strings 
                 .global_op_name = "tool.call",
                 .payload_codec = .unit,
                 .result_codec = .string,
+                .plan_op_ordinal = 1,
             },
             .{
                 .capability_id = 7,
@@ -421,6 +442,7 @@ test "ArtifactV1 runtime uses manifest capability ids and keeps resumed strings 
                 .global_op_name = "tool.call",
                 .payload_codec = .unit,
                 .result_codec = .string,
+                .plan_op_ordinal = 0,
             },
         },
     }};
@@ -434,7 +456,7 @@ test "ArtifactV1 runtime uses manifest capability ids and keeps resumed strings 
     var context = string_dispatch_context{};
     var run_result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
         .ctx = &context,
-        .dispatchFn = dispatchStringResults,
+        .dispatchFn = dispatchManifestOpIdentityStringResults,
     });
     defer run_result.deinit(std.testing.allocator);
     const result = try expectCompleted(&run_result);
@@ -442,8 +464,8 @@ test "ArtifactV1 runtime uses manifest capability ids and keeps resumed strings 
     try std.testing.expectEqualStrings("keepalive0", result.value.string);
     try std.testing.expectEqual(@as(usize, 2), result.logs.len);
     try std.testing.expectEqual(@as(u16, 7), result.logs[0].request.capability_id);
-    try std.testing.expectEqual(@as(u16, 3), result.logs[0].request.op_id);
-    try std.testing.expectEqual(@as(u16, 4), result.logs[1].request.op_id);
+    try std.testing.expectEqual(@as(u16, 4), result.logs[0].request.op_id);
+    try std.testing.expectEqual(@as(u16, 3), result.logs[1].request.op_id);
 }
 
 test "ArtifactV1 runtime decodes terminal string results for later requirement ops" {
@@ -500,6 +522,7 @@ test "ArtifactV1 runtime decodes terminal string results for later requirement o
                     .global_op_name = "tool.call",
                     .payload_codec = .unit,
                     .result_codec = .string,
+                    .plan_op_ordinal = 0,
                 },
             },
         },
@@ -514,6 +537,7 @@ test "ArtifactV1 runtime decodes terminal string results for later requirement o
                     .global_op_name = "tool.call",
                     .payload_codec = .unit,
                     .result_codec = .unit,
+                    .plan_op_ordinal = 0,
                 },
                 .{
                     .capability_id = 20,
@@ -521,6 +545,7 @@ test "ArtifactV1 runtime decodes terminal string results for later requirement o
                     .global_op_name = "tool.call",
                     .payload_codec = .unit,
                     .result_codec = .unit,
+                    .plan_op_ordinal = 1,
                 },
             },
         },
@@ -617,6 +642,7 @@ test "ArtifactV1 runtime round-trips usize values above maxInt(i64)" {
                 .global_op_name = "tool.call",
                 .payload_codec = .unit,
                 .result_codec = .data_value,
+                .plan_op_ordinal = 0,
             },
             .{
                 .capability_id = 9,
@@ -624,6 +650,7 @@ test "ArtifactV1 runtime round-trips usize values above maxInt(i64)" {
                 .global_op_name = "tool.call",
                 .payload_codec = .data_value,
                 .result_codec = .data_value,
+                .plan_op_ordinal = 1,
             },
         },
     }};
@@ -647,6 +674,27 @@ test "ArtifactV1 runtime round-trips usize values above maxInt(i64)" {
     try std.testing.expectEqual(@as(usize, 2), result.logs.len);
     try std.testing.expectEqual(large_value, result.logs[1].request.body.tool_call.arguments.u64);
     try std.testing.expectEqual(large_value, result.logs[1].result.body.success.value.u64);
+}
+
+test "ArtifactV1 runtime rejects non-null host values for unit codecs" {
+    const bytes = try shift_compile.compileAndEncode(
+        std.testing.allocator,
+        "examples/open_row_state_writer.zig",
+        example.loweringSpec(),
+        .{
+            .build_fingerprint_seed = "artifact-runtime-unit-null-check",
+            .capabilities = &.{},
+        },
+    );
+    defer std.testing.allocator.free(bytes);
+
+    var context = RuntimeContext{ .state = 5 };
+    defer context.deinit(std.testing.allocator);
+
+    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchNonNullUnitResult,
+    }));
 }
 
 test "ArtifactV1 runtime rejects successful host replies with mismatched tool metadata" {
@@ -696,6 +744,17 @@ fn dispatchFailedFailure(
     };
 }
 
+fn dispatchThrownFailure(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    _ = ctx;
+    _ = allocator;
+    _ = request;
+    return error.ProviderBoom;
+}
+
 test "ArtifactV1 runtime surfaces rejected host failures with typed payloads and logs" {
     const bytes = try encodeSingleResumeArtifact(std.testing.allocator, .i32, "artifact-runtime-rejected");
     defer std.testing.allocator.free(bytes);
@@ -737,6 +796,29 @@ test "ArtifactV1 runtime surfaces failed host failures with typed payloads and l
             try std.testing.expectEqual(@as(usize, 1), failure.logs.len);
             try std.testing.expectEqualStrings("generated/tooling@v1", failure.logs[0].request.body.tool_call.tool_id);
             try std.testing.expectEqualStrings("value", failure.logs[0].request.body.tool_call.op_name);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "ArtifactV1 runtime converts thrown host dispatch errors into typed failed payloads and logs" {
+    const bytes = try encodeSingleResumeArtifact(std.testing.allocator, .i32, "artifact-runtime-dispatch-throw");
+    defer std.testing.allocator.free(bytes);
+
+    var context = string_dispatch_context{};
+    var result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchThrownFailure,
+    });
+    defer result.deinit(std.testing.allocator);
+
+    switch (result) {
+        .failed => |failure| {
+            try std.testing.expectEqualStrings("provider_failure", failure.failure.code);
+            try std.testing.expect(std.mem.indexOf(u8, failure.failure.message, "ProviderBoom") != null);
+            try std.testing.expectEqual(@as(usize, 1), failure.logs.len);
+            try std.testing.expectEqual(@as(u64, 1), failure.logs[0].request.request_id);
+            try std.testing.expectEqual(@as(u64, 1), failure.logs[0].result.request_id);
         },
         else => return error.TestUnexpectedResult,
     }

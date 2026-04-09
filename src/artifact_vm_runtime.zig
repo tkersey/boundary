@@ -275,7 +275,13 @@ fn callHostOp(
     ctx.next_request_id.* += 1;
     defer request.deinit(ctx.allocator);
 
-    var response = try ctx.adapter.dispatch(ctx.allocator, request);
+    var response: host.HostEffectResultV1 = ctx.adapter.dispatch(ctx.allocator, request) catch |err| .{
+        .request_id = request.request_id,
+        .body = .{ .failed = .{
+            .code = try ctx.allocator.dupe(u8, "provider_failure"),
+            .message = try std.fmt.allocPrint(ctx.allocator, "host_adapter_dispatch:{s}", .{@errorName(err)}),
+        } },
+    };
     defer response.deinit(ctx.allocator);
     if (response.request_id != request.request_id) return error.ProgramContractViolation;
     switch (response.body) {
@@ -319,17 +325,23 @@ fn resolveCapabilityOp(
     const requirement = plan.requirements[op.requirement_index];
     if (op_index < requirement.first_op) return null;
     const capability = findCapabilityById(capabilities, requirement_capability_ids[op.requirement_index]) orelse return null;
-    const capability_op_index = op_index - requirement.first_op;
-    if (capability_op_index >= capability.ops.len) return null;
+    const capability_op = findCapabilityOpByPlanOrdinal(capability.ops, op_index - requirement.first_op) orelse return null;
     return .{
         .capability = capability,
-        .capability_op = capability.ops[capability_op_index],
+        .capability_op = capability_op,
     };
 }
 
 fn findCapabilityById(capabilities: []const artifact.CapabilityV1, capability_id: u16) ?artifact.CapabilityV1 {
     for (capabilities) |capability| {
         if (capability.capability_id == capability_id) return capability;
+    }
+    return null;
+}
+
+fn findCapabilityOpByPlanOrdinal(ops: []const artifact.CapabilityOpV1, plan_op_ordinal: u16) ?artifact.CapabilityOpV1 {
+    for (ops) |op| {
+        if (op.plan_op_ordinal == plan_op_ordinal) return op;
     }
     return null;
 }
@@ -380,7 +392,10 @@ fn dataValueToProgramValue(
     value: host.DataValueV1,
 ) !lowered_machine.ProgramValue {
     return switch (codec) {
-        .unit => .none,
+        .unit => switch (value) {
+            .null => .none,
+            else => error.ProgramContractViolation,
+        },
         .bool => switch (value) {
             .bool => |typed| .{ .bool = typed },
             else => error.ProgramContractViolation,

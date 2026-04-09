@@ -59,6 +59,7 @@ pub const CapabilityOpV1 = struct {
     global_op_name: []const u8,
     payload_codec: CapabilityCodecV1,
     result_codec: CapabilityCodecV1,
+    plan_op_ordinal: u16,
 };
 
 /// One external capability declared in ArtifactV1.
@@ -102,6 +103,7 @@ pub const ArtifactV1 = struct {
         const plan = try self.toProgramPlan(std.heap.page_allocator);
         defer deepFreeProgramPlan(std.heap.page_allocator, plan);
         try plan.validate();
+        try validateExecutableCodecSupport(plan);
         try validateRequirementCapabilityMappings(plan, self.requirement_capability_ids, self.capabilities);
     }
 
@@ -157,6 +159,7 @@ pub const DecodeError = error{
     UnsupportedEntryParameters,
     UnsupportedVersion,
     ArtifactHashMismatch,
+    UnsupportedExecutableCodec,
 };
 
 /// Build one exact-build fingerprint from an arbitrary seed string.
@@ -205,6 +208,7 @@ pub fn deriveToolCapabilitiesFromPlan(
                 .global_op_name = try allocator.dupe(u8, "tool.call"),
                 .payload_codec = mapPlanCodecToCapabilityCodec(op.payload_codec),
                 .result_codec = mapPlanCodecToCapabilityCodec(capabilityResultCodecForOp(plan, op_start + op_index)),
+                .plan_op_ordinal = @intCast(op_index),
             };
         }
         capabilities[index] = .{
@@ -225,6 +229,7 @@ pub fn encodeProgramPlan(
     manifest: CapabilityManifestV1,
 ) anyerror![]u8 {
     try plan.validate();
+    try validateExecutableCodecSupport(plan);
     if (plan.functions[plan.entry_index].parameter_count != 0) return error.UnsupportedEntryParameters;
     try validateManifest(manifest.build_fingerprint_blake3_256, manifest.capabilities);
 
@@ -439,8 +444,9 @@ pub fn disasmAlloc(allocator: std.mem.Allocator, bytes: []const u8) anyerror![]u
             capability.label,
         });
         for (capability.ops) |op| {
-            try appendFmt(&out, allocator, "  op id={d} name={s} payload={s} result={s}\n", .{
+            try appendFmt(&out, allocator, "  op id={d} ordinal={d} name={s} payload={s} result={s}\n", .{
                 op.op_id,
+                op.plan_op_ordinal,
                 op.global_op_name,
                 @tagName(op.payload_codec),
                 @tagName(op.result_codec),
@@ -484,15 +490,34 @@ fn validateManifest(build_fingerprint: [32]u8, capabilities: []const CapabilityV
         for (capability.ops, 0..) |op, op_index| {
             if (op.capability_id != capability.capability_id) return error.DuplicateCapabilityOpId;
             if (!std.mem.eql(u8, op.global_op_name, "tool.call")) return error.UnsupportedVersion;
+            if (op.plan_op_ordinal >= capability.ops.len) return error.InvalidRequiredSection;
             if (expected_next) |expected| {
                 if (op.op_id != expected) return error.DuplicateCapabilityOpId;
             }
             expected_next = op.op_id + 1;
             for (capability.ops[(op_index + 1)..]) |other_op| {
                 if (op.op_id == other_op.op_id) return error.DuplicateCapabilityOpId;
+                if (op.plan_op_ordinal == other_op.plan_op_ordinal) return error.InvalidRequiredSection;
             }
         }
     }
+}
+
+fn validateExecutableCodecSupport(plan: program_plan.ProgramPlan) !void {
+    for (plan.functions) |function| {
+        if (!executableCodecSupported(function.value_codec)) return error.UnsupportedExecutableCodec;
+    }
+    for (plan.ops) |op| {
+        if (!executableCodecSupported(op.payload_codec)) return error.UnsupportedExecutableCodec;
+        if (!executableCodecSupported(op.resume_codec)) return error.UnsupportedExecutableCodec;
+    }
+}
+
+fn executableCodecSupported(codec: program_plan.ValueCodec) bool {
+    return switch (codec) {
+        .unit, .bool, .i32, .string, .usize => true,
+        .string_list => false,
+    };
 }
 
 fn validateToolIdV1(tool_id: []const u8) !void {
@@ -563,17 +588,23 @@ fn decodeCapabilityManifest(allocator: std.mem.Allocator, string_bytes: []const 
         const ops = try allocator.alloc(CapabilityOpV1, op_count_for_capability);
 
         var op_cursor = @as(usize, first_op) * 16;
+        var all_ordinals_zero = true;
         for (ops) |*op| {
             if (op_cursor + 16 > op_bytes.len) return error.InvalidDirectoryBounds;
+            const plan_op_ordinal = readU16(op_bytes, op_cursor + 14);
+            if (plan_op_ordinal != 0) all_ordinals_zero = false;
             op.* = .{
                 .capability_id = readU16(op_bytes, op_cursor),
                 .op_id = readU16(op_bytes, op_cursor + 2),
                 .global_op_name = try readStringRefDup(allocator, string_bytes, op_bytes[op_cursor + 4 .. op_cursor + 12]),
                 .payload_codec = std.enums.fromInt(CapabilityCodecV1, op_bytes[op_cursor + 12]) orelse return error.UnsupportedVersion,
                 .result_codec = std.enums.fromInt(CapabilityCodecV1, op_bytes[op_cursor + 13]) orelse return error.UnsupportedVersion,
+                .plan_op_ordinal = plan_op_ordinal,
             };
-            if (readU16(op_bytes, op_cursor + 14) != 0) return error.NonZeroReserved;
             op_cursor += 16;
+        }
+        if (all_ordinals_zero) {
+            for (ops, 0..) |*op, op_index| op.plan_op_ordinal = @intCast(op_index);
         }
 
         capability.* = .{
@@ -625,7 +656,7 @@ fn encodeCapabilityManifest(allocator: std.mem.Allocator, strings: *StringTable,
             try encodeStringRef(&out, allocator, op_name_ref);
             try out.append(allocator, @intFromEnum(op.payload_codec));
             try out.append(allocator, @intFromEnum(op.result_codec));
-            try appendU16(&out, allocator, 0);
+            try appendU16(&out, allocator, op.plan_op_ordinal);
         }
     }
     return out.toOwnedSlice(allocator);
@@ -822,11 +853,19 @@ fn toolCapabilityMatchesRequirement(plan: program_plan.ProgramPlan, requirement_
     const op_start = requirement.first_op;
     const op_end = op_start + requirement.op_count;
     if (op_end > plan.ops.len) return false;
-    for (plan.ops[op_start..op_end], capability.ops, 0..) |plan_op, capability_op, op_offset| {
+    for (plan.ops[op_start..op_end], 0..) |plan_op, op_offset| {
+        const capability_op = findCapabilityOpByPlanOrdinal(capability.ops, @intCast(op_offset)) orelse return false;
         if (capability_op.payload_codec != mapPlanCodecToCapabilityCodec(plan_op.payload_codec)) return false;
         if (capability_op.result_codec != mapPlanCodecToCapabilityCodec(capabilityResultCodecForOp(plan, op_start + op_offset))) return false;
     }
     return true;
+}
+
+fn findCapabilityOpByPlanOrdinal(ops: []const CapabilityOpV1, plan_op_ordinal: u16) ?CapabilityOpV1 {
+    for (ops) |op| {
+        if (op.plan_op_ordinal == plan_op_ordinal) return op;
+    }
+    return null;
 }
 
 fn validateRequirementCapabilityMappings(
@@ -1328,6 +1367,7 @@ test "ArtifactV1 encode/decode preserves plan structure and capability manifest"
             .global_op_name = "tool.call",
             .payload_codec = .string,
             .result_codec = .string,
+            .plan_op_ordinal = 0,
         }},
     }};
 
@@ -1344,6 +1384,7 @@ test "ArtifactV1 encode/decode preserves plan structure and capability manifest"
     try std.testing.expectEqual(@as(usize, 1), decoded.capabilities.len);
     try std.testing.expectEqualStrings("generated/tooling@v1", decoded.capabilities[0].label);
     try std.testing.expectEqualStrings("tool.call", decoded.capabilities[0].ops[0].global_op_name);
+    try std.testing.expectEqual(@as(u16, 0), decoded.capabilities[0].ops[0].plan_op_ordinal);
     try std.testing.expectEqual(@as(usize, 1), decoded.functions.len);
     try std.testing.expectEqualStrings("entry", decoded.functions[0].symbol_name);
     try std.testing.expectEqual(@as(usize, 1), decoded.instructions.len);
@@ -1394,6 +1435,7 @@ test "ArtifactV1 rejects custom capabilities whose op codecs do not match the co
                 .global_op_name = "tool.call",
                 .payload_codec = .string,
                 .result_codec = .unit,
+                .plan_op_ordinal = 0,
             },
             .{
                 .capability_id = 9,
@@ -1401,6 +1443,7 @@ test "ArtifactV1 rejects custom capabilities whose op codecs do not match the co
                 .global_op_name = "tool.call",
                 .payload_codec = .unit,
                 .result_codec = .string,
+                .plan_op_ordinal = 1,
             },
         },
     }};
@@ -1452,6 +1495,7 @@ test "ArtifactV1 rejects exact-label custom capabilities whose op codecs do not 
             .global_op_name = "tool.call",
             .payload_codec = .string,
             .result_codec = .unit,
+            .plan_op_ordinal = 0,
         }},
     }};
 
@@ -1463,6 +1507,47 @@ test "ArtifactV1 rejects exact-label custom capabilities whose op codecs do not 
 
 test "ArtifactV1 advertises usize capability codecs as data_value" {
     try std.testing.expectEqual(CapabilityCodecV1.data_value, mapPlanCodecToCapabilityCodec(.usize));
+}
+
+test "ArtifactV1 rejects executable string_list codecs during encode" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-v1-string-list-boundary");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.test",
+        .ir_hash = 0x57,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .string_list,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "items", .mode = .transform, .payload_codec = .unit, .resume_codec = .string_list }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string_list }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .call_op, .dst = 0, .operand = 0 },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+
+    try std.testing.expectError(error.UnsupportedExecutableCodec, encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &.{},
+    }));
 }
 
 test "ArtifactV1 encoding is deterministic and disasm is readable" {
@@ -1673,6 +1758,7 @@ test "ArtifactV1 rejects malformed capability tool ids during encode and decode"
             .global_op_name = "tool.call",
             .payload_codec = .unit,
             .result_codec = .unit,
+            .plan_op_ordinal = 0,
         }},
     }};
     try std.testing.expectError(error.InvalidToolId, encodeProgramPlan(std.testing.allocator, plan, .{

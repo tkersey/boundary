@@ -166,8 +166,11 @@ Each capability-op row has:
 - `global_op_name: StringRef`
 - `payload_codec: u8`
 - `result_codec: u8`
+- `plan_op_ordinal: u16`
 
 The canonical global op id for v1 is `tool.call`.
+`plan_op_ordinal` links the manifest op back to the lowered requirement-op slot so
+runtime dispatch does not depend on capability-op row order.
 
 `build_fingerprint_blake3_256` is not the same thing as
 `artifact_hash_blake3_256`.
