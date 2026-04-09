@@ -62,8 +62,6 @@ pub fn runArtifact(
     defer decoded.deinit(allocator);
     const plan = try decoded.toProgramPlan(allocator);
     defer deepFreeProgramPlan(allocator, plan);
-    var value_arena = std.heap.ArenaAllocator.init(allocator);
-    defer value_arena.deinit();
 
     var logs = std.ArrayList(host.HostLogEntryV1).empty;
     errdefer {
@@ -74,7 +72,6 @@ pub fn runArtifact(
     var next_request_id: u64 = 1;
     var execution: ExecutionContext = .{
         .allocator = allocator,
-        .value_allocator = value_arena.allocator(),
         .decoded = &decoded,
         .plan = plan,
         .adapter = adapter,
@@ -88,7 +85,9 @@ pub fn runArtifact(
     );
     return switch (result) {
         .terminal => |value| blk: {
-            var owned_value = try cloneProgramValue(allocator, value);
+            var runtime_value = value;
+            errdefer deinitRuntimeValue(allocator, &runtime_value);
+            var owned_value = try materializeExecutionValue(allocator, &runtime_value);
             errdefer deinitProgramValue(allocator, &owned_value);
             break :blk .{
                 .completed = .{
@@ -98,7 +97,9 @@ pub fn runArtifact(
             };
         },
         .value => |value| blk: {
-            var owned_value = try cloneProgramValue(allocator, value);
+            var runtime_value = value;
+            errdefer deinitRuntimeValue(allocator, &runtime_value);
+            var owned_value = try materializeExecutionValue(allocator, &runtime_value);
             errdefer deinitProgramValue(allocator, &owned_value);
             break :blk .{
                 .completed = .{
@@ -134,16 +135,20 @@ pub fn runArtifact(
     };
 }
 
+const RuntimeValue = struct {
+    value: lowered_machine.ProgramValue,
+    owned: bool = false,
+};
+
 const FunctionResult = union(enum) {
     failed: host.FailureV1,
     rejected: host.FailureV1,
-    terminal: lowered_machine.ProgramValue,
-    value: lowered_machine.ProgramValue,
+    terminal: RuntimeValue,
+    value: RuntimeValue,
 };
 
 const ExecutionContext = struct {
     allocator: std.mem.Allocator,
-    value_allocator: std.mem.Allocator,
     decoded: *const artifact.ArtifactV1,
     plan: program_plan.ProgramPlan,
     adapter: host.HostAdapterV1,
@@ -159,7 +164,11 @@ fn executeFunction(
     const function = ctx.plan.functions[function_index];
     var locals = try ctx.allocator.alloc(lowered_machine.ProgramValue, function.local_count);
     defer ctx.allocator.free(locals);
+    const local_owns_value = try ctx.allocator.alloc(bool, function.local_count);
+    defer ctx.allocator.free(local_owns_value);
     @memset(locals, .none);
+    @memset(local_owns_value, false);
+    defer releaseLocals(ctx.allocator, locals, local_owns_value);
     if (args.len != function.parameter_count) return error.ProgramContractViolation;
     for (args, 0..) |arg, index| locals[index] = arg;
 
@@ -173,10 +182,18 @@ fn executeFunction(
         while (instruction_index < instruction_end) : (instruction_index += 1) {
             const instruction = ctx.plan.instructions[instruction_index];
             switch (instruction.kind) {
-                .add_const_i32 => locals[instruction.dst] = switch (locals[instruction.operand]) {
-                    .i32 => |typed| .{ .i32 = typed + @as(i32, @intCast(instruction.aux)) },
-                    else => return error.ProgramContractViolation,
-                },
+                .add_const_i32 => setLocal(
+                    ctx.allocator,
+                    locals,
+                    local_owns_value,
+                    instruction.dst,
+                    .{
+                        .value = switch (locals[instruction.operand]) {
+                            .i32 => |typed| .{ .i32 = typed + @as(i32, @intCast(instruction.aux)) },
+                            else => return error.ProgramContractViolation,
+                        },
+                    },
+                ),
                 .call_helper => {
                     const callee = ctx.plan.functions[instruction.operand];
                     const helper_args = try ctx.allocator.alloc(lowered_machine.ProgramValue, callee.parameter_count);
@@ -188,7 +205,7 @@ fn executeFunction(
                     const helper_result = try executeFunction(ctx, instruction.operand, helper_args);
                     switch (helper_result) {
                         .value => |value| {
-                            if (callee.value_codec != .unit) locals[instruction.dst] = value;
+                            if (callee.value_codec != .unit) setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, value);
                         },
                         .terminal => |value| return .{ .terminal = value },
                         .rejected => |failure| return .{ .rejected = failure },
@@ -201,26 +218,42 @@ fn executeFunction(
                     const op_result = try callHostOp(ctx, instruction.operand, payload);
                     switch (op_result) {
                         .resumed => |value| {
-                            if (op.resume_codec != .unit) locals[instruction.dst] = value;
+                            if (op.resume_codec != .unit) setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, value);
                         },
                         .terminal => |value| return .{ .terminal = value },
                         .rejected => |failure| return .{ .rejected = failure },
                         .failed => |failure| return .{ .failed = failure },
                     }
                 },
-                .compare_eq_zero => locals[instruction.dst] = switch (locals[instruction.operand]) {
-                    .i32 => |typed| .{ .bool = typed == 0 },
-                    .usize => |typed| .{ .bool = typed == 0 },
-                    else => return error.ProgramContractViolation,
-                },
-                .const_i32 => locals[instruction.dst] = .{ .i32 = decodeI32InstructionLiteral(instruction) },
-                .const_string => locals[instruction.dst] = .{ .string = instruction.string_literal },
+                .compare_eq_zero => setLocal(
+                    ctx.allocator,
+                    locals,
+                    local_owns_value,
+                    instruction.dst,
+                    .{
+                        .value = switch (locals[instruction.operand]) {
+                            .i32 => |typed| .{ .bool = typed == 0 },
+                            .usize => |typed| .{ .bool = typed == 0 },
+                            else => return error.ProgramContractViolation,
+                        },
+                    },
+                ),
+                .const_i32 => setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, .{ .value = .{ .i32 = decodeI32InstructionLiteral(instruction) } }),
+                .const_string => setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, .{ .value = .{ .string = instruction.string_literal } }),
                 .return_value => return_local = instruction.operand,
-                .sub_one => locals[instruction.dst] = switch (locals[instruction.operand]) {
-                    .i32 => |typed| .{ .i32 = typed - 1 },
-                    .usize => |typed| .{ .usize = typed - 1 },
-                    else => return error.ProgramContractViolation,
-                },
+                .sub_one => setLocal(
+                    ctx.allocator,
+                    locals,
+                    local_owns_value,
+                    instruction.dst,
+                    .{
+                        .value = switch (locals[instruction.operand]) {
+                            .i32 => |typed| .{ .i32 = typed - 1 },
+                            .usize => |typed| .{ .usize = typed - 1 },
+                            else => return error.ProgramContractViolation,
+                        },
+                    },
+                ),
             }
         }
 
@@ -241,8 +274,8 @@ fn executeFunction(
                 instruction_index = ctx.plan.blocks[current_block_index].first_instruction;
                 return_local = null;
             },
-            .return_unit => return .{ .value = .none },
-            .return_value => return .{ .value = locals[return_local orelse return error.ProgramContractViolation] },
+            .return_unit => return .{ .value = .{ .value = .none } },
+            .return_value => return .{ .value = takeLocalValue(locals, local_owns_value, return_local orelse return error.ProgramContractViolation) },
         }
     }
 }
@@ -250,8 +283,8 @@ fn executeFunction(
 const OpDispatchResult = union(enum) {
     failed: host.FailureV1,
     rejected: host.FailureV1,
-    resumed: lowered_machine.ProgramValue,
-    terminal: lowered_machine.ProgramValue,
+    resumed: RuntimeValue,
+    terminal: RuntimeValue,
 };
 
 fn hostControlMatchesOpMode(mode: program_plan.ControlMode, control: host.ToolControlV1) bool {
@@ -317,10 +350,10 @@ fn callHostOp(
         .success => |tool_result| blk: {
             if (!hostControlMatchesOpMode(op.mode, tool_result.control)) return error.ProgramContractViolation;
             break :blk switch (tool_result.control) {
-                .@"resume" => .{ .resumed = try dataValueToProgramValue(ctx.value_allocator, op.resume_codec, tool_result.value) },
+                .@"resume" => .{ .resumed = try dataValueToRuntimeValue(ctx.allocator, op.resume_codec, tool_result.value) },
                 .return_now, .abort => .{
-                    .terminal = try dataValueToProgramValue(
-                        ctx.value_allocator,
+                    .terminal = try dataValueToRuntimeValue(
+                        ctx.allocator,
                         artifact.terminalResultCodecForOp(ctx.plan, op_index) catch return error.ProgramContractViolation,
                         tool_result.value,
                     ),
@@ -397,35 +430,64 @@ fn programValueToDataValue(
     };
 }
 
-fn dataValueToProgramValue(
+fn dataValueToRuntimeValue(
     allocator: std.mem.Allocator,
     codec: program_plan.ValueCodec,
     value: host.DataValueV1,
-) !lowered_machine.ProgramValue {
+) !RuntimeValue {
     return switch (codec) {
         .unit => switch (value) {
-            .null => .none,
+            .null => .{ .value = .none },
             else => error.ProgramContractViolation,
         },
         .bool => switch (value) {
-            .bool => |typed| .{ .bool = typed },
+            .bool => |typed| .{ .value = .{ .bool = typed } },
             else => error.ProgramContractViolation,
         },
         .i32 => switch (value) {
-            .i64 => |typed| .{ .i32 = std.math.cast(i32, typed) orelse return error.ProgramContractViolation },
+            .i64 => |typed| .{ .value = .{ .i32 = std.math.cast(i32, typed) orelse return error.ProgramContractViolation } },
             else => error.ProgramContractViolation,
         },
         .string => switch (value) {
-            .string => |typed| .{ .string = try allocator.dupe(u8, typed) },
+            .string => |typed| .{ .value = .{ .string = try allocator.dupe(u8, typed) }, .owned = true },
             else => error.ProgramContractViolation,
         },
         .usize => switch (value) {
-            .u64 => |typed| .{ .usize = std.math.cast(usize, typed) orelse return error.ProgramContractViolation },
-            .i64 => |typed| .{ .usize = std.math.cast(usize, typed) orelse return error.ProgramContractViolation },
+            .u64 => |typed| .{ .value = .{ .usize = std.math.cast(usize, typed) orelse return error.ProgramContractViolation } },
+            .i64 => |typed| .{ .value = .{ .usize = std.math.cast(usize, typed) orelse return error.ProgramContractViolation } },
             else => error.ProgramContractViolation,
         },
         .string_list => error.ProgramContractViolation,
     };
+}
+
+fn setLocal(
+    allocator: std.mem.Allocator,
+    locals: []lowered_machine.ProgramValue,
+    local_owns_value: []bool,
+    index: u16,
+    value: RuntimeValue,
+) void {
+    if (local_owns_value[index]) deinitProgramValue(allocator, &locals[index]);
+    locals[index] = value.value;
+    local_owns_value[index] = value.owned;
+}
+
+fn takeLocalValue(locals: []lowered_machine.ProgramValue, local_owns_value: []bool, index: u16) RuntimeValue {
+    const value = RuntimeValue{
+        .value = locals[index],
+        .owned = local_owns_value[index],
+    };
+    locals[index] = .none;
+    local_owns_value[index] = false;
+    return value;
+}
+
+fn releaseLocals(allocator: std.mem.Allocator, locals: []lowered_machine.ProgramValue, local_owns_value: []bool) void {
+    for (locals, local_owns_value) |*local, *owned| {
+        if (owned.*) deinitProgramValue(allocator, local);
+        owned.* = false;
+    }
 }
 
 fn decodeI32InstructionLiteral(instruction: program_plan.Instruction) i32 {
@@ -460,6 +522,94 @@ fn cloneProgramValue(allocator: std.mem.Allocator, value: lowered_machine.Progra
         .usize => |typed| .{ .usize = typed },
         .string => |typed| .{ .string = try allocator.dupe(u8, typed) },
     };
+}
+
+fn materializeExecutionValue(allocator: std.mem.Allocator, value: *RuntimeValue) !lowered_machine.ProgramValue {
+    if (value.owned) {
+        const owned_value = value.value;
+        value.* = .{ .value = .none, .owned = false };
+        return owned_value;
+    }
+    return cloneProgramValue(allocator, value.value);
+}
+
+fn deinitRuntimeValue(allocator: std.mem.Allocator, value: *RuntimeValue) void {
+    if (value.owned) deinitProgramValue(allocator, &value.value);
+    value.* = .{ .value = .none, .owned = false };
+}
+
+test "runtime local overwrites free replaced owned strings and transfer returned ownership" {
+    const CountingAllocator = struct {
+        child: std.mem.Allocator,
+        alloc_calls: usize = 0,
+        free_calls: usize = 0,
+
+        fn init(child: std.mem.Allocator) @This() {
+            return .{ .child = child };
+        }
+
+        fn allocator(self: *@This()) std.mem.Allocator {
+            return .{
+                .ptr = self,
+                .vtable = &.{
+                    .alloc = alloc,
+                    .resize = resize,
+                    .remap = remap,
+                    .free = free,
+                },
+            };
+        }
+
+        fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            self.alloc_calls += 1;
+            return self.child.rawAlloc(len, alignment, ret_addr);
+        }
+
+        fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            return self.child.rawResize(memory, alignment, new_len, ret_addr);
+        }
+
+        fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            return self.child.rawRemap(memory, alignment, new_len, ret_addr);
+        }
+
+        fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            self.free_calls += 1;
+            self.child.rawFree(memory, alignment, ret_addr);
+        }
+    };
+
+    var counting = CountingAllocator.init(std.testing.allocator);
+    const allocator = counting.allocator();
+    var locals = [_]lowered_machine.ProgramValue{.none};
+    var local_owns_value = [_]bool{false};
+
+    setLocal(allocator, &locals, &local_owns_value, 0, .{
+        .value = .{ .string = try allocator.dupe(u8, "first") },
+        .owned = true,
+    });
+    try std.testing.expect(local_owns_value[0]);
+    const free_calls_before_overwrite = counting.free_calls;
+
+    setLocal(allocator, &locals, &local_owns_value, 0, .{
+        .value = .{ .string = try allocator.dupe(u8, "second") },
+        .owned = true,
+    });
+    try std.testing.expectEqual(free_calls_before_overwrite + 1, counting.free_calls);
+
+    var returned = takeLocalValue(&locals, &local_owns_value, 0);
+    defer deinitRuntimeValue(allocator, &returned);
+    try std.testing.expect(returned.owned);
+    try std.testing.expectEqualStrings("second", returned.value.string);
+    try std.testing.expect(!local_owns_value[0]);
+
+    const free_calls_before_release = counting.free_calls;
+    releaseLocals(allocator, &locals, &local_owns_value);
+    try std.testing.expectEqual(free_calls_before_release, counting.free_calls);
 }
 
 fn deinitProgramValue(allocator: std.mem.Allocator, value: *lowered_machine.ProgramValue) void {

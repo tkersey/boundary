@@ -1207,8 +1207,15 @@ fn encodeStringRef(list: *std.ArrayList(u8), allocator: std.mem.Allocator, strin
 fn readStringRefDup(allocator: std.mem.Allocator, string_bytes: []const u8, bytes: []const u8) ![]const u8 {
     const offset = readU32(bytes, 0);
     const len = readU32(bytes, 4);
-    if (@as(usize, offset) + @as(usize, len) > string_bytes.len) return error.StringRefOutOfBounds;
-    return allocator.dupe(u8, string_bytes[offset .. offset + len]);
+    const start = std.math.cast(usize, offset) orelse return error.StringRefOutOfBounds;
+    const end = checkedStringRefEnd(offset, len) orelse return error.StringRefOutOfBounds;
+    if (end > string_bytes.len) return error.StringRefOutOfBounds;
+    return allocator.dupe(u8, string_bytes[start..end]);
+}
+
+fn checkedStringRefEnd(offset: u32, len: u32) ?usize {
+    const end = std.math.add(u32, offset, len) catch return null;
+    return std.math.cast(usize, end);
 }
 
 fn sectionBytes(bytes: []const u8, directories: []const SectionDirectoryEntryV1, wanted: SectionId) []const u8 {
@@ -1831,6 +1838,10 @@ test "ArtifactV1 decode frees partially decoded capability manifests on malforme
         expectMalformedCapabilityManifestDecodeCleanup,
         .{},
     );
+}
+
+test "ArtifactV1 checked string ref ends reject u32 overflow" {
+    try std.testing.expect(checkedStringRefEnd(std.math.maxInt(u32), 1) == null);
 }
 
 test "ArtifactV1 decode accepts reserved optional sections" {
