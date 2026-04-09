@@ -7,6 +7,7 @@ bench/resource_effect_decompose_bench.zig
 bench/runtime_backend_matrix_bench.zig
 bench/state_effect_bench.zig
 bench/writer_effect_decompose_bench.zig
+bench/zprof_hotspots.zig
 build.zig
 examples/durable_session_demo.zig
 examples/early_exit.zig
@@ -39,7 +40,11 @@ examples/resume_or_return.zig
 examples/state_basic.zig
 examples/writer_basic.zig
 source_graph_embed.zig
+src/agent_vm_artifact.zig
 src/algebraic.zig
+src/artifact_vm_runtime.zig
+src/bench_support.zig
+src/bundle_envelope_v1.zig
 src/compat.zig
 src/decision_api.zig
 src/direct_style_bridge_manifest.zig
@@ -62,6 +67,8 @@ src/error_witness.zig
 src/formal_core_registry.zig
 src/frontend.zig
 src/frontend_feature_registry.zig
+src/host_adapter_v1.zig
+src/host_adapter_v1_conformance.zig
 src/internal/algebraic_engine.zig
 src/internal/authoring_lowerer.zig
 src/internal/compat_witness_runners.zig
@@ -106,7 +113,11 @@ src/runtime_error_surface_registry.zig
 src/runtime_obligation_registry.zig
 src/runtime_route_registry.zig
 src/runtime_stack_baseline.zig
+src/shift_compile.zig
+src/shift_compile_api.zig
 src/shift_module.zig
+src/shift_shared.zig
+src/shift_vm.zig
 src/shipped_open_row_corpus_registry.zig
 src/shipped_surface_frontier_registry.zig
 src/source_lowering.zig
@@ -116,8 +127,11 @@ src/with_api.zig
 src/witness_admission_registry.zig
 src/witness_sources.zig
 src/witnesses.zig
+test/artifact_v1_api_test.zig
+test/artifact_vm_runtime_test.zig
 test/backend_parity_manifest.zig
 test/backend_parity_test.zig
+test/bundle_envelope_v1_test.zig
 test/compile_fail/absolute_owned_helper_import_absolute_path_fails.zig
 test/compile_fail/absolute_owned_helper_import_escape_fails.zig
 test/compile_fail/absolute_owned_helper_import_windows_absolute_path_fails.zig
@@ -182,6 +196,7 @@ test/direct_style_bridge_test.zig
 test/direct_style_bridge_witness_test.zig
 test/durable_session_test.zig
 test/example_proof_suite.zig
+test/host_adapter_v1_conformance_test.zig
 test/kernel_parity_witness_test.zig
 test/lexical_with_test.zig
 test/lexical_witness_support.zig
@@ -240,6 +255,8 @@ test/witness_corpus_test.zig
 tmp_invalid_ir_test.zig
 tmp_ir_entry_param_test.zig
 tmp_row_only_param_compile_test.zig
+tools/artifact_v1_dump.zig
+tools/artifact_vm_state_writer_runner.zig
 tools/check_interpreter_portability.zig
 tools/check_portable_core.zig
 tools/check_public_api_ban.zig

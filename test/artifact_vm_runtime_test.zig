@@ -133,6 +133,12 @@ const UnsignedIntegerDispatchContext = struct {
     seen_argument: ?u64 = null,
 };
 
+const FixedControlDispatchContext = struct {
+    control: shift_vm.host_adapter.ToolControlV1,
+    string_value: []const u8 = "early",
+    use_null_value: bool = false,
+};
+
 fn dispatchManifestOpIdentityStringResults(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
@@ -237,6 +243,26 @@ fn dispatchUnsignedIntegerRoundTrip(
     };
 }
 
+fn dispatchFixedControlResult(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    const runtime_ctx: *FixedControlDispatchContext = @ptrCast(@alignCast(ctx));
+    return .{
+        .request_id = request.request_id,
+        .body = .{ .success = .{
+            .tool_id = try allocator.dupe(u8, request.body.tool_call.tool_id),
+            .call_id = request.body.tool_call.call_id,
+            .control = runtime_ctx.control,
+            .value = if (runtime_ctx.use_null_value)
+                .null
+            else
+                .{ .string = try allocator.dupe(u8, runtime_ctx.string_value) },
+        } },
+    };
+}
+
 fn dispatchMismatchedSuccess(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
@@ -318,6 +344,69 @@ fn encodeSingleResumeArtifact(
             .global_op_name = "tool.call",
             .payload_codec = .unit,
             .result_codec = shift_vm.artifact.mapPlanCodecToCapabilityCodec(codec),
+            .plan_op_ordinal = 0,
+        }},
+    }};
+
+    return shift_vm.artifact.encodeProgramPlan(allocator, plan, .{
+        .build_fingerprint_blake3_256 = shift_vm.artifact.buildFingerprintFromSeed(build_seed),
+        .capabilities = &capabilities,
+    });
+}
+
+fn encodeSingleStringArtifact(
+    allocator: std.mem.Allocator,
+    mode: internal_program_plan.ControlMode,
+    resume_codec: internal_program_plan.ValueCodec,
+    build_seed: []const u8,
+) ![]u8 {
+    const plan: internal_program_plan.ProgramPlan = .{
+        .label = "artifact.runtime.control_mode_contract",
+        .ir_hash = 0xa2,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 3,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "value", .mode = mode, .payload_codec = .unit, .resume_codec = resume_codec }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 3, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_string, .dst = 0, .string_literal = "fallback" },
+            .{ .kind = .call_op, .dst = 0, .operand = 0 },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+    const capability_result_codec = switch (mode) {
+        .transform => shift_vm.artifact.mapPlanCodecToCapabilityCodec(resume_codec),
+        .choice, .abort => .string,
+    };
+    const capabilities = [_]shift_vm.CapabilityV1{.{
+        .capability_id = 5,
+        .kind = .tool,
+        .label = "generated/tooling@v1",
+        .ops = &.{.{
+            .capability_id = 5,
+            .op_id = 0,
+            .global_op_name = "tool.call",
+            .payload_codec = .unit,
+            .result_codec = capability_result_codec,
             .plan_op_ordinal = 0,
         }},
     }};
@@ -689,6 +778,58 @@ test "ArtifactV1 runtime decodes terminal abort string results for later require
     try std.testing.expectEqualStrings("early-abort", result.value.string);
     try std.testing.expectEqual(@as(usize, 1), result.logs.len);
     try conformance.assertToolCallShape(result.logs[0], "generated/terminal@v1", "stop");
+}
+
+test "ArtifactV1 runtime rejects host control outcomes incompatible with op mode" {
+    const transform_bytes = try encodeSingleStringArtifact(std.testing.allocator, .transform, .string, "artifact-runtime-transform-control-contract");
+    defer std.testing.allocator.free(transform_bytes);
+
+    var transform_return_now = FixedControlDispatchContext{ .control = .return_now };
+    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, transform_bytes, .{
+        .ctx = &transform_return_now,
+        .dispatchFn = dispatchFixedControlResult,
+    }));
+
+    var transform_abort = FixedControlDispatchContext{ .control = .abort };
+    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, transform_bytes, .{
+        .ctx = &transform_abort,
+        .dispatchFn = dispatchFixedControlResult,
+    }));
+
+    const abort_bytes = try encodeSingleStringArtifact(std.testing.allocator, .abort, .unit, "artifact-runtime-abort-control-contract");
+    defer std.testing.allocator.free(abort_bytes);
+
+    var abort_resume = FixedControlDispatchContext{
+        .control = .@"resume",
+        .use_null_value = true,
+    };
+    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, abort_bytes, .{
+        .ctx = &abort_resume,
+        .dispatchFn = dispatchFixedControlResult,
+    }));
+}
+
+test "ArtifactV1 runtime enforces choice control compatibility" {
+    const choice_bytes = try encodeSingleStringArtifact(std.testing.allocator, .choice, .string, "artifact-runtime-choice-control-contract");
+    defer std.testing.allocator.free(choice_bytes);
+
+    var choice_return_now = FixedControlDispatchContext{
+        .control = .return_now,
+        .string_value = "choice-early",
+    };
+    var result = try shift_vm.runtime.runArtifact(std.testing.allocator, choice_bytes, .{
+        .ctx = &choice_return_now,
+        .dispatchFn = dispatchFixedControlResult,
+    });
+    defer result.deinit(std.testing.allocator);
+    const completed = try expectCompleted(&result);
+    try std.testing.expectEqualStrings("choice-early", completed.value.string);
+
+    var choice_abort = FixedControlDispatchContext{ .control = .abort };
+    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, choice_bytes, .{
+        .ctx = &choice_abort,
+        .dispatchFn = dispatchFixedControlResult,
+    }));
 }
 
 test "ArtifactV1 runtime rejects out-of-range i32 host integers" {

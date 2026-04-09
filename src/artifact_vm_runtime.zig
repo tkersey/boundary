@@ -254,6 +254,20 @@ const OpDispatchResult = union(enum) {
     terminal: lowered_machine.ProgramValue,
 };
 
+fn hostControlMatchesOpMode(mode: program_plan.ControlMode, control: host.ToolControlV1) bool {
+    return switch (mode) {
+        .transform => control == .@"resume",
+        .choice => switch (control) {
+            .@"resume", .return_now => true,
+            .abort => false,
+        },
+        .abort => switch (control) {
+            .return_now, .abort => true,
+            .@"resume" => false,
+        },
+    };
+}
+
 fn callHostOp(
     ctx: *ExecutionContext,
     op_index: u16,
@@ -299,15 +313,18 @@ fn callHostOp(
     });
 
     return switch (response.body) {
-        .success => |tool_result| switch (tool_result.control) {
-            .@"resume" => .{ .resumed = try dataValueToProgramValue(ctx.value_allocator, op.resume_codec, tool_result.value) },
-            .return_now, .abort => .{
-                .terminal = try dataValueToProgramValue(
-                    ctx.value_allocator,
-                    artifact.terminalResultCodecForOp(ctx.plan, op_index) catch return error.ProgramContractViolation,
-                    tool_result.value,
-                ),
-            },
+        .success => |tool_result| blk: {
+            if (!hostControlMatchesOpMode(op.mode, tool_result.control)) return error.ProgramContractViolation;
+            break :blk switch (tool_result.control) {
+                .@"resume" => .{ .resumed = try dataValueToProgramValue(ctx.value_allocator, op.resume_codec, tool_result.value) },
+                .return_now, .abort => .{
+                    .terminal = try dataValueToProgramValue(
+                        ctx.value_allocator,
+                        artifact.terminalResultCodecForOp(ctx.plan, op_index) catch return error.ProgramContractViolation,
+                        tool_result.value,
+                    ),
+                },
+            };
         },
         .rejected => |failure| .{ .rejected = try failure.clone(ctx.allocator) },
         .failed => |failure| .{ .failed = try failure.clone(ctx.allocator) },
