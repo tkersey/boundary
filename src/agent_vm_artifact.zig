@@ -168,7 +168,7 @@ pub fn mapPlanCodecToCapabilityCodec(codec: program_plan.ValueCodec) CapabilityC
         .i32 => .i32,
         .string => .string,
         .string_list => .data_value,
-        .usize => .i32,
+        .usize => .data_value,
     };
 }
 
@@ -755,13 +755,15 @@ fn toolCapabilityMatchesRequirement(plan: program_plan.ProgramPlan, requirement_
     const requirement = plan.requirements[requirement_index];
     const generated_prefix = "generated/";
     const generated_suffix = "@v1";
+    const label_matches = std.mem.eql(u8, capability.label, requirement.label);
     if (capability.kind != .tool) return false;
     if (capability.ops.len != requirement.op_count) return false;
-    if (std.mem.eql(u8, capability.label, requirement.label)) return true;
-    if (!std.mem.startsWith(u8, capability.label, generated_prefix)) return false;
-    if (!std.mem.endsWith(u8, capability.label, generated_suffix)) return false;
-    const inner = capability.label[generated_prefix.len .. capability.label.len - generated_suffix.len];
-    if (!std.mem.eql(u8, inner, requirement.label)) return false;
+    if (!label_matches) {
+        if (!std.mem.startsWith(u8, capability.label, generated_prefix)) return false;
+        if (!std.mem.endsWith(u8, capability.label, generated_suffix)) return false;
+        const inner = capability.label[generated_prefix.len .. capability.label.len - generated_suffix.len];
+        if (!std.mem.eql(u8, inner, requirement.label)) return false;
+    }
     const op_start = requirement.first_op;
     const op_end = op_start + requirement.op_count;
     if (op_end > plan.ops.len) return false;
@@ -1300,6 +1302,60 @@ test "ArtifactV1 rejects custom capabilities whose op codecs do not match the co
         .build_fingerprint_blake3_256 = build_fingerprint,
         .capabilities = &capabilities,
     }));
+}
+
+test "ArtifactV1 rejects exact-label custom capabilities whose op codecs do not match the compiled plan" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-v1-exact-label-capability-mismatch");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.test",
+        .ir_hash = 0x56,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "first", .mode = .transform, .payload_codec = .unit, .resume_codec = .string }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const capabilities = [_]CapabilityV1{.{
+        .capability_id = 10,
+        .kind = .tool,
+        .label = "tooling",
+        .ops = &.{.{
+            .capability_id = 10,
+            .op_id = 0,
+            .global_op_name = "tool.call",
+            .payload_codec = .string,
+            .result_codec = .unit,
+        }},
+    }};
+
+    try std.testing.expectError(error.InvalidRequiredSection, encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    }));
+}
+
+test "ArtifactV1 advertises usize capability codecs as data_value" {
+    try std.testing.expectEqual(CapabilityCodecV1.data_value, mapPlanCodecToCapabilityCodec(.usize));
 }
 
 test "ArtifactV1 encoding is deterministic and disasm is readable" {

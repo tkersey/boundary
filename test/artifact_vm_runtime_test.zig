@@ -181,6 +181,23 @@ fn dispatchIntegerResult(
     };
 }
 
+fn dispatchMismatchedSuccess(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    const runtime_ctx: *IntegerDispatchContext = @ptrCast(@alignCast(ctx));
+    return .{
+        .request_id = request.request_id,
+        .body = .{ .success = .{
+            .tool_id = try allocator.dupe(u8, if (runtime_ctx.value == 0) "wrong/tool@v1" else request.body.tool_call.tool_id),
+            .call_id = if (runtime_ctx.value == 0) request.body.tool_call.call_id else request.body.tool_call.call_id + 1,
+            .control = .@"resume",
+            .value = .{ .i64 = 1 },
+        } },
+    };
+}
+
 fn encodeSingleResumeArtifact(
     allocator: std.mem.Allocator,
     codec: internal_program_plan.ValueCodec,
@@ -508,5 +525,22 @@ test "ArtifactV1 runtime rejects negative usize host integers" {
     try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
         .ctx = &context,
         .dispatchFn = dispatchIntegerResult,
+    }));
+}
+
+test "ArtifactV1 runtime rejects successful host replies with mismatched tool metadata" {
+    const bytes = try encodeSingleResumeArtifact(std.testing.allocator, .i32, "artifact-runtime-mismatched-success");
+    defer std.testing.allocator.free(bytes);
+
+    var wrong_tool = IntegerDispatchContext{ .value = 0 };
+    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &wrong_tool,
+        .dispatchFn = dispatchMismatchedSuccess,
+    }));
+
+    var wrong_call = IntegerDispatchContext{ .value = 1 };
+    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &wrong_call,
+        .dispatchFn = dispatchMismatchedSuccess,
     }));
 }

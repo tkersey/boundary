@@ -201,6 +201,14 @@ fn callHostOp(
     var response = try ctx.adapter.dispatch(ctx.allocator, request);
     defer response.deinit(ctx.allocator);
     if (response.request_id != request.request_id) return error.ProgramContractViolation;
+    switch (response.body) {
+        .success => |tool_result| {
+            const tool_call = request.body.tool_call;
+            if (!std.mem.eql(u8, tool_result.tool_id, tool_call.tool_id)) return error.ProgramContractViolation;
+            if (tool_result.call_id != tool_call.call_id) return error.ProgramContractViolation;
+        },
+        else => {},
+    }
 
     try ctx.logs.append(ctx.allocator, .{
         .request = try request.clone(ctx.allocator),
