@@ -27,3 +27,33 @@ test "BundleEnvelopeV1 round-trips ArtifactV1 bytes and rejects build mismatches
     const wrong = shift_vm.artifact.buildFingerprintFromSeed("bundle-envelope-wrong");
     try std.testing.expectError(error.BuildFingerprintMismatch, shift_vm.bundle.importBundle(std.testing.allocator, envelope_bytes, wrong));
 }
+
+test "BundleEnvelopeV1 rejects truncated headers and invalid embedded artifacts" {
+    const bytes = try shift_compile.compileAndEncode(
+        std.testing.allocator,
+        "examples/open_row_state_writer.zig",
+        example.loweringSpec(),
+        .{
+            .build_fingerprint_seed = "bundle-envelope-invalid",
+            .capabilities = &.{},
+        },
+    );
+    defer std.testing.allocator.free(bytes);
+
+    const envelope_bytes = try shift_vm.bundle.exportBundle(std.testing.allocator, bytes);
+    defer std.testing.allocator.free(envelope_bytes);
+
+    const expected = shift_vm.artifact.buildFingerprintFromSeed("bundle-envelope-invalid");
+    for ([_]usize{ 52, 60, 83 }) |len| {
+        try std.testing.expectError(error.InvalidLength, shift_vm.bundle.importBundle(std.testing.allocator, envelope_bytes[0..len], expected));
+    }
+
+    var corrupted = try std.testing.allocator.dupe(u8, envelope_bytes);
+    defer std.testing.allocator.free(corrupted);
+    corrupted[84] ^= 0x1;
+    var digest = std.mem.zeroes([32]u8);
+    std.crypto.hash.Blake3.hash(corrupted[84..], &digest, .{});
+    @memcpy(corrupted[44..76], &digest);
+
+    try std.testing.expectError(error.InvalidArtifact, shift_vm.bundle.importBundle(std.testing.allocator, corrupted, expected));
+}

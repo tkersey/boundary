@@ -264,7 +264,12 @@ pub fn encodeProgramPlan(
     const directory_offset = header_len;
     const payload_offset_base = directory_offset + directory_entry_len * payloads.len;
 
-    var directories = std.mem.zeroes([payloads.len]SectionDirectoryEntryV1);
+    var directories = [_]SectionDirectoryEntryV1{.{
+        .section_id = .capability_manifest,
+        .offset = 0,
+        .size = 0,
+        .entry_count = 0,
+    }} ** payloads.len;
     var payload_offset: usize = payload_offset_base;
     for (payloads, 0..) |payload, index| {
         directories[index] = .{

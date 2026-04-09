@@ -1,5 +1,6 @@
 const conformance = @import("host_adapter_v1_conformance");
 const example = @import("example_open_row_state_writer");
+const internal_program_plan = @import("shift").internal_program_plan;
 const shift_compile = @import("shift_compile");
 const shift_vm = @import("shift_vm");
 const std = @import("std");
@@ -115,6 +116,51 @@ fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.hos
     };
 }
 
+const string_dispatch_context = struct {};
+
+fn dispatchStringResults(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    _ = ctx;
+    try std.testing.expectEqual(@as(u16, 7), request.capability_id);
+    try std.testing.expectEqualStrings("generated/tooling@v1", request.body.tool_call.tool_id);
+    const value = switch (request.op_id) {
+        3 => "keepalive0",
+        4 => "overwrite0",
+        else => return error.UnexpectedOpId,
+    };
+    return .{
+        .request_id = request.request_id,
+        .body = .{ .success = .{
+            .tool_id = try allocator.dupe(u8, request.body.tool_call.tool_id),
+            .call_id = request.body.tool_call.call_id,
+            .control = .@"resume",
+            .value = .{ .string = try allocator.dupe(u8, value) },
+        } },
+    };
+}
+
+fn dispatchTerminalReturn(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    _ = ctx;
+    try std.testing.expectEqual(@as(u16, 33), request.capability_id);
+    try std.testing.expectEqual(@as(u16, 8), request.op_id);
+    return .{
+        .request_id = request.request_id,
+        .body = .{ .success = .{
+            .tool_id = try allocator.dupe(u8, request.body.tool_call.tool_id),
+            .call_id = request.body.tool_call.call_id,
+            .control = .return_now,
+            .value = .{ .string = try allocator.dupe(u8, "early") },
+        } },
+    };
+}
+
 test "ArtifactV1 runtime executes transform-only lowered programs with sequential request ids" {
     const bytes = try shift_compile.compileAndEncode(
         std.testing.allocator,
@@ -187,4 +233,182 @@ test "ArtifactV1 runtime matches lowered runner outputs on open_row_state_writer
     for (lowered_result.outputs.writer, context.writer_items.items) |expected, actual| {
         try std.testing.expectEqualStrings(expected, actual);
     }
+}
+
+test "ArtifactV1 runtime uses manifest capability ids and keeps resumed strings alive" {
+    const build_fingerprint = shift_vm.artifact.buildFingerprintFromSeed("artifact-runtime-nonzero-capability");
+    const plan: internal_program_plan.ProgramPlan = .{
+        .label = "artifact.runtime.string_resume",
+        .ir_hash = 0x81,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 2,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 3,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 2 }},
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "first", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+            .{ .requirement_index = 0, .op_name = "second", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+        },
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .string }, .{ .codec = .string } },
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 3, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .call_op, .dst = 0, .operand = 0 },
+            .{ .kind = .call_op, .dst = 1, .operand = 1 },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+    const capabilities = [_]shift_vm.CapabilityV1{.{
+        .capability_id = 7,
+        .kind = .tool,
+        .label = "generated/tooling@v1",
+        .ops = &.{
+            .{
+                .capability_id = 7,
+                .op_id = 3,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .string,
+            },
+            .{
+                .capability_id = 7,
+                .op_id = 4,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .string,
+            },
+        },
+    }};
+
+    const bytes = try shift_vm.artifact.encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    });
+    defer std.testing.allocator.free(bytes);
+
+    var context = string_dispatch_context{};
+    var result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchStringResults,
+    });
+    defer result.deinit(std.testing.allocator);
+
+    try std.testing.expectEqualStrings("keepalive0", result.value.string);
+    try std.testing.expectEqual(@as(usize, 2), result.logs.len);
+    try std.testing.expectEqual(@as(u16, 7), result.logs[0].request.capability_id);
+    try std.testing.expectEqual(@as(u16, 3), result.logs[0].request.op_id);
+    try std.testing.expectEqual(@as(u16, 4), result.logs[1].request.op_id);
+}
+
+test "ArtifactV1 runtime decodes terminal string results for later requirement ops" {
+    const build_fingerprint = shift_vm.artifact.buildFingerprintFromSeed("artifact-runtime-terminal-codec");
+    const plan: internal_program_plan.ProgramPlan = .{
+        .label = "artifact.runtime.terminal_later_op",
+        .ir_hash = 0x91,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 2,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 3,
+        }},
+        .requirements = &.{
+            .{ .label = "primary", .first_op = 0, .op_count = 2 },
+            .{ .label = "terminal", .first_op = 2, .op_count = 1 },
+        },
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "unused-a", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit },
+            .{ .requirement_index = 0, .op_name = "unused-b", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit },
+            .{ .requirement_index = 1, .op_name = "stop", .mode = .abort, .payload_codec = .unit, .resume_codec = .unit },
+        },
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 3, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_string, .dst = 0, .string_literal = "fallback" },
+            .{ .kind = .call_op, .operand = 2 },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+    const capabilities = [_]shift_vm.CapabilityV1{
+        .{
+            .capability_id = 20,
+            .kind = .tool,
+            .label = "generated/primary@v1",
+            .ops = &.{
+                .{
+                    .capability_id = 20,
+                    .op_id = 0,
+                    .global_op_name = "tool.call",
+                    .payload_codec = .unit,
+                    .result_codec = .unit,
+                },
+                .{
+                    .capability_id = 20,
+                    .op_id = 1,
+                    .global_op_name = "tool.call",
+                    .payload_codec = .unit,
+                    .result_codec = .unit,
+                },
+            },
+        },
+        .{
+            .capability_id = 33,
+            .kind = .tool,
+            .label = "generated/terminal@v1",
+            .ops = &.{
+                .{
+                    .capability_id = 33,
+                    .op_id = 8,
+                    .global_op_name = "tool.call",
+                    .payload_codec = .unit,
+                    .result_codec = .string,
+                },
+            },
+        },
+    };
+
+    const bytes = try shift_vm.artifact.encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    });
+    defer std.testing.allocator.free(bytes);
+
+    var context = string_dispatch_context{};
+    var result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchTerminalReturn,
+    });
+    defer result.deinit(std.testing.allocator);
+
+    try std.testing.expectEqualStrings("early", result.value.string);
+    try std.testing.expectEqual(@as(usize, 1), result.logs.len);
+    try conformance.assertToolCallShape(result.logs[0], "generated/terminal@v1", "stop");
 }

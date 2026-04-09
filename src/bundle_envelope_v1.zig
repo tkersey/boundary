@@ -19,6 +19,7 @@ pub const BundleImportError = error{
     ArtifactHashMismatch,
     BadMagic,
     BuildFingerprintMismatch,
+    InvalidArtifact,
     InvalidLength,
     UnsupportedVersion,
 };
@@ -49,7 +50,8 @@ pub fn importBundle(
     bytes: []const u8,
     expected_build_fingerprint: [32]u8,
 ) (BundleImportError || std.mem.Allocator.Error)!BundleEnvelopeV1 {
-    if (bytes.len < 52) return error.InvalidLength;
+    const header_len: usize = 84;
+    if (bytes.len < header_len) return error.InvalidLength;
     if (!std.mem.eql(u8, bytes[0..8], "SFTBNDV1")) return error.BadMagic;
     if (readU16(bytes, 8) != 1) return error.UnsupportedVersion;
     if (readU16(bytes, 10) != 0) return error.UnsupportedVersion;
@@ -60,13 +62,17 @@ pub fn importBundle(
 
     var artifact_hash = std.mem.zeroes([32]u8);
     @memcpy(&artifact_hash, bytes[44..76]);
-    const artifact_len = readU64(bytes, 76);
-    if (84 + artifact_len != bytes.len) return error.InvalidLength;
+    const artifact_len = std.math.cast(usize, readU64(bytes, 76)) orelse return error.InvalidLength;
+    const total_len = std.math.add(usize, header_len, artifact_len) catch return error.InvalidLength;
+    if (total_len != bytes.len) return error.InvalidLength;
 
-    const artifact_bytes = try allocator.dupe(u8, bytes[84..]);
+    const artifact_bytes = try allocator.dupe(u8, bytes[header_len..]);
     errdefer allocator.free(artifact_bytes);
 
-    var decoded = try artifact.decode(allocator, artifact_bytes);
+    var decoded = artifact.decode(allocator, artifact_bytes) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.InvalidArtifact,
+    };
     defer decoded.deinit(allocator);
     if (!std.mem.eql(u8, &decoded.artifact_hash_blake3_256, &artifact_hash)) return error.ArtifactHashMismatch;
 

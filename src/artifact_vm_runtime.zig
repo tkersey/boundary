@@ -31,6 +31,8 @@ pub fn runArtifact(
     defer decoded.deinit(allocator);
     const plan = try decoded.toProgramPlan(allocator);
     defer deepFreeProgramPlan(allocator, plan);
+    var value_arena = std.heap.ArenaAllocator.init(allocator);
+    defer value_arena.deinit();
 
     var logs = std.ArrayList(host.HostLogEntryV1).empty;
     errdefer {
@@ -41,6 +43,7 @@ pub fn runArtifact(
     var next_request_id: u64 = 1;
     var execution: ExecutionContext = .{
         .allocator = allocator,
+        .value_allocator = value_arena.allocator(),
         .decoded = &decoded,
         .plan = plan,
         .adapter = adapter,
@@ -69,6 +72,7 @@ const FunctionResult = union(enum) {
 
 const ExecutionContext = struct {
     allocator: std.mem.Allocator,
+    value_allocator: std.mem.Allocator,
     decoded: *const artifact.ArtifactV1,
     plan: program_plan.ProgramPlan,
     adapter: host.HostAdapterV1,
@@ -179,15 +183,13 @@ fn callHostOp(
     payload: lowered_machine.ProgramValue,
 ) anyerror!OpDispatchResult {
     const op = ctx.plan.ops[op_index];
-    const requirement = ctx.plan.requirements[op.requirement_index];
-    const capability = findCapability(ctx.decoded.capabilities, op.requirement_index) orelse return error.ProgramContractViolation;
-    const capability_op_id = op_index - requirement.first_op;
+    const resolved = resolveCapabilityOp(ctx.decoded.capabilities, ctx.plan, op_index) orelse return error.ProgramContractViolation;
     var request = host.HostEffectRequestV1{
         .request_id = ctx.next_request_id.*,
-        .capability_id = capability.capability_id,
-        .op_id = capability_op_id,
+        .capability_id = resolved.capability.capability_id,
+        .op_id = resolved.capability_op.op_id,
         .body = .{ .tool_call = .{
-            .tool_id = try ctx.allocator.dupe(u8, capability.label),
+            .tool_id = try ctx.allocator.dupe(u8, resolved.capability.label),
             .call_id = ctx.next_request_id.*,
             .op_name = try ctx.allocator.dupe(u8, op.op_name),
             .arguments = try programValueToDataValue(ctx.allocator, op.payload_codec, payload),
@@ -207,24 +209,46 @@ fn callHostOp(
 
     return switch (response.body) {
         .success => |tool_result| switch (tool_result.control) {
-            .@"resume" => .{ .resumed = try dataValueToProgramValue(op.resume_codec, tool_result.value) },
-            .return_now, .abort => .{ .terminal = try dataValueToProgramValue(functionValueCodecForOp(ctx.plan, op_index), tool_result.value) },
+            .@"resume" => .{ .resumed = try dataValueToProgramValue(ctx.value_allocator, op.resume_codec, tool_result.value) },
+            .return_now, .abort => .{ .terminal = try dataValueToProgramValue(ctx.value_allocator, functionValueCodecForOp(ctx.plan, op_index), tool_result.value) },
         },
         .rejected, .failed => error.ProgramContractViolation,
     };
 }
 
-fn findCapability(capabilities: []const artifact.CapabilityV1, requirement_index: u16) ?artifact.CapabilityV1 {
-    for (capabilities) |capability| {
-        if (capability.capability_id == requirement_index) return capability;
-    }
-    return null;
+const ResolvedCapabilityOp = struct {
+    capability: artifact.CapabilityV1,
+    capability_op: artifact.CapabilityOpV1,
+};
+
+fn resolveCapabilityOp(
+    capabilities: []const artifact.CapabilityV1,
+    plan: program_plan.ProgramPlan,
+    op_index: u16,
+) ?ResolvedCapabilityOp {
+    if (op_index >= plan.ops.len) return null;
+    const op = plan.ops[op_index];
+    if (op.requirement_index >= capabilities.len or op.requirement_index >= plan.requirements.len) return null;
+    const requirement = plan.requirements[op.requirement_index];
+    if (op_index < requirement.first_op) return null;
+    const capability = capabilities[op.requirement_index];
+    const capability_op_index = op_index - requirement.first_op;
+    if (capability_op_index >= capability.ops.len) return null;
+    return .{
+        .capability = capability,
+        .capability_op = capability.ops[capability_op_index],
+    };
 }
 
 fn functionValueCodecForOp(plan: program_plan.ProgramPlan, op_index: u16) program_plan.ValueCodec {
     for (plan.functions) |function| {
-        const req_end = function.first_requirement + function.requirement_count;
-        if (op_index >= function.first_requirement and op_index < req_end) return function.value_codec;
+        const req_start: usize = function.first_requirement;
+        const req_end = req_start + function.requirement_count;
+        for (plan.requirements[req_start..req_end]) |requirement| {
+            const op_start = requirement.first_op;
+            const op_end = op_start + requirement.op_count;
+            if (op_index >= op_start and op_index < op_end) return function.value_codec;
+        }
     }
     return .unit;
 }
@@ -256,7 +280,11 @@ fn programValueToDataValue(
     };
 }
 
-fn dataValueToProgramValue(codec: program_plan.ValueCodec, value: host.DataValueV1) !lowered_machine.ProgramValue {
+fn dataValueToProgramValue(
+    allocator: std.mem.Allocator,
+    codec: program_plan.ValueCodec,
+    value: host.DataValueV1,
+) !lowered_machine.ProgramValue {
     return switch (codec) {
         .unit => .none,
         .bool => switch (value) {
@@ -268,7 +296,7 @@ fn dataValueToProgramValue(codec: program_plan.ValueCodec, value: host.DataValue
             else => error.ProgramContractViolation,
         },
         .string => switch (value) {
-            .string => |typed| .{ .string = typed },
+            .string => |typed| .{ .string = try allocator.dupe(u8, typed) },
             else => error.ProgramContractViolation,
         },
         .usize => switch (value) {
