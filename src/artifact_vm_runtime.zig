@@ -170,7 +170,15 @@ fn executeFunction(
     @memset(local_owns_value, false);
     defer releaseLocals(ctx.allocator, locals, local_owns_value);
     if (args.len != function.parameter_count) return error.ProgramContractViolation;
-    for (args, 0..) |arg, index| locals[index] = arg;
+    for (args, 0..) |arg, index| {
+        switch (arg) {
+            .string => |typed| {
+                locals[index] = .{ .string = try ctx.allocator.dupe(u8, typed) };
+                local_owns_value[index] = true;
+            },
+            else => locals[index] = arg,
+        }
+    }
 
     var current_block_index = function.first_block + function.entry_block;
     var instruction_index = ctx.plan.blocks[current_block_index].first_instruction;
@@ -610,6 +618,87 @@ test "runtime local overwrites free replaced owned strings and transfer returned
     const free_calls_before_release = counting.free_calls;
     releaseLocals(allocator, &locals, &local_owns_value);
     try std.testing.expectEqual(free_calls_before_release, counting.free_calls);
+}
+
+test "helper frames clone string parameters before returning them" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.helper_param_clone",
+        .ir_hash = 0x301,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "echo",
+            .value_codec = .string,
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{.{ .kind = .return_value, .operand = 0 }},
+    };
+
+    var logs = std.ArrayList(host.HostLogEntryV1).empty;
+    defer logs.deinit(std.testing.allocator);
+    var next_request_id: u64 = 1;
+    const decoded = artifact.ArtifactV1{
+        .semantic_ir_hash64 = plan.ir_hash,
+        .build_fingerprint_blake3_256 = std.mem.zeroes([32]u8),
+        .capabilities = &.{},
+        .requirement_capability_ids = &.{},
+        .functions = plan.functions,
+        .requirements = plan.requirements,
+        .ops = plan.ops,
+        .outputs = plan.outputs,
+        .locals = plan.locals,
+        .call_args = plan.call_args,
+        .blocks = plan.blocks,
+        .terminators = plan.terminators,
+        .instructions = plan.instructions,
+    };
+    var ctx = ExecutionContext{
+        .allocator = std.testing.allocator,
+        .decoded = &decoded,
+        .plan = plan,
+        .adapter = .{
+            .ctx = undefined,
+            .dispatchFn = struct {
+                fn dispatch(_: ?*anyopaque, _: std.mem.Allocator, _: host.HostEffectRequestV1) anyerror!host.HostEffectResultV1 {
+                    return error.UnexpectedHostDispatch;
+                }
+            }.dispatch,
+        },
+        .logs = &logs,
+        .next_request_id = &next_request_id,
+    };
+
+    const arg = lowered_machine.ProgramValue{ .string = try std.testing.allocator.dupe(u8, "borrowed") };
+    defer std.testing.allocator.free(arg.string);
+
+    var returned = try executeFunction(&ctx, 0, &.{arg});
+    switch (returned) {
+        .value => |*value| {
+            defer deinitRuntimeValue(std.testing.allocator, value);
+            try std.testing.expect(value.owned);
+            try std.testing.expect(value.value == .string);
+            try std.testing.expectEqualStrings("borrowed", value.value.string);
+            try std.testing.expect(value.value.string.ptr != arg.string.ptr);
+        },
+        else => return error.TestUnexpectedResult,
+    }
 }
 
 fn deinitProgramValue(allocator: std.mem.Allocator, value: *lowered_machine.ProgramValue) void {

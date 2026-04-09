@@ -165,6 +165,32 @@ fn dispatchManifestOpIdentityStringResults(
     };
 }
 
+fn dispatchHelperStringOwnership(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    _ = ctx;
+    try std.testing.expectEqual(@as(u16, 11), request.capability_id);
+    try std.testing.expectEqualStrings("generated/primary@v1", request.body.tool_call.tool_id);
+    const value = if (std.mem.eql(u8, request.body.tool_call.op_name, "first")) blk: {
+        try std.testing.expectEqual(@as(u16, 0), request.op_id);
+        break :blk "alpha";
+    } else if (std.mem.eql(u8, request.body.tool_call.op_name, "second")) blk: {
+        try std.testing.expectEqual(@as(u16, 1), request.op_id);
+        break :blk "omega";
+    } else return error.UnexpectedOpName;
+    return .{
+        .request_id = request.request_id,
+        .body = .{ .success = .{
+            .tool_id = try allocator.dupe(u8, request.body.tool_call.tool_id),
+            .call_id = request.body.tool_call.call_id,
+            .control = .@"resume",
+            .value = .{ .string = try allocator.dupe(u8, value) },
+        } },
+    };
+}
+
 fn dispatchTerminalReturn(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
@@ -592,6 +618,154 @@ test "ArtifactV1 runtime preserves op identity across reordered manifest rows an
     try std.testing.expectEqual(@as(u16, 7), result.logs[0].request.capability_id);
     try std.testing.expectEqual(@as(u16, 4), result.logs[0].request.op_id);
     try std.testing.expectEqual(@as(u16, 3), result.logs[1].request.op_id);
+}
+
+test "ArtifactV1 runtime clones helper string parameters before caller overwrites originals" {
+    const build_fingerprint = shift_vm.artifact.buildFingerprintFromSeed("artifact-runtime-helper-string-ownership");
+    const plan: internal_program_plan.ProgramPlan = .{
+        .label = "artifact.runtime.helper_string_ownership",
+        .ir_hash = 0xa1,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "entry",
+                .value_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 2,
+                .first_block = 0,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 4,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .string,
+                .parameter_count = 1,
+                .first_requirement = 1,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 2,
+                .local_count = 1,
+                .first_block = 1,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 4,
+                .instruction_count = 1,
+            },
+        },
+        .requirements = &.{.{ .label = "primary", .first_op = 0, .op_count = 2 }},
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "first", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+            .{ .requirement_index = 0, .op_name = "second", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+        },
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .string }, .{ .codec = .string }, .{ .codec = .string } },
+        .call_args = &.{0},
+        .blocks = &.{
+            .{ .first_instruction = 0, .instruction_count = 4, .terminator_index = 0 },
+            .{ .first_instruction = 4, .instruction_count = 1, .terminator_index = 1 },
+        },
+        .terminators = &.{
+            .{ .kind = .return_value },
+            .{ .kind = .return_value },
+        },
+        .instructions = &.{
+            .{ .kind = .call_op, .dst = 0, .operand = 0 },
+            .{ .kind = .call_helper, .dst = 1, .operand = 1, .aux = 0 },
+            .{ .kind = .call_op, .dst = 0, .operand = 1 },
+            .{ .kind = .return_value, .operand = 1 },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+    const capabilities = [_]shift_vm.CapabilityV1{.{
+        .capability_id = 11,
+        .kind = .tool,
+        .label = "generated/primary@v1",
+        .ops = &.{
+            .{
+                .capability_id = 11,
+                .op_id = 0,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .string,
+                .plan_op_ordinal = 0,
+            },
+            .{
+                .capability_id = 11,
+                .op_id = 1,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .string,
+                .plan_op_ordinal = 1,
+            },
+        },
+    }};
+
+    const bytes = try shift_vm.artifact.encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    });
+    defer std.testing.allocator.free(bytes);
+
+    const PoisonAllocator = struct {
+        child: std.mem.Allocator,
+
+        fn allocator(self: *@This()) std.mem.Allocator {
+            return .{
+                .ptr = self,
+                .vtable = &.{
+                    .alloc = alloc,
+                    .resize = resize,
+                    .remap = remap,
+                    .free = free,
+                },
+            };
+        }
+
+        fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            return self.child.rawAlloc(len, alignment, ret_addr);
+        }
+
+        fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            return self.child.rawResize(memory, alignment, new_len, ret_addr);
+        }
+
+        fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            return self.child.rawRemap(memory, alignment, new_len, ret_addr);
+        }
+
+        fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            @memset(memory, 0xdd);
+            self.child.rawFree(memory, alignment, ret_addr);
+        }
+    };
+
+    var poison = PoisonAllocator{ .child = std.testing.allocator };
+    const allocator = poison.allocator();
+    var context = string_dispatch_context{};
+
+    var run_result = try shift_vm.runtime.runArtifact(allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchHelperStringOwnership,
+    });
+    defer run_result.deinit(allocator);
+    const result = try expectCompleted(&run_result);
+
+    try std.testing.expectEqualStrings("alpha", result.value.string);
+    try std.testing.expectEqual(@as(usize, 2), result.logs.len);
+    try std.testing.expectEqual(@as(u16, 0), result.logs[0].request.op_id);
+    try std.testing.expectEqual(@as(u16, 1), result.logs[1].request.op_id);
 }
 
 test "ArtifactV1 runtime decodes terminal string results for later requirement ops" {

@@ -228,7 +228,9 @@ pub fn deriveToolCapabilitiesFromPlan(
     errdefer allocator.free(capabilities);
 
     for (plan.requirements, 0..) |requirement, index| {
-        const label = try std.fmt.allocPrint(allocator, "generated/{s}@v1", .{requirement.label});
+        const normalized_requirement_label = try normalizeToolIdRequirementLabel(allocator, requirement.label);
+        defer allocator.free(normalized_requirement_label);
+        const label = try std.fmt.allocPrint(allocator, "generated/{s}@v1", .{normalized_requirement_label});
         errdefer allocator.free(label);
         const ops = try allocator.alloc(CapabilityOpV1, requirement.op_count);
         errdefer allocator.free(ops);
@@ -253,6 +255,24 @@ pub fn deriveToolCapabilitiesFromPlan(
         };
     }
     return capabilities;
+}
+
+fn normalizeToolIdRequirementLabel(allocator: std.mem.Allocator, label: []const u8) ![]u8 {
+    var normalized = std.ArrayList(u8).empty;
+    errdefer normalized.deinit(allocator);
+    const hex = "0123456789abcdef";
+    for (label) |byte| {
+        switch (byte) {
+            'a'...'z', '0'...'9', '.', '-' => try normalized.append(allocator, byte),
+            '_' => try normalized.appendSlice(allocator, "__"),
+            else => {
+                try normalized.append(allocator, '_');
+                try normalized.append(allocator, hex[byte >> 4]);
+                try normalized.append(allocator, hex[byte & 0x0f]);
+            },
+        }
+    }
+    return normalized.toOwnedSlice(allocator);
 }
 
 /// Encode one validated ProgramPlan into canonical ArtifactV1 bytes.
@@ -940,16 +960,11 @@ fn resolveRequirementCapabilityId(plan: program_plan.ProgramPlan, requirement_in
 
 fn toolCapabilityMatchesRequirement(plan: program_plan.ProgramPlan, requirement_index: usize, capability: CapabilityV1) bool {
     const requirement = plan.requirements[requirement_index];
-    const generated_prefix = "generated/";
-    const generated_suffix = "@v1";
     const label_matches = std.mem.eql(u8, capability.label, requirement.label);
     if (capability.kind != .tool) return false;
     if (capability.ops.len != requirement.op_count) return false;
     if (!label_matches) {
-        if (!std.mem.startsWith(u8, capability.label, generated_prefix)) return false;
-        if (!std.mem.endsWith(u8, capability.label, generated_suffix)) return false;
-        const inner = capability.label[generated_prefix.len .. capability.label.len - generated_suffix.len];
-        if (!std.mem.eql(u8, inner, requirement.label)) return false;
+        if (!generatedToolIdMatchesRequirementLabel(capability.label, requirement.label)) return false;
     }
     const op_start = requirement.first_op;
     const op_end = op_start + requirement.op_count;
@@ -961,6 +976,37 @@ fn toolCapabilityMatchesRequirement(plan: program_plan.ProgramPlan, requirement_
         if (capability_op.result_codec != mapPlanCodecToCapabilityCodec(expected_result_codec)) return false;
     }
     return true;
+}
+
+fn generatedToolIdMatchesRequirementLabel(tool_id: []const u8, requirement_label: []const u8) bool {
+    const generated_prefix = "generated/";
+    const generated_suffix = "@v1";
+    if (!std.mem.startsWith(u8, tool_id, generated_prefix)) return false;
+    if (!std.mem.endsWith(u8, tool_id, generated_suffix)) return false;
+    const inner = tool_id[generated_prefix.len .. tool_id.len - generated_suffix.len];
+    const hex = "0123456789abcdef";
+    var cursor: usize = 0;
+    for (requirement_label) |byte| {
+        switch (byte) {
+            'a'...'z', '0'...'9', '.', '-' => {
+                if (cursor >= inner.len or inner[cursor] != byte) return false;
+                cursor += 1;
+            },
+            '_' => {
+                if (cursor + 1 >= inner.len) return false;
+                if (inner[cursor] != '_' or inner[cursor + 1] != '_') return false;
+                cursor += 2;
+            },
+            else => {
+                if (cursor + 2 >= inner.len) return false;
+                if (inner[cursor] != '_') return false;
+                if (inner[cursor + 1] != hex[byte >> 4]) return false;
+                if (inner[cursor + 2] != hex[byte & 0x0f]) return false;
+                cursor += 3;
+            },
+        }
+    }
+    return cursor == inner.len;
 }
 
 fn findCapabilityOpByPlanOrdinal(ops: []const CapabilityOpV1, plan_op_ordinal: u16) ?CapabilityOpV1 {
@@ -1783,6 +1829,111 @@ test "ArtifactV1 preserves choice resume codecs in derived and validated manifes
     var decoded = try decode(std.testing.allocator, encoded);
     defer decoded.deinit(std.testing.allocator);
     try std.testing.expectEqual(CapabilityCodecV1.i32, decoded.capabilities[0].ops[0].result_codec);
+}
+
+test "ArtifactV1 derives injective generated tool ids for valid requirement labels" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-v1-derived-tool-id-normalization");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.derived_tool_id_normalization",
+        .ir_hash = 0x302,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 2,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{
+            .{ .label = "artifactSearch", .first_op = 0, .op_count = 1 },
+            .{ .label = "HTTP", .first_op = 1, .op_count = 1 },
+        },
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "fetch", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit },
+            .{ .requirement_index = 1, .op_name = "get", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit },
+        },
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+
+    const derived = try deriveToolCapabilitiesFromPlan(std.testing.allocator, plan);
+    defer deepFreeCapabilities(std.testing.allocator, derived);
+    try std.testing.expectEqualStrings("generated/artifact_53earch@v1", derived[0].label);
+    try std.testing.expectEqualStrings("generated/_48_54_54_50@v1", derived[1].label);
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = derived,
+    });
+    defer std.testing.allocator.free(encoded);
+
+    var decoded = try decode(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+    try std.testing.expectEqualStrings("generated/artifact_53earch@v1", decoded.capabilities[0].label);
+    try std.testing.expectEqualStrings("generated/_48_54_54_50@v1", decoded.capabilities[1].label);
+}
+
+test "ArtifactV1 normalizes derived default tool ids for mixed-case requirement labels" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-v1-default-tool-id-normalization");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.default_tool_id_normalization",
+        .ir_hash = 0x58,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 2,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{
+            .{ .label = "artifactSearch", .first_op = 0, .op_count = 1 },
+            .{ .label = "HTTP", .first_op = 1, .op_count = 1 },
+        },
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "search", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit },
+            .{ .requirement_index = 1, .op_name = "fetch", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit },
+        },
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+
+    const derived = try deriveToolCapabilitiesFromPlan(std.testing.allocator, plan);
+    defer deepFreeCapabilities(std.testing.allocator, derived);
+    try std.testing.expectEqualStrings("generated/artifactsearch@v1", derived[0].label);
+    try std.testing.expectEqualStrings("generated/http@v1", derived[1].label);
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = derived,
+    });
+    defer std.testing.allocator.free(encoded);
 }
 
 fn expectMalformedCapabilityManifestDecodeCleanup(allocator: std.mem.Allocator) !void {
