@@ -8,6 +8,8 @@ It is the design input for `st-505`, `st-506`, `st-510`, and `st-511`.
 ArtifactV1 is intentionally not the current `ProgramPlan` JSON surface and not
 the current durable sidecar format in `src/durable.zig`.
 Those remain implementation scaffolding and replay artifacts.
+ArtifactV1 v1 is intentionally tool-only; model and durable capability kinds
+are reserved for a later revision.
 
 ## Goals
 
@@ -39,12 +41,12 @@ or allocator-specific packing.
 
 ### Header
 
-The header is exactly 64 bytes.
+The header is exactly 72 bytes.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `magic` | `[8]u8` | ASCII `SFTARTV1` |
-| `header_len` | `u16` | must be `64` |
+| `header_len` | `u16` | must be `72` |
 | `format_version` | `u16` | must be `1` |
 | `directory_offset` | `u64` | byte offset of the first directory entry |
 | `directory_count` | `u16` | number of section directory entries |
@@ -96,6 +98,19 @@ ArtifactV1 requires these sections:
 This preserves the executable-plan semantics from
 `src/internal/program_plan.zig` without promoting that JSON format unchanged.
 
+## Requirement Table
+
+Each requirement row is exactly 16 bytes:
+
+- `label: StringRef`
+- `first_op: u16`
+- `op_count: u16`
+- `capability_id: u16`
+- `reserved0: u16` zero
+
+`capability_id` links each lowered requirement to the declared capability row in
+the manifest so runtime dispatch does not depend on manifest row order.
+
 ## Canonical Encoding
 
 ArtifactV1 uses these encoding rules:
@@ -122,7 +137,7 @@ Instruction string literals are stored in the string table and referenced by
 
 The capability manifest is what makes ArtifactV1 more than a plan dump.
 It binds the executable artifact to exact-build identity and to the external
-capabilities that `HostAdapterV1` must implement.
+tool capabilities that `HostAdapterV1` must implement in v1.
 
 The manifest begins with:
 
@@ -138,7 +153,7 @@ The manifest begins with:
 Each capability row has:
 
 - `capability_id: u16`
-- `kind: u8` where `1=model`, `2=tool`, `3=durable_state`
+- `kind: u8` where `2=tool` and all other values are reserved in v1
 - `flags: u8` where bit 0 means required
 - `label: StringRef`
 - `first_op: u16`
@@ -152,12 +167,7 @@ Each capability-op row has:
 - `payload_codec: u8`
 - `result_codec: u8`
 
-The canonical global op ids for v1 are:
-
-- `model.turn`
-- `tool.call`
-- `durable.load`
-- `durable.store`
+The canonical global op id for v1 is `tool.call`.
 
 `build_fingerprint_blake3_256` is not the same thing as
 `artifact_hash_blake3_256`.

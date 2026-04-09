@@ -22,6 +22,7 @@ test "CompileSource encodes repo-owned authored programs into ArtifactV1 bytes" 
     try std.testing.expectEqual(Compiler.ir_hash, decoded.semantic_ir_hash64);
     try std.testing.expectEqual(@as(usize, Compiler.runtime_plan.functions.len), decoded.functions.len);
     try std.testing.expectEqual(@as(usize, Compiler.runtime_plan.instructions.len), decoded.instructions.len);
+    try std.testing.expectEqual(@as(usize, Compiler.runtime_plan.requirements.len), decoded.requirement_capability_ids.len);
 }
 
 test "compileAndEncode produces readable disasm" {

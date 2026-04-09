@@ -23,8 +23,6 @@ pub const HashKind = enum(u8) {
 
 /// External capability kinds declared by ArtifactV1.
 pub const CapabilityKind = enum(u8) {
-    durable_state = 3,
-    model = 1,
     tool = 2,
 };
 
@@ -84,6 +82,7 @@ pub const ArtifactV1 = struct {
     build_fingerprint_blake3_256: [32]u8,
     entry_function_index: u16,
     capabilities: []CapabilityV1,
+    requirement_capability_ids: []u16,
     functions: []program_plan.FunctionPlan,
     requirements: []program_plan.RequirementPlan,
     ops: []program_plan.OpPlan,
@@ -97,6 +96,7 @@ pub const ArtifactV1 = struct {
     /// Validate that the artifact manifest and rebuilt program plan are self-consistent.
     pub fn validate(self: @This()) anyerror!void {
         try validateManifest(self.build_fingerprint_blake3_256, self.capabilities);
+        try validateRequirementCapabilityMappings(self.requirements, self.requirement_capability_ids, self.capabilities);
         const plan = try self.toProgramPlan(std.heap.page_allocator);
         defer deepFreeProgramPlan(std.heap.page_allocator, plan);
         try plan.validate();
@@ -123,6 +123,7 @@ pub const ArtifactV1 = struct {
     /// Release all allocator-owned memory held by this artifact.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         deepFreeCapabilities(allocator, self.capabilities);
+        allocator.free(self.requirement_capability_ids);
         deepFreeFunctionPlans(allocator, self.functions);
         deepFreeRequirementPlans(allocator, self.requirements);
         deepFreeOpPlans(allocator, self.ops);
@@ -220,7 +221,7 @@ pub fn encodeProgramPlan(
 
     const capability_manifest = try encodeCapabilityManifest(allocator, &strings, manifest);
     defer allocator.free(capability_manifest);
-    const requirement_table = try encodeRequirementTable(allocator, &strings, plan.requirements);
+    const requirement_table = try encodeRequirementTable(allocator, &strings, plan.requirements, manifest.capabilities);
     defer allocator.free(requirement_table);
     const op_table = try encodeOpTable(allocator, &strings, plan.ops);
     defer allocator.free(op_table);
@@ -369,6 +370,11 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
     const string_bytes = sectionBytes(bytes, directories.items, .string_table);
     const capability_result = try decodeCapabilityManifest(allocator, string_bytes, sectionBytes(bytes, directories.items, .capability_manifest));
     errdefer deepFreeCapabilities(allocator, capability_result.capabilities);
+    const decoded_requirements = try decodeRequirementTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .requirement_table));
+    errdefer {
+        allocator.free(decoded_requirements.capability_ids);
+        deepFreeRequirementPlans(allocator, decoded_requirements.items);
+    }
 
     var artifact = ArtifactV1{
         .semantic_ir_hash64 = ir_hash,
@@ -376,8 +382,9 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
         .build_fingerprint_blake3_256 = capability_result.build_fingerprint_blake3_256,
         .entry_function_index = entry_index,
         .capabilities = capability_result.capabilities,
+        .requirement_capability_ids = decoded_requirements.capability_ids,
         .functions = try decodeFunctionTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .function_table)),
-        .requirements = try decodeRequirementTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .requirement_table)),
+        .requirements = decoded_requirements.items,
         .ops = try decodeOpTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .op_table)),
         .outputs = try decodeOutputTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .output_table)),
         .locals = try decodeLocalTable(allocator, sectionBytes(bytes, directories.items, .local_table)),
@@ -450,9 +457,11 @@ fn validateManifest(build_fingerprint: [32]u8, capabilities: []const CapabilityV
         for (capabilities[(index + 1)..]) |other| {
             if (capability.capability_id == other.capability_id) return error.DuplicateCapabilityId;
         }
+        if (capability.kind != .tool) return error.UnsupportedVersion;
         var expected_next: ?u16 = null;
         for (capability.ops, 0..) |op, op_index| {
             if (op.capability_id != capability.capability_id) return error.DuplicateCapabilityOpId;
+            if (!std.mem.eql(u8, op.global_op_name, "tool.call")) return error.UnsupportedVersion;
             if (expected_next) |expected| {
                 if (op.op_id != expected) return error.DuplicateCapabilityOpId;
             }
@@ -567,15 +576,22 @@ fn encodeCapabilityManifest(allocator: std.mem.Allocator, strings: *StringTable,
     return out.toOwnedSlice(allocator);
 }
 
-fn encodeRequirementTable(allocator: std.mem.Allocator, strings: *StringTable, requirements: []const program_plan.RequirementPlan) ![]u8 {
+fn encodeRequirementTable(
+    allocator: std.mem.Allocator,
+    strings: *StringTable,
+    requirements: []const program_plan.RequirementPlan,
+    capabilities: []const CapabilityV1,
+) ![]u8 {
     var out = std.ArrayList(u8).empty;
     errdefer out.deinit(allocator);
-    for (requirements) |requirement| {
+    for (requirements, 0..) |requirement, requirement_index| {
         const label_ref = try strings.add(requirement.label);
+        const capability_id = try resolveRequirementCapabilityId(requirements, requirement_index, capabilities);
         try encodeStringRef(&out, allocator, label_ref);
         try appendU16(&out, allocator, requirement.first_op);
         try appendU16(&out, allocator, requirement.op_count);
-        try appendU32(&out, allocator, 0);
+        try appendU16(&out, allocator, capability_id);
+        try appendU16(&out, allocator, 0);
     }
     return out.toOwnedSlice(allocator);
 }
@@ -689,21 +705,88 @@ fn encodeInstructionTable(allocator: std.mem.Allocator, strings: *StringTable, i
     return out.toOwnedSlice(allocator);
 }
 
-fn decodeRequirementTable(allocator: std.mem.Allocator, string_bytes: []const u8, bytes: []const u8) ![]program_plan.RequirementPlan {
+const DecodedRequirements = struct {
+    items: []program_plan.RequirementPlan,
+    capability_ids: []u16,
+};
+
+fn decodeRequirementTable(allocator: std.mem.Allocator, string_bytes: []const u8, bytes: []const u8) !DecodedRequirements {
     if (bytes.len % 16 != 0) return error.InvalidDirectoryBounds;
     const items = try allocator.alloc(program_plan.RequirementPlan, bytes.len / 16);
     errdefer allocator.free(items);
+    const capability_ids = try allocator.alloc(u16, items.len);
+    errdefer allocator.free(capability_ids);
     var cursor: usize = 0;
-    for (items) |*item| {
+    for (items, capability_ids) |*item, *capability_id| {
         item.* = .{
             .label = try readStringRefDup(allocator, string_bytes, bytes[cursor .. cursor + 8]),
             .first_op = readU16(bytes, cursor + 8),
             .op_count = readU16(bytes, cursor + 10),
         };
-        if (readU32(bytes, cursor + 12) != 0) return error.NonZeroReserved;
+        capability_id.* = readU16(bytes, cursor + 12);
+        if (readU16(bytes, cursor + 14) != 0) return error.NonZeroReserved;
         cursor += 16;
     }
-    return items;
+    return .{
+        .items = items,
+        .capability_ids = capability_ids,
+    };
+}
+
+fn resolveRequirementCapabilityId(
+    requirements: []const program_plan.RequirementPlan,
+    requirement_index: usize,
+    capabilities: []const CapabilityV1,
+) !u16 {
+    const requirement = requirements[requirement_index];
+    var wanted_ordinal: usize = 0;
+    for (requirements[0..requirement_index]) |previous| {
+        if (previous.op_count == requirement.op_count and std.mem.eql(u8, previous.label, requirement.label)) {
+            wanted_ordinal += 1;
+        }
+    }
+
+    var current_ordinal: usize = 0;
+    for (capabilities) |capability| {
+        if (!toolCapabilityMatchesRequirement(requirement, capability)) continue;
+        if (current_ordinal == wanted_ordinal) return capability.capability_id;
+        current_ordinal += 1;
+    }
+    return error.InvalidRequiredSection;
+}
+
+fn toolCapabilityMatchesRequirement(
+    requirement: program_plan.RequirementPlan,
+    capability: CapabilityV1,
+) bool {
+    const generated_prefix = "generated/";
+    const generated_suffix = "@v1";
+    if (capability.kind != .tool) return false;
+    if (capability.ops.len != requirement.op_count) return false;
+    if (std.mem.eql(u8, capability.label, requirement.label)) return true;
+    if (!std.mem.startsWith(u8, capability.label, generated_prefix)) return false;
+    if (!std.mem.endsWith(u8, capability.label, generated_suffix)) return false;
+    const inner = capability.label[generated_prefix.len .. capability.label.len - generated_suffix.len];
+    return std.mem.eql(u8, inner, requirement.label);
+}
+
+fn validateRequirementCapabilityMappings(
+    requirements: []const program_plan.RequirementPlan,
+    capability_ids: []const u16,
+    capabilities: []const CapabilityV1,
+) !void {
+    if (requirements.len != capability_ids.len) return error.InvalidRequiredSection;
+    for (requirements, capability_ids) |requirement, capability_id| {
+        const capability = findCapabilityById(capabilities, capability_id) orelse return error.InvalidRequiredSection;
+        if (!toolCapabilityMatchesRequirement(requirement, capability)) return error.InvalidRequiredSection;
+    }
+}
+
+fn findCapabilityById(capabilities: []const CapabilityV1, capability_id: u16) ?CapabilityV1 {
+    for (capabilities) |capability| {
+        if (capability.capability_id == capability_id) return capability;
+    }
+    return null;
 }
 
 fn decodeOpTable(allocator: std.mem.Allocator, string_bytes: []const u8, bytes: []const u8) ![]program_plan.OpPlan {

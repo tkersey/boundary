@@ -183,7 +183,7 @@ fn callHostOp(
     payload: lowered_machine.ProgramValue,
 ) anyerror!OpDispatchResult {
     const op = ctx.plan.ops[op_index];
-    const resolved = resolveCapabilityOp(ctx.decoded.capabilities, ctx.plan, op_index) orelse return error.ProgramContractViolation;
+    const resolved = resolveCapabilityOp(ctx.decoded.capabilities, ctx.decoded.requirement_capability_ids, ctx.plan, op_index) orelse return error.ProgramContractViolation;
     var request = host.HostEffectRequestV1{
         .request_id = ctx.next_request_id.*,
         .capability_id = resolved.capability.capability_id,
@@ -223,21 +223,29 @@ const ResolvedCapabilityOp = struct {
 
 fn resolveCapabilityOp(
     capabilities: []const artifact.CapabilityV1,
+    requirement_capability_ids: []const u16,
     plan: program_plan.ProgramPlan,
     op_index: u16,
 ) ?ResolvedCapabilityOp {
     if (op_index >= plan.ops.len) return null;
     const op = plan.ops[op_index];
-    if (op.requirement_index >= capabilities.len or op.requirement_index >= plan.requirements.len) return null;
+    if (op.requirement_index >= requirement_capability_ids.len or op.requirement_index >= plan.requirements.len) return null;
     const requirement = plan.requirements[op.requirement_index];
     if (op_index < requirement.first_op) return null;
-    const capability = capabilities[op.requirement_index];
+    const capability = findCapabilityById(capabilities, requirement_capability_ids[op.requirement_index]) orelse return null;
     const capability_op_index = op_index - requirement.first_op;
     if (capability_op_index >= capability.ops.len) return null;
     return .{
         .capability = capability,
         .capability_op = capability.ops[capability_op_index],
     };
+}
+
+fn findCapabilityById(capabilities: []const artifact.CapabilityV1, capability_id: u16) ?artifact.CapabilityV1 {
+    for (capabilities) |capability| {
+        if (capability.capability_id == capability_id) return capability;
+    }
+    return null;
 }
 
 fn functionValueCodecForOp(plan: program_plan.ProgramPlan, op_index: u16) program_plan.ValueCodec {

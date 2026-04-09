@@ -359,6 +359,20 @@ test "ArtifactV1 runtime decodes terminal string results for later requirement o
     };
     const capabilities = [_]shift_vm.CapabilityV1{
         .{
+            .capability_id = 33,
+            .kind = .tool,
+            .label = "generated/terminal@v1",
+            .ops = &.{
+                .{
+                    .capability_id = 33,
+                    .op_id = 8,
+                    .global_op_name = "tool.call",
+                    .payload_codec = .unit,
+                    .result_codec = .string,
+                },
+            },
+        },
+        .{
             .capability_id = 20,
             .kind = .tool,
             .label = "generated/primary@v1",
@@ -376,20 +390,6 @@ test "ArtifactV1 runtime decodes terminal string results for later requirement o
                     .global_op_name = "tool.call",
                     .payload_codec = .unit,
                     .result_codec = .unit,
-                },
-            },
-        },
-        .{
-            .capability_id = 33,
-            .kind = .tool,
-            .label = "generated/terminal@v1",
-            .ops = &.{
-                .{
-                    .capability_id = 33,
-                    .op_id = 8,
-                    .global_op_name = "tool.call",
-                    .payload_codec = .unit,
-                    .result_codec = .string,
                 },
             },
         },

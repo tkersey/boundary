@@ -5,6 +5,7 @@
 HostAdapterV1 is the internal synchronous host boundary for the agent-VM
 campaign.
 It is the design input for `st-503`, `st-507`, `st-508`, and `st-509`.
+HostAdapterV1 v1 is intentionally tool-only.
 
 HostAdapterV1 is intentionally new.
 It does not reuse the current proof transcript shapes from
@@ -13,18 +14,19 @@ It does not reuse the current proof transcript shapes from
 
 ## Goals
 
-- provider-neutral host boundary for model, tool, and durable-state effects
+- provider-neutral tool boundary for the agent-VM v1 surface
 - typed request and result envelopes
 - stable request IDs
 - canonical global tool IDs
 - synchronous v1 semantics with one request resolved before execution resumes
-- structured model-turn tool-call intents instead of text reparsing
 
 ## Non-Goals
 
+- model turns
+- durable-state effects
 - async or streaming host effects
 - hidden host exceptions
-- implicit fallback to undeclared tools or durable slots
+- implicit fallback to undeclared tools
 - timestamps inside the canonical request/result payload
 
 ## Shared Data Model
@@ -63,55 +65,15 @@ Every host effect request has this outer shape:
 - `request_id: u64`
 - `capability_id: u16`
 - `op_id: u16`
-- `kind: enum { model_turn, tool_call, durable_load, durable_store }`
+- `kind: enum { tool_call }`
 - `body: variant`
 
 Every host effect result has this outer shape:
 
 - `schema_version: u16 = 1`
 - `request_id: u64`
-- `status: enum { ok, rejected, failed }`
+- `status: enum { success, rejected, failed }`
 - `body: variant`
-
-## Model Turn Contract
-
-The canonical model op id is `model.turn`.
-
-`ModelTurnRequestV1` contains:
-
-- `prompt_messages: []ModelMessageV1`
-- `allowed_tool_ids: []ToolIdV1`
-- `response_mode: enum { final_only, allow_tool_call_intents }`
-
-`ModelMessageV1` contains:
-
-- `role: enum { system, developer, user, assistant, tool }`
-- `parts: []ModelPartV1`
-
-`ModelPartV1` contains either:
-
-- `text: string`
-- `tool_result: { tool_id: ToolIdV1, call_id: u64, value: DataValueV1 }`
-
-`ModelTurnResultV1` contains:
-
-- `segments: []ModelSegmentV1`
-
-`ModelSegmentV1` contains either:
-
-- `text: string`
-- `tool_call_intent: ToolCallIntentV1`
-- `final_value: DataValueV1`
-
-`ToolCallIntentV1` contains:
-
-- `call_id: u64`
-- `tool_id: ToolIdV1`
-- `arguments: DataValueV1`
-
-Model turns must support structured tool-call intents.
-Returning unstructured text that the VM later reparses into tool calls is out
-of contract in v1.
 
 ## Tool Contract
 
@@ -138,45 +100,25 @@ Examples:
 
 - `tool_id: ToolIdV1`
 - `call_id: u64`
+- `op_name: string`
 - `arguments: DataValueV1`
 
 `ToolCallResultV1` contains:
 
 - `tool_id: ToolIdV1`
 - `call_id: u64`
+- `control: enum { resume, return_now, abort }`
 - `value: DataValueV1`
 
 Unknown or undeclared tool ids fail closed.
 
-## Durable-State Contract
+## Reserved Future Expansion
 
-The canonical durable ops are `durable.load` and `durable.store`.
-Durable state is addressed by declared slot ids, not by arbitrary file paths.
-
-`DurableLoadRequestV1` contains:
-
-- `slot_id: string`
-- `expected_codec: enum { unit, bool, i32, string, bytes, data_value }`
-
-`DurableLoadResultV1` contains:
-
-- `present: bool`
-- `etag: ?u64`
-- `value: ?DataValueV1`
-
-`DurableStoreRequestV1` contains:
-
-- `slot_id: string`
-- `expected_prev_etag: ?u64`
-- `value: DataValueV1`
-
-`DurableStoreResultV1` contains:
-
-- `written_etag: u64`
-
-Undeclared slot ids fail closed.
-HostAdapterV1 does not expose arbitrary delete, rename, or directory mutation in
-v1.
+Model-turn and durable-state host effects are reserved for a later agent-VM
+revision.
+They are intentionally out of scope for HostAdapterV1 so the public boundary
+does not advertise payloads or result shapes that the current runtime cannot
+construct or consume.
 
 ## Sync Semantics
 
@@ -200,11 +142,9 @@ Typed failures use:
 - `unsupported_capability`
 - `unsupported_operation`
 - `undeclared_tool_id`
-- `undeclared_slot_id`
 - `invalid_arguments`
 - `provider_failure`
 - `concurrency_violation`
-- `etag_mismatch`
 
 `rejected` means the request was invalid against the declared contract.
 `failed` means the request was valid but the host provider could not satisfy it.
@@ -218,9 +158,8 @@ Required linkage rules:
 
 - `capability_id` and `op_id` in every request/result must exist in the
   artifact capability manifest
-- `kind` must match the declared canonical global op id
-- `allowed_tool_ids` in a model turn must be a subset of the declared tool ids
-- durable effects may only target declared slot ids
+- `kind` must be `tool_call` in v1
+- the declared global op id must be `tool.call`
 
 ## Logging Rule
 

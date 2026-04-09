@@ -147,26 +147,17 @@ pub const FailureV1 = struct {
 
 /// Host effect kinds supported by HostAdapterV1.
 pub const HostEffectKindV1 = enum {
-    durable_load,
-    durable_store,
-    model_turn,
     tool_call,
 };
 
 /// Request-body variants supported by HostAdapterV1.
 pub const HostEffectRequestBodyV1 = union(HostEffectKindV1) {
-    durable_load: void,
-    durable_store: void,
-    model_turn: void,
     tool_call: ToolCallRequestV1,
 
     /// Clone one request-body variant into allocator-owned memory.
     pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
         return switch (self) {
-            .model_turn => .{ .model_turn = {} },
             .tool_call => |value| .{ .tool_call = try value.clone(allocator) },
-            .durable_load => .{ .durable_load = {} },
-            .durable_store => .{ .durable_store = {} },
         };
     }
 
@@ -174,7 +165,6 @@ pub const HostEffectRequestBodyV1 = union(HostEffectKindV1) {
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         switch (self.*) {
             .tool_call => |*value| value.deinit(allocator),
-            else => {},
         }
         self.* = undefined;
     }
