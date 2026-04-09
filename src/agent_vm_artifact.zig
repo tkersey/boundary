@@ -113,19 +113,40 @@ pub const ArtifactV1 = struct {
 
     /// Rebuild one runtime-owned ProgramPlan from this artifact payload.
     pub fn toProgramPlan(self: @This(), allocator: std.mem.Allocator) anyerror!program_plan.ProgramPlan {
+        const label = try allocator.dupe(u8, "artifact_v1");
+        errdefer allocator.free(label);
+        const functions = try deepCloneFunctionPlans(allocator, self.functions);
+        errdefer deepFreeFunctionPlansConst(allocator, functions);
+        const requirements = try deepCloneRequirementPlans(allocator, self.requirements);
+        errdefer deepFreeRequirementPlansConst(allocator, requirements);
+        const ops = try deepCloneOpPlans(allocator, self.ops);
+        errdefer deepFreeOpPlansConst(allocator, ops);
+        const outputs = try deepCloneOutputPlans(allocator, self.outputs);
+        errdefer deepFreeOutputPlansConst(allocator, outputs);
+        const locals = try allocator.dupe(program_plan.LocalPlan, self.locals);
+        errdefer allocator.free(locals);
+        const call_args = try allocator.dupe(u16, self.call_args);
+        errdefer allocator.free(call_args);
+        const blocks = try allocator.dupe(program_plan.BlockPlan, self.blocks);
+        errdefer allocator.free(blocks);
+        const terminators = try allocator.dupe(program_plan.Terminator, self.terminators);
+        errdefer allocator.free(terminators);
+        const instructions = try deepCloneInstructions(allocator, self.instructions);
+        errdefer deepFreeInstructionsConst(allocator, instructions);
+
         return .{
-            .label = try allocator.dupe(u8, "artifact_v1"),
+            .label = label,
             .ir_hash = self.semantic_ir_hash64,
             .entry_index = self.entry_function_index,
-            .functions = try deepCloneFunctionPlans(allocator, self.functions),
-            .requirements = try deepCloneRequirementPlans(allocator, self.requirements),
-            .ops = try deepCloneOpPlans(allocator, self.ops),
-            .outputs = try deepCloneOutputPlans(allocator, self.outputs),
-            .locals = try allocator.dupe(program_plan.LocalPlan, self.locals),
-            .call_args = try allocator.dupe(u16, self.call_args),
-            .blocks = try allocator.dupe(program_plan.BlockPlan, self.blocks),
-            .terminators = try allocator.dupe(program_plan.Terminator, self.terminators),
-            .instructions = try deepCloneInstructions(allocator, self.instructions),
+            .functions = functions,
+            .requirements = requirements,
+            .ops = ops,
+            .outputs = outputs,
+            .locals = locals,
+            .call_args = call_args,
+            .blocks = blocks,
+            .terminators = terminators,
+            .instructions = instructions,
         };
     }
 
@@ -225,7 +246,8 @@ pub fn deriveToolCapabilitiesFromPlan(
     plan: program_plan.ProgramPlan,
 ) anyerror![]CapabilityV1 {
     const capabilities = try allocator.alloc(CapabilityV1, plan.requirements.len);
-    errdefer allocator.free(capabilities);
+    var initialized_capabilities: usize = 0;
+    errdefer deepFreeCapabilitiesPrefix(allocator, capabilities, initialized_capabilities);
 
     for (plan.requirements, 0..) |requirement, index| {
         const normalized_requirement_label = try normalizeToolIdRequirementLabel(allocator, requirement.label);
@@ -233,7 +255,8 @@ pub fn deriveToolCapabilitiesFromPlan(
         const label = try std.fmt.allocPrint(allocator, "generated/{s}@v1", .{normalized_requirement_label});
         errdefer allocator.free(label);
         const ops = try allocator.alloc(CapabilityOpV1, requirement.op_count);
-        errdefer allocator.free(ops);
+        var initialized_ops: usize = 0;
+        errdefer deepFreeCapabilityOpsPrefix(allocator, ops, initialized_ops);
         const op_start = requirement.first_op;
         const op_end = op_start + requirement.op_count;
         for (plan.ops[op_start..op_end], 0..) |op, op_index| {
@@ -245,6 +268,7 @@ pub fn deriveToolCapabilitiesFromPlan(
                 .result_codec = mapPlanCodecToCapabilityCodec(try capabilityResultCodecForOp(plan, op_start + op_index)),
                 .plan_op_ordinal = @intCast(op_index),
             };
+            initialized_ops = op_index + 1;
         }
         capabilities[index] = .{
             .capability_id = @intCast(index),
@@ -253,6 +277,7 @@ pub fn deriveToolCapabilitiesFromPlan(
             .label = label,
             .ops = ops,
         };
+        initialized_capabilities = index + 1;
     }
     return capabilities;
 }
@@ -1344,102 +1369,140 @@ const StringTable = struct {
 
 fn deepCloneFunctionPlans(allocator: std.mem.Allocator, source: []const program_plan.FunctionPlan) ![]program_plan.FunctionPlan {
     const clone = try allocator.alloc(program_plan.FunctionPlan, source.len);
-    errdefer allocator.free(clone);
+    var initialized: usize = 0;
+    errdefer deepFreeFunctionPlansPrefix(allocator, clone, initialized);
     for (source, 0..) |item, index| {
         clone[index] = item;
         clone[index].symbol_name = try allocator.dupe(u8, item.symbol_name);
+        initialized = index + 1;
     }
     return clone;
 }
 
 fn deepCloneRequirementPlans(allocator: std.mem.Allocator, source: []const program_plan.RequirementPlan) ![]program_plan.RequirementPlan {
     const clone = try allocator.alloc(program_plan.RequirementPlan, source.len);
-    errdefer allocator.free(clone);
+    var initialized: usize = 0;
+    errdefer deepFreeRequirementPlansPrefix(allocator, clone, initialized);
     for (source, 0..) |item, index| {
         clone[index] = item;
         clone[index].label = try allocator.dupe(u8, item.label);
+        initialized = index + 1;
     }
     return clone;
 }
 
 fn deepCloneOpPlans(allocator: std.mem.Allocator, source: []const program_plan.OpPlan) ![]program_plan.OpPlan {
     const clone = try allocator.alloc(program_plan.OpPlan, source.len);
-    errdefer allocator.free(clone);
+    var initialized: usize = 0;
+    errdefer deepFreeOpPlansPrefix(allocator, clone, initialized);
     for (source, 0..) |item, index| {
         clone[index] = item;
         clone[index].op_name = try allocator.dupe(u8, item.op_name);
+        initialized = index + 1;
     }
     return clone;
 }
 
 fn deepCloneOutputPlans(allocator: std.mem.Allocator, source: []const program_plan.OutputPlan) ![]program_plan.OutputPlan {
     const clone = try allocator.alloc(program_plan.OutputPlan, source.len);
-    errdefer allocator.free(clone);
+    var initialized: usize = 0;
+    errdefer deepFreeOutputPlansPrefix(allocator, clone, initialized);
     for (source, 0..) |item, index| {
         clone[index] = item;
         clone[index].label = try allocator.dupe(u8, item.label);
+        initialized = index + 1;
     }
     return clone;
 }
 
 fn deepCloneInstructions(allocator: std.mem.Allocator, source: []const program_plan.Instruction) ![]program_plan.Instruction {
     const clone = try allocator.alloc(program_plan.Instruction, source.len);
-    errdefer allocator.free(clone);
+    var initialized: usize = 0;
+    errdefer deepFreeInstructionsPrefix(allocator, clone, initialized);
     for (source, 0..) |item, index| {
         clone[index] = item;
         clone[index].string_literal = try allocator.dupe(u8, item.string_literal);
+        initialized = index + 1;
     }
     return clone;
 }
 
-fn deepFreeFunctionPlans(allocator: std.mem.Allocator, items: []program_plan.FunctionPlan) void {
-    for (items) |item| allocator.free(item.symbol_name);
+fn deepFreeCapabilityOpsPrefix(allocator: std.mem.Allocator, items: []const CapabilityOpV1, initialized: usize) void {
+    for (items[0..initialized]) |item| allocator.free(item.global_op_name);
+    allocator.free(@constCast(items));
+}
+
+fn deepFreeCapabilitiesPrefix(allocator: std.mem.Allocator, items: []CapabilityV1, initialized: usize) void {
+    for (items[0..initialized]) |item| {
+        allocator.free(item.label);
+        deepFreeCapabilityOpsPrefix(allocator, item.ops, item.ops.len);
+    }
     allocator.free(items);
+}
+
+fn deepFreeFunctionPlansPrefix(allocator: std.mem.Allocator, items: []program_plan.FunctionPlan, initialized: usize) void {
+    for (items[0..initialized]) |item| allocator.free(item.symbol_name);
+    allocator.free(items);
+}
+
+fn deepFreeRequirementPlansPrefix(allocator: std.mem.Allocator, items: []program_plan.RequirementPlan, initialized: usize) void {
+    for (items[0..initialized]) |item| allocator.free(item.label);
+    allocator.free(items);
+}
+
+fn deepFreeOpPlansPrefix(allocator: std.mem.Allocator, items: []program_plan.OpPlan, initialized: usize) void {
+    for (items[0..initialized]) |item| allocator.free(item.op_name);
+    allocator.free(items);
+}
+
+fn deepFreeOutputPlansPrefix(allocator: std.mem.Allocator, items: []program_plan.OutputPlan, initialized: usize) void {
+    for (items[0..initialized]) |item| allocator.free(item.label);
+    allocator.free(items);
+}
+
+fn deepFreeInstructionsPrefix(allocator: std.mem.Allocator, items: []program_plan.Instruction, initialized: usize) void {
+    for (items[0..initialized]) |item| allocator.free(item.string_literal);
+    allocator.free(items);
+}
+
+fn deepFreeFunctionPlans(allocator: std.mem.Allocator, items: []program_plan.FunctionPlan) void {
+    deepFreeFunctionPlansPrefix(allocator, items, items.len);
 }
 
 fn deepFreeRequirementPlans(allocator: std.mem.Allocator, items: []program_plan.RequirementPlan) void {
-    for (items) |item| allocator.free(item.label);
-    allocator.free(items);
+    deepFreeRequirementPlansPrefix(allocator, items, items.len);
 }
 
 fn deepFreeOpPlans(allocator: std.mem.Allocator, items: []program_plan.OpPlan) void {
-    for (items) |item| allocator.free(item.op_name);
-    allocator.free(items);
+    deepFreeOpPlansPrefix(allocator, items, items.len);
 }
 
 fn deepFreeOutputPlans(allocator: std.mem.Allocator, items: []program_plan.OutputPlan) void {
-    for (items) |item| allocator.free(item.label);
-    allocator.free(items);
+    deepFreeOutputPlansPrefix(allocator, items, items.len);
 }
 
 fn deepFreeInstructions(allocator: std.mem.Allocator, items: []program_plan.Instruction) void {
-    for (items) |item| allocator.free(item.string_literal);
-    allocator.free(items);
+    deepFreeInstructionsPrefix(allocator, items, items.len);
 }
 
 fn deepFreeFunctionPlansConst(allocator: std.mem.Allocator, items: []const program_plan.FunctionPlan) void {
-    for (items) |item| allocator.free(item.symbol_name);
-    allocator.free(@constCast(items));
+    deepFreeFunctionPlansPrefix(allocator, @constCast(items), items.len);
 }
 
 fn deepFreeRequirementPlansConst(allocator: std.mem.Allocator, items: []const program_plan.RequirementPlan) void {
-    for (items) |item| allocator.free(item.label);
-    allocator.free(@constCast(items));
+    deepFreeRequirementPlansPrefix(allocator, @constCast(items), items.len);
 }
 
 fn deepFreeOpPlansConst(allocator: std.mem.Allocator, items: []const program_plan.OpPlan) void {
-    for (items) |item| allocator.free(item.op_name);
-    allocator.free(@constCast(items));
+    deepFreeOpPlansPrefix(allocator, @constCast(items), items.len);
 }
 
 fn deepFreeOutputPlansConst(allocator: std.mem.Allocator, items: []const program_plan.OutputPlan) void {
-    for (items) |item| allocator.free(item.label);
-    allocator.free(@constCast(items));
+    deepFreeOutputPlansPrefix(allocator, @constCast(items), items.len);
 }
 
 fn deepFreeInstructionsConst(allocator: std.mem.Allocator, items: []const program_plan.Instruction) void {
-    for (items) |item| allocator.free(item.string_literal);
-    allocator.free(@constCast(items));
+    deepFreeInstructionsPrefix(allocator, @constCast(items), items.len);
 }
 
 fn deepFreeProgramPlan(allocator: std.mem.Allocator, plan: program_plan.ProgramPlan) void {
@@ -1457,12 +1520,7 @@ fn deepFreeProgramPlan(allocator: std.mem.Allocator, plan: program_plan.ProgramP
 
 /// Release allocator-owned capability manifests produced by ArtifactV1 helpers.
 pub fn deepFreeCapabilities(allocator: std.mem.Allocator, items: []CapabilityV1) void {
-    for (items) |item| {
-        allocator.free(item.label);
-        for (item.ops) |op| allocator.free(op.global_op_name);
-        allocator.free(item.ops);
-    }
-    allocator.free(items);
+    deepFreeCapabilitiesPrefix(allocator, items, items.len);
 }
 
 fn deepFreeCapabilityPrefix(allocator: std.mem.Allocator, items: []CapabilityV1) void {
@@ -1862,6 +1920,56 @@ test "ArtifactV1 preserves choice resume codecs in derived and validated manifes
     try std.testing.expectEqual(CapabilityCodecV1.i32, decoded.capabilities[0].ops[0].result_codec);
 }
 
+fn expectDerivedCapabilityCleanupOnAllocationFailure(allocator: std.mem.Allocator) !void {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.derived_capability_cleanup",
+        .ir_hash = 0x911,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 2,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{
+            .{ .label = "artifactSearch", .first_op = 0, .op_count = 2 },
+            .{ .label = "HTTP", .first_op = 2, .op_count = 1 },
+        },
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "search", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit },
+            .{ .requirement_index = 0, .op_name = "fetch", .mode = .choice, .payload_codec = .unit, .resume_codec = .i32 },
+            .{ .requirement_index = 1, .op_name = "get", .mode = .transform, .payload_codec = .string, .resume_codec = .string },
+        },
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+
+    const derived = try deriveToolCapabilitiesFromPlan(allocator, plan);
+    defer deepFreeCapabilities(allocator, derived);
+}
+
+test "ArtifactV1 deriveToolCapabilitiesFromPlan unwinds partially built manifests on allocator failure" {
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        expectDerivedCapabilityCleanupOnAllocationFailure,
+        .{},
+    );
+}
+
 test "ArtifactV1 derives injective generated tool ids for valid requirement labels" {
     const build_fingerprint = buildFingerprintFromSeed("artifact-v1-derived-tool-id-normalization");
     const plan: program_plan.ProgramPlan = .{
@@ -2010,6 +2118,55 @@ fn expectMalformedCapabilityManifestDecodeCleanup(allocator: std.mem.Allocator) 
     try std.testing.expectError(
         error.UnsupportedVersion,
         decodeCapabilityManifest(allocator, string_bytes, corrupted_manifest),
+    );
+}
+
+fn expectArtifactToProgramPlanCleanupOnAllocationFailure(allocator: std.mem.Allocator) !void {
+    const artifact_value: ArtifactV1 = .{
+        .semantic_ir_hash64 = 0x912,
+        .artifact_hash_blake3_256 = std.mem.zeroes([32]u8),
+        .build_fingerprint_blake3_256 = buildFingerprintFromSeed("artifact-v1-to-program-plan-cleanup"),
+        .entry_function_index = 0,
+        .capabilities = &.{},
+        .requirement_capability_ids = &.{},
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 1,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "value", .mode = .transform, .payload_codec = .unit, .resume_codec = .string }},
+        .outputs = &.{.{ .label = "stdout", .codec = .string }},
+        .locals = &.{.{ .codec = .string }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_string, .dst = 0, .string_literal = "fallback" },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+
+    const plan = try artifact_value.toProgramPlan(allocator);
+    defer deepFreeProgramPlan(allocator, plan);
+}
+
+test "ArtifactV1 toProgramPlan unwinds partially cloned plan tables on allocator failure" {
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        expectArtifactToProgramPlanCleanupOnAllocationFailure,
+        .{},
     );
 }
 

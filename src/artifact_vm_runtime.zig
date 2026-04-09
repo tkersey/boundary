@@ -316,31 +316,48 @@ fn callHostOp(
 ) anyerror!OpDispatchResult {
     const op = ctx.plan.ops[op_index];
     const resolved = resolveCapabilityOp(ctx.decoded.capabilities, ctx.decoded.requirement_capability_ids, ctx.plan, op_index) orelse return error.ProgramContractViolation;
-    var request = host.HostEffectRequestV1{
-        .request_id = ctx.next_request_id.*,
-        .capability_id = resolved.capability.capability_id,
-        .op_id = resolved.capability_op.op_id,
-        .body = .{ .tool_call = .{
-            .tool_id = try ctx.allocator.dupe(u8, resolved.capability.label),
-            .call_id = ctx.next_request_id.*,
-            .op_name = try ctx.allocator.dupe(u8, op.op_name),
-            .arguments = try programValueToDataValue(ctx.allocator, op.payload_codec, payload),
-            .owns_tool_id = true,
-            .owns_op_name = true,
-            .owns_arguments = true,
-        } },
+    var request: host.HostEffectRequestV1 = blk: {
+        const tool_id = try ctx.allocator.dupe(u8, resolved.capability.label);
+        errdefer ctx.allocator.free(tool_id);
+        const op_name = try ctx.allocator.dupe(u8, op.op_name);
+        errdefer ctx.allocator.free(op_name);
+        const arguments = try programValueToDataValue(ctx.allocator, op.payload_codec, payload);
+        errdefer {
+            var owned_arguments = arguments;
+            owned_arguments.deinit(ctx.allocator);
+        }
+        break :blk .{
+            .request_id = ctx.next_request_id.*,
+            .capability_id = resolved.capability.capability_id,
+            .op_id = resolved.capability_op.op_id,
+            .body = .{ .tool_call = .{
+                .tool_id = tool_id,
+                .call_id = ctx.next_request_id.*,
+                .op_name = op_name,
+                .arguments = arguments,
+                .owns_tool_id = true,
+                .owns_op_name = true,
+                .owns_arguments = true,
+            } },
+        };
     };
     ctx.next_request_id.* += 1;
     defer request.deinit(ctx.allocator);
 
-    var response: host.HostEffectResultV1 = ctx.adapter.dispatch(ctx.allocator, request) catch |err| .{
-        .request_id = request.request_id,
-        .body = .{ .failed = .{
-            .code = try ctx.allocator.dupe(u8, "provider_failure"),
-            .message = try std.fmt.allocPrint(ctx.allocator, "host_adapter_dispatch:{s}", .{@errorName(err)}),
-            .owns_code = true,
-            .owns_message = true,
-        } },
+    var response: host.HostEffectResultV1 = ctx.adapter.dispatch(ctx.allocator, request) catch |err| blk: {
+        const code = try ctx.allocator.dupe(u8, "provider_failure");
+        errdefer ctx.allocator.free(code);
+        const message = try std.fmt.allocPrint(ctx.allocator, "host_adapter_dispatch:{s}", .{@errorName(err)});
+        errdefer ctx.allocator.free(message);
+        break :blk .{
+            .request_id = request.request_id,
+            .body = .{ .failed = .{
+                .code = code,
+                .message = message,
+                .owns_code = true,
+                .owns_message = true,
+            } },
+        };
     };
     defer response.deinit(ctx.allocator);
     if (response.schema_version != 1) return error.ProgramContractViolation;
@@ -354,10 +371,20 @@ fn callHostOp(
         else => {},
     }
 
-    try ctx.logs.append(ctx.allocator, .{
-        .request = try request.clone(ctx.allocator),
-        .result = try response.clone(ctx.allocator),
-    });
+    var log_entry: host.HostLogEntryV1 = blk: {
+        var request_clone = try request.clone(ctx.allocator);
+        errdefer request_clone.deinit(ctx.allocator);
+        var response_clone = try response.clone(ctx.allocator);
+        errdefer response_clone.deinit(ctx.allocator);
+        break :blk .{
+            .request = request_clone,
+            .result = response_clone,
+        };
+    };
+    var logged = false;
+    errdefer if (!logged) log_entry.deinit(ctx.allocator);
+    try ctx.logs.append(ctx.allocator, log_entry);
+    logged = true;
 
     return switch (response.body) {
         .success => |tool_result| blk: {

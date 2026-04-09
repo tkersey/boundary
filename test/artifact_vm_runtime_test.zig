@@ -1244,6 +1244,18 @@ fn dispatchThrownFailure(
     return error.ProviderBoom;
 }
 
+fn expectRunArtifactLogCleanupOnAllocationFailure(
+    allocator: std.mem.Allocator,
+    bytes: []const u8,
+) !void {
+    var context = string_dispatch_context{};
+    var result = try shift_vm.runtime.runArtifact(allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchThrownFailure,
+    });
+    defer result.deinit(allocator);
+}
+
 test "ArtifactV1 runtime surfaces rejected host failures with typed payloads and logs" {
     const bytes = try encodeSingleResumeArtifact(std.testing.allocator, .i32, "artifact-runtime-rejected");
     defer std.testing.allocator.free(bytes);
@@ -1311,4 +1323,15 @@ test "ArtifactV1 runtime converts thrown host dispatch errors into typed failed 
         },
         else => return error.TestUnexpectedResult,
     }
+}
+
+test "ArtifactV1 runtime unwinds cloned transcript entries when logging hits allocator failure" {
+    const bytes = try encodeSingleResumeArtifact(std.testing.allocator, .i32, "artifact-runtime-log-cleanup");
+    defer std.testing.allocator.free(bytes);
+
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        expectRunArtifactLogCleanupOnAllocationFailure,
+        .{bytes},
+    );
 }

@@ -153,6 +153,55 @@ fn hashBuildIdentityFile(hasher: *std.crypto.hash.Blake3, b: *std.Build, path: [
     hasher.update(bytes);
 }
 
+fn hashBuildTargetIdentity(
+    hasher: *std.crypto.hash.Blake3,
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+) void {
+    const query_triple = target.query.zigTriple(b.allocator) catch
+        std.process.fatal("unable to serialize build target query triple", .{});
+    defer b.allocator.free(query_triple);
+    const query_cpu = target.query.serializeCpuAlloc(b.allocator) catch
+        std.process.fatal("unable to serialize build target query cpu", .{});
+    defer b.allocator.free(query_cpu);
+    const result_triple = target.result.zigTriple(b.allocator) catch
+        std.process.fatal("unable to serialize resolved build target triple", .{});
+    defer b.allocator.free(result_triple);
+    const result_cpu = std.zig.serializeCpuAlloc(b.allocator, target.result.cpu) catch
+        std.process.fatal("unable to serialize resolved build target cpu", .{});
+    defer b.allocator.free(result_cpu);
+
+    hasher.update("query-triple");
+    hasher.update(query_triple);
+    hasher.update("query-cpu");
+    hasher.update(query_cpu);
+    hasher.update("query-ofmt");
+    if (target.query.ofmt) |ofmt| {
+        hasher.update(@tagName(ofmt));
+    } else {
+        hasher.update("default");
+    }
+    hasher.update("query-dynamic-linker");
+    if (target.query.dynamic_linker.get()) |dynamic_linker| {
+        hasher.update(dynamic_linker);
+    } else {
+        hasher.update("(none)");
+    }
+
+    hasher.update("resolved-triple");
+    hasher.update(result_triple);
+    hasher.update("resolved-cpu");
+    hasher.update(result_cpu);
+    hasher.update("resolved-ofmt");
+    hasher.update(@tagName(target.result.ofmt));
+    hasher.update("resolved-dynamic-linker");
+    if (target.result.dynamic_linker.get()) |dynamic_linker| {
+        hasher.update(dynamic_linker);
+    } else {
+        hasher.update("(none)");
+    }
+}
+
 fn defaultArtifactBuildFingerprint(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -160,13 +209,10 @@ fn defaultArtifactBuildFingerprint(
 ) [32]u8 {
     const registry = repoZigPathRegistry(b);
     var hasher = std.crypto.hash.Blake3.init(.{});
-    hasher.update("shift-default-artifact-build-fingerprint-v1");
+    hasher.update("shift-default-artifact-build-fingerprint-v2");
     hasher.update(builtin.zig_version_string);
     hasher.update(@tagName(optimize));
-    hasher.update(@tagName(target.result.cpu.arch));
-    hasher.update(@tagName(target.result.os.tag));
-    hasher.update(@tagName(target.result.abi));
-    hasher.update(@tagName(target.result.ofmt));
+    hashBuildTargetIdentity(&hasher, b, target);
     hasher.update(registry);
     hashBuildIdentityFile(&hasher, b, "build.zig");
     hashBuildIdentityFile(&hasher, b, "build.zig.zon");
