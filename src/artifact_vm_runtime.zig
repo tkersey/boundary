@@ -301,7 +301,13 @@ fn callHostOp(
     return switch (response.body) {
         .success => |tool_result| switch (tool_result.control) {
             .@"resume" => .{ .resumed = try dataValueToProgramValue(ctx.value_allocator, op.resume_codec, tool_result.value) },
-            .return_now, .abort => .{ .terminal = try dataValueToProgramValue(ctx.value_allocator, functionValueCodecForOp(ctx.plan, op_index), tool_result.value) },
+            .return_now, .abort => .{
+                .terminal = try dataValueToProgramValue(
+                    ctx.value_allocator,
+                    artifact.terminalResultCodecForOp(ctx.plan, op_index) catch return error.ProgramContractViolation,
+                    tool_result.value,
+                ),
+            },
         },
         .rejected => |failure| .{ .rejected = try failure.clone(ctx.allocator) },
         .failed => |failure| .{ .failed = try failure.clone(ctx.allocator) },
@@ -344,19 +350,6 @@ fn findCapabilityOpByPlanOrdinal(ops: []const artifact.CapabilityOpV1, plan_op_o
         if (op.plan_op_ordinal == plan_op_ordinal) return op;
     }
     return null;
-}
-
-fn functionValueCodecForOp(plan: program_plan.ProgramPlan, op_index: u16) program_plan.ValueCodec {
-    for (plan.functions) |function| {
-        const req_start: usize = function.first_requirement;
-        const req_end = req_start + function.requirement_count;
-        for (plan.requirements[req_start..req_end]) |requirement| {
-            const op_start = requirement.first_op;
-            const op_end = op_start + requirement.op_count;
-            if (op_index >= op_start and op_index < op_end) return function.value_codec;
-        }
-    }
-    return .unit;
 }
 
 fn programValueToDataValue(

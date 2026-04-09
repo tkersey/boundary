@@ -207,7 +207,7 @@ pub fn deriveToolCapabilitiesFromPlan(
                 .op_id = @intCast(op_index),
                 .global_op_name = try allocator.dupe(u8, "tool.call"),
                 .payload_codec = mapPlanCodecToCapabilityCodec(op.payload_codec),
-                .result_codec = mapPlanCodecToCapabilityCodec(capabilityResultCodecForOp(plan, op_start + op_index)),
+                .result_codec = mapPlanCodecToCapabilityCodec(try capabilityResultCodecForOp(plan, op_start + op_index)),
                 .plan_op_ordinal = @intCast(op_index),
             };
         }
@@ -394,31 +394,69 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
     }
 
     const string_bytes = sectionBytes(bytes, directories.items, .string_table);
-    const capability_result = try decodeCapabilityManifest(allocator, string_bytes, sectionBytes(bytes, directories.items, .capability_manifest));
-    errdefer deepFreeCapabilities(allocator, capability_result.capabilities);
-    const decoded_requirements = try decodeRequirementTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .requirement_table));
+    const decoded_manifest = try decodeCapabilityManifest(allocator, string_bytes, sectionBytes(bytes, directories.items, .capability_manifest));
+    const build_fingerprint = decoded_manifest.build_fingerprint_blake3_256;
+    var capabilities = decoded_manifest.capabilities;
+    errdefer if (capabilities.len != 0) deepFreeCapabilities(allocator, capabilities);
+
+    var decoded_requirements = try decodeRequirementTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .requirement_table));
     errdefer {
-        allocator.free(decoded_requirements.capability_ids);
-        deepFreeRequirementPlans(allocator, decoded_requirements.items);
+        if (decoded_requirements.capability_ids.len != 0) allocator.free(decoded_requirements.capability_ids);
+        if (decoded_requirements.items.len != 0) deepFreeRequirementPlans(allocator, decoded_requirements.items);
     }
+
+    var functions = try decodeFunctionTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .function_table));
+    errdefer if (functions.len != 0) deepFreeFunctionPlans(allocator, functions);
+
+    var ops = try decodeOpTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .op_table));
+    errdefer if (ops.len != 0) deepFreeOpPlans(allocator, ops);
+
+    var outputs = try decodeOutputTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .output_table));
+    errdefer if (outputs.len != 0) deepFreeOutputPlans(allocator, outputs);
+
+    var locals = try decodeLocalTable(allocator, sectionBytes(bytes, directories.items, .local_table));
+    errdefer if (locals.len != 0) allocator.free(locals);
+
+    var call_args = try decodeCallArgTable(allocator, sectionBytes(bytes, directories.items, .call_arg_table));
+    errdefer if (call_args.len != 0) allocator.free(call_args);
+
+    var blocks = try decodeBlockTable(allocator, sectionBytes(bytes, directories.items, .block_table));
+    errdefer if (blocks.len != 0) allocator.free(blocks);
+
+    var terminators = try decodeTerminatorTable(allocator, sectionBytes(bytes, directories.items, .terminator_table));
+    errdefer if (terminators.len != 0) allocator.free(terminators);
+
+    var instructions = try decodeInstructionTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .instruction_table));
+    errdefer if (instructions.len != 0) deepFreeInstructions(allocator, instructions);
 
     var artifact = ArtifactV1{
         .semantic_ir_hash64 = ir_hash,
         .artifact_hash_blake3_256 = std.mem.zeroes([32]u8),
-        .build_fingerprint_blake3_256 = capability_result.build_fingerprint_blake3_256,
+        .build_fingerprint_blake3_256 = build_fingerprint,
         .entry_function_index = entry_index,
-        .capabilities = capability_result.capabilities,
+        .capabilities = capabilities,
         .requirement_capability_ids = decoded_requirements.capability_ids,
-        .functions = try decodeFunctionTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .function_table)),
+        .functions = functions,
         .requirements = decoded_requirements.items,
-        .ops = try decodeOpTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .op_table)),
-        .outputs = try decodeOutputTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .output_table)),
-        .locals = try decodeLocalTable(allocator, sectionBytes(bytes, directories.items, .local_table)),
-        .call_args = try decodeCallArgTable(allocator, sectionBytes(bytes, directories.items, .call_arg_table)),
-        .blocks = try decodeBlockTable(allocator, sectionBytes(bytes, directories.items, .block_table)),
-        .terminators = try decodeTerminatorTable(allocator, sectionBytes(bytes, directories.items, .terminator_table)),
-        .instructions = try decodeInstructionTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .instruction_table)),
+        .ops = ops,
+        .outputs = outputs,
+        .locals = locals,
+        .call_args = call_args,
+        .blocks = blocks,
+        .terminators = terminators,
+        .instructions = instructions,
     };
+    capabilities = &.{};
+    decoded_requirements = .{ .items = &.{}, .capability_ids = &.{} };
+    functions = &.{};
+    ops = &.{};
+    outputs = &.{};
+    locals = &.{};
+    call_args = &.{};
+    blocks = &.{};
+    terminators = &.{};
+    instructions = &.{};
+    errdefer artifact.deinit(allocator);
     @memcpy(&artifact.artifact_hash_blake3_256, expected_hash);
     if (artifact.entry_function_index >= artifact.functions.len) return error.InvalidEntryFunctionIndex;
     try artifact.validate();
@@ -486,15 +524,16 @@ fn validateManifest(build_fingerprint: [32]u8, capabilities: []const CapabilityV
         }
         if (capability.kind != .tool) return error.UnsupportedVersion;
         try validateToolIdV1(capability.label);
-        var expected_next: ?u16 = null;
+        var previous_op_id: ?u16 = null;
         for (capability.ops, 0..) |op, op_index| {
             if (op.capability_id != capability.capability_id) return error.DuplicateCapabilityOpId;
             if (!std.mem.eql(u8, op.global_op_name, "tool.call")) return error.UnsupportedVersion;
             if (op.plan_op_ordinal >= capability.ops.len) return error.InvalidRequiredSection;
-            if (expected_next) |expected| {
+            if (previous_op_id) |previous| {
+                const expected = std.math.add(u16, previous, 1) catch return error.DuplicateCapabilityOpId;
                 if (op.op_id != expected) return error.DuplicateCapabilityOpId;
             }
-            expected_next = op.op_id + 1;
+            previous_op_id = op.op_id;
             for (capability.ops[(op_index + 1)..]) |other_op| {
                 if (op.op_id == other_op.op_id) return error.DuplicateCapabilityOpId;
                 if (op.plan_op_ordinal == other_op.plan_op_ordinal) return error.InvalidRequiredSection;
@@ -856,7 +895,8 @@ fn toolCapabilityMatchesRequirement(plan: program_plan.ProgramPlan, requirement_
     for (plan.ops[op_start..op_end], 0..) |plan_op, op_offset| {
         const capability_op = findCapabilityOpByPlanOrdinal(capability.ops, @intCast(op_offset)) orelse return false;
         if (capability_op.payload_codec != mapPlanCodecToCapabilityCodec(plan_op.payload_codec)) return false;
-        if (capability_op.result_codec != mapPlanCodecToCapabilityCodec(capabilityResultCodecForOp(plan, op_start + op_offset))) return false;
+        const expected_result_codec = capabilityResultCodecForOp(plan, op_start + op_offset) catch return false;
+        if (capability_op.result_codec != mapPlanCodecToCapabilityCodec(expected_result_codec)) return false;
     }
     return true;
 }
@@ -880,25 +920,32 @@ fn validateRequirementCapabilityMappings(
     }
 }
 
-fn capabilityResultCodecForOp(plan: program_plan.ProgramPlan, op_index: usize) program_plan.ValueCodec {
+fn capabilityResultCodecForOp(plan: program_plan.ProgramPlan, op_index: usize) !program_plan.ValueCodec {
     const op = plan.ops[op_index];
     return switch (op.mode) {
         .transform => op.resume_codec,
-        .abort, .choice => functionValueCodecForOp(plan, @intCast(op_index)),
+        .abort, .choice => try terminalResultCodecForOp(plan, @intCast(op_index)),
     };
 }
 
-fn functionValueCodecForOp(plan: program_plan.ProgramPlan, op_index: u16) program_plan.ValueCodec {
+/// Resolve the terminal result codec for one abort/choice op and reject conflicting owners.
+pub fn terminalResultCodecForOp(plan: program_plan.ProgramPlan, op_index: u16) !program_plan.ValueCodec {
+    var resolved: ?program_plan.ValueCodec = null;
     for (plan.functions) |function| {
         const req_start: usize = function.first_requirement;
         const req_end = req_start + function.requirement_count;
         for (plan.requirements[req_start..req_end]) |requirement| {
             const op_start = requirement.first_op;
             const op_end = op_start + requirement.op_count;
-            if (op_index >= op_start and op_index < op_end) return function.value_codec;
+            if (op_index < op_start or op_index >= op_end) continue;
+            if (resolved) |codec| {
+                if (codec != function.value_codec) return error.InvalidRequiredSection;
+            } else {
+                resolved = function.value_codec;
+            }
         }
     }
-    return .unit;
+    return resolved orelse error.InvalidRequiredSection;
 }
 
 fn findCapabilityById(capabilities: []const CapabilityV1, capability_id: u16) ?CapabilityV1 {
@@ -1306,6 +1353,21 @@ fn patchEntryParameterCount(bytes: []u8, parameter_count: u16) void {
         if (readU16(bytes, cursor) != @intFromEnum(SectionId.function_table)) continue;
         const function_table_offset: usize = @intCast(readU64(bytes, cursor + 8));
         std.mem.writeInt(u16, bytes[function_table_offset + 12 ..][0..2], parameter_count, .little);
+        recomputeEncodedArtifactHash(bytes);
+        return;
+    }
+    unreachable;
+}
+
+fn patchFunctionValueCodec(bytes: []u8, function_index: usize, codec: program_plan.ValueCodec) void {
+    const directory_offset: usize = 72;
+    const directory_count = readU16(bytes, 20);
+    var cursor: usize = directory_offset;
+    while (cursor < directory_offset + @as(usize, directory_count) * 32) : (cursor += 32) {
+        if (readU16(bytes, cursor) != @intFromEnum(SectionId.function_table)) continue;
+        const function_table_offset: usize = @intCast(readU64(bytes, cursor + 8));
+        const entry_offset = function_table_offset + function_index * 36;
+        bytes[entry_offset + 8] = @intFromEnum(codec);
         recomputeEncodedArtifactHash(bytes);
         return;
     }
@@ -1776,6 +1838,289 @@ test "ArtifactV1 rejects malformed capability tool ids during encode and decode"
     encoded[label_offset] = 'G';
     recomputeEncodedArtifactHash(encoded);
     try std.testing.expectError(error.InvalidToolId, decode(std.testing.allocator, encoded));
+}
+
+test "ArtifactV1 encode and decode accept a single capability op at max u16 id" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-max-op-id");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.max_op_id",
+        .ir_hash = 0xaf,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "only", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const capabilities = [_]CapabilityV1{.{
+        .capability_id = 5,
+        .kind = .tool,
+        .label = "generated/tooling@v1",
+        .ops = &.{.{
+            .capability_id = 5,
+            .op_id = std.math.maxInt(u16),
+            .global_op_name = "tool.call",
+            .payload_codec = .unit,
+            .result_codec = .unit,
+            .plan_op_ordinal = 0,
+        }},
+    }};
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    });
+    defer std.testing.allocator.free(encoded);
+
+    var decoded = try decode(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+    try std.testing.expectEqual(std.math.maxInt(u16), decoded.capabilities[0].ops[0].op_id);
+}
+
+test "ArtifactV1 rejects conflicting terminal owner codecs during encode and decode" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-terminal-owner-conflict");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.terminal_owner_conflict",
+        .ir_hash = 0xb0,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "entry",
+                .value_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 2,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .i32,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 1,
+                .local_count = 1,
+                .first_block = 1,
+                .entry_block = 1,
+                .block_count = 1,
+                .first_instruction = 2,
+                .instruction_count = 2,
+            },
+        },
+        .requirements = &.{.{ .label = "terminal", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "stop", .mode = .abort, .payload_codec = .unit, .resume_codec = .unit }},
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .string }, .{ .codec = .i32 } },
+        .call_args = &.{},
+        .blocks = &.{
+            .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+            .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
+        },
+        .terminators = &.{ .{ .kind = .return_value }, .{ .kind = .return_value } },
+        .instructions = &.{
+            .{ .kind = .call_op, .dst = 0, .operand = 0 },
+            .{ .kind = .return_value, .operand = 0 },
+            .{ .kind = .call_op, .dst = 1, .operand = 0 },
+            .{ .kind = .return_value, .operand = 1 },
+        },
+    };
+
+    try std.testing.expectError(error.InvalidRequiredSection, deriveToolCapabilitiesFromPlan(std.testing.allocator, plan));
+
+    const valid_capabilities = [_]CapabilityV1{.{
+        .capability_id = 0,
+        .kind = .tool,
+        .label = "generated/terminal@v1",
+        .ops = &.{.{
+            .capability_id = 0,
+            .op_id = 7,
+            .global_op_name = "tool.call",
+            .payload_codec = .unit,
+            .result_codec = .string,
+            .plan_op_ordinal = 0,
+        }},
+    }};
+    try std.testing.expectError(error.InvalidRequiredSection, encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &valid_capabilities,
+    }));
+
+    const single_owner_plan: program_plan.ProgramPlan = .{
+        .label = "artifact.terminal_owner_decode_conflict",
+        .ir_hash = 0xb1,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "entry",
+                .value_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 2,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 1,
+                .local_count = 1,
+                .first_block = 1,
+                .entry_block = 1,
+                .block_count = 1,
+                .first_instruction = 2,
+                .instruction_count = 2,
+            },
+        },
+        .requirements = plan.requirements,
+        .ops = plan.ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .string }, .{ .codec = .string } },
+        .call_args = &.{},
+        .blocks = plan.blocks,
+        .terminators = plan.terminators,
+        .instructions = &.{
+            .{ .kind = .call_op, .dst = 0, .operand = 0 },
+            .{ .kind = .return_value, .operand = 0 },
+            .{ .kind = .call_op, .dst = 1, .operand = 0 },
+            .{ .kind = .return_value, .operand = 1 },
+        },
+    };
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, single_owner_plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &valid_capabilities,
+    });
+    defer std.testing.allocator.free(encoded);
+    patchFunctionValueCodec(encoded, 1, .i32);
+    try std.testing.expectError(error.InvalidRequiredSection, decode(std.testing.allocator, encoded));
+}
+
+test "ArtifactV1 decode frees partially built state when validation rejects conflicting terminal codecs" {
+    var gpa = std.heap.DebugAllocator(.{}){};
+    defer std.debug.assert(gpa.deinit() == .ok);
+    const allocator = gpa.allocator();
+
+    const build_fingerprint = buildFingerprintFromSeed("artifact-terminal-owner-conflict-leak");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.terminal_owner_leak",
+        .ir_hash = 0xb2,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "entry",
+                .value_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 2,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 1,
+                .local_count = 1,
+                .first_block = 1,
+                .entry_block = 1,
+                .block_count = 1,
+                .first_instruction = 2,
+                .instruction_count = 2,
+            },
+        },
+        .requirements = &.{.{ .label = "terminal", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "stop", .mode = .abort, .payload_codec = .unit, .resume_codec = .unit }},
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .string }, .{ .codec = .string } },
+        .call_args = &.{},
+        .blocks = &.{
+            .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+            .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
+        },
+        .terminators = &.{ .{ .kind = .return_value }, .{ .kind = .return_value } },
+        .instructions = &.{
+            .{ .kind = .call_op, .dst = 0, .operand = 0 },
+            .{ .kind = .return_value, .operand = 0 },
+            .{ .kind = .call_op, .dst = 1, .operand = 0 },
+            .{ .kind = .return_value, .operand = 1 },
+        },
+    };
+    const capabilities = [_]CapabilityV1{.{
+        .capability_id = 0,
+        .kind = .tool,
+        .label = "generated/terminal@v1",
+        .ops = &.{.{
+            .capability_id = 0,
+            .op_id = 7,
+            .global_op_name = "tool.call",
+            .payload_codec = .unit,
+            .result_codec = .string,
+            .plan_op_ordinal = 0,
+        }},
+    }};
+
+    const encoded = try encodeProgramPlan(allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    });
+    defer allocator.free(encoded);
+
+    patchFunctionValueCodec(encoded, 1, .i32);
+    for (0..8) |_| {
+        try std.testing.expectError(error.InvalidRequiredSection, decode(allocator, encoded));
+    }
 }
 
 test "ArtifactV1 decode rejects directory sections whose checked bounds overflow" {

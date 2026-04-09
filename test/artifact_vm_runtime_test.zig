@@ -178,6 +178,25 @@ fn dispatchTerminalReturn(
     };
 }
 
+fn dispatchTerminalAbort(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    _ = ctx;
+    try std.testing.expectEqual(@as(u16, 33), request.capability_id);
+    try std.testing.expectEqual(@as(u16, 8), request.op_id);
+    return .{
+        .request_id = request.request_id,
+        .body = .{ .success = .{
+            .tool_id = try allocator.dupe(u8, request.body.tool_call.tool_id),
+            .call_id = request.body.tool_call.call_id,
+            .control = .abort,
+            .value = .{ .string = try allocator.dupe(u8, "early-abort") },
+        } },
+    };
+}
+
 fn dispatchIntegerResult(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
@@ -566,6 +585,108 @@ test "ArtifactV1 runtime decodes terminal string results for later requirement o
     const result = try expectCompleted(&run_result);
 
     try std.testing.expectEqualStrings("early", result.value.string);
+    try std.testing.expectEqual(@as(usize, 1), result.logs.len);
+    try conformance.assertToolCallShape(result.logs[0], "generated/terminal@v1", "stop");
+}
+
+test "ArtifactV1 runtime decodes terminal abort string results for later requirement ops" {
+    const build_fingerprint = shift_vm.artifact.buildFingerprintFromSeed("artifact-runtime-terminal-abort-codec");
+    const plan: internal_program_plan.ProgramPlan = .{
+        .label = "artifact.runtime.terminal_abort_later_op",
+        .ir_hash = 0x92,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 2,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 3,
+        }},
+        .requirements = &.{
+            .{ .label = "primary", .first_op = 0, .op_count = 2 },
+            .{ .label = "terminal", .first_op = 2, .op_count = 1 },
+        },
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "unused-a", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit },
+            .{ .requirement_index = 0, .op_name = "unused-b", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit },
+            .{ .requirement_index = 1, .op_name = "stop", .mode = .abort, .payload_codec = .unit, .resume_codec = .unit },
+        },
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 3, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_string, .dst = 0, .string_literal = "fallback" },
+            .{ .kind = .call_op, .operand = 2 },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+    const capabilities = [_]shift_vm.CapabilityV1{
+        .{
+            .capability_id = 33,
+            .kind = .tool,
+            .label = "generated/terminal@v1",
+            .ops = &.{
+                .{
+                    .capability_id = 33,
+                    .op_id = 8,
+                    .global_op_name = "tool.call",
+                    .payload_codec = .unit,
+                    .result_codec = .string,
+                    .plan_op_ordinal = 0,
+                },
+            },
+        },
+        .{
+            .capability_id = 20,
+            .kind = .tool,
+            .label = "generated/primary@v1",
+            .ops = &.{
+                .{
+                    .capability_id = 20,
+                    .op_id = 0,
+                    .global_op_name = "tool.call",
+                    .payload_codec = .unit,
+                    .result_codec = .unit,
+                    .plan_op_ordinal = 0,
+                },
+                .{
+                    .capability_id = 20,
+                    .op_id = 1,
+                    .global_op_name = "tool.call",
+                    .payload_codec = .unit,
+                    .result_codec = .unit,
+                    .plan_op_ordinal = 1,
+                },
+            },
+        },
+    };
+
+    const bytes = try shift_vm.artifact.encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    });
+    defer std.testing.allocator.free(bytes);
+
+    var context = string_dispatch_context{};
+    var run_result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchTerminalAbort,
+    });
+    defer run_result.deinit(std.testing.allocator);
+    const result = try expectCompleted(&run_result);
+
+    try std.testing.expectEqualStrings("early-abort", result.value.string);
     try std.testing.expectEqual(@as(usize, 1), result.logs.len);
     try conformance.assertToolCallShape(result.logs[0], "generated/terminal@v1", "stop");
 }
