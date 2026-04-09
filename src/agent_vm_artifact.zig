@@ -78,6 +78,9 @@ pub const CapabilityManifestV1 = struct {
     capabilities: []const CapabilityV1,
 };
 
+const section_optional_flag: u16 = 0x1;
+const capability_required_flag: u8 = 0x1;
+
 /// Public in-memory representation of one decoded ArtifactV1 payload.
 pub const ArtifactV1 = struct {
     semantic_ir_hash64: u64,
@@ -162,6 +165,13 @@ pub const DecodeError = error{
     ArtifactHashMismatch,
     UnsupportedExecutableCodec,
 };
+
+fn isReservedOptionalSectionId(raw_section_id: u16) bool {
+    return switch (raw_section_id) {
+        0x1000...0x10ff, 0x1100...0x11ff, 0x1200...0x12ff => true,
+        else => false,
+    };
+}
 
 /// Build one exact-build fingerprint from an arbitrary seed string.
 pub fn buildFingerprintFromSeed(seed: []const u8) [32]u8 {
@@ -390,12 +400,12 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
         const raw_section_id = readU16(bytes, cursor);
         if (previous_section_id) |previous| {
             if (raw_section_id < previous) return error.UnsortedDirectorySection;
+            if (raw_section_id == previous) return error.DuplicateDirectorySection;
         }
         previous_section_id = raw_section_id;
-        const section_id = std.enums.fromInt(SectionId, raw_section_id) orelse return error.InvalidRequiredSection;
-        if (required_seen.contains(section_id)) return error.DuplicateDirectorySection;
-        required_seen.insert(section_id);
         const flags = readU16(bytes, cursor + 2);
+        if ((flags & ~section_optional_flag) != 0) return error.UnsupportedVersion;
+        const optional_section = (flags & section_optional_flag) != 0;
         if (readU32(bytes, cursor + 4) != 0) return error.NonZeroReserved;
         const offset = readU64(bytes, cursor + 8);
         const size = readU64(bytes, cursor + 16);
@@ -403,6 +413,12 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
         if (readU32(bytes, cursor + 28) != 0) return error.NonZeroReserved;
         const section_end = checkedSectionEnd(offset, size) orelse return error.InvalidDirectoryBounds;
         if (section_end > bytes_len_u64 or offset < directory_end) return error.InvalidDirectoryBounds;
+        const section_id = std.enums.fromInt(SectionId, raw_section_id) orelse {
+            if (optional_section and isReservedOptionalSectionId(raw_section_id)) continue;
+            return error.InvalidRequiredSection;
+        };
+        if (required_seen.contains(section_id)) return error.DuplicateDirectorySection;
+        required_seen.insert(section_id);
         try directories.append(allocator, .{
             .section_id = section_id,
             .flags = flags,
@@ -648,6 +664,7 @@ fn decodeCapabilityManifest(allocator: std.mem.Allocator, string_bytes: []const 
         const capability_id = readU16(capability_bytes, capability_cursor);
         const kind = std.enums.fromInt(CapabilityKind, capability_bytes[capability_cursor + 2]) orelse return error.UnsupportedVersion;
         const flags = capability_bytes[capability_cursor + 3];
+        if ((flags & ~capability_required_flag) != 0) return error.UnsupportedVersion;
         const label = try readStringRefDup(allocator, string_bytes, capability_bytes[capability_cursor + 4 .. capability_cursor + 12]);
         errdefer allocator.free(label);
         const first_op = readU16(capability_bytes, capability_cursor + 12);
@@ -676,7 +693,7 @@ fn decodeCapabilityManifest(allocator: std.mem.Allocator, string_bytes: []const 
         capability.* = .{
             .capability_id = capability_id,
             .kind = kind,
-            .required = (flags & 0x1) != 0,
+            .required = (flags & capability_required_flag) != 0,
             .label = label,
             .ops = ops,
         };
@@ -968,8 +985,8 @@ fn validateRequirementCapabilityMappings(
 fn capabilityResultCodecForOp(plan: program_plan.ProgramPlan, op_index: usize) !program_plan.ValueCodec {
     const op = plan.ops[op_index];
     return switch (op.mode) {
-        .transform => op.resume_codec,
-        .abort, .choice => try terminalResultCodecForOp(plan, @intCast(op_index)),
+        .transform, .choice => op.resume_codec,
+        .abort => try terminalResultCodecForOp(plan, @intCast(op_index)),
     };
 }
 
@@ -1461,6 +1478,62 @@ fn patchRequirementCapabilityId(bytes: []u8, requirement_index: usize, capabilit
     recomputeEncodedArtifactHash(bytes);
 }
 
+fn patchCapabilityFlags(bytes: []u8, capability_index: usize, flags: u8) void {
+    const capability_manifest_offset = sectionPayloadOffset(bytes, .capability_manifest);
+    const capability_offset = capability_manifest_offset + 52 + capability_index * 16;
+    bytes[capability_offset + 3] = flags;
+    recomputeEncodedArtifactHash(bytes);
+}
+
+const RawDirectoryEntryPatch = struct {
+    raw_section_id: u16,
+    flags: u16,
+    entry_count: u32,
+    payload: []const u8,
+};
+
+fn appendRawDirectoryEntry(allocator: std.mem.Allocator, bytes: []const u8, patch: RawDirectoryEntryPatch) ![]u8 {
+    const directory_offset: usize = @intCast(readU64(bytes, 24));
+    const directory_count = readU16(bytes, 20);
+    const old_directory_len = @as(usize, directory_count) * 32;
+    const old_directory_end = directory_offset + old_directory_len;
+    if (directory_count != 0) {
+        const last_section_id = readU16(bytes, old_directory_end - 32);
+        std.debug.assert(patch.raw_section_id > last_section_id);
+    }
+
+    const directory_shift: usize = 32;
+    var updated = try allocator.alloc(u8, bytes.len + directory_shift + patch.payload.len);
+    errdefer allocator.free(updated);
+
+    @memcpy(updated[0..old_directory_end], bytes[0..old_directory_end]);
+    @memcpy(
+        updated[old_directory_end + directory_shift .. old_directory_end + directory_shift + (bytes.len - old_directory_end)],
+        bytes[old_directory_end..],
+    );
+    @memcpy(updated[bytes.len + directory_shift ..], patch.payload);
+
+    std.mem.writeInt(u16, updated[20..][0..2], directory_count + 1, .little);
+
+    var cursor: usize = directory_offset;
+    while (cursor < old_directory_end) : (cursor += 32) {
+        const offset = readU64(updated, cursor + 8);
+        std.mem.writeInt(u64, updated[cursor + 8 ..][0..8], offset + directory_shift, .little);
+    }
+
+    const new_entry_offset = old_directory_end;
+    std.mem.writeInt(u16, updated[new_entry_offset..][0..2], patch.raw_section_id, .little);
+    std.mem.writeInt(u16, updated[new_entry_offset + 2 ..][0..2], patch.flags, .little);
+    std.mem.writeInt(u32, updated[new_entry_offset + 4 ..][0..4], 0, .little);
+    std.mem.writeInt(u64, updated[new_entry_offset + 8 ..][0..8], bytes.len + directory_shift, .little);
+    std.mem.writeInt(u64, updated[new_entry_offset + 16 ..][0..8], patch.payload.len, .little);
+    std.mem.writeInt(u32, updated[new_entry_offset + 24 ..][0..4], patch.entry_count, .little);
+    std.mem.writeInt(u32, updated[new_entry_offset + 28 ..][0..4], 0, .little);
+
+    recomputeEncodedArtifactHash(updated);
+    return updated;
+}
+
 test "ArtifactV1 encode/decode preserves plan structure and capability manifest" {
     const build_fingerprint = buildFingerprintFromSeed("artifact-v1-test");
     const plan: program_plan.ProgramPlan = .{
@@ -1640,6 +1713,71 @@ test "ArtifactV1 rejects exact-label custom capabilities whose op codecs do not 
     }));
 }
 
+test "ArtifactV1 preserves choice resume codecs in derived and validated manifests" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-v1-choice-resume-codec");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.choice_resume_codec",
+        .ir_hash = 0x57,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 2,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 3,
+        }},
+        .requirements = &.{.{ .label = "chooser", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "pick", .mode = .choice, .payload_codec = .unit, .resume_codec = .i32 }},
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .string }, .{ .codec = .i32 } },
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 3, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_string, .dst = 0, .string_literal = "fallback" },
+            .{ .kind = .call_op, .dst = 1, .operand = 0 },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+
+    const derived = try deriveToolCapabilitiesFromPlan(std.testing.allocator, plan);
+    defer deepFreeCapabilities(std.testing.allocator, derived);
+    try std.testing.expectEqual(CapabilityCodecV1.i32, derived[0].ops[0].result_codec);
+
+    const capabilities = [_]CapabilityV1{.{
+        .capability_id = 3,
+        .kind = .tool,
+        .label = "generated/chooser@v1",
+        .ops = &.{.{
+            .capability_id = 3,
+            .op_id = 0,
+            .global_op_name = "tool.call",
+            .payload_codec = .unit,
+            .result_codec = .i32,
+            .plan_op_ordinal = 0,
+        }},
+    }};
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    });
+    defer std.testing.allocator.free(encoded);
+
+    var decoded = try decode(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+    try std.testing.expectEqual(CapabilityCodecV1.i32, decoded.capabilities[0].ops[0].result_codec);
+}
+
 fn expectMalformedCapabilityManifestDecodeCleanup(allocator: std.mem.Allocator) !void {
     const build_fingerprint = buildFingerprintFromSeed("artifact-v1-decode-cleanup");
     const manifest = CapabilityManifestV1{
@@ -1693,6 +1831,166 @@ test "ArtifactV1 decode frees partially decoded capability manifests on malforme
         expectMalformedCapabilityManifestDecodeCleanup,
         .{},
     );
+}
+
+test "ArtifactV1 decode accepts reserved optional sections" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.optional_reserved_section",
+        .ir_hash = 0x58,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = buildFingerprintFromSeed("artifact-optional-reserved-section"),
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(encoded);
+
+    const optional_encoded = try appendRawDirectoryEntry(
+        std.testing.allocator,
+        encoded,
+        .{
+            .raw_section_id = 0x1001,
+            .flags = section_optional_flag,
+            .entry_count = 1,
+            .payload = "reserved-metadata",
+        },
+    );
+    defer std.testing.allocator.free(optional_encoded);
+
+    var decoded = try decode(std.testing.allocator, optional_encoded);
+    defer decoded.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 0), decoded.capabilities.len);
+}
+
+test "ArtifactV1 decode rejects unknown directory flag bits" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.directory_flag_bits",
+        .ir_hash = 0x5a,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = buildFingerprintFromSeed("artifact-directory-flag-bits"),
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(encoded);
+
+    const optional_encoded = try appendRawDirectoryEntry(
+        std.testing.allocator,
+        encoded,
+        .{
+            .raw_section_id = 0x1002,
+            .flags = 0x2,
+            .entry_count = 1,
+            .payload = "reserved-metadata",
+        },
+    );
+    defer std.testing.allocator.free(optional_encoded);
+
+    try std.testing.expectError(error.UnsupportedVersion, decode(std.testing.allocator, optional_encoded));
+}
+
+test "ArtifactV1 decode rejects unknown capability flag bits" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.capability_flag_bits",
+        .ir_hash = 0x59,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "call", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const capabilities = [_]CapabilityV1{.{
+        .capability_id = 4,
+        .kind = .tool,
+        .label = "generated/tooling@v1",
+        .ops = &.{.{
+            .capability_id = 4,
+            .op_id = 0,
+            .global_op_name = "tool.call",
+            .payload_codec = .unit,
+            .result_codec = .unit,
+            .plan_op_ordinal = 0,
+        }},
+    }};
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = buildFingerprintFromSeed("artifact-capability-flag-bits"),
+        .capabilities = &capabilities,
+    });
+    defer std.testing.allocator.free(encoded);
+
+    patchCapabilityFlags(encoded, 0, capability_required_flag | 0x2);
+    try std.testing.expectError(error.UnsupportedVersion, decode(std.testing.allocator, encoded));
 }
 
 test "ArtifactV1 advertises usize capability codecs precisely" {

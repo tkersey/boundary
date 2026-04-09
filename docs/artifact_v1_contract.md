@@ -168,6 +168,12 @@ Each capability-op row has:
 - `result_codec: u8`
 - `plan_op_ordinal: u16`
 
+`result_codec` follows the resume path for `transform` and `choice` ops.
+For `abort` ops it follows the terminal function value codec.
+When a `choice` op returns early with `return_now`, the terminal payload must
+still satisfy the owning function value codec even though the manifest row
+stores the resume codec.
+
 Capability codec tags are:
 
 - `1 = unit`
