@@ -1087,7 +1087,12 @@ fn validateRequirementCapabilityMappings(
 fn capabilityResultCodecForOp(plan: program_plan.ProgramPlan, op_index: usize) !program_plan.ValueCodec {
     const op = plan.ops[op_index];
     return switch (op.mode) {
-        .transform, .choice => op.resume_codec,
+        .transform => op.resume_codec,
+        .choice => blk: {
+            const terminal_codec = try terminalResultCodecForOp(plan, @intCast(op_index));
+            if (terminal_codec != op.resume_codec) return error.InvalidRequiredSection;
+            break :blk op.resume_codec;
+        },
         .abort => try terminalResultCodecForOp(plan, @intCast(op_index)),
     };
 }
@@ -1855,8 +1860,8 @@ test "ArtifactV1 rejects exact-label custom capabilities whose op codecs do not 
     }));
 }
 
-test "ArtifactV1 preserves choice resume codecs in derived and validated manifests" {
-    const build_fingerprint = buildFingerprintFromSeed("artifact-v1-choice-resume-codec");
+test "ArtifactV1 rejects mixed-codec choice manifests" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-v1-choice-mixed-codec");
     const plan: program_plan.ProgramPlan = .{
         .label = "artifact.choice_resume_codec",
         .ir_hash = 0x57,
@@ -1891,9 +1896,7 @@ test "ArtifactV1 preserves choice resume codecs in derived and validated manifes
         },
     };
 
-    const derived = try deriveToolCapabilitiesFromPlan(std.testing.allocator, plan);
-    defer deepFreeCapabilities(std.testing.allocator, derived);
-    try std.testing.expectEqual(CapabilityCodecV1.i32, derived[0].ops[0].result_codec);
+    try std.testing.expectError(error.InvalidRequiredSection, deriveToolCapabilitiesFromPlan(std.testing.allocator, plan));
 
     const capabilities = [_]CapabilityV1{.{
         .capability_id = 3,
@@ -1909,15 +1912,10 @@ test "ArtifactV1 preserves choice resume codecs in derived and validated manifes
         }},
     }};
 
-    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+    try std.testing.expectError(error.InvalidRequiredSection, encodeProgramPlan(std.testing.allocator, plan, .{
         .build_fingerprint_blake3_256 = build_fingerprint,
         .capabilities = &capabilities,
-    });
-    defer std.testing.allocator.free(encoded);
-
-    var decoded = try decode(std.testing.allocator, encoded);
-    defer decoded.deinit(std.testing.allocator);
-    try std.testing.expectEqual(CapabilityCodecV1.i32, decoded.capabilities[0].ops[0].result_codec);
+    }));
 }
 
 fn expectDerivedCapabilityCleanupOnAllocationFailure(allocator: std.mem.Allocator) !void {

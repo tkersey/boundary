@@ -220,7 +220,23 @@ test "compileAndEncode produces readable disasm" {
     try std.testing.expect(std.mem.indexOf(u8, disasm, "functions=") != null);
 }
 
-test "CompileSource defaults build fingerprint to the current build identity" {
+test "CompileSource default path hashes derived capability manifests into the build fingerprint" {
+    const Source = shift_compile.CompileSource(
+        "examples/open_row_state_writer.zig",
+        example.loweringSpec(),
+        .{},
+    );
+    const derived_capabilities = try shift_vm.artifact.deriveToolCapabilitiesFromPlan(
+        std.testing.allocator,
+        Source.runtime_plan,
+    );
+    defer shift_vm.artifact.deepFreeCapabilities(std.testing.allocator, derived_capabilities);
+
+    const expected_fingerprint = try shift_vm.artifact.buildFingerprintForCapabilities(
+        std.testing.allocator,
+        shift_vm.artifact.defaultBuildFingerprint(),
+        derived_capabilities,
+    );
     const bytes = try shift_compile.compileAndEncode(
         std.testing.allocator,
         "examples/open_row_state_writer.zig",
@@ -232,10 +248,19 @@ test "CompileSource defaults build fingerprint to the current build identity" {
     var decoded = try shift_vm.artifact.decode(std.testing.allocator, bytes);
     defer decoded.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(
-        shift_vm.artifact.defaultBuildFingerprint(),
-        decoded.build_fingerprint_blake3_256,
+    const explicit_bytes = try shift_vm.artifact.encodeProgramPlan(
+        std.testing.allocator,
+        Source.runtime_plan,
+        .{
+            .build_fingerprint_blake3_256 = expected_fingerprint,
+            .capabilities = derived_capabilities,
+        },
     );
+    defer std.testing.allocator.free(explicit_bytes);
+
+    try std.testing.expectEqual(expected_fingerprint, decoded.build_fingerprint_blake3_256);
+    try std.testing.expect(!std.mem.eql(u8, &decoded.build_fingerprint_blake3_256, &shift_vm.artifact.defaultBuildFingerprint()));
+    try std.testing.expectEqualSlices(u8, explicit_bytes, bytes);
 }
 
 test "CompileSource folds custom capability manifests into seeded build fingerprints" {
