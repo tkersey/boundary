@@ -385,6 +385,19 @@ const EmbedFileFunctionPattern = struct {
     }
 };
 
+const ImportedEmbedFnPattern = struct {
+    module_binding: []const u8,
+    source_dir: []const u8,
+    pattern: EmbedFileFunctionPattern,
+
+    fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        allocator.free(self.module_binding);
+        allocator.free(self.source_dir);
+        self.pattern.deinit(allocator);
+        self.* = undefined;
+    }
+};
+
 const BuildInputPathCollector = struct {
     paths: *std.ArrayList([]const u8),
     path_set: *std.StringHashMap(void),
@@ -682,6 +695,14 @@ fn freeEmbedFileFunctionPatterns(
     allocator.free(patterns);
 }
 
+fn freeImportedEmbedFileFunctionPatterns(
+    allocator: std.mem.Allocator,
+    patterns: []ImportedEmbedFnPattern,
+) void {
+    for (patterns) |*pattern| pattern.deinit(allocator);
+    allocator.free(patterns);
+}
+
 fn appendUniqueIndex(indexes: *std.ArrayList(usize), allocator: std.mem.Allocator, value: usize) !void {
     for (indexes.items) |existing| {
         if (existing == value) return;
@@ -818,6 +839,129 @@ fn patternUsesParamIndex(pattern: *const EmbedFileFunctionPattern, index: usize)
     return false;
 }
 
+fn importPathFromValueTokensAlloc(
+    allocator: std.mem.Allocator,
+    value_tokens: []const BuildInputToken,
+) !?[]u8 {
+    if (value_tokens.len != 4) return null;
+    if (value_tokens[0].tag != .builtin or !std.mem.eql(u8, value_tokens[0].lexeme, "@import")) return null;
+    if (value_tokens[1].tag != .l_paren or value_tokens[2].tag != .string_literal or value_tokens[3].tag != .r_paren) {
+        return null;
+    }
+    return try decodeStringLiteralAlloc(allocator, value_tokens[2].lexeme);
+}
+
+fn collectImportedEmbedFileFunctionPatternsAlloc(
+    allocator: std.mem.Allocator,
+    scan: BuildInputSourceScan,
+) ![]ImportedEmbedFnPattern {
+    var patterns = std.ArrayList(ImportedEmbedFnPattern).empty;
+    errdefer {
+        for (patterns.items) |*pattern| pattern.deinit(allocator);
+        patterns.deinit(allocator);
+    }
+
+    const source_dir = std.fs.path.dirname(scan.source_path) orelse ".";
+    var index: usize = 0;
+    var scope_depth: usize = 0;
+    while (index + 1 < scan.tokens.len) {
+        switch (scan.tokens[index].tag) {
+            .l_brace => {
+                scope_depth += 1;
+                index += 1;
+                continue;
+            },
+            .r_brace => {
+                if (scope_depth > 0) scope_depth -= 1;
+                index += 1;
+                continue;
+            },
+            else => {},
+        }
+
+        if (scope_depth != 0 or scan.tokens[index].tag != .keyword_const or scan.tokens[index + 1].tag != .identifier) {
+            index += 1;
+            continue;
+        }
+
+        var cursor = index + 2;
+        var depth: usize = 0;
+        var equal_index: ?usize = null;
+        var semicolon_index: ?usize = null;
+        while (cursor < scan.tokens.len) : (cursor += 1) {
+            switch (scan.tokens[cursor].tag) {
+                .l_paren, .l_brace, .l_bracket => depth += 1,
+                .r_paren, .r_brace, .r_bracket => {
+                    if (depth > 0) depth -= 1;
+                },
+                .equal => {
+                    if (depth == 0 and equal_index == null) equal_index = cursor;
+                },
+                .semicolon => {
+                    if (depth == 0) {
+                        semicolon_index = cursor;
+                        break;
+                    }
+                },
+                else => {},
+            }
+        }
+
+        const value_start = equal_index orelse {
+            index += 1;
+            continue;
+        };
+        const value_end = semicolon_index orelse {
+            index += 1;
+            continue;
+        };
+        const decoded = try importPathFromValueTokensAlloc(allocator, scan.tokens[value_start + 1 .. value_end]) orelse {
+            index = value_end + 1;
+            continue;
+        };
+        defer allocator.free(decoded);
+
+        const resolved = try std.fs.path.resolve(allocator, &.{ scan.repo_root, source_dir, decoded });
+        defer allocator.free(resolved);
+        const repo_relative = try tryRepoRelativePathFromAbsoluteAlloc(allocator, scan.repo_root, resolved) orelse {
+            index = value_end + 1;
+            continue;
+        };
+        defer allocator.free(repo_relative);
+        if (!std.mem.endsWith(u8, repo_relative, ".zig")) {
+            index = value_end + 1;
+            continue;
+        }
+
+        const imported_source_full_path = try std.fs.path.join(allocator, &.{ scan.repo_root, repo_relative });
+        defer allocator.free(imported_source_full_path);
+        const imported_bytes = std.fs.cwd().readFileAlloc(allocator, imported_source_full_path, 1 << 20) catch |err| switch (err) {
+            error.FileNotFound => {
+                index = value_end + 1;
+                continue;
+            },
+            else => return err,
+        };
+        defer allocator.free(imported_bytes);
+        const imported_source_z = try allocator.dupeZ(u8, imported_bytes);
+        defer allocator.free(imported_source_z);
+
+        const imported_patterns = try collectSameFileEmbedFunctionPatternsAlloc(allocator, imported_source_z);
+        defer allocator.free(imported_patterns);
+        const imported_source_dir = std.fs.path.dirname(repo_relative) orelse ".";
+        for (imported_patterns) |pattern| {
+            try patterns.append(allocator, .{
+                .module_binding = try allocator.dupe(u8, scan.tokens[index + 1].lexeme),
+                .source_dir = try allocator.dupe(u8, imported_source_dir),
+                .pattern = pattern,
+            });
+        }
+        index = value_end + 1;
+    }
+
+    return try patterns.toOwnedSlice(allocator);
+}
+
 fn collectBuildInputTokensAlloc(
     allocator: std.mem.Allocator,
     source: [:0]const u8,
@@ -841,33 +985,63 @@ fn collectParameterizedEmbedFileBuildInputsForSource(
     allocator: std.mem.Allocator,
     scan: BuildInputSourceScan,
 ) !void {
+    const Match = struct {
+        pattern: *const EmbedFileFunctionPattern,
+        call_source_dir: []const u8,
+        arg_start: usize,
+    };
+
     const patterns = try collectSameFileEmbedFunctionPatternsAlloc(allocator, scan.source);
     defer freeEmbedFileFunctionPatterns(allocator, patterns);
-    if (patterns.len == 0) return;
+    const imported_patterns = try collectImportedEmbedFileFunctionPatternsAlloc(allocator, scan);
+    defer freeImportedEmbedFileFunctionPatterns(allocator, imported_patterns);
+    if (patterns.len == 0 and imported_patterns.len == 0) return;
 
     const source_dir = std.fs.path.dirname(scan.source_path) orelse ".";
     var index: usize = 0;
     while (index + 1 < scan.tokens.len) : (index += 1) {
-        if (scan.tokens[index].tag != .identifier or scan.tokens[index + 1].tag != .l_paren) continue;
-        if (index > 0 and scan.tokens[index - 1].tag == .keyword_fn) continue;
-
-        const pattern = blk: {
-            for (patterns) |*candidate| {
-                if (std.mem.eql(u8, candidate.fn_name, scan.tokens[index].lexeme)) break :blk candidate;
+        const match = (blk: {
+            if (scan.tokens[index].tag == .identifier and scan.tokens[index + 1].tag == .l_paren) {
+                if (index > 0 and scan.tokens[index - 1].tag == .keyword_fn) break :blk null;
+                for (patterns) |*candidate| {
+                    if (std.mem.eql(u8, candidate.fn_name, scan.tokens[index].lexeme)) {
+                        break :blk Match{
+                            .pattern = candidate,
+                            .call_source_dir = source_dir,
+                            .arg_start = index + 2,
+                        };
+                    }
+                }
+            }
+            if (index + 3 < scan.tokens.len and
+                scan.tokens[index].tag == .identifier and
+                scan.tokens[index + 1].tag == .period and
+                scan.tokens[index + 2].tag == .identifier and
+                scan.tokens[index + 3].tag == .l_paren)
+            {
+                for (imported_patterns) |*candidate| {
+                    if (!std.mem.eql(u8, candidate.module_binding, scan.tokens[index].lexeme)) continue;
+                    if (!std.mem.eql(u8, candidate.pattern.fn_name, scan.tokens[index + 2].lexeme)) continue;
+                    break :blk Match{
+                        .pattern = &candidate.pattern,
+                        .call_source_dir = candidate.source_dir,
+                        .arg_start = index + 4,
+                    };
+                }
             }
             break :blk null;
-        } orelse continue;
+        }) orelse continue;
 
         var arg_index: usize = 0;
-        var arg_start = index + 2;
+        var arg_start = match.arg_start;
         var depth: usize = 0;
-        var cursor = index + 2;
+        var cursor = match.arg_start;
         while (cursor < scan.tokens.len) : (cursor += 1) {
             switch (scan.tokens[cursor].tag) {
                 .l_paren, .l_brace, .l_bracket => depth += 1,
                 .r_paren => {
                     if (depth == 0) {
-                        if (patternUsesParamIndex(pattern, arg_index)) {
+                        if (patternUsesParamIndex(match.pattern, arg_index)) {
                             const arg_tokens = scan.tokens[arg_start..cursor];
                             const decoded = try resolveBuildInputStringTokensAtUseAlloc(
                                 allocator,
@@ -881,7 +1055,7 @@ fn collectParameterizedEmbedFileBuildInputsForSource(
                                 try appendResolvedEmbedPathIfPresent(
                                     allocator,
                                     scan.repo_root,
-                                    source_dir,
+                                    match.call_source_dir,
                                     owned,
                                     scan.collector,
                                 );
@@ -897,7 +1071,7 @@ fn collectParameterizedEmbedFileBuildInputsForSource(
                 },
                 .comma => {
                     if (depth != 0) continue;
-                    if (patternUsesParamIndex(pattern, arg_index)) {
+                    if (patternUsesParamIndex(match.pattern, arg_index)) {
                         const arg_tokens = scan.tokens[arg_start..cursor];
                         const decoded = try resolveBuildInputStringTokensAtUseAlloc(
                             allocator,
@@ -911,7 +1085,7 @@ fn collectParameterizedEmbedFileBuildInputsForSource(
                             try appendResolvedEmbedPathIfPresent(
                                 allocator,
                                 scan.repo_root,
-                                source_dir,
+                                match.call_source_dir,
                                 owned,
                                 scan.collector,
                             );
@@ -1771,6 +1945,39 @@ test "artifact build fingerprint includes same-file comptime parameter embed inp
 
     const before = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
     try writeTmpFile(tmp.dir, "schema.json", "{ \"version\": 2 }\n");
+    const after = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try std.testing.expect(!std.mem.eql(u8, &before, &after));
+}
+
+test "artifact build fingerprint includes imported helper wrapper embed inputs" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
+    try writeTmpFile(tmp.dir, "probe.zig",
+        \\const helper = @import("helpers/helper.zig");
+        \\
+        \\pub fn main() void {
+        \\    const schema = helper.fixture("schema.json");
+        \\    _ = schema;
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "helpers/helper.zig",
+        \\pub fn fixture(comptime rel: []const u8) []const u8 {
+        \\    return @embedFile(rel);
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "helpers/schema.json", "{ \"version\": 1 }\n");
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "init", "-q" });
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "add", "probe.zig", "build.zig.zon" });
+
+    const before = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try writeTmpFile(tmp.dir, "helpers/schema.json", "{ \"version\": 2 }\n");
     const after = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
     try std.testing.expect(!std.mem.eql(u8, &before, &after));
 }

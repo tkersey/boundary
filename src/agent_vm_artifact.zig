@@ -969,10 +969,11 @@ fn decodeRequirementTable(allocator: std.mem.Allocator, string_bytes: []const u8
 fn resolveRequirementCapabilityId(plan: program_plan.ProgramPlan, requirement_index: usize, capabilities: []const CapabilityV1) !u16 {
     const requirement = plan.requirements[requirement_index];
     var wanted_ordinal: usize = 0;
-    for (plan.requirements[0..requirement_index]) |previous| {
-        if (previous.op_count == requirement.op_count and std.mem.eql(u8, previous.label, requirement.label)) {
-            wanted_ordinal += 1;
-        }
+    for (plan.requirements[0..requirement_index], 0..) |previous, previous_requirement_index| {
+        if (previous.op_count != requirement.op_count) continue;
+        if (!std.mem.eql(u8, previous.label, requirement.label)) continue;
+        if (!requirementsShareCompatibleCapability(plan, previous_requirement_index, requirement_index, capabilities)) continue;
+        wanted_ordinal += 1;
     }
 
     var current_ordinal: usize = 0;
@@ -1009,6 +1010,22 @@ fn toolCapabilityMatchesRequirement(plan: program_plan.ProgramPlan, requirement_
         if (capability_op.result_codec != mapPlanCodecToCapabilityCodec(expected_result_codec)) return false;
     }
     return true;
+}
+
+fn requirementsShareCompatibleCapability(
+    plan: program_plan.ProgramPlan,
+    requirement_index: usize,
+    other_requirement_index: usize,
+    capabilities: []const CapabilityV1,
+) bool {
+    for (capabilities) |capability| {
+        if (toolCapabilityMatchesRequirement(plan, requirement_index, capability) and
+            toolCapabilityMatchesRequirement(plan, other_requirement_index, capability))
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 fn validateRequirementCapabilityOpNameDisambiguation(
@@ -2955,6 +2972,85 @@ test "ArtifactV1 decode accepts reordered capability rows when repeated requirem
     defer std.testing.allocator.free(encoded);
 
     swapCapabilityManifestEntries(encoded, 0, 1);
+
+    var decoded = try decode(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+
+    try std.testing.expectEqualSlices(u16, &.{ 11, 29 }, decoded.requirement_capability_ids);
+    try decoded.validate();
+}
+
+test "ArtifactV1 encode accepts repeated requirement labels when codecs choose distinct capabilities" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-repeated-requirement-compatible-codecs");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.repeated_requirement_compatible_codecs",
+        .ir_hash = 0xb16,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 2,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{
+            .{ .label = "tooling", .first_op = 0, .op_count = 1 },
+            .{ .label = "tooling", .first_op = 1, .op_count = 1 },
+        },
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "first", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+            .{ .requirement_index = 1, .op_name = "second", .mode = .transform, .payload_codec = .unit, .resume_codec = .i32 },
+        },
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const capabilities = [_]CapabilityV1{
+        .{
+            .capability_id = 11,
+            .kind = .tool,
+            .label = "generated/tooling@v1",
+            .ops = &.{.{
+                .capability_id = 11,
+                .op_id = 0,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .string,
+                .plan_op_ordinal = 0,
+            }},
+        },
+        .{
+            .capability_id = 29,
+            .kind = .tool,
+            .label = "generated/tooling@v1",
+            .ops = &.{.{
+                .capability_id = 29,
+                .op_id = 1,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .i32,
+                .plan_op_ordinal = 0,
+            }},
+        },
+    };
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    });
+    defer std.testing.allocator.free(encoded);
 
     var decoded = try decode(std.testing.allocator, encoded);
     defer decoded.deinit(std.testing.allocator);
