@@ -2611,7 +2611,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    durable_session_mod.addImport("shift", shift_shared_mod);
+    durable_session_mod.addImport("shift", shift_vm_mod);
     const durable_session_tests = b.addTest(.{
         .root_module = durable_session_mod,
     });
