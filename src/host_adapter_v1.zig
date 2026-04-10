@@ -369,8 +369,8 @@ pub const HostLogEntryV1 = struct {
 
 /// Synchronous host dispatch interface used by the ArtifactV1 VM runtime.
 pub const HostAdapterV1 = struct {
-    ctx: *anyopaque,
-    dispatchFn: *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, request: HostEffectRequestV1) anyerror!HostEffectResultV1,
+    ctx: ?*anyopaque,
+    dispatchFn: *const fn (ctx: ?*anyopaque, allocator: std.mem.Allocator, request: HostEffectRequestV1) anyerror!HostEffectResultV1,
 
     /// Dispatch one synchronous host-effect request.
     pub fn dispatch(self: @This(), allocator: std.mem.Allocator, request: HostEffectRequestV1) anyerror!HostEffectResultV1 {

@@ -957,7 +957,7 @@ test "helper frames clone string parameters before returning them" {
         .decoded = &decoded,
         .plan = plan,
         .adapter = .{
-            .ctx = undefined,
+            .ctx = null,
             .dispatchFn = struct {
                 fn dispatch(_: ?*anyopaque, _: std.mem.Allocator, _: host.HostEffectRequestV1) anyerror!host.HostEffectResultV1 {
                     return error.UnexpectedHostDispatch;

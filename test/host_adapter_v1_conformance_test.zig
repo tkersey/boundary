@@ -174,6 +174,54 @@ test "HostAdapterV1 wrapper deinit accepts nested borrowed payloads when only co
     result.deinit(std.testing.allocator);
 }
 
+test "HostAdapterV1 dispatch accepts stateless adapters with null ctx" {
+    const adapter: host.HostAdapterV1 = .{
+        .ctx = null,
+        .dispatchFn = struct {
+            fn dispatch(ctx: ?*anyopaque, allocator: std.mem.Allocator, request: host.HostEffectRequestV1) anyerror!host.HostEffectResultV1 {
+                try std.testing.expectEqual(@as(?*anyopaque, null), ctx);
+                return .{
+                    .request_id = request.request_id,
+                    .body = .{ .success = .{
+                        .tool_id = try allocator.dupe(u8, request.body.tool_call.tool_id),
+                        .call_id = request.body.tool_call.call_id,
+                        .control = .@"resume",
+                        .value = .null,
+                        .owns_tool_id = true,
+                    } },
+                };
+            }
+        }.dispatch,
+    };
+
+    var result = try adapter.dispatch(std.testing.allocator, .{
+        .request_id = 7,
+        .capability_id = 3,
+        .op_id = 2,
+        .body = .{ .tool_call = .{
+            .tool_id = "generated/tooling@v1",
+            .call_id = 7,
+            .op_name = "echo",
+            .arguments = .null,
+        } },
+    });
+    defer result.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(u64, 7), result.request_id);
+    switch (result.body) {
+        .success => |success| {
+            try std.testing.expectEqualStrings("generated/tooling@v1", success.tool_id);
+            try std.testing.expectEqual(@as(u64, 7), success.call_id);
+            try std.testing.expectEqual(host.ToolControlV1.@"resume", success.control);
+            switch (success.value) {
+                .null => {},
+                else => return error.TestUnexpectedResult,
+            }
+        },
+        else => return error.TestUnexpectedResult,
+    }
+}
+
 test "HostAdapterV1 container ownership frees object keys for request and result wrappers" {
     var request_fields = try std.testing.allocator.alloc(host.ObjectFieldV1, 1);
     const request_key = try std.testing.allocator.dupe(u8, "request");

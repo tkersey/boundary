@@ -83,8 +83,8 @@ fn expectFailed(result: *shift_vm.runtime.RunArtifactResultV1) !*shift_vm.runtim
     };
 }
 
-fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.host_adapter.HostEffectRequestV1) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
-    const runtime_ctx: *RuntimeContext = @ptrCast(@alignCast(ctx));
+fn dispatch(ctx: ?*anyopaque, allocator: std.mem.Allocator, request: shift_vm.host_adapter.HostEffectRequestV1) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    const runtime_ctx: *RuntimeContext = @ptrCast(@alignCast(ctx.?));
     const tool_call = request.body.tool_call;
     if (std.mem.eql(u8, tool_call.op_name, "afterGet") or
         std.mem.eql(u8, tool_call.op_name, "afterSet") or
@@ -171,7 +171,7 @@ const after_ctx = struct {};
 const after_helper_ctx = struct {};
 
 fn dispatchManifestOpIdentityStringResults(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
     request: shift_vm.host_adapter.HostEffectRequestV1,
 ) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
@@ -199,7 +199,7 @@ fn dispatchManifestOpIdentityStringResults(
 }
 
 fn dispatchAuthoredAfterWorkflow(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
     request: shift_vm.host_adapter.HostEffectRequestV1,
 ) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
@@ -244,7 +244,7 @@ fn dispatchAuthoredAfterWorkflow(
 }
 
 fn dispatchAfterHelperTerminalWorkflow(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
     request: shift_vm.host_adapter.HostEffectRequestV1,
 ) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
@@ -305,7 +305,7 @@ fn dispatchAfterHelperTerminalWorkflow(
 }
 
 fn dispatchReorderedAfterRowWorkflow(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
     request: shift_vm.host_adapter.HostEffectRequestV1,
 ) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
@@ -352,7 +352,7 @@ fn dispatchReorderedAfterRowWorkflow(
 }
 
 fn dispatchHelperStringOwnership(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
     request: shift_vm.host_adapter.HostEffectRequestV1,
 ) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
@@ -380,7 +380,7 @@ fn dispatchHelperStringOwnership(
 }
 
 fn dispatchTerminalReturn(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
     request: shift_vm.host_adapter.HostEffectRequestV1,
 ) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
@@ -401,7 +401,7 @@ fn dispatchTerminalReturn(
 }
 
 fn dispatchTerminalAbort(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
     request: shift_vm.host_adapter.HostEffectRequestV1,
 ) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
@@ -422,11 +422,11 @@ fn dispatchTerminalAbort(
 }
 
 fn dispatchIntegerResult(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
     request: shift_vm.host_adapter.HostEffectRequestV1,
 ) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
-    const runtime_ctx: *IntegerDispatchContext = @ptrCast(@alignCast(ctx));
+    const runtime_ctx: *IntegerDispatchContext = @ptrCast(@alignCast(ctx.?));
     return .{
         .request_id = request.request_id,
         .body = .{ .success = .{
@@ -440,11 +440,11 @@ fn dispatchIntegerResult(
 }
 
 fn dispatchUnsignedIntegerRoundTrip(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
     request: shift_vm.host_adapter.HostEffectRequestV1,
 ) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
-    const runtime_ctx: *UnsignedIntegerDispatchContext = @ptrCast(@alignCast(ctx));
+    const runtime_ctx: *UnsignedIntegerDispatchContext = @ptrCast(@alignCast(ctx.?));
     if (request.op_id == 1) {
         runtime_ctx.seen_argument = switch (request.body.tool_call.arguments) {
             .u64 => |typed| typed,
@@ -464,11 +464,11 @@ fn dispatchUnsignedIntegerRoundTrip(
 }
 
 fn dispatchFixedControlResult(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
     request: shift_vm.host_adapter.HostEffectRequestV1,
 ) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
-    const runtime_ctx: *FixedControlDispatchContext = @ptrCast(@alignCast(ctx));
+    const runtime_ctx: *FixedControlDispatchContext = @ptrCast(@alignCast(ctx.?));
     return .{
         .request_id = request.request_id,
         .body = .{ .success = .{
@@ -486,11 +486,11 @@ fn dispatchFixedControlResult(
 }
 
 fn dispatchMismatchedSuccess(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
     request: shift_vm.host_adapter.HostEffectRequestV1,
 ) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
-    const runtime_ctx: *IntegerDispatchContext = @ptrCast(@alignCast(ctx));
+    const runtime_ctx: *IntegerDispatchContext = @ptrCast(@alignCast(ctx.?));
     return .{
         .request_id = request.request_id,
         .body = .{ .success = .{
@@ -504,7 +504,7 @@ fn dispatchMismatchedSuccess(
 }
 
 fn dispatchWrongSchemaVersion(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
     request: shift_vm.host_adapter.HostEffectRequestV1,
 ) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
@@ -523,7 +523,7 @@ fn dispatchWrongSchemaVersion(
 }
 
 fn dispatchNonNullUnitResult(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
     request: shift_vm.host_adapter.HostEffectRequestV1,
 ) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
@@ -1682,7 +1682,7 @@ test "ArtifactV1 runtime rejects host replies with non-v1 schema versions" {
     defer std.testing.allocator.free(bytes);
 
     var result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
-        .ctx = undefined,
+        .ctx = null,
         .dispatchFn = dispatchWrongSchemaVersion,
     });
     defer result.deinit(std.testing.allocator);
@@ -1693,7 +1693,7 @@ test "ArtifactV1 runtime rejects host replies with non-v1 schema versions" {
 }
 
 fn dispatchRejectedFailure(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
     request: shift_vm.host_adapter.HostEffectRequestV1,
 ) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
@@ -1710,7 +1710,7 @@ fn dispatchRejectedFailure(
 }
 
 fn dispatchFailedFailure(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
     request: shift_vm.host_adapter.HostEffectRequestV1,
 ) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
@@ -1727,7 +1727,7 @@ fn dispatchFailedFailure(
 }
 
 fn dispatchThrownFailure(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
     request: shift_vm.host_adapter.HostEffectRequestV1,
 ) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
@@ -1738,7 +1738,7 @@ fn dispatchThrownFailure(
 }
 
 fn dispatchBorrowedFailedFailure(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
     request: shift_vm.host_adapter.HostEffectRequestV1,
 ) anyerror!shift_vm.host_adapter.HostEffectResultV1 {

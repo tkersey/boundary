@@ -13,9 +13,25 @@ const RuntimeContext = struct {
     }
 };
 
-fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.host_adapter.HostEffectRequestV1) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
-    const runtime_ctx: *RuntimeContext = @ptrCast(@alignCast(ctx));
+fn dispatch(ctx: ?*anyopaque, allocator: std.mem.Allocator, request: shift_vm.host_adapter.HostEffectRequestV1) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    const runtime_ctx: *RuntimeContext = @ptrCast(@alignCast(ctx.?));
     const tool_call = request.body.tool_call;
+    if (std.mem.eql(u8, tool_call.op_name, "afterGet") or
+        std.mem.eql(u8, tool_call.op_name, "afterSet") or
+        std.mem.eql(u8, tool_call.op_name, "afterTell"))
+    {
+        return .{
+            .request_id = request.request_id,
+            .body = .{ .success = .{
+                .tool_id = try allocator.dupe(u8, tool_call.tool_id),
+                .call_id = tool_call.call_id,
+                .control = .@"resume",
+                .value = try tool_call.arguments.clone(allocator),
+                .owns_tool_id = true,
+                .value_ownership = .deep,
+            } },
+        };
+    }
     if (std.mem.eql(u8, tool_call.op_name, "get")) {
         return .{
             .request_id = request.request_id,
