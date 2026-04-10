@@ -159,6 +159,9 @@ Each capability row has:
 - `first_op: u16`
 - `op_count: u16`
 
+In v1 every capability row must set the required bit. Optional tool
+capabilities are reserved for a later revision.
+
 Each capability-op row has:
 
 - `capability_id: u16`

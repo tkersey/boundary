@@ -56,7 +56,7 @@ fn render(list: *std.ArrayList(u8), allocator: std.mem.Allocator) !void {
     const has_blocked_cases = bridge_manifest.blockedCount() != 0;
     try list.appendSlice(allocator, "{\n");
     try list.appendSlice(allocator, "  \"public_kernel\": {\n");
-    try list.appendSlice(allocator, "    \"contract\": \"shift.Decl and shift.Program author against one public runtime kernel rooted at shift.Runtime and shift.run\",\n");
+    try list.appendSlice(allocator, "    \"contract\": \"shift.with and shift.effect author against one public runtime rooted at shift.Runtime, while shift_compile and shift_vm carry the compile and compatibility surfaces\",\n");
     try list.appendSlice(allocator, "    \"status\": \"canonical\"\n");
     try list.appendSlice(allocator, "  },\n");
     try list.appendSlice(allocator, "  \"benchmark_stability\": {\n");

@@ -24,6 +24,7 @@ fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.hos
                 .call_id = tool_call.call_id,
                 .control = .@"resume",
                 .value = .{ .i64 = runtime_ctx.state },
+                .owns_tool_id = true,
             } },
         };
     }
@@ -36,6 +37,7 @@ fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.hos
                 .call_id = tool_call.call_id,
                 .control = .@"resume",
                 .value = .null,
+                .owns_tool_id = true,
             } },
         };
     }
@@ -48,6 +50,7 @@ fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.hos
                 .call_id = tool_call.call_id,
                 .control = .@"resume",
                 .value = .null,
+                .owns_tool_id = true,
             } },
         };
     }
@@ -56,6 +59,8 @@ fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.hos
         .body = .{ .failed = .{
             .code = try allocator.dupe(u8, "unknown_op"),
             .message = try allocator.dupe(u8, tool_call.op_name),
+            .owns_code = true,
+            .owns_message = true,
         } },
     };
 }

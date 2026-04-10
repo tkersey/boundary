@@ -349,7 +349,7 @@ pub fn encodeProgramPlan(
     defer allocator.free(block_table);
     const terminator_table = try encodeTerminatorTable(allocator, plan.terminators);
     defer allocator.free(terminator_table);
-    const instruction_table = try encodeInstructionTable(allocator, &strings, plan.instructions);
+    const instruction_table = try encodeInstructionTable(allocator, &strings, plan);
     defer allocator.free(instruction_table);
     const string_table = try strings.toOwnedBytes(allocator);
     defer allocator.free(string_table);
@@ -634,6 +634,7 @@ fn validateManifest(build_fingerprint: [32]u8, capabilities: []const CapabilityV
             if (capability.capability_id == other.capability_id) return error.DuplicateCapabilityId;
         }
         if (capability.kind != .tool) return error.UnsupportedVersion;
+        if (!capability.required) return error.InvalidRequiredSection;
         try validateToolIdV1(capability.label);
         for (capability.ops, 0..) |op, op_index| {
             if (op.capability_id != capability.capability_id) return error.DuplicateCapabilityOpId;
@@ -943,19 +944,58 @@ fn encodeTerminatorTable(allocator: std.mem.Allocator, terminators: []const prog
     return out.toOwnedSlice(allocator);
 }
 
-fn encodeInstructionTable(allocator: std.mem.Allocator, strings: *StringTable, instructions: []const program_plan.Instruction) ![]u8 {
+fn encodeInstructionTable(allocator: std.mem.Allocator, strings: *StringTable, plan: program_plan.ProgramPlan) ![]u8 {
     var out = std.ArrayList(u8).empty;
     errdefer out.deinit(allocator);
-    for (instructions) |instruction| {
-        const string_ref = try strings.add(instruction.string_literal);
-        try out.append(allocator, @intFromEnum(instruction.kind));
+    for (plan.instructions) |instruction| {
+        const canonical = canonicalInstruction(plan, instruction);
+        const string_ref = try strings.add(canonical.string_literal);
+        try out.append(allocator, @intFromEnum(canonical.kind));
         try out.append(allocator, 0);
-        try appendU16(&out, allocator, instruction.dst);
-        try appendU16(&out, allocator, instruction.operand);
-        try appendU16(&out, allocator, instruction.aux);
+        try appendU16(&out, allocator, canonical.dst);
+        try appendU16(&out, allocator, canonical.operand);
+        try appendU16(&out, allocator, canonical.aux);
         try encodeStringRef(&out, allocator, string_ref);
     }
     return out.toOwnedSlice(allocator);
+}
+
+fn canonicalInstruction(plan: program_plan.ProgramPlan, instruction: program_plan.Instruction) program_plan.Instruction {
+    var canonical = instruction;
+    switch (instruction.kind) {
+        .add_const_i32 => canonical.string_literal = "",
+        .call_helper => {
+            const callee = plan.functions[instruction.operand];
+            if (callee.value_codec == .unit) canonical.dst = 0;
+            if (callee.parameter_count == 0) canonical.aux = 0;
+            canonical.string_literal = "";
+        },
+        .call_op => {
+            const op = plan.ops[instruction.operand];
+            if (op.resume_codec == .unit) canonical.dst = 0;
+            if (op.payload_codec == .unit) canonical.aux = 0;
+            canonical.string_literal = "";
+        },
+        .compare_eq_zero => {
+            canonical.aux = 0;
+            canonical.string_literal = "";
+        },
+        .const_i32 => canonical.string_literal = "",
+        .const_string => {
+            canonical.operand = 0;
+            canonical.aux = 0;
+        },
+        .return_value => {
+            canonical.dst = 0;
+            canonical.aux = 0;
+            canonical.string_literal = "";
+        },
+        .sub_one => {
+            canonical.aux = 0;
+            canonical.string_literal = "";
+        },
+    }
+    return canonical;
 }
 
 const DecodedRequirements = struct {
@@ -2577,6 +2617,78 @@ test "ArtifactV1 decode rejects unknown capability flag bits" {
     try std.testing.expectError(error.UnsupportedVersion, decode(std.testing.allocator, encoded));
 }
 
+test "ArtifactV1 rejects optional capability rows during encode and decode" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.optional_capability_rejected",
+        .ir_hash = 0x91,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "call", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const optional_capabilities = [_]CapabilityV1{.{
+        .capability_id = 4,
+        .kind = .tool,
+        .required = false,
+        .label = "generated/tooling@v1",
+        .ops = &.{.{
+            .capability_id = 4,
+            .op_id = 0,
+            .global_op_name = "tool.call",
+            .payload_codec = .unit,
+            .result_codec = .unit,
+            .plan_op_ordinal = 0,
+        }},
+    }};
+
+    try std.testing.expectError(error.InvalidRequiredSection, encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = buildFingerprintFromSeed("artifact-optional-capability-encode"),
+        .capabilities = &optional_capabilities,
+    }));
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = buildFingerprintFromSeed("artifact-optional-capability-decode"),
+        .capabilities = &.{.{
+            .capability_id = 4,
+            .kind = .tool,
+            .label = "generated/tooling@v1",
+            .ops = &.{.{
+                .capability_id = 4,
+                .op_id = 0,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .unit,
+                .plan_op_ordinal = 0,
+            }},
+        }},
+    });
+    defer std.testing.allocator.free(encoded);
+
+    patchCapabilityFlags(encoded, 0, 0);
+    try std.testing.expectError(error.InvalidRequiredSection, decode(std.testing.allocator, encoded));
+}
+
 test "ArtifactV1 advertises usize capability codecs precisely" {
     try std.testing.expectEqual(CapabilityCodecV1.usize, mapPlanCodecToCapabilityCodec(.usize));
 }
@@ -2663,6 +2775,73 @@ test "ArtifactV1 rejects executable string_list codecs during encode" {
         .build_fingerprint_blake3_256 = build_fingerprint,
         .capabilities = &.{},
     }));
+}
+
+test "ArtifactV1 encoding canonicalizes ignored instruction fields" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-v1-canonical-instruction-fields");
+    const base_plan: program_plan.ProgramPlan = .{
+        .label = "artifact.canonical_instruction_fields",
+        .ir_hash = 0x92,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_string, .dst = 0, .string_literal = "done" },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+    const noisy_plan: program_plan.ProgramPlan = .{
+        .label = "artifact.canonical_instruction_fields",
+        .ir_hash = 0x92,
+        .entry_index = 0,
+        .functions = base_plan.functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = base_plan.locals,
+        .call_args = &.{},
+        .blocks = base_plan.blocks,
+        .terminators = base_plan.terminators,
+        .instructions = &.{
+            .{ .kind = .const_string, .dst = 0, .operand = 17, .aux = 23, .string_literal = "done" },
+            .{ .kind = .return_value, .dst = 9, .operand = 0, .aux = 11, .string_literal = "ignored" },
+        },
+    };
+
+    const base_bytes = try encodeProgramPlan(std.testing.allocator, base_plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(base_bytes);
+
+    const noisy_bytes = try encodeProgramPlan(std.testing.allocator, noisy_plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(noisy_bytes);
+
+    try std.testing.expectEqualSlices(u8, base_bytes, noisy_bytes);
 }
 
 test "ArtifactV1 encoding is deterministic and disasm is readable" {

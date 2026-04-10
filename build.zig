@@ -1521,19 +1521,19 @@ fn externalBoundaryFixtureNamespace(allocator: std.mem.Allocator, repo_root: []c
     );
 }
 
-fn externalBoundaryFixtureRootPath(allocator: std.mem.Allocator, repo_root: []const u8) ![]u8 {
-    const repo_parent = std.fs.path.dirname(repo_root) orelse
-        return error.MissingExternalBoundaryFixtureParent;
+fn externalBoundaryFixtureRootPath(allocator: std.mem.Allocator, cache_root: []const u8, repo_root: []const u8) ![]u8 {
     const fixture_namespace = try externalBoundaryFixtureNamespace(allocator, repo_root);
     defer allocator.free(fixture_namespace);
     return std.fs.path.join(
         allocator,
-        &.{ repo_parent, ".shift_external_boundary_fixtures", fixture_namespace },
+        &.{ cache_root, "shift_external_boundary_fixtures", fixture_namespace },
     );
 }
 
 fn externalBoundaryFixtureRoot(b: *std.Build) []const u8 {
-    return externalBoundaryFixtureRootPath(b.allocator, b.pathFromRoot(".")) catch
+    const cache_root = b.graph.global_cache_root.path orelse
+        std.process.fatal("missing global cache root for external boundary fixtures", .{});
+    return externalBoundaryFixtureRootPath(b.allocator, cache_root, b.pathFromRoot(".")) catch
         std.process.fatal("unable to allocate external boundary fixture root", .{});
 }
 
@@ -1707,6 +1707,15 @@ fn ensureOptionalAbsoluteSymlink(
     dir_error: []const u8,
     path_error: []const u8,
 ) bool {
+    var owned_absolute_target: ?[]u8 = null;
+    defer if (owned_absolute_target) |path| std.heap.page_allocator.free(path);
+    const absolute_target = if (std.fs.path.isAbsolute(target_path))
+        target_path
+    else blk: {
+        owned_absolute_target = std.fs.cwd().realpathAlloc(std.heap.page_allocator, target_path) catch return false;
+        break :blk owned_absolute_target.?;
+    };
+
     var link_buffer: [std.fs.max_path_bytes]u8 = undefined;
     const existing_target = std.fs.readLinkAbsolute(link_path, &link_buffer) catch |err| switch (err) {
         error.FileNotFound => null,
@@ -1716,11 +1725,11 @@ fn ensureOptionalAbsoluteSymlink(
         },
     };
     if (existing_target) |existing| {
-        if (std.mem.eql(u8, existing, target_path)) return true;
+        if (std.mem.eql(u8, existing, absolute_target)) return true;
     }
 
     clearAliasPath(link_path, dir_error, path_error);
-    std.fs.symLinkAbsolute(target_path, link_path, .{}) catch return false;
+    std.fs.symLinkAbsolute(absolute_target, link_path, .{}) catch return false;
     return true;
 }
 
@@ -1794,11 +1803,13 @@ test "zigStringLiteralEscapeAlloc escapes path bytes for generated fixture sourc
 test "externalBoundaryFixtureRootPath namespaces sibling checkouts" {
     const first = try externalBoundaryFixtureRootPath(
         std.testing.allocator,
+        "/tmp/shift-cache",
         "/tmp/shift-parent/shift-a",
     );
     defer std.testing.allocator.free(first);
     const second = try externalBoundaryFixtureRootPath(
         std.testing.allocator,
+        "/tmp/shift-cache",
         "/tmp/shift-parent/shift-b",
     );
     defer std.testing.allocator.free(second);
@@ -1806,14 +1817,52 @@ test "externalBoundaryFixtureRootPath namespaces sibling checkouts" {
     try std.testing.expect(std.mem.startsWith(
         u8,
         first,
-        "/tmp/shift-parent/.shift_external_boundary_fixtures/",
+        "/tmp/shift-cache/shift_external_boundary_fixtures/",
     ));
     try std.testing.expect(std.mem.startsWith(
         u8,
         second,
-        "/tmp/shift-parent/.shift_external_boundary_fixtures/",
+        "/tmp/shift-cache/shift_external_boundary_fixtures/",
     ));
     try std.testing.expect(!std.mem.eql(u8, first, second));
+}
+
+test "ensureOptionalAbsoluteSymlink resolves relative targets before linking" {
+    const repo_root = try makeExternalTmpDir(std.testing.allocator);
+    defer std.testing.allocator.free(repo_root);
+    defer runChildExpectSuccess(std.testing.allocator, &.{ "rm", "-rf", repo_root }) catch unreachable;
+
+    var repo_dir = try std.fs.openDirAbsolute(repo_root, .{});
+    defer repo_dir.close();
+    try writeTmpFile(repo_dir, "target.txt", "ok\n");
+
+    const target_path = try std.fs.path.join(std.testing.allocator, &.{ repo_root, "target.txt" });
+    defer std.testing.allocator.free(target_path);
+    const canonical_target_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, target_path);
+    defer std.testing.allocator.free(canonical_target_path);
+    const link_path = try std.fs.path.join(std.testing.allocator, &.{ repo_root, "target.link" });
+    defer std.testing.allocator.free(link_path);
+    defer clearAliasPath(
+        link_path,
+        "unable to clear relative target symlink directory",
+        "unable to clear relative target symlink path",
+    );
+
+    const cwd = try std.process.getCwdAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(cwd);
+    const relative_target = try std.fs.path.relative(std.testing.allocator, cwd, target_path);
+    defer std.testing.allocator.free(relative_target);
+
+    try std.testing.expect(ensureOptionalAbsoluteSymlink(
+        relative_target,
+        link_path,
+        "unable to clear relative target symlink directory",
+        "unable to clear relative target symlink path",
+    ));
+
+    var link_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const existing_target = try std.fs.readLinkAbsolute(link_path, &link_buffer);
+    try std.testing.expectEqualStrings(canonical_target_path, existing_target);
 }
 
 test "compileFailEscapeProbeLinkPath stays in the fixture directory" {
@@ -3062,8 +3111,10 @@ pub fn build(b: *std.Build) void {
     });
     const run_host_adapter_tests = b.addRunArtifact(host_adapter_conformance_tests);
     const host_adapter_conformance_step = b.step("host-adapter-conformance-check", "Check HostAdapterV1 request/result conformance helpers.");
+    const host_adapter_v1_conformance_step = b.step("host-adapter-v1-conformance-check", "Compatibility alias for HostAdapterV1 request/result conformance helpers.");
     test_step.dependOn(&run_host_adapter_tests.step);
     host_adapter_conformance_step.dependOn(&run_host_adapter_tests.step);
+    host_adapter_v1_conformance_step.dependOn(&run_host_adapter_tests.step);
 
     const artifact_dump_mod = b.createModule(.{
         .root_source_file = b.path("tools/artifact_v1_dump.zig"),
