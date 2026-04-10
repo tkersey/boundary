@@ -203,6 +203,9 @@ const FixedControlDispatchContext = struct {
 };
 
 const after_ctx = struct {};
+const AfterCallIdCtx = struct {
+    initial_call_id: ?u64 = null,
+};
 const after_helper_ctx = struct {};
 
 fn dispatchManifestOpIdentityStringResults(
@@ -254,6 +257,53 @@ fn dispatchAuthoredAfterWorkflow(
         };
     }
     if (std.mem.eql(u8, tool_call.op_name, "afterAsk")) {
+        try std.testing.expectEqual(@as(bool, true), tool_call.arguments.bool);
+        return .{
+            .request_id = request.request_id,
+            .body = .{ .success = .{
+                .tool_id = try allocator.dupe(u8, tool_call.tool_id),
+                .call_id = tool_call.call_id,
+                .control = .@"resume",
+                .value = .{ .bool = false },
+                .owns_tool_id = true,
+                .value_ownership = .deep,
+            } },
+        };
+    }
+    return .{
+        .request_id = request.request_id,
+        .body = .{ .failed = .{
+            .code = try allocator.dupe(u8, "unknown_op"),
+            .message = try allocator.dupe(u8, tool_call.op_name),
+            .owns_code = true,
+            .owns_message = true,
+        } },
+    };
+}
+
+fn dispatchAuthoredAfterWorkflowWithCallIdCheck(
+    ctx: ?*anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    const runtime_ctx: *AfterCallIdCtx = @ptrCast(@alignCast(ctx.?));
+    const tool_call = request.body.tool_call;
+    if (std.mem.eql(u8, tool_call.op_name, "ask")) {
+        runtime_ctx.initial_call_id = tool_call.call_id;
+        return .{
+            .request_id = request.request_id,
+            .body = .{ .success = .{
+                .tool_id = try allocator.dupe(u8, tool_call.tool_id),
+                .call_id = tool_call.call_id,
+                .control = .@"resume",
+                .value = .{ .bool = true },
+                .owns_tool_id = true,
+                .value_ownership = .deep,
+            } },
+        };
+    }
+    if (std.mem.eql(u8, tool_call.op_name, "afterAsk")) {
+        try std.testing.expectEqual(runtime_ctx.initial_call_id.?, tool_call.call_id);
         try std.testing.expectEqual(@as(bool, true), tool_call.arguments.bool);
         return .{
             .request_id = request.request_id,
@@ -576,6 +626,25 @@ fn dispatchNonNullUnitResult(
     };
 }
 
+fn dispatchOwnedStringResult(
+    ctx: ?*anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    _ = ctx;
+    return .{
+        .request_id = request.request_id,
+        .body = .{ .success = .{
+            .tool_id = try allocator.dupe(u8, request.body.tool_call.tool_id),
+            .call_id = request.body.tool_call.call_id,
+            .control = .@"resume",
+            .value = .{ .string = try allocator.dupe(u8, "owned-result") },
+            .owns_tool_id = true,
+            .value_ownership = .deep,
+        } },
+    };
+}
+
 fn encodeSingleResumeArtifact(
     allocator: std.mem.Allocator,
     codec: internal_program_plan.ValueCodec,
@@ -623,6 +692,62 @@ fn encodeSingleResumeArtifact(
             .global_op_name = "tool.call",
             .payload_codec = .unit,
             .result_codec = shift_vm.artifact.mapPlanCodecToCapabilityCodec(codec),
+            .plan_op_ordinal = 0,
+        }},
+    }};
+
+    return shift_vm.artifact.encodeProgramPlan(allocator, plan, .{
+        .build_fingerprint_blake3_256 = shift_vm.artifact.buildFingerprintFromSeed(build_seed),
+        .capabilities = &capabilities,
+    });
+}
+
+fn encodeStringResumeArtifactWithDeclaredOutput(
+    allocator: std.mem.Allocator,
+    build_seed: []const u8,
+) ![]u8 {
+    const plan: internal_program_plan.ProgramPlan = .{
+        .label = "artifact.runtime.output_failure_owned_value",
+        .ir_hash = 0xa3,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 1,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "value", .mode = .transform, .payload_codec = .unit, .resume_codec = .string }},
+        .outputs = &.{.{ .label = "state", .codec = .i32 }},
+        .locals = &.{.{ .codec = .string }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .call_op, .dst = 0, .operand = 0 },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+    const capabilities = [_]shift_vm.CapabilityV1{.{
+        .capability_id = 5,
+        .kind = .tool,
+        .label = "generated/tooling@v1",
+        .ops = &.{.{
+            .capability_id = 5,
+            .op_id = 0,
+            .global_op_name = "tool.call",
+            .payload_codec = .unit,
+            .result_codec = .string,
             .plan_op_ordinal = 0,
         }},
     }};
@@ -813,6 +938,26 @@ test "ArtifactV1 runtime fails closed when declared outputs are not collected" {
     try std.testing.expectEqualStrings("host adapter must collect declared outputs", failure.failure.message);
 }
 
+test "ArtifactV1 runtime frees owned completion values when declared outputs are not collected" {
+    var gpa = std.heap.DebugAllocator(.{}){};
+    defer std.debug.assert(gpa.deinit() == .ok);
+    const allocator = gpa.allocator();
+
+    const bytes = try encodeStringResumeArtifactWithDeclaredOutput(allocator, "artifact-runtime-missing-outputs-owned-value");
+    defer allocator.free(bytes);
+
+    var context = string_dispatch_context{};
+    var run_result = try shift_vm.runtime.runArtifact(allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchOwnedStringResult,
+    });
+    defer run_result.deinit(allocator);
+    const failure = try expectFailed(&run_result);
+    try std.testing.expectEqualStrings("invalid_host_reply", failure.failure.code);
+    try std.testing.expectEqualStrings("host adapter must collect declared outputs", failure.failure.message);
+    try std.testing.expectEqual(@as(usize, 1), failure.logs.len);
+}
+
 test "ArtifactV1 runtime preserves authored after semantics across resumed ops and terminal helper returns" {
     const ProgramType = shift_compile.lowering.lowerAt("examples/open_row_helper_bool_flow.zig", .{
         .label = "example.open_row_helper_bool_flow",
@@ -920,6 +1065,89 @@ test "ArtifactV1 runtime preserves authored after semantics across resumed ops a
     try std.testing.expectEqual(@as(usize, 2), artifact_result.logs.len);
     try conformance.assertToolCallShape(artifact_result.logs[0], "generated/approval@v1", "ask");
     try conformance.assertToolCallShape(artifact_result.logs[1], "generated/approval@v1", "afterAsk");
+    try std.testing.expectEqual(
+        artifact_result.logs[0].request.body.tool_call.call_id,
+        artifact_result.logs[1].request.body.tool_call.call_id,
+    );
+}
+
+test "ArtifactV1 runtime preserves original tool call ids for authored after callbacks" {
+    const artifact_plan: internal_program_plan.ProgramPlan = .{
+        .label = "artifact.runtime.authored_after_call_id",
+        .ir_hash = 0xc3,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .bool,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{.{ .label = "approval", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "ask", .mode = .transform, .payload_codec = .unit, .resume_codec = .bool, .has_after = true }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .bool }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .call_op, .dst = 0, .operand = 0 },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+
+    const explicit_capabilities = [_]shift_vm.CapabilityV1{.{
+        .capability_id = 0,
+        .kind = .tool,
+        .label = "generated/approval@v1",
+        .ops = &.{
+            .{
+                .capability_id = 0,
+                .op_id = 0,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .bool,
+                .plan_op_ordinal = 0,
+            },
+            .{
+                .capability_id = 0,
+                .op_id = 1,
+                .global_op_name = "tool.after",
+                .payload_codec = .bool,
+                .result_codec = .bool,
+                .plan_op_ordinal = 0,
+            },
+        },
+    }};
+    const bytes = try shift_vm.artifact.encodeProgramPlan(std.testing.allocator, artifact_plan, .{
+        .build_fingerprint_blake3_256 = shift_vm.artifact.buildFingerprintFromSeed("artifact-runtime-authored-after-call-id"),
+        .capabilities = &explicit_capabilities,
+    });
+    defer std.testing.allocator.free(bytes);
+
+    var context = AfterCallIdCtx{};
+    var run_result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchAuthoredAfterWorkflowWithCallIdCheck,
+    });
+    defer run_result.deinit(std.testing.allocator);
+    const artifact_result = try expectCompleted(&run_result);
+
+    try std.testing.expectEqual(false, artifact_result.value.bool);
+    try std.testing.expectEqual(@as(u64, 1), artifact_result.logs[0].request.body.tool_call.call_id);
+    try std.testing.expectEqual(
+        artifact_result.logs[0].request.body.tool_call.call_id,
+        artifact_result.logs[1].request.body.tool_call.call_id,
+    );
 }
 
 test "ArtifactV1 runtime unwinds caller after hooks across terminal helper returns" {

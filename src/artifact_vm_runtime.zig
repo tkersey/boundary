@@ -139,6 +139,8 @@ fn completeExecutionResult(
     logs: *std.ArrayList(host.HostLogEntryV1),
     runtime_value: RuntimeValue,
 ) anyerror!RunArtifactResultV1 {
+    var owned_runtime_value = runtime_value;
+    defer deinitRuntimeValue(allocator, &owned_runtime_value);
     const output_result = try materializeExecutionOutputs(ctx);
     const outputs = switch (output_result) {
         .outputs => |outputs| outputs,
@@ -157,8 +159,6 @@ fn completeExecutionResult(
     };
     errdefer deinitExecutionOutputs(allocator, outputs);
 
-    var owned_runtime_value = runtime_value;
-    errdefer deinitRuntimeValue(allocator, &owned_runtime_value);
     var owned_value = try materializeExecutionValue(allocator, &owned_runtime_value);
     errdefer deinitProgramValue(allocator, &owned_value);
     return .{
@@ -185,6 +185,11 @@ const FunctionResult = union(enum) {
     rejected: host.FailureV1,
     terminal: RuntimeValue,
     value: RuntimeValue,
+};
+
+const AfterFrame = struct {
+    op_index: u16,
+    call_id: u64,
 };
 
 const ExecutionContext = struct {
@@ -331,7 +336,7 @@ fn executeFunction(
     var current_block_index = function.first_block + function.entry_block;
     var instruction_index = ctx.plan.blocks[current_block_index].first_instruction;
     var return_local: ?u16 = null;
-    var after_stack = std.ArrayList(u16).empty;
+    var after_stack = std.ArrayList(AfterFrame).empty;
     defer after_stack.deinit(ctx.allocator);
 
     while (true) {
@@ -375,10 +380,13 @@ fn executeFunction(
                     const payload = if (op.payload_codec == .unit) .none else locals[instruction.aux];
                     const op_result = try callHostOp(ctx, instruction.operand, payload);
                     switch (op_result) {
-                        .resumed => |value| {
-                            if (op.resume_codec != .unit) setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, value);
+                        .resumed => |resumed| {
+                            if (op.resume_codec != .unit) setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, resumed.value);
                             if (hasAfterCapabilityOp(ctx.decoded.capabilities, ctx.decoded.requirement_capability_ids, ctx.plan, instruction.operand)) {
-                                try after_stack.append(ctx.allocator, instruction.operand);
+                                try after_stack.append(ctx.allocator, .{
+                                    .op_index = instruction.operand,
+                                    .call_id = resumed.call_id,
+                                });
                             }
                         },
                         .terminal => |value| return try unwindAfterStack(ctx, function.value_codec, &after_stack, .{ .terminal = value }),
@@ -446,10 +454,15 @@ fn executeFunction(
     }
 }
 
+const ResumedOp = struct {
+    value: RuntimeValue,
+    call_id: u64,
+};
+
 const OpDispatchResult = union(enum) {
     failed: host.FailureV1,
     rejected: host.FailureV1,
-    resumed: RuntimeValue,
+    resumed: ResumedOp,
     terminal: RuntimeValue,
 };
 
@@ -543,11 +556,14 @@ fn callHostOp(
             }
             break :blk switch (tool_result.control) {
                 .@"resume" => .{
-                    .resumed = dataValueToRuntimeValue(ctx.allocator, op.resume_codec, tool_result.value) catch |err| switch (err) {
-                        error.ProgramContractViolation => {
-                            return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply value does not match the declared codec") };
+                    .resumed = .{
+                        .value = dataValueToRuntimeValue(ctx.allocator, op.resume_codec, tool_result.value) catch |err| switch (err) {
+                            error.ProgramContractViolation => {
+                                return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply value does not match the declared codec") };
+                            },
+                            else => return err,
                         },
-                        else => return err,
+                        .call_id = request.body.tool_call.call_id,
                     },
                 },
                 .return_now, .abort => .{
@@ -700,16 +716,16 @@ fn afterMethodNameAlloc(allocator: std.mem.Allocator, op_name: []const u8) ![]u8
 fn unwindAfterStack(
     ctx: *ExecutionContext,
     function_value_codec: program_plan.ValueCodec,
-    after_stack: *std.ArrayList(u16),
+    after_stack: *std.ArrayList(AfterFrame),
     result: FunctionResult,
 ) anyerror!FunctionResult {
     var final_result = result;
     while (after_stack.items.len != 0) {
-        const op_index = after_stack.pop().?;
+        const after_frame = after_stack.pop().?;
         final_result = switch (final_result) {
             .value => |value| blk: {
                 var current = value;
-                switch (try callHostAfterOp(ctx, function_value_codec, op_index, current)) {
+                switch (try callHostAfterOp(ctx, function_value_codec, after_frame.op_index, after_frame.call_id, current)) {
                     .value => |next| {
                         deinitRuntimeValue(ctx.allocator, &current);
                         break :blk .{ .value = next };
@@ -727,7 +743,7 @@ fn unwindAfterStack(
             },
             .terminal => |value| blk: {
                 var current = value;
-                switch (try callHostAfterOp(ctx, function_value_codec, op_index, current)) {
+                switch (try callHostAfterOp(ctx, function_value_codec, after_frame.op_index, after_frame.call_id, current)) {
                     .value => |next| {
                         deinitRuntimeValue(ctx.allocator, &current);
                         break :blk .{ .terminal = next };
@@ -757,6 +773,7 @@ fn callHostAfterOp(
     ctx: *ExecutionContext,
     function_value_codec: program_plan.ValueCodec,
     op_index: u16,
+    call_id: u64,
     answer: RuntimeValue,
 ) anyerror!FunctionResult {
     const resolved = resolveAfterCapabilityOp(ctx.decoded.capabilities, ctx.decoded.requirement_capability_ids, ctx.plan, op_index) orelse return error.ProgramContractViolation;
@@ -779,7 +796,7 @@ fn callHostAfterOp(
             .op_id = resolved.capability_op.op_id,
             .body = .{ .tool_call = .{
                 .tool_id = tool_id,
-                .call_id = ctx.next_request_id.*,
+                .call_id = call_id,
                 .op_name = request_op_name,
                 .arguments = arguments,
                 .owns_tool_id = true,
