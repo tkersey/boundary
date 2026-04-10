@@ -51,7 +51,7 @@ pub const DataValueV1 = union(enum) {
                 var cloned_len: usize = 0;
                 errdefer {
                     for (cloned[0..cloned_len]) |*field| {
-                        allocator.free(field.key);
+                        if (field.owns_key) allocator.free(field.key);
                         field.value.deinit(allocator);
                     }
                 }
@@ -76,7 +76,7 @@ pub const DataValueV1 = union(enum) {
             },
             .object => |fields| {
                 for (fields) |*field| {
-                    allocator.free(field.key);
+                    if (field.owns_key) allocator.free(field.key);
                     field.value.deinit(allocator);
                 }
                 allocator.free(fields);
@@ -94,7 +94,10 @@ pub const DataValueV1 = union(enum) {
                 allocator.free(items);
             },
             .object => |fields| {
-                for (fields) |*field| field.value.deinitContainers(allocator);
+                for (fields) |*field| {
+                    if (field.owns_key) allocator.free(field.key);
+                    field.value.deinitContainers(allocator);
+                }
                 allocator.free(fields);
             },
         }
@@ -118,6 +121,7 @@ pub const DataValueV1 = union(enum) {
 /// One object field carried inside `DataValueV1.object`.
 pub const ObjectFieldV1 = struct {
     key: []const u8,
+    owns_key: bool = false,
     value: DataValueV1,
 };
 
@@ -131,6 +135,7 @@ fn cloneObjectField(field: ObjectFieldV1, allocator: std.mem.Allocator) !ObjectF
     }
     return .{
         .key = key,
+        .owns_key = true,
         .value = value,
     };
 }

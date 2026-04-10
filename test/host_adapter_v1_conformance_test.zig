@@ -153,3 +153,39 @@ test "HostAdapterV1 wrapper deinit accepts nested borrowed payloads when only co
     };
     result.deinit(std.testing.allocator);
 }
+
+test "HostAdapterV1 container ownership frees object keys for request and result wrappers" {
+    var request_fields = try std.testing.allocator.alloc(host.ObjectFieldV1, 1);
+    const request_key = try std.testing.allocator.dupe(u8, "request");
+    errdefer std.testing.allocator.free(request_key);
+    request_fields[0] = .{
+        .key = request_key,
+        .owns_key = true,
+        .value = .{ .string = "nested-borrowed" },
+    };
+    var request: host.ToolCallRequestV1 = .{
+        .tool_id = "generated/tooling@v1",
+        .call_id = 2,
+        .op_name = "echo",
+        .arguments = .{ .object = request_fields },
+        .arguments_ownership = .container,
+    };
+    request.deinit(std.testing.allocator);
+
+    var result_fields = try std.testing.allocator.alloc(host.ObjectFieldV1, 1);
+    const result_key = try std.testing.allocator.dupe(u8, "result");
+    errdefer std.testing.allocator.free(result_key);
+    result_fields[0] = .{
+        .key = result_key,
+        .owns_key = true,
+        .value = .{ .string = "nested-borrowed" },
+    };
+    var result: host.ToolCallResultV1 = .{
+        .tool_id = "generated/tooling@v1",
+        .call_id = 2,
+        .control = .@"resume",
+        .value = .{ .object = result_fields },
+        .value_ownership = .container,
+    };
+    result.deinit(std.testing.allocator);
+}
