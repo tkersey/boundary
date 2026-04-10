@@ -1692,7 +1692,7 @@ const RawDirectoryEntryPatch = struct {
 };
 
 fn appendRawDirectoryEntry(allocator: std.mem.Allocator, bytes: []const u8, patch: RawDirectoryEntryPatch) ![]u8 {
-    const directory_offset: usize = @intCast(readU64(bytes, 24));
+    const directory_offset: usize = @intCast(readU64(bytes, 12));
     const directory_count = readU16(bytes, 20);
     const old_directory_len = @as(usize, directory_count) * 32;
     const old_directory_end = directory_offset + old_directory_len;
