@@ -4,6 +4,8 @@ const lowered_machine = @import("shift_shared").lowered_machine_internal;
 const program_plan = @import("shift_shared").internal_program_plan;
 const std = @import("std");
 
+const capability_global_tool_after = "tool.after";
+
 /// Result of executing ArtifactV1 bytes through the synchronous HostAdapterV1 runtime.
 pub const ExecutionResultV1 = struct {
     value: lowered_machine.ProgramValue,
@@ -183,6 +185,8 @@ fn executeFunction(
     var current_block_index = function.first_block + function.entry_block;
     var instruction_index = ctx.plan.blocks[current_block_index].first_instruction;
     var return_local: ?u16 = null;
+    var after_stack = std.ArrayList(u16).empty;
+    defer after_stack.deinit(ctx.allocator);
 
     while (true) {
         const block = ctx.plan.blocks[current_block_index];
@@ -215,7 +219,7 @@ fn executeFunction(
                         .value => |value| {
                             if (callee.value_codec != .unit) setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, value);
                         },
-                        .terminal => |value| return .{ .terminal = value },
+                        .terminal => |value| return try unwindAfterStack(ctx, function.value_codec, &after_stack, .{ .terminal = value }),
                         .rejected => |failure| return .{ .rejected = failure },
                         .failed => |failure| return .{ .failed = failure },
                     }
@@ -227,8 +231,11 @@ fn executeFunction(
                     switch (op_result) {
                         .resumed => |value| {
                             if (op.resume_codec != .unit) setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, value);
+                            if (hasAfterCapabilityOp(ctx.decoded.capabilities, ctx.decoded.requirement_capability_ids, ctx.plan, instruction.operand)) {
+                                try after_stack.append(ctx.allocator, instruction.operand);
+                            }
                         },
-                        .terminal => |value| return .{ .terminal = value },
+                        .terminal => |value| return try unwindAfterStack(ctx, function.value_codec, &after_stack, .{ .terminal = value }),
                         .rejected => |failure| return .{ .rejected = failure },
                         .failed => |failure| return .{ .failed = failure },
                     }
@@ -282,8 +289,13 @@ fn executeFunction(
                 instruction_index = ctx.plan.blocks[current_block_index].first_instruction;
                 return_local = null;
             },
-            .return_unit => return .{ .value = .{ .value = .none } },
-            .return_value => return .{ .value = takeLocalValue(locals, local_owns_value, return_local orelse return error.ProgramContractViolation) },
+            .return_unit => return try unwindAfterStack(ctx, function.value_codec, &after_stack, .{ .value = .{ .value = .none } }),
+            .return_value => return try unwindAfterStack(
+                ctx,
+                function.value_codec,
+                &after_stack,
+                .{ .value = takeLocalValue(locals, local_owns_value, return_local orelse return error.ProgramContractViolation) },
+            ),
         }
     }
 }
@@ -463,6 +475,30 @@ fn resolveCapabilityOp(
     };
 }
 
+fn resolveAfterCapabilityOp(
+    capabilities: []const artifact.CapabilityV1,
+    requirement_capability_ids: []const u16,
+    plan: program_plan.ProgramPlan,
+    op_index: u16,
+) ?ResolvedCapabilityOp {
+    if (op_index >= plan.ops.len) return null;
+    const op = plan.ops[op_index];
+    if (op.mode == .abort) return null;
+    if (op.requirement_index >= requirement_capability_ids.len or op.requirement_index >= plan.requirements.len) return null;
+    const requirement = plan.requirements[op.requirement_index];
+    if (op_index < requirement.first_op) return null;
+    const capability = findCapabilityById(capabilities, requirement_capability_ids[op.requirement_index]) orelse return null;
+    const capability_op = findCapabilityOpByPlanOrdinalAndGlobalName(
+        capability.ops,
+        op_index - requirement.first_op,
+        capability_global_tool_after,
+    ) orelse return null;
+    return .{
+        .capability = capability,
+        .capability_op = capability_op,
+    };
+}
+
 fn findCapabilityById(capabilities: []const artifact.CapabilityV1, capability_id: u16) ?artifact.CapabilityV1 {
     for (capabilities) |capability| {
         if (capability.capability_id == capability_id) return capability;
@@ -475,6 +511,188 @@ fn findCapabilityOpByPlanOrdinal(ops: []const artifact.CapabilityOpV1, plan_op_o
         if (op.plan_op_ordinal == plan_op_ordinal) return op;
     }
     return null;
+}
+
+fn findCapabilityOpByPlanOrdinalAndGlobalName(
+    ops: []const artifact.CapabilityOpV1,
+    plan_op_ordinal: u16,
+    global_op_name: []const u8,
+) ?artifact.CapabilityOpV1 {
+    for (ops) |op| {
+        if (op.plan_op_ordinal == plan_op_ordinal and std.mem.eql(u8, op.global_op_name, global_op_name)) return op;
+    }
+    return null;
+}
+
+fn hasAfterCapabilityOp(
+    capabilities: []const artifact.CapabilityV1,
+    requirement_capability_ids: []const u16,
+    plan: program_plan.ProgramPlan,
+    op_index: u16,
+) bool {
+    return resolveAfterCapabilityOp(capabilities, requirement_capability_ids, plan, op_index) != null;
+}
+
+fn afterMethodNameAlloc(allocator: std.mem.Allocator, op_name: []const u8) ![]u8 {
+    var buffer = std.ArrayList(u8).empty;
+    errdefer buffer.deinit(allocator);
+    try buffer.appendSlice(allocator, "after");
+    var capitalize_next = true;
+    for (op_name) |byte| {
+        if (byte == '_') {
+            try buffer.append(allocator, byte);
+            capitalize_next = true;
+            continue;
+        }
+        if (capitalize_next and byte >= 'a' and byte <= 'z') {
+            try buffer.append(allocator, byte - ('a' - 'A'));
+        } else {
+            try buffer.append(allocator, byte);
+        }
+        capitalize_next = false;
+    }
+    return buffer.toOwnedSlice(allocator);
+}
+
+fn unwindAfterStack(
+    ctx: *ExecutionContext,
+    function_value_codec: program_plan.ValueCodec,
+    after_stack: *std.ArrayList(u16),
+    result: FunctionResult,
+) anyerror!FunctionResult {
+    var final_result = result;
+    while (after_stack.items.len != 0) {
+        const op_index = after_stack.pop().?;
+        final_result = switch (final_result) {
+            .value => |value| blk: {
+                var current = value;
+                switch (try callHostAfterOp(ctx, function_value_codec, op_index, current)) {
+                    .value => |next| {
+                        deinitRuntimeValue(ctx.allocator, &current);
+                        break :blk .{ .value = next };
+                    },
+                    .failed => |failure| {
+                        deinitRuntimeValue(ctx.allocator, &current);
+                        break :blk .{ .failed = failure };
+                    },
+                    .rejected => |failure| {
+                        deinitRuntimeValue(ctx.allocator, &current);
+                        break :blk .{ .rejected = failure };
+                    },
+                    .terminal => unreachable,
+                }
+            },
+            .terminal => |value| blk: {
+                var current = value;
+                switch (try callHostAfterOp(ctx, function_value_codec, op_index, current)) {
+                    .value => |next| {
+                        deinitRuntimeValue(ctx.allocator, &current);
+                        break :blk .{ .terminal = next };
+                    },
+                    .failed => |failure| {
+                        deinitRuntimeValue(ctx.allocator, &current);
+                        break :blk .{ .failed = failure };
+                    },
+                    .rejected => |failure| {
+                        deinitRuntimeValue(ctx.allocator, &current);
+                        break :blk .{ .rejected = failure };
+                    },
+                    .terminal => unreachable,
+                }
+            },
+            .failed, .rejected => final_result,
+        };
+        switch (final_result) {
+            .failed, .rejected => break,
+            else => {},
+        }
+    }
+    return final_result;
+}
+
+fn callHostAfterOp(
+    ctx: *ExecutionContext,
+    function_value_codec: program_plan.ValueCodec,
+    op_index: u16,
+    answer: RuntimeValue,
+) anyerror!FunctionResult {
+    const resolved = resolveAfterCapabilityOp(ctx.decoded.capabilities, ctx.decoded.requirement_capability_ids, ctx.plan, op_index) orelse return error.ProgramContractViolation;
+    const op = ctx.plan.ops[op_index];
+    const op_name = try afterMethodNameAlloc(ctx.allocator, op.op_name);
+    defer ctx.allocator.free(op_name);
+    var request: host.HostEffectRequestV1 = blk: {
+        const tool_id = try ctx.allocator.dupe(u8, resolved.capability.label);
+        errdefer ctx.allocator.free(tool_id);
+        const request_op_name = try ctx.allocator.dupe(u8, op_name);
+        errdefer ctx.allocator.free(request_op_name);
+        const arguments = try programValueToDataValue(ctx.allocator, function_value_codec, answer.value);
+        errdefer {
+            var owned_arguments = arguments;
+            owned_arguments.deinit(ctx.allocator);
+        }
+        break :blk .{
+            .request_id = ctx.next_request_id.*,
+            .capability_id = resolved.capability.capability_id,
+            .op_id = resolved.capability_op.op_id,
+            .body = .{ .tool_call = .{
+                .tool_id = tool_id,
+                .call_id = ctx.next_request_id.*,
+                .op_name = request_op_name,
+                .arguments = arguments,
+                .owns_tool_id = true,
+                .owns_op_name = true,
+                .arguments_ownership = .deep,
+            } },
+        };
+    };
+    ctx.next_request_id.* += 1;
+    defer request.deinit(ctx.allocator);
+
+    var response: host.HostEffectResultV1 = ctx.adapter.dispatch(ctx.allocator, request) catch |err|
+        try providerFailureResult(ctx.allocator, request.request_id, @errorName(err));
+    defer response.deinit(ctx.allocator);
+
+    var log_entry: host.HostLogEntryV1 = blk: {
+        var request_clone = try request.clone(ctx.allocator);
+        errdefer request_clone.deinit(ctx.allocator);
+        var response_clone = try response.clone(ctx.allocator);
+        errdefer response_clone.deinit(ctx.allocator);
+        break :blk .{
+            .request = request_clone,
+            .result = response_clone,
+        };
+    };
+    var logged = false;
+    errdefer if (!logged) log_entry.deinit(ctx.allocator);
+    try ctx.logs.append(ctx.allocator, log_entry);
+    logged = true;
+
+    if (response.schema_version != 1) return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply schema_version must be 1") };
+    if (response.request_id != request.request_id) return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply request_id must echo the request") };
+    switch (response.body) {
+        .success => |tool_result| {
+            const tool_call = request.body.tool_call;
+            if (!std.mem.eql(u8, tool_result.tool_id, tool_call.tool_id)) {
+                return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply tool_id must echo the request") };
+            }
+            if (tool_result.call_id != tool_call.call_id) {
+                return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply call_id must echo the request") };
+            }
+            if (tool_result.control != .@"resume") {
+                return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply control is incompatible with the op mode") };
+            }
+            return .{
+                .value = dataValueToRuntimeValue(ctx.allocator, function_value_codec, tool_result.value) catch |err| switch (err) {
+                    error.ProgramContractViolation => {
+                        return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply value does not match the declared codec") };
+                    },
+                    else => return err,
+                },
+            };
+        },
+        .rejected => |failure| return .{ .rejected = try failure.clone(ctx.allocator) },
+        .failed => |failure| return .{ .failed = try failure.clone(ctx.allocator) },
+    }
 }
 
 fn programValueToDataValue(

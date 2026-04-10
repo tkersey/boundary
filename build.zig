@@ -400,6 +400,17 @@ const ImportedEmbedFnPattern = struct {
     }
 };
 
+const BuildModuleBinding = struct {
+    alias: []const u8,
+    repo_relative_source_path: []const u8,
+
+    fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        allocator.free(self.alias);
+        allocator.free(self.repo_relative_source_path);
+        self.* = undefined;
+    }
+};
+
 const BuildInputPathCollector = struct {
     paths: *std.ArrayList([]const u8),
     path_set: *std.StringHashMap(void),
@@ -705,6 +716,14 @@ fn freeImportedEmbedFileFunctionPatterns(
     allocator.free(patterns);
 }
 
+fn freeBuildModuleBindings(
+    allocator: std.mem.Allocator,
+    bindings: []BuildModuleBinding,
+) void {
+    for (bindings) |*binding| binding.deinit(allocator);
+    allocator.free(bindings);
+}
+
 fn appendUniqueIndex(indexes: *std.ArrayList(usize), allocator: std.mem.Allocator, value: usize) !void {
     for (indexes.items) |existing| {
         if (existing == value) return;
@@ -732,6 +751,19 @@ fn appendResolvedEmbedPathIfPresent(
     try appendOwnedPathIfMissing(allocator, collector.paths, collector.path_set, repo_relative);
 }
 
+fn resolveRepoRelativeImportPathAlloc(
+    allocator: std.mem.Allocator,
+    repo_root: []const u8,
+    source_dir: []const u8,
+    decoded: []const u8,
+) !?[]u8 {
+    if (!std.mem.endsWith(u8, decoded, ".zig")) return null;
+
+    const resolved = try std.fs.path.resolve(allocator, &.{ repo_root, source_dir, decoded });
+    defer allocator.free(resolved);
+    return try tryRepoRelativePathFromAbsoluteAlloc(allocator, repo_root, resolved);
+}
+
 fn appendResolvedImportPathIfPresent(
     allocator: std.mem.Allocator,
     repo_root: []const u8,
@@ -739,8 +771,9 @@ fn appendResolvedImportPathIfPresent(
     decoded: []const u8,
     collector: BuildInputPathCollector,
 ) !void {
-    if (!std.mem.endsWith(u8, decoded, ".zig")) return;
-    try appendResolvedEmbedPathIfPresent(allocator, repo_root, source_dir, decoded, collector);
+    const repo_relative = try resolveRepoRelativeImportPathAlloc(allocator, repo_root, source_dir, decoded) orelse return;
+    defer allocator.free(repo_relative);
+    try appendResolvedEmbedPathIfPresent(allocator, repo_root, ".", repo_relative, collector);
 }
 
 fn functionSourceSlice(
@@ -853,6 +886,234 @@ fn importPathFromValueTokensAlloc(
     return try decodeStringLiteralAlloc(allocator, value_tokens[2].lexeme);
 }
 
+fn moduleRootSourcePathFromExprTokensAlloc(
+    allocator: std.mem.Allocator,
+    expr_tokens: []const BuildInputToken,
+) !?[]u8 {
+    if (expr_tokens.len == 1 and expr_tokens[0].tag == .string_literal) {
+        return try decodeStringLiteralAlloc(allocator, expr_tokens[0].lexeme);
+    }
+    if (expr_tokens.len == 6 and
+        expr_tokens[0].tag == .identifier and
+        expr_tokens[1].tag == .period and
+        expr_tokens[2].tag == .identifier and
+        std.mem.eql(u8, expr_tokens[2].lexeme, "path") and
+        expr_tokens[3].tag == .l_paren and
+        expr_tokens[4].tag == .string_literal and
+        expr_tokens[5].tag == .r_paren)
+    {
+        return try decodeStringLiteralAlloc(allocator, expr_tokens[4].lexeme);
+    }
+    return null;
+}
+
+fn moduleRootSourcePathFromValueTokensAlloc(
+    allocator: std.mem.Allocator,
+    value_tokens: []const BuildInputToken,
+) !?[]u8 {
+    var index: usize = 0;
+    while (index + 2 < value_tokens.len) : (index += 1) {
+        if (value_tokens[index].tag != .period or
+            value_tokens[index + 1].tag != .identifier or
+            !std.mem.eql(u8, value_tokens[index + 1].lexeme, "root_source_file") or
+            value_tokens[index + 2].tag != .equal)
+        {
+            continue;
+        }
+
+        const value_start = index + 3;
+        var cursor = value_start;
+        var depth: usize = 0;
+        while (cursor < value_tokens.len) : (cursor += 1) {
+            switch (value_tokens[cursor].tag) {
+                .l_paren, .l_brace, .l_bracket => depth += 1,
+                .r_paren, .r_brace, .r_bracket => {
+                    if (depth == 0) break;
+                    depth -= 1;
+                },
+                .comma => if (depth == 0) break,
+                else => {},
+            }
+        }
+        return try moduleRootSourcePathFromExprTokensAlloc(allocator, value_tokens[value_start..cursor]);
+    }
+    return null;
+}
+
+fn appendOwnedBuildModuleBinding(
+    allocator: std.mem.Allocator,
+    bindings: *std.ArrayList(BuildModuleBinding),
+    alias: []const u8,
+    repo_relative_source_path: []const u8,
+) !void {
+    for (bindings.items) |existing| {
+        if (std.mem.eql(u8, existing.alias, alias)) return;
+    }
+    try bindings.append(allocator, .{
+        .alias = try allocator.dupe(u8, alias),
+        .repo_relative_source_path = try allocator.dupe(u8, repo_relative_source_path),
+    });
+}
+
+fn collectBuildModuleBindingsAlloc(
+    allocator: std.mem.Allocator,
+    repo_root: []const u8,
+) ![]BuildModuleBinding {
+    var root_dir = std.fs.openDirAbsolute(repo_root, .{}) catch return allocator.alloc(BuildModuleBinding, 0);
+    defer root_dir.close();
+
+    const source = root_dir.readFileAlloc(allocator, "build.zig", 4 * 1024 * 1024) catch return allocator.alloc(BuildModuleBinding, 0);
+    defer allocator.free(source);
+    const source_z = try allocator.dupeZ(u8, source);
+    defer allocator.free(source_z);
+
+    var tree = try std.zig.Ast.parse(allocator, source_z, .zig);
+    defer tree.deinit(allocator);
+
+    var root_buffer: [2]std.zig.Ast.Node.Index = undefined;
+    const root = tree.fullContainerDecl(&root_buffer, .root) orelse return allocator.alloc(BuildModuleBinding, 0);
+
+    var build_fn_source: ?[]const u8 = null;
+    for (root.ast.members) |member| {
+        var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
+        const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse continue;
+        const fn_name_token = fn_proto.name_token orelse continue;
+        if (!std.mem.eql(u8, tree.tokenSlice(fn_name_token), "build")) continue;
+        build_fn_source = functionSourceSlice(tree, source_z, member, fn_proto);
+        break;
+    }
+
+    const build_source = build_fn_source orelse return allocator.alloc(BuildModuleBinding, 0);
+    const build_source_z = try allocator.dupeZ(u8, build_source);
+    defer allocator.free(build_source_z);
+    const tokens = try collectBuildInputTokensAlloc(allocator, build_source_z);
+    defer allocator.free(tokens);
+
+    var bindings = std.ArrayList(BuildModuleBinding).empty;
+    errdefer {
+        for (bindings.items) |*binding| binding.deinit(allocator);
+        bindings.deinit(allocator);
+    }
+
+    var module_vars = std.StringHashMap([]const u8).init(allocator);
+    defer {
+        var iter = module_vars.iterator();
+        while (iter.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            allocator.free(entry.value_ptr.*);
+        }
+        module_vars.deinit();
+    }
+
+    var index: usize = 0;
+    var scope_depth: usize = 0;
+    while (index < tokens.len) : (index += 1) {
+        switch (tokens[index].tag) {
+            .l_brace => {
+                scope_depth += 1;
+                continue;
+            },
+            .r_brace => {
+                if (scope_depth > 0) scope_depth -= 1;
+                continue;
+            },
+            else => {},
+        }
+
+        if (scope_depth == 1 and
+            index + 1 < tokens.len and
+            tokens[index].tag == .keyword_const and
+            tokens[index + 1].tag == .identifier)
+        {
+            var cursor = index + 2;
+            var depth: usize = 0;
+            var equal_index: ?usize = null;
+            var semicolon_index: ?usize = null;
+            while (cursor < tokens.len) : (cursor += 1) {
+                switch (tokens[cursor].tag) {
+                    .l_paren, .l_brace, .l_bracket => depth += 1,
+                    .r_paren, .r_brace, .r_bracket => {
+                        if (depth > 0) depth -= 1;
+                    },
+                    .equal => {
+                        if (depth == 0 and equal_index == null) equal_index = cursor;
+                    },
+                    .semicolon => {
+                        if (depth == 0) {
+                            semicolon_index = cursor;
+                            break;
+                        }
+                    },
+                    else => {},
+                }
+            }
+
+            const value_start = equal_index orelse continue;
+            const value_end = semicolon_index orelse continue;
+            const value_tokens = tokens[value_start + 1 .. value_end];
+            const root_source_path = try moduleRootSourcePathFromValueTokensAlloc(allocator, value_tokens) orelse continue;
+            defer allocator.free(root_source_path);
+            const repo_relative = try resolveRepoRelativeImportPathAlloc(allocator, repo_root, ".", root_source_path) orelse continue;
+            defer allocator.free(repo_relative);
+
+            const module_var = tokens[index + 1].lexeme;
+            try module_vars.put(try allocator.dupe(u8, module_var), try allocator.dupe(u8, repo_relative));
+            errdefer _ = module_vars.remove(module_var);
+            try appendOwnedBuildModuleBinding(allocator, &bindings, module_var, repo_relative);
+
+            if (value_tokens.len >= 6 and
+                value_tokens[0].tag == .identifier and
+                value_tokens[1].tag == .period and
+                value_tokens[2].tag == .identifier and
+                std.mem.eql(u8, value_tokens[2].lexeme, "addModule") and
+                value_tokens[3].tag == .l_paren and
+                value_tokens[4].tag == .string_literal)
+            {
+                const module_name = try decodeStringLiteralAlloc(allocator, value_tokens[4].lexeme) orelse continue;
+                defer allocator.free(module_name);
+                try appendOwnedBuildModuleBinding(allocator, &bindings, module_name, repo_relative);
+            }
+            continue;
+        }
+
+        if (scope_depth == 1 and
+            index + 6 < tokens.len and
+            tokens[index].tag == .identifier and
+            tokens[index + 1].tag == .period and
+            tokens[index + 2].tag == .identifier and
+            std.mem.eql(u8, tokens[index + 2].lexeme, "addImport") and
+            tokens[index + 3].tag == .l_paren and
+            tokens[index + 4].tag == .string_literal and
+            tokens[index + 5].tag == .comma and
+            tokens[index + 6].tag == .identifier)
+        {
+            const import_alias = try decodeStringLiteralAlloc(allocator, tokens[index + 4].lexeme) orelse continue;
+            defer allocator.free(import_alias);
+            const module_var = tokens[index + 6].lexeme;
+            const repo_relative = module_vars.get(module_var) orelse continue;
+            try appendOwnedBuildModuleBinding(allocator, &bindings, import_alias, repo_relative);
+        }
+    }
+
+    return try bindings.toOwnedSlice(allocator);
+}
+
+fn resolveBuildModuleImportPathAlloc(
+    allocator: std.mem.Allocator,
+    repo_root: []const u8,
+    import_alias: []const u8,
+) !?[]u8 {
+    const bindings = try collectBuildModuleBindingsAlloc(allocator, repo_root);
+    defer freeBuildModuleBindings(allocator, bindings);
+
+    for (bindings) |binding| {
+        if (std.mem.eql(u8, binding.alias, import_alias)) {
+            return try allocator.dupe(u8, binding.repo_relative_source_path);
+        }
+    }
+    return null;
+}
+
 fn collectImportedEmbedFileFunctionPatternsAlloc(
     allocator: std.mem.Allocator,
     scan: BuildInputSourceScan,
@@ -923,12 +1184,12 @@ fn collectImportedEmbedFileFunctionPatternsAlloc(
         };
         defer allocator.free(decoded);
 
-        const resolved = try std.fs.path.resolve(allocator, &.{ scan.repo_root, source_dir, decoded });
-        defer allocator.free(resolved);
-        const repo_relative = try tryRepoRelativePathFromAbsoluteAlloc(allocator, scan.repo_root, resolved) orelse {
-            index = value_end + 1;
-            continue;
-        };
+        const repo_relative = (try resolveRepoRelativeImportPathAlloc(allocator, scan.repo_root, source_dir, decoded)) orelse
+            (try resolveBuildModuleImportPathAlloc(allocator, scan.repo_root, decoded)) orelse
+            {
+                index = value_end + 1;
+                continue;
+            };
         defer allocator.free(repo_relative);
         if (!std.mem.endsWith(u8, repo_relative, ".zig")) {
             index = value_end + 1;
@@ -2084,6 +2345,53 @@ test "artifact build fingerprint includes build.zig-wired untracked Zig modules"
         \\}
         \\
     );
+    const after = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try std.testing.expect(!std.mem.eql(u8, &before, &after));
+}
+
+test "artifact build fingerprint includes build.zig-wired module-name helper wrapper embed inputs" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const helper = b.addModule("helper", .{
+        \\        .root_source_file = b.path("helpers/helper.zig"),
+        \\    });
+        \\    const probe = b.addModule("probe", .{
+        \\        .root_source_file = b.path("probe.zig"),
+        \\    });
+        \\    probe.addImport("helper", helper);
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
+    try writeTmpFile(tmp.dir, "probe.zig",
+        \\const helper = @import("helper");
+        \\
+        \\pub fn main() void {
+        \\    const schema = helper.fixture("schema.json");
+        \\    _ = schema;
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "helpers/helper.zig",
+        \\pub fn fixture(comptime rel: []const u8) []const u8 {
+        \\    return @embedFile(rel);
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "helpers/schema.json", "{ \"version\": 1 }\n");
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "init", "-q" });
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "add", "build.zig", "build.zig.zon", "probe.zig" });
+
+    const before = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try writeTmpFile(tmp.dir, "helpers/schema.json", "{ \"version\": 2 }\n");
     const after = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
     try std.testing.expect(!std.mem.eql(u8, &before, &after));
 }

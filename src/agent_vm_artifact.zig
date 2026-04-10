@@ -78,6 +78,9 @@ pub const CapabilityManifestV1 = struct {
     capabilities: []const CapabilityV1,
 };
 
+const capability_global_tool_call = "tool.call";
+const capability_global_tool_after = "tool.after";
+
 const section_optional_flag: u16 = 0x1;
 const capability_required_flag: u8 = 0x1;
 
@@ -280,21 +283,41 @@ pub fn deriveToolCapabilitiesFromPlan(
         defer allocator.free(normalized_requirement_label);
         const label = try std.fmt.allocPrint(allocator, "generated/{s}@v1", .{normalized_requirement_label});
         errdefer allocator.free(label);
-        const ops = try allocator.alloc(CapabilityOpV1, requirement.op_count);
-        var initialized_ops: usize = 0;
-        errdefer deepFreeCapabilityOpsPrefix(allocator, ops, initialized_ops);
         const op_start = requirement.first_op;
         const op_end = op_start + requirement.op_count;
+        var extra_after_ops: usize = 0;
+        for (plan.ops[op_start..op_end], 0..) |op, op_index| {
+            if (op.mode == .abort) continue;
+            if (afterCapabilityResultCodecForOp(plan, @intCast(op_start + op_index)) != null) extra_after_ops += 1;
+        }
+        const ops = try allocator.alloc(CapabilityOpV1, requirement.op_count + extra_after_ops);
+        var initialized_ops: usize = 0;
+        errdefer deepFreeCapabilityOpsPrefix(allocator, ops, initialized_ops);
         for (plan.ops[op_start..op_end], 0..) |op, op_index| {
             ops[op_index] = .{
                 .capability_id = @intCast(index),
                 .op_id = @intCast(op_index),
-                .global_op_name = try allocator.dupe(u8, "tool.call"),
+                .global_op_name = try allocator.dupe(u8, capability_global_tool_call),
                 .payload_codec = mapPlanCodecToCapabilityCodec(op.payload_codec),
                 .result_codec = mapPlanCodecToCapabilityCodec(try capabilityResultCodecForOp(plan, op_start + op_index)),
                 .plan_op_ordinal = @intCast(op_index),
             };
             initialized_ops = op_index + 1;
+        }
+        var next_after_op_id: usize = requirement.op_count;
+        for (plan.ops[op_start..op_end], 0..) |op, op_index| {
+            if (op.mode == .abort) continue;
+            const after_result_codec = afterCapabilityResultCodecForOp(plan, @intCast(op_start + op_index)) orelse continue;
+            ops[initialized_ops] = .{
+                .capability_id = @intCast(index),
+                .op_id = @intCast(next_after_op_id),
+                .global_op_name = try allocator.dupe(u8, capability_global_tool_after),
+                .payload_codec = mapPlanCodecToCapabilityCodec(after_result_codec),
+                .result_codec = mapPlanCodecToCapabilityCodec(after_result_codec),
+                .plan_op_ordinal = @intCast(op_index),
+            };
+            initialized_ops += 1;
+            next_after_op_id += 1;
         }
         capabilities[index] = .{
             .capability_id = @intCast(index),
@@ -654,11 +677,19 @@ fn validateManifest(build_fingerprint: [32]u8, capabilities: []const CapabilityV
         try validateToolIdV1(capability.label);
         for (capability.ops, 0..) |op, op_index| {
             if (op.capability_id != capability.capability_id) return error.DuplicateCapabilityOpId;
-            if (!std.mem.eql(u8, op.global_op_name, "tool.call")) return error.UnsupportedVersion;
+            if (!std.mem.eql(u8, op.global_op_name, capability_global_tool_call) and
+                !std.mem.eql(u8, op.global_op_name, capability_global_tool_after))
+            {
+                return error.UnsupportedVersion;
+            }
             if (op.plan_op_ordinal >= capability.ops.len) return error.InvalidRequiredSection;
             for (capability.ops[(op_index + 1)..]) |other_op| {
                 if (op.op_id == other_op.op_id) return error.DuplicateCapabilityOpId;
-                if (op.plan_op_ordinal == other_op.plan_op_ordinal) return error.InvalidRequiredSection;
+                if (op.plan_op_ordinal == other_op.plan_op_ordinal and
+                    std.mem.eql(u8, op.global_op_name, other_op.global_op_name))
+                {
+                    return error.InvalidRequiredSection;
+                }
             }
         }
     }
@@ -1080,7 +1111,7 @@ fn toolCapabilityMatchesRequirement(plan: program_plan.ProgramPlan, requirement_
     const requirement = plan.requirements[requirement_index];
     const label_matches = std.mem.eql(u8, capability.label, requirement.label);
     if (capability.kind != .tool) return false;
-    if (capability.ops.len != requirement.op_count) return false;
+    if (capability.ops.len < requirement.op_count) return false;
     if (!label_matches) {
         if (!generatedToolIdMatchesRequirementLabel(capability.label, requirement.label)) return false;
     }
@@ -1088,10 +1119,20 @@ fn toolCapabilityMatchesRequirement(plan: program_plan.ProgramPlan, requirement_
     const op_end = op_start + requirement.op_count;
     if (op_end > plan.ops.len) return false;
     for (plan.ops[op_start..op_end], 0..) |plan_op, op_offset| {
-        const capability_op = findCapabilityOpByPlanOrdinal(capability.ops, @intCast(op_offset)) orelse return false;
+        const capability_op = findCapabilityOpByPlanOrdinalAndGlobalName(
+            capability.ops,
+            @intCast(op_offset),
+            capability_global_tool_call,
+        ) orelse return false;
         if (capability_op.payload_codec != mapPlanCodecToCapabilityCodec(plan_op.payload_codec)) return false;
         const expected_result_codec = capabilityResultCodecForOp(plan, op_start + op_offset) catch return false;
         if (capability_op.result_codec != mapPlanCodecToCapabilityCodec(expected_result_codec)) return false;
+        if (findCapabilityOpByPlanOrdinalAndGlobalName(capability.ops, @intCast(op_offset), capability_global_tool_after)) |after_op| {
+            const after_codec = afterCapabilityResultCodecForOp(plan, @intCast(op_start + op_offset)) orelse return false;
+            const expected_after_codec = mapPlanCodecToCapabilityCodec(after_codec);
+            if (after_op.payload_codec != expected_after_codec) return false;
+            if (after_op.result_codec != expected_after_codec) return false;
+        }
     }
     return true;
 }
@@ -1173,9 +1214,13 @@ fn generatedToolIdMatchesRequirementLabel(tool_id: []const u8, requirement_label
     return cursor == inner.len;
 }
 
-fn findCapabilityOpByPlanOrdinal(ops: []const CapabilityOpV1, plan_op_ordinal: u16) ?CapabilityOpV1 {
+fn findCapabilityOpByPlanOrdinalAndGlobalName(
+    ops: []const CapabilityOpV1,
+    plan_op_ordinal: u16,
+    global_op_name: []const u8,
+) ?CapabilityOpV1 {
     for (ops) |op| {
-        if (op.plan_op_ordinal == plan_op_ordinal) return op;
+        if (op.plan_op_ordinal == plan_op_ordinal and std.mem.eql(u8, op.global_op_name, global_op_name)) return op;
     }
     return null;
 }
@@ -1208,6 +1253,26 @@ fn capabilityResultCodecForOp(plan: program_plan.ProgramPlan, op_index: usize) !
         },
         .abort => try terminalResultCodecForOp(plan, @intCast(op_index)),
     };
+}
+
+/// Resolve the unique function answer codec that one transform/choice op would feed into an `after*` hook.
+pub fn afterCapabilityResultCodecForOp(plan: program_plan.ProgramPlan, op_index: u16) ?program_plan.ValueCodec {
+    var resolved: ?program_plan.ValueCodec = null;
+    for (plan.functions) |function| {
+        const req_start: usize = function.first_requirement;
+        const req_end = req_start + function.requirement_count;
+        for (plan.requirements[req_start..req_end]) |requirement| {
+            const op_start = requirement.first_op;
+            const op_end = op_start + requirement.op_count;
+            if (op_index < op_start or op_index >= op_end) continue;
+            if (resolved) |codec| {
+                if (codec != function.value_codec) return null;
+            } else {
+                resolved = function.value_codec;
+            }
+        }
+    }
+    return resolved;
 }
 
 /// Resolve the terminal result codec for one abort/choice op and reject conflicting owners.

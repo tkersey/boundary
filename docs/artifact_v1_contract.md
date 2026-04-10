@@ -190,9 +190,20 @@ Capability codec tags are:
 `usize` is the precise manifest codec for `ValueCodec.usize`.
 Hosts must not treat `usize`-typed ops as generic `data_value` rows.
 
-The canonical global op id for v1 is `tool.call`.
-`plan_op_ordinal` links the manifest op back to the lowered requirement-op slot so
+Capability-op rows use these global ids in v1:
+
+- `tool.call`
+  - the primary lowered host-effect dispatch for one requirement op
+- `tool.after`
+  - an optional post-resume dispatch for one lowered `transform` or `choice` op
+  - payload and result codecs must both equal the owning function answer codec
+  - the runtime only invokes it while unwinding a resumed answer path
+
+`plan_op_ordinal` links a capability op back to the lowered requirement-op slot so
 runtime dispatch does not depend on capability-op row order.
+`tool.call` and `tool.after` may legitimately share the same `plan_op_ordinal`;
+duplicates are only invalid when both `global_op_name` and `plan_op_ordinal`
+match.
 
 `build_fingerprint_blake3_256` is not the same thing as
 `artifact_hash_blake3_256`.

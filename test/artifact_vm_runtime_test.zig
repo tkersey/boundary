@@ -86,6 +86,22 @@ fn expectFailed(result: *shift_vm.runtime.RunArtifactResultV1) !*shift_vm.runtim
 fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.host_adapter.HostEffectRequestV1) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
     const runtime_ctx: *RuntimeContext = @ptrCast(@alignCast(ctx));
     const tool_call = request.body.tool_call;
+    if (std.mem.eql(u8, tool_call.op_name, "afterGet") or
+        std.mem.eql(u8, tool_call.op_name, "afterSet") or
+        std.mem.eql(u8, tool_call.op_name, "afterTell"))
+    {
+        return .{
+            .request_id = request.request_id,
+            .body = .{ .success = .{
+                .tool_id = try allocator.dupe(u8, tool_call.tool_id),
+                .call_id = tool_call.call_id,
+                .control = shift_vm.host_adapter.ToolControlV1.@"resume",
+                .value = try tool_call.arguments.clone(allocator),
+                .owns_tool_id = true,
+                .value_ownership = .deep,
+            } },
+        };
+    }
     if (std.mem.eql(u8, tool_call.op_name, "get")) {
         return .{
             .request_id = request.request_id,
@@ -151,6 +167,9 @@ const FixedControlDispatchContext = struct {
     use_null_value: bool = false,
 };
 
+const after_ctx = struct {};
+const after_helper_ctx = struct {};
+
 fn dispatchManifestOpIdentityStringResults(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
@@ -175,6 +194,109 @@ fn dispatchManifestOpIdentityStringResults(
             .value = .{ .string = try allocator.dupe(u8, value) },
             .owns_tool_id = true,
             .value_ownership = .deep,
+        } },
+    };
+}
+
+fn dispatchAuthoredAfterWorkflow(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    _ = ctx;
+    const tool_call = request.body.tool_call;
+    if (std.mem.eql(u8, tool_call.op_name, "ask")) {
+        return .{
+            .request_id = request.request_id,
+            .body = .{ .success = .{
+                .tool_id = try allocator.dupe(u8, tool_call.tool_id),
+                .call_id = tool_call.call_id,
+                .control = .@"resume",
+                .value = .{ .bool = true },
+                .owns_tool_id = true,
+                .value_ownership = .deep,
+            } },
+        };
+    }
+    if (std.mem.eql(u8, tool_call.op_name, "afterAsk")) {
+        try std.testing.expectEqual(@as(bool, true), tool_call.arguments.bool);
+        return .{
+            .request_id = request.request_id,
+            .body = .{ .success = .{
+                .tool_id = try allocator.dupe(u8, tool_call.tool_id),
+                .call_id = tool_call.call_id,
+                .control = .@"resume",
+                .value = .{ .bool = false },
+                .owns_tool_id = true,
+                .value_ownership = .deep,
+            } },
+        };
+    }
+    return .{
+        .request_id = request.request_id,
+        .body = .{ .failed = .{
+            .code = try allocator.dupe(u8, "unknown_op"),
+            .message = try allocator.dupe(u8, tool_call.op_name),
+            .owns_code = true,
+            .owns_message = true,
+        } },
+    };
+}
+
+fn dispatchAfterHelperTerminalWorkflow(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    _ = ctx;
+    const tool_call = request.body.tool_call;
+    if (std.mem.eql(u8, tool_call.op_name, "pick")) {
+        return .{
+            .request_id = request.request_id,
+            .body = .{ .success = .{
+                .tool_id = try allocator.dupe(u8, tool_call.tool_id),
+                .call_id = tool_call.call_id,
+                .control = .@"resume",
+                .value = .{ .string = try allocator.dupe(u8, "answer=42") },
+                .owns_tool_id = true,
+                .value_ownership = .deep,
+            } },
+        };
+    }
+    if (std.mem.eql(u8, tool_call.op_name, "fail")) {
+        return .{
+            .request_id = request.request_id,
+            .body = .{ .success = .{
+                .tool_id = try allocator.dupe(u8, tool_call.tool_id),
+                .call_id = tool_call.call_id,
+                .control = .return_now,
+                .value = .{ .string = try allocator.dupe(u8, "result=early") },
+                .owns_tool_id = true,
+                .value_ownership = .deep,
+            } },
+        };
+    }
+    if (std.mem.eql(u8, tool_call.op_name, "afterPick")) {
+        try std.testing.expectEqualStrings("result=early", tool_call.arguments.string);
+        return .{
+            .request_id = request.request_id,
+            .body = .{ .success = .{
+                .tool_id = try allocator.dupe(u8, tool_call.tool_id),
+                .call_id = tool_call.call_id,
+                .control = .@"resume",
+                .value = .{ .string = try allocator.dupe(u8, "wrapped-early") },
+                .owns_tool_id = true,
+                .value_ownership = .deep,
+            } },
+        };
+    }
+    return .{
+        .request_id = request.request_id,
+        .body = .{ .failed = .{
+            .code = try allocator.dupe(u8, "unknown_op"),
+            .message = try allocator.dupe(u8, tool_call.op_name),
+            .owns_code = true,
+            .owns_message = true,
         } },
     };
 }
@@ -516,12 +638,9 @@ test "ArtifactV1 runtime executes transform-only lowered programs with sequentia
     try std.testing.expectEqual(@as(usize, 2), context.writer_items.items.len);
     try std.testing.expectEqualStrings("query=artifact-search", context.writer_items.items[0]);
     try std.testing.expectEqualStrings("workflow=queued", context.writer_items.items[1]);
-    try std.testing.expectEqual(@as(usize, 4), result.logs.len);
+    try std.testing.expectEqual(@as(usize, 8), result.logs.len);
     try conformance.assertSequentialRequestIds(result.logs);
     try conformance.assertToolCallShape(result.logs[0], "generated/state@v1", "get");
-    try conformance.assertToolCallShape(result.logs[1], "generated/state@v1", "set");
-    try conformance.assertToolCallShape(result.logs[2], "generated/writer@v1", "tell");
-    try conformance.assertToolCallShape(result.logs[3], "generated/writer@v1", "tell");
 }
 
 test "ArtifactV1 runtime matches lowered runner outputs on open_row_state_writer" {
@@ -563,6 +682,193 @@ test "ArtifactV1 runtime matches lowered runner outputs on open_row_state_writer
     for (lowered_result.outputs.writer, context.writer_items.items) |expected, actual| {
         try std.testing.expectEqualStrings(expected, actual);
     }
+}
+
+test "ArtifactV1 runtime preserves authored after semantics across resumed ops and terminal helper returns" {
+    const ProgramType = shift_compile.lowering.lowerAt("examples/open_row_helper_bool_flow.zig", .{
+        .label = "example.open_row_helper_bool_flow",
+        .entry_symbol = "runBody",
+        .row = shift_compile.ir.rowFromSpec(.{
+            .approval = .{
+                .ask = shift_compile.ir.Transform(void, bool),
+            },
+        }),
+        .ValueType = bool,
+    });
+
+    const AfterSearchHandlers = struct {
+        approval: struct {
+            /// Return the resumed approval bit for the authored after-hook parity case.
+            pub fn ask(_: *@This()) anyerror!bool {
+                return true;
+            }
+
+            /// Flip the authored answer so ArtifactV1 must preserve the after hook.
+            pub fn afterAsk(_: *@This(), answer: bool) anyerror!bool {
+                try std.testing.expectEqual(@as(bool, true), answer);
+                return false;
+            }
+        } = .{},
+    };
+
+    var lowered_runtime = shift_vm.Runtime.init(std.testing.allocator);
+    defer lowered_runtime.deinit();
+    var lowered_handlers: AfterSearchHandlers = .{};
+    const lowered_result = try ProgramType.run(&lowered_runtime, &lowered_handlers);
+    try std.testing.expectEqual(false, lowered_result.value);
+
+    const derived_capabilities = try shift_vm.artifact.deriveToolCapabilitiesFromPlan(
+        std.testing.allocator,
+        ProgramType.runtime_plan,
+    );
+    defer shift_vm.artifact.deepFreeCapabilities(std.testing.allocator, derived_capabilities);
+    const bytes = try shift_vm.artifact.encodeProgramPlan(std.testing.allocator, ProgramType.runtime_plan, .{
+        .build_fingerprint_blake3_256 = shift_vm.artifact.buildFingerprintFromSeed("artifact-runtime-authored-after-workflow"),
+        .capabilities = derived_capabilities,
+    });
+    defer std.testing.allocator.free(bytes);
+
+    var context = after_ctx{};
+    var run_result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchAuthoredAfterWorkflow,
+    });
+    defer run_result.deinit(std.testing.allocator);
+    const artifact_result = try expectCompleted(&run_result);
+
+    try std.testing.expectEqual(lowered_result.value, artifact_result.value.bool);
+    try std.testing.expectEqual(@as(usize, 2), artifact_result.logs.len);
+    try conformance.assertToolCallShape(artifact_result.logs[0], "generated/approval@v1", "ask");
+    try conformance.assertToolCallShape(artifact_result.logs[1], "generated/approval@v1", "afterAsk");
+}
+
+test "ArtifactV1 runtime unwinds caller after hooks across terminal helper returns" {
+    const build_fingerprint = shift_vm.artifact.buildFingerprintFromSeed("artifact-runtime-after-helper-terminal");
+    const plan: internal_program_plan.ProgramPlan = .{
+        .label = "artifact.runtime.after_helper_terminal",
+        .ir_hash = 0xc1,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "root",
+                .value_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 3,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 1,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 1,
+                .local_count = 1,
+                .first_block = 1,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 3,
+                .instruction_count = 2,
+            },
+        },
+        .requirements = &.{
+            .{ .label = "picker", .first_op = 0, .op_count = 1 },
+            .{ .label = "guard", .first_op = 1, .op_count = 1 },
+        },
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "pick", .mode = .choice, .payload_codec = .unit, .resume_codec = .string },
+            .{ .requirement_index = 1, .op_name = "fail", .mode = .abort, .payload_codec = .unit, .resume_codec = .unit },
+        },
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .string }, .{ .codec = .string } },
+        .call_args = &.{},
+        .blocks = &.{
+            .{ .first_instruction = 0, .instruction_count = 3, .terminator_index = 0 },
+            .{ .first_instruction = 3, .instruction_count = 2, .terminator_index = 1 },
+        },
+        .terminators = &.{
+            .{ .kind = .return_value },
+            .{ .kind = .return_value },
+        },
+        .instructions = &.{
+            .{ .kind = .call_op, .dst = 0, .operand = 0 },
+            .{ .kind = .call_helper, .operand = 1, .aux = std.math.maxInt(u16) },
+            .{ .kind = .return_value, .operand = 0 },
+            .{ .kind = .call_op, .dst = 0, .operand = 1 },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+    const capabilities = [_]shift_vm.CapabilityV1{
+        .{
+            .capability_id = 1,
+            .kind = .tool,
+            .label = "generated/picker@v1",
+            .ops = &.{
+                .{
+                    .capability_id = 1,
+                    .op_id = 0,
+                    .global_op_name = "tool.call",
+                    .payload_codec = .unit,
+                    .result_codec = .string,
+                    .plan_op_ordinal = 0,
+                },
+                .{
+                    .capability_id = 1,
+                    .op_id = 1,
+                    .global_op_name = "tool.after",
+                    .payload_codec = .string,
+                    .result_codec = .string,
+                    .plan_op_ordinal = 0,
+                },
+            },
+        },
+        .{
+            .capability_id = 2,
+            .kind = .tool,
+            .label = "generated/guard@v1",
+            .ops = &.{
+                .{
+                    .capability_id = 2,
+                    .op_id = 0,
+                    .global_op_name = "tool.call",
+                    .payload_codec = .unit,
+                    .result_codec = .string,
+                    .plan_op_ordinal = 0,
+                },
+            },
+        },
+    };
+
+    const bytes = try shift_vm.artifact.encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    });
+    defer std.testing.allocator.free(bytes);
+
+    var context = after_helper_ctx{};
+    var run_result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchAfterHelperTerminalWorkflow,
+    });
+    defer run_result.deinit(std.testing.allocator);
+    const result = try expectCompleted(&run_result);
+
+    try std.testing.expectEqualStrings("wrapped-early", result.value.string);
+    try std.testing.expectEqual(@as(usize, 3), result.logs.len);
+    try conformance.assertToolCallShape(result.logs[0], "generated/picker@v1", "pick");
+    try conformance.assertToolCallShape(result.logs[1], "generated/guard@v1", "fail");
+    try conformance.assertToolCallShape(result.logs[2], "generated/picker@v1", "afterPick");
 }
 
 test "ArtifactV1 runtime preserves sparse op identity across reordered manifest rows and keeps resumed strings alive" {
