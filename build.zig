@@ -1323,6 +1323,19 @@ fn collectRepoZigPathsFromRegistryFile(
     return true;
 }
 
+fn collectRepoZigPathsAlloc(
+    allocator: std.mem.Allocator,
+    repo_root: []const u8,
+    paths: *std.ArrayList([]const u8),
+    path_set: *std.StringHashMap(void),
+) void {
+    if (!collectTrackedRepoZigPathsAlloc(allocator, repo_root, paths, path_set)) {
+        if (!collectRepoZigPathsFromRegistryFile(allocator, repo_root, paths, path_set)) {
+            collectFilesystemRepoZigPaths(allocator, repo_root, paths, path_set);
+        }
+    }
+}
+
 fn artifactBuildInputPathsAlloc(
     allocator: std.mem.Allocator,
     repo_root: []const u8,
@@ -1331,11 +1344,7 @@ fn artifactBuildInputPathsAlloc(
     var path_set = std.StringHashMap(void).init(allocator);
     defer path_set.deinit();
 
-    if (!collectTrackedRepoZigPathsAlloc(allocator, repo_root, &paths, &path_set)) {
-        if (!collectRepoZigPathsFromRegistryFile(allocator, repo_root, &paths, &path_set)) {
-            collectFilesystemRepoZigPaths(allocator, repo_root, &paths, &path_set);
-        }
-    }
+    collectRepoZigPathsAlloc(allocator, repo_root, &paths, &path_set);
     collectBuildZigReferencedRepoZigPaths(allocator, repo_root, &paths, &path_set);
 
     var index: usize = 0;
@@ -1450,55 +1459,32 @@ fn defaultArtifactBuildFingerprint(
     return digest;
 }
 
-fn repoZigPathRegistry(b: *std.Build) []const u8 {
+fn repoZigPathRegistryAlloc(allocator: std.mem.Allocator, repo_root: []const u8) []const u8 {
     var paths = std.ArrayList([]const u8).empty;
-    if (!collectTrackedRepoZigPaths(b, &paths)) {
-        return readCommittedRepoZigPathRegistry(b);
+    var path_set = std.StringHashMap(void).init(allocator);
+    defer path_set.deinit();
+
+    collectRepoZigPathsAlloc(allocator, repo_root, &paths, &path_set);
+    defer {
+        for (paths.items) |path| allocator.free(path);
+        paths.deinit(allocator);
     }
 
-    var left: usize = 0;
-    while (left < paths.items.len) : (left += 1) {
-        var right = left + 1;
-        while (right < paths.items.len) : (right += 1) {
-            if (std.mem.order(u8, paths.items[right], paths.items[left]) == .lt) {
-                const tmp = paths.items[left];
-                paths.items[left] = paths.items[right];
-                paths.items[right] = tmp;
-            }
-        }
-    }
+    sortOwnedPaths(paths.items);
 
     var registry = std.ArrayList(u8).empty;
     for (paths.items) |path| {
-        registry.appendSlice(b.allocator, path) catch std.process.fatal("unable to append repo source path", .{});
-        registry.append(b.allocator, '\n') catch std.process.fatal("unable to append repo source separator", .{});
+        registry.appendSlice(allocator, path) catch
+            std.process.fatal("unable to append repo source path", .{});
+        registry.append(allocator, '\n') catch
+            std.process.fatal("unable to append repo source separator", .{});
     }
-    return registry.items;
+    return registry.toOwnedSlice(allocator) catch
+        std.process.fatal("unable to allocate repo source path registry", .{});
 }
 
-fn collectTrackedRepoZigPaths(b: *std.Build, paths: *std.ArrayList([]const u8)) bool {
-    const repo_root = b.pathFromRoot(".");
-    const result = std.process.Child.run(.{
-        .allocator = b.allocator,
-        .argv = &.{ "git", "-C", repo_root, "ls-files", "--", "*.zig" },
-        .max_output_bytes = 512 * 1024,
-    }) catch return false;
-    defer b.allocator.free(result.stdout);
-    defer b.allocator.free(result.stderr);
-
-    switch (result.term) {
-        .Exited => |code| if (code != 0) return false,
-        else => return false,
-    }
-
-    var lines = std.mem.tokenizeScalar(u8, result.stdout, '\n');
-    while (lines.next()) |line| {
-        if (!std.mem.endsWith(u8, line, ".zig")) continue;
-        paths.append(b.allocator, b.allocator.dupe(u8, line) catch
-            std.process.fatal("unable to allocate tracked repo source path", .{})) catch
-            std.process.fatal("unable to record tracked repo source path", .{});
-    }
-    return true;
+fn repoZigPathRegistry(b: *std.Build) []const u8 {
+    return repoZigPathRegistryAlloc(b.allocator, b.pathFromRoot("."));
 }
 
 fn repoZigLintIncludePaths(b: *std.Build) []const std.Build.LazyPath {
@@ -1512,24 +1498,6 @@ fn repoZigLintIncludePaths(b: *std.Build) []const std.Build.LazyPath {
     }
     return includes.toOwnedSlice(b.allocator) catch
         std.process.fatal("unable to allocate repo Zig lint path list", .{});
-}
-
-fn readCommittedRepoZigPathRegistry(b: *std.Build) []const u8 {
-    const registry_path = b.pathFromRoot("repo_zig_paths.txt");
-    const registry_dir_path = std.fs.path.dirname(registry_path) orelse
-        std.process.fatal("unable to derive committed repo Zig path registry directory", .{});
-    var registry_dir = std.fs.openDirAbsolute(registry_dir_path, .{}) catch |err|
-        std.process.fatal("unable to open committed repo Zig path registry directory: {s}", .{@errorName(err)});
-    defer registry_dir.close();
-    return registry_dir.readFileAllocOptions(
-        b.allocator,
-        std.fs.path.basename(registry_path),
-        512 * 1024,
-        null,
-        .of(u8),
-        0,
-    ) catch |err|
-        std.process.fatal("unable to read committed repo Zig path registry: {s}", .{@errorName(err)});
 }
 
 const PackageRootAlias = struct {
@@ -1890,6 +1858,31 @@ fn runChildExpectSuccess(allocator: std.mem.Allocator, argv: []const []const u8)
     return error.UnexpectedChildCommandFailure;
 }
 
+fn makeExternalTmpDir(allocator: std.mem.Allocator) ![]u8 {
+    const result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "mktemp", "-d" },
+        .max_output_bytes = 1024,
+    });
+    defer allocator.free(result.stderr);
+
+    switch (result.term) {
+        .Exited => |code| if (code != 0) {
+            allocator.free(result.stdout);
+            return error.UnexpectedChildCommandFailure;
+        },
+        else => {
+            allocator.free(result.stdout);
+            return error.UnexpectedChildCommandFailure;
+        },
+    }
+
+    const trimmed = std.mem.trimEnd(u8, result.stdout, "\r\n");
+    const owned = try allocator.dupe(u8, trimmed);
+    allocator.free(result.stdout);
+    return owned;
+}
+
 test "artifact build fingerprint changes on raw-byte-only Zig edits" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -2203,6 +2196,72 @@ test "artifact build fingerprint includes top-level forward alias embed inputs" 
     try writeTmpFile(tmp.dir, "schema.json", "{ \"version\": 2 }\n");
     const after = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
     try std.testing.expect(!std.mem.eql(u8, &before, &after));
+}
+
+test "repo Zig path registry falls back to filesystem when git and committed registry are unavailable" {
+    const repo_root = try makeExternalTmpDir(std.testing.allocator);
+    defer std.testing.allocator.free(repo_root);
+    defer runChildExpectSuccess(std.testing.allocator, &.{ "rm", "-rf", repo_root }) catch unreachable;
+
+    var repo_dir = try std.fs.openDirAbsolute(repo_root, .{});
+    defer repo_dir.close();
+
+    try writeTmpFile(repo_dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(_: *std.Build) void {}
+        \\
+    );
+    try writeTmpFile(repo_dir, "src/probe.zig",
+        \\pub fn touch() void {}
+        \\
+    );
+
+    const registry = repoZigPathRegistryAlloc(std.testing.allocator, repo_root);
+    defer std.testing.allocator.free(registry);
+
+    try std.testing.expectEqualStrings(
+        \\build.zig
+        \\src/probe.zig
+        \\
+    , registry);
+}
+
+test "repo Zig path registry ignores deleted tracked files" {
+    const repo_root = try makeExternalTmpDir(std.testing.allocator);
+    defer std.testing.allocator.free(repo_root);
+    defer runChildExpectSuccess(std.testing.allocator, &.{ "rm", "-rf", repo_root }) catch unreachable;
+
+    var repo_dir = try std.fs.openDirAbsolute(repo_root, .{});
+    defer repo_dir.close();
+
+    try writeTmpFile(repo_dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(_: *std.Build) void {}
+        \\
+    );
+    try writeTmpFile(repo_dir, "live.zig",
+        \\pub fn live() void {}
+        \\
+    );
+    try writeTmpFile(repo_dir, "stale.zig",
+        \\pub fn stale() void {}
+        \\
+    );
+
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "init", "-q" });
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "add", "build.zig", "live.zig", "stale.zig" });
+    try repo_dir.deleteFile("stale.zig");
+
+    const registry = repoZigPathRegistryAlloc(std.testing.allocator, repo_root);
+    defer std.testing.allocator.free(registry);
+
+    try std.testing.expectEqualStrings(
+        \\build.zig
+        \\live.zig
+        \\
+    , registry);
 }
 
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.
