@@ -100,12 +100,12 @@ pub const ArtifactV1 = struct {
     instructions: []program_plan.Instruction,
 
     /// Validate that the artifact manifest and rebuilt program plan are self-consistent.
-    pub fn validate(self: @This()) anyerror!void {
+    pub fn validate(self: @This(), allocator: std.mem.Allocator) anyerror!void {
         try validateManifest(self.build_fingerprint_blake3_256, self.capabilities);
         if (self.entry_function_index >= self.functions.len) return error.InvalidEntryFunctionIndex;
         if (self.functions[self.entry_function_index].parameter_count != 0) return error.UnsupportedEntryParameters;
-        const plan = try self.toProgramPlan(std.heap.page_allocator);
-        defer deepFreeProgramPlan(std.heap.page_allocator, plan);
+        const plan = try self.toProgramPlan(allocator);
+        defer deepFreeProgramPlan(allocator, plan);
         try plan.validate();
         try validateExecutableCodecSupport(plan);
         try validateRequirementCapabilityMappings(plan, self.requirement_capability_ids, self.capabilities);
@@ -570,7 +570,7 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
     errdefer artifact.deinit(allocator);
     @memcpy(&artifact.artifact_hash_blake3_256, expected_hash);
     if (artifact.entry_function_index >= artifact.functions.len) return error.InvalidEntryFunctionIndex;
-    try artifact.validate();
+    try artifact.validate(allocator);
     return artifact;
 }
 
@@ -2254,6 +2254,59 @@ fn expectArtifactToProgramPlanCleanupOnAllocationFailure(allocator: std.mem.Allo
     defer deepFreeProgramPlan(allocator, plan);
 }
 
+fn expectArtifactValidateCleanupOnAllocationFailure(allocator: std.mem.Allocator) !void {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-v1-validate-cleanup");
+    const artifact_value: ArtifactV1 = .{
+        .semantic_ir_hash64 = 0x913,
+        .artifact_hash_blake3_256 = std.mem.zeroes([32]u8),
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .entry_function_index = 0,
+        .capabilities = &.{.{
+            .capability_id = 5,
+            .kind = .tool,
+            .label = "generated/tooling@v1",
+            .ops = &.{.{
+                .capability_id = 5,
+                .op_id = 0,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .string,
+                .plan_op_ordinal = 0,
+            }},
+        }},
+        .requirement_capability_ids = &.{5},
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 1,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "value", .mode = .transform, .payload_codec = .unit, .resume_codec = .string }},
+        .outputs = &.{.{ .label = "stdout", .codec = .string }},
+        .locals = &.{.{ .codec = .string }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_string, .dst = 0, .string_literal = "fallback" },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+
+    try artifact_value.validate(allocator);
+}
+
 fn expectMalformedStringBearingDecodeCleanup(allocator: std.mem.Allocator) !void {
     const build_fingerprint = buildFingerprintFromSeed("artifact-string-bearing-decode-cleanup");
     const plan: program_plan.ProgramPlan = .{
@@ -2330,6 +2383,14 @@ test "ArtifactV1 toProgramPlan unwinds partially cloned plan tables on allocator
     try std.testing.checkAllAllocationFailures(
         std.testing.allocator,
         expectArtifactToProgramPlanCleanupOnAllocationFailure,
+        .{},
+    );
+}
+
+test "ArtifactV1 validate unwinds rebuilt plan tables on allocator failure" {
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        expectArtifactValidateCleanupOnAllocationFailure,
         .{},
     );
 }
@@ -3182,7 +3243,7 @@ test "ArtifactV1 decode accepts reordered capability rows when repeated requirem
     defer decoded.deinit(std.testing.allocator);
 
     try std.testing.expectEqualSlices(u16, &.{ 11, 29 }, decoded.requirement_capability_ids);
-    try decoded.validate();
+    try decoded.validate(std.testing.allocator);
 }
 
 test "ArtifactV1 encode accepts repeated requirement labels when codecs choose distinct capabilities" {
@@ -3261,7 +3322,7 @@ test "ArtifactV1 encode accepts repeated requirement labels when codecs choose d
     defer decoded.deinit(std.testing.allocator);
 
     try std.testing.expectEqualSlices(u16, &.{ 11, 29 }, decoded.requirement_capability_ids);
-    try decoded.validate();
+    try decoded.validate(std.testing.allocator);
 }
 
 test "ArtifactV1 rejects custom capabilities that ambiguously match repeated requirement op names" {
