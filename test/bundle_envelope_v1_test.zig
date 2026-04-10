@@ -180,6 +180,20 @@ const custom_capabilities_b = [_]shift_vm.CapabilityV1{
 };
 
 test "BundleEnvelopeV1 round-trips ArtifactV1 bytes and rejects build mismatches" {
+    const Source = shift_compile.CompileSource(
+        "examples/open_row_state_writer.zig",
+        example.loweringSpec(),
+        .{
+            .build_fingerprint_seed = "bundle-envelope-test",
+            .capabilities = &.{},
+        },
+    );
+    const derived_capabilities = try shift_vm.artifact.deriveToolCapabilitiesFromPlan(
+        std.testing.allocator,
+        Source.runtime_plan,
+    );
+    defer shift_vm.artifact.deepFreeCapabilities(std.testing.allocator, derived_capabilities);
+
     const bytes = try shift_compile.compileAndEncode(
         std.testing.allocator,
         "examples/open_row_state_writer.zig",
@@ -197,7 +211,24 @@ test "BundleEnvelopeV1 round-trips ArtifactV1 bytes and rejects build mismatches
     const envelope_bytes = try shift_vm.bundle.exportBundle(std.testing.allocator, bytes);
     defer std.testing.allocator.free(envelope_bytes);
 
+    const seeded_default_fingerprint = shift_vm.artifact.buildFingerprintWithSeed(
+        shift_vm.artifact.defaultBuildFingerprint(),
+        "bundle-envelope-test",
+    );
+    const expected_composed = try shift_vm.artifact.buildFingerprintForCapabilities(
+        std.testing.allocator,
+        seeded_default_fingerprint,
+        derived_capabilities,
+    );
+    const seed_only = try shift_vm.artifact.buildFingerprintForCapabilities(
+        std.testing.allocator,
+        shift_vm.artifact.buildFingerprintFromSeed("bundle-envelope-test"),
+        derived_capabilities,
+    );
     const expected = decoded.build_fingerprint_blake3_256;
+
+    try std.testing.expectEqual(expected_composed, expected);
+    try std.testing.expect(!std.mem.eql(u8, &expected, &seed_only));
     var imported = try shift_vm.bundle.importBundle(std.testing.allocator, envelope_bytes, expected);
     defer imported.deinit(std.testing.allocator);
 

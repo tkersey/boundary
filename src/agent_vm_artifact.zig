@@ -201,6 +201,22 @@ pub fn buildFingerprintFromSeed(seed: []const u8) [32]u8 {
     return digest;
 }
 
+/// Fold one caller seed into one build-derived exact-build fingerprint.
+pub fn buildFingerprintWithSeed(base_fingerprint: [32]u8, seed: []const u8) [32]u8 {
+    var hasher = std.crypto.hash.Blake3.init(.{});
+    var len_bytes = std.mem.zeroes([8]u8);
+
+    hasher.update("shift-artifact-v1-build-fingerprint-seed-v1");
+    hasher.update(&base_fingerprint);
+    std.mem.writeInt(u64, &len_bytes, seed.len, .little);
+    hasher.update(&len_bytes);
+    hasher.update(seed);
+
+    var digest = std.mem.zeroes([32]u8);
+    hasher.final(&digest);
+    return digest;
+}
+
 /// Return the current build-derived exact-build fingerprint used by default ArtifactV1 emission.
 pub fn defaultBuildFingerprint() [32]u8 {
     return artifact_build_options.default_artifact_build_fingerprint;

@@ -6,6 +6,7 @@ const std = @import("std");
 /// Compile-time options for ArtifactV1 emission and default capability derivation.
 pub const CompileOptionsV1 = struct {
     /// Empty uses the current build-derived exact-build fingerprint.
+    /// Non-empty folds the seed into that build identity instead of replacing it.
     build_fingerprint_seed: []const u8 = "",
     capabilities: []const artifact.CapabilityV1 = &.{},
 };
@@ -34,10 +35,11 @@ fn CompileSourceType(
                 break :blk owned_capabilities.?;
             } else options.capabilities;
 
+            const default_fingerprint = artifact.defaultBuildFingerprint();
             const base_fingerprint = if (options.build_fingerprint_seed.len != 0)
-                artifact.buildFingerprintFromSeed(options.build_fingerprint_seed)
+                artifact.buildFingerprintWithSeed(default_fingerprint, options.build_fingerprint_seed)
             else
-                artifact.defaultBuildFingerprint();
+                default_fingerprint;
             const build_fingerprint = try artifact.buildFingerprintForCapabilities(
                 allocator,
                 base_fingerprint,

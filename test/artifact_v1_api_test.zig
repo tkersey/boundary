@@ -264,6 +264,10 @@ test "CompileSource default path hashes derived capability manifests into the bu
 }
 
 test "CompileSource folds custom capability manifests into seeded build fingerprints" {
+    const seeded_default_fingerprint = shift_vm.artifact.buildFingerprintWithSeed(
+        shift_vm.artifact.defaultBuildFingerprint(),
+        "artifact-api-seeded-capabilities",
+    );
     const bytes_alpha = try shift_compile.compileAndEncode(
         std.testing.allocator,
         "examples/open_row_state_writer.zig",
@@ -292,6 +296,25 @@ test "CompileSource folds custom capability manifests into seeded build fingerpr
     defer decoded_bravo.deinit(std.testing.allocator);
 
     const seed_fingerprint = shift_vm.artifact.buildFingerprintFromSeed("artifact-api-seeded-capabilities");
+    const expected_alpha = try shift_vm.artifact.buildFingerprintForCapabilities(
+        std.testing.allocator,
+        seeded_default_fingerprint,
+        &custom_capabilities_alpha,
+    );
+    const expected_bravo = try shift_vm.artifact.buildFingerprintForCapabilities(
+        std.testing.allocator,
+        seeded_default_fingerprint,
+        &custom_capabilities_bravo,
+    );
+    const seed_only_alpha = try shift_vm.artifact.buildFingerprintForCapabilities(
+        std.testing.allocator,
+        seed_fingerprint,
+        &custom_capabilities_alpha,
+    );
+
+    try std.testing.expectEqual(expected_alpha, decoded_alpha.build_fingerprint_blake3_256);
+    try std.testing.expectEqual(expected_bravo, decoded_bravo.build_fingerprint_blake3_256);
     try std.testing.expect(!std.mem.eql(u8, &decoded_alpha.build_fingerprint_blake3_256, &seed_fingerprint));
+    try std.testing.expect(!std.mem.eql(u8, &decoded_alpha.build_fingerprint_blake3_256, &seed_only_alpha));
     try std.testing.expect(!std.mem.eql(u8, &decoded_alpha.build_fingerprint_blake3_256, &decoded_bravo.build_fingerprint_blake3_256));
 }
