@@ -85,6 +85,7 @@ const capability_required_flag: u8 = 0x1;
 pub const ArtifactV1 = struct {
     semantic_ir_hash64: u64,
     artifact_hash_blake3_256: [32]u8,
+    manifest_build_fingerprint: [32]u8 = std.mem.zeroes([32]u8),
     build_fingerprint_blake3_256: [32]u8,
     entry_function_index: u16,
     capabilities: []CapabilityV1,
@@ -101,7 +102,15 @@ pub const ArtifactV1 = struct {
 
     /// Validate that the artifact manifest and rebuilt program plan are self-consistent.
     pub fn validate(self: @This(), allocator: std.mem.Allocator) anyerror!void {
-        try validateManifest(self.build_fingerprint_blake3_256, self.capabilities);
+        try validateManifest(self.manifest_build_fingerprint, self.capabilities);
+        const recomputed_build_fingerprint = try buildFingerprintForCapabilities(
+            allocator,
+            self.manifest_build_fingerprint,
+            self.capabilities,
+        );
+        if (!std.mem.eql(u8, &recomputed_build_fingerprint, &self.build_fingerprint_blake3_256)) {
+            return error.BuildFingerprintMismatch;
+        }
         if (self.entry_function_index >= self.functions.len) return error.InvalidEntryFunctionIndex;
         if (self.functions[self.entry_function_index].parameter_count != 0) return error.UnsupportedEntryParameters;
         const plan = try self.toProgramPlan(allocator);
@@ -170,6 +179,7 @@ pub const ArtifactV1 = struct {
 /// Decode-time failures for ArtifactV1 binary payloads.
 pub const DecodeError = error{
     BadMagic,
+    BuildFingerprintMismatch,
     DuplicateCapabilityId,
     DuplicateCapabilityOpId,
     DuplicateDirectorySection,
@@ -506,9 +516,14 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
 
     const string_bytes = sectionBytes(bytes, directories.items, .string_table);
     const decoded_manifest = try decodeCapabilityManifest(allocator, string_bytes, sectionBytes(bytes, directories.items, .capability_manifest));
-    const build_fingerprint = decoded_manifest.build_fingerprint_blake3_256;
+    const manifest_build_fingerprint = decoded_manifest.build_fingerprint_blake3_256;
     var capabilities = decoded_manifest.capabilities;
     errdefer if (capabilities.len != 0) deepFreeCapabilities(allocator, capabilities);
+    const build_fingerprint = try buildFingerprintForCapabilities(
+        allocator,
+        manifest_build_fingerprint,
+        capabilities,
+    );
 
     var decoded_requirements = try decodeRequirementTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .requirement_table));
     errdefer {
@@ -543,6 +558,7 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
     var artifact = ArtifactV1{
         .semantic_ir_hash64 = ir_hash,
         .artifact_hash_blake3_256 = std.mem.zeroes([32]u8),
+        .manifest_build_fingerprint = manifest_build_fingerprint,
         .build_fingerprint_blake3_256 = build_fingerprint,
         .entry_function_index = entry_index,
         .capabilities = capabilities,
@@ -1038,6 +1054,9 @@ fn resolveRequirementCapabilityId(plan: program_plan.ProgramPlan, requirement_in
         if (previous.op_count != requirement.op_count) continue;
         if (!std.mem.eql(u8, previous.label, requirement.label)) continue;
         if (!requirementsShareCompatibleCapability(plan, previous_requirement_index, requirement_index, capabilities)) continue;
+        if (requirementOpNamesMatch(plan, previous_requirement_index, requirement_index)) {
+            return try resolveRequirementCapabilityId(plan, previous_requirement_index, capabilities);
+        }
         wanted_ordinal += 1;
     }
 
@@ -3422,6 +3441,70 @@ test "ArtifactV1 decode accepts reordered capability rows when repeated requirem
     defer decoded.deinit(std.testing.allocator);
 
     try std.testing.expectEqualSlices(u16, &.{ 11, 29 }, decoded.requirement_capability_ids);
+    try decoded.validate(std.testing.allocator);
+}
+
+test "ArtifactV1 encode allows repeated identical requirements to share one capability id" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-repeated-identical-requirement-shared-capability");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.repeated_identical_requirement_shared_capability",
+        .ir_hash = 0xb17,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 2,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{
+            .{ .label = "tooling", .first_op = 0, .op_count = 1 },
+            .{ .label = "tooling", .first_op = 1, .op_count = 1 },
+        },
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "value", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+            .{ .requirement_index = 1, .op_name = "value", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+        },
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const capabilities = [_]CapabilityV1{.{
+        .capability_id = 11,
+        .kind = .tool,
+        .label = "generated/tooling@v1",
+        .ops = &.{.{
+            .capability_id = 11,
+            .op_id = 0,
+            .global_op_name = "tool.call",
+            .payload_codec = .unit,
+            .result_codec = .string,
+            .plan_op_ordinal = 0,
+        }},
+    }};
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    });
+    defer std.testing.allocator.free(encoded);
+
+    var decoded = try decode(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+
+    try std.testing.expectEqualSlices(u16, &.{ 11, 11 }, decoded.requirement_capability_ids);
     try decoded.validate(std.testing.allocator);
 }
 

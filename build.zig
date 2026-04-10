@@ -22,7 +22,9 @@ const ShiftPromptFixtureDeps = struct {
 fn absolutizeGraphDirPath(b: *std.Build, maybe_path: ?[]const u8) ?[]const u8 {
     const path = maybe_path orelse return null;
     if (std.fs.path.isAbsolute(path)) return path;
-    return std.fs.path.resolve(b.allocator, &.{path}) catch |err|
+    const cwd = std.fs.cwd().realpathAlloc(b.allocator, ".") catch |err|
+        std.process.fatal("failed to resolve build cwd for graph path '{s}': {s}", .{ path, @errorName(err) });
+    return std.fs.path.resolve(b.allocator, &.{ cwd, path }) catch |err|
         std.process.fatal("failed to resolve build graph path '{s}': {s}", .{ path, @errorName(err) });
 }
 
@@ -1521,19 +1523,22 @@ fn externalBoundaryFixtureNamespace(allocator: std.mem.Allocator, repo_root: []c
     );
 }
 
-fn externalBoundaryFixtureRootPath(allocator: std.mem.Allocator, cache_root: []const u8, repo_root: []const u8) ![]u8 {
+fn externalBoundaryFixtureRootPath(allocator: std.mem.Allocator, fixture_root: []const u8, repo_root: []const u8) ![]u8 {
     const fixture_namespace = try externalBoundaryFixtureNamespace(allocator, repo_root);
     defer allocator.free(fixture_namespace);
     return std.fs.path.join(
         allocator,
-        &.{ cache_root, "shift_external_boundary_fixtures", fixture_namespace },
+        &.{ fixture_root, fixture_namespace },
     );
 }
 
 fn externalBoundaryFixtureRoot(b: *std.Build) []const u8 {
-    const cache_root = b.graph.global_cache_root.path orelse
-        std.process.fatal("missing global cache root for external boundary fixtures", .{});
-    return externalBoundaryFixtureRootPath(b.allocator, cache_root, b.pathFromRoot(".")) catch
+    const repo_root = b.pathFromRoot(".");
+    const repo_parent = std.fs.path.dirname(repo_root) orelse
+        std.process.fatal("unable to derive external boundary fixture parent", .{});
+    const fixture_root = std.fs.path.join(b.allocator, &.{ repo_parent, ".shift_external_boundary_fixtures" }) catch
+        std.process.fatal("unable to allocate external boundary fixture root", .{});
+    return externalBoundaryFixtureRootPath(b.allocator, fixture_root, repo_root) catch
         std.process.fatal("unable to allocate external boundary fixture root", .{});
 }
 
@@ -1629,7 +1634,10 @@ const WriteTextFileStep = struct {
         if (std.fs.path.dirname(self.path)) |dir_name| {
             try std.fs.cwd().makePath(dir_name);
         }
-        var file = try std.fs.createFileAbsolute(self.path, .{ .truncate = true });
+        var file = if (std.fs.path.isAbsolute(self.path))
+            try std.fs.createFileAbsolute(self.path, .{ .truncate = true })
+        else
+            try std.fs.cwd().createFile(self.path, .{ .truncate = true });
         defer file.close();
         var buffer: [4096]u8 = undefined;
         var writer = file.writer(&buffer);
@@ -1694,6 +1702,7 @@ fn compileFailEscapeSymlinkSupported(
         "unable to clear compile-fail helper probe symlink path",
     );
     return ensureOptionalAbsoluteSymlink(
+        b.allocator,
         target_path,
         probe_link_path,
         "unable to clear compile-fail helper probe symlink directory",
@@ -1702,17 +1711,18 @@ fn compileFailEscapeSymlinkSupported(
 }
 
 fn ensureOptionalAbsoluteSymlink(
+    allocator: std.mem.Allocator,
     target_path: []const u8,
     link_path: []const u8,
     dir_error: []const u8,
     path_error: []const u8,
 ) bool {
     var owned_absolute_target: ?[]u8 = null;
-    defer if (owned_absolute_target) |path| std.heap.page_allocator.free(path);
+    defer if (owned_absolute_target) |path| allocator.free(path);
     const absolute_target = if (std.fs.path.isAbsolute(target_path))
         target_path
     else blk: {
-        owned_absolute_target = std.fs.cwd().realpathAlloc(std.heap.page_allocator, target_path) catch return false;
+        owned_absolute_target = std.fs.cwd().realpathAlloc(allocator, target_path) catch return false;
         break :blk owned_absolute_target.?;
     };
 
@@ -2835,7 +2845,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    durable_session_mod.addImport("shift", shift_vm_mod);
+    durable_session_mod.addImport("shift_vm", shift_vm_mod);
     const durable_session_tests = b.addTest(.{
         .root_module = durable_session_mod,
     });
@@ -3111,10 +3121,10 @@ pub fn build(b: *std.Build) void {
     });
     const run_host_adapter_tests = b.addRunArtifact(host_adapter_conformance_tests);
     const host_adapter_conformance_step = b.step("host-adapter-conformance-check", "Check HostAdapterV1 request/result conformance helpers.");
-    const host_adapter_v1_conformance_step = b.step("host-adapter-v1-conformance-check", "Compatibility alias for HostAdapterV1 request/result conformance helpers.");
+    const host_adapter_v1_step = b.step("host-adapter-v1-conformance-check", "Compatibility alias for HostAdapterV1 request/result conformance helpers.");
     test_step.dependOn(&run_host_adapter_tests.step);
     host_adapter_conformance_step.dependOn(&run_host_adapter_tests.step);
-    host_adapter_v1_conformance_step.dependOn(&run_host_adapter_tests.step);
+    host_adapter_v1_step.dependOn(&run_host_adapter_tests.step);
 
     const artifact_dump_mod = b.createModule(.{
         .root_source_file = b.path("tools/artifact_v1_dump.zig"),

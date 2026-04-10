@@ -846,6 +846,9 @@ pub fn importedSource(
     comptime import_path: []const u8,
     comptime source_bytes: []const u8,
 ) ImportedSource {
+    comptime {
+        @setEvalBranchQuota(50_000);
+    }
     const resolved_path = source_graph_embed.resolveImportPathAt(root_source_path, import_path) catch |err| switch (err) {
         error.UnsupportedImportPath => @compileError("public lowering imported source helper requires a non-escaping relative .zig import path"),
         error.TooManyImports => @compileError("public lowering imported source helper exceeded the supported segment budget"),

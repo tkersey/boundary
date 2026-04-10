@@ -347,16 +347,6 @@ fn callHostOp(
     var response: host.HostEffectResultV1 = ctx.adapter.dispatch(ctx.allocator, request) catch |err|
         try providerFailureResult(ctx.allocator, request.request_id, @errorName(err));
     defer response.deinit(ctx.allocator);
-    if (response.schema_version != 1) return error.ProgramContractViolation;
-    if (response.request_id != request.request_id) return error.ProgramContractViolation;
-    switch (response.body) {
-        .success => |tool_result| {
-            const tool_call = request.body.tool_call;
-            if (!std.mem.eql(u8, tool_result.tool_id, tool_call.tool_id)) return error.ProgramContractViolation;
-            if (tool_result.call_id != tool_call.call_id) return error.ProgramContractViolation;
-        },
-        else => {},
-    }
 
     var log_entry: host.HostLogEntryV1 = blk: {
         var request_clone = try request.clone(ctx.allocator);
@@ -373,17 +363,46 @@ fn callHostOp(
     try ctx.logs.append(ctx.allocator, log_entry);
     logged = true;
 
+    if (response.schema_version != 1) return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply schema_version must be 1") };
+    if (response.request_id != request.request_id) return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply request_id must echo the request") };
+    switch (response.body) {
+        .success => |tool_result| {
+            const tool_call = request.body.tool_call;
+            if (!std.mem.eql(u8, tool_result.tool_id, tool_call.tool_id)) {
+                return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply tool_id must echo the request") };
+            }
+            if (tool_result.call_id != tool_call.call_id) {
+                return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply call_id must echo the request") };
+            }
+        },
+        else => {},
+    }
+
     return switch (response.body) {
         .success => |tool_result| blk: {
-            if (!hostControlMatchesOpMode(op.mode, tool_result.control)) return error.ProgramContractViolation;
+            if (!hostControlMatchesOpMode(op.mode, tool_result.control)) {
+                return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply control is incompatible with the op mode") };
+            }
             break :blk switch (tool_result.control) {
-                .@"resume" => .{ .resumed = try dataValueToRuntimeValue(ctx.allocator, op.resume_codec, tool_result.value) },
+                .@"resume" => .{
+                    .resumed = dataValueToRuntimeValue(ctx.allocator, op.resume_codec, tool_result.value) catch |err| switch (err) {
+                        error.ProgramContractViolation => {
+                            return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply value does not match the declared codec") };
+                        },
+                        else => return err,
+                    },
+                },
                 .return_now, .abort => .{
-                    .terminal = try dataValueToRuntimeValue(
+                    .terminal = dataValueToRuntimeValue(
                         ctx.allocator,
                         artifact.terminalResultCodecForOp(ctx.plan, op_index) catch return error.ProgramContractViolation,
                         tool_result.value,
-                    ),
+                    ) catch |err| switch (err) {
+                        error.ProgramContractViolation => {
+                            return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply value does not match the declared codec") };
+                        },
+                        else => return err,
+                    },
                 },
             };
         },
@@ -405,6 +424,18 @@ fn providerFailureResult(
             .owns_code = true,
             .owns_message = true,
         } },
+    };
+}
+
+fn invalidHostReplyFailure(
+    allocator: std.mem.Allocator,
+    message: []const u8,
+) !host.FailureV1 {
+    return .{
+        .code = try allocator.dupe(u8, "invalid_host_reply"),
+        .message = try allocator.dupe(u8, message),
+        .owns_code = true,
+        .owns_message = true,
     };
 }
 
@@ -691,6 +722,7 @@ test "helper frames clone string parameters before returning them" {
     var next_request_id: u64 = 1;
     const decoded = artifact.ArtifactV1{
         .semantic_ir_hash64 = plan.ir_hash,
+        .manifest_build_fingerprint = std.mem.zeroes([32]u8),
         .build_fingerprint_blake3_256 = std.mem.zeroes([32]u8),
         .capabilities = &.{},
         .requirement_capability_ids = &.{},

@@ -76,6 +76,13 @@ fn expectCompleted(result: *shift_vm.runtime.RunArtifactResultV1) !*shift_vm.run
     };
 }
 
+fn expectFailed(result: *shift_vm.runtime.RunArtifactResultV1) !*shift_vm.runtime.HostFailureResultV1 {
+    return switch (result.*) {
+        .failed => |*failed| failed,
+        else => error.TestUnexpectedResult,
+    };
+}
+
 fn dispatch(ctx: *anyopaque, allocator: std.mem.Allocator, request: shift_vm.host_adapter.HostEffectRequestV1) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
     const runtime_ctx: *RuntimeContext = @ptrCast(@alignCast(ctx));
     const tool_call = request.body.tool_call;
@@ -998,16 +1005,26 @@ test "ArtifactV1 runtime rejects host control outcomes incompatible with op mode
     defer std.testing.allocator.free(transform_bytes);
 
     var transform_return_now = FixedControlDispatchContext{ .control = .return_now };
-    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, transform_bytes, .{
+    var transform_return_now_result = try shift_vm.runtime.runArtifact(std.testing.allocator, transform_bytes, .{
         .ctx = &transform_return_now,
         .dispatchFn = dispatchFixedControlResult,
-    }));
+    });
+    defer transform_return_now_result.deinit(std.testing.allocator);
+    const transform_return_now_failure = try expectFailed(&transform_return_now_result);
+    try std.testing.expectEqualStrings("invalid_host_reply", transform_return_now_failure.failure.code);
+    try std.testing.expectEqualStrings("host reply control is incompatible with the op mode", transform_return_now_failure.failure.message);
+    try std.testing.expectEqual(@as(usize, 1), transform_return_now_failure.logs.len);
 
     var transform_abort = FixedControlDispatchContext{ .control = .abort };
-    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, transform_bytes, .{
+    var transform_abort_result = try shift_vm.runtime.runArtifact(std.testing.allocator, transform_bytes, .{
         .ctx = &transform_abort,
         .dispatchFn = dispatchFixedControlResult,
-    }));
+    });
+    defer transform_abort_result.deinit(std.testing.allocator);
+    const transform_abort_failure = try expectFailed(&transform_abort_result);
+    try std.testing.expectEqualStrings("invalid_host_reply", transform_abort_failure.failure.code);
+    try std.testing.expectEqualStrings("host reply control is incompatible with the op mode", transform_abort_failure.failure.message);
+    try std.testing.expectEqual(@as(usize, 1), transform_abort_failure.logs.len);
 
     const abort_bytes = try encodeSingleStringArtifact(std.testing.allocator, .abort, .unit, "artifact-runtime-abort-control-contract");
     defer std.testing.allocator.free(abort_bytes);
@@ -1016,10 +1033,15 @@ test "ArtifactV1 runtime rejects host control outcomes incompatible with op mode
         .control = .@"resume",
         .use_null_value = true,
     };
-    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, abort_bytes, .{
+    var abort_resume_result = try shift_vm.runtime.runArtifact(std.testing.allocator, abort_bytes, .{
         .ctx = &abort_resume,
         .dispatchFn = dispatchFixedControlResult,
-    }));
+    });
+    defer abort_resume_result.deinit(std.testing.allocator);
+    const abort_resume_failure = try expectFailed(&abort_resume_result);
+    try std.testing.expectEqualStrings("invalid_host_reply", abort_resume_failure.failure.code);
+    try std.testing.expectEqualStrings("host reply control is incompatible with the op mode", abort_resume_failure.failure.message);
+    try std.testing.expectEqual(@as(usize, 1), abort_resume_failure.logs.len);
 }
 
 test "ArtifactV1 runtime enforces choice control compatibility" {
@@ -1039,10 +1061,15 @@ test "ArtifactV1 runtime enforces choice control compatibility" {
     try std.testing.expectEqualStrings("choice-early", completed.value.string);
 
     var choice_abort = FixedControlDispatchContext{ .control = .abort };
-    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, choice_bytes, .{
+    var choice_abort_result = try shift_vm.runtime.runArtifact(std.testing.allocator, choice_bytes, .{
         .ctx = &choice_abort,
         .dispatchFn = dispatchFixedControlResult,
-    }));
+    });
+    defer choice_abort_result.deinit(std.testing.allocator);
+    const choice_abort_failure = try expectFailed(&choice_abort_result);
+    try std.testing.expectEqualStrings("invalid_host_reply", choice_abort_failure.failure.code);
+    try std.testing.expectEqualStrings("host reply control is incompatible with the op mode", choice_abort_failure.failure.message);
+    try std.testing.expectEqual(@as(usize, 1), choice_abort_failure.logs.len);
 }
 
 test "ArtifactV1 runtime rejects out-of-range i32 host integers" {
@@ -1050,10 +1077,15 @@ test "ArtifactV1 runtime rejects out-of-range i32 host integers" {
     defer std.testing.allocator.free(bytes);
 
     var context = IntegerDispatchContext{ .value = std.math.maxInt(i64) };
-    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+    var result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
         .ctx = &context,
         .dispatchFn = dispatchIntegerResult,
-    }));
+    });
+    defer result.deinit(std.testing.allocator);
+    const failure = try expectFailed(&result);
+    try std.testing.expectEqualStrings("invalid_host_reply", failure.failure.code);
+    try std.testing.expectEqualStrings("host reply value does not match the declared codec", failure.failure.message);
+    try std.testing.expectEqual(@as(usize, 1), failure.logs.len);
 }
 
 test "ArtifactV1 runtime rejects negative usize host integers" {
@@ -1061,10 +1093,15 @@ test "ArtifactV1 runtime rejects negative usize host integers" {
     defer std.testing.allocator.free(bytes);
 
     var context = IntegerDispatchContext{ .value = -1 };
-    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+    var result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
         .ctx = &context,
         .dispatchFn = dispatchIntegerResult,
-    }));
+    });
+    defer result.deinit(std.testing.allocator);
+    const failure = try expectFailed(&result);
+    try std.testing.expectEqualStrings("invalid_host_reply", failure.failure.code);
+    try std.testing.expectEqualStrings("host reply value does not match the declared codec", failure.failure.message);
+    try std.testing.expectEqual(@as(usize, 1), failure.logs.len);
 }
 
 test "ArtifactV1 runtime round-trips usize values above maxInt(i64)" {
@@ -1166,10 +1203,15 @@ test "ArtifactV1 runtime rejects non-null host values for unit codecs" {
     var context = RuntimeContext{ .state = 5 };
     defer context.deinit(std.testing.allocator);
 
-    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+    var result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
         .ctx = &context,
         .dispatchFn = dispatchNonNullUnitResult,
-    }));
+    });
+    defer result.deinit(std.testing.allocator);
+    const failure = try expectFailed(&result);
+    try std.testing.expectEqualStrings("invalid_host_reply", failure.failure.code);
+    try std.testing.expectEqualStrings("host reply value does not match the declared codec", failure.failure.message);
+    try std.testing.expectEqual(@as(usize, 1), failure.logs.len);
 }
 
 test "ArtifactV1 runtime rejects successful host replies with mismatched tool metadata" {
@@ -1177,26 +1219,41 @@ test "ArtifactV1 runtime rejects successful host replies with mismatched tool me
     defer std.testing.allocator.free(bytes);
 
     var wrong_tool = IntegerDispatchContext{ .value = 0 };
-    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+    var wrong_tool_result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
         .ctx = &wrong_tool,
         .dispatchFn = dispatchMismatchedSuccess,
-    }));
+    });
+    defer wrong_tool_result.deinit(std.testing.allocator);
+    const wrong_tool_failure = try expectFailed(&wrong_tool_result);
+    try std.testing.expectEqualStrings("invalid_host_reply", wrong_tool_failure.failure.code);
+    try std.testing.expectEqualStrings("host reply tool_id must echo the request", wrong_tool_failure.failure.message);
+    try std.testing.expectEqual(@as(usize, 1), wrong_tool_failure.logs.len);
 
     var wrong_call = IntegerDispatchContext{ .value = 1 };
-    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+    var wrong_call_result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
         .ctx = &wrong_call,
         .dispatchFn = dispatchMismatchedSuccess,
-    }));
+    });
+    defer wrong_call_result.deinit(std.testing.allocator);
+    const wrong_call_failure = try expectFailed(&wrong_call_result);
+    try std.testing.expectEqualStrings("invalid_host_reply", wrong_call_failure.failure.code);
+    try std.testing.expectEqualStrings("host reply call_id must echo the request", wrong_call_failure.failure.message);
+    try std.testing.expectEqual(@as(usize, 1), wrong_call_failure.logs.len);
 }
 
 test "ArtifactV1 runtime rejects host replies with non-v1 schema versions" {
     const bytes = try encodeSingleResumeArtifact(std.testing.allocator, .i32, "artifact-runtime-schema-version");
     defer std.testing.allocator.free(bytes);
 
-    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+    var result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
         .ctx = undefined,
         .dispatchFn = dispatchWrongSchemaVersion,
-    }));
+    });
+    defer result.deinit(std.testing.allocator);
+    const failure = try expectFailed(&result);
+    try std.testing.expectEqualStrings("invalid_host_reply", failure.failure.code);
+    try std.testing.expectEqualStrings("host reply schema_version must be 1", failure.failure.message);
+    try std.testing.expectEqual(@as(usize, 1), failure.logs.len);
 }
 
 fn dispatchRejectedFailure(

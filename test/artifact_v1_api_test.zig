@@ -252,7 +252,7 @@ test "CompileSource default path hashes derived capability manifests into the bu
         std.testing.allocator,
         Source.runtime_plan,
         .{
-            .build_fingerprint_blake3_256 = expected_fingerprint,
+            .build_fingerprint_blake3_256 = shift_vm.artifact.defaultBuildFingerprint(),
             .capabilities = derived_capabilities,
         },
     );

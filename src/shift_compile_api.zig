@@ -40,13 +40,8 @@ fn CompileSourceType(
                 artifact.buildFingerprintWithSeed(default_fingerprint, options.build_fingerprint_seed)
             else
                 default_fingerprint;
-            const build_fingerprint = try artifact.buildFingerprintForCapabilities(
-                allocator,
-                base_fingerprint,
-                capabilities,
-            );
             return artifact.encodeProgramPlan(allocator, runtime_plan, .{
-                .build_fingerprint_blake3_256 = build_fingerprint,
+                .build_fingerprint_blake3_256 = base_fingerprint,
                 .capabilities = capabilities,
             });
         }
