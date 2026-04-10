@@ -1215,6 +1215,60 @@ fn collectFilesystemRepoZigPaths(
     }
 }
 
+fn collectBuildZigReferencedRepoZigPaths(
+    allocator: std.mem.Allocator,
+    repo_root: []const u8,
+    paths: *std.ArrayList([]const u8),
+    path_set: *std.StringHashMap(void),
+) void {
+    var root_dir = std.fs.openDirAbsolute(repo_root, .{}) catch return;
+    defer root_dir.close();
+
+    const source = root_dir.readFileAlloc(allocator, "build.zig", 4 * 1024 * 1024) catch return;
+    defer allocator.free(source);
+    const source_z = allocator.dupeZ(u8, source) catch
+        std.process.fatal("unable to duplicate build.zig source for build input scan", .{});
+    defer allocator.free(source_z);
+
+    var tree = std.zig.Ast.parse(allocator, source_z, .zig) catch
+        std.process.fatal("unable to parse build.zig for build input scan", .{});
+    defer tree.deinit(allocator);
+
+    var root_buffer: [2]std.zig.Ast.Node.Index = undefined;
+    const root = tree.fullContainerDecl(&root_buffer, .root) orelse return;
+
+    var build_fn_source: ?[]const u8 = null;
+    for (root.ast.members) |member| {
+        var fn_buffer: [1]std.zig.Ast.Node.Index = undefined;
+        const fn_proto = tree.fullFnProto(&fn_buffer, member) orelse continue;
+        const fn_name_token = fn_proto.name_token orelse continue;
+        if (!std.mem.eql(u8, tree.tokenSlice(fn_name_token), "build")) continue;
+        build_fn_source = functionSourceSlice(tree, source_z, member, fn_proto);
+        break;
+    }
+
+    const build_source = build_fn_source orelse return;
+    const build_source_z = allocator.dupeZ(u8, build_source) catch
+        std.process.fatal("unable to duplicate build() source for build input scan", .{});
+    defer allocator.free(build_source_z);
+    const tokens = collectBuildInputTokensAlloc(allocator, build_source_z) catch
+        std.process.fatal("unable to tokenize build() source for build input scan", .{});
+    defer allocator.free(tokens);
+
+    const collector: BuildInputPathCollector = .{
+        .paths = paths,
+        .path_set = path_set,
+    };
+    for (tokens) |token| {
+        if (token.tag != .string_literal) continue;
+        const decoded = decodeStringLiteralAlloc(allocator, token.lexeme) catch
+            std.process.fatal("unable to decode build() path literal for build input scan", .{}) orelse continue;
+        defer allocator.free(decoded);
+        appendResolvedImportPathIfPresent(allocator, repo_root, ".", decoded, collector) catch
+            std.process.fatal("unable to record build() referenced repo Zig path", .{});
+    }
+}
+
 fn collectTrackedRepoZigPathsAlloc(
     allocator: std.mem.Allocator,
     repo_root: []const u8,
@@ -1282,6 +1336,7 @@ fn artifactBuildInputPathsAlloc(
             collectFilesystemRepoZigPaths(allocator, repo_root, &paths, &path_set);
         }
     }
+    collectBuildZigReferencedRepoZigPaths(allocator, repo_root, &paths, &path_set);
 
     var index: usize = 0;
     while (index < paths.items.len) : (index += 1) {
@@ -1908,6 +1963,54 @@ test "artifact build fingerprint includes imported untracked Zig inputs" {
     );
     try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "init", "-q" });
     try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "add", "probe.zig", "build.zig.zon" });
+
+    const before = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try writeTmpFile(tmp.dir, "helper.zig",
+        \\pub fn touch() void {
+        \\    _ = 1;
+        \\}
+        \\
+    );
+    const after = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try std.testing.expect(!std.mem.eql(u8, &before, &after));
+}
+
+test "artifact build fingerprint includes build.zig-wired untracked Zig modules" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const helper = b.addModule("helper", .{
+        \\        .root_source_file = b.path("helper.zig"),
+        \\    });
+        \\    const probe = b.addModule("probe", .{
+        \\        .root_source_file = b.path("probe.zig"),
+        \\    });
+        \\    probe.addImport("helper", helper);
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
+    try writeTmpFile(tmp.dir, "probe.zig",
+        \\const helper = @import("helper");
+        \\
+        \\pub fn main() void {
+        \\    helper.touch();
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "helper.zig",
+        \\pub fn touch() void {}
+        \\
+    );
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "init", "-q" });
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "add", "build.zig", "build.zig.zon", "probe.zig" });
 
     const before = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
     try writeTmpFile(tmp.dir, "helper.zig",
