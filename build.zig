@@ -3200,7 +3200,8 @@ pub fn build(b: *std.Build) void {
     open_row_lowering_mod.addImport("effect_ir", effect_ir_mod);
     open_row_lowering_mod.addImport("source_lowering", source_lowering_mod);
     open_row_lowering_mod.addImport("program_frontend", program_frontend_mod);
-    open_row_lowering_mod.addImport("shift", shift_shared_mod);
+    open_row_lowering_mod.addImport("shift_compile", shift_compile_mod);
+    open_row_lowering_mod.addImport("shift_vm", shift_vm_mod);
     open_row_lowering_mod.addImport("example_open_row_escaped_string_helper_body", createShiftConsumerModule(b, "examples/open_row_escaped_string_helper_body.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     open_row_lowering_mod.addImport("example_open_row_linear_helper_body", createShiftConsumerModule(b, "examples/open_row_linear_helper_body.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     open_row_lowering_mod.addImport("example_open_row_branching_helper_body", createShiftConsumerModule(b, "examples/open_row_branching_helper_body.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
@@ -3534,7 +3535,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    source_ownership_probe_mod.addImport("shift", shift_shared_mod);
+    source_ownership_probe_mod.addImport("shift", shift_mod);
+    source_ownership_probe_mod.addImport("shift_compile", shift_compile_mod);
     const source_ownership_probe_tests = b.addTest(.{
         .root_module = source_ownership_probe_mod,
     });

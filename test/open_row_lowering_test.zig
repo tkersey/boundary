@@ -10,7 +10,8 @@ const example_open_row_linear_helper_body = @import("example_open_row_linear_hel
 const example_open_row_recursive_cross_writer = @import("example_open_row_recursive_cross_writer");
 const example_open_row_recursive_writer = @import("example_open_row_recursive_writer");
 const example_open_row_state_writer = @import("example_open_row_state_writer");
-const shift = @import("shift");
+const shift = @import("shift_compile");
+const shift_vm = @import("shift_vm");
 const std = @import("std");
 
 fn symlinkAliasPath(
@@ -100,7 +101,7 @@ test "open-row state-writer workflow lowers through the public same-module path"
 }
 
 test "public lowered runner executes same-file lowered program through runtime_plan" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_vm.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var handlers: LoweredStateWriterHandlers = .{
@@ -120,7 +121,7 @@ test "public lowered runner executes same-file lowered program through runtime_p
 }
 
 test "public lowered runner executes recursive same-file lowered program" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_vm.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var handlers: LoweredStateWriterHandlers = .{
@@ -141,7 +142,7 @@ test "public lowered runner executes recursive same-file lowered program" {
 }
 
 test "public lowered runner executes cross-file lowered program" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_vm.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var handlers: LoweredStateWriterHandlers = .{
@@ -209,7 +210,7 @@ test "escaped helper string literals decode before const_string emission" {
 }
 
 test "public lowered runner preserves escaped helper string literal semantics" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_vm.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var handlers: LoweredStateWriterHandlers = .{
@@ -254,7 +255,7 @@ test "public lowered runner decodes escaped return string literals before const_
         },
     });
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_vm.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var handlers: LoweredWriterOnlyHandlers = .{
@@ -289,7 +290,7 @@ test "branching helper body lowers a real if-else control-flow body" {
 }
 
 test "public lowered runner executes both branches of the branching helper body" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_vm.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var zero_handlers: LoweredStateWriterHandlers = .{
@@ -339,7 +340,7 @@ test "helper value-flow lowering exposes a multi-parameter helper ABI and local 
 }
 
 test "public lowered runner executes helper value flow through one helper parameter and return" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_vm.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var handlers: LoweredStateWriterHandlers = .{
@@ -378,7 +379,7 @@ test "cross-file helper value-flow lowering carries the same helper ABI through 
 }
 
 test "public lowered runner executes cross-file helper value flow through the multi-parameter helper ABI" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_vm.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var handlers: LoweredStateWriterHandlers = .{
@@ -416,7 +417,7 @@ test "bool helper lowering preserves helper parameter and return codecs" {
 }
 
 test "public lowered runner executes bool helper flow through the helper ABI" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_vm.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var allowed_handlers: LoweredApprovalHandlers = .{
@@ -487,7 +488,7 @@ test "explicit ir compilation stays executable through run" {
         example_open_row_state_writer.irProgram(),
     );
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_vm.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var handlers: LoweredStateWriterHandlers = .{
@@ -704,7 +705,7 @@ test "explicit ir run result outputs stay scoped to the entry function" {
         entry: OutputHandler,
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_vm.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var handlers: Handlers = .{
@@ -801,7 +802,7 @@ test "explicit IR compilation preserves non-zero helper-body entry blocks in the
     try std.testing.expectEqual(@as(u16, 0), ExplicitProgramType.runtime_plan.functions[0].first_block);
 }
 
-test "example module proves why root shift.lower requires explicit caller participation" {
+test "example module proves why shift_compile.lower requires explicit caller participation" {
     try std.testing.expectEqualStrings("open_row_state_writer.zig", example_open_row_state_writer.callerSourceFile());
     try std.testing.expect(!std.mem.eql(
         u8,
@@ -1322,7 +1323,7 @@ test "generated validate rejects file-backed helper-body drift against its compi
     try std.testing.expectError(error.SourceDrifted, ProgramType.validate(drifted_arena.allocator()));
 }
 
-test "recursive same-file workflow lowers through the public root surface" {
+test "recursive same-file workflow lowers through the public compile surface" {
     const lowered = try example_open_row_recursive_writer.loweredProgram();
 
     try std.testing.expectEqualStrings("example.open_row_recursive_writer", lowered.label);
@@ -1500,7 +1501,7 @@ test "hand-authored explicit IR matches recursive same-file lowered runtime plan
     try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.instructions, ExplicitProgramType.runtime_plan.instructions);
 }
 
-test "recursive imported-helper workflow lowers through the public root surface" {
+test "recursive imported-helper workflow lowers through the public compile surface" {
     const lowered = try example_open_row_recursive_cross_writer.loweredProgram();
 
     try std.testing.expectEqualStrings("example.open_row_recursive_cross_writer", lowered.label);
@@ -1586,7 +1587,7 @@ test "recursive imported-helper example stays transcript-backed" {
 }
 
 test "public lowered runner executes recursive imported-helper lowered program" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_vm.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var handlers: LoweredStateWriterHandlers = .{
@@ -1698,7 +1699,7 @@ test "explicit-path lowering disambiguates imported helpers by alias" {
 
     const Lowered = shift.lowering.lowerAt("test/open_row_helper_alias/entry.zig", spec);
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_vm.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var handlers = LoweredWriterOnlyHandlers{
@@ -1769,7 +1770,7 @@ test "explicit-path lowering ignores unreachable imported helper failures outsid
 
     try std.testing.expectEqual(@as(usize, 2), Lowered.runtime_plan.functions.len);
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_vm.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var handlers = LoweredWriterOnlyHandlers{
@@ -1801,7 +1802,7 @@ test "explicit-path lowering ignores ordinary line comments inside retained help
 
     const Lowered = shift.lowering.lowerAt("test/open_row_helper_line_comment.zig", spec);
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_vm.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var handlers = LoweredWriterOnlyHandlers{
@@ -1871,7 +1872,7 @@ test "explicit-path lowering preserves the entry module when helpers share the e
         ir_program.functions[ir_program.entry_index].symbol.module_path,
     );
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = shift_vm.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     var handlers = LoweredWriterOnlyHandlers{
