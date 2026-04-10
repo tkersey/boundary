@@ -7,6 +7,13 @@ pub const ToolControlV1 = enum {
     return_now,
 };
 
+/// Ownership mode for request/result payload trees.
+pub const DataValueOwnershipV1 = enum {
+    borrowed,
+    container,
+    deep,
+};
+
 /// Typed recursive value tree used by HostAdapterV1 request and result payloads.
 pub const DataValueV1 = union(enum) {
     array: []DataValueV1,
@@ -77,6 +84,35 @@ pub const DataValueV1 = union(enum) {
         }
         self.* = undefined;
     }
+
+    /// Release only allocator-owned array/object storage while treating leaves as borrowed.
+    pub fn deinitContainers(self: *@This(), allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            .null, .bool, .bytes, .i64, .string, .u64 => {},
+            .array => |items| {
+                for (items) |*item| item.deinitContainers(allocator);
+                allocator.free(items);
+            },
+            .object => |fields| {
+                for (fields) |*field| field.value.deinitContainers(allocator);
+                allocator.free(fields);
+            },
+        }
+        self.* = .null;
+    }
+
+    /// Release this payload according to the wrapper's declared ownership mode.
+    pub fn deinitWithOwnership(
+        self: *@This(),
+        allocator: std.mem.Allocator,
+        ownership: DataValueOwnershipV1,
+    ) void {
+        switch (ownership) {
+            .borrowed => self.* = .null,
+            .container => self.deinitContainers(allocator),
+            .deep => self.deinit(allocator),
+        }
+    }
 };
 
 /// One object field carried inside `DataValueV1.object`.
@@ -107,7 +143,7 @@ pub const ToolCallRequestV1 = struct {
     arguments: DataValueV1,
     owns_tool_id: bool = false,
     owns_op_name: bool = false,
-    owns_arguments: bool = false,
+    arguments_ownership: DataValueOwnershipV1 = .borrowed,
 
     /// Clone one tool-call request into allocator-owned memory.
     pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
@@ -127,7 +163,7 @@ pub const ToolCallRequestV1 = struct {
             .arguments = arguments,
             .owns_tool_id = true,
             .owns_op_name = true,
-            .owns_arguments = true,
+            .arguments_ownership = .deep,
         };
     }
 
@@ -135,7 +171,7 @@ pub const ToolCallRequestV1 = struct {
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         if (self.owns_tool_id) allocator.free(self.tool_id);
         if (self.owns_op_name) allocator.free(self.op_name);
-        if (self.owns_arguments) self.arguments.deinit(allocator);
+        self.arguments.deinitWithOwnership(allocator, self.arguments_ownership);
         self.* = undefined;
     }
 };
@@ -147,7 +183,7 @@ pub const ToolCallResultV1 = struct {
     control: ToolControlV1 = .@"resume",
     value: DataValueV1,
     owns_tool_id: bool = false,
-    owns_value: bool = false,
+    value_ownership: DataValueOwnershipV1 = .borrowed,
 
     /// Clone one tool-call result into allocator-owned memory.
     pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
@@ -164,14 +200,14 @@ pub const ToolCallResultV1 = struct {
             .control = self.control,
             .value = value,
             .owns_tool_id = true,
-            .owns_value = true,
+            .value_ownership = .deep,
         };
     }
 
     /// Release any allocator-owned memory held by this tool-call result.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         if (self.owns_tool_id) allocator.free(self.tool_id);
-        if (self.owns_value) self.value.deinit(allocator);
+        self.value.deinitWithOwnership(allocator, self.value_ownership);
         self.* = undefined;
     }
 };

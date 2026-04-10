@@ -609,16 +609,10 @@ fn validateManifest(build_fingerprint: [32]u8, capabilities: []const CapabilityV
         }
         if (capability.kind != .tool) return error.UnsupportedVersion;
         try validateToolIdV1(capability.label);
-        var previous_op_id: ?u16 = null;
         for (capability.ops, 0..) |op, op_index| {
             if (op.capability_id != capability.capability_id) return error.DuplicateCapabilityOpId;
             if (!std.mem.eql(u8, op.global_op_name, "tool.call")) return error.UnsupportedVersion;
             if (op.plan_op_ordinal >= capability.ops.len) return error.InvalidRequiredSection;
-            if (previous_op_id) |previous| {
-                const expected = std.math.add(u16, previous, 1) catch return error.DuplicateCapabilityOpId;
-                if (op.op_id != expected) return error.DuplicateCapabilityOpId;
-            }
-            previous_op_id = op.op_id;
             for (capability.ops[(op_index + 1)..]) |other_op| {
                 if (op.op_id == other_op.op_id) return error.DuplicateCapabilityOpId;
                 if (op.plan_op_ordinal == other_op.plan_op_ordinal) return error.InvalidRequiredSection;
@@ -2753,6 +2747,78 @@ test "ArtifactV1 encode and decode accept a single capability op at max u16 id" 
     var decoded = try decode(std.testing.allocator, encoded);
     defer decoded.deinit(std.testing.allocator);
     try std.testing.expectEqual(std.math.maxInt(u16), decoded.capabilities[0].ops[0].op_id);
+}
+
+test "ArtifactV1 encode and decode accept sparse explicit capability op ids" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-sparse-op-ids");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.sparse_op_ids",
+        .ir_hash = 0xaf1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 2 }},
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "first", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit },
+            .{ .requirement_index = 0, .op_name = "second", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit },
+        },
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const capabilities = [_]CapabilityV1{.{
+        .capability_id = 5,
+        .kind = .tool,
+        .label = "generated/tooling@v1",
+        .ops = &.{
+            .{
+                .capability_id = 5,
+                .op_id = 4,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .unit,
+                .plan_op_ordinal = 0,
+            },
+            .{
+                .capability_id = 5,
+                .op_id = 6,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .unit,
+                .plan_op_ordinal = 1,
+            },
+        },
+    }};
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    });
+    defer std.testing.allocator.free(encoded);
+
+    var decoded = try decode(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(u16, &.{ 4, 6 }, &.{
+        decoded.capabilities[0].ops[0].op_id,
+        decoded.capabilities[0].ops[1].op_id,
+    });
 }
 
 test "ArtifactV1 decode rejects custom capability manifests with all-zero multi-op ordinals" {

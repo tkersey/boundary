@@ -16,7 +16,7 @@ test "host adapter conformance helper enforces sequential ids and tool echo" {
                     .arguments = .{ .string = try std.testing.allocator.dupe(u8, "queued") },
                     .owns_tool_id = true,
                     .owns_op_name = true,
-                    .owns_arguments = true,
+                    .arguments_ownership = .deep,
                 } },
             },
             .result = .{
@@ -125,4 +125,31 @@ test "HostAdapterV1 request, result, and failure deinit accept borrowed literals
         .message = "backend unavailable",
     };
     failure.deinit(std.testing.allocator);
+}
+
+test "HostAdapterV1 wrapper deinit accepts nested borrowed payloads when only container storage is owned" {
+    var array_items = try std.testing.allocator.alloc(host.DataValueV1, 1);
+    array_items[0] = .{ .string = "nested-borrowed" };
+    var request: host.ToolCallRequestV1 = .{
+        .tool_id = "generated/tooling@v1",
+        .call_id = 1,
+        .op_name = "echo",
+        .arguments = .{ .array = array_items },
+        .arguments_ownership = .container,
+    };
+    request.deinit(std.testing.allocator);
+
+    var object_fields = try std.testing.allocator.alloc(host.ObjectFieldV1, 1);
+    object_fields[0] = .{
+        .key = "payload",
+        .value = .{ .string = "nested-borrowed" },
+    };
+    var result: host.ToolCallResultV1 = .{
+        .tool_id = "generated/tooling@v1",
+        .call_id = 1,
+        .control = .@"resume",
+        .value = .{ .object = object_fields },
+        .value_ownership = .container,
+    };
+    result.deinit(std.testing.allocator);
 }

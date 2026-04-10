@@ -156,7 +156,7 @@ fn dispatchManifestOpIdentityStringResults(
         try std.testing.expectEqual(@as(u16, 4), request.op_id);
         break :blk "keepalive0";
     } else if (std.mem.eql(u8, request.body.tool_call.op_name, "second")) blk: {
-        try std.testing.expectEqual(@as(u16, 3), request.op_id);
+        try std.testing.expectEqual(@as(u16, 6), request.op_id);
         break :blk "overwrite0";
     } else return error.UnexpectedOpName;
     return .{
@@ -167,7 +167,7 @@ fn dispatchManifestOpIdentityStringResults(
             .control = .@"resume",
             .value = .{ .string = try allocator.dupe(u8, value) },
             .owns_tool_id = true,
-            .owns_value = true,
+            .value_ownership = .deep,
         } },
     };
 }
@@ -195,7 +195,7 @@ fn dispatchHelperStringOwnership(
             .control = .@"resume",
             .value = .{ .string = try allocator.dupe(u8, value) },
             .owns_tool_id = true,
-            .owns_value = true,
+            .value_ownership = .deep,
         } },
     };
 }
@@ -216,7 +216,7 @@ fn dispatchTerminalReturn(
             .control = .return_now,
             .value = .{ .string = try allocator.dupe(u8, "early") },
             .owns_tool_id = true,
-            .owns_value = true,
+            .value_ownership = .deep,
         } },
     };
 }
@@ -237,7 +237,7 @@ fn dispatchTerminalAbort(
             .control = .abort,
             .value = .{ .string = try allocator.dupe(u8, "early-abort") },
             .owns_tool_id = true,
-            .owns_value = true,
+            .value_ownership = .deep,
         } },
     };
 }
@@ -301,7 +301,7 @@ fn dispatchFixedControlResult(
             else
                 .{ .string = try allocator.dupe(u8, runtime_ctx.string_value) },
             .owns_tool_id = true,
-            .owns_value = !runtime_ctx.use_null_value,
+            .value_ownership = if (runtime_ctx.use_null_value) .borrowed else .deep,
         } },
     };
 }
@@ -357,7 +357,7 @@ fn dispatchNonNullUnitResult(
             .control = .@"resume",
             .value = .{ .string = try allocator.dupe(u8, "not-null") },
             .owns_tool_id = true,
-            .owns_value = true,
+            .value_ownership = .deep,
         } },
     };
 }
@@ -558,7 +558,7 @@ test "ArtifactV1 runtime matches lowered runner outputs on open_row_state_writer
     }
 }
 
-test "ArtifactV1 runtime preserves op identity across reordered manifest rows and keeps resumed strings alive" {
+test "ArtifactV1 runtime preserves sparse op identity across reordered manifest rows and keeps resumed strings alive" {
     const build_fingerprint = shift_vm.artifact.buildFingerprintFromSeed("artifact-runtime-nonzero-capability");
     const plan: internal_program_plan.ProgramPlan = .{
         .label = "artifact.runtime.string_resume",
@@ -603,7 +603,7 @@ test "ArtifactV1 runtime preserves op identity across reordered manifest rows an
         .ops = &.{
             .{
                 .capability_id = 7,
-                .op_id = 3,
+                .op_id = 6,
                 .global_op_name = "tool.call",
                 .payload_codec = .unit,
                 .result_codec = .string,
@@ -638,7 +638,7 @@ test "ArtifactV1 runtime preserves op identity across reordered manifest rows an
     try std.testing.expectEqual(@as(usize, 2), result.logs.len);
     try std.testing.expectEqual(@as(u16, 7), result.logs[0].request.capability_id);
     try std.testing.expectEqual(@as(u16, 4), result.logs[0].request.op_id);
-    try std.testing.expectEqual(@as(u16, 3), result.logs[1].request.op_id);
+    try std.testing.expectEqual(@as(u16, 6), result.logs[1].request.op_id);
 }
 
 test "ArtifactV1 runtime clones helper string parameters before caller overwrites originals" {

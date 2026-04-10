@@ -337,7 +337,7 @@ fn callHostOp(
                 .arguments = arguments,
                 .owns_tool_id = true,
                 .owns_op_name = true,
-                .owns_arguments = true,
+                .arguments_ownership = .deep,
             } },
         };
     };
