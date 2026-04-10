@@ -151,6 +151,41 @@ fn dispatch(ctx: ?*anyopaque, allocator: std.mem.Allocator, request: shift_vm.ho
     };
 }
 
+fn collectStateWriterOutputs(
+    ctx: ?*anyopaque,
+    allocator: std.mem.Allocator,
+    declared_outputs: []const shift_vm.host_adapter.OutputDescriptorV1,
+) anyerror![]shift_vm.host_adapter.DataValueV1 {
+    const runtime_ctx: *RuntimeContext = @ptrCast(@alignCast(ctx.?));
+    try std.testing.expectEqual(@as(usize, 2), declared_outputs.len);
+    try std.testing.expectEqualStrings("state", declared_outputs[0].label);
+    try std.testing.expectEqual(shift_vm.host_adapter.OutputCodecV1.i32, declared_outputs[0].codec);
+    try std.testing.expectEqualStrings("writer", declared_outputs[1].label);
+    try std.testing.expectEqual(shift_vm.host_adapter.OutputCodecV1.string_list, declared_outputs[1].codec);
+
+    const values = try allocator.alloc(shift_vm.host_adapter.DataValueV1, declared_outputs.len);
+    @memset(values, .null);
+    errdefer {
+        for (values) |*value| value.deinit(allocator);
+        allocator.free(values);
+    }
+
+    values[0] = .{ .i64 = runtime_ctx.state };
+    const writer_items = try allocator.alloc(shift_vm.host_adapter.DataValueV1, runtime_ctx.writer_items.items.len);
+    errdefer allocator.free(writer_items);
+    var initialized: usize = 0;
+    errdefer {
+        for (writer_items[0..initialized]) |*item| item.deinit(allocator);
+        allocator.free(writer_items);
+    }
+    for (runtime_ctx.writer_items.items, 0..) |item, index| {
+        writer_items[index] = .{ .string = try allocator.dupe(u8, item) };
+        initialized += 1;
+    }
+    values[1] = .{ .array = writer_items };
+    return values;
+}
+
 const string_dispatch_context = struct {};
 const IntegerDispatchContext = struct {
     value: i64,
@@ -679,16 +714,26 @@ test "ArtifactV1 runtime executes transform-only lowered programs with sequentia
     var run_result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
         .ctx = &context,
         .dispatchFn = dispatch,
+        .collectOutputsFn = collectStateWriterOutputs,
     });
     defer run_result.deinit(std.testing.allocator);
     const result = try expectCompleted(&run_result);
 
     try std.testing.expectEqualStrings("done", result.value.string);
+    try std.testing.expectEqual(@as(usize, 2), result.outputs.len);
+    try std.testing.expectEqualStrings("state", result.outputs[0].label);
+    try std.testing.expectEqual(shift_vm.host_adapter.OutputCodecV1.i32, result.outputs[0].codec);
+    try std.testing.expectEqual(@as(i64, 6), result.outputs[0].value.i64);
+    try std.testing.expectEqualStrings("writer", result.outputs[1].label);
+    try std.testing.expectEqual(shift_vm.host_adapter.OutputCodecV1.string_list, result.outputs[1].codec);
+    try std.testing.expectEqual(@as(usize, 2), result.outputs[1].value.array.len);
+    try std.testing.expectEqualStrings("query=artifact-search", result.outputs[1].value.array[0].string);
+    try std.testing.expectEqualStrings("workflow=queued", result.outputs[1].value.array[1].string);
     try std.testing.expectEqual(@as(i32, 6), context.state);
     try std.testing.expectEqual(@as(usize, 2), context.writer_items.items.len);
     try std.testing.expectEqualStrings("query=artifact-search", context.writer_items.items[0]);
     try std.testing.expectEqualStrings("workflow=queued", context.writer_items.items[1]);
-    try std.testing.expectEqual(@as(usize, 8), result.logs.len);
+    try std.testing.expectEqual(@as(usize, 4), result.logs.len);
     try conformance.assertSequentialRequestIds(result.logs);
     try conformance.assertToolCallShape(result.logs[0], "generated/state@v1", "get");
 }
@@ -722,16 +767,50 @@ test "ArtifactV1 runtime matches lowered runner outputs on open_row_state_writer
     var run_result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
         .ctx = &context,
         .dispatchFn = dispatch,
+        .collectOutputsFn = collectStateWriterOutputs,
     });
     defer run_result.deinit(std.testing.allocator);
     const artifact_result = try expectCompleted(&run_result);
 
     try std.testing.expectEqualStrings(lowered_result.value, artifact_result.value.string);
+    try std.testing.expectEqual(@as(usize, 2), artifact_result.outputs.len);
+    try std.testing.expectEqualStrings("state", artifact_result.outputs[0].label);
+    try std.testing.expectEqual(@as(i64, lowered_result.outputs.state), artifact_result.outputs[0].value.i64);
+    try std.testing.expectEqualStrings("writer", artifact_result.outputs[1].label);
+    try std.testing.expectEqual(lowered_result.outputs.writer.len, artifact_result.outputs[1].value.array.len);
+    for (lowered_result.outputs.writer, artifact_result.outputs[1].value.array) |expected, actual| {
+        try std.testing.expectEqualStrings(expected, actual.string);
+    }
     try std.testing.expectEqual(lowered_result.outputs.state, context.state);
     try std.testing.expectEqual(lowered_result.outputs.writer.len, context.writer_items.items.len);
     for (lowered_result.outputs.writer, context.writer_items.items) |expected, actual| {
         try std.testing.expectEqualStrings(expected, actual);
     }
+}
+
+test "ArtifactV1 runtime fails closed when declared outputs are not collected" {
+    const bytes = try shift_compile.compileAndEncode(
+        std.testing.allocator,
+        "examples/open_row_state_writer.zig",
+        example.loweringSpec(),
+        .{
+            .build_fingerprint_seed = "artifact-runtime-missing-outputs",
+            .capabilities = &.{},
+        },
+    );
+    defer std.testing.allocator.free(bytes);
+
+    var context = RuntimeContext{ .state = 5 };
+    defer context.deinit(std.testing.allocator);
+
+    var run_result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatch,
+    });
+    defer run_result.deinit(std.testing.allocator);
+    const failure = try expectFailed(&run_result);
+    try std.testing.expectEqualStrings("invalid_host_reply", failure.failure.code);
+    try std.testing.expectEqualStrings("host adapter must collect declared outputs", failure.failure.message);
 }
 
 test "ArtifactV1 runtime preserves authored after semantics across resumed ops and terminal helper returns" {
@@ -767,14 +846,65 @@ test "ArtifactV1 runtime preserves authored after semantics across resumed ops a
     const lowered_result = try ProgramType.run(&lowered_runtime, &lowered_handlers);
     try std.testing.expectEqual(false, lowered_result.value);
 
-    const derived_capabilities = try shift_vm.artifact.deriveToolCapabilitiesFromPlan(
-        std.testing.allocator,
-        ProgramType.runtime_plan,
-    );
-    defer shift_vm.artifact.deepFreeCapabilities(std.testing.allocator, derived_capabilities);
-    const bytes = try shift_vm.artifact.encodeProgramPlan(std.testing.allocator, ProgramType.runtime_plan, .{
+    const artifact_plan: internal_program_plan.ProgramPlan = .{
+        .label = "artifact.runtime.authored_after",
+        .ir_hash = 0xc0,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .bool,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{.{ .label = "approval", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "ask", .mode = .transform, .payload_codec = .unit, .resume_codec = .bool, .has_after = true }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .bool }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .call_op, .dst = 0, .operand = 0 },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+
+    const explicit_capabilities = [_]shift_vm.CapabilityV1{.{
+        .capability_id = 0,
+        .kind = .tool,
+        .label = "generated/approval@v1",
+        .ops = &.{
+            .{
+                .capability_id = 0,
+                .op_id = 0,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .bool,
+                .plan_op_ordinal = 0,
+            },
+            .{
+                .capability_id = 0,
+                .op_id = 1,
+                .global_op_name = "tool.after",
+                .payload_codec = .bool,
+                .result_codec = .bool,
+                .plan_op_ordinal = 0,
+            },
+        },
+    }};
+    const bytes = try shift_vm.artifact.encodeProgramPlan(std.testing.allocator, artifact_plan, .{
         .build_fingerprint_blake3_256 = shift_vm.artifact.buildFingerprintFromSeed("artifact-runtime-authored-after-workflow"),
-        .capabilities = derived_capabilities,
+        .capabilities = &explicit_capabilities,
     });
     defer std.testing.allocator.free(bytes);
 
@@ -837,7 +967,7 @@ test "ArtifactV1 runtime unwinds caller after hooks across terminal helper retur
             .{ .label = "guard", .first_op = 1, .op_count = 1 },
         },
         .ops = &.{
-            .{ .requirement_index = 0, .op_name = "pick", .mode = .choice, .payload_codec = .unit, .resume_codec = .string },
+            .{ .requirement_index = 0, .op_name = "pick", .mode = .choice, .payload_codec = .unit, .resume_codec = .string, .has_after = true },
             .{ .requirement_index = 1, .op_name = "fail", .mode = .abort, .payload_codec = .unit, .resume_codec = .unit },
         },
         .outputs = &.{},
@@ -946,7 +1076,7 @@ test "ArtifactV1 runtime resolves primary tool ops independently of manifest row
             },
         },
         .requirements = &.{.{ .label = "picker", .first_op = 0, .op_count = 1 }},
-        .ops = &.{.{ .requirement_index = 0, .op_name = "pick", .mode = .transform, .payload_codec = .unit, .resume_codec = .string }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "pick", .mode = .transform, .payload_codec = .unit, .resume_codec = .string, .has_after = true }},
         .outputs = &.{},
         .locals = &.{.{ .codec = .string }},
         .call_args = &.{},

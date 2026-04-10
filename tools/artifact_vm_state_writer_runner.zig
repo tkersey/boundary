@@ -81,6 +81,36 @@ fn dispatch(ctx: ?*anyopaque, allocator: std.mem.Allocator, request: shift_vm.ho
     };
 }
 
+fn collectOutputs(
+    ctx: ?*anyopaque,
+    allocator: std.mem.Allocator,
+    declared_outputs: []const shift_vm.host_adapter.OutputDescriptorV1,
+) anyerror![]shift_vm.host_adapter.DataValueV1 {
+    const runtime_ctx: *RuntimeContext = @ptrCast(@alignCast(ctx.?));
+    if (declared_outputs.len != 2) return error.UnexpectedOutputCount;
+    const values = try allocator.alloc(shift_vm.host_adapter.DataValueV1, declared_outputs.len);
+    @memset(values, .null);
+    errdefer {
+        for (values) |*value| value.deinit(allocator);
+        allocator.free(values);
+    }
+    values[0] = .{ .i64 = runtime_ctx.state };
+
+    const writer_values = try allocator.alloc(shift_vm.host_adapter.DataValueV1, runtime_ctx.writer_items.items.len);
+    errdefer allocator.free(writer_values);
+    var initialized: usize = 0;
+    errdefer {
+        for (writer_values[0..initialized]) |*item| item.deinit(allocator);
+        allocator.free(writer_values);
+    }
+    for (runtime_ctx.writer_items.items, 0..) |item, index| {
+        writer_values[index] = .{ .string = try allocator.dupe(u8, item) };
+        initialized += 1;
+    }
+    values[1] = .{ .array = writer_values };
+    return values;
+}
+
 /// Execute the retained state/writer example through the ArtifactV1 runtime and print the transcript summary.
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -103,6 +133,7 @@ pub fn main() anyerror!void {
     var result = try shift_vm.runtime.runArtifact(allocator, bytes, .{
         .ctx = &context,
         .dispatchFn = dispatch,
+        .collectOutputsFn = collectOutputs,
     });
     defer result.deinit(allocator);
 
@@ -121,10 +152,10 @@ pub fn main() anyerror!void {
     var stdout_buffer: [256]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     const stdout = &stdout_writer.interface;
-    for (context.writer_items.items) |item| {
-        try stdout.print("item={s}\n", .{item});
+    for (completed.outputs[1].value.array) |item| {
+        try stdout.print("item={s}\n", .{item.string});
     }
-    try stdout.print("final_state={d}\n", .{context.state});
+    try stdout.print("final_state={d}\n", .{completed.outputs[0].value.i64});
     try stdout.print("value={s}\n", .{completed.value.string});
     try stdout.print("requests={d}\n", .{completed.logs.len});
     try stdout.flush();

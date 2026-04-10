@@ -287,8 +287,10 @@ pub fn deriveToolCapabilitiesFromPlan(
         const op_end = op_start + requirement.op_count;
         var extra_after_ops: usize = 0;
         for (plan.ops[op_start..op_end], 0..) |op, op_index| {
-            if (op.mode == .abort) continue;
-            if (afterCapabilityResultCodecForOp(plan, @intCast(op_start + op_index)) != null) extra_after_ops += 1;
+            if (!op.has_after) continue;
+            if (op.mode == .abort) return error.InvalidRequiredSection;
+            _ = afterCapabilityResultCodecForOp(plan, @intCast(op_start + op_index)) orelse return error.InvalidRequiredSection;
+            extra_after_ops += 1;
         }
         const ops = try allocator.alloc(CapabilityOpV1, requirement.op_count + extra_after_ops);
         var initialized_ops: usize = 0;
@@ -306,8 +308,9 @@ pub fn deriveToolCapabilitiesFromPlan(
         }
         var next_after_op_id: usize = requirement.op_count;
         for (plan.ops[op_start..op_end], 0..) |op, op_index| {
-            if (op.mode == .abort) continue;
-            const after_result_codec = afterCapabilityResultCodecForOp(plan, @intCast(op_start + op_index)) orelse continue;
+            if (!op.has_after) continue;
+            if (op.mode == .abort) return error.InvalidRequiredSection;
+            const after_result_codec = afterCapabilityResultCodecForOp(plan, @intCast(op_start + op_index)) orelse return error.InvalidRequiredSection;
             ops[initialized_ops] = .{
                 .capability_id = @intCast(index),
                 .op_id = @intCast(next_after_op_id),
@@ -906,7 +909,7 @@ fn encodeOpTable(allocator: std.mem.Allocator, strings: *StringTable, ops: []con
         try out.append(allocator, @intFromEnum(op.mode));
         try out.append(allocator, @intFromEnum(op.payload_codec));
         try out.append(allocator, @intFromEnum(op.resume_codec));
-        try out.append(allocator, 0);
+        try out.append(allocator, @intFromBool(op.has_after));
         try appendU16(&out, allocator, 0);
         try encodeStringRef(&out, allocator, op_name_ref);
     }
@@ -1127,11 +1130,15 @@ fn toolCapabilityMatchesRequirement(plan: program_plan.ProgramPlan, requirement_
         if (capability_op.payload_codec != mapPlanCodecToCapabilityCodec(plan_op.payload_codec)) return false;
         const expected_result_codec = capabilityResultCodecForOp(plan, op_start + op_offset) catch return false;
         if (capability_op.result_codec != mapPlanCodecToCapabilityCodec(expected_result_codec)) return false;
-        if (findCapabilityOpByPlanOrdinalAndGlobalName(capability.ops, @intCast(op_offset), capability_global_tool_after)) |after_op| {
+        const matched_after_op = findCapabilityOpByPlanOrdinalAndGlobalName(capability.ops, @intCast(op_offset), capability_global_tool_after);
+        if (plan_op.has_after) {
+            const after_op = matched_after_op orelse return false;
             const after_codec = afterCapabilityResultCodecForOp(plan, @intCast(op_start + op_offset)) orelse return false;
             const expected_after_codec = mapPlanCodecToCapabilityCodec(after_codec);
             if (after_op.payload_codec != expected_after_codec) return false;
             if (after_op.result_codec != expected_after_codec) return false;
+        } else if (matched_after_op != null) {
+            return false;
         }
     }
     return true;
@@ -1257,6 +1264,7 @@ fn capabilityResultCodecForOp(plan: program_plan.ProgramPlan, op_index: usize) !
 
 /// Resolve the unique function answer codec that one transform/choice op would feed into an `after*` hook.
 pub fn afterCapabilityResultCodecForOp(plan: program_plan.ProgramPlan, op_index: u16) ?program_plan.ValueCodec {
+    if (op_index >= plan.ops.len or !plan.ops[op_index].has_after) return null;
     var resolved: ?program_plan.ValueCodec = null;
     for (plan.functions) |function| {
         const req_start: usize = function.first_requirement;
@@ -1306,13 +1314,15 @@ fn decodeOpTable(allocator: std.mem.Allocator, string_bytes: []const u8, bytes: 
         const mode = std.enums.fromInt(program_plan.ControlMode, bytes[cursor + 2]) orelse return error.UnsupportedVersion;
         const payload_codec = std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 3]) orelse return error.UnsupportedVersion;
         const resume_codec = std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 4]) orelse return error.UnsupportedVersion;
-        if (bytes[cursor + 5] != 0 or readU16(bytes, cursor + 6) != 0) return error.NonZeroReserved;
+        const flags = bytes[cursor + 5];
+        if ((flags & ~@as(u8, 0x1)) != 0 or readU16(bytes, cursor + 6) != 0) return error.NonZeroReserved;
         item.* = .{
             .requirement_index = requirement_index,
             .op_name = try readStringRefDup(allocator, string_bytes, bytes[cursor + 8 .. cursor + 16]),
             .mode = mode,
             .payload_codec = payload_codec,
             .resume_codec = resume_codec,
+            .has_after = (flags & 0x1) != 0,
         };
         initialized += 1;
         cursor += 16;
@@ -2184,6 +2194,67 @@ test "ArtifactV1 deriveToolCapabilitiesFromPlan unwinds partially built manifest
         expectDerivedCapabilityCleanupOnAllocationFailure,
         .{},
     );
+}
+
+test "ArtifactV1 deriveToolCapabilitiesFromPlan omits after rows unless the plan marks them" {
+    const without_after: program_plan.ProgramPlan = .{
+        .label = "artifact.derived_without_after",
+        .ir_hash = 0x932,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{.{ .label = "picker", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "pick", .mode = .transform, .payload_codec = .unit, .resume_codec = .string }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .call_op, .dst = 0, .operand = 0 },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+
+    const derived_without_after = try deriveToolCapabilitiesFromPlan(std.testing.allocator, without_after);
+    defer deepFreeCapabilities(std.testing.allocator, derived_without_after);
+    try std.testing.expectEqual(@as(usize, 1), derived_without_after[0].ops.len);
+    try std.testing.expectEqualStrings("tool.call", derived_without_after[0].ops[0].global_op_name);
+
+    const with_after: program_plan.ProgramPlan = .{
+        .label = "artifact.derived_with_after",
+        .ir_hash = 0x933,
+        .entry_index = 0,
+        .functions = without_after.functions,
+        .requirements = without_after.requirements,
+        .ops = &.{.{ .requirement_index = 0, .op_name = "pick", .mode = .transform, .payload_codec = .unit, .resume_codec = .string, .has_after = true }},
+        .outputs = without_after.outputs,
+        .locals = without_after.locals,
+        .call_args = without_after.call_args,
+        .blocks = without_after.blocks,
+        .terminators = without_after.terminators,
+        .instructions = without_after.instructions,
+    };
+
+    const derived_with_after = try deriveToolCapabilitiesFromPlan(std.testing.allocator, with_after);
+    defer deepFreeCapabilities(std.testing.allocator, derived_with_after);
+    try std.testing.expectEqual(@as(usize, 2), derived_with_after[0].ops.len);
+    try std.testing.expectEqualStrings("tool.call", derived_with_after[0].ops[0].global_op_name);
+    try std.testing.expectEqualStrings("tool.after", derived_with_after[0].ops[1].global_op_name);
 }
 
 test "ArtifactV1 derives injective generated tool ids for valid requirement labels" {

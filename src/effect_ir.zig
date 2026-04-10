@@ -191,6 +191,7 @@ pub const OpSpec = struct {
     mode: ControlMode,
     PayloadType: type,
     ResumeType: type,
+    has_after: bool = false,
 };
 
 /// One top-level named requirement in the resolved row.
@@ -395,6 +396,7 @@ fn requirementFromSpec(comptime label: []const u8, comptime RequirementSpec: any
                 .mode = leaf_value.mode,
                 .PayloadType = leaf_value.PayloadType,
                 .ResumeType = leaf_value.ResumeType,
+                .has_after = false,
             };
         }
         break :blk buffer;
@@ -775,6 +777,7 @@ pub fn rowDigest(comptime row: Row, comptime outputs: []const OutputSpec) Normal
             hashBytes(&hasher, modeBytes(op.mode));
             hashTypeName(&hasher, op.PayloadType);
             hashTypeName(&hasher, op.ResumeType);
+            hasher.update(&[_]u8{@intFromBool(op.has_after)});
             op_count += 1;
         }
     }
@@ -924,6 +927,38 @@ test "row digest counts requirements ops and outputs" {
     try std.testing.expectEqual(@as(usize, 2), digest.requirement_count);
     try std.testing.expectEqual(@as(usize, 3), digest.op_count);
     try std.testing.expectEqual(@as(usize, 2), digest.output_count);
+}
+
+test "row digest changes when authored after metadata changes" {
+    const without_after = Row{
+        .requirements = &.{.{
+            .label = "state",
+            .ops = &.{.{
+                .requirement_label = "state",
+                .op_name = "get",
+                .mode = .transform,
+                .PayloadType = void,
+                .ResumeType = i32,
+            }},
+        }},
+    };
+    const with_after = Row{
+        .requirements = &.{.{
+            .label = "state",
+            .ops = &.{.{
+                .requirement_label = "state",
+                .op_name = "get",
+                .mode = .transform,
+                .PayloadType = void,
+                .ResumeType = i32,
+                .has_after = true,
+            }},
+        }},
+    };
+
+    const digest_without_after = try rowDigest(without_after, &.{});
+    const digest_with_after = try rowDigest(with_after, &.{});
+    try std.testing.expect(digest_without_after.hash != digest_with_after.hash);
 }
 
 test "duplicate requirement label is rejected" {

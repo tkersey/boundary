@@ -50,6 +50,7 @@ pub const OpPlan = struct {
     mode: ControlMode,
     payload_codec: ValueCodec,
     resume_codec: ValueCodec,
+    has_after: bool = false,
 };
 
 /// One lowered requirement descriptor in the runtime-owned executable plan.
@@ -173,6 +174,7 @@ pub const ProgramPlan = struct {
         for (self.ops) |op| {
             if (op.requirement_index >= self.requirements.len) return error.InvalidOpRequirementIndex;
             if (op.op_name.len == 0) return error.EmptyOpName;
+            if (op.has_after and op.mode == .abort) return error.InvalidAfterHookMode;
         }
 
         for (self.outputs) |output| {
@@ -383,6 +385,7 @@ pub const ProgramPlan = struct {
             hashBytes(&hasher, @tagName(op.mode));
             hashBytes(&hasher, @tagName(op.payload_codec));
             hashBytes(&hasher, @tagName(op.resume_codec));
+            hasher.update(&[_]u8{@intFromBool(op.has_after)});
         }
         for (self.outputs) |output| {
             hashBytes(&hasher, output.label);
@@ -436,6 +439,7 @@ pub const ValidationError = error{
     InvalidFunctionOutputSpan,
     InvalidFunctionRequirementSpan,
     InvalidInstructionLocalIndex,
+    InvalidAfterHookMode,
     InvalidOpRequirementIndex,
     InvalidRequirementOpSpan,
     InvalidReturnValueIndex,
@@ -724,6 +728,7 @@ fn invalidGeneratedPlan(err: ValidationError) noreturn {
         error.InvalidFunctionOutputSpan => "runtime plan generator produced an invalid function output span",
         error.InvalidFunctionRequirementSpan => "runtime plan generator produced an invalid function requirement span",
         error.InvalidInstructionLocalIndex => "runtime plan generator produced an instruction with an out-of-range function-local reference",
+        error.InvalidAfterHookMode => "runtime plan generator marked an abort op as requiring an after hook",
         error.InvalidOpRequirementIndex => "runtime plan generator produced an op with an invalid requirement index",
         error.InvalidRequirementOpSpan => "runtime plan generator produced an invalid requirement op span",
         error.InvalidReturnValueIndex => "runtime plan generator produced a return instruction with a non-zero index",
@@ -1015,6 +1020,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
                         .mode = controlModeFromIr(op.mode),
                         .payload_codec = try codecForType(op.PayloadType),
                         .resume_codec = try codecForType(op.ResumeType),
+                        .has_after = op.has_after,
                     };
                     op_index += 1;
                 }
@@ -1260,6 +1266,7 @@ pub fn planFromOpenRowProgram(
                         .mode = controlModeFromIr(op.mode),
                         .payload_codec = try codecForType(op.PayloadType),
                         .resume_codec = try codecForType(op.ResumeType),
+                        .has_after = op.has_after,
                     };
                     op_index += 1;
                 }

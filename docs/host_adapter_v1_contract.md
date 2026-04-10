@@ -80,7 +80,7 @@ Requests or results whose `schema_version` is not `1` fail closed.
 
 ## Tool Contract
 
-The canonical tool op id is `tool.call`.
+The canonical tool op ids are `tool.call` and `tool.after`.
 
 ### ToolIdV1
 
@@ -115,6 +115,11 @@ Examples:
 
 Unknown or undeclared tool ids fail closed.
 
+`tool.after` is optional per declared capability-op row.
+When present, it represents one post-resume callback for a lowered
+`transform` or `choice` op and must use the same `tool_id`, `call_id`, and
+declared payload/result codecs carried by the ArtifactV1 manifest.
+
 ## Reserved Future Expansion
 
 Model-turn and durable-state host effects are reserved for a later agent-VM
@@ -135,6 +140,20 @@ Rules:
 
 There is no pending result, no cancellation token, no async continuation, and
 no background tool execution in v1.
+
+## Declared Outputs
+
+ArtifactV1 may declare entry outputs in its `output_table`.
+When the entry function declares outputs, `HostAdapterV1` must provide one
+completion snapshot through `collectOutputsFn`.
+
+Rules:
+
+- `collectOutputsFn` runs only after the root returns successfully
+- returned values must be allocator-owned
+- returned values must match the declared output count and order exactly
+- each returned value must satisfy the declared output codec
+- output collection is not part of the canonical host-effect log
 
 ## Failure Model
 
@@ -162,7 +181,7 @@ Required linkage rules:
 - `capability_id` and `op_id` in every request/result must exist in the
   artifact capability manifest
 - `kind` must be `tool_call` in v1
-- the declared global op id must be `tool.call`
+- the declared global op id must be `tool.call` or `tool.after`
 
 ## Logging Rule
 

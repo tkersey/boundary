@@ -903,6 +903,7 @@ fn cloneRow(comptime row: effect_ir.Row) effect_ir.Row {
                     .mode = op.mode,
                     .PayloadType = op.PayloadType,
                     .ResumeType = op.ResumeType,
+                    .has_after = op.has_after,
                 };
             }
             requirement_buffer[requirement_index] = .{
@@ -1036,6 +1037,7 @@ const FlatOp = struct {
     mode: effect_ir.ControlMode,
     PayloadType: type,
     ResumeType: type,
+    has_after: bool,
 };
 
 fn flatOpsForRow(comptime row: effect_ir.Row) []const FlatOp {
@@ -1055,6 +1057,7 @@ fn flatOpsForRow(comptime row: effect_ir.Row) []const FlatOp {
                     .mode = op.mode,
                     .PayloadType = op.PayloadType,
                     .ResumeType = op.ResumeType,
+                    .has_after = op.has_after,
                 };
                 index += 1;
             }
@@ -1173,6 +1176,7 @@ fn helperRowFromUsage(
                         .mode = flat_op.mode,
                         .PayloadType = flat_op.PayloadType,
                         .ResumeType = flat_op.ResumeType,
+                        .has_after = flat_op.has_after,
                     };
                     op_count += 1;
                 }

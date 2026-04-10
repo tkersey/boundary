@@ -130,6 +130,13 @@ The current executable-plan fields carried into ArtifactV1 are the current
 function, requirement, op, output, local, block, terminator, instruction, and
 call-argument tables from `src/internal/program_plan.zig`.
 
+The op table also carries one `has_after` flag so explicit manifests and
+default capability derivation can preserve the presence or absence of authored
+post-resume hooks without guessing from codec shape alone.
+
+Declared output values are not stored in `output_table`; hosts surface those at
+execution completion through `HostAdapterV1.collectOutputsFn`.
+
 Instruction string literals are stored in the string table and referenced by
 `StringRef`; they are not inline variable-length blobs.
 
@@ -204,6 +211,9 @@ runtime dispatch does not depend on capability-op row order.
 `tool.call` and `tool.after` may legitimately share the same `plan_op_ordinal`;
 duplicates are only invalid when both `global_op_name` and `plan_op_ordinal`
 match.
+
+Default capability derivation must only emit `tool.after` for lowered ops whose
+op-table metadata explicitly marks an authored after hook.
 
 `build_fingerprint_blake3_256` is not the same thing as
 `artifact_hash_blake3_256`.

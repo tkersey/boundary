@@ -8,17 +8,34 @@ const capability_global_tool_call = "tool.call";
 const capability_global_tool_after = "tool.after";
 
 /// Result of executing ArtifactV1 bytes through the synchronous HostAdapterV1 runtime.
+pub const ExecutionOutputV1 = struct {
+    label: []u8,
+    codec: host.OutputCodecV1,
+    value: host.DataValueV1,
+
+    /// Release the owned output label and value payload.
+    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        allocator.free(self.label);
+        self.value.deinit(allocator);
+        self.* = undefined;
+    }
+};
+
+/// Result of executing ArtifactV1 bytes through the synchronous HostAdapterV1 runtime.
 pub const ExecutionResultV1 = struct {
     value: lowered_machine.ProgramValue,
+    outputs: []ExecutionOutputV1,
     logs: []host.HostLogEntryV1,
 
-    /// Release the owned runtime value and captured host logs.
+    /// Release the owned runtime value, captured outputs, and host logs.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         deinitProgramValue(allocator, &self.value);
+        deinitExecutionOutputs(allocator, self.outputs);
         for (self.logs) |*entry| entry.deinit(allocator);
         allocator.free(self.logs);
         self.* = .{
             .value = .none,
+            .outputs = &.{},
             .logs = &.{},
         };
     }
@@ -87,30 +104,8 @@ pub fn runArtifact(
         &.{},
     );
     return switch (result) {
-        .terminal => |value| blk: {
-            var runtime_value = value;
-            errdefer deinitRuntimeValue(allocator, &runtime_value);
-            var owned_value = try materializeExecutionValue(allocator, &runtime_value);
-            errdefer deinitProgramValue(allocator, &owned_value);
-            break :blk .{
-                .completed = .{
-                    .value = owned_value,
-                    .logs = try logs.toOwnedSlice(allocator),
-                },
-            };
-        },
-        .value => |value| blk: {
-            var runtime_value = value;
-            errdefer deinitRuntimeValue(allocator, &runtime_value);
-            var owned_value = try materializeExecutionValue(allocator, &runtime_value);
-            errdefer deinitProgramValue(allocator, &owned_value);
-            break :blk .{
-                .completed = .{
-                    .value = owned_value,
-                    .logs = try logs.toOwnedSlice(allocator),
-                },
-            };
-        },
+        .terminal => |value| try completeExecutionResult(allocator, &execution, &logs, value),
+        .value => |value| try completeExecutionResult(allocator, &execution, &logs, value),
         .rejected => |failure| blk: {
             errdefer {
                 var owned_failure = failure;
@@ -138,9 +133,51 @@ pub fn runArtifact(
     };
 }
 
+fn completeExecutionResult(
+    allocator: std.mem.Allocator,
+    ctx: *ExecutionContext,
+    logs: *std.ArrayList(host.HostLogEntryV1),
+    runtime_value: RuntimeValue,
+) anyerror!RunArtifactResultV1 {
+    const output_result = try materializeExecutionOutputs(ctx);
+    const outputs = switch (output_result) {
+        .outputs => |outputs| outputs,
+        .failed => |failure| {
+            errdefer {
+                var owned_failure = failure;
+                owned_failure.deinit(allocator);
+            }
+            return .{
+                .failed = .{
+                    .failure = failure,
+                    .logs = try logs.toOwnedSlice(allocator),
+                },
+            };
+        },
+    };
+    errdefer deinitExecutionOutputs(allocator, outputs);
+
+    var owned_runtime_value = runtime_value;
+    errdefer deinitRuntimeValue(allocator, &owned_runtime_value);
+    var owned_value = try materializeExecutionValue(allocator, &owned_runtime_value);
+    errdefer deinitProgramValue(allocator, &owned_value);
+    return .{
+        .completed = .{
+            .value = owned_value,
+            .outputs = outputs,
+            .logs = try logs.toOwnedSlice(allocator),
+        },
+    };
+}
+
 const RuntimeValue = struct {
     value: lowered_machine.ProgramValue,
     owned: bool = false,
+};
+
+const OutputMaterializationResult = union(enum) {
+    failed: host.FailureV1,
+    outputs: []ExecutionOutputV1,
 };
 
 const FunctionResult = union(enum) {
@@ -158,6 +195,114 @@ const ExecutionContext = struct {
     logs: *std.ArrayList(host.HostLogEntryV1),
     next_request_id: *u64,
 };
+
+fn entryOutputs(plan: program_plan.ProgramPlan) []const program_plan.OutputPlan {
+    const entry_function = plan.functions[plan.entry_index];
+    return plan.outputs[entry_function.first_output .. entry_function.first_output + entry_function.output_count];
+}
+
+fn outputCodecFromPlanCodec(codec: program_plan.ValueCodec) host.OutputCodecV1 {
+    return switch (codec) {
+        .unit => .unit,
+        .bool => .bool,
+        .i32 => .i32,
+        .string => .string,
+        .string_list => .string_list,
+        .usize => .usize,
+    };
+}
+
+fn dataValueMatchesOutputCodec(codec: host.OutputCodecV1, value: host.DataValueV1) bool {
+    return switch (codec) {
+        .unit => value == .null,
+        .bool => value == .bool,
+        .i32 => switch (value) {
+            .i64 => |typed| std.math.cast(i32, typed) != null,
+            else => false,
+        },
+        .string => value == .string,
+        .string_list => switch (value) {
+            .array => |items| blk: {
+                for (items) |item| if (item != .string) break :blk false;
+                break :blk true;
+            },
+            else => false,
+        },
+        .usize => switch (value) {
+            .u64 => |typed| std.math.cast(usize, typed) != null,
+            .i64 => |typed| std.math.cast(usize, typed) != null,
+            else => false,
+        },
+    };
+}
+
+fn deinitExecutionOutputs(allocator: std.mem.Allocator, outputs: []ExecutionOutputV1) void {
+    for (outputs) |*output| output.deinit(allocator);
+    allocator.free(outputs);
+}
+
+fn deinitExecutionOutputsPrefix(allocator: std.mem.Allocator, outputs: []ExecutionOutputV1, initialized: usize) void {
+    for (outputs[0..initialized]) |*output| output.deinit(allocator);
+    allocator.free(outputs);
+}
+
+fn deinitCollectedOutputValues(allocator: std.mem.Allocator, values: []host.DataValueV1) void {
+    for (values) |*value| value.deinit(allocator);
+    allocator.free(values);
+}
+
+fn providerFailureFailure(allocator: std.mem.Allocator, message: []const u8) !host.FailureV1 {
+    return .{
+        .code = try allocator.dupe(u8, "provider_failure"),
+        .message = try allocator.dupe(u8, message),
+        .owns_code = true,
+        .owns_message = true,
+    };
+}
+
+fn materializeExecutionOutputs(ctx: *ExecutionContext) anyerror!OutputMaterializationResult {
+    const declared = entryOutputs(ctx.plan);
+    if (declared.len == 0) return .{ .outputs = try ctx.allocator.alloc(ExecutionOutputV1, 0) };
+
+    const descriptors = try ctx.allocator.alloc(host.OutputDescriptorV1, declared.len);
+    defer ctx.allocator.free(descriptors);
+    for (declared, descriptors) |output, *descriptor| {
+        descriptor.* = .{
+            .label = output.label,
+            .codec = outputCodecFromPlanCodec(output.codec),
+        };
+    }
+
+    var values = ctx.adapter.collectOutputs(ctx.allocator, descriptors) catch |err| switch (err) {
+        error.MissingOutputSnapshot => {
+            return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host adapter must collect declared outputs") };
+        },
+        else => return .{ .failed = try providerFailureFailure(ctx.allocator, @errorName(err)) },
+    };
+    errdefer deinitCollectedOutputValues(ctx.allocator, values);
+    if (values.len != declared.len) {
+        return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host output snapshot count must match the declared outputs") };
+    }
+
+    const outputs = try ctx.allocator.alloc(ExecutionOutputV1, declared.len);
+    var initialized: usize = 0;
+    errdefer deinitExecutionOutputsPrefix(ctx.allocator, outputs, initialized);
+    for (declared, values, 0..) |declared_output, value, index| {
+        const codec = outputCodecFromPlanCodec(declared_output.codec);
+        if (!dataValueMatchesOutputCodec(codec, value)) {
+            return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host output snapshot value does not match the declared codec") };
+        }
+        outputs[index] = .{
+            .label = try ctx.allocator.dupe(u8, declared_output.label),
+            .codec = codec,
+            .value = value,
+        };
+        values[index] = .null;
+        initialized += 1;
+    }
+    ctx.allocator.free(values);
+    return .{ .outputs = outputs };
+}
 
 fn executeFunction(
     ctx: *ExecutionContext,

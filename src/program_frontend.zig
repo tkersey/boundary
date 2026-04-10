@@ -295,6 +295,7 @@ fn cloneOps(comptime ops: []const effect_ir.OpSpec) []const effect_ir.OpSpec {
                 .mode = op.mode,
                 .PayloadType = op.PayloadType,
                 .ResumeType = op.ResumeType,
+                .has_after = op.has_after,
             };
         }
         break :blk buffer[0..];

@@ -14,6 +14,22 @@ pub const DataValueOwnershipV1 = enum {
     deep,
 };
 
+/// Declared output codecs surfaced by the ArtifactV1 runtime completion hook.
+pub const OutputCodecV1 = enum {
+    bool,
+    i32,
+    string,
+    string_list,
+    unit,
+    usize,
+};
+
+/// One declared ArtifactV1 entry output surfaced to the host completion hook.
+pub const OutputDescriptorV1 = struct {
+    label: []const u8,
+    codec: OutputCodecV1,
+};
+
 /// Typed recursive value tree used by HostAdapterV1 request and result payloads.
 pub const DataValueV1 = union(enum) {
     array: []const DataValueV1,
@@ -371,9 +387,23 @@ pub const HostLogEntryV1 = struct {
 pub const HostAdapterV1 = struct {
     ctx: ?*anyopaque,
     dispatchFn: *const fn (ctx: ?*anyopaque, allocator: std.mem.Allocator, request: HostEffectRequestV1) anyerror!HostEffectResultV1,
+    /// Optional completion hook for declared ArtifactV1 entry outputs.
+    /// Returned values must be allocator-owned and match the declared outputs exactly.
+    collectOutputsFn: ?*const fn (ctx: ?*anyopaque, allocator: std.mem.Allocator, declared_outputs: []const OutputDescriptorV1) anyerror![]DataValueV1 = null,
 
     /// Dispatch one synchronous host-effect request.
     pub fn dispatch(self: @This(), allocator: std.mem.Allocator, request: HostEffectRequestV1) anyerror!HostEffectResultV1 {
         return self.dispatchFn(self.ctx, allocator, request);
+    }
+
+    /// Collect one declared entry-output bundle after the ArtifactV1 root completes.
+    pub fn collectOutputs(
+        self: @This(),
+        allocator: std.mem.Allocator,
+        declared_outputs: []const OutputDescriptorV1,
+    ) anyerror![]DataValueV1 {
+        if (declared_outputs.len == 0) return allocator.alloc(DataValueV1, 0);
+        const collect = self.collectOutputsFn orelse return error.MissingOutputSnapshot;
+        return collect(self.ctx, allocator, declared_outputs);
     }
 };
