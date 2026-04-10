@@ -1318,15 +1318,27 @@ test "ArtifactV1 runtime surfaces failed host failures with typed payloads and l
     }
 }
 
-test "ArtifactV1 runtime rejects thrown host dispatch errors as contract violations" {
+test "ArtifactV1 runtime maps thrown host dispatch errors to typed provider failures" {
     const bytes = try encodeSingleResumeArtifact(std.testing.allocator, .i32, "artifact-runtime-dispatch-throw");
     defer std.testing.allocator.free(bytes);
 
     var context = string_dispatch_context{};
-    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+    var result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
         .ctx = &context,
         .dispatchFn = dispatchThrownFailure,
-    }));
+    });
+    defer result.deinit(std.testing.allocator);
+
+    switch (result) {
+        .failed => |failure| {
+            try std.testing.expectEqualStrings("provider_failure", failure.failure.code);
+            try std.testing.expectEqualStrings("ProviderBoom", failure.failure.message);
+            try std.testing.expectEqual(@as(usize, 1), failure.logs.len);
+            try std.testing.expectEqualStrings("generated/tooling@v1", failure.logs[0].request.body.tool_call.tool_id);
+            try std.testing.expectEqualStrings("value", failure.logs[0].request.body.tool_call.op_name);
+        },
+        else => return error.TestUnexpectedResult,
+    }
 }
 
 test "ArtifactV1 runtime unwinds cloned transcript entries when logging hits allocator failure" {

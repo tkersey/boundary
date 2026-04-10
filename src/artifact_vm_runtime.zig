@@ -344,7 +344,8 @@ fn callHostOp(
     ctx.next_request_id.* += 1;
     defer request.deinit(ctx.allocator);
 
-    var response: host.HostEffectResultV1 = ctx.adapter.dispatch(ctx.allocator, request) catch return error.ProgramContractViolation;
+    var response: host.HostEffectResultV1 = ctx.adapter.dispatch(ctx.allocator, request) catch |err|
+        try providerFailureResult(ctx.allocator, request.request_id, @errorName(err));
     defer response.deinit(ctx.allocator);
     if (response.schema_version != 1) return error.ProgramContractViolation;
     if (response.request_id != request.request_id) return error.ProgramContractViolation;
@@ -388,6 +389,22 @@ fn callHostOp(
         },
         .rejected => |failure| .{ .rejected = try failure.clone(ctx.allocator) },
         .failed => |failure| .{ .failed = try failure.clone(ctx.allocator) },
+    };
+}
+
+fn providerFailureResult(
+    allocator: std.mem.Allocator,
+    request_id: u64,
+    message: []const u8,
+) !host.HostEffectResultV1 {
+    return .{
+        .request_id = request_id,
+        .body = .{ .failed = .{
+            .code = try allocator.dupe(u8, "provider_failure"),
+            .message = try allocator.dupe(u8, message),
+            .owns_code = true,
+            .owns_message = true,
+        } },
     };
 }
 

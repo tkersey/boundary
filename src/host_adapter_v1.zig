@@ -16,12 +16,12 @@ pub const DataValueOwnershipV1 = enum {
 
 /// Typed recursive value tree used by HostAdapterV1 request and result payloads.
 pub const DataValueV1 = union(enum) {
-    array: []DataValueV1,
+    array: []const DataValueV1,
     bool: bool,
-    bytes: []u8,
+    bytes: []const u8,
     i64: i64,
     null,
-    object: []ObjectFieldV1,
+    object: []const ObjectFieldV1,
     string: []const u8,
     u64: u64,
 
@@ -71,15 +71,17 @@ pub const DataValueV1 = union(enum) {
             .string => |value| allocator.free(value),
             .bytes => |value| allocator.free(value),
             .array => |items| {
-                for (items) |*item| item.deinit(allocator);
-                allocator.free(items);
+                const mutable_items = @constCast(items);
+                for (mutable_items) |*item| item.deinit(allocator);
+                allocator.free(mutable_items);
             },
             .object => |fields| {
-                for (fields) |*field| {
+                const mutable_fields = @constCast(fields);
+                for (mutable_fields) |*field| {
                     if (field.owns_key) allocator.free(field.key);
                     field.value.deinit(allocator);
                 }
-                allocator.free(fields);
+                allocator.free(mutable_fields);
             },
         }
         self.* = undefined;
@@ -90,15 +92,17 @@ pub const DataValueV1 = union(enum) {
         switch (self.*) {
             .null, .bool, .bytes, .i64, .string, .u64 => {},
             .array => |items| {
-                for (items) |*item| item.deinitContainers(allocator);
-                allocator.free(items);
+                const mutable_items = @constCast(items);
+                for (mutable_items) |*item| item.deinitContainers(allocator);
+                allocator.free(mutable_items);
             },
             .object => |fields| {
-                for (fields) |*field| {
+                const mutable_fields = @constCast(fields);
+                for (mutable_fields) |*field| {
                     if (field.owns_key) allocator.free(field.key);
                     field.value.deinitContainers(allocator);
                 }
-                allocator.free(fields);
+                allocator.free(mutable_fields);
             },
         }
         self.* = .null;

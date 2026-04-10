@@ -127,6 +127,26 @@ test "HostAdapterV1 request, result, and failure deinit accept borrowed literals
     failure.deinit(std.testing.allocator);
 }
 
+test "HostAdapterV1 borrowed payloads accept immutable bytes and container literals" {
+    const array_items = [_]host.DataValueV1{
+        .{ .bytes = "abc" },
+        .{ .string = "nested" },
+    };
+    const object_fields = [_]host.ObjectFieldV1{
+        .{
+            .key = "payload",
+            .value = .{ .array = array_items[0..] },
+        },
+    };
+    var request: host.ToolCallRequestV1 = .{
+        .tool_id = "generated/tooling@v1",
+        .call_id = 3,
+        .op_name = "echo",
+        .arguments = .{ .object = object_fields[0..] },
+    };
+    request.deinit(std.testing.allocator);
+}
+
 test "HostAdapterV1 wrapper deinit accepts nested borrowed payloads when only container storage is owned" {
     var array_items = try std.testing.allocator.alloc(host.DataValueV1, 1);
     array_items[0] = .{ .string = "nested-borrowed" };
