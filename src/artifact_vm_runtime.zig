@@ -352,7 +352,7 @@ fn executeFunction(
                     instruction.dst,
                     .{
                         .value = switch (locals[instruction.operand]) {
-                            .i32 => |typed| .{ .i32 = typed + @as(i32, @intCast(instruction.aux)) },
+                            .i32 => |typed| .{ .i32 = std.math.add(i32, typed, @as(i32, @intCast(instruction.aux))) catch return error.ProgramContractViolation },
                             else => return error.ProgramContractViolation,
                         },
                     },
@@ -417,8 +417,8 @@ fn executeFunction(
                     instruction.dst,
                     .{
                         .value = switch (locals[instruction.operand]) {
-                            .i32 => |typed| .{ .i32 = typed - 1 },
-                            .usize => |typed| .{ .usize = typed - 1 },
+                            .i32 => |typed| .{ .i32 = std.math.sub(i32, typed, 1) catch return error.ProgramContractViolation },
+                            .usize => |typed| .{ .usize = std.math.sub(usize, typed, 1) catch return error.ProgramContractViolation },
                             else => return error.ProgramContractViolation,
                         },
                     },

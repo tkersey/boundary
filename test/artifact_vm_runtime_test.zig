@@ -702,6 +702,70 @@ fn encodeSingleResumeArtifact(
     });
 }
 
+fn encodeSingleArithmeticArtifact(
+    allocator: std.mem.Allocator,
+    codec: internal_program_plan.ValueCodec,
+    instruction_kind: internal_program_plan.InstructionKind,
+    build_seed: []const u8,
+) ![]u8 {
+    const arithmetic_instruction: internal_program_plan.Instruction = switch (instruction_kind) {
+        .add_const_i32 => .{ .kind = .add_const_i32, .dst = 0, .operand = 0, .aux = 1 },
+        .sub_one => .{ .kind = .sub_one, .dst = 0, .operand = 0 },
+        else => unreachable,
+    };
+    const plan: internal_program_plan.ProgramPlan = .{
+        .label = "artifact.runtime.arithmetic_boundary",
+        .ir_hash = 0xa4,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = codec,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 3,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "value", .mode = .transform, .payload_codec = .unit, .resume_codec = codec }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = codec }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 3, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .call_op, .dst = 0, .operand = 0 },
+            arithmetic_instruction,
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+    const capabilities = [_]shift_vm.CapabilityV1{.{
+        .capability_id = 5,
+        .kind = .tool,
+        .label = "generated/tooling@v1",
+        .ops = &.{.{
+            .capability_id = 5,
+            .op_id = 0,
+            .global_op_name = "tool.call",
+            .payload_codec = .unit,
+            .result_codec = shift_vm.artifact.mapPlanCodecToCapabilityCodec(codec),
+            .plan_op_ordinal = 0,
+        }},
+    }};
+
+    return shift_vm.artifact.encodeProgramPlan(allocator, plan, .{
+        .build_fingerprint_blake3_256 = shift_vm.artifact.buildFingerprintFromSeed(build_seed),
+        .capabilities = &capabilities,
+    });
+}
+
 fn encodeStringResumeArtifactWithDeclaredOutput(
     allocator: std.mem.Allocator,
     build_seed: []const u8,
@@ -1896,6 +1960,28 @@ test "ArtifactV1 runtime rejects negative usize host integers" {
     try std.testing.expectEqualStrings("invalid_host_reply", failure.failure.code);
     try std.testing.expectEqualStrings("host reply value does not match the declared codec", failure.failure.message);
     try std.testing.expectEqual(@as(usize, 1), failure.logs.len);
+}
+
+test "ArtifactV1 runtime fails closed on add_const_i32 overflow" {
+    const bytes = try encodeSingleArithmeticArtifact(std.testing.allocator, .i32, .add_const_i32, "artifact-runtime-add-overflow");
+    defer std.testing.allocator.free(bytes);
+
+    var context = IntegerDispatchContext{ .value = std.math.maxInt(i32) };
+    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchIntegerResult,
+    }));
+}
+
+test "ArtifactV1 runtime fails closed on sub_one underflow" {
+    const bytes = try encodeSingleArithmeticArtifact(std.testing.allocator, .usize, .sub_one, "artifact-runtime-sub-underflow");
+    defer std.testing.allocator.free(bytes);
+
+    var context = IntegerDispatchContext{ .value = 0 };
+    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchIntegerResult,
+    }));
 }
 
 test "ArtifactV1 runtime round-trips usize values above maxInt(i64)" {

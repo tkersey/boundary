@@ -376,6 +376,14 @@ fn countOps(comptime RequirementSpec: anytype) usize {
     return @typeInfo(@TypeOf(RequirementSpec)).@"struct".fields.len;
 }
 
+fn leafHasAfter(comptime LeafType: type) bool {
+    if (!@hasDecl(LeafType, "has_after")) return false;
+    if (@TypeOf(LeafType.has_after) != bool) {
+        @compileError("effect_ir leaf descriptor has_after must be a bool");
+    }
+    return LeafType.has_after;
+}
+
 fn requirementFromSpec(comptime label: []const u8, comptime RequirementSpec: anytype) Requirement {
     comptime assertRequirementShape(label, RequirementSpec);
     const fields = @typeInfo(@TypeOf(RequirementSpec)).@"struct".fields;
@@ -396,7 +404,7 @@ fn requirementFromSpec(comptime label: []const u8, comptime RequirementSpec: any
                 .mode = leaf_value.mode,
                 .PayloadType = leaf_value.PayloadType,
                 .ResumeType = leaf_value.ResumeType,
-                .has_after = false,
+                .has_after = leafHasAfter(leaf_value),
             };
         }
         break :blk buffer;
@@ -959,6 +967,24 @@ test "row digest changes when authored after metadata changes" {
     const digest_without_after = try rowDigest(without_after, &.{});
     const digest_with_after = try rowDigest(with_after, &.{});
     try std.testing.expect(digest_without_after.hash != digest_with_after.hash);
+}
+
+test "rowFromSpec preserves authored after metadata from leaf descriptors" {
+    const after_transform = struct {
+        const is_effect_ir_leaf = true;
+        const mode = ControlMode.transform;
+        const PayloadType = void;
+        const ResumeType = i32;
+        const has_after = true;
+    };
+
+    const row = rowFromSpec(.{
+        .state = .{
+            .get = after_transform,
+        },
+    });
+
+    try std.testing.expect(row.requirements[0].ops[0].has_after);
 }
 
 test "duplicate requirement label is rejected" {

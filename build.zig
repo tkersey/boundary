@@ -1750,12 +1750,28 @@ fn repoZigPathRegistry(b: *std.Build) []const u8 {
     return repoZigPathRegistryAlloc(b.allocator, b.pathFromRoot("."));
 }
 
+fn zigLintPathExcluded(path: []const u8) bool {
+    if (std.mem.startsWith(u8, path, ".zig-cache/")) return true;
+    if (std.mem.startsWith(u8, path, "zig-cache/")) return true;
+    if (std.mem.startsWith(u8, path, ".zig-global-cache/")) return true;
+    if (std.mem.startsWith(u8, path, "zig-global-cache/")) return true;
+    if (std.mem.eql(u8, path, "src/error_witness.zig")) return true;
+    if (std.mem.eql(u8, path, "src/op_compat.zig")) return true;
+    if (std.mem.eql(u8, path, "src/public_ir.zig")) return true;
+    if (std.mem.eql(u8, path, "src/public_lowering.zig")) return true;
+    if (std.mem.eql(u8, path, "src/program_api_compat.zig")) return true;
+    if (std.mem.eql(u8, path, "src/program_api.zig")) return true;
+    if (std.mem.eql(u8, path, "src/root.zig")) return true;
+    return false;
+}
+
 fn repoZigLintIncludePaths(b: *std.Build) []const std.Build.LazyPath {
     const registry = repoZigPathRegistry(b);
     var includes = std.ArrayList(std.Build.LazyPath).empty;
     var lines = std.mem.tokenizeScalar(u8, registry, '\n');
     while (lines.next()) |line| {
         if (!std.mem.endsWith(u8, line, ".zig")) continue;
+        if (zigLintPathExcluded(line)) continue;
         includes.append(b.allocator, b.path(line)) catch
             std.process.fatal("unable to record repo Zig lint path", .{});
     }
@@ -5072,23 +5088,9 @@ pub fn build(b: *std.Build) void {
         var builder = zlinter.builder(b, .{});
         builder.addPaths(.{
             // Feed zlinter the explicit repo path registry so lint stays fail-closed
-            // without relying on recursive cwd walking, which currently panics here.
+            // without relying on recursive cwd walking or exclude-index construction.
             .include = repoZigLintIncludePaths(b),
-            .exclude = &.{
-                b.path(".zig-cache"),
-                b.path("zig-cache"),
-                b.path(".zig-global-cache"),
-                b.path("zig-global-cache"),
-                b.path("src/error_witness.zig"),
-                b.path("src/op_compat.zig"),
-                // Public API intentionally exposes lower-case type-callable entrypoints here.
-                b.path("src/public_ir.zig"),
-                b.path("src/public_lowering.zig"),
-                b.path("src/program_api_compat.zig"),
-                b.path("src/program_api.zig"),
-                // Root re-exports the same lower-case public entrypoints.
-                b.path("src/root.zig"),
-            },
+            .exclude = &.{},
         });
         inline for (@typeInfo(zlinter.BuiltinLintRule).@"enum".fields) |field| {
             const rule: zlinter.BuiltinLintRule = @enumFromInt(field.value);
