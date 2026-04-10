@@ -333,6 +333,20 @@ fn maybeEmbedFileIdentifierPath(window: *const BuildInputTokenWindow) ?[]const u
     return tail[2].lexeme;
 }
 
+fn maybeImportLiteralPath(window: *const BuildInputTokenWindow) ?[]const u8 {
+    if (window.count < 4) return null;
+    const tail = window.items[window.count - 4 .. window.count];
+    if (!(tail[0].tag == .builtin and
+        std.mem.eql(u8, tail[0].lexeme, "@import") and
+        tail[1].tag == .l_paren and
+        tail[2].tag == .string_literal and
+        tail[3].tag == .r_paren))
+    {
+        return null;
+    }
+    return tail[2].lexeme;
+}
+
 fn windowMatchesEmbedFileSelf(window: *const BuildInputTokenWindow) bool {
     if (window.count < 8) return false;
     const tail = window.items[window.count - 8 .. window.count];
@@ -376,6 +390,290 @@ const BuildInputPathCollector = struct {
     path_set: *std.StringHashMap(void),
 };
 
+const BuildInputSourceScan = struct {
+    repo_root: []const u8,
+    source_path: []const u8,
+    source: [:0]const u8,
+    tokens: []const BuildInputToken,
+    collector: BuildInputPathCollector,
+    top_bindings: *const std.StringHashMap([]const u8),
+};
+
+const TopLevelStringDeclaration = struct {
+    name: []const u8,
+    value_tokens: []const BuildInputToken,
+};
+
+fn resolveStringTokensFromBindingMapAlloc(
+    allocator: std.mem.Allocator,
+    tokens: []const BuildInputToken,
+    bindings: *const std.StringHashMap([]const u8),
+) !?[]u8 {
+    if (tokens.len != 1) return null;
+    return switch (tokens[0].tag) {
+        .string_literal => try decodeStringLiteralAlloc(allocator, tokens[0].lexeme),
+        .identifier => if (bindings.get(tokens[0].lexeme)) |bound|
+            try allocator.dupe(u8, bound)
+        else
+            null,
+        else => null,
+    };
+}
+
+fn collectTopLevelStringDeclarationsAlloc(
+    allocator: std.mem.Allocator,
+    tokens: []const BuildInputToken,
+) ![]const TopLevelStringDeclaration {
+    var declarations = std.ArrayList(TopLevelStringDeclaration).empty;
+    errdefer declarations.deinit(allocator);
+
+    var index: usize = 0;
+    var scope_depth: usize = 0;
+    while (index + 1 < tokens.len) {
+        switch (tokens[index].tag) {
+            .l_brace => {
+                scope_depth += 1;
+                index += 1;
+                continue;
+            },
+            .r_brace => {
+                if (scope_depth > 0) scope_depth -= 1;
+                index += 1;
+                continue;
+            },
+            else => {},
+        }
+
+        if (scope_depth != 0 or tokens[index].tag != .keyword_const or tokens[index + 1].tag != .identifier) {
+            index += 1;
+            continue;
+        }
+
+        var cursor = index + 2;
+        var depth: usize = 0;
+        var equal_index: ?usize = null;
+        var semicolon_index: ?usize = null;
+        while (cursor < tokens.len) : (cursor += 1) {
+            switch (tokens[cursor].tag) {
+                .l_paren, .l_brace, .l_bracket => depth += 1,
+                .r_paren, .r_brace, .r_bracket => {
+                    if (depth > 0) depth -= 1;
+                },
+                .equal => {
+                    if (depth == 0 and equal_index == null) equal_index = cursor;
+                },
+                .semicolon => {
+                    if (depth == 0) {
+                        semicolon_index = cursor;
+                        break;
+                    }
+                },
+                else => {},
+            }
+        }
+
+        const value_start = equal_index orelse {
+            index += 1;
+            continue;
+        };
+        const value_end = semicolon_index orelse {
+            index += 1;
+            continue;
+        };
+        try declarations.append(allocator, .{
+            .name = tokens[index + 1].lexeme,
+            .value_tokens = tokens[value_start + 1 .. value_end],
+        });
+        index = value_end + 1;
+    }
+
+    return declarations.toOwnedSlice(allocator);
+}
+
+fn populateTopLevelSimpleStringBindings(
+    allocator: std.mem.Allocator,
+    tokens: []const BuildInputToken,
+    top_bindings: *std.StringHashMap([]const u8),
+) !void {
+    const declarations = try collectTopLevelStringDeclarationsAlloc(allocator, tokens);
+    defer allocator.free(declarations);
+
+    while (true) {
+        var made_progress = false;
+        for (declarations) |declaration| {
+            if (top_bindings.contains(declaration.name)) continue;
+            const value = try resolveStringTokensFromBindingMapAlloc(
+                allocator,
+                declaration.value_tokens,
+                top_bindings,
+            ) orelse continue;
+            errdefer allocator.free(value);
+            try top_bindings.put(declaration.name, value);
+            made_progress = true;
+        }
+        if (!made_progress) break;
+    }
+}
+
+fn lookupVisibleStringBinding(
+    scopes: []const std.StringHashMap([]const u8),
+    top_bindings: *const std.StringHashMap([]const u8),
+    identifier: []const u8,
+) ?[]const u8 {
+    var index = scopes.len;
+    while (index > 0) {
+        index -= 1;
+        if (scopes[index].get(identifier)) |value| return value;
+    }
+    return top_bindings.get(identifier);
+}
+
+fn resolveStringTokensFromVisibleBindingsAlloc(
+    allocator: std.mem.Allocator,
+    tokens: []const BuildInputToken,
+    scopes: []const std.StringHashMap([]const u8),
+    top_bindings: *const std.StringHashMap([]const u8),
+) !?[]u8 {
+    if (tokens.len != 1) return null;
+    return switch (tokens[0].tag) {
+        .string_literal => try decodeStringLiteralAlloc(allocator, tokens[0].lexeme),
+        .identifier => if (lookupVisibleStringBinding(scopes, top_bindings, tokens[0].lexeme)) |bound|
+            try allocator.dupe(u8, bound)
+        else
+            null,
+        else => null,
+    };
+}
+
+fn setScopeBinding(
+    allocator: std.mem.Allocator,
+    scope: *std.StringHashMap([]const u8),
+    identifier: []const u8,
+    value: []const u8,
+) !void {
+    const gop = try scope.getOrPut(identifier);
+    if (gop.found_existing) allocator.free(gop.value_ptr.*);
+    gop.value_ptr.* = value;
+}
+
+fn resolveVisibleStringBindingAlloc(
+    allocator: std.mem.Allocator,
+    tokens: []const BuildInputToken,
+    use_index: usize,
+    identifier: []const u8,
+    top_bindings: *const std.StringHashMap([]const u8),
+) !?[]u8 {
+    var scratch = std.heap.ArenaAllocator.init(allocator);
+    errdefer scratch.deinit();
+    defer scratch.deinit();
+    const scratch_allocator = scratch.allocator();
+
+    var scopes = std.ArrayList(std.StringHashMap([]const u8)).empty;
+    errdefer scopes.deinit(scratch_allocator);
+    try scopes.append(scratch_allocator, std.StringHashMap([]const u8).init(scratch_allocator));
+    defer scopes.deinit(scratch_allocator);
+
+    var index: usize = 0;
+    while (index < use_index) {
+        switch (tokens[index].tag) {
+            .l_brace => {
+                try scopes.append(scratch_allocator, std.StringHashMap([]const u8).init(scratch_allocator));
+                index += 1;
+                continue;
+            },
+            .r_brace => {
+                if (scopes.items.len > 1) {
+                    _ = scopes.pop();
+                }
+                index += 1;
+                continue;
+            },
+            else => {},
+        }
+
+        if (scopes.items.len == 1 or
+            tokens[index].tag != .keyword_const or
+            index + 1 >= use_index or
+            tokens[index + 1].tag != .identifier)
+        {
+            index += 1;
+            continue;
+        }
+
+        var cursor = index + 2;
+        var depth: usize = 0;
+        var equal_index: ?usize = null;
+        var semicolon_index: ?usize = null;
+        while (cursor < use_index) : (cursor += 1) {
+            switch (tokens[cursor].tag) {
+                .l_paren, .l_brace, .l_bracket => depth += 1,
+                .r_paren, .r_brace, .r_bracket => {
+                    if (depth > 0) depth -= 1;
+                },
+                .equal => {
+                    if (depth == 0 and equal_index == null) equal_index = cursor;
+                },
+                .semicolon => {
+                    if (depth == 0) {
+                        semicolon_index = cursor;
+                        break;
+                    }
+                },
+                else => {},
+            }
+        }
+
+        const value_start = equal_index orelse {
+            index += 1;
+            continue;
+        };
+        const value_end = semicolon_index orelse break;
+
+        const value = try resolveStringTokensFromVisibleBindingsAlloc(
+            scratch_allocator,
+            tokens[value_start + 1 .. value_end],
+            scopes.items,
+            top_bindings,
+        ) orelse {
+            index = value_end + 1;
+            continue;
+        };
+        try setScopeBinding(
+            scratch_allocator,
+            &scopes.items[scopes.items.len - 1],
+            tokens[index + 1].lexeme,
+            value,
+        );
+        index = value_end + 1;
+    }
+
+    if (lookupVisibleStringBinding(scopes.items, top_bindings, identifier)) |value| {
+        return try allocator.dupe(u8, value);
+    }
+    return null;
+}
+
+fn resolveBuildInputStringTokensAtUseAlloc(
+    allocator: std.mem.Allocator,
+    all_tokens: []const BuildInputToken,
+    use_index: usize,
+    tokens: []const BuildInputToken,
+    top_bindings: *const std.StringHashMap([]const u8),
+) !?[]u8 {
+    if (tokens.len != 1) return null;
+    return switch (tokens[0].tag) {
+        .string_literal => try decodeStringLiteralAlloc(allocator, tokens[0].lexeme),
+        .identifier => try resolveVisibleStringBindingAlloc(
+            allocator,
+            all_tokens,
+            use_index,
+            tokens[0].lexeme,
+            top_bindings,
+        ),
+        else => null,
+    };
+}
+
 fn freeEmbedFileFunctionPatterns(
     allocator: std.mem.Allocator,
     patterns: []EmbedFileFunctionPattern,
@@ -409,6 +707,17 @@ fn appendResolvedEmbedPathIfPresent(
     defer root_dir.close();
     if (!pathExistsAtRoot(root_dir, repo_relative)) return;
     try appendOwnedPathIfMissing(allocator, collector.paths, collector.path_set, repo_relative);
+}
+
+fn appendResolvedImportPathIfPresent(
+    allocator: std.mem.Allocator,
+    repo_root: []const u8,
+    source_dir: []const u8,
+    decoded: []const u8,
+    collector: BuildInputPathCollector,
+) !void {
+    if (!std.mem.endsWith(u8, decoded, ".zig")) return;
+    try appendResolvedEmbedPathIfPresent(allocator, repo_root, source_dir, decoded, collector);
 }
 
 fn functionSourceSlice(
@@ -530,27 +839,21 @@ fn collectBuildInputTokensAlloc(
 
 fn collectParameterizedEmbedFileBuildInputsForSource(
     allocator: std.mem.Allocator,
-    repo_root: []const u8,
-    source_path: []const u8,
-    source: [:0]const u8,
-    collector: BuildInputPathCollector,
+    scan: BuildInputSourceScan,
 ) !void {
-    const patterns = try collectSameFileEmbedFunctionPatternsAlloc(allocator, source);
+    const patterns = try collectSameFileEmbedFunctionPatternsAlloc(allocator, scan.source);
     defer freeEmbedFileFunctionPatterns(allocator, patterns);
     if (patterns.len == 0) return;
 
-    const source_dir = std.fs.path.dirname(source_path) orelse ".";
-    const tokens = try collectBuildInputTokensAlloc(allocator, source);
-    defer allocator.free(tokens);
-
+    const source_dir = std.fs.path.dirname(scan.source_path) orelse ".";
     var index: usize = 0;
-    while (index + 1 < tokens.len) : (index += 1) {
-        if (tokens[index].tag != .identifier or tokens[index + 1].tag != .l_paren) continue;
-        if (index > 0 and tokens[index - 1].tag == .keyword_fn) continue;
+    while (index + 1 < scan.tokens.len) : (index += 1) {
+        if (scan.tokens[index].tag != .identifier or scan.tokens[index + 1].tag != .l_paren) continue;
+        if (index > 0 and scan.tokens[index - 1].tag == .keyword_fn) continue;
 
         const pattern = blk: {
             for (patterns) |*candidate| {
-                if (std.mem.eql(u8, candidate.fn_name, tokens[index].lexeme)) break :blk candidate;
+                if (std.mem.eql(u8, candidate.fn_name, scan.tokens[index].lexeme)) break :blk candidate;
             }
             break :blk null;
         } orelse continue;
@@ -559,25 +862,29 @@ fn collectParameterizedEmbedFileBuildInputsForSource(
         var arg_start = index + 2;
         var depth: usize = 0;
         var cursor = index + 2;
-        while (cursor < tokens.len) : (cursor += 1) {
-            switch (tokens[cursor].tag) {
+        while (cursor < scan.tokens.len) : (cursor += 1) {
+            switch (scan.tokens[cursor].tag) {
                 .l_paren, .l_brace, .l_bracket => depth += 1,
                 .r_paren => {
                     if (depth == 0) {
                         if (patternUsesParamIndex(pattern, arg_index)) {
-                            const arg_tokens = tokens[arg_start..cursor];
-                            if (arg_tokens.len == 1 and arg_tokens[0].tag == .string_literal) {
-                                const decoded = try decodeStringLiteralAlloc(allocator, arg_tokens[0].lexeme) orelse null;
-                                if (decoded) |owned| {
-                                    defer allocator.free(owned);
-                                    try appendResolvedEmbedPathIfPresent(
-                                        allocator,
-                                        repo_root,
-                                        source_dir,
-                                        owned,
-                                        collector,
-                                    );
-                                }
+                            const arg_tokens = scan.tokens[arg_start..cursor];
+                            const decoded = try resolveBuildInputStringTokensAtUseAlloc(
+                                allocator,
+                                scan.tokens,
+                                arg_start,
+                                arg_tokens,
+                                scan.top_bindings,
+                            ) orelse null;
+                            if (decoded) |owned| {
+                                defer allocator.free(owned);
+                                try appendResolvedEmbedPathIfPresent(
+                                    allocator,
+                                    scan.repo_root,
+                                    source_dir,
+                                    owned,
+                                    scan.collector,
+                                );
                             }
                         }
                         index = cursor;
@@ -591,19 +898,23 @@ fn collectParameterizedEmbedFileBuildInputsForSource(
                 .comma => {
                     if (depth != 0) continue;
                     if (patternUsesParamIndex(pattern, arg_index)) {
-                        const arg_tokens = tokens[arg_start..cursor];
-                        if (arg_tokens.len == 1 and arg_tokens[0].tag == .string_literal) {
-                            const decoded = try decodeStringLiteralAlloc(allocator, arg_tokens[0].lexeme) orelse null;
-                            if (decoded) |owned| {
-                                defer allocator.free(owned);
-                                try appendResolvedEmbedPathIfPresent(
-                                    allocator,
-                                    repo_root,
-                                    source_dir,
-                                    owned,
-                                    collector,
-                                );
-                            }
+                        const arg_tokens = scan.tokens[arg_start..cursor];
+                        const decoded = try resolveBuildInputStringTokensAtUseAlloc(
+                            allocator,
+                            scan.tokens,
+                            arg_start,
+                            arg_tokens,
+                            scan.top_bindings,
+                        ) orelse null;
+                        if (decoded) |owned| {
+                            defer allocator.free(owned);
+                            try appendResolvedEmbedPathIfPresent(
+                                allocator,
+                                scan.repo_root,
+                                source_dir,
+                                owned,
+                                scan.collector,
+                            );
                         }
                     }
                     arg_index += 1;
@@ -634,34 +945,63 @@ fn collectEmbedFileBuildInputsForSource(
         .paths = paths,
         .path_set = path_set,
     };
-    var tokenizer = std.zig.Tokenizer.init(source_z);
+    var scratch = std.heap.ArenaAllocator.init(allocator);
+    errdefer scratch.deinit();
+    defer scratch.deinit();
+    const scratch_allocator = scratch.allocator();
+    const tokens = try collectBuildInputTokensAlloc(allocator, source_z);
+    defer allocator.free(tokens);
+    var top_bindings = std.StringHashMap([]const u8).init(scratch_allocator);
+    errdefer top_bindings.deinit();
+    defer top_bindings.deinit();
+    try populateTopLevelSimpleStringBindings(scratch_allocator, tokens, &top_bindings);
     var window: BuildInputTokenWindow = .{};
-    while (true) {
-        const token = tokenizer.next();
-        if (token.tag == .eof) break;
-        window.push(.{
-            .tag = token.tag,
-            .lexeme = tokenSlice(source_z, token),
-        });
+    var token_index: usize = 0;
+    while (token_index < tokens.len) : (token_index += 1) {
+        window.push(tokens[token_index]);
 
         if (windowMatchesEmbedFileSelf(&window)) {
             try appendOwnedPathIfMissing(allocator, paths, path_set, source_path);
             continue;
         }
 
-        const literal = maybeEmbedFileLiteralPath(&window) orelse continue;
-        const decoded = try decodeStringLiteralAlloc(allocator, literal) orelse continue;
-        defer allocator.free(decoded);
-        try appendResolvedEmbedPathIfPresent(allocator, repo_root, source_dir, decoded, collector);
+        if (maybeImportLiteralPath(&window)) |literal| {
+            const decoded = try decodeStringLiteralAlloc(allocator, literal) orelse continue;
+            defer allocator.free(decoded);
+            try appendResolvedImportPathIfPresent(allocator, repo_root, source_dir, decoded, collector);
+            continue;
+        }
+
+        if (maybeEmbedFileIdentifierPath(&window)) |identifier| {
+            const decoded = try resolveVisibleStringBindingAlloc(
+                allocator,
+                tokens,
+                token_index,
+                identifier,
+                &top_bindings,
+            ) orelse null;
+            if (decoded) |owned| {
+                defer allocator.free(owned);
+                try appendResolvedEmbedPathIfPresent(allocator, repo_root, source_dir, owned, collector);
+                continue;
+            }
+        }
+
+        if (maybeEmbedFileLiteralPath(&window)) |literal| {
+            const decoded = try decodeStringLiteralAlloc(allocator, literal) orelse continue;
+            defer allocator.free(decoded);
+            try appendResolvedEmbedPathIfPresent(allocator, repo_root, source_dir, decoded, collector);
+        }
     }
 
-    try collectParameterizedEmbedFileBuildInputsForSource(
-        allocator,
-        repo_root,
-        source_path,
-        source_z,
-        collector,
-    );
+    try collectParameterizedEmbedFileBuildInputsForSource(allocator, .{
+        .repo_root = repo_root,
+        .source_path = source_path,
+        .source = source_z,
+        .tokens = tokens,
+        .collector = collector,
+        .top_bindings = &top_bindings,
+    });
 }
 
 fn pathIsIgnoredBuildInput(path: []const u8) bool {
@@ -769,9 +1109,9 @@ fn artifactBuildInputPathsAlloc(
         }
     }
 
-    const zig_count = paths.items.len;
     var index: usize = 0;
-    while (index < zig_count) : (index += 1) {
+    while (index < paths.items.len) : (index += 1) {
+        if (!std.mem.endsWith(u8, paths.items[index], ".zig")) continue;
         collectEmbedFileBuildInputsForSource(
             allocator,
             repo_root,
@@ -1372,6 +1712,40 @@ test "artifact build fingerprint includes embedded non-Zig inputs and excludes u
     try std.testing.expectEqualSlices(u8, &before_untracked_zig, &after_untracked_zig);
 }
 
+test "artifact build fingerprint includes imported untracked Zig inputs" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
+    try writeTmpFile(tmp.dir, "probe.zig",
+        \\const helper = @import("helper.zig");
+        \\
+        \\pub fn main() void {
+        \\    helper.touch();
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "helper.zig",
+        \\pub fn touch() void {}
+        \\
+    );
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "init", "-q" });
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "add", "probe.zig", "build.zig.zon" });
+
+    const before = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try writeTmpFile(tmp.dir, "helper.zig",
+        \\pub fn touch() void {
+        \\    _ = 1;
+        \\}
+        \\
+    );
+    const after = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try std.testing.expect(!std.mem.eql(u8, &before, &after));
+}
+
 test "artifact build fingerprint includes same-file comptime parameter embed inputs" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -1387,6 +1761,113 @@ test "artifact build fingerprint includes same-file comptime parameter embed inp
         \\
         \\pub fn main() void {
         \\    const schema = fixture("schema.json");
+        \\    _ = schema;
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "schema.json", "{ \"version\": 1 }\n");
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "init", "-q" });
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "add", "probe.zig", "build.zig.zon" });
+
+    const before = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try writeTmpFile(tmp.dir, "schema.json", "{ \"version\": 2 }\n");
+    const after = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try std.testing.expect(!std.mem.eql(u8, &before, &after));
+}
+
+test "artifact build fingerprint includes identifier-backed embed inputs" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
+    try writeTmpFile(tmp.dir, "probe.zig",
+        \\const direct_path = "direct.json";
+        \\const wrapped_path = "wrapped.json";
+        \\
+        \\fn fixture(comptime rel: []const u8) []const u8 {
+        \\    return @embedFile(rel);
+        \\}
+        \\
+        \\pub fn main() void {
+        \\    const direct = @embedFile(direct_path);
+        \\    const wrapped = fixture(wrapped_path);
+        \\    _ = direct;
+        \\    _ = wrapped;
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "direct.json", "{ \"version\": 1 }\n");
+    try writeTmpFile(tmp.dir, "wrapped.json", "{ \"version\": 1 }\n");
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "init", "-q" });
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "add", "probe.zig", "build.zig.zon" });
+
+    const before_direct = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try writeTmpFile(tmp.dir, "direct.json", "{ \"version\": 2 }\n");
+    const after_direct = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try std.testing.expect(!std.mem.eql(u8, &before_direct, &after_direct));
+
+    const before_wrapped = after_direct;
+    try writeTmpFile(tmp.dir, "wrapped.json", "{ \"version\": 2 }\n");
+    const after_wrapped = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try std.testing.expect(!std.mem.eql(u8, &before_wrapped, &after_wrapped));
+}
+
+test "artifact build fingerprint prefers the nearest visible identifier-backed embed binding" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
+    try writeTmpFile(tmp.dir, "probe.zig",
+        \\const fixture_path = "outer.json";
+        \\
+        \\fn fixture(comptime rel: []const u8) []const u8 {
+        \\    return @embedFile(rel);
+        \\}
+        \\
+        \\pub fn main() void {
+        \\    const fixture_path = "inner.json";
+        \\    const direct = @embedFile(fixture_path);
+        \\    const wrapped = fixture(fixture_path);
+        \\    _ = direct;
+        \\    _ = wrapped;
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "outer.json", "{ \"version\": 1 }\n");
+    try writeTmpFile(tmp.dir, "inner.json", "{ \"version\": 1 }\n");
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "init", "-q" });
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "add", "probe.zig", "build.zig.zon" });
+
+    const before_outer = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try writeTmpFile(tmp.dir, "outer.json", "{ \"version\": 2 }\n");
+    const after_outer = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try std.testing.expectEqualSlices(u8, &before_outer, &after_outer);
+
+    try writeTmpFile(tmp.dir, "inner.json", "{ \"version\": 2 }\n");
+    const after_inner = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try std.testing.expect(!std.mem.eql(u8, &after_outer, &after_inner));
+}
+
+test "artifact build fingerprint includes top-level forward alias embed inputs" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
+    try writeTmpFile(tmp.dir, "probe.zig",
+        \\const direct_path = schema_path;
+        \\const schema_path = "schema.json";
+        \\
+        \\pub fn main() void {
+        \\    const schema = @embedFile(direct_path);
         \\    _ = schema;
         \\}
         \\
