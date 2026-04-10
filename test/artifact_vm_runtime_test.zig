@@ -1,6 +1,6 @@
 const conformance = @import("host_adapter_v1_conformance");
 const example = @import("example_open_row_state_writer");
-const internal_program_plan = @import("shift").internal_program_plan;
+const internal_program_plan = @import("internal_program_plan");
 const shift_compile = @import("shift_compile");
 const shift_vm = @import("shift_vm");
 const std = @import("std");

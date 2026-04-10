@@ -3376,8 +3376,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     host_adapter_runtime_mod.addImport("shift_vm", shift_vm_mod);
-    artifact_vm_runtime_mod.addImport("shift", shift_shared_mod);
+    artifact_vm_runtime_mod.addImport("shift", shift_mod);
     artifact_vm_runtime_mod.addImport("host_adapter_v1_conformance", host_adapter_runtime_mod);
+    artifact_vm_runtime_mod.addImport("internal_program_plan", internal_program_plan_mod);
     artifact_vm_runtime_mod.addImport("shift_compile", shift_compile_mod);
     artifact_vm_runtime_mod.addImport("shift_vm", shift_vm_mod);
     artifact_vm_runtime_mod.addImport("example_open_row_state_writer", createShiftConsumerModule(
