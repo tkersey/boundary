@@ -4,6 +4,7 @@ const lowered_machine = @import("shift_shared").lowered_machine_internal;
 const program_plan = @import("shift_shared").internal_program_plan;
 const std = @import("std");
 
+const capability_global_tool_call = "tool.call";
 const capability_global_tool_after = "tool.after";
 
 /// Result of executing ArtifactV1 bytes through the synchronous HostAdapterV1 runtime.
@@ -468,7 +469,11 @@ fn resolveCapabilityOp(
     const requirement = plan.requirements[op.requirement_index];
     if (op_index < requirement.first_op) return null;
     const capability = findCapabilityById(capabilities, requirement_capability_ids[op.requirement_index]) orelse return null;
-    const capability_op = findCapabilityOpByPlanOrdinal(capability.ops, op_index - requirement.first_op) orelse return null;
+    const capability_op = findCapabilityOpByPlanOrdinalAndGlobalName(
+        capability.ops,
+        op_index - requirement.first_op,
+        capability_global_tool_call,
+    ) orelse return null;
     return .{
         .capability = capability,
         .capability_op = capability_op,
@@ -502,13 +507,6 @@ fn resolveAfterCapabilityOp(
 fn findCapabilityById(capabilities: []const artifact.CapabilityV1, capability_id: u16) ?artifact.CapabilityV1 {
     for (capabilities) |capability| {
         if (capability.capability_id == capability_id) return capability;
-    }
-    return null;
-}
-
-fn findCapabilityOpByPlanOrdinal(ops: []const artifact.CapabilityOpV1, plan_op_ordinal: u16) ?artifact.CapabilityOpV1 {
-    for (ops) |op| {
-        if (op.plan_op_ordinal == plan_op_ordinal) return op;
     }
     return null;
 }

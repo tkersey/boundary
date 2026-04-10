@@ -251,6 +251,7 @@ fn dispatchAfterHelperTerminalWorkflow(
     _ = ctx;
     const tool_call = request.body.tool_call;
     if (std.mem.eql(u8, tool_call.op_name, "pick")) {
+        try std.testing.expectEqual(@as(u16, 0), request.op_id);
         return .{
             .request_id = request.request_id,
             .body = .{ .success = .{
@@ -264,6 +265,7 @@ fn dispatchAfterHelperTerminalWorkflow(
         };
     }
     if (std.mem.eql(u8, tool_call.op_name, "fail")) {
+        try std.testing.expectEqual(@as(u16, 0), request.op_id);
         return .{
             .request_id = request.request_id,
             .body = .{ .success = .{
@@ -277,6 +279,7 @@ fn dispatchAfterHelperTerminalWorkflow(
         };
     }
     if (std.mem.eql(u8, tool_call.op_name, "afterPick")) {
+        try std.testing.expectEqual(@as(u16, 1), request.op_id);
         try std.testing.expectEqualStrings("result=early", tool_call.arguments.string);
         return .{
             .request_id = request.request_id,
@@ -285,6 +288,53 @@ fn dispatchAfterHelperTerminalWorkflow(
                 .call_id = tool_call.call_id,
                 .control = .@"resume",
                 .value = .{ .string = try allocator.dupe(u8, "wrapped-early") },
+                .owns_tool_id = true,
+                .value_ownership = .deep,
+            } },
+        };
+    }
+    return .{
+        .request_id = request.request_id,
+        .body = .{ .failed = .{
+            .code = try allocator.dupe(u8, "unknown_op"),
+            .message = try allocator.dupe(u8, tool_call.op_name),
+            .owns_code = true,
+            .owns_message = true,
+        } },
+    };
+}
+
+fn dispatchReorderedAfterRowWorkflow(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    _ = ctx;
+    const tool_call = request.body.tool_call;
+    if (std.mem.eql(u8, tool_call.op_name, "pick")) {
+        try std.testing.expectEqual(@as(u16, 0), request.op_id);
+        return .{
+            .request_id = request.request_id,
+            .body = .{ .success = .{
+                .tool_id = try allocator.dupe(u8, tool_call.tool_id),
+                .call_id = tool_call.call_id,
+                .control = .@"resume",
+                .value = .{ .string = try allocator.dupe(u8, "answer=42") },
+                .owns_tool_id = true,
+                .value_ownership = .deep,
+            } },
+        };
+    }
+    if (std.mem.eql(u8, tool_call.op_name, "afterPick")) {
+        try std.testing.expectEqual(@as(u16, 1), request.op_id);
+        try std.testing.expectEqualStrings("answer=42", tool_call.arguments.string);
+        return .{
+            .request_id = request.request_id,
+            .body = .{ .success = .{
+                .tool_id = try allocator.dupe(u8, tool_call.tool_id),
+                .call_id = tool_call.call_id,
+                .control = .@"resume",
+                .value = .{ .string = try allocator.dupe(u8, "wrapped-42") },
                 .owns_tool_id = true,
                 .value_ownership = .deep,
             } },
@@ -869,6 +919,86 @@ test "ArtifactV1 runtime unwinds caller after hooks across terminal helper retur
     try conformance.assertToolCallShape(result.logs[0], "generated/picker@v1", "pick");
     try conformance.assertToolCallShape(result.logs[1], "generated/guard@v1", "fail");
     try conformance.assertToolCallShape(result.logs[2], "generated/picker@v1", "afterPick");
+}
+
+test "ArtifactV1 runtime resolves primary tool ops independently of manifest row order when after hooks share an ordinal" {
+    const build_fingerprint = shift_vm.artifact.buildFingerprintFromSeed("artifact-runtime-after-row-order");
+    const plan: internal_program_plan.ProgramPlan = .{
+        .label = "artifact.runtime.after_row_order",
+        .ir_hash = 0xc2,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "root",
+                .value_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 2,
+            },
+        },
+        .requirements = &.{.{ .label = "picker", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "pick", .mode = .transform, .payload_codec = .unit, .resume_codec = .string }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .call_op, .dst = 0, .operand = 0 },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+    const capabilities = [_]shift_vm.CapabilityV1{.{
+        .capability_id = 1,
+        .kind = .tool,
+        .label = "generated/picker@v1",
+        .ops = &.{
+            .{
+                .capability_id = 1,
+                .op_id = 1,
+                .global_op_name = "tool.after",
+                .payload_codec = .string,
+                .result_codec = .string,
+                .plan_op_ordinal = 0,
+            },
+            .{
+                .capability_id = 1,
+                .op_id = 0,
+                .global_op_name = "tool.call",
+                .payload_codec = .unit,
+                .result_codec = .string,
+                .plan_op_ordinal = 0,
+            },
+        },
+    }};
+
+    const bytes = try shift_vm.artifact.encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    });
+    defer std.testing.allocator.free(bytes);
+
+    var context = after_helper_ctx{};
+    var run_result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+        .ctx = &context,
+        .dispatchFn = dispatchReorderedAfterRowWorkflow,
+    });
+    defer run_result.deinit(std.testing.allocator);
+    const result = try expectCompleted(&run_result);
+
+    try std.testing.expectEqualStrings("wrapped-42", result.value.string);
+    try std.testing.expectEqual(@as(usize, 2), result.logs.len);
+    try conformance.assertToolCallShape(result.logs[0], "generated/picker@v1", "pick");
+    try conformance.assertToolCallShape(result.logs[1], "generated/picker@v1", "afterPick");
 }
 
 test "ArtifactV1 runtime preserves sparse op identity across reordered manifest rows and keeps resumed strings alive" {
