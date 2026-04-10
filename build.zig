@@ -1501,6 +1501,19 @@ fn collectTrackedRepoZigPaths(b: *std.Build, paths: *std.ArrayList([]const u8)) 
     return true;
 }
 
+fn repoZigLintIncludePaths(b: *std.Build) []const std.Build.LazyPath {
+    const registry = repoZigPathRegistry(b);
+    var includes = std.ArrayList(std.Build.LazyPath).empty;
+    var lines = std.mem.tokenizeScalar(u8, registry, '\n');
+    while (lines.next()) |line| {
+        if (!std.mem.endsWith(u8, line, ".zig")) continue;
+        includes.append(b.allocator, b.path(line)) catch
+            std.process.fatal("unable to record repo Zig lint path", .{});
+    }
+    return includes.toOwnedSlice(b.allocator) catch
+        std.process.fatal("unable to allocate repo Zig lint path list", .{});
+}
+
 fn readCommittedRepoZigPathRegistry(b: *std.Build) []const u8 {
     const registry_path = b.pathFromRoot("repo_zig_paths.txt");
     const registry_dir_path = std.fs.path.dirname(registry_path) orelse
@@ -4630,6 +4643,9 @@ pub fn build(b: *std.Build) void {
         defer b.verbose = saved_verbose;
         var builder = zlinter.builder(b, .{});
         builder.addPaths(.{
+            // Feed zlinter the explicit repo path registry so lint stays fail-closed
+            // without relying on recursive cwd walking, which currently panics here.
+            .include = repoZigLintIncludePaths(b),
             .exclude = &.{
                 b.path(".zig-cache"),
                 b.path("zig-cache"),
