@@ -455,6 +455,12 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
     var required_seen = std.EnumSet(SectionId).initEmpty();
     var directories = std.ArrayList(SectionDirectoryEntryV1).empty;
     defer directories.deinit(allocator);
+    const SectionRange = struct {
+        offset: u64,
+        end: u64,
+    };
+    var section_ranges = std.ArrayList(SectionRange).empty;
+    defer section_ranges.deinit(allocator);
 
     var cursor: usize = @intCast(directory_offset);
     var previous_section_id: ?u16 = null;
@@ -475,6 +481,10 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
         if (readU32(bytes, cursor + 28) != 0) return error.NonZeroReserved;
         const section_end = checkedSectionEnd(offset, size) orelse return error.InvalidDirectoryBounds;
         if (section_end > bytes_len_u64 or offset < directory_end) return error.InvalidDirectoryBounds;
+        for (section_ranges.items) |existing| {
+            if (offset < existing.end and existing.offset < section_end) return error.InvalidDirectoryBounds;
+        }
+        try section_ranges.append(allocator, .{ .offset = offset, .end = section_end });
         const section_id = std.enums.fromInt(SectionId, raw_section_id) orelse {
             if (optional_section and isReservedOptionalSectionId(raw_section_id)) continue;
             return error.InvalidRequiredSection;
@@ -956,18 +966,23 @@ const DecodedRequirements = struct {
 fn decodeRequirementTable(allocator: std.mem.Allocator, string_bytes: []const u8, bytes: []const u8) !DecodedRequirements {
     if (bytes.len % 16 != 0) return error.InvalidDirectoryBounds;
     const items = try allocator.alloc(program_plan.RequirementPlan, bytes.len / 16);
-    errdefer allocator.free(items);
+    var initialized: usize = 0;
+    errdefer deepFreeRequirementPlansPrefix(allocator, items, initialized);
     const capability_ids = try allocator.alloc(u16, items.len);
     errdefer allocator.free(capability_ids);
     var cursor: usize = 0;
     for (items, capability_ids) |*item, *capability_id| {
-        item.* = .{
-            .label = try readStringRefDup(allocator, string_bytes, bytes[cursor .. cursor + 8]),
-            .first_op = readU16(bytes, cursor + 8),
-            .op_count = readU16(bytes, cursor + 10),
-        };
+        const first_op = readU16(bytes, cursor + 8);
+        const op_count = readU16(bytes, cursor + 10);
         capability_id.* = readU16(bytes, cursor + 12);
         if (readU16(bytes, cursor + 14) != 0) return error.NonZeroReserved;
+        const label = try readStringRefDup(allocator, string_bytes, bytes[cursor .. cursor + 8]);
+        item.* = .{
+            .label = label,
+            .first_op = first_op,
+            .op_count = op_count,
+        };
+        initialized += 1;
         cursor += 16;
     }
     return .{
@@ -1159,17 +1174,23 @@ pub fn terminalResultCodecForOp(plan: program_plan.ProgramPlan, op_index: u16) !
 fn decodeOpTable(allocator: std.mem.Allocator, string_bytes: []const u8, bytes: []const u8) ![]program_plan.OpPlan {
     if (bytes.len % 16 != 0) return error.InvalidDirectoryBounds;
     const items = try allocator.alloc(program_plan.OpPlan, bytes.len / 16);
-    errdefer allocator.free(items);
+    var initialized: usize = 0;
+    errdefer deepFreeOpPlansPrefix(allocator, items, initialized);
     var cursor: usize = 0;
     for (items) |*item| {
-        item.* = .{
-            .requirement_index = readU16(bytes, cursor),
-            .op_name = try readStringRefDup(allocator, string_bytes, bytes[cursor + 8 .. cursor + 16]),
-            .mode = std.enums.fromInt(program_plan.ControlMode, bytes[cursor + 2]) orelse return error.UnsupportedVersion,
-            .payload_codec = std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 3]) orelse return error.UnsupportedVersion,
-            .resume_codec = std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 4]) orelse return error.UnsupportedVersion,
-        };
+        const requirement_index = readU16(bytes, cursor);
+        const mode = std.enums.fromInt(program_plan.ControlMode, bytes[cursor + 2]) orelse return error.UnsupportedVersion;
+        const payload_codec = std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 3]) orelse return error.UnsupportedVersion;
+        const resume_codec = std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 4]) orelse return error.UnsupportedVersion;
         if (bytes[cursor + 5] != 0 or readU16(bytes, cursor + 6) != 0) return error.NonZeroReserved;
+        item.* = .{
+            .requirement_index = requirement_index,
+            .op_name = try readStringRefDup(allocator, string_bytes, bytes[cursor + 8 .. cursor + 16]),
+            .mode = mode,
+            .payload_codec = payload_codec,
+            .resume_codec = resume_codec,
+        };
+        initialized += 1;
         cursor += 16;
     }
     return items;
@@ -1178,14 +1199,17 @@ fn decodeOpTable(allocator: std.mem.Allocator, string_bytes: []const u8, bytes: 
 fn decodeOutputTable(allocator: std.mem.Allocator, string_bytes: []const u8, bytes: []const u8) ![]program_plan.OutputPlan {
     if (bytes.len % 16 != 0) return error.InvalidDirectoryBounds;
     const items = try allocator.alloc(program_plan.OutputPlan, bytes.len / 16);
-    errdefer allocator.free(items);
+    var initialized: usize = 0;
+    errdefer deepFreeOutputPlansPrefix(allocator, items, initialized);
     var cursor: usize = 0;
     for (items) |*item| {
+        const codec = std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 8]) orelse return error.UnsupportedVersion;
+        for (bytes[cursor + 9 .. cursor + 16]) |byte| if (byte != 0) return error.NonZeroReserved;
         item.* = .{
             .label = try readStringRefDup(allocator, string_bytes, bytes[cursor .. cursor + 8]),
-            .codec = std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 8]) orelse return error.UnsupportedVersion,
+            .codec = codec,
         };
-        for (bytes[cursor + 9 .. cursor + 16]) |byte| if (byte != 0) return error.NonZeroReserved;
+        initialized += 1;
         cursor += 16;
     }
     return items;
@@ -1221,12 +1245,15 @@ fn decodeCallArgTable(allocator: std.mem.Allocator, bytes: []const u8) ![]u16 {
 fn decodeFunctionTable(allocator: std.mem.Allocator, string_bytes: []const u8, bytes: []const u8) ![]program_plan.FunctionPlan {
     if (bytes.len % 36 != 0) return error.InvalidDirectoryBounds;
     const items = try allocator.alloc(program_plan.FunctionPlan, bytes.len / 36);
-    errdefer allocator.free(items);
+    var initialized: usize = 0;
+    errdefer deepFreeFunctionPlansPrefix(allocator, items, initialized);
     var cursor: usize = 0;
     for (items) |*item| {
+        const value_codec = std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 8]) orelse return error.UnsupportedVersion;
+        for (bytes[cursor + 9 .. cursor + 12]) |byte| if (byte != 0) return error.NonZeroReserved;
         item.* = .{
             .symbol_name = try readStringRefDup(allocator, string_bytes, bytes[cursor .. cursor + 8]),
-            .value_codec = std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 8]) orelse return error.UnsupportedVersion,
+            .value_codec = value_codec,
             .parameter_count = readU16(bytes, cursor + 12),
             .first_requirement = readU16(bytes, cursor + 14),
             .requirement_count = readU16(bytes, cursor + 16),
@@ -1240,7 +1267,7 @@ fn decodeFunctionTable(allocator: std.mem.Allocator, string_bytes: []const u8, b
             .first_instruction = readU16(bytes, cursor + 32),
             .instruction_count = readU16(bytes, cursor + 34),
         };
-        for (bytes[cursor + 9 .. cursor + 12]) |byte| if (byte != 0) return error.NonZeroReserved;
+        initialized += 1;
         cursor += 36;
     }
     return items;
@@ -1284,17 +1311,20 @@ fn decodeTerminatorTable(allocator: std.mem.Allocator, bytes: []const u8) ![]pro
 fn decodeInstructionTable(allocator: std.mem.Allocator, string_bytes: []const u8, bytes: []const u8) ![]program_plan.Instruction {
     if (bytes.len % 16 != 0) return error.InvalidDirectoryBounds;
     const items = try allocator.alloc(program_plan.Instruction, bytes.len / 16);
-    errdefer allocator.free(items);
+    var initialized: usize = 0;
+    errdefer deepFreeInstructionsPrefix(allocator, items, initialized);
     var cursor: usize = 0;
     for (items) |*item| {
+        const kind = std.enums.fromInt(program_plan.InstructionKind, bytes[cursor]) orelse return error.UnsupportedVersion;
+        if (bytes[cursor + 1] != 0) return error.NonZeroReserved;
         item.* = .{
-            .kind = std.enums.fromInt(program_plan.InstructionKind, bytes[cursor]) orelse return error.UnsupportedVersion,
+            .kind = kind,
             .dst = readU16(bytes, cursor + 2),
             .operand = readU16(bytes, cursor + 4),
             .aux = readU16(bytes, cursor + 6),
             .string_literal = try readStringRefDup(allocator, string_bytes, bytes[cursor + 8 .. cursor + 16]),
         };
-        if (bytes[cursor + 1] != 0) return error.NonZeroReserved;
+        initialized += 1;
         cursor += 16;
     }
     return items;
@@ -1681,6 +1711,18 @@ fn patchCapabilityFlags(bytes: []u8, capability_index: usize, flags: u8) void {
     const capability_manifest_offset = sectionPayloadOffset(bytes, .capability_manifest);
     const capability_offset = capability_manifest_offset + 52 + capability_index * 16;
     bytes[capability_offset + 3] = flags;
+    recomputeEncodedArtifactHash(bytes);
+}
+
+fn patchSectionReservedByte(bytes: []u8, section_id: SectionId, row_index: usize, byte_offset: usize, value: u8) void {
+    const entry_len: usize = switch (section_id) {
+        .requirement_table, .op_table, .output_table, .instruction_table => 16,
+        .function_table => 36,
+        else => unreachable,
+    };
+    const section_offset = sectionPayloadOffset(bytes, section_id);
+    const row_offset = section_offset + row_index * entry_len;
+    bytes[row_offset + byte_offset] = value;
     recomputeEncodedArtifactHash(bytes);
 }
 
@@ -2212,6 +2254,78 @@ fn expectArtifactToProgramPlanCleanupOnAllocationFailure(allocator: std.mem.Allo
     defer deepFreeProgramPlan(allocator, plan);
 }
 
+fn expectMalformedStringBearingDecodeCleanup(allocator: std.mem.Allocator) !void {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-string-bearing-decode-cleanup");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.string_bearing_decode_cleanup",
+        .ir_hash = 0xb3,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 1,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "call", .mode = .transform, .payload_codec = .unit, .resume_codec = .string }},
+        .outputs = &.{.{ .label = "stdout", .codec = .string }},
+        .locals = &.{.{ .codec = .string }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value, .primary = 0, .secondary = 0 }},
+        .instructions = &.{
+            .{ .kind = .const_string, .dst = 0, .operand = 0, .aux = 0, .string_literal = "fallback" },
+            .{ .kind = .return_value, .dst = 0, .operand = 0, .aux = 0, .string_literal = "" },
+        },
+    };
+    const capabilities = [_]CapabilityV1{.{
+        .capability_id = 5,
+        .kind = .tool,
+        .label = "generated/tooling@v1",
+        .ops = &.{.{
+            .capability_id = 5,
+            .op_id = 0,
+            .global_op_name = "tool.call",
+            .payload_codec = .unit,
+            .result_codec = .string,
+            .plan_op_ordinal = 0,
+        }},
+    }};
+
+    const corruptions = [_]struct {
+        section_id: SectionId,
+        row_index: usize,
+        byte_offset: usize,
+    }{
+        .{ .section_id = .requirement_table, .row_index = 0, .byte_offset = 14 },
+        .{ .section_id = .op_table, .row_index = 0, .byte_offset = 5 },
+        .{ .section_id = .output_table, .row_index = 0, .byte_offset = 9 },
+        .{ .section_id = .function_table, .row_index = 0, .byte_offset = 9 },
+        .{ .section_id = .instruction_table, .row_index = 0, .byte_offset = 1 },
+    };
+
+    for (corruptions) |corruption| {
+        const encoded = try encodeProgramPlan(allocator, plan, .{
+            .build_fingerprint_blake3_256 = build_fingerprint,
+            .capabilities = &capabilities,
+        });
+        defer allocator.free(encoded);
+
+        patchSectionReservedByte(encoded, corruption.section_id, corruption.row_index, corruption.byte_offset, 0xff);
+        try std.testing.expectError(error.NonZeroReserved, decode(allocator, encoded));
+    }
+}
+
 test "ArtifactV1 toProgramPlan unwinds partially cloned plan tables on allocator failure" {
     try std.testing.checkAllAllocationFailures(
         std.testing.allocator,
@@ -2225,6 +2339,15 @@ test "ArtifactV1 decode frees partially decoded capability manifests on malforme
     try std.testing.checkAllAllocationFailures(
         std.testing.allocator,
         expectMalformedCapabilityManifestDecodeCleanup,
+        .{},
+    );
+}
+
+test "ArtifactV1 decode frees partially decoded string-bearing tables on malformed bytes and allocator failure" {
+    try expectMalformedStringBearingDecodeCleanup(std.testing.allocator);
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        expectMalformedStringBearingDecodeCleanup,
         .{},
     );
 }
@@ -3477,5 +3600,45 @@ test "ArtifactV1 decode rejects directory sections whose checked bounds overflow
     defer std.testing.allocator.free(encoded);
 
     patchDirectoryEntryBounds(encoded, .string_table, std.math.maxInt(u64), 16);
+    try std.testing.expectError(error.InvalidDirectoryBounds, decode(std.testing.allocator, encoded));
+}
+
+test "ArtifactV1 decode rejects overlapping directory sections" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.directory_overlap",
+        .ir_hash = 0xaf,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = buildFingerprintFromSeed("artifact-directory-overlap"),
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(encoded);
+
+    patchDirectoryEntryBounds(encoded, .requirement_table, sectionPayloadOffset(encoded, .string_table), 0);
     try std.testing.expectError(error.InvalidDirectoryBounds, decode(std.testing.allocator, encoded));
 }
