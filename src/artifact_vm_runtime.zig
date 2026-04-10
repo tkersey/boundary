@@ -344,21 +344,7 @@ fn callHostOp(
     ctx.next_request_id.* += 1;
     defer request.deinit(ctx.allocator);
 
-    var response: host.HostEffectResultV1 = ctx.adapter.dispatch(ctx.allocator, request) catch |err| blk: {
-        const code = try ctx.allocator.dupe(u8, "provider_failure");
-        errdefer ctx.allocator.free(code);
-        const message = try std.fmt.allocPrint(ctx.allocator, "host_adapter_dispatch:{s}", .{@errorName(err)});
-        errdefer ctx.allocator.free(message);
-        break :blk .{
-            .request_id = request.request_id,
-            .body = .{ .failed = .{
-                .code = code,
-                .message = message,
-                .owns_code = true,
-                .owns_message = true,
-            } },
-        };
-    };
+    var response: host.HostEffectResultV1 = ctx.adapter.dispatch(ctx.allocator, request) catch return error.ProgramContractViolation;
     defer response.deinit(ctx.allocator);
     if (response.schema_version != 1) return error.ProgramContractViolation;
     if (response.request_id != request.request_id) return error.ProgramContractViolation;

@@ -1244,6 +1244,22 @@ fn dispatchThrownFailure(
     return error.ProviderBoom;
 }
 
+fn dispatchBorrowedFailedFailure(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    request: shift_vm.host_adapter.HostEffectRequestV1,
+) anyerror!shift_vm.host_adapter.HostEffectResultV1 {
+    _ = ctx;
+    _ = allocator;
+    return .{
+        .request_id = request.request_id,
+        .body = .{ .failed = .{
+            .code = "provider_failure",
+            .message = "backend unavailable",
+        } },
+    };
+}
+
 fn expectRunArtifactLogCleanupOnAllocationFailure(
     allocator: std.mem.Allocator,
     bytes: []const u8,
@@ -1251,7 +1267,7 @@ fn expectRunArtifactLogCleanupOnAllocationFailure(
     var context = string_dispatch_context{};
     var result = try shift_vm.runtime.runArtifact(allocator, bytes, .{
         .ctx = &context,
-        .dispatchFn = dispatchThrownFailure,
+        .dispatchFn = dispatchBorrowedFailedFailure,
     });
     defer result.deinit(allocator);
 }
@@ -1302,27 +1318,15 @@ test "ArtifactV1 runtime surfaces failed host failures with typed payloads and l
     }
 }
 
-test "ArtifactV1 runtime converts thrown host dispatch errors into typed failed payloads and logs" {
+test "ArtifactV1 runtime rejects thrown host dispatch errors as contract violations" {
     const bytes = try encodeSingleResumeArtifact(std.testing.allocator, .i32, "artifact-runtime-dispatch-throw");
     defer std.testing.allocator.free(bytes);
 
     var context = string_dispatch_context{};
-    var result = try shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
+    try std.testing.expectError(error.ProgramContractViolation, shift_vm.runtime.runArtifact(std.testing.allocator, bytes, .{
         .ctx = &context,
         .dispatchFn = dispatchThrownFailure,
-    });
-    defer result.deinit(std.testing.allocator);
-
-    switch (result) {
-        .failed => |failure| {
-            try std.testing.expectEqualStrings("provider_failure", failure.failure.code);
-            try std.testing.expect(std.mem.indexOf(u8, failure.failure.message, "ProviderBoom") != null);
-            try std.testing.expectEqual(@as(usize, 1), failure.logs.len);
-            try std.testing.expectEqual(@as(u64, 1), failure.logs[0].request.request_id);
-            try std.testing.expectEqual(@as(u64, 1), failure.logs[0].result.request_id);
-        },
-        else => return error.TestUnexpectedResult,
-    }
+    }));
 }
 
 test "ArtifactV1 runtime unwinds cloned transcript entries when logging hits allocator failure" {
