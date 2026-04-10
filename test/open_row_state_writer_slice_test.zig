@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const shift = @import("shift_vm");
 const std = @import("std");
 
 const WorkflowProgram = shift.Program(.{
