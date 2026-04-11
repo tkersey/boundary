@@ -2,78 +2,95 @@
 
 ## Purpose
 
-`shift` exists to be a semantics-first Zig implementation of direct-style typed
-`shift/reset`.
+`shift` exists to support building agentic systems, and more generally
+interpreters and programmable control systems, using generalized algebraic
+effects over a semantics-first typed `shift/reset` substrate.
 
-In the repo's current state, that means two things:
+The long-term target architecture is an interpreter that can run in WASM and
+execute defunctionalized program data, including agent representations that are
+modeled as data rather than ambient host-language closures. That target
+architecture is the governing direction for the library, but it is not fully
+shipped yet.
 
-- the public story is the effects-library surface: lexical execution through
-  `shift.with(...)`, built-in and custom families through `shift.effect.*` and
-  `shift.effect.Define(...)`
+In the repo's current state:
+
+- generalized algebraic effects are the semantic center, with `shift/reset`
+  retained as the underlying control substrate rather than the whole product
+  story
+- agentic systems are a primary motivating use case, but the intended scope is
+  broader: the library is meant to support general interpreters and
+  programmable control systems, not only agent-specific workloads
+- the shipped authoring and lowering surfaces still route through
+  `shift.with(...)`, `shift.effect.*`, `shift.effect.Define(...)`,
+  `shift_compile.ir`, `shift_compile.lowering`, and `shift_compile.lower`
 - explicit `shift.Runtime` ownership remains the shared execution boundary
-  beneath those public surfaces, without exposing a public continuation handle
-- explicit compile and lowering surfaces now ship through `shift_compile.ir`,
-  `shift_compile.lowering`, and `shift_compile.lower`
+  beneath those surfaces, without exposing a public continuation handle
 
 `shift_vm.Program(...)`, `shift_vm.Decl`, `shift_vm.Op`,
 `shift_vm.Decision(...)`, `shift_vm.run(...)`, `shift_vm.interpreter`,
-`shift_vm.durable`, and `shift_vm.ErrorWitnessV1` still ship, but README now
-treats them as compatibility-only runtime and proof surfaces over the same
-substrate. They stay in the proof bundle because the repo still carries checked
-compatibility examples, size gates, and runtime contract suites for them.
+`shift_vm.durable`, and `shift_vm.ErrorWitnessV1` still ship, but they are
+retained compatibility, runtime, and proof surfaces over the same substrate
+rather than the enduring product thesis.
 
 Frontend spellings, lowered fixtures, witness registries, unchanged-body bridge
 cases, and source corpus ids remain repo-internal proof scaffolding beneath the
-public effects-library surface. Retired root spellings are gone from the
-shipped package and are only guarded by tombstone proofs.
+current shipped surfaces. Retired root spellings are gone from the shipped
+package and are only guarded by tombstone proofs.
 
-The repo therefore treats the user-facing surface and the runtime/proof
+The repo therefore treats purpose, current shipped surfaces, and runtime/proof
 substrates as separate layers:
 
-1. public effects-library authoring
-2. shared runtime substrate
-3. law
-4. executable reference witness
-5. executable reference machine
-6. CPS account
-7. authored-body lowered runtime
+1. generalized algebraic effects for agentic systems and broader programmable
+   control systems
+2. current shipped authoring, lowering, and retained compatibility surfaces
+3. shared runtime and interpreter substrate
+4. law
+5. executable reference witness
+6. executable reference machine
+7. CPS account
+8. authored-body lowered runtime
 
-The shipped runtime backend is the canonical authored-body lowered runtime.
+The shipped runtime backend is still the canonical authored-body lowered
+runtime, while the longer-term interpreter target remains the defunctionalized
+WASM-oriented execution model described above.
 
-The current public product claim is:
+The current shipped surface, in service of that thesis, is:
 
-- `shift.with(...)` is the canonical public authoring entrypoint
-- `shift.effect.*` and `shift.effect.Define(...)` are the canonical public
-  effect-family surfaces
-- explicit runtime ownership remains real: callers still construct and own
-  `shift.Runtime` beneath every public lane
-- `shift_compile.ir` is the public structural vocabulary for transform, choice,
-  abort, normalized rows, and resolved programs
-- `shift_compile.lowering` and `shift_compile.lower` are the public lowering
-  and source-provenance surfaces
+- `shift.with(...)` plus `shift.effect.*` and `shift.effect.Define(...)` for
+  current effect-family authoring
+- `shift_compile.ir`, `shift_compile.lowering`, and `shift_compile.lower` for
+  explicit structural IR, lowering, and source-provenance work
+- explicit `shift.Runtime` ownership beneath every public lane
 - `shift_vm.Program(...)`, `shift_vm.Decl`, `shift_vm.Op`,
   `shift_vm.Decision(...)`, `shift_vm.run(...)`, `shift_vm.interpreter`,
-  `shift_vm.durable`, and `shift_vm.ErrorWitnessV1` remain supported
-  compatibility surfaces over that same runtime substrate
-- the shipped execution path is the lowered runtime in `src/lowered_machine.zig`
-- compatibility examples and proof fixtures still exercise the retained
-  `Program/run` lane, but it is no longer the product identity
-- witness ids, bridge case ids, source corpus ids, and legacy fixture names are
+  `shift_vm.durable`, and `shift_vm.ErrorWitnessV1` as retained compatibility
+  and proof-facing surfaces over that same substrate
+- the lowered runtime in `src/lowered_machine.zig` as the shipped execution
+  path today
+- witness ids, bridge case ids, source corpus ids, and legacy fixture names as
   stable proof labels only
-- no public continuation handle is exported
+- no public continuation handle exported
+
+`shift` is not a generic effect framework. It is a foundation for
+interpreters and programmable control systems whose semantics are being pushed
+toward the defunctionalized interpreter model above.
 
 ## Semantic Commitments
 
-- static `shift/reset`, not `control/prompt`
-- one public effects-library surface over the lowered runtime
-- `shift.with(...)` plus typed effect families are the canonical user-facing
-  authoring story
-- `shift_compile.ir` is the public structural account of control modes and rows
-- `shift_compile.lowering` is the public lowering account for explicit
-  source-owned compilation
-- internal typed prompt discipline beneath that surface
-- `shift_vm` remains a compatibility lane, not the public product center
+- generalized algebraic effects are the semantic center, and typed
+  `shift/reset` is the substrate they are built on
+- the primary motivating use case is agentic systems, but the library is
+  intended to support broader interpreters and programmable control systems
+- the target architecture is a defunctionalized interpreter model that should
+  eventually be implementable in WASM, while the current shipped runtime
+  remains the lowered Zig backend
+- current public authoring still ships through `shift.with(...)`, typed effect
+  families, and the `shift_compile.*` lowering surfaces
+- internal typed prompt discipline remains beneath those surfaces
+- `shift_vm` remains a retained compatibility and proof lane, not the enduring
+  product center
 - one-shot continuation use
+- no public continuation handle
 - honest answer-type pressure if the kernel requires it
 - typed user errors in the host-language embedding
 
@@ -199,7 +216,7 @@ one of these proof surfaces:
 - `zig build bench-state-effect-check` for the checked benchmark artifact on a
   clean tree
 
-The current public effects-library contract is now:
+The current shipped surface contract is now:
 
 - callers own the shared execution boundary through `shift.Runtime`
 - lexical authoring is rooted in `shift.with(...)`
@@ -452,10 +469,11 @@ artifact lives at `docs/surface_truth_scorecard.json`.
 
 Repo-owned authored frontends and checked examples still live under `examples/`,
 but they are not the public contract described here. The public story is the
-root-level lexical surface exported from `src/root.zig`: `shift.Runtime`,
-`shift.RuntimeError`, `shift.With`, `shift.with(...)`, and `shift.effect.*`.
-Compile and lowering surfaces ship from `src/shift_compile.zig`, and retained
-compatibility/runtime surfaces ship from `src/shift_vm.zig`.
+thesis at the top of this README: generalized algebraic effects for agentic
+systems and broader interpreters or programmable control systems, with the
+current shipped lexical/effect, compile/lowering, and retained compatibility
+surfaces serving that direction. Today those surfaces still ship from
+`src/root.zig`, `src/shift_compile.zig`, and `src/shift_vm.zig`.
 
 `FORMAL_CORE.md` tracks the implementation-derived law anchors.
 `docs/source_lowering_contract.md` tracks the internal source-lowering lane.
