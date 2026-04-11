@@ -1,23 +1,11 @@
 const std = @import("std");
 
 const allowed_exports = &[_][]const u8{
-    "compat",
-    "durable",
     "effect",
-    "interpreter",
-    "lowering",
-    "lower",
-    "ir",
     "With",
     "with",
     "Runtime",
     "RuntimeError",
-    "ErrorWitnessV1",
-    "Decl",
-    "Op",
-    "Decision",
-    "Program",
-    "run",
 };
 
 const BanError = error{PublicApiBanViolation};

@@ -1,7 +1,9 @@
-const shift = @import("shift");
+const build_options = @import("authoring_build_options");
+const shift_compile = @import("shift_compile");
 const std = @import("std");
 
 const repo_path = "examples/open_row_cross_file_writer.zig";
+const caller_path = std.fmt.comptimePrint("{s}/{s}", .{ build_options.package_root, repo_path });
 
 const root_source = @embedFile("source_with_content_owned_helper_override_root.txt");
 
@@ -15,7 +17,7 @@ fn explicitCaller() std.builtin.SourceLocation {
     const src = @src();
     return .{
         .module = src.module,
-        .file = repo_path,
+        .file = caller_path,
         .line = src.line,
         .column = src.column,
         .fn_name = src.fn_name,
@@ -24,12 +26,12 @@ fn explicitCaller() std.builtin.SourceLocation {
 
 comptime {
     @setEvalBranchQuota(1_000_000);
-    _ = shift.lower(
-        shift.lowering.sourceWithContentAndImports(
+    _ = shift_compile.lower(
+        shift_compile.lowering.sourceWithContentAndImports(
             repo_path,
             explicitCaller(),
             root_source,
-            &.{shift.lowering.importedSource(
+            &.{shift_compile.lowering.importedSource(
                 repo_path,
                 "open_row_cross_file_helpers.zig",
                 spoofed_helper_source,
@@ -38,16 +40,16 @@ comptime {
         .{
             .label = "compile_fail.source_with_content_owned_helper_override",
             .entry_symbol = "runBody",
-            .row = shift.ir.mergeRows(.{
-                shift.ir.rowFromSpec(.{
+            .row = shift_compile.ir.mergeRows(.{
+                shift_compile.ir.rowFromSpec(.{
                     .state = .{
-                        .get = shift.ir.Transform(void, i32),
-                        .set = shift.ir.Transform(i32, void),
+                        .get = shift_compile.ir.Transform(void, i32),
+                        .set = shift_compile.ir.Transform(i32, void),
                     },
                 }),
-                shift.ir.rowFromSpec(.{
+                shift_compile.ir.rowFromSpec(.{
                     .writer = .{
-                        .tell = shift.ir.Transform([]const u8, void),
+                        .tell = shift_compile.ir.Transform([]const u8, void),
                     },
                 }),
             }),

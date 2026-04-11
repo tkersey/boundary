@@ -2,7 +2,7 @@ const algebraic = @import("algebraic.zig");
 const family = @import("family.zig");
 const lexical_with = @import("../with_api.zig");
 const lowered_machine = @import("lowered_machine");
-const shift = @import("../root.zig");
+const shift = lowered_machine;
 const std = @import("std");
 
 fn WriterState(comptime ItemType: type) type {

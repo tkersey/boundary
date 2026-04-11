@@ -1,15 +1,15 @@
-const shift = @import("shift");
+const shift_compile = @import("shift_compile");
 
 comptime {
-    const symbol: shift.ir.SymbolRef = .{
+    const symbol: shift_compile.ir.SymbolRef = .{
         .module_path = "test/compile_fail/string_list_codec_fails.zig",
         .symbol_name = "entry",
     };
-    const Program: shift.ir.Program = .{
+    const Program: shift_compile.ir.Program = .{
         .entry_index = 0,
         .functions = &.{.{
             .symbol = symbol,
-            .row = shift.ir.rowFromSpec(.{}),
+            .row = shift_compile.ir.rowFromSpec(.{}),
             .ValueType = [][]const u8,
         }},
         .call_edges = &.{},
@@ -24,5 +24,5 @@ comptime {
         }},
     };
 
-    _ = shift.ir.compile("compile_fail.string_list_codec", Program);
+    _ = shift_compile.ir.compile("compile_fail.string_list_codec", Program);
 }

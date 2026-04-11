@@ -5,7 +5,10 @@ const frontend = @import("frontend_support");
 const internal = @import("../internal/algebraic_engine.zig");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
-const shift = @import("../root.zig");
+const shift = struct {
+    const Runtime = lowered_machine.Runtime;
+    const Decision = @import("../program_api.zig").Decision;
+};
 const std = @import("std");
 
 /// Resolve the shared engine context carried by one exact effect capability.

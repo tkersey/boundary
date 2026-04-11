@@ -1,31 +1,31 @@
-const shift = @import("shift");
+const shift_compile = @import("shift_compile");
 const std = @import("std");
 
 comptime {
-    const entry_symbol: shift.ir.SymbolRef = .{
+    const entry_symbol: shift_compile.ir.SymbolRef = .{
         .module_path = "test/compile_fail/public_ir_foreign_row_call_op_fails.zig",
         .symbol_name = "entry",
     };
-    const helper_symbol: shift.ir.SymbolRef = .{
+    const helper_symbol: shift_compile.ir.SymbolRef = .{
         .module_path = "test/compile_fail/public_ir_foreign_row_call_op_fails.zig",
         .symbol_name = "helper",
     };
-    const Program: shift.ir.Program = .{
+    const Program: shift_compile.ir.Program = .{
         .entry_index = 0,
         .functions = &.{
             .{
                 .symbol = entry_symbol,
-                .row = shift.ir.rowFromSpec(.{
+                .row = shift_compile.ir.rowFromSpec(.{
                     .state = .{
-                        .get = shift.ir.Transform(void, i32),
+                        .get = shift_compile.ir.Transform(void, i32),
                     },
                 }),
             },
             .{
                 .symbol = helper_symbol,
-                .row = shift.ir.rowFromSpec(.{
+                .row = shift_compile.ir.rowFromSpec(.{
                     .writer = .{
-                        .tell = shift.ir.Transform([]const u8, void),
+                        .tell = shift_compile.ir.Transform([]const u8, void),
                     },
                 }),
             },
@@ -54,5 +54,5 @@ comptime {
         },
     };
 
-    _ = shift.ir.compile("compile_fail.public_ir_foreign_row_call_op", Program);
+    _ = shift_compile.ir.compile("compile_fail.public_ir_foreign_row_call_op", Program);
 }

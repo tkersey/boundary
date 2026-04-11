@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const shift_vm = @import("shift_vm");
 const std = @import("std");
 
 const TestPaths = struct {
@@ -54,7 +54,7 @@ fn makePlanBackedArtifact(
     plan_ir_hash: u64,
     comptime plan_label: []const u8,
     comptime function_symbol: []const u8,
-) shift.durable.ProgramArtifact {
+) shift_vm.durable.ProgramArtifact {
     return .{
         .label = "plan_backed",
         .program_hash = artifact_hash,
@@ -105,8 +105,8 @@ fn makePlanBackedArtifact(
     };
 }
 
-fn allocRepeatedNoteSteps(allocator: std.mem.Allocator, count: usize) ![]shift.interpreter.Step {
-    const steps = try allocator.alloc(shift.interpreter.Step, count);
+fn allocRepeatedNoteSteps(allocator: std.mem.Allocator, count: usize) ![]shift_vm.interpreter.Step {
+    const steps = try allocator.alloc(shift_vm.interpreter.Step, count);
     for (steps) |*step| {
         step.* = .{ .emit = .{ .note = "queued" } };
     }
@@ -120,13 +120,13 @@ test "durable store replays the canonical event log exactly" {
     const paths = try TestPaths.init(&tmp);
     defer paths.deinit();
 
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     const manifest = try store.saveScenario(.direct_return);
     try std.testing.expectEqual(@as(usize, 2), manifest.last_seq);
     try std.testing.expect(manifest.program_hash != 0);
     const restored = try store.restore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
-    try std.testing.expectEqual(@as(usize, 2), shift.interpreter.events(&restored.state.?).len);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.exact_replay, restored.status);
+    try std.testing.expectEqual(@as(usize, 2), shift_vm.interpreter.events(&restored.state.?).len);
 }
 
 test "durable restore replays owned string event payloads" {
@@ -136,7 +136,7 @@ test "durable restore replays owned string event payloads" {
     const paths = try TestPaths.init(&tmp);
     defer paths.deinit();
 
-    const artifact: shift.durable.ProgramArtifact = .{
+    const artifact: shift_vm.durable.ProgramArtifact = .{
         .label = "string_events",
         .program_hash = 0x7a11,
         .steps = &.{
@@ -145,12 +145,12 @@ test "durable restore replays owned string event payloads" {
         },
     };
 
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(artifact, null);
 
     const restored = try store.restoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
-    const events = shift.interpreter.events(&restored.state.?);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.exact_replay, restored.status);
+    const events = shift_vm.interpreter.events(&restored.state.?);
     try std.testing.expectEqual(@as(usize, 2), events.len);
     try std.testing.expectEqualStrings("plan-backed", switch (events[0]) {
         .note => |value| value,
@@ -166,7 +166,7 @@ test "durable restore reports rebuild required on schema mismatch" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const manifest = shift.durable.SessionManifest{
+    const manifest = shift_vm.durable.SessionManifest{
         .schema_version = 999,
         .scenario_id = .direct_return,
         .program_hash = 1,
@@ -190,9 +190,9 @@ test "durable restore reports rebuild required on schema mismatch" {
     const paths = try TestPaths.init(&tmp);
     defer paths.deinit();
 
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     const restored = try store.restore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restore reports rebuild required on artifact mismatch" {
@@ -202,16 +202,16 @@ test "durable restore reports rebuild required on artifact mismatch" {
     const paths = try TestPaths.init(&tmp);
     defer paths.deinit();
 
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveScenario(.direct_return);
 
-    const artifact = shift.durable.ProgramArtifact{
+    const artifact = shift_vm.durable.ProgramArtifact{
         .label = "direct_return",
         .program_hash = 42,
         .steps = &.{},
     };
     const restored = try store.restoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restore reports rebuild required when the event log is missing" {
@@ -221,13 +221,13 @@ test "durable restore reports rebuild required when the event log is missing" {
     const paths = try TestPaths.init(&tmp);
     defer paths.deinit();
 
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveScenario(.direct_return);
 
     try std.fs.deleteFileAbsolute(paths.events_path);
 
     const restored = try store.restore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restore fails when the event log is tampered" {
@@ -237,7 +237,7 @@ test "durable restore fails when the event log is tampered" {
     const paths = try TestPaths.init(&tmp);
     defer paths.deinit();
 
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveScenario(.direct_return);
 
     {
@@ -245,7 +245,7 @@ test "durable restore fails when the event log is tampered" {
         defer file.close();
         var buffer: [1024]u8 = undefined;
         var writer = file.writer(&buffer);
-        try std.json.Stringify.value(shift.durable.EventRecord{
+        try std.json.Stringify.value(shift_vm.durable.EventRecord{
             .seq = 0,
             .event = .{ .note = "tampered" },
         }, .{}, &writer.interface);
@@ -254,7 +254,7 @@ test "durable restore fails when the event log is tampered" {
     }
 
     const restored = try store.restore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.failed, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.failed, restored.status);
 }
 
 test "durable saveArtifact persists plan-backed identity and plan.json" {
@@ -265,7 +265,7 @@ test "durable saveArtifact persists plan-backed identity and plan.json" {
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(99, 0x1234, "demo.plan", "runBody");
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     const manifest = try store.saveArtifact(artifact, null);
 
     try std.testing.expectEqual(@as(u64, 0x1234), manifest.program_hash);
@@ -278,14 +278,14 @@ test "durable saveArtifact persists plan-backed identity and plan.json" {
 
     const artifact_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.artifact_path, std.math.maxInt(usize));
     defer std.testing.allocator.free(artifact_bytes);
-    const parsed_artifact = try std.json.parseFromSlice(shift.durable.ArtifactFile, std.testing.allocator, artifact_bytes, .{});
+    const parsed_artifact = try std.json.parseFromSlice(shift_vm.durable.ArtifactFile, std.testing.allocator, artifact_bytes, .{});
     defer parsed_artifact.deinit();
     try std.testing.expectEqual(@as(u32, 1), parsed_artifact.value.schema_version);
     try std.testing.expectEqual(@as(u64, 0x1234), parsed_artifact.value.identity_hash);
     try std.testing.expectEqualStrings("plan_backed", parsed_artifact.value.label);
 
     const restored = try store.restoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.exact_replay, restored.status);
 }
 
 test "durable saveScenario creates parent directories for fresh store paths" {
@@ -295,14 +295,14 @@ test "durable saveScenario creates parent directories for fresh store paths" {
     const paths = try TestPaths.initNamed(&tmp, "fresh/session");
     defer paths.deinit();
 
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveScenario(.direct_return);
 
     _ = try std.fs.cwd().statFile(paths.manifest_path);
     _ = try std.fs.cwd().statFile(paths.events_path);
 
     const restored = try store.restore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.exact_replay, restored.status);
 }
 
 test "durable saveArtifact creates parent directories for fresh store paths" {
@@ -313,7 +313,7 @@ test "durable saveArtifact creates parent directories for fresh store paths" {
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(0x7234, 0x7234, "fresh.plan", "runBody");
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(artifact, null);
 
     _ = try std.fs.cwd().statFile(paths.manifest_path);
@@ -322,7 +322,7 @@ test "durable saveArtifact creates parent directories for fresh store paths" {
     _ = try std.fs.cwd().statFile(paths.plan_path);
 
     const restored = try store.restoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.exact_replay, restored.status);
 }
 
 test "durable saveArtifact rejects structurally invalid plan-backed artifacts" {
@@ -332,7 +332,7 @@ test "durable saveArtifact rejects structurally invalid plan-backed artifacts" {
     const paths = try TestPaths.init(&tmp);
     defer paths.deinit();
 
-    const invalid_artifact: shift.durable.ProgramArtifact = .{
+    const invalid_artifact: shift_vm.durable.ProgramArtifact = .{
         .label = "invalid_plan_backed",
         .program_hash = 0x1234,
         .steps = &.{
@@ -367,7 +367,7 @@ test "durable saveArtifact rejects structurally invalid plan-backed artifacts" {
         },
     };
 
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     try std.testing.expectError(error.InvalidFunctionEntryBlock, store.saveArtifact(invalid_artifact, null));
     try std.testing.expectError(error.FileNotFound, std.fs.cwd().statFile(paths.manifest_path));
     try std.testing.expectError(error.FileNotFound, std.fs.cwd().statFile(paths.artifact_path));
@@ -382,7 +382,7 @@ test "durable saveArtifact rejects non-scenario artifacts when scenario_id is se
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(99, 0x1234, "demo.plan", "runBody");
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
 
     try std.testing.expectError(error.ScenarioArtifactMismatch, store.saveArtifact(artifact, .direct_return));
     try std.testing.expectError(error.FileNotFound, std.fs.cwd().statFile(paths.manifest_path));
@@ -397,7 +397,7 @@ test "durable restore rejects tampered plan-backed artifact payloads even when e
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(0x2234, 0x2234, "demo.plan", "runBody");
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(artifact, null);
 
     {
@@ -405,7 +405,7 @@ test "durable restore rejects tampered plan-backed artifact payloads even when e
         defer file.close();
         var buffer: [1024]u8 = undefined;
         var writer = file.writer(&buffer);
-        try std.json.Stringify.value(shift.durable.ArtifactFile{
+        try std.json.Stringify.value(shift_vm.durable.ArtifactFile{
             .schema_version = 1,
             .identity_hash = artifact.identityHash(),
             .label = artifact.label,
@@ -422,13 +422,13 @@ test "durable restore rejects tampered plan-backed artifact payloads even when e
         defer file.close();
         var buffer: [1024]u8 = undefined;
         var writer = file.writer(&buffer);
-        try std.json.Stringify.value(shift.durable.EventRecord{
+        try std.json.Stringify.value(shift_vm.durable.EventRecord{
             .schema_version = 1,
             .seq = 0,
             .event = .{ .note = "tampered" },
         }, .{}, &writer.interface);
         try writer.interface.writeByte('\n');
-        try std.json.Stringify.value(shift.durable.EventRecord{
+        try std.json.Stringify.value(shift_vm.durable.EventRecord{
             .schema_version = 1,
             .seq = 1,
             .event = .{ .final_i32 = 9 },
@@ -438,7 +438,7 @@ test "durable restore rejects tampered plan-backed artifact payloads even when e
     }
 
     const restored = try store.restore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restore rejects colliding artifact hashes when step boundaries change" {
@@ -448,17 +448,17 @@ test "durable restore rejects colliding artifact hashes when step boundaries cha
     const paths = try TestPaths.init(&tmp);
     defer paths.deinit();
 
-    const original = shift.durable.ProgramArtifact{
+    const original = shift_vm.durable.ProgramArtifact{
         .label = "collision.case",
         .program_hash = 0x4444,
         .steps = &.{
             .{ .emit = .{ .note = "queuedatm_resume_prepared" } },
         },
     };
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(original, null);
 
-    const tampered = shift.durable.ProgramArtifact{
+    const tampered = shift_vm.durable.ProgramArtifact{
         .label = original.label,
         .program_hash = original.program_hash,
         .steps = &.{
@@ -472,7 +472,7 @@ test "durable restore rejects colliding artifact hashes when step boundaries cha
         defer file.close();
         var buffer: [1024]u8 = undefined;
         var writer = file.writer(&buffer);
-        try std.json.Stringify.value(shift.durable.ArtifactFile{
+        try std.json.Stringify.value(shift_vm.durable.ArtifactFile{
             .schema_version = 1,
             .identity_hash = original.identityHash(),
             .label = tampered.label,
@@ -486,7 +486,7 @@ test "durable restore rejects colliding artifact hashes when step boundaries cha
         defer file.close();
         var buffer: [1024]u8 = undefined;
         var writer = file.writer(&buffer);
-        try std.json.Stringify.value(shift.durable.EventRecord{
+        try std.json.Stringify.value(shift_vm.durable.EventRecord{
             .schema_version = 1,
             .seq = 0,
             .event = .{ .note = "queued" },
@@ -496,7 +496,7 @@ test "durable restore rejects colliding artifact hashes when step boundaries cha
     }
 
     const restored = try store.restore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restore rejects tampered pending resume payloads even without event changes" {
@@ -506,7 +506,7 @@ test "durable restore rejects tampered pending resume payloads even without even
     const paths = try TestPaths.init(&tmp);
     defer paths.deinit();
 
-    const original = shift.durable.ProgramArtifact{
+    const original = shift_vm.durable.ProgramArtifact{
         .label = "pending.resume.value",
         .program_hash = 0x5555,
         .steps = &.{
@@ -517,10 +517,10 @@ test "durable restore rejects tampered pending resume payloads even without even
             } },
         },
     };
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(original, null);
 
-    const tampered = shift.durable.ProgramArtifact{
+    const tampered = shift_vm.durable.ProgramArtifact{
         .label = original.label,
         .program_hash = original.program_hash,
         .steps = &.{
@@ -537,7 +537,7 @@ test "durable restore rejects tampered pending resume payloads even without even
         defer file.close();
         var buffer: [1024]u8 = undefined;
         var writer = file.writer(&buffer);
-        try std.json.Stringify.value(shift.durable.ArtifactFile{
+        try std.json.Stringify.value(shift_vm.durable.ArtifactFile{
             .schema_version = 1,
             .identity_hash = original.identityHash(),
             .label = tampered.label,
@@ -555,7 +555,7 @@ test "durable restore rejects tampered pending resume payloads even without even
     }
 
     const restored = try store.restore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable saveArtifact restores the previous checkpoint when a later write fails" {
@@ -566,7 +566,7 @@ test "durable saveArtifact restores the previous checkpoint when a later write f
     defer paths.deinit();
 
     const baseline_artifact = makePlanBackedArtifact(0x9911, 0x1234, "baseline.plan", "runBody");
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(baseline_artifact, null);
 
     const blocked_parent = try std.fs.path.join(std.testing.allocator, &.{ paths.dir_path, "missing" });
@@ -577,30 +577,30 @@ test "durable saveArtifact restores the previous checkpoint when a later write f
     }
     const bad_events_path = try std.fs.path.join(std.testing.allocator, &.{ paths.dir_path, "missing", "events.jsonl" });
     defer std.testing.allocator.free(bad_events_path);
-    const failing_store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, bad_events_path);
+    const failing_store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, bad_events_path);
     const replacement_artifact = makePlanBackedArtifact(0x8822, 0x5678, "replacement.plan", "replacementBody");
     try std.testing.expectError(error.NotDir, failing_store.saveArtifact(replacement_artifact, null));
 
     const artifact_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.artifact_path, std.math.maxInt(usize));
     defer std.testing.allocator.free(artifact_bytes);
-    const parsed_artifact = try std.json.parseFromSlice(shift.durable.ArtifactFile, std.testing.allocator, artifact_bytes, .{});
+    const parsed_artifact = try std.json.parseFromSlice(shift_vm.durable.ArtifactFile, std.testing.allocator, artifact_bytes, .{});
     defer parsed_artifact.deinit();
     try std.testing.expectEqual(@as(u64, 0x1234), parsed_artifact.value.identity_hash);
 
     const manifest_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.manifest_path, std.math.maxInt(usize));
     defer std.testing.allocator.free(manifest_bytes);
-    const parsed_manifest = try std.json.parseFromSlice(shift.durable.SessionManifest, std.testing.allocator, manifest_bytes, .{});
+    const parsed_manifest = try std.json.parseFromSlice(shift_vm.durable.SessionManifest, std.testing.allocator, manifest_bytes, .{});
     defer parsed_manifest.deinit();
     try std.testing.expectEqual(@as(u64, 0x1234), parsed_manifest.value.program_hash);
 
     const plan_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.plan_path, std.math.maxInt(usize));
     defer std.testing.allocator.free(plan_bytes);
-    const parsed_plan = try std.json.parseFromSlice(shift.durable.PlanFile, std.testing.allocator, plan_bytes, .{});
+    const parsed_plan = try std.json.parseFromSlice(shift_vm.durable.PlanFile, std.testing.allocator, plan_bytes, .{});
     defer parsed_plan.deinit();
     try std.testing.expectEqual(@as(u64, 0x1234), parsed_plan.value.plan.ir_hash);
 
     const restored = try store.restore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.exact_replay, restored.status);
 }
 
 test "durable stores keep manifest-scoped sidecars when two sessions share one directory" {
@@ -615,8 +615,8 @@ test "durable stores keep manifest-scoped sidecars when two sessions share one d
     const first_artifact = makePlanBackedArtifact(11, 0x1111, "first.plan", "runBody");
     const second_artifact = makePlanBackedArtifact(22, 0x2222, "second.plan", "runBody");
 
-    const first_store = shift.durable.Store.init(std.testing.allocator, first_paths.manifest_path, first_paths.events_path);
-    const second_store = shift.durable.Store.init(std.testing.allocator, second_paths.manifest_path, second_paths.events_path);
+    const first_store = shift_vm.durable.Store.init(std.testing.allocator, first_paths.manifest_path, first_paths.events_path);
+    const second_store = shift_vm.durable.Store.init(std.testing.allocator, second_paths.manifest_path, second_paths.events_path);
 
     _ = try first_store.saveArtifact(first_artifact, null);
     _ = try second_store.saveArtifact(second_artifact, null);
@@ -627,9 +627,9 @@ test "durable stores keep manifest-scoped sidecars when two sessions share one d
     _ = try std.fs.cwd().statFile(second_paths.artifact_path);
 
     const restored_first = try first_store.restoreArtifact(first_artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored_first.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.exact_replay, restored_first.status);
     const restored_second = try second_store.restoreArtifact(second_artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored_second.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.exact_replay, restored_second.status);
 }
 
 test "durable restore and inspect use persisted non-scenario artifact provenance" {
@@ -640,14 +640,14 @@ test "durable restore and inspect use persisted non-scenario artifact provenance
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(0x9234, 0x9234, "demo.plan", "runBody");
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(artifact, null);
 
     const inspected = try store.inspectRestore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, inspected.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.exact_replay, inspected.status);
 
     const restored = try store.restore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.exact_replay, restored.status);
 }
 
 test "durable restore preserves plan-backed helper ABI fields across persisted plan reload" {
@@ -657,7 +657,7 @@ test "durable restore preserves plan-backed helper ABI fields across persisted p
     const paths = try TestPaths.init(&tmp);
     defer paths.deinit();
 
-    const artifact: shift.durable.ProgramArtifact = .{
+    const artifact: shift_vm.durable.ProgramArtifact = .{
         .label = "plan_backed_helper_abi",
         .program_hash = 0x9911,
         .steps = &.{
@@ -708,11 +708,11 @@ test "durable restore preserves plan-backed helper ABI fields across persisted p
         },
     };
 
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(artifact, null);
 
     const restored = try store.restore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.exact_replay, restored.status);
 }
 
 test "durable restore preserves plan-backed const_string literals across persisted plan reload" {
@@ -722,7 +722,7 @@ test "durable restore preserves plan-backed const_string literals across persist
     const paths = try TestPaths.init(&tmp);
     defer paths.deinit();
 
-    const artifact: shift.durable.ProgramArtifact = .{
+    const artifact: shift_vm.durable.ProgramArtifact = .{
         .label = "plan_backed_const_string",
         .program_hash = 0x9912,
         .steps = &.{
@@ -779,11 +779,11 @@ test "durable restore preserves plan-backed const_string literals across persist
         },
     };
 
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(artifact, null);
 
     const restored = try store.restoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.exact_replay, restored.status);
 }
 
 test "durable restore accepts a matching step bridge when persisted plan.json is valid" {
@@ -794,14 +794,14 @@ test "durable restore accepts a matching step bridge when persisted plan.json is
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(0x2234, 0x2234, "demo.plan", "runBody");
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(artifact, null);
 
     var stripped = artifact;
     stripped.plan = null;
 
     const restored = try store.restoreArtifact(stripped);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.exact_replay, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.exact_replay, restored.status);
 }
 
 test "durable restore rebuilds when only legacy raw plan.json is present" {
@@ -815,7 +815,7 @@ test "durable restore rebuilds when only legacy raw plan.json is present" {
     const manifest_dir = std.fs.path.dirname(paths.manifest_path) orelse return error.TestExpectedEqual;
     const legacy_plan_path = try std.fs.path.join(std.testing.allocator, &.{ manifest_dir, "plan.json" });
     defer std.testing.allocator.free(legacy_plan_path);
-    const legacy_manifest = shift.durable.SessionManifest{
+    const legacy_manifest = shift_vm.durable.SessionManifest{
         .schema_version = 2,
         .scenario_id = null,
         .program_hash = artifact.plan.?.ir_hash,
@@ -855,7 +855,7 @@ test "durable restore rebuilds when only legacy raw plan.json is present" {
         var writer = file.writer(&buffer);
         const LegacyEventRecord = struct {
             seq: usize,
-            event: shift.interpreter.Event,
+            event: shift_vm.interpreter.Event,
         };
         try std.json.Stringify.value(LegacyEventRecord{ .seq = 0, .event = .{ .note = "plan-backed" } }, .{}, &writer.interface);
         try writer.interface.writeByte('\n');
@@ -864,17 +864,17 @@ test "durable restore rebuilds when only legacy raw plan.json is present" {
         try writer.interface.flush();
     }
 
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     const inspected_with_current_plan = try store.inspectRestoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, inspected_with_current_plan.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, inspected_with_current_plan.status);
     var stripped = artifact;
     stripped.plan = null;
 
     const inspected = try store.inspectRestoreArtifact(stripped);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, inspected.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, inspected.status);
 
     const restored = try store.restoreArtifact(stripped);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restoreArtifact rebuilds on schema-3 plan files emitted by the previous durable format" {
@@ -885,14 +885,14 @@ test "durable restoreArtifact rebuilds on schema-3 plan files emitted by the pre
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(0x5236, 0x5236, "demo.plan", "runBody");
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(artifact, null);
 
     var legacy_plan_hash: u64 = undefined;
     {
         const plan_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.plan_path, std.math.maxInt(usize));
         defer std.testing.allocator.free(plan_bytes);
-        const parsed_plan = try std.json.parseFromSlice(shift.durable.PlanFile, std.testing.allocator, plan_bytes, .{});
+        const parsed_plan = try std.json.parseFromSlice(shift_vm.durable.PlanFile, std.testing.allocator, plan_bytes, .{});
         defer parsed_plan.deinit();
 
         var legacy_plan = parsed_plan.value;
@@ -912,7 +912,7 @@ test "durable restoreArtifact rebuilds on schema-3 plan files emitted by the pre
     {
         const manifest_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.manifest_path, std.math.maxInt(usize));
         defer std.testing.allocator.free(manifest_bytes);
-        const parsed_manifest = try std.json.parseFromSlice(shift.durable.SessionManifest, std.testing.allocator, manifest_bytes, .{});
+        const parsed_manifest = try std.json.parseFromSlice(shift_vm.durable.SessionManifest, std.testing.allocator, manifest_bytes, .{});
         defer parsed_manifest.deinit();
 
         var legacy_manifest = parsed_manifest.value;
@@ -929,16 +929,16 @@ test "durable restoreArtifact rebuilds on schema-3 plan files emitted by the pre
     }
 
     const inspected_with_current_plan = try store.inspectRestoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, inspected_with_current_plan.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, inspected_with_current_plan.status);
 
     var stripped = artifact;
     stripped.plan = null;
 
     const inspected = try store.inspectRestoreArtifact(stripped);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, inspected.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, inspected.status);
 
     const restored = try store.restoreArtifact(stripped);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restoreArtifact rebuilds on schema-3 plan files when the current plan is present" {
@@ -949,14 +949,14 @@ test "durable restoreArtifact rebuilds on schema-3 plan files when the current p
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(0x5237, 0x5237, "demo.plan", "runBody");
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(artifact, null);
 
     var legacy_plan_hash: u64 = undefined;
     {
         const plan_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.plan_path, std.math.maxInt(usize));
         defer std.testing.allocator.free(plan_bytes);
-        const parsed_plan = try std.json.parseFromSlice(shift.durable.PlanFile, std.testing.allocator, plan_bytes, .{});
+        const parsed_plan = try std.json.parseFromSlice(shift_vm.durable.PlanFile, std.testing.allocator, plan_bytes, .{});
         defer parsed_plan.deinit();
 
         var legacy_plan = parsed_plan.value;
@@ -976,7 +976,7 @@ test "durable restoreArtifact rebuilds on schema-3 plan files when the current p
     {
         const manifest_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.manifest_path, std.math.maxInt(usize));
         defer std.testing.allocator.free(manifest_bytes);
-        const parsed_manifest = try std.json.parseFromSlice(shift.durable.SessionManifest, std.testing.allocator, manifest_bytes, .{});
+        const parsed_manifest = try std.json.parseFromSlice(shift_vm.durable.SessionManifest, std.testing.allocator, manifest_bytes, .{});
         defer parsed_manifest.deinit();
 
         var legacy_manifest = parsed_manifest.value;
@@ -993,7 +993,7 @@ test "durable restoreArtifact rebuilds on schema-3 plan files when the current p
     }
 
     const restored = try store.restoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restore rebuilds on schema-2 manifests backed by legacy schema-3 plan files" {
@@ -1004,14 +1004,14 @@ test "durable restore rebuilds on schema-2 manifests backed by legacy schema-3 p
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(0x5238, 0x5238, "demo.plan", "runBody");
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(artifact, null);
 
     var legacy_plan_hash: u64 = undefined;
     {
         const plan_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.plan_path, std.math.maxInt(usize));
         defer std.testing.allocator.free(plan_bytes);
-        const parsed_plan = try std.json.parseFromSlice(shift.durable.PlanFile, std.testing.allocator, plan_bytes, .{});
+        const parsed_plan = try std.json.parseFromSlice(shift_vm.durable.PlanFile, std.testing.allocator, plan_bytes, .{});
         defer parsed_plan.deinit();
 
         var legacy_plan = parsed_plan.value;
@@ -1029,7 +1029,7 @@ test "durable restore rebuilds on schema-2 manifests backed by legacy schema-3 p
         try writer.interface.flush();
     }
     {
-        const legacy_manifest = shift.durable.SessionManifest{
+        const legacy_manifest = shift_vm.durable.SessionManifest{
             .schema_version = 2,
             .scenario_id = null,
             .program_hash = artifact.plan.?.ir_hash,
@@ -1053,7 +1053,7 @@ test "durable restore rebuilds on schema-2 manifests backed by legacy schema-3 p
         var writer = file.writer(&buffer);
         const LegacyEventRecord = struct {
             seq: usize,
-            event: shift.interpreter.Event,
+            event: shift_vm.interpreter.Event,
         };
         try std.json.Stringify.value(LegacyEventRecord{ .seq = 0, .event = .{ .note = "plan-backed" } }, .{}, &writer.interface);
         try writer.interface.writeByte('\n');
@@ -1066,10 +1066,10 @@ test "durable restore rebuilds on schema-2 manifests backed by legacy schema-3 p
     stripped.plan = null;
 
     const inspected = try store.inspectRestoreArtifact(stripped);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, inspected.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, inspected.status);
 
     const restored = try store.restoreArtifact(stripped);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restoreArtifact rebuilds before any rewriteback on legacy durable inputs" {
@@ -1080,7 +1080,7 @@ test "durable restoreArtifact rebuilds before any rewriteback on legacy durable 
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(0x6234, 0x6234, "demo.plan", "runBody");
-    const legacy_manifest = shift.durable.SessionManifest{
+    const legacy_manifest = shift_vm.durable.SessionManifest{
         .schema_version = 2,
         .scenario_id = null,
         .program_hash = artifact.plan.?.ir_hash,
@@ -1117,7 +1117,7 @@ test "durable restoreArtifact rebuilds before any rewriteback on legacy durable 
         var writer = file.writer(&buffer);
         const LegacyEventRecord = struct {
             seq: usize,
-            event: shift.interpreter.Event,
+            event: shift_vm.interpreter.Event,
         };
         try std.json.Stringify.value(LegacyEventRecord{ .seq = 0, .event = .{ .note = "plan-backed" } }, .{}, &writer.interface);
         try writer.interface.writeByte('\n');
@@ -1128,15 +1128,15 @@ test "durable restoreArtifact rebuilds before any rewriteback on legacy durable 
 
     const bad_events_path = try std.fs.path.join(std.testing.allocator, &.{ paths.dir_path, "missing", "events.jsonl" });
     defer std.testing.allocator.free(bad_events_path);
-    const failing_store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, bad_events_path);
+    const failing_store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, bad_events_path);
     var stripped = artifact;
     stripped.plan = null;
     const restored = try failing_store.restoreArtifact(stripped);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 
     const manifest_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.manifest_path, std.math.maxInt(usize));
     defer std.testing.allocator.free(manifest_bytes);
-    const parsed_manifest = try std.json.parseFromSlice(shift.durable.SessionManifest, std.testing.allocator, manifest_bytes, .{});
+    const parsed_manifest = try std.json.parseFromSlice(shift_vm.durable.SessionManifest, std.testing.allocator, manifest_bytes, .{});
     defer parsed_manifest.deinit();
     try std.testing.expectEqual(@as(u32, 2), parsed_manifest.value.schema_version);
     try std.testing.expectEqual(@as(?u32, null), parsed_manifest.value.plan_schema_version);
@@ -1162,14 +1162,14 @@ test "durable saveArtifact writes versioned event rows" {
     const paths = try TestPaths.init(&tmp);
     defer paths.deinit();
 
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveScenario(.direct_return);
 
     const bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.events_path, std.math.maxInt(usize));
     defer std.testing.allocator.free(bytes);
     var lines = std.mem.splitScalar(u8, bytes, '\n');
     const first = lines.next() orelse return error.TestExpectedEqual;
-    const parsed = try std.json.parseFromSlice(shift.durable.EventRecord, std.testing.allocator, first, .{});
+    const parsed = try std.json.parseFromSlice(shift_vm.durable.EventRecord, std.testing.allocator, first, .{});
     defer parsed.deinit();
     try std.testing.expectEqual(@as(u32, 1), parsed.value.schema_version);
 }
@@ -1184,13 +1184,13 @@ test "durable saveArtifact rejects oversized transcripts before replay" {
     const steps = try allocRepeatedNoteSteps(std.testing.allocator, 17);
     defer std.testing.allocator.free(steps);
 
-    const artifact: shift.durable.ProgramArtifact = .{
+    const artifact: shift_vm.durable.ProgramArtifact = .{
         .label = "too_many_events",
         .program_hash = 0x8bad,
         .steps = steps,
     };
 
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     try std.testing.expectError(error.TooManyEvents, store.saveArtifact(artifact, null));
     try std.testing.expectError(error.FileNotFound, std.fs.cwd().statFile(paths.manifest_path));
 }
@@ -1205,7 +1205,7 @@ test "durable restoreArtifact rejects oversized transcripts before replay" {
     const steps = try allocRepeatedNoteSteps(std.testing.allocator, 17);
     defer std.testing.allocator.free(steps);
 
-    const artifact: shift.durable.ProgramArtifact = .{
+    const artifact: shift_vm.durable.ProgramArtifact = .{
         .label = "too_many_events",
         .program_hash = 0x9bad,
         .steps = steps,
@@ -1216,7 +1216,7 @@ test "durable restoreArtifact rejects oversized transcripts before replay" {
         defer file.close();
         var buffer: [1024]u8 = undefined;
         var writer = file.writer(&buffer);
-        try std.json.Stringify.value(shift.durable.SessionManifest{
+        try std.json.Stringify.value(shift_vm.durable.SessionManifest{
             .program_hash = artifact.identityHash(),
             .event_schema_version = 1,
             .last_seq = steps.len,
@@ -1229,7 +1229,7 @@ test "durable restoreArtifact rejects oversized transcripts before replay" {
         defer file.close();
     }
 
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     try std.testing.expectError(error.TooManyEvents, store.restoreArtifact(artifact));
 }
 
@@ -1241,7 +1241,7 @@ test "durable restore rebuilds on legacy raw event rows" {
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(0x7234, 0x7234, "demo.plan", "runBody");
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     var manifest = try store.saveArtifact(artifact, null);
     manifest.event_schema_version = 0;
 
@@ -1261,7 +1261,7 @@ test "durable restore rebuilds on legacy raw event rows" {
         var writer = file.writer(&buffer);
         const LegacyEventRecord = struct {
             seq: usize,
-            event: shift.interpreter.Event,
+            event: shift_vm.interpreter.Event,
         };
         try std.json.Stringify.value(LegacyEventRecord{
             .seq = 0,
@@ -1277,10 +1277,10 @@ test "durable restore rebuilds on legacy raw event rows" {
     }
 
     const inspected = try store.inspectRestoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, inspected.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, inspected.status);
 
     const restored = try store.restoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restore reports rebuild required on unknown event schema" {
@@ -1291,7 +1291,7 @@ test "durable restore reports rebuild required on unknown event schema" {
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(0x8234, 0x8234, "demo.plan", "runBody");
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     var manifest = try store.saveArtifact(artifact, null);
     manifest.event_schema_version = 999;
 
@@ -1306,7 +1306,7 @@ test "durable restore reports rebuild required on unknown event schema" {
     }
 
     const restored = try store.restoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restore reports rebuild required on unknown artifact schema" {
@@ -1317,7 +1317,7 @@ test "durable restore reports rebuild required on unknown artifact schema" {
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(0x8334, 0x8334, "demo.plan", "runBody");
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     var manifest = try store.saveArtifact(artifact, null);
     manifest.scenario_id = null;
     manifest.artifact_schema_version = 999;
@@ -1333,7 +1333,7 @@ test "durable restore reports rebuild required on unknown artifact schema" {
     }
 
     const restored = try store.restore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restore reports rebuild required when the persisted artifact sidecar is missing" {
@@ -1343,7 +1343,7 @@ test "durable restore reports rebuild required when the persisted artifact sidec
     const paths = try TestPaths.init(&tmp);
     defer paths.deinit();
 
-    const artifact = shift.durable.ProgramArtifact{
+    const artifact = shift_vm.durable.ProgramArtifact{
         .label = "missing_artifact_sidecar",
         .program_hash = 0x8335,
         .steps = &.{
@@ -1351,16 +1351,16 @@ test "durable restore reports rebuild required when the persisted artifact sidec
             .{ .emit = .{ .final_string = "done" } },
         },
     };
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(artifact, null);
 
     try std.fs.deleteFileAbsolute(paths.artifact_path);
 
     const inspected = try store.inspectRestore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, inspected.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, inspected.status);
 
     const restored = try store.restore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restore reports rebuild required on unknown plan schema" {
@@ -1371,7 +1371,7 @@ test "durable restore reports rebuild required on unknown plan schema" {
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(0x6234, 0x6234, "demo.plan", "runBody");
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     var manifest = try store.saveArtifact(artifact, null);
     manifest.plan_schema_version = 999;
 
@@ -1386,7 +1386,7 @@ test "durable restore reports rebuild required on unknown plan schema" {
     }
 
     const restored = try store.restoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restore reports rebuild required when the persisted plan sidecar is missing" {
@@ -1397,16 +1397,16 @@ test "durable restore reports rebuild required when the persisted plan sidecar i
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(0x6235, 0x6235, "demo.plan", "runBody");
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(artifact, null);
 
     try std.fs.deleteFileAbsolute(paths.plan_path);
 
     const inspected = try store.inspectRestore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, inspected.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, inspected.status);
 
     const restored = try store.restore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restore reports rebuild required when the current plan drifts" {
@@ -1418,11 +1418,11 @@ test "durable restore reports rebuild required when the current plan drifts" {
 
     const saved = makePlanBackedArtifact(0x3234, 0x3234, "demo.plan", "runBody");
     const drifted = makePlanBackedArtifact(0x3234, 0x3234, "demo.plan", "runBodyV2");
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(saved, null);
 
     const restored = try store.restoreArtifact(drifted);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restore reports rebuild required when only function span layout drifts" {
@@ -1434,7 +1434,7 @@ test "durable restore reports rebuild required when only function span layout dr
 
     const saved = makePlanBackedArtifact(0x9234, 0x9234, "demo.plan", "runBody");
     const saved_plan = saved.plan.?;
-    const drifted = shift.durable.ProgramArtifact{
+    const drifted = shift_vm.durable.ProgramArtifact{
         .label = saved.label,
         .program_hash = saved.program_hash,
         .steps = saved.steps,
@@ -1468,11 +1468,11 @@ test "durable restore reports rebuild required when only function span layout dr
         },
     };
 
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(saved, null);
 
     const restored = try store.restoreArtifact(drifted);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restore fails when plan.json is tampered" {
@@ -1483,7 +1483,7 @@ test "durable restore fails when plan.json is tampered" {
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(0x4234, 0x4234, "demo.plan", "runBody");
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(artifact, null);
 
     {
@@ -1493,7 +1493,7 @@ test "durable restore fails when plan.json is tampered" {
         var writer = file.writer(&buffer);
         var tampered = artifact.plan.?;
         tampered.label = "tampered.plan";
-        try std.json.Stringify.value(shift.durable.PlanFile{
+        try std.json.Stringify.value(shift_vm.durable.PlanFile{
             .schema_version = 4,
             .plan_hash = 0,
             .plan = tampered,
@@ -1503,7 +1503,7 @@ test "durable restore fails when plan.json is tampered" {
     }
 
     const restored = try store.restoreArtifact(artifact);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.failed, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.failed, restored.status);
 }
 
 test "durable restore rejects structurally invalid but hash-consistent persisted plan sidecars" {
@@ -1541,7 +1541,7 @@ test "durable restore rejects structurally invalid but hash-consistent persisted
         .instructions = &.{.{ .kind = .return_value, .operand = 0 }},
     };
 
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(artifact, null);
 
     {
@@ -1549,7 +1549,7 @@ test "durable restore rejects structurally invalid but hash-consistent persisted
         defer file.close();
         var buffer: [1024]u8 = undefined;
         var writer = file.writer(&buffer);
-        try std.json.Stringify.value(shift.durable.PlanFile{
+        try std.json.Stringify.value(shift_vm.durable.PlanFile{
             .schema_version = 4,
             .plan_hash = invalid_plan.hash(),
             .plan = invalid_plan,
@@ -1560,7 +1560,7 @@ test "durable restore rejects structurally invalid but hash-consistent persisted
     {
         const manifest_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.manifest_path, std.math.maxInt(usize));
         defer std.testing.allocator.free(manifest_bytes);
-        const parsed_manifest = try std.json.parseFromSlice(shift.durable.SessionManifest, std.testing.allocator, manifest_bytes, .{});
+        const parsed_manifest = try std.json.parseFromSlice(shift_vm.durable.SessionManifest, std.testing.allocator, manifest_bytes, .{});
         defer parsed_manifest.deinit();
 
         const file = try std.fs.cwd().createFile(paths.manifest_path, .{ .truncate = true });
@@ -1575,7 +1575,7 @@ test "durable restore rejects structurally invalid but hash-consistent persisted
     }
 
     const restored = try store.restore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restore accepts schema-4 non-scenario manifests without artifact metadata" {
@@ -1586,13 +1586,13 @@ test "durable restore accepts schema-4 non-scenario manifests without artifact m
     defer paths.deinit();
 
     const artifact = makePlanBackedArtifact(0x6235, 0x6235, "demo.plan", "runBody");
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(artifact, null);
 
     {
         const manifest_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.manifest_path, std.math.maxInt(usize));
         defer std.testing.allocator.free(manifest_bytes);
-        const parsed_manifest = try std.json.parseFromSlice(shift.durable.SessionManifest, std.testing.allocator, manifest_bytes, .{});
+        const parsed_manifest = try std.json.parseFromSlice(shift_vm.durable.SessionManifest, std.testing.allocator, manifest_bytes, .{});
         defer parsed_manifest.deinit();
 
         var legacy_manifest = parsed_manifest.value;
@@ -1609,10 +1609,10 @@ test "durable restore accepts schema-4 non-scenario manifests without artifact m
     }
 
     const inspected = try store.inspectRestore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, inspected.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, inspected.status);
 
     const restored = try store.restore();
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }
 
 test "durable restoreArtifact rejects changed plan-backed artifacts while backfilling schema-4 artifact hashes" {
@@ -1622,26 +1622,26 @@ test "durable restoreArtifact rejects changed plan-backed artifacts while backfi
     const paths = try TestPaths.init(&tmp);
     defer paths.deinit();
 
-    const original = shift.durable.ProgramArtifact{
+    const original = shift_vm.durable.ProgramArtifact{
         .label = "plan_backed_original",
         .program_hash = 0x6235,
         .steps = &.{},
         .plan = makePlanBackedArtifact(0x6235, 0x6235, "demo.plan", "runBody").plan,
     };
-    const changed = shift.durable.ProgramArtifact{
+    const changed = shift_vm.durable.ProgramArtifact{
         .label = "plan_backed_changed",
         .program_hash = original.program_hash,
         .steps = original.steps,
         .plan = original.plan,
     };
 
-    const store = shift.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
+    const store = shift_vm.durable.Store.init(std.testing.allocator, paths.manifest_path, paths.events_path);
     _ = try store.saveArtifact(original, null);
 
     {
         const manifest_bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, paths.manifest_path, std.math.maxInt(usize));
         defer std.testing.allocator.free(manifest_bytes);
-        const parsed_manifest = try std.json.parseFromSlice(shift.durable.SessionManifest, std.testing.allocator, manifest_bytes, .{});
+        const parsed_manifest = try std.json.parseFromSlice(shift_vm.durable.SessionManifest, std.testing.allocator, manifest_bytes, .{});
         defer parsed_manifest.deinit();
 
         var legacy_manifest = parsed_manifest.value;
@@ -1659,5 +1659,5 @@ test "durable restoreArtifact rejects changed plan-backed artifacts while backfi
     }
 
     const restored = try store.restoreArtifact(changed);
-    try std.testing.expectEqual(shift.durable.RestoreStatus.rebuild_required, restored.status);
+    try std.testing.expectEqual(shift_vm.durable.RestoreStatus.rebuild_required, restored.status);
 }

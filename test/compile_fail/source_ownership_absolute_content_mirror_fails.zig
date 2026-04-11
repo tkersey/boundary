@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const shift_compile = @import("shift_compile");
 const std = @import("std");
 
 comptime {
@@ -22,7 +22,7 @@ comptime {
     ;
     const caller_path = "/tmp/downstream_public_lowering_test.zig";
     const repo_path = "/tmp/other_downstream_public_lowering_test.zig";
-    _ = shift.lower(.{
+    _ = shift_compile.lower(.{
         .repo_path = repo_path,
         .caller_file = caller_path,
         .caller_hash = std.hash.Wyhash.hash(0, mirrored_source),
@@ -30,13 +30,13 @@ comptime {
     }, .{
         .label = "compile_fail.source_ownership_absolute_content_mirror",
         .entry_symbol = "runBody",
-        .row = shift.ir.rowFromSpec(.{
+        .row = shift_compile.ir.rowFromSpec(.{
             .state = .{
-                .get = shift.ir.Transform(void, i32),
-                .set = shift.ir.Transform(i32, void),
+                .get = shift_compile.ir.Transform(void, i32),
+                .set = shift_compile.ir.Transform(i32, void),
             },
             .writer = .{
-                .tell = shift.ir.Transform([]const u8, void),
+                .tell = shift_compile.ir.Transform([]const u8, void),
             },
         }),
         .outputs = &.{

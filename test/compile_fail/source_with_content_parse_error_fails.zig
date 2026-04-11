@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const shift_compile = @import("shift_compile");
 const std = @import("std");
 
 comptime {
@@ -13,7 +13,7 @@ comptime {
         \\    _ = ;
         \\}
     ;
-    _ = shift.lower(.{
+    _ = shift_compile.lower(.{
         .repo_path = absolute_repo_path,
         .caller_file = absolute_repo_path,
         .caller_hash = std.hash.Wyhash.hash(0, malformed_source),
@@ -21,9 +21,9 @@ comptime {
     }, .{
         .label = "compile_fail.source_with_content_parse_error",
         .entry_symbol = "runBody",
-        .row = shift.ir.rowFromSpec(.{
+        .row = shift_compile.ir.rowFromSpec(.{
             .state = .{
-                .get = shift.ir.Transform(void, i32),
+                .get = shift_compile.ir.Transform(void, i32),
             },
         }),
     });

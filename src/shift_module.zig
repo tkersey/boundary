@@ -1,22 +1,21 @@
 const root = @import("root.zig");
 
-/// Root-level choice decision helper.
-pub const Decision = root.Decision;
-/// Public declaration namespace.
-pub const Decl = root.Decl;
-/// Public op-descriptor namespace.
-pub const Op = root.Op;
+/// Public lexical effect namespace.
+pub const effect = root.effect;
 /// Canonical runtime handle.
 pub const Runtime = root.Runtime;
 /// Public runtime error surface.
 pub const RuntimeError = root.RuntimeError;
-/// Stable public error-witness schema.
-pub const ErrorWitnessV1 = root.ErrorWitnessV1;
-/// Public program builder.
-pub const Program = root.Program;
+/// Build the public lexical metadata type.
+pub const With = root.With;
 /// Canonical lexical execution entrypoint.
-pub const run = root.run;
+pub const with = root.with;
 
 test {
+    _ = With;
+    _ = Runtime;
+    _ = RuntimeError;
+    _ = effect;
+    _ = with;
     _ = root;
 }

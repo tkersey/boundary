@@ -1,12 +1,12 @@
-const shift = @import("shift");
+const shift_compile = @import("shift_compile");
 
 comptime {
-    _ = shift.lowering.lowerAt("test/compile_fail_inputs/helper_import_escape_source.zig", .{
+    _ = shift_compile.lowering.lowerAt("test/compile_fail_inputs/helper_import_escape_source.zig", .{
         .label = "compile_fail.helper_import_escape_lower_at",
         .entry_symbol = "runBody",
-        .row = shift.ir.rowFromSpec(.{
+        .row = shift_compile.ir.rowFromSpec(.{
             .writer = .{
-                .tell = shift.ir.Transform([]const u8, void),
+                .tell = shift_compile.ir.Transform([]const u8, void),
             },
         }),
         .outputs = &.{

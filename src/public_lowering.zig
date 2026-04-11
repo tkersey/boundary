@@ -846,6 +846,9 @@ pub fn importedSource(
     comptime import_path: []const u8,
     comptime source_bytes: []const u8,
 ) ImportedSource {
+    comptime {
+        @setEvalBranchQuota(50_000);
+    }
     const resolved_path = source_graph_embed.resolveImportPathAt(root_source_path, import_path) catch |err| switch (err) {
         error.UnsupportedImportPath => @compileError("public lowering imported source helper requires a non-escaping relative .zig import path"),
         error.TooManyImports => @compileError("public lowering imported source helper exceeded the supported segment budget"),
@@ -900,6 +903,7 @@ fn cloneRow(comptime row: effect_ir.Row) effect_ir.Row {
                     .mode = op.mode,
                     .PayloadType = op.PayloadType,
                     .ResumeType = op.ResumeType,
+                    .has_after = op.has_after,
                 };
             }
             requirement_buffer[requirement_index] = .{
@@ -1033,6 +1037,7 @@ const FlatOp = struct {
     mode: effect_ir.ControlMode,
     PayloadType: type,
     ResumeType: type,
+    has_after: bool,
 };
 
 fn flatOpsForRow(comptime row: effect_ir.Row) []const FlatOp {
@@ -1052,6 +1057,7 @@ fn flatOpsForRow(comptime row: effect_ir.Row) []const FlatOp {
                     .mode = op.mode,
                     .PayloadType = op.PayloadType,
                     .ResumeType = op.ResumeType,
+                    .has_after = op.has_after,
                 };
                 index += 1;
             }
@@ -1170,6 +1176,7 @@ fn helperRowFromUsage(
                         .mode = flat_op.mode,
                         .PayloadType = flat_op.PayloadType,
                         .ResumeType = flat_op.ResumeType,
+                        .has_after = flat_op.has_after,
                     };
                     op_count += 1;
                 }
@@ -3909,10 +3916,10 @@ test "executeLoweredDispatch runs choice ops across resume and return-now branch
         branch: enum { resume_with, return_now },
         after_calls: usize = 0,
 
-        pub fn pick(self: *@This()) anyerror!@import("root.zig").Decision([]const u8, []const u8) {
+        pub fn pick(self: *@This()) anyerror!@import("program_api.zig").Decision([]const u8, []const u8) {
             return switch (self.branch) {
-                .resume_with => @import("root.zig").Decision([]const u8, []const u8).resumeWith("answer=42"),
-                .return_now => @import("root.zig").Decision([]const u8, []const u8).returnNow("result=early"),
+                .resume_with => @import("program_api.zig").Decision([]const u8, []const u8).resumeWith("answer=42"),
+                .return_now => @import("program_api.zig").Decision([]const u8, []const u8).returnNow("result=early"),
             };
         }
 
@@ -4631,8 +4638,8 @@ test "executeLoweredDispatch unwinds caller after handlers across terminal helpe
         picker: struct {
             after_calls: usize = 0,
 
-            pub fn pick(_: *@This()) anyerror!@import("root.zig").Decision([]const u8, []const u8) {
-                return @import("root.zig").Decision([]const u8, []const u8).resumeWith("answer=42");
+            pub fn pick(_: *@This()) anyerror!@import("program_api.zig").Decision([]const u8, []const u8) {
+                return @import("program_api.zig").Decision([]const u8, []const u8).resumeWith("answer=42");
             }
 
             pub fn afterPick(self: *@This(), answer: []const u8) anyerror![]const u8 {

@@ -1,6 +1,6 @@
 {
   "public_kernel": {
-    "contract": "shift.Decl and shift.Program author against one public runtime kernel rooted at shift.Runtime and shift.run",
+    "contract": "shift.with and shift.effect author against one public runtime rooted at shift.Runtime, while shift_compile and shift_vm carry the compile and compatibility surfaces",
     "status": "canonical"
   },
   "benchmark_stability": {
@@ -19,7 +19,7 @@
   },
   "source_validated_proof_corpus": {
     "contract": "canonical source-validated lowering for retained proof labels, witness sources, source corpora, and declaration-backed proof rows",
-    "status": "canonical"
+    "status": "partial"
   },
   "unchanged_body_proof_corpus": {
     "supported_proof_cases": ["atm_resume_transform","direct_return","multi_prompt","resume_or_return_resume","resume_or_return_return_now","static_redelim","early_exit","resume_or_return","nested_workflow","open_row_generator","state_basic","reader_basic","optional_basic","exception_basic","resource_basic","writer_basic","open_row_abortive_validation","open_row_artifact_search"],

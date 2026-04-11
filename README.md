@@ -9,16 +9,18 @@ In the repo's current state, that means two things:
 
 - the public story is the effects-library surface: lexical execution through
   `shift.with(...)`, built-in and custom families through `shift.effect.*` and
-  `shift.effect.Define(...)`, and structural row vocabulary through
-  `shift.ir`
+  `shift.effect.Define(...)`
 - explicit `shift.Runtime` ownership remains the shared execution boundary
   beneath those public surfaces, without exposing a public continuation handle
+- explicit compile and lowering surfaces now ship through `shift_compile.ir`,
+  `shift_compile.lowering`, and `shift_compile.lower`
 
-`shift.Program(...)`, `shift.Decl`, `shift.Op`, `shift.Decision(...)`, and
-`shift.run(...)` still ship, but README now treats them as compatibility-only
-front doors over the same substrate. They stay in the proof bundle because the
-repo still carries checked compatibility examples, size gates, and runtime
-contract suites for them.
+`shift_vm.Program(...)`, `shift_vm.Decl`, `shift_vm.Op`,
+`shift_vm.Decision(...)`, `shift_vm.run(...)`, `shift_vm.interpreter`,
+`shift_vm.durable`, and `shift_vm.ErrorWitnessV1` still ship, but README now
+treats them as compatibility-only runtime and proof surfaces over the same
+substrate. They stay in the proof bundle because the repo still carries checked
+compatibility examples, size gates, and runtime contract suites for them.
 
 Frontend spellings, lowered fixtures, witness registries, unchanged-body bridge
 cases, and source corpus ids remain repo-internal proof scaffolding beneath the
@@ -43,13 +45,16 @@ The current public product claim is:
 - `shift.with(...)` is the canonical public authoring entrypoint
 - `shift.effect.*` and `shift.effect.Define(...)` are the canonical public
   effect-family surfaces
-- `shift.ir` is the public structural vocabulary for transform, choice,
-  abort, normalized rows, and resolved programs
 - explicit runtime ownership remains real: callers still construct and own
   `shift.Runtime` beneath every public lane
-- `shift.Program(...)`, `shift.Decl`, `shift.Op`, `shift.Decision(...)`, and
-  `shift.run(...)` remain supported compatibility surfaces over that same
-  runtime substrate
+- `shift_compile.ir` is the public structural vocabulary for transform, choice,
+  abort, normalized rows, and resolved programs
+- `shift_compile.lowering` and `shift_compile.lower` are the public lowering
+  and source-provenance surfaces
+- `shift_vm.Program(...)`, `shift_vm.Decl`, `shift_vm.Op`,
+  `shift_vm.Decision(...)`, `shift_vm.run(...)`, `shift_vm.interpreter`,
+  `shift_vm.durable`, and `shift_vm.ErrorWitnessV1` remain supported
+  compatibility surfaces over that same runtime substrate
 - the shipped execution path is the lowered runtime in `src/lowered_machine.zig`
 - compatibility examples and proof fixtures still exercise the retained
   `Program/run` lane, but it is no longer the product identity
@@ -63,9 +68,11 @@ The current public product claim is:
 - one public effects-library surface over the lowered runtime
 - `shift.with(...)` plus typed effect families are the canonical user-facing
   authoring story
-- `shift.ir` is the public structural account of control modes and rows
+- `shift_compile.ir` is the public structural account of control modes and rows
+- `shift_compile.lowering` is the public lowering account for explicit
+  source-owned compilation
 - internal typed prompt discipline beneath that surface
-- `Program/run` remains a compatibility lane, not the public product center
+- `shift_vm` remains a compatibility lane, not the public product center
 - one-shot continuation use
 - honest answer-type pressure if the kernel requires it
 - typed user errors in the host-language embedding
@@ -198,10 +205,14 @@ The current public effects-library contract is now:
 - lexical authoring is rooted in `shift.with(...)`
 - typed built-in and custom families are rooted in `shift.effect.*` and
   `shift.effect.Define(...)`
-- structural rows and resolved programs are inspectable through `shift.ir`
-- `shift.Program(...)`, `shift.Decl`, `shift.Op`, `shift.Decision(...)`, and
-  `shift.run(...)` remain supported compatibility surfaces over that same
-  lowered runtime substrate
+- structural rows and resolved programs are inspectable through
+  `shift_compile.ir`
+- lowering and source-provenance entrypoints are rooted in
+  `shift_compile.lowering` and `shift_compile.lower`
+- `shift_vm.Program(...)`, `shift_vm.Decl`, `shift_vm.Op`,
+  `shift_vm.Decision(...)`, `shift_vm.run(...)`, `shift_vm.interpreter`,
+  `shift_vm.durable`, and `shift_vm.ErrorWitnessV1` remain supported
+  compatibility surfaces over that same lowered runtime substrate
 - authored frontends, witness corpora, bridge cases, and source-lowering cases
   remain internal proof infrastructure unless explicitly documented otherwise
 - retired root spellings are checked by tombstone proofs instead of
@@ -441,9 +452,10 @@ artifact lives at `docs/surface_truth_scorecard.json`.
 
 Repo-owned authored frontends and checked examples still live under `examples/`,
 but they are not the public contract described here. The public story is the
-root-level kernel exported from `src/root.zig`: `shift.Runtime`,
-`shift.RuntimeError`, `shift.ErrorWitnessV1`, `shift.Decl`, `shift.Op`,
-`shift.Decision(...)`, `shift.Program(...)`, and `shift.run(...)`.
+root-level lexical surface exported from `src/root.zig`: `shift.Runtime`,
+`shift.RuntimeError`, `shift.With`, `shift.with(...)`, and `shift.effect.*`.
+Compile and lowering surfaces ship from `src/shift_compile.zig`, and retained
+compatibility/runtime surfaces ship from `src/shift_vm.zig`.
 
 `FORMAL_CORE.md` tracks the implementation-derived law anchors.
 `docs/source_lowering_contract.md` tracks the internal source-lowering lane.
