@@ -171,8 +171,9 @@ pub const ProgramPlan = struct {
             if (op_end > self.ops.len) return error.InvalidRequirementOpSpan;
         }
 
-        for (self.ops) |op| {
+        for (self.ops, 0..) |op, op_index| {
             if (op.requirement_index >= self.requirements.len) return error.InvalidOpRequirementIndex;
+            if (!opBelongsToRequirement(self, @intCast(op_index), op.requirement_index)) return error.InvalidOpRequirementOwnership;
             if (op.op_name.len == 0) return error.EmptyOpName;
             if (op.has_after and op.mode == .abort) return error.InvalidAfterHookMode;
         }
@@ -441,6 +442,7 @@ pub const ValidationError = error{
     InvalidInstructionLocalIndex,
     InvalidAfterHookMode,
     InvalidOpRequirementIndex,
+    InvalidOpRequirementOwnership,
     InvalidRequirementOpSpan,
     InvalidReturnValueIndex,
     InvalidTerminatorInstruction,
@@ -658,6 +660,13 @@ fn functionOwnsOpTarget(self: ProgramPlan, function: FunctionPlan, target: u16) 
     return false;
 }
 
+fn opBelongsToRequirement(self: ProgramPlan, op_index: u16, requirement_index: u16) bool {
+    if (requirement_index >= self.requirements.len) return false;
+    const requirement = self.requirements[requirement_index];
+    const op_end = rangeEnd(requirement.first_op, requirement.op_count) orelse return false;
+    return op_index >= requirement.first_op and op_index < op_end;
+}
+
 fn validateFunctionBodyParameterPrefix(
     comptime function: effect_ir.Function,
     comptime body: effect_ir.FunctionBody,
@@ -730,6 +739,7 @@ fn invalidGeneratedPlan(err: ValidationError) noreturn {
         error.InvalidInstructionLocalIndex => "runtime plan generator produced an instruction with an out-of-range function-local reference",
         error.InvalidAfterHookMode => "runtime plan generator marked an abort op as requiring an after hook",
         error.InvalidOpRequirementIndex => "runtime plan generator produced an op with an invalid requirement index",
+        error.InvalidOpRequirementOwnership => "runtime plan generator produced an op whose requirement index does not own its op span",
         error.InvalidRequirementOpSpan => "runtime plan generator produced an invalid requirement op span",
         error.InvalidReturnValueIndex => "runtime plan generator produced a return instruction with a non-zero index",
         error.InvalidTerminatorInstruction => "runtime plan generator produced a block terminator without its required producer instruction",
@@ -1979,6 +1989,66 @@ test "ProgramPlan.validate rejects call_op targets outside the owning function r
     };
 
     try std.testing.expectError(error.InvalidCallOpTarget, plan.validate());
+}
+
+test "ProgramPlan.validate rejects ops whose requirement index does not own their op span" {
+    const plan = ProgramPlan{
+        .label = "invalid.op_requirement_ownership",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .first_requirement = 0,
+            .requirement_count = 2,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{
+            .{
+                .label = "first",
+                .first_op = 0,
+                .op_count = 1,
+            },
+            .{
+                .label = "second",
+                .first_op = 1,
+                .op_count = 1,
+            },
+        },
+        .ops = &.{
+            .{
+                .requirement_index = 0,
+                .op_name = "load",
+                .mode = .transform,
+                .payload_codec = .unit,
+                .resume_codec = .unit,
+            },
+            .{
+                .requirement_index = 0,
+                .op_name = "echo",
+                .mode = .transform,
+                .payload_codec = .unit,
+                .resume_codec = .unit,
+            },
+        },
+        .outputs = &.{},
+        .locals = &.{},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 0,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+
+    try std.testing.expectError(error.InvalidOpRequirementOwnership, plan.validate());
 }
 
 test "ProgramPlan.validate rejects value-producing helper destinations outside the owning function locals" {
