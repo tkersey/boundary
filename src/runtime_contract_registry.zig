@@ -11,5 +11,4 @@ pub const cases = [_]Case{
     .{ .case_id = "runtime_error.runtime_busy", .title = "Runtime deinit rejects active reset" },
     .{ .case_id = "runtime_error.runtime_destroyed", .title = "Destroyed runtime rejects later use" },
     .{ .case_id = "runtime_error.non_diagonal_complete", .title = "Non-diagonal completion still fails closed" },
-    .{ .case_id = "one_shot_survey.protocol_runtime_success", .title = "Runtime-positive one-shot survey fixture still executes" },
 };

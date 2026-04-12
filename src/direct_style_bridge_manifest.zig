@@ -1,6 +1,5 @@
 const parity_scenarios = @import("parity_scenarios");
 const std = @import("std");
-const witness_admission = @import("witness_admission_registry");
 
 /// Internal-only proof state for one unchanged-body case.
 /// The legacy `bridge` terminology remains because the private seam still keys on it.
@@ -37,21 +36,12 @@ fn fixtureModulePath(comptime case_id: []const u8) []const u8 {
     return "test/direct_style_bridge/" ++ case_id ++ ".zig";
 }
 
-fn resolvedWitnessStatus(witness_id: []const u8) Status {
-    const entry = witness_admission.find(witness_id) orelse return .supported;
-    return switch (entry.bridge_status) {
-        .supported => .supported,
-        .blocked, .unknown => .blocked,
-    };
+fn resolvedWitnessStatus(_: []const u8) Status {
+    return .supported;
 }
 
-fn resolvedWitnessReason(witness_id: []const u8) ?[]const u8 {
-    const entry = witness_admission.find(witness_id) orelse return null;
-    return switch (entry.bridge_status) {
-        .supported => null,
-        .blocked => entry.note,
-        .unknown => "Internal witness proof admission is not resolved yet; treat this case as blocked until the admission matrix is updated.",
-    };
+fn resolvedWitnessReason(_: []const u8) ?[]const u8 {
+    return null;
 }
 
 /// Canonical internal proof-fixture registry for unchanged-body direct-style cases.

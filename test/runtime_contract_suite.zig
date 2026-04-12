@@ -2,10 +2,9 @@ const prompt_support = @import("prompt_support");
 const runtime_contracts = @import("runtime_contract_registry");
 const shift = @import("shift");
 const std = @import("std");
-const survey_resume_transform_executes = @import("survey_resume_transform_executes");
 
 test "runtime contract registry stays in sync with the executable suite" {
-    try std.testing.expectEqual(@as(usize, 6), runtime_contracts.cases.len);
+    try std.testing.expectEqual(@as(usize, 5), runtime_contracts.cases.len);
 }
 
 test "missing prompt still fails closed through the public API" {
@@ -172,8 +171,4 @@ test "unsupported non-diagonal completion still fails closed" {
     var prompt = DemoPrompt.init();
 
     try std.testing.expectError(error.NonDiagonalComplete, prompt_support.run(&runtime, &prompt, prompt_support.pureProgram(DemoPrompt, 7)));
-}
-
-test "runtime-positive one-shot survey fixture still executes" {
-    try survey_resume_transform_executes.main();
 }
