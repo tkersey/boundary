@@ -3398,6 +3398,11 @@ pub fn build(b: *std.Build) void {
         b.allocator,
         &.{ externalBoundaryFixtureRoot(b), "single_front_package_contract" },
     ) catch std.process.fatal("unable to allocate single-front contract fixture root", .{});
+    const single_front_parent_target = target.query.zigTriple(b.allocator) catch
+        std.process.fatal("unable to serialize single-front parent target", .{});
+    const single_front_parent_cpu = target.query.serializeCpuAlloc(b.allocator) catch
+        std.process.fatal("unable to serialize single-front parent cpu", .{});
+    const single_front_parent_optimize = @tagName(optimize);
     const single_front_zon_template =
         ".{{\n    .name = .single_front_consumer,\n    .version = \"0.0.0\",\n    .dependencies = .{{\n        .shift = .{{ .path = \"shift_dep\" }},\n    }},\n    .minimum_zig_version = \"0.15.2\",\n    .paths = .{{\n        \"build.zig\",\n        \"build.zig.zon\",\n        \"probe.zig\",\n    }},\n    .fingerprint = 0x{x},\n}}\n";
     const single_front_fixture_template =
@@ -3515,11 +3520,12 @@ pub fn build(b: *std.Build) void {
         \\global="$cache_root/global"
         \\mkdir -p "$local" "$global"
         \\if [ -d "$parent_global/p" ] && [ ! -e "$global/p" ]; then
-        \\  cp -R "$parent_global/p" "$global/p"
+        \\  ln -s "$parent_global/p" "$global/p"
         \\fi
         \\log="$dir/build.log"
         \\cd "$dir"
-        \\zig build --cache-dir "$local" --global-cache-dir "$global" >"$log" 2>&1 || {
+        \\set -- zig build --cache-dir "$local" --global-cache-dir "$global" "-Dtarget=$4" "-Dcpu=$5" "-Doptimize=$6"
+        \\"$@" >"$log" 2>&1 || {
         \\  cat "$log" >&2
         \\  exit 1
         \\}
@@ -3528,6 +3534,9 @@ pub fn build(b: *std.Build) void {
         single_front_success_root,
         b.pathFromRoot("."),
         globalCacheRootPath(b),
+        single_front_parent_target,
+        single_front_parent_cpu,
+        single_front_parent_optimize,
     });
     single_front_success_cmd.setName("single-front dependency consumer success");
     single_front_success_cmd.step.dependOn(write_single_front_build);
@@ -3604,11 +3613,12 @@ pub fn build(b: *std.Build) void {
             \\global="$cache_root/global"
             \\mkdir -p "$local" "$global"
             \\if [ -d "$parent_global/p" ] && [ ! -e "$global/p" ]; then
-            \\  cp -R "$parent_global/p" "$global/p"
+            \\  ln -s "$parent_global/p" "$global/p"
             \\fi
             \\log="$dir/build.log"
             \\cd "$dir"
-            \\if zig build --cache-dir "$local" --global-cache-dir "$global" >"$log" 2>&1; then
+            \\set -- zig build --cache-dir "$local" --global-cache-dir "$global" "-Dtarget=$5" "-Dcpu=$6" "-Doptimize=$7"
+            \\if "$@" >"$log" 2>&1; then
             \\  echo "expected dependency consumer requesting $module_name to fail" >&2
             \\  cat "$log" >&2
             \\  exit 1
@@ -3623,6 +3633,9 @@ pub fn build(b: *std.Build) void {
             b.pathFromRoot("."),
             fixture.module_name,
             globalCacheRootPath(b),
+            single_front_parent_target,
+            single_front_parent_cpu,
+            single_front_parent_optimize,
         });
         fixture_cmd.setName(fixture.step_name);
         fixture_cmd.step.dependOn(write_fixture_build);
