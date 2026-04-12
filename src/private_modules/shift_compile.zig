@@ -1,4 +1,4 @@
-const compile_api = @import("shift_compile_api.zig");
+const compile_api = @import("shift_compile_api");
 const shared = @import("shift_shared");
 
 /// Public explicit compile-time IR surface.

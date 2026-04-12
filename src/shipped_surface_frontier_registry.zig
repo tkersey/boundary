@@ -25,6 +25,20 @@ pub const surfaces = [_]Surface{
         .note = "The public root authors against one shared runtime kernel.",
     },
     .{
+        .surface_id = "effect.public_families",
+        .surface = "public_effect_families",
+        .story_position = .kernel_runtime,
+        .source = "src/effect/root.zig",
+        .note = "Public built-in effect families and choice helpers lower into the shared runtime kernel.",
+    },
+    .{
+        .surface_id = "effect.custom_families",
+        .surface = "public_custom_families",
+        .story_position = .kernel_runtime,
+        .source = "src/effect/define.zig",
+        .note = "Public custom-family authoring through `shift.effect.Define(...)` lowers into the shared runtime kernel.",
+    },
+    .{
         .surface_id = "proof.kernel_case_corpus",
         .surface = "kernel_case_proof_corpus",
         .story_position = .kernel_runtime,

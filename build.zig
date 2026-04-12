@@ -133,8 +133,11 @@ fn assertOwnedCompileFailFixtures(b: *std.Build, dir_path: []const u8, fixture_t
 }
 
 fn canonicalSourceHash(b: *std.Build, path: []const u8) [32]u8 {
-    const bytes = std.fs.cwd().readFileAlloc(b.allocator, b.pathFromRoot(path), 1 << 20) catch
-        std.process.fatal("unable to read canonical source-lowering source", .{});
+    const bytes = std.fs.cwd().readFileAlloc(b.allocator, b.pathFromRoot(path), 1 << 20) catch |err| switch (err) {
+        // Archive/registry package paths intentionally exclude proof-only corpora.
+        error.FileNotFound => return std.mem.zeroes([32]u8),
+        else => std.process.fatal("unable to read canonical source-lowering source", .{}),
+    };
     defer b.allocator.free(bytes);
 
     const normalized = normalizeSourceForHashAlloc(b.allocator, bytes) catch
@@ -2661,17 +2664,37 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const shift_compile_mod = b.createModule(.{
-        .root_source_file = b.path("src/shift_compile.zig"),
+        .root_source_file = b.path("src/private_modules/shift_compile.zig"),
         .target = target,
         .optimize = optimize,
     });
     const shift_vm_mod = b.createModule(.{
-        .root_source_file = b.path("src/shift_vm.zig"),
+        .root_source_file = b.path("src/private_modules/shift_vm.zig"),
         .target = target,
         .optimize = optimize,
     });
     const shift_shared_mod = b.createModule(.{
         .root_source_file = b.path("src/shift_shared.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const shift_compile_api_mod = b.createModule(.{
+        .root_source_file = b.path("src/shift_compile_api.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const private_bundle_envelope_mod = b.createModule(.{
+        .root_source_file = b.path("src/bundle_envelope_v1.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const private_host_adapter_v1_mod = b.createModule(.{
+        .root_source_file = b.path("src/host_adapter_v1.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const private_artifact_vm_runtime_core_mod = b.createModule(.{
+        .root_source_file = b.path("src/artifact_vm_runtime.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -2787,8 +2810,16 @@ pub fn build(b: *std.Build) void {
     shift_mod.addImport("interpreter", interpreter_mod);
     shift_mod.addImport("source_graph_engine", source_graph_engine_mod);
     shift_mod.addImport("source_graph_comptime", source_graph_comptime_mod);
+    shift_compile_api_mod.addImport("shift_shared", shift_shared_mod);
     shift_compile_mod.addImport("shift_shared", shift_shared_mod);
+    shift_compile_mod.addImport("shift_compile_api", shift_compile_api_mod);
+    private_bundle_envelope_mod.addImport("shift_shared", shift_shared_mod);
+    private_artifact_vm_runtime_core_mod.addImport("shift_shared", shift_shared_mod);
+    private_artifact_vm_runtime_core_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
     shift_vm_mod.addImport("shift_shared", shift_shared_mod);
+    shift_vm_mod.addImport("bundle_envelope_v1", private_bundle_envelope_mod);
+    shift_vm_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
+    shift_vm_mod.addImport("artifact_vm_runtime", private_artifact_vm_runtime_core_mod);
     lowered_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
     lowered_machine_mod.addImport("internal_kernel", internal_kernel_mod);
     lowered_machine_mod.addImport("interpreter", interpreter_mod);
@@ -3176,6 +3207,7 @@ pub fn build(b: *std.Build) void {
     const run_durable_session_tests = b.addRunArtifact(durable_session_tests);
     const durable_session_resume_step = b.step("durable-session-resume-check", "Check append-only durable session replay over the interpreter core.");
     durable_session_resume_step.dependOn(&run_durable_session_tests.step);
+    test_step.dependOn(durable_session_resume_step);
 
     const backend_parity_mod = b.createModule(.{
         .root_source_file = b.path("test/backend_parity_test.zig"),
@@ -3331,50 +3363,244 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_size_tests.step);
     size_step.dependOn(&run_size_tests.step);
 
-    const single_front_success_mod = createPlainModule(
+    const single_front_package_step = b.step("single-front-package-contract", "Check that downstream consumers can import only the shipped shift front.");
+    size_step.dependOn(single_front_package_step);
+    test_step.dependOn(single_front_package_step);
+    const single_front_contract_root = std.fs.path.join(
+        b.allocator,
+        &.{ externalBoundaryFixtureRoot(b), "single_front_package_contract" },
+    ) catch std.process.fatal("unable to allocate single-front contract fixture root", .{});
+    const single_front_consumer_zon_template =
+        ".{{\n    .name = .single_front_consumer,\n    .version = \"0.0.0\",\n    .dependencies = .{{\n        .shift = .{{ .path = \"shift_dep\" }},\n    }},\n    .minimum_zig_version = \"0.15.2\",\n    .paths = .{{\n        \"build.zig\",\n        \"build.zig.zon\",\n        \"probe.zig\",\n    }},\n    .fingerprint = 0x{x},\n}}\n";
+    const single_front_fixture_template =
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {{
+        \\    const target = b.standardTargetOptions(.{{}});
+        \\    const optimize = b.standardOptimizeOption(.{{}});
+        \\    const dep = b.dependency("shift", .{{
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    }});
+        \\    const consumer_mod = b.createModule(.{{
+        \\        .root_source_file = b.path("probe.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    }});
+        \\    consumer_mod.addImport("{s}", dep.module("{s}"));
+        \\    const consumer = b.addObject(.{{
+        \\        .name = "consumer",
+        \\        .root_module = consumer_mod,
+        \\    }});
+        \\    b.default_step.dependOn(&consumer.step);
+        \\}}
+    ;
+    const single_front_success_root = std.fs.path.join(
+        b.allocator,
+        &.{ single_front_contract_root, "success" },
+    ) catch std.process.fatal("unable to allocate single-front success fixture root", .{});
+    const single_front_success_build = std.fs.path.join(
+        b.allocator,
+        &.{ single_front_success_root, "build.zig" },
+    ) catch std.process.fatal("unable to allocate single-front success build path", .{});
+    const single_front_success_zon = std.fs.path.join(
+        b.allocator,
+        &.{ single_front_success_root, "build.zig.zon" },
+    ) catch std.process.fatal("unable to allocate single-front success zon path", .{});
+    const single_front_success_probe = std.fs.path.join(
+        b.allocator,
+        &.{ single_front_success_root, "probe.zig" },
+    ) catch std.process.fatal("unable to allocate single-front success probe path", .{});
+    const single_front_success_dep_link = std.fs.path.join(
+        b.allocator,
+        &.{ single_front_success_root, "shift_dep" },
+    ) catch std.process.fatal("unable to allocate single-front success dependency link path", .{});
+    const single_front_success_build_src = std.fmt.allocPrint(
+        b.allocator,
+        single_front_fixture_template,
+        .{ "shift", "shift" },
+    ) catch std.process.fatal("unable to allocate single-front success build source", .{});
+    const single_front_success_zon_src = std.fmt.allocPrint(
+        b.allocator,
+        single_front_consumer_zon_template,
+        .{@as(u64, 0xf26c26a7555f9af0)},
+    ) catch std.process.fatal("unable to allocate single-front success zon", .{});
+    const write_single_front_success_build = addWriteTextFileCommand(
         b,
-        "test/single_front_package_contract/import_shift_only_compiles.zig",
-        target,
-        optimize,
+        single_front_success_build,
+        single_front_success_build_src,
+        "write-single-front-success-build-zig",
     );
-    single_front_success_mod.addImport("shift", shift_mod);
-    const single_front_success = b.addObject(.{
-        .name = "single-front-import-shift",
-        .root_module = single_front_success_mod,
-    });
-    const single_front_failures = [_]struct {
-        name: []const u8,
-        path: []const u8,
-        expected: []const u8,
+    const write_single_front_success_zon = addWriteTextFileCommand(
+        b,
+        single_front_success_zon,
+        single_front_success_zon_src,
+        "write-single-front-success-build-zig-zon",
+    );
+    const write_single_front_success_probe = addWriteTextFileCommand(
+        b,
+        single_front_success_probe,
+        \\const shift = @import("shift");
+        \\
+        \\comptime {
+        \\    _ = shift.effect;
+        \\    _ = shift.with;
+        \\}
+        \\
+        \\pub export fn touch() void {}
+    ,
+        "write-single-front-success-probe",
+    );
+    const write_single_front_success_dep_link = addAbsoluteSymlinkCommand(
+        b,
+        b.pathFromRoot("."),
+        single_front_success_dep_link,
+        "write-single-front-success-shift-dep-link",
+    );
+    const single_front_hidden_fixtures = [_]struct {
+        fingerprint: u64,
+        module_name: []const u8,
+        step_name: []const u8,
+        root_name: []const u8,
     }{
         .{
-            .name = "single-front-import-shift-compile-hidden",
-            .path = "test/single_front_package_contract/import_shift_compile_hidden_fails.zig",
-            .expected = "no module named 'shift_compile' available within module 'root'",
+            .fingerprint = 0xf26c26a7b2e6c8be,
+            .module_name = "shift_compile",
+            .step_name = "check-single-front-hidden-shift-compile",
+            .root_name = "hidden_shift_compile",
         },
         .{
-            .name = "single-front-import-shift-vm-hidden",
-            .path = "test/single_front_package_contract/import_shift_vm_hidden_fails.zig",
-            .expected = "no module named 'shift_vm' available within module 'root'",
+            .fingerprint = 0xf26c26a7bd911cd6,
+            .module_name = "shift_vm",
+            .step_name = "check-single-front-hidden-shift-vm",
+            .root_name = "hidden_shift_vm",
         },
     };
-    const single_front_package_step = b.step("single-front-package-contract", "Check that downstream consumers can import only the shipped shift front.");
-    single_front_package_step.dependOn(&single_front_success.step);
-    test_step.dependOn(&single_front_success.step);
-    inline for (single_front_failures) |fixture| {
-        const fixture_mod = createPlainModule(b, fixture.path, target, optimize);
-        const fixture_check = b.addObject(.{
-            .name = fixture.name,
-            .root_module = fixture_mod,
+    const single_front_success_cmd = b.addSystemCommand(&.{
+        "sh",
+        "-eu",
+        "-c",
+        \\dir="$1"
+        \\cache_root="$dir/.zig-contract-cache"
+        \\rm -rf "$cache_root"
+        \\local="$cache_root/local"
+        \\global="$cache_root/global"
+        \\mkdir -p "$local" "$global"
+        \\log="$dir/build.log"
+        \\cd "$dir"
+        \\zig build --cache-dir "$local" --global-cache-dir "$global" >"$log" 2>&1 || {
+        \\  cat "$log" >&2
+        \\  exit 1
+        \\}
+        ,
+        "sh",
+        single_front_success_root,
+    });
+    single_front_success_cmd.setName("single-front dependency consumer success");
+    single_front_success_cmd.step.dependOn(write_single_front_success_build);
+    single_front_success_cmd.step.dependOn(write_single_front_success_zon);
+    single_front_success_cmd.step.dependOn(write_single_front_success_probe);
+    single_front_success_cmd.step.dependOn(write_single_front_success_dep_link);
+    single_front_package_step.dependOn(&single_front_success_cmd.step);
+    inline for (single_front_hidden_fixtures) |fixture| {
+        const fixture_root = std.fs.path.join(
+            b.allocator,
+            &.{ single_front_contract_root, fixture.root_name },
+        ) catch std.process.fatal("unable to allocate single-front hidden fixture root", .{});
+        const fixture_build = std.fs.path.join(
+            b.allocator,
+            &.{ fixture_root, "build.zig" },
+        ) catch std.process.fatal("unable to allocate single-front hidden build path", .{});
+        const fixture_zon = std.fs.path.join(
+            b.allocator,
+            &.{ fixture_root, "build.zig.zon" },
+        ) catch std.process.fatal("unable to allocate single-front hidden zon path", .{});
+        const fixture_probe = std.fs.path.join(
+            b.allocator,
+            &.{ fixture_root, "probe.zig" },
+        ) catch std.process.fatal("unable to allocate single-front hidden probe path", .{});
+        const fixture_dep_link = std.fs.path.join(
+            b.allocator,
+            &.{ fixture_root, "shift_dep" },
+        ) catch std.process.fatal("unable to allocate single-front hidden dependency link path", .{});
+        const fixture_build_src = std.fmt.allocPrint(
+            b.allocator,
+            single_front_fixture_template,
+            .{ fixture.module_name, fixture.module_name },
+        ) catch std.process.fatal("unable to allocate single-front hidden build source", .{});
+        const fixture_zon_src = std.fmt.allocPrint(
+            b.allocator,
+            single_front_consumer_zon_template,
+            .{fixture.fingerprint},
+        ) catch std.process.fatal("unable to allocate single-front hidden zon", .{});
+        const write_fixture_build = addWriteTextFileCommand(
+            b,
+            fixture_build,
+            fixture_build_src,
+            fixture.step_name ++ "-build-zig",
+        );
+        const write_fixture_zon = addWriteTextFileCommand(
+            b,
+            fixture_zon,
+            fixture_zon_src,
+            fixture.step_name ++ "-build-zig-zon",
+        );
+        const probe_src = std.fmt.allocPrint(
+            b.allocator,
+            "const hidden = @import(\"{s}\");\n\ncomptime {{\n    _ = hidden;\n}}\n\npub export fn touch() void {{}}\n",
+            .{fixture.module_name},
+        ) catch std.process.fatal("unable to allocate single-front hidden probe source", .{});
+        const write_fixture_probe = addWriteTextFileCommand(
+            b,
+            fixture_probe,
+            probe_src,
+            fixture.step_name ++ "-probe-zig",
+        );
+        const write_fixture_dep_link = addAbsoluteSymlinkCommand(
+            b,
+            b.pathFromRoot("."),
+            fixture_dep_link,
+            fixture.step_name ++ "-shift-dep-link",
+        );
+        const fixture_cmd = b.addSystemCommand(&.{
+            "sh",
+            "-eu",
+            "-c",
+            \\dir="$1"
+            \\module_name="$2"
+            \\cache_root="$dir/.zig-contract-cache"
+            \\rm -rf "$cache_root"
+            \\local="$cache_root/local"
+            \\global="$cache_root/global"
+            \\mkdir -p "$local" "$global"
+            \\log="$dir/build.log"
+            \\cd "$dir"
+            \\if zig build --cache-dir "$local" --global-cache-dir "$global" >"$log" 2>&1; then
+            \\  echo "expected dependency consumer requesting $module_name to fail" >&2
+            \\  cat "$log" >&2
+            \\  exit 1
+            \\fi
+            \\grep -q "unable to find module '$module_name'" "$log" || {
+            \\  cat "$log" >&2
+            \\  exit 1
+            \\}
+            ,
+            "sh",
+            fixture_root,
+            fixture.module_name,
         });
-        fixture_check.expect_errors = .{ .contains = fixture.expected };
-        single_front_package_step.dependOn(&fixture_check.step);
-        test_step.dependOn(&fixture_check.step);
+        fixture_cmd.setName(fixture.step_name);
+        fixture_cmd.step.dependOn(write_fixture_build);
+        fixture_cmd.step.dependOn(write_fixture_zon);
+        fixture_cmd.step.dependOn(write_fixture_probe);
+        fixture_cmd.step.dependOn(write_fixture_dep_link);
+        single_front_package_step.dependOn(&fixture_cmd.step);
     }
 
     const agent_vm_spec_contract_cmd = b.addSystemCommand(&.{ "sh", "test/agent_vm_spec_contract/run.sh" });
     const agent_vm_spec_contract_step = b.step("agent-vm-spec-contract", "Check ArtifactV1 and HostAdapterV1 specification anchors.");
     agent_vm_spec_contract_step.dependOn(&agent_vm_spec_contract_cmd.step);
+    test_step.dependOn(agent_vm_spec_contract_step);
 
     const artifact_v1_api_mod = b.createModule(.{
         .root_source_file = b.path("test/artifact_v1_api_test.zig"),
@@ -3401,6 +3627,7 @@ pub fn build(b: *std.Build) void {
     const run_artifact_v1_api_tests = b.addRunArtifact(artifact_v1_api_tests);
     const artifact_v1_api_step = b.step("artifact-v1-api-check", "Check ArtifactV1 encode/decode/disasm and shift_compile artifact emission.");
     artifact_v1_api_step.dependOn(&run_artifact_v1_api_tests.step);
+    test_step.dependOn(artifact_v1_api_step);
 
     const artifact_vm_runtime_mod = b.createModule(.{
         .root_source_file = b.path("test/artifact_vm_runtime_test.zig"),
@@ -3436,6 +3663,7 @@ pub fn build(b: *std.Build) void {
     const run_artifact_vm_runtime_tests = b.addRunArtifact(artifact_vm_runtime_tests);
     const artifact_vm_runtime_step = b.step("artifact-vm-runtime-check", "Check synchronous ArtifactV1 execution over HostAdapterV1.");
     artifact_vm_runtime_step.dependOn(&run_artifact_vm_runtime_tests.step);
+    test_step.dependOn(artifact_vm_runtime_step);
 
     const bundle_envelope_mod = b.createModule(.{
         .root_source_file = b.path("test/bundle_envelope_v1_test.zig"),
@@ -3462,6 +3690,7 @@ pub fn build(b: *std.Build) void {
     const run_bundle_envelope_tests = b.addRunArtifact(bundle_envelope_tests);
     const bundle_envelope_step = b.step("bundle-envelope-v1-check", "Check BundleEnvelopeV1 export/import and exact-build rejection.");
     bundle_envelope_step.dependOn(&run_bundle_envelope_tests.step);
+    test_step.dependOn(bundle_envelope_step);
 
     const host_adapter_impl_mod = b.createModule(.{
         .root_source_file = b.path("src/host_adapter_v1_conformance.zig"),
@@ -3484,6 +3713,7 @@ pub fn build(b: *std.Build) void {
     const host_adapter_v1_step = b.step("host-adapter-v1-conformance-check", "Compatibility alias for HostAdapterV1 request/result conformance helpers.");
     host_adapter_conformance_step.dependOn(&run_host_adapter_tests.step);
     host_adapter_v1_step.dependOn(&run_host_adapter_tests.step);
+    test_step.dependOn(host_adapter_conformance_step);
 
     const artifact_dump_mod = b.createModule(.{
         .root_source_file = b.path("tools/artifact_v1_dump.zig"),
@@ -3535,6 +3765,26 @@ pub fn build(b: *std.Build) void {
         .target = wasm_target,
         .optimize = optimize,
     });
+    const shift_compile_api_wasm_mod = b.createModule(.{
+        .root_source_file = b.path("src/shift_compile_api.zig"),
+        .target = wasm_target,
+        .optimize = optimize,
+    });
+    const private_bundle_envelope_wasm_mod = b.createModule(.{
+        .root_source_file = b.path("src/bundle_envelope_v1.zig"),
+        .target = wasm_target,
+        .optimize = optimize,
+    });
+    const private_host_adapter_v1_wasm_mod = b.createModule(.{
+        .root_source_file = b.path("src/host_adapter_v1.zig"),
+        .target = wasm_target,
+        .optimize = optimize,
+    });
+    const private_artifact_vm_runtime_core_wasm_mod = b.createModule(.{
+        .root_source_file = b.path("src/artifact_vm_runtime.zig"),
+        .target = wasm_target,
+        .optimize = optimize,
+    });
     const artifact_build_options_wasm = b.addOptions();
     artifact_build_options_wasm.addOption(
         [32]u8,
@@ -3566,17 +3816,25 @@ pub fn build(b: *std.Build) void {
     });
     shift_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
     const shift_compile_wasm_mod = b.addModule("shift_compile_wasm_artifact_runner", .{
-        .root_source_file = b.path("src/shift_compile.zig"),
+        .root_source_file = b.path("src/private_modules/shift_compile.zig"),
         .target = wasm_target,
         .optimize = optimize,
     });
     shift_compile_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
+    shift_compile_api_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
+    shift_compile_wasm_mod.addImport("shift_compile_api", shift_compile_api_wasm_mod);
     const shift_vm_wasm_mod = b.addModule("shift_vm_wasm_artifact_runner", .{
-        .root_source_file = b.path("src/shift_vm.zig"),
+        .root_source_file = b.path("src/private_modules/shift_vm.zig"),
         .target = wasm_target,
         .optimize = optimize,
     });
     shift_vm_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
+    private_bundle_envelope_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
+    private_artifact_vm_runtime_core_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
+    private_artifact_vm_runtime_core_wasm_mod.addImport("host_adapter_v1", private_host_adapter_v1_wasm_mod);
+    shift_vm_wasm_mod.addImport("bundle_envelope_v1", private_bundle_envelope_wasm_mod);
+    shift_vm_wasm_mod.addImport("host_adapter_v1", private_host_adapter_v1_wasm_mod);
+    shift_vm_wasm_mod.addImport("artifact_vm_runtime", private_artifact_vm_runtime_core_wasm_mod);
     const artifact_vm_wasm_runner_mod = b.createModule(.{
         .root_source_file = b.path("tools/artifact_vm_state_writer_runner.zig"),
         .target = wasm_target,
@@ -3811,276 +4069,6 @@ pub fn build(b: *std.Build) void {
         .root_module = open_row_lowering_mod,
     });
     const run_open_row_lowering_tests = b.addRunArtifact(open_row_lowering_tests);
-    const down_test_path = std.fs.path.join(
-        b.allocator,
-        &.{ externalBoundaryFixtureRoot(b), "downstream_public_lowering_test.zig" },
-    ) catch std.process.fatal("unable to allocate external downstream public lowering fixture path", .{});
-    const down_test_path_literal = zigStringLiteralEscapeAlloc(b.allocator, down_test_path) catch
-        std.process.fatal("unable to escape downstream public lowering fixture path", .{});
-    const nested_down_test_path = std.fs.path.join(
-        b.allocator,
-        &.{ externalBoundaryFixtureRoot(b), "nested", "downstream_public_lowering_test.zig" },
-    ) catch std.process.fatal("unable to allocate nested external downstream public lowering fixture path", .{});
-    const nested_down_test_path_literal = zigStringLiteralEscapeAlloc(b.allocator, nested_down_test_path) catch
-        std.process.fatal("unable to escape nested downstream public lowering fixture path", .{});
-    const synthetic_helper_path = std.fs.path.join(
-        b.allocator,
-        &.{ externalBoundaryFixtureRoot(b), "downstream_public_lowering_synthetic_helper.zig" },
-    ) catch std.process.fatal("unable to allocate external downstream synthetic helper fixture path", .{});
-    const synthetic_helper_path_literal = zigStringLiteralEscapeAlloc(b.allocator, synthetic_helper_path) catch
-        std.process.fatal("unable to escape external downstream synthetic helper fixture path", .{});
-    const nested_synthetic_helper_path = std.fs.path.join(
-        b.allocator,
-        &.{ externalBoundaryFixtureRoot(b), "helpers", "downstream_public_lowering_synthetic_helper.zig" },
-    ) catch std.process.fatal("unable to allocate nested external downstream synthetic helper fixture path", .{});
-    const nested_helper_literal = zigStringLiteralEscapeAlloc(b.allocator, nested_synthetic_helper_path) catch
-        std.process.fatal("unable to escape nested external downstream synthetic helper fixture path", .{});
-    const down_helper_path = std.fs.path.join(
-        b.allocator,
-        &.{ externalBoundaryFixtureRoot(b), "downstream_public_lowering_helper.zig" },
-    ) catch std.process.fatal("unable to allocate external downstream public lowering helper fixture path", .{});
-    const down_helper_src =
-        \\pub fn emit(eff: anytype) !void {
-        \\    try eff.writer.tell("query=artifact-search");
-        \\    try eff.writer.tell("workflow=queued");
-        \\}
-    ;
-    const write_down_helper_fixture = addWriteTextFileCommand(
-        b,
-        down_helper_path,
-        down_helper_src,
-        "write-downstream-public-lowering-helper-fixture",
-    );
-    const down_test_src = std.fmt.allocPrint(
-        b.allocator,
-        \\const downstream_source_path = "{s}";
-        \\const nested_downstream_source_path = "{s}";
-        \\const synthetic_helper_path = "{s}";
-        \\const nested_synthetic_helper_path = "{s}";
-        \\const shift_vm = @import("shift_vm");
-        \\const shift_compile = @import("shift_compile");
-        \\const shift = shift_vm;
-        \\const std = @import("std");
-        \\const helpers = @import("downstream_public_lowering_helper.zig");
-        \\
-        \\const runtime_support = shift_compile.lowering.runtime_support;
-        \\const synthetic_root_source =
-        \\    \\const synthetic_helpers = @import("downstream_public_lowering_synthetic_helper.zig");
-        \\    \\
-        \\    \\pub fn syntheticRunBody(eff: anytype) ![]const u8 {{
-        \\    \\    const before = try eff.state.get();
-        \\    \\    try synthetic_helpers.emit(eff);
-        \\    \\    try eff.state.set(before + 1);
-        \\    \\    return "done";
-        \\    \\}}
-        \\;
-        \\const synthetic_parent_import_root_source =
-        \\    \\const synthetic_helpers = @import("../helpers/downstream_public_lowering_synthetic_helper.zig");
-        \\    \\
-        \\    \\pub fn syntheticRunBodyFromParentHelper(eff: anytype) ![]const u8 {{
-        \\    \\    const before = try eff.state.get();
-        \\    \\    try synthetic_helpers.emit(eff);
-        \\    \\    try eff.state.set(before + 1);
-        \\    \\    return "done";
-        \\    \\}}
-        \\;
-        \\const synthetic_helper_source =
-        \\    \\pub fn emit(eff: anytype) !void {{
-        \\    \\    try eff.writer.tell("query=artifact-search");
-        \\    \\    try eff.writer.tell("workflow=queued");
-        \\    \\}}
-        \\;
-        \\const synthetic_root_only_source =
-        \\    \\pub fn rootOnlyRunBody(eff: anytype) ![]const u8 {{
-        \\    \\    const before = try eff.state.get();
-        \\    \\    try eff.writer.tell("root-only");
-        \\    \\    try eff.state.set(before + 1);
-        \\    \\    return "done";
-        \\    \\}}
-        \\;
-        \\
-        \\fn loweringSpec(comptime entry_symbol: []const u8) shift_compile.lowering.LowerSpec {{
-        \\    return .{{
-        \\        .label = "downstream.public_lowering",
-        \\        .entry_symbol = entry_symbol,
-        \\        .row = shift_compile.ir.mergeRows(.{{
-        \\            shift_compile.ir.rowFromSpec(.{{
-        \\                .state = .{{
-        \\                    .get = shift_compile.ir.Transform(void, i32),
-        \\                    .set = shift_compile.ir.Transform(i32, void),
-        \\                }},
-        \\            }}),
-        \\            shift_compile.ir.rowFromSpec(.{{
-        \\                .writer = .{{
-        \\                    .tell = shift_compile.ir.Transform([]const u8, void),
-        \\                }},
-        \\            }}),
-        \\        }}),
-        \\        .ValueType = []const u8,
-        \\        .outputs = &.{{
-        \\            .{{ .label = "state", .OutputType = i32 }},
-        \\            .{{ .label = "writer", .OutputType = [][]const u8 }},
-        \\        }},
-        \\    }};
-        \\}}
-        \\
-        \\fn explicitLoweringCaller() std.builtin.SourceLocation {{
-        \\    const src = @src();
-        \\    return .{{
-        \\        .module = src.module,
-        \\        .file = downstream_source_path,
-        \\        .line = src.line,
-        \\        .column = src.column,
-        \\        .fn_name = src.fn_name,
-        \\    }};
-        \\}}
-        \\
-        \\fn nestedExplicitLoweringCaller() std.builtin.SourceLocation {{
-        \\    const src = @src();
-        \\    return .{{
-        \\        .module = src.module,
-        \\        .file = nested_downstream_source_path,
-        \\        .line = src.line,
-        \\        .column = src.column,
-        \\        .fn_name = src.fn_name,
-        \\    }};
-        \\}}
-        \\
-        \\fn ensureDir(path: []const u8) !void {{
-        \\    if (path.len == 0 or std.mem.eql(u8, path, "/")) return;
-        \\    const parent = std.fs.path.dirname(path) orelse return;
-        \\    if (!std.mem.eql(u8, parent, path)) try ensureDir(parent);
-        \\    std.fs.makeDirAbsolute(path) catch |err| switch (err) {{
-        \\        error.PathAlreadyExists => {{}},
-        \\        else => return err,
-        \\    }};
-        \\}}
-        \\
-        \\fn writeFixture(path: []const u8, data: []const u8) !void {{
-        \\    const parent = std.fs.path.dirname(path) orelse return error.FileNotFound;
-        \\    try ensureDir(parent);
-        \\    const file = try std.fs.createFileAbsolute(path, .{{ .truncate = true }});
-        \\    defer file.close();
-        \\    try file.writeAll(data);
-        \\}}
-        \\
-        \\fn materializeLoweringInputs() !void {{
-        \\    try writeFixture(downstream_source_path, synthetic_root_source);
-        \\    try writeFixture(synthetic_helper_path, synthetic_helper_source);
-        \\    try writeFixture(nested_downstream_source_path, synthetic_parent_import_root_source);
-        \\    try writeFixture(nested_synthetic_helper_path, synthetic_helper_source);
-        \\}}
-        \\
-        \\fn loweringSource() shift_compile.lowering.SourceRef {{
-        \\    return shift_compile.lowering.sourceWithContentAndImports(
-        \\        downstream_source_path,
-        \\        explicitLoweringCaller(),
-        \\        synthetic_root_source,
-        \\        &.{{shift_compile.lowering.importedSource(
-        \\            downstream_source_path,
-        \\            "downstream_public_lowering_synthetic_helper.zig",
-        \\            synthetic_helper_source,
-        \\        )}},
-        \\    );
-        \\}}
-        \\
-        \\fn loweringSourceWithParentImport() shift_compile.lowering.SourceRef {{
-        \\    return shift_compile.lowering.sourceWithContentAndImports(
-        \\        nested_downstream_source_path,
-        \\        nestedExplicitLoweringCaller(),
-        \\        synthetic_parent_import_root_source,
-        \\        &.{{shift_compile.lowering.importedSource(
-        \\            nested_downstream_source_path,
-        \\            "../helpers/downstream_public_lowering_synthetic_helper.zig",
-        \\            synthetic_helper_source,
-        \\        )}},
-        \\    );
-        \\}}
-        \\
-        \\fn loweringSourceWithoutImports() shift_compile.lowering.SourceRef {{
-        \\    return shift_compile.lowering.sourceWithContent(
-        \\        downstream_source_path,
-        \\        explicitLoweringCaller(),
-        \\        synthetic_root_only_source,
-        \\    );
-        \\}}
-        \\
-        \\pub fn runBody(eff: anytype) ![]const u8 {{
-        \\    const before = try eff.state.get();
-        \\    try helpers.emit(eff);
-        \\    try eff.state.set(before + 1);
-        \\    return "done";
-        \\}}
-        \\
-        \\test "downstream sourceWithContent lowers and validates from caller-owned content" {{
-        \\    try materializeLoweringInputs();
-        \\    const LoweredFromSource = shift_compile.lower(loweringSource(), loweringSpec("syntheticRunBody"));
-        \\    try std.testing.expectEqualStrings(downstream_source_path, LoweredFromSource.source_path);
-        \\    try LoweredFromSource.validate(std.testing.allocator);
-        \\}}
-        \\
-        \\test "downstream sourceWithContent validates caller-owned root-only content" {{
-        \\    try materializeLoweringInputs();
-        \\    try writeFixture(downstream_source_path, synthetic_root_only_source);
-        \\    const LoweredFromSource = shift_compile.lower(loweringSourceWithoutImports(), loweringSpec("rootOnlyRunBody"));
-        \\    try std.testing.expectEqualStrings(downstream_source_path, LoweredFromSource.source_path);
-        \\    try LoweredFromSource.validate(std.testing.allocator);
-        \\}}
-        \\
-        \\test "downstream sourceWithContent preserves parent-directory helper imports for absolute caller-owned roots" {{
-        \\    try materializeLoweringInputs();
-        \\    const LoweredFromSource = shift_compile.lower(loweringSourceWithParentImport(), loweringSpec("syntheticRunBodyFromParentHelper"));
-        \\    try std.testing.expectEqualStrings(nested_downstream_source_path, LoweredFromSource.source_path);
-        \\    try LoweredFromSource.validate(std.testing.allocator);
-        \\}}
-        \\
-        \\test "downstream sourceWithContent detects on-disk helper drift" {{
-        \\    try materializeLoweringInputs();
-        \\    const LoweredFromSource = shift_compile.lower(loweringSource(), loweringSpec("syntheticRunBody"));
-        \\    try LoweredFromSource.validate(std.testing.allocator);
-        \\    try writeFixture(
-        \\        synthetic_helper_path,
-        \\        \\pub fn emit(eff: anytype) !void {{
-        \\        \\    try eff.writer.tell("query=drifted");
-        \\        \\}}
-        \\    );
-        \\    try std.testing.expectError(error.SourceDrifted, LoweredFromSource.validate(std.testing.allocator));
-        \\}}
-        \\
-        \\test "downstream shift.lower remains executable outside the shift checkout" {{
-        \\    const LoweredFromSource = shift_compile.lower(loweringSource(), loweringSpec("syntheticRunBody"));
-        \\
-        \\    var runtime = shift.Runtime.init(std.testing.allocator);
-        \\    defer runtime.deinit();
-        \\
-        \\    var source_handlers: runtime_support.StateWriterHandlers = .{{
-        \\        .state = .{{ .value = 0 }},
-        \\        .writer = .{{ .allocator = std.testing.allocator }},
-        \\    }};
-        \\    defer source_handlers.writer.deinit();
-        \\    const source_result = try LoweredFromSource.run(&runtime, &source_handlers);
-        \\    defer runtime_support.deinitWriterOutputs(std.testing.allocator, source_result.outputs.writer);
-        \\
-        \\    try std.testing.expectEqualStrings("done", source_result.value);
-        \\    try std.testing.expectEqual(@as(i32, 1), source_result.outputs.state);
-        \\    try std.testing.expectEqual(@as(usize, 2), source_result.outputs.writer.len);
-        \\    try std.testing.expectEqualStrings("query=artifact-search", source_result.outputs.writer[0]);
-        \\    try std.testing.expectEqualStrings("workflow=queued", source_result.outputs.writer[1]);
-        \\}}
-    ,
-        .{
-            down_test_path_literal,
-            nested_down_test_path_literal,
-            synthetic_helper_path_literal,
-            nested_helper_literal,
-        },
-    ) catch std.process.fatal("unable to allocate downstream public lowering test fixture", .{});
-    const write_down_test_fixture = addWriteTextFileCommand(
-        b,
-        down_test_path,
-        down_test_src,
-        "write-downstream-public-lowering-test-fixture",
-    );
     const compile_fail_escape_helper_src =
         \\pub fn helper(eff: anytype) !void {
         \\    try eff.writer.tell("escaped");
@@ -4109,21 +4097,6 @@ pub fn build(b: *std.Build) void {
         "write-compile-fail-escape-helper-symlink",
     );
     prep_cf_escape_symlink.dependOn(write_cf_escape_helper);
-    const down_mod = createShiftConsumerModule(
-        b,
-        down_test_path,
-        target,
-        optimize,
-        .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod },
-    );
-    const down_tests = b.addTest(.{
-        .root_module = down_mod,
-    });
-    down_tests.step.dependOn(write_down_helper_fixture);
-    down_tests.step.dependOn(write_down_test_fixture);
-    const run_down_tests = b.addRunArtifact(down_tests);
-    const down_step = b.step("downstream-public-lowering", "Run public lowering proofs from an external consumer module.");
-    down_step.dependOn(&run_down_tests.step);
 
     const source_ownership_probe_mod = b.createModule(.{
         .root_source_file = b.path("test/source_ownership_probe_test.zig"),
@@ -4233,6 +4206,7 @@ pub fn build(b: *std.Build) void {
     const interpreter_portability_cmd = b.addRunArtifact(interpreter_portability_exe);
     const interpreter_portability_step = b.step("interpreter-portability-check", "Fail closed if the interpreter core takes on TLS or thread-affinity assumptions.");
     interpreter_portability_step.dependOn(&interpreter_portability_cmd.step);
+    test_step.dependOn(interpreter_portability_step);
     const portable_core_mod_check = b.createModule(.{
         .root_source_file = b.path("tools/check_portable_core.zig"),
         .target = target,
@@ -4590,6 +4564,7 @@ pub fn build(b: *std.Build) void {
     shipped_backend_cmd.setName("hidden shipped backend contract runner");
     const shipped_backend_step = b.step("shipped-backend-contract", "Check the shipped backend contract guard.");
     shipped_backend_step.dependOn(&shipped_backend_cmd.step);
+    test_step.dependOn(shipped_backend_step);
 
     test_step.dependOn(&authoring_lower_check_cmd.step);
     test_step.dependOn(&run_bridge_tests.step);
