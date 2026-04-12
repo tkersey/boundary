@@ -125,11 +125,10 @@ Distinct prompt values do not alias each other, even when they share the same ha
 ## Strict Effect Capabilities
 
 The active public surface is the effects-library layer: `shift.with(...)`,
-`shift.effect.*`, `shift.effect.Define(...)`, and `shift.ir`. Explicit
-`shift.Runtime` ownership still underpins execution beneath those lanes, while
-`shift.Program(...)`, `shift.Decl`, `shift.Op`, `shift.Decision(...)`, and
-`shift.run(...)` remain supported compatibility surfaces over the same
-substrate.
+`shift.effect.*`, `shift.effect.Define(...)`, `shift.Runtime`, and
+`shift.RuntimeError`. Compile/lowering, executable-plan, and retained
+compatibility mechanics remain internal engine layers beneath that public
+surface rather than additional shipped fronts.
 
 Retired root spellings stay absent from the shipped surface and are checked by tombstone proofs instead of compatibility narratives.
 

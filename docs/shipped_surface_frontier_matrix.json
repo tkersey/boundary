@@ -1,8 +1,6 @@
 {
   "kernel_story_surfaces": [
     {"surface_id":"root.public_kernel","surface_label":"public_kernel","story_position":"kernel_runtime","source":"src/root.zig","note":"The public root authors against one shared runtime kernel."},
-    {"surface_id":"decl.public_families","surface_label":"public_decl_families","story_position":"kernel_runtime","source":"src/program_api.zig","note":"Public declaration families, including custom `shift.Decl.family(...)` declarations, lower into the shared runtime kernel."},
-    {"surface_id":"decl.custom_families","surface_label":"public_custom_families","story_position":"kernel_runtime","source":"src/program_api.zig","note":"Public custom family declarations lower into the shared runtime kernel."},
     {"surface_id":"proof.kernel_case_corpus","surface_label":"kernel_case_proof_corpus","story_position":"kernel_runtime","source":"src/private_lowered_runtime.zig","note":"The retained case corpus executes through the shared runtime kernel."},
     {"surface_id":"proof.source_validated_corpus","surface_label":"source_validated_proof_corpus","story_position":"source_validated_kernel","source":"src/source_lowering.zig","note":"The internal source-validation corpus lowers repo-owned proof labels into canonical kernel scenarios."},
     {"surface_id":"compile_fail.public_misuse","surface_label":"compile_fail","story_position":"compile_boundary","source":"build.zig","note":"Compile-fail misuse fixtures prove public boundary and type-shape behavior through build-zig-managed compile checks."},

@@ -86,7 +86,7 @@ const multi_prompt_paragraphs = [_][]const u8{
 };
 
 const effect_capability_paragraphs = [_][]const u8{
-    "The active public surface is the effects-library layer: `shift.with(...)`,\n`shift.effect.*`, `shift.effect.Define(...)`, and `shift.ir`. Explicit\n`shift.Runtime` ownership still underpins execution beneath those lanes, while\n`shift.Program(...)`, `shift.Decl`, `shift.Op`, `shift.Decision(...)`, and\n`shift.run(...)` remain supported compatibility surfaces over the same\nsubstrate.",
+    "The active public surface is the effects-library layer: `shift.with(...)`,\n`shift.effect.*`, `shift.effect.Define(...)`, `shift.Runtime`, and\n`shift.RuntimeError`. Compile/lowering, executable-plan, and retained\ncompatibility mechanics remain internal engine layers beneath that public\nsurface rather than additional shipped fronts.",
     "Retired root spellings stay absent from the shipped surface and are checked by tombstone proofs instead of compatibility narratives.",
 };
 

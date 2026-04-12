@@ -25,20 +25,6 @@ pub const surfaces = [_]Surface{
         .note = "The public root authors against one shared runtime kernel.",
     },
     .{
-        .surface_id = "decl.public_families",
-        .surface = "public_decl_families",
-        .story_position = .kernel_runtime,
-        .source = "src/program_api.zig",
-        .note = "Public declaration families, including custom `shift.Decl.family(...)` declarations, lower into the shared runtime kernel.",
-    },
-    .{
-        .surface_id = "decl.custom_families",
-        .surface = "public_custom_families",
-        .story_position = .kernel_runtime,
-        .source = "src/program_api.zig",
-        .note = "Public custom family declarations lower into the shared runtime kernel.",
-    },
-    .{
         .surface_id = "proof.kernel_case_corpus",
         .surface = "kernel_case_proof_corpus",
         .story_position = .kernel_runtime,

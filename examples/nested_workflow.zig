@@ -1,4 +1,4 @@
-const shift = @import("shift_vm");
+const shift = @import("shift");
 const std = @import("std");
 
 const transcript = struct {
@@ -13,9 +13,9 @@ const transcript = struct {
 
 const approval_policy = struct {
     /// Approve publication through the program optional surface.
-    pub fn resumeOrReturn() shift.Decision([]const u8, []const u8) {
+    pub fn resumeOrReturn() shift.effect.choice.Decision([]const u8, []const u8) {
         transcript.note("approval=publish");
-        return shift.Decision([]const u8, []const u8).returnNow("completed");
+        return shift.effect.choice.Decision([]const u8, []const u8).returnNow("completed");
     }
 
     /// Preserve the workflow answer unchanged.
@@ -24,32 +24,30 @@ const approval_policy = struct {
     }
 };
 
-const WorkflowProgram = shift.Program(.{
-    .optional = shift.Decl.optional([]const u8, approval_policy),
-}, struct {
-    /// Queue the workflow, request approval, and finish on the resumed branch.
-    pub fn body(eff: anytype) ![]const u8 {
-        transcript.note("workflow=queued");
-        transcript.note("audit=entered");
-        transcript.note("audit=after");
-        const approved = try eff.optional.request(struct {
-            /// This continuation must never run in the return-now approval branch.
-            pub fn apply(_: []const u8, _: anytype) ![]const u8 {
-                unreachable;
-            }
-        });
-        transcript.note("workflow=done");
-        return approved;
-    }
-});
-
-/// Write the nested workflow transcript through the program kernel.
+/// Write the nested workflow transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.len = 0;
 
-    const result = try shift.run(&runtime, WorkflowProgram, .{});
+    const result = try shift.with(&runtime, .{
+        .optional = shift.effect.optional.use([]const u8, approval_policy),
+    }, struct {
+        /// Queue the workflow, request approval, and finish on the return-now branch.
+        pub fn body(eff: anytype) ![]const u8 {
+            transcript.note("workflow=queued");
+            transcript.note("audit=entered");
+            transcript.note("audit=after");
+            const approved = try eff.optional.request(struct {
+                /// This continuation must never run in the approval branch.
+                pub fn apply(_: []const u8, _: anytype) ![]const u8 {
+                    unreachable;
+                }
+            });
+            transcript.note("workflow=done");
+            return approved;
+        }
+    });
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }

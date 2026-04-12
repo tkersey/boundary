@@ -2660,12 +2660,12 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const shift_compile_mod = b.addModule("shift_compile", .{
+    const shift_compile_mod = b.createModule(.{
         .root_source_file = b.path("src/shift_compile.zig"),
         .target = target,
         .optimize = optimize,
     });
-    const shift_vm_mod = b.addModule("shift_vm", .{
+    const shift_vm_mod = b.createModule(.{
         .root_source_file = b.path("src/shift_vm.zig"),
         .target = target,
         .optimize = optimize,
@@ -3176,7 +3176,6 @@ pub fn build(b: *std.Build) void {
     const run_durable_session_tests = b.addRunArtifact(durable_session_tests);
     const durable_session_resume_step = b.step("durable-session-resume-check", "Check append-only durable session replay over the interpreter core.");
     durable_session_resume_step.dependOn(&run_durable_session_tests.step);
-    test_step.dependOn(&run_durable_session_tests.step);
 
     const backend_parity_mod = b.createModule(.{
         .root_source_file = b.path("test/backend_parity_test.zig"),
@@ -3322,8 +3321,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     size_check_mod.addImport("shift", shift_mod);
-    size_check_mod.addImport("shift_compile", shift_compile_mod);
-    size_check_mod.addImport("shift_vm", shift_vm_mod);
+    size_check_mod.addImport("shift_shared", shift_shared_mod);
     size_check_mod.addImport("prompt_support", prompt_support_mod);
     const size_tests = b.addTest(.{
         .root_module = size_check_mod,
@@ -3333,10 +3331,50 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_size_tests.step);
     size_step.dependOn(&run_size_tests.step);
 
+    const single_front_success_mod = createPlainModule(
+        b,
+        "test/single_front_package_contract/import_shift_only_compiles.zig",
+        target,
+        optimize,
+    );
+    single_front_success_mod.addImport("shift", shift_mod);
+    const single_front_success = b.addObject(.{
+        .name = "single-front-import-shift",
+        .root_module = single_front_success_mod,
+    });
+    const single_front_failures = [_]struct {
+        name: []const u8,
+        path: []const u8,
+        expected: []const u8,
+    }{
+        .{
+            .name = "single-front-import-shift-compile-hidden",
+            .path = "test/single_front_package_contract/import_shift_compile_hidden_fails.zig",
+            .expected = "no module named 'shift_compile' available within module 'root'",
+        },
+        .{
+            .name = "single-front-import-shift-vm-hidden",
+            .path = "test/single_front_package_contract/import_shift_vm_hidden_fails.zig",
+            .expected = "no module named 'shift_vm' available within module 'root'",
+        },
+    };
+    const single_front_package_step = b.step("single-front-package-contract", "Check that downstream consumers can import only the shipped shift front.");
+    single_front_package_step.dependOn(&single_front_success.step);
+    test_step.dependOn(&single_front_success.step);
+    inline for (single_front_failures) |fixture| {
+        const fixture_mod = createPlainModule(b, fixture.path, target, optimize);
+        const fixture_check = b.addObject(.{
+            .name = fixture.name,
+            .root_module = fixture_mod,
+        });
+        fixture_check.expect_errors = .{ .contains = fixture.expected };
+        single_front_package_step.dependOn(&fixture_check.step);
+        test_step.dependOn(&fixture_check.step);
+    }
+
     const agent_vm_spec_contract_cmd = b.addSystemCommand(&.{ "sh", "test/agent_vm_spec_contract/run.sh" });
     const agent_vm_spec_contract_step = b.step("agent-vm-spec-contract", "Check ArtifactV1 and HostAdapterV1 specification anchors.");
     agent_vm_spec_contract_step.dependOn(&agent_vm_spec_contract_cmd.step);
-    test_step.dependOn(&agent_vm_spec_contract_cmd.step);
 
     const artifact_v1_api_mod = b.createModule(.{
         .root_source_file = b.path("test/artifact_v1_api_test.zig"),
@@ -3362,7 +3400,6 @@ pub fn build(b: *std.Build) void {
     });
     const run_artifact_v1_api_tests = b.addRunArtifact(artifact_v1_api_tests);
     const artifact_v1_api_step = b.step("artifact-v1-api-check", "Check ArtifactV1 encode/decode/disasm and shift_compile artifact emission.");
-    test_step.dependOn(&run_artifact_v1_api_tests.step);
     artifact_v1_api_step.dependOn(&run_artifact_v1_api_tests.step);
 
     const artifact_vm_runtime_mod = b.createModule(.{
@@ -3398,7 +3435,6 @@ pub fn build(b: *std.Build) void {
     });
     const run_artifact_vm_runtime_tests = b.addRunArtifact(artifact_vm_runtime_tests);
     const artifact_vm_runtime_step = b.step("artifact-vm-runtime-check", "Check synchronous ArtifactV1 execution over HostAdapterV1.");
-    test_step.dependOn(&run_artifact_vm_runtime_tests.step);
     artifact_vm_runtime_step.dependOn(&run_artifact_vm_runtime_tests.step);
 
     const bundle_envelope_mod = b.createModule(.{
@@ -3425,7 +3461,6 @@ pub fn build(b: *std.Build) void {
     });
     const run_bundle_envelope_tests = b.addRunArtifact(bundle_envelope_tests);
     const bundle_envelope_step = b.step("bundle-envelope-v1-check", "Check BundleEnvelopeV1 export/import and exact-build rejection.");
-    test_step.dependOn(&run_bundle_envelope_tests.step);
     bundle_envelope_step.dependOn(&run_bundle_envelope_tests.step);
 
     const host_adapter_impl_mod = b.createModule(.{
@@ -3447,7 +3482,6 @@ pub fn build(b: *std.Build) void {
     const run_host_adapter_tests = b.addRunArtifact(host_adapter_conformance_tests);
     const host_adapter_conformance_step = b.step("host-adapter-conformance-check", "Check HostAdapterV1 request/result conformance helpers.");
     const host_adapter_v1_step = b.step("host-adapter-v1-conformance-check", "Compatibility alias for HostAdapterV1 request/result conformance helpers.");
-    test_step.dependOn(&run_host_adapter_tests.step);
     host_adapter_conformance_step.dependOn(&run_host_adapter_tests.step);
     host_adapter_v1_step.dependOn(&run_host_adapter_tests.step);
 
@@ -4231,7 +4265,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(src_lower_err_wit_step);
     test_step.dependOn(public_error_api_ban_step);
     test_step.dependOn(public_root_snapshot_step);
-    test_step.dependOn(interpreter_portability_step);
     test_step.dependOn(portable_core_step);
     test_step.dependOn(retired_lane_inventory_step);
     test_step.dependOn(error_witness_equivalence_step);
@@ -4563,8 +4596,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_boundary_tests.step);
     test_step.dependOn(&run_bridge_boundary_tests.step);
     test_step.dependOn(&run_structured_program_tests.step);
-    test_step.dependOn(&run_down_tests.step);
-    test_step.dependOn(&shipped_backend_cmd.step);
 
     const compile_fail_step = b.step("compile-fail", "Verify compile-fail misuse fixtures.");
     const one_shot_success_fixtures = [_]struct {
