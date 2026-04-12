@@ -10,7 +10,7 @@
     "zig_version": "0.15.2"
   },
   "measurement_contract": {
-    "command": "zig build bench-effect-matrix",
+    "command": "zig build bench-family-matrix",
     "timed_iterations": 50000,
     "warmup_iterations": 20000,
     "samples_per_run": 9,

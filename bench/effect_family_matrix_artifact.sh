@@ -279,13 +279,10 @@ check_artifact() {
     echo "unexpected artifact schema version: $artifact_schema_version" >&2
     exit 1
   }
-  case "$artifact_command" in
-    "zig build bench-effect-matrix"|"zig build bench-family-matrix") ;;
-    *)
-      echo "unexpected artifact command: $artifact_command" >&2
-      exit 1
-      ;;
-  esac
+  [ "$artifact_command" = "zig build bench-family-matrix" ] || {
+    echo "unexpected artifact command: $artifact_command" >&2
+    exit 1
+  }
 
   current_git_rev="$(git -C "$repo_root" rev-parse HEAD)"
   artifact_matches_current_tree "$artifact_git_rev" "$current_git_rev" || {

@@ -4211,12 +4211,6 @@ pub fn build(b: *std.Build) void {
             .step_desc = "Run the optional-resumption effect example.",
         },
         .{
-            .name = "open_row_choice_basic",
-            .src = "examples/open_row_choice_basic.zig",
-            .step_name = "run-open-row-choice-basic",
-            .step_desc = "Run the explicit-program choice example.",
-        },
-        .{
             .name = "resource_basic",
             .src = "examples/resource_basic.zig",
             .step_name = "run-resource-basic",
@@ -4250,6 +4244,29 @@ pub fn build(b: *std.Build) void {
 
         const run = b.addRunArtifact(exe);
         const run_step = b.step(example.step_name, example.step_desc);
+        run_step.dependOn(&run.step);
+    }
+
+    inline for (shipped_open_row_corpus.custom_examples) |example| {
+        const mod = b.createModule(.{
+            .root_source_file = b.path(example.source_path),
+            .target = target,
+            .optimize = optimize,
+        });
+        mod.addImport("shift", shift_mod);
+        mod.addImport("shift_compile", shift_compile_mod);
+        mod.addImport("shift_vm", shift_vm_mod);
+        mod.addImport("private_lowered_runtime", private_lowered_runtime_mod);
+
+        const exe = b.addExecutable(.{
+            .name = example.name,
+            .root_module = mod,
+        });
+        b.installArtifact(exe);
+        check_step.dependOn(&exe.step);
+
+        const run = b.addRunArtifact(exe);
+        const run_step = b.step(example.run_step_name, example.run_step_desc);
         run_step.dependOn(&run.step);
     }
 

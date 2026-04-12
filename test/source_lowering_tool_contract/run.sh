@@ -3,6 +3,7 @@ set -eu
 
 repo_root="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
 tool="$repo_root/zig-out/bin/shift-source-lower"
+uv_cache_dir="${UV_CACHE_DIR:-/tmp/uv-cache}"
 
 [ -x "$tool" ] || {
   echo "missing shift-source-lower tool" >&2
@@ -49,7 +50,7 @@ then
   exit 1
 fi
 
-uv run python - <<'PY' "$json_out"
+UV_CACHE_DIR="$uv_cache_dir" uv run python - <<'PY' "$json_out"
 import json, sys
 
 doc = json.load(open(sys.argv[1]))
@@ -97,7 +98,7 @@ grep -F -q 'expected_transcript = "acquire=a\nuse=a\nacquire=b\nuse=b\nrelease=b
     --out "$json_out"
 )
 
-uv run python - <<'PY' "$json_out"
+UV_CACHE_DIR="$uv_cache_dir" uv run python - <<'PY' "$json_out"
 import json, sys
 
 doc = json.load(open(sys.argv[1]))
