@@ -42,26 +42,19 @@ zig build lint -- --max-warnings 0
 
 `zig build test` is the required executable guardrail bar. It keeps coverage on:
 
-- the public lexical root and compile-fail misuse boundaries
+- the public lexical root
 - the core semantic witness set
 - source-lowering validation and execution
 - ArtifactV1, HostAdapterV1, durable replay, and interpreter behavior
 
-Focused suites still exist for local iteration when you are touching a specific
-area:
+It no longer proves downstream package-boundary publication, retired/public-root
+export bans, or compile-time misuse fixtures as part of the default contract.
 
-- `zig build compile-fail`
-- `zig build kernel-source-lowering-check`
-- `zig build artifact-v1-api-check`
-- `zig build artifact-vm-runtime-check`
-- `zig build host-adapter-conformance-check`
-- `zig build durable-session-resume-check`
-- `zig build interpreter-portability-check`
+Manual run, tool, and benchmark surfaces still exist for local iteration:
 
-Performance checks are no longer part of the ordinary contract. Use them for
-perf or release work:
-
-```bash
-zig build bench-state-effect-check
-zig build bench-runtime-backends-check
-```
+- `zig build run-*` for retained examples
+- `zig build artifact-v1-dump`
+- `zig build artifact-vm-runner`
+- `zig build source-lower`
+- `zig build bench*`
+- `zig build zprof-hotspots`

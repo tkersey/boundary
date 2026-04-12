@@ -10,15 +10,6 @@ const ShiftConsumerDeps = struct {
     shift_vm_mod: ?*std.Build.Module = null,
 };
 
-const ShiftPromptFixtureDeps = struct {
-    authoring_build_options_mod: *std.Build.Module,
-    prompt_support_mod: *std.Build.Module,
-    shift_mod: *std.Build.Module,
-    shift_compile_mod: ?*std.Build.Module = null,
-    shift_vm_mod: ?*std.Build.Module = null,
-    with_api_mod: *std.Build.Module,
-};
-
 fn absolutizeGraphDirPath(b: *std.Build, maybe_path: ?[]const u8) ?[]const u8 {
     const path = maybe_path orelse return null;
     if (std.fs.path.isAbsolute(path)) return path;
@@ -31,11 +22,6 @@ fn absolutizeGraphDirPath(b: *std.Build, maybe_path: ?[]const u8) ?[]const u8 {
 fn absolutizeZlinterRuntimePaths(b: *std.Build) void {
     b.graph.global_cache_root.path = absolutizeGraphDirPath(b, b.graph.global_cache_root.path);
     b.graph.zig_lib_directory.path = absolutizeGraphDirPath(b, b.graph.zig_lib_directory.path);
-}
-
-fn globalCacheRootPath(b: *std.Build) []const u8 {
-    return b.graph.global_cache_root.path orelse
-        std.process.fatal("expected absolute global cache root", .{});
 }
 
 fn tempRootPath(b: *std.Build) []const u8 {
@@ -75,27 +61,6 @@ fn createShiftConsumerModule(
     return mod;
 }
 
-fn createShiftPromptFixtureModule(
-    b: *std.Build,
-    path: []const u8,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    deps: ShiftPromptFixtureDeps,
-) *std.Build.Module {
-    const mod = b.createModule(.{
-        .root_source_file = lazyPathForSourceFile(b, path),
-        .target = target,
-        .optimize = optimize,
-    });
-    mod.addImport("authoring_build_options", deps.authoring_build_options_mod);
-    mod.addImport("shift", deps.shift_mod);
-    if (deps.shift_compile_mod) |shift_compile_mod| mod.addImport("shift_compile", shift_compile_mod);
-    if (deps.shift_vm_mod) |shift_vm_mod| mod.addImport("shift_vm", shift_vm_mod);
-    mod.addImport("prompt_support", deps.prompt_support_mod);
-    mod.addImport("with_api", deps.with_api_mod);
-    return mod;
-}
-
 fn createPlainModule(
     b: *std.Build,
     path: []const u8,
@@ -112,35 +77,6 @@ fn createPlainModule(
 fn lazyPathForSourceFile(b: *std.Build, path: []const u8) std.Build.LazyPath {
     if (std.fs.path.isAbsolute(path)) return .{ .cwd_relative = path };
     return b.path(path);
-}
-
-fn assertOwnedCompileFailFixtures(b: *std.Build, dir_path: []const u8, fixture_table: anytype) void {
-    var test_dir = std.fs.cwd().openDir(b.pathFromRoot("test"), .{}) catch |err| switch (err) {
-        // Published package layouts intentionally omit the proof-only test corpus.
-        error.FileNotFound => return,
-        else => std.process.fatal("unable to open test fixture directory", .{}),
-    };
-    test_dir.close();
-
-    var owned = std.StringHashMap(void).init(b.allocator);
-    defer owned.deinit();
-
-    inline for (fixture_table) |fixture| {
-        owned.put(std.fs.path.basename(fixture.path), {}) catch std.process.fatal("unable to record compile-fail fixture", .{});
-    }
-
-    var dir = std.fs.cwd().openDir(b.pathFromRoot(dir_path), .{ .iterate = true }) catch
-        std.process.fatal("unable to open compile-fail fixture directory", .{});
-    defer dir.close();
-
-    var iterator = dir.iterate();
-    while (iterator.next() catch std.process.fatal("unable to iterate compile-fail fixture directory", .{})) |entry| {
-        if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
-        if (!owned.contains(entry.name)) {
-            std.process.fatal("unowned compile-fail fixture: {s}/{s}", .{ dir_path, entry.name });
-        }
-    }
 }
 
 fn canonicalSourceHash(b: *std.Build, path: []const u8) [32]u8 {
@@ -1807,30 +1743,6 @@ fn boundaryAliasRoot(b: *std.Build) []const u8 {
     return scratchRootPath(b, ".shift_aliases");
 }
 
-fn externalBoundaryFixtureNamespace(allocator: std.mem.Allocator, repo_root: []const u8) ![]u8 {
-    return std.fmt.allocPrint(
-        allocator,
-        "shift_repo_{x}",
-        .{std.hash.Wyhash.hash(0, repo_root)},
-    );
-}
-
-fn externalBoundaryFixtureRootPath(allocator: std.mem.Allocator, fixture_root: []const u8, repo_root: []const u8) ![]u8 {
-    const fixture_namespace = try externalBoundaryFixtureNamespace(allocator, repo_root);
-    defer allocator.free(fixture_namespace);
-    return std.fs.path.join(
-        allocator,
-        &.{ fixture_root, fixture_namespace },
-    );
-}
-
-fn externalBoundaryFixtureRoot(b: *std.Build) []const u8 {
-    const repo_root = b.pathFromRoot(".");
-    const fixture_root = scratchRootPath(b, ".shift_external_boundary_fixtures");
-    return externalBoundaryFixtureRootPath(b.allocator, fixture_root, repo_root) catch
-        std.process.fatal("unable to allocate external boundary fixture root", .{});
-}
-
 fn clearAliasPath(alias_path: []const u8, dir_error: []const u8, path_error: []const u8) void {
     std.fs.deleteFileAbsolute(alias_path) catch |err| switch (err) {
         error.FileNotFound => {},
@@ -1877,159 +1789,6 @@ fn packageRootAlias(b: *std.Build) PackageRootAlias {
         .path = alias_path,
         .available = true,
     };
-}
-
-fn addWriteTextFileCommand(
-    b: *std.Build,
-    path: []const u8,
-    contents: []const u8,
-    name: []const u8,
-) *std.Build.Step {
-    return &WriteTextFileStep.create(b, path, contents, name).step;
-}
-
-fn addAbsoluteSymlinkCommand(
-    b: *std.Build,
-    target_path: []const u8,
-    link_path: []const u8,
-    name: []const u8,
-) *std.Build.Step {
-    return &AbsoluteSymlinkStep.create(b, target_path, link_path, name).step;
-}
-
-const WriteTextFileStep = struct {
-    step: std.Build.Step,
-    path: []const u8,
-    contents: []const u8,
-
-    fn create(b: *std.Build, path: []const u8, contents: []const u8, name: []const u8) *WriteTextFileStep {
-        const self = b.allocator.create(WriteTextFileStep) catch
-            std.process.fatal("unable to allocate write-text build step", .{});
-        self.* = .{
-            .step = std.Build.Step.init(.{
-                .id = .custom,
-                .name = name,
-                .owner = b,
-                .makeFn = make,
-            }),
-            .path = b.dupePath(path),
-            .contents = b.dupe(contents),
-        };
-        return self;
-    }
-
-    fn make(step: *std.Build.Step, _: std.Build.Step.MakeOptions) !void {
-        const self: *WriteTextFileStep = @fieldParentPtr("step", step);
-        if (std.fs.path.dirname(self.path)) |dir_name| {
-            try std.fs.cwd().makePath(dir_name);
-        }
-        var file = if (std.fs.path.isAbsolute(self.path))
-            try std.fs.createFileAbsolute(self.path, .{ .truncate = true })
-        else
-            try std.fs.cwd().createFile(self.path, .{ .truncate = true });
-        defer file.close();
-        var buffer: [4096]u8 = undefined;
-        var writer = file.writer(&buffer);
-        try writer.interface.writeAll(self.contents);
-        try writer.interface.flush();
-    }
-};
-
-const AbsoluteSymlinkStep = struct {
-    step: std.Build.Step,
-    target_path: []const u8,
-    link_path: []const u8,
-
-    fn create(b: *std.Build, target_path: []const u8, link_path: []const u8, name: []const u8) *AbsoluteSymlinkStep {
-        const self = b.allocator.create(AbsoluteSymlinkStep) catch
-            std.process.fatal("unable to allocate absolute-symlink build step", .{});
-        self.* = .{
-            .step = std.Build.Step.init(.{
-                .id = .custom,
-                .name = name,
-                .owner = b,
-                .makeFn = make,
-            }),
-            .target_path = b.dupePath(target_path),
-            .link_path = b.dupePath(link_path),
-        };
-        return self;
-    }
-
-    fn make(step: *std.Build.Step, _: std.Build.Step.MakeOptions) !void {
-        const self: *AbsoluteSymlinkStep = @fieldParentPtr("step", step);
-        if (std.fs.path.dirname(self.link_path)) |dir_name| {
-            try std.fs.cwd().makePath(dir_name);
-        }
-        clearAliasPath(
-            self.link_path,
-            "unable to clear fixture symlink directory",
-            "unable to clear fixture symlink path",
-        );
-        try std.fs.symLinkAbsolute(self.target_path, self.link_path, .{});
-    }
-};
-
-fn compileFailEscapeProbeLinkPath(allocator: std.mem.Allocator, fixture_link_path: []const u8) ![]u8 {
-    const fixture_dir = std.fs.path.dirname(fixture_link_path) orelse return error.MissingCompileFailFixtureDir;
-    return std.fs.path.join(
-        allocator,
-        &.{ fixture_dir, ".compile_fail_escape_helper_probe_link.zig" },
-    );
-}
-
-fn compileFailEscapeSymlinkSupported(
-    b: *std.Build,
-    target_path: []const u8,
-    fixture_link_path: []const u8,
-) bool {
-    const probe_link_path = compileFailEscapeProbeLinkPath(b.allocator, fixture_link_path) catch
-        std.process.fatal("unable to allocate compile-fail helper probe link path", .{});
-    defer clearAliasPath(
-        probe_link_path,
-        "unable to clear compile-fail helper probe symlink directory",
-        "unable to clear compile-fail helper probe symlink path",
-    );
-    return ensureOptionalAbsoluteSymlink(
-        b.allocator,
-        target_path,
-        probe_link_path,
-        "unable to clear compile-fail helper probe symlink directory",
-        "unable to clear compile-fail helper probe symlink path",
-    );
-}
-
-fn ensureOptionalAbsoluteSymlink(
-    allocator: std.mem.Allocator,
-    target_path: []const u8,
-    link_path: []const u8,
-    dir_error: []const u8,
-    path_error: []const u8,
-) bool {
-    var owned_absolute_target: ?[]u8 = null;
-    defer if (owned_absolute_target) |path| allocator.free(path);
-    const absolute_target = if (std.fs.path.isAbsolute(target_path))
-        target_path
-    else blk: {
-        owned_absolute_target = std.fs.cwd().realpathAlloc(allocator, target_path) catch return false;
-        break :blk owned_absolute_target.?;
-    };
-
-    var link_buffer: [std.fs.max_path_bytes]u8 = undefined;
-    const existing_target = std.fs.readLinkAbsolute(link_path, &link_buffer) catch |err| switch (err) {
-        error.FileNotFound => null,
-        else => blk: {
-            clearAliasPath(link_path, dir_error, path_error);
-            break :blk null;
-        },
-    };
-    if (existing_target) |existing| {
-        if (std.mem.eql(u8, existing, absolute_target)) return true;
-    }
-
-    clearAliasPath(link_path, dir_error, path_error);
-    std.fs.symLinkAbsolute(absolute_target, link_path, .{}) catch return false;
-    return true;
 }
 
 fn zigStringLiteralEscapeAlloc(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
@@ -2096,84 +1855,6 @@ test "zigStringLiteralEscapeAlloc escapes path bytes for generated fixture sourc
     try std.testing.expectEqualStrings(
         "C:\\\\Users\\\\\\\"tk\\\"\\\\shift\\\\downstream_public_lowering_test.zig",
         escaped,
-    );
-}
-
-test "externalBoundaryFixtureRootPath namespaces sibling checkouts" {
-    const first = try externalBoundaryFixtureRootPath(
-        std.testing.allocator,
-        "/tmp/shift-cache",
-        "/tmp/shift-parent/shift-a",
-    );
-    defer std.testing.allocator.free(first);
-    const second = try externalBoundaryFixtureRootPath(
-        std.testing.allocator,
-        "/tmp/shift-cache",
-        "/tmp/shift-parent/shift-b",
-    );
-    defer std.testing.allocator.free(second);
-
-    try std.testing.expect(std.mem.startsWith(
-        u8,
-        first,
-        "/tmp/shift-cache/shift_external_boundary_fixtures/",
-    ));
-    try std.testing.expect(std.mem.startsWith(
-        u8,
-        second,
-        "/tmp/shift-cache/shift_external_boundary_fixtures/",
-    ));
-    try std.testing.expect(!std.mem.eql(u8, first, second));
-}
-
-test "ensureOptionalAbsoluteSymlink resolves relative targets before linking" {
-    const repo_root = try makeExternalTmpDir(std.testing.allocator);
-    defer std.testing.allocator.free(repo_root);
-    defer runChildExpectSuccess(std.testing.allocator, &.{ "rm", "-rf", repo_root }) catch unreachable;
-
-    var repo_dir = try std.fs.openDirAbsolute(repo_root, .{});
-    defer repo_dir.close();
-    try writeTmpFile(repo_dir, "target.txt", "ok\n");
-
-    const target_path = try std.fs.path.join(std.testing.allocator, &.{ repo_root, "target.txt" });
-    defer std.testing.allocator.free(target_path);
-    const canonical_target_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, target_path);
-    defer std.testing.allocator.free(canonical_target_path);
-    const link_path = try std.fs.path.join(std.testing.allocator, &.{ repo_root, "target.link" });
-    defer std.testing.allocator.free(link_path);
-    defer clearAliasPath(
-        link_path,
-        "unable to clear relative target symlink directory",
-        "unable to clear relative target symlink path",
-    );
-
-    const cwd = try std.process.getCwdAlloc(std.testing.allocator);
-    defer std.testing.allocator.free(cwd);
-    const relative_target = try std.fs.path.relative(std.testing.allocator, cwd, target_path);
-    defer std.testing.allocator.free(relative_target);
-
-    try std.testing.expect(ensureOptionalAbsoluteSymlink(
-        relative_target,
-        link_path,
-        "unable to clear relative target symlink directory",
-        "unable to clear relative target symlink path",
-    ));
-
-    var link_buffer: [std.fs.max_path_bytes]u8 = undefined;
-    const existing_target = try std.fs.readLinkAbsolute(link_path, &link_buffer);
-    try std.testing.expectEqualStrings(canonical_target_path, existing_target);
-}
-
-test "compileFailEscapeProbeLinkPath stays in the fixture directory" {
-    const probe_path = try compileFailEscapeProbeLinkPath(
-        std.testing.allocator,
-        "/tmp/shift/test/compile_fail_inputs/.compile_fail_escape_helper_link.zig",
-    );
-    defer std.testing.allocator.free(probe_path);
-
-    try std.testing.expectEqualStrings(
-        "/tmp/shift/test/compile_fail_inputs/.compile_fail_escape_helper_probe_link.zig",
-        probe_path,
     );
 }
 
@@ -3045,8 +2726,7 @@ pub fn build(b: *std.Build) void {
     parity_kernel_mod.addImport("parity_scenarios", parity_scenarios_mod);
     reference_machine_mod.addImport("parity_kernel", parity_kernel_mod);
 
-    const check_step = b.step("check", "Compile the shift module and examples.");
-    b.default_step.dependOn(check_step);
+    const check_step = b.default_step;
 
     const lib_check = b.addObject(.{
         .name = "shift",
@@ -3114,8 +2794,6 @@ pub fn build(b: *std.Build) void {
     frontend_internal_tests.root_module.addImport("portable_core", portable_core_mod);
     frontend_internal_tests.root_module.addImport("prompt_contract_support", prompt_contract_support_mod);
     const run_frontend_internal_tests = b.addRunArtifact(frontend_internal_tests);
-    const frontend_internal_step = b.step("frontend-internal-check", "Run frontend contextual replay regression tests.");
-    frontend_internal_step.dependOn(&run_frontend_internal_tests.step);
     test_step.dependOn(&run_frontend_internal_tests.step);
 
     const internal_program_plan_tests = b.addTest(.{
@@ -3128,8 +2806,6 @@ pub fn build(b: *std.Build) void {
     internal_program_plan_tests.root_module.addImport("internal_program_plan", internal_program_plan_mod);
     internal_program_plan_tests.root_module.addImport("effect_ir", effect_ir_mod);
     const run_plan_review_tests = b.addRunArtifact(internal_program_plan_tests);
-    const internal_program_plan_step = b.step("program-plan-check", "Run internal runtime program-plan regression tests.");
-    internal_program_plan_step.dependOn(&run_plan_review_tests.step);
     test_step.dependOn(&run_plan_review_tests.step);
 
     const witness_mod = b.createModule(.{
@@ -3164,11 +2840,7 @@ pub fn build(b: *std.Build) void {
         .root_module = runtime_contract_mod,
     });
     const run_runtime_contract_tests = b.addRunArtifact(runtime_contract_tests);
-    const runtime_contract_step = b.step("runtime-contract-suite", "Run executable lowered-runtime contract cases for the remaining runtime obligations.");
-    runtime_contract_step.dependOn(&run_runtime_contract_tests.step);
     test_step.dependOn(&run_runtime_contract_tests.step);
-    const compat_runtime_contract_step = b.step("compat-runtime-contract-check", "Check that legacy Runtime misuse semantics still hold through the compat shell.");
-    compat_runtime_contract_step.dependOn(&run_runtime_contract_tests.step);
 
     const prompt_token_contract_mod = b.createModule(.{
         .root_source_file = b.path("test/prompt_token_contract_test.zig"),
@@ -3181,9 +2853,17 @@ pub fn build(b: *std.Build) void {
         .root_module = prompt_token_contract_mod,
     });
     const run_prompt_token_tests = b.addRunArtifact(prompt_token_tests);
-    const prompt_token_contract_step = b.step("prompt-token-contract-check", "Check explicit prompt-token construction and source-backed token allocation.");
-    prompt_token_contract_step.dependOn(&run_prompt_token_tests.step);
     test_step.dependOn(&run_prompt_token_tests.step);
+    const portability_contract_mod = b.createModule(.{
+        .root_source_file = b.path("test/portability_contract_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const portability_contract_tests = b.addTest(.{
+        .root_module = portability_contract_mod,
+    });
+    const run_portability_contract_tests = b.addRunArtifact(portability_contract_tests);
+    test_step.dependOn(&run_portability_contract_tests.step);
     const durable_session_mod = b.createModule(.{
         .root_source_file = b.path("test/durable_session_test.zig"),
         .target = target,
@@ -3194,288 +2874,7 @@ pub fn build(b: *std.Build) void {
         .root_module = durable_session_mod,
     });
     const run_durable_session_tests = b.addRunArtifact(durable_session_tests);
-    const durable_session_resume_step = b.step("durable-session-resume-check", "Check append-only durable session replay over the interpreter core.");
-    durable_session_resume_step.dependOn(&run_durable_session_tests.step);
-    test_step.dependOn(durable_session_resume_step);
-
-    const construction_boundary_cmd = b.addSystemCommand(&.{ "sh", "test/effect_construction_boundary/run.sh" });
-    const construction_boundary_step = b.step("effect-construction-boundary", "Check that effect families route through the generalized substrate.");
-    construction_boundary_step.dependOn(&construction_boundary_cmd.step);
-    test_step.dependOn(&construction_boundary_cmd.step);
-
-    const shared_engine_boundary_cmd = b.addSystemCommand(&.{ "sh", "test/shared_algebraic_engine_boundary/run.sh" });
-    const shared_engine_boundary_step = b.step("shared-declaration-engine-boundary", "Check that surviving declaration surfaces share one internal declaration engine.");
-    shared_engine_boundary_step.dependOn(&shared_engine_boundary_cmd.step);
-    test_step.dependOn(&shared_engine_boundary_cmd.step);
-
-    const size_check_mod = b.createModule(.{
-        .root_source_file = b.path("test/size_check.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    size_check_mod.addImport("shift", shift_mod);
-    size_check_mod.addImport("shift_shared", shift_shared_mod);
-    size_check_mod.addImport("prompt_support", prompt_support_mod);
-    const size_tests = b.addTest(.{
-        .root_module = size_check_mod,
-    });
-    const run_size_tests = b.addRunArtifact(size_tests);
-    const size_step = b.step("size-check", "Run size and layout invariants.");
-    test_step.dependOn(&run_size_tests.step);
-    size_step.dependOn(&run_size_tests.step);
-
-    const single_front_package_step = b.step("single-front-package-contract", "Check that downstream consumers can import only the shipped shift front.");
-    size_step.dependOn(single_front_package_step);
-    test_step.dependOn(single_front_package_step);
-    const single_front_contract_root = std.fs.path.join(
-        b.allocator,
-        &.{ externalBoundaryFixtureRoot(b), "single_front_package_contract" },
-    ) catch std.process.fatal("unable to allocate single-front contract fixture root", .{});
-    const single_front_parent_target = target.query.zigTriple(b.allocator) catch
-        std.process.fatal("unable to serialize single-front parent target", .{});
-    const single_front_parent_cpu = target.query.serializeCpuAlloc(b.allocator) catch
-        std.process.fatal("unable to serialize single-front parent cpu", .{});
-    const single_front_parent_optimize = @tagName(optimize);
-    const single_front_zon_template =
-        ".{{\n    .name = .single_front_consumer,\n    .version = \"0.0.0\",\n    .dependencies = .{{\n        .shift = .{{ .path = \"shift_dep\" }},\n    }},\n    .minimum_zig_version = \"0.15.2\",\n    .paths = .{{\n        \"build.zig\",\n        \"build.zig.zon\",\n        \"probe.zig\",\n    }},\n    .fingerprint = 0x{x},\n}}\n";
-    const single_front_fixture_template =
-        \\const std = @import("std");
-        \\
-        \\pub fn build(b: *std.Build) void {{
-        \\    const target = b.standardTargetOptions(.{{}});
-        \\    const optimize = b.standardOptimizeOption(.{{}});
-        \\    const dep = b.dependency("shift", .{{
-        \\        .target = target,
-        \\        .optimize = optimize,
-        \\    }});
-        \\    const consumer_mod = b.createModule(.{{
-        \\        .root_source_file = b.path("probe.zig"),
-        \\        .target = target,
-        \\        .optimize = optimize,
-        \\    }});
-        \\    consumer_mod.addImport("{s}", dep.module("{s}"));
-        \\    const consumer = b.addObject(.{{
-        \\        .name = "consumer",
-        \\        .root_module = consumer_mod,
-        \\    }});
-        \\    b.default_step.dependOn(&consumer.step);
-        \\}}
-    ;
-    const single_front_success_root = std.fs.path.join(
-        b.allocator,
-        &.{ single_front_contract_root, "success" },
-    ) catch std.process.fatal("unable to allocate single-front success fixture root", .{});
-    const single_front_success_build = std.fs.path.join(
-        b.allocator,
-        &.{ single_front_success_root, "build.zig" },
-    ) catch std.process.fatal("unable to allocate single-front success build path", .{});
-    const single_front_success_zon = std.fs.path.join(
-        b.allocator,
-        &.{ single_front_success_root, "build.zig.zon" },
-    ) catch std.process.fatal("unable to allocate single-front success zon path", .{});
-    const single_front_success_probe = std.fs.path.join(
-        b.allocator,
-        &.{ single_front_success_root, "probe.zig" },
-    ) catch std.process.fatal("unable to allocate single-front success probe path", .{});
-    const single_front_success_build_src = std.fmt.allocPrint(
-        b.allocator,
-        single_front_fixture_template,
-        .{ "shift", "shift" },
-    ) catch std.process.fatal("unable to allocate single-front success build source", .{});
-    const single_front_success_zon_src = std.fmt.allocPrint(
-        b.allocator,
-        single_front_zon_template,
-        .{@as(u64, 0xf26c26a7555f9af0)},
-    ) catch std.process.fatal("unable to allocate single-front success zon", .{});
-    const write_single_front_build = addWriteTextFileCommand(
-        b,
-        single_front_success_build,
-        single_front_success_build_src,
-        "write-single-front-success-build-zig",
-    );
-    const write_single_front_success_zon = addWriteTextFileCommand(
-        b,
-        single_front_success_zon,
-        single_front_success_zon_src,
-        "write-single-front-success-build-zig-zon",
-    );
-    const write_single_front_probe = addWriteTextFileCommand(
-        b,
-        single_front_success_probe,
-        \\const shift = @import("shift");
-        \\
-        \\comptime {
-        \\    _ = shift.Runtime;
-        \\    _ = shift.RuntimeError;
-        \\    _ = shift.effect;
-        \\    _ = shift.with;
-        \\}
-        \\
-        \\pub export fn touch() void {}
-    ,
-        "write-single-front-success-probe",
-    );
-    const single_front_hidden_fixtures = [_]struct {
-        fingerprint: u64,
-        module_name: []const u8,
-        step_name: []const u8,
-        root_name: []const u8,
-    }{
-        .{
-            .fingerprint = 0xf26c26a7b2e6c8be,
-            .module_name = "shift_compile",
-            .step_name = "check-single-front-hidden-shift-compile",
-            .root_name = "hidden_shift_compile",
-        },
-        .{
-            .fingerprint = 0xf26c26a7bd911cd6,
-            .module_name = "shift_vm",
-            .step_name = "check-single-front-hidden-shift-vm",
-            .root_name = "hidden_shift_vm",
-        },
-    };
-    const single_front_success_cmd = b.addSystemCommand(&.{
-        "sh",
-        "-eu",
-        "-c",
-        \\dir="$1"
-        \\repo_root="$2"
-        \\parent_global="$3"
-        \\dep_dir="$dir/shift_dep"
-        \\rm -rf "$dep_dir"
-        \\mkdir -p "$dep_dir"
-        \\for path in README.md build.zig build.zig.zon repo_zig_paths.txt source_graph_embed.zig src; do
-        \\  ln -s "$repo_root/$path" "$dep_dir/$path"
-        \\done
-        \\cache_root="$(mktemp -d "${TMPDIR:-/tmp}/shift-single-front-cache.XXXXXX")"
-        \\trap 'rm -rf "$cache_root"' EXIT INT TERM
-        \\local="$cache_root/local"
-        \\global="$cache_root/global"
-        \\mkdir -p "$local" "$global"
-        \\if [ -d "$parent_global/p" ] && [ ! -e "$global/p" ]; then
-        \\  ln -s "$parent_global/p" "$global/p"
-        \\fi
-        \\log="$dir/build.log"
-        \\cd "$dir"
-        \\set -- zig build --cache-dir "$local" --global-cache-dir "$global" "-Dtarget=$4" "-Dcpu=$5" "-Doptimize=$6"
-        \\"$@" >"$log" 2>&1 || {
-        \\  cat "$log" >&2
-        \\  exit 1
-        \\}
-        ,
-        "sh",
-        single_front_success_root,
-        b.pathFromRoot("."),
-        globalCacheRootPath(b),
-        single_front_parent_target,
-        single_front_parent_cpu,
-        single_front_parent_optimize,
-    });
-    single_front_success_cmd.setName("single-front dependency consumer success");
-    single_front_success_cmd.step.dependOn(write_single_front_build);
-    single_front_success_cmd.step.dependOn(write_single_front_success_zon);
-    single_front_success_cmd.step.dependOn(write_single_front_probe);
-    single_front_package_step.dependOn(&single_front_success_cmd.step);
-    inline for (single_front_hidden_fixtures) |fixture| {
-        const fixture_root = std.fs.path.join(
-            b.allocator,
-            &.{ single_front_contract_root, fixture.root_name },
-        ) catch std.process.fatal("unable to allocate single-front hidden fixture root", .{});
-        const fixture_build = std.fs.path.join(
-            b.allocator,
-            &.{ fixture_root, "build.zig" },
-        ) catch std.process.fatal("unable to allocate single-front hidden build path", .{});
-        const fixture_zon = std.fs.path.join(
-            b.allocator,
-            &.{ fixture_root, "build.zig.zon" },
-        ) catch std.process.fatal("unable to allocate single-front hidden zon path", .{});
-        const fixture_probe = std.fs.path.join(
-            b.allocator,
-            &.{ fixture_root, "probe.zig" },
-        ) catch std.process.fatal("unable to allocate single-front hidden probe path", .{});
-        const fixture_build_src = std.fmt.allocPrint(
-            b.allocator,
-            single_front_fixture_template,
-            .{ fixture.module_name, fixture.module_name },
-        ) catch std.process.fatal("unable to allocate single-front hidden build source", .{});
-        const fixture_zon_src = std.fmt.allocPrint(
-            b.allocator,
-            single_front_zon_template,
-            .{fixture.fingerprint},
-        ) catch std.process.fatal("unable to allocate single-front hidden zon", .{});
-        const write_fixture_build = addWriteTextFileCommand(
-            b,
-            fixture_build,
-            fixture_build_src,
-            fixture.step_name ++ "-build-zig",
-        );
-        const write_fixture_zon = addWriteTextFileCommand(
-            b,
-            fixture_zon,
-            fixture_zon_src,
-            fixture.step_name ++ "-build-zig-zon",
-        );
-        const probe_src = std.fmt.allocPrint(
-            b.allocator,
-            "const hidden = @import(\"{s}\");\n\ncomptime {{\n    _ = hidden;\n}}\n\npub export fn touch() void {{}}\n",
-            .{fixture.module_name},
-        ) catch std.process.fatal("unable to allocate single-front hidden probe source", .{});
-        const write_fixture_probe = addWriteTextFileCommand(
-            b,
-            fixture_probe,
-            probe_src,
-            fixture.step_name ++ "-probe-zig",
-        );
-        const fixture_cmd = b.addSystemCommand(&.{
-            "sh",
-            "-eu",
-            "-c",
-            \\dir="$1"
-            \\repo_root="$2"
-            \\module_name="$3"
-            \\parent_global="$4"
-            \\dep_dir="$dir/shift_dep"
-            \\rm -rf "$dep_dir"
-            \\mkdir -p "$dep_dir"
-            \\for path in README.md build.zig build.zig.zon repo_zig_paths.txt source_graph_embed.zig src; do
-            \\  ln -s "$repo_root/$path" "$dep_dir/$path"
-            \\done
-            \\cache_root="$(mktemp -d "${TMPDIR:-/tmp}/shift-single-front-cache.XXXXXX")"
-            \\trap 'rm -rf "$cache_root"' EXIT INT TERM
-            \\local="$cache_root/local"
-            \\global="$cache_root/global"
-            \\mkdir -p "$local" "$global"
-            \\if [ -d "$parent_global/p" ] && [ ! -e "$global/p" ]; then
-            \\  ln -s "$parent_global/p" "$global/p"
-            \\fi
-            \\log="$dir/build.log"
-            \\cd "$dir"
-            \\set -- zig build --cache-dir "$local" --global-cache-dir "$global" "-Dtarget=$5" "-Dcpu=$6" "-Doptimize=$7"
-            \\if "$@" >"$log" 2>&1; then
-            \\  echo "expected dependency consumer requesting $module_name to fail" >&2
-            \\  cat "$log" >&2
-            \\  exit 1
-            \\fi
-            \\grep -q "unable to find module '$module_name'" "$log" || {
-            \\  cat "$log" >&2
-            \\  exit 1
-            \\}
-            ,
-            "sh",
-            fixture_root,
-            b.pathFromRoot("."),
-            fixture.module_name,
-            globalCacheRootPath(b),
-            single_front_parent_target,
-            single_front_parent_cpu,
-            single_front_parent_optimize,
-        });
-        fixture_cmd.setName(fixture.step_name);
-        fixture_cmd.step.dependOn(write_fixture_build);
-        fixture_cmd.step.dependOn(write_fixture_zon);
-        fixture_cmd.step.dependOn(write_fixture_probe);
-        single_front_package_step.dependOn(&fixture_cmd.step);
-    }
+    test_step.dependOn(&run_durable_session_tests.step);
 
     const artifact_v1_api_mod = b.createModule(.{
         .root_source_file = b.path("test/artifact_v1_api_test.zig"),
@@ -3500,9 +2899,7 @@ pub fn build(b: *std.Build) void {
         .root_module = artifact_v1_api_mod,
     });
     const run_artifact_v1_api_tests = b.addRunArtifact(artifact_v1_api_tests);
-    const artifact_v1_api_step = b.step("artifact-v1-api-check", "Check ArtifactV1 encode/decode/disasm and shift_compile artifact emission.");
-    artifact_v1_api_step.dependOn(&run_artifact_v1_api_tests.step);
-    test_step.dependOn(artifact_v1_api_step);
+    test_step.dependOn(&run_artifact_v1_api_tests.step);
 
     const artifact_vm_runtime_mod = b.createModule(.{
         .root_source_file = b.path("test/artifact_vm_runtime_test.zig"),
@@ -3536,9 +2933,7 @@ pub fn build(b: *std.Build) void {
         .root_module = artifact_vm_runtime_mod,
     });
     const run_artifact_vm_runtime_tests = b.addRunArtifact(artifact_vm_runtime_tests);
-    const artifact_vm_runtime_step = b.step("artifact-vm-runtime-check", "Check synchronous ArtifactV1 execution over HostAdapterV1.");
-    artifact_vm_runtime_step.dependOn(&run_artifact_vm_runtime_tests.step);
-    test_step.dependOn(artifact_vm_runtime_step);
+    test_step.dependOn(&run_artifact_vm_runtime_tests.step);
 
     const bundle_envelope_mod = b.createModule(.{
         .root_source_file = b.path("test/bundle_envelope_v1_test.zig"),
@@ -3563,9 +2958,7 @@ pub fn build(b: *std.Build) void {
         .root_module = bundle_envelope_mod,
     });
     const run_bundle_envelope_tests = b.addRunArtifact(bundle_envelope_tests);
-    const bundle_envelope_step = b.step("bundle-envelope-v1-check", "Check BundleEnvelopeV1 export/import and exact-build rejection.");
-    bundle_envelope_step.dependOn(&run_bundle_envelope_tests.step);
-    test_step.dependOn(bundle_envelope_step);
+    test_step.dependOn(&run_bundle_envelope_tests.step);
 
     const host_adapter_impl_mod = b.createModule(.{
         .root_source_file = b.path("src/host_adapter_v1_conformance.zig"),
@@ -3584,11 +2977,7 @@ pub fn build(b: *std.Build) void {
         .root_module = host_adapter_conformance_mod,
     });
     const run_host_adapter_tests = b.addRunArtifact(host_adapter_conformance_tests);
-    const host_adapter_conformance_step = b.step("host-adapter-conformance-check", "Check HostAdapterV1 request/result conformance helpers.");
-    const host_adapter_v1_step = b.step("host-adapter-v1-conformance-check", "Compatibility alias for HostAdapterV1 request/result conformance helpers.");
-    host_adapter_conformance_step.dependOn(&run_host_adapter_tests.step);
-    host_adapter_v1_step.dependOn(&run_host_adapter_tests.step);
-    test_step.dependOn(host_adapter_conformance_step);
+    test_step.dependOn(&run_host_adapter_tests.step);
 
     const artifact_dump_mod = b.createModule(.{
         .root_source_file = b.path("tools/artifact_v1_dump.zig"),
@@ -3630,114 +3019,6 @@ pub fn build(b: *std.Build) void {
     });
     const artifact_vm_runner_step = b.step("artifact-vm-runner", "Build the native ArtifactV1 parity runner.");
     artifact_vm_runner_step.dependOn(&artifact_vm_runner_exe.step);
-
-    const wasm_target = b.resolveTargetQuery(.{
-        .cpu_arch = .wasm32,
-        .os_tag = .wasi,
-    });
-    const shift_shared_wasm_mod = b.createModule(.{
-        .root_source_file = b.path("src/shift_shared.zig"),
-        .target = wasm_target,
-        .optimize = optimize,
-    });
-    const shift_compile_api_wasm_mod = b.createModule(.{
-        .root_source_file = b.path("src/shift_compile_api.zig"),
-        .target = wasm_target,
-        .optimize = optimize,
-    });
-    const private_bundle_env_wasm_mod = b.createModule(.{
-        .root_source_file = b.path("src/bundle_envelope_v1.zig"),
-        .target = wasm_target,
-        .optimize = optimize,
-    });
-    const private_host_adapter_wasm_mod = b.createModule(.{
-        .root_source_file = b.path("src/host_adapter_v1.zig"),
-        .target = wasm_target,
-        .optimize = optimize,
-    });
-    const private_artifact_vm_wasm_mod = b.createModule(.{
-        .root_source_file = b.path("src/artifact_vm_runtime.zig"),
-        .target = wasm_target,
-        .optimize = optimize,
-    });
-    const artifact_build_options_wasm = b.addOptions();
-    artifact_build_options_wasm.addOption(
-        [32]u8,
-        "default_artifact_build_fingerprint",
-        defaultArtifactBuildFingerprint(b, wasm_target, optimize),
-    );
-    shift_shared_wasm_mod.addOptions("artifact_build_options", artifact_build_options_wasm);
-    shift_shared_wasm_mod.addImport("portable_core", portable_core_mod);
-    shift_shared_wasm_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
-    shift_shared_wasm_mod.addImport("frontend_support", frontend_support_mod);
-    shift_shared_wasm_mod.addImport("error_witness", error_witness_mod);
-    shift_shared_wasm_mod.addImport("parity_scenarios", parity_scenarios_mod);
-    shift_shared_wasm_mod.addImport("effect_ir", effect_ir_mod);
-    shift_shared_wasm_mod.addImport("internal_kernel", internal_kernel_mod);
-    shift_shared_wasm_mod.addImport("internal_program_plan", internal_program_plan_mod);
-    shift_shared_wasm_mod.addImport("interpreter", interpreter_mod);
-    shift_shared_wasm_mod.addImport("source_graph_engine", source_graph_engine_mod);
-    shift_shared_wasm_mod.addImport("source_graph_comptime", source_graph_comptime_mod);
-    shift_shared_wasm_mod.addImport("lowered_machine", lowered_machine_mod);
-    shift_shared_wasm_mod.addImport("program_frontend", program_frontend_mod);
-    shift_shared_wasm_mod.addImport("authoring_build_options", authoring_build_options_mod);
-    shift_shared_wasm_mod.addImport("source_graph_embed", source_graph_embed_mod);
-    shift_shared_wasm_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
-    shift_shared_wasm_mod.addImport("source_lowering", source_lowering_mod);
-    const shift_wasm_mod = b.addModule("shift_wasm_artifact_runner", .{
-        .root_source_file = b.path("src/root.zig"),
-        .target = wasm_target,
-        .optimize = optimize,
-    });
-    shift_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
-    const shift_compile_wasm_mod = b.addModule("shift_compile_wasm_artifact_runner", .{
-        .root_source_file = b.path("src/private_modules/shift_compile.zig"),
-        .target = wasm_target,
-        .optimize = optimize,
-    });
-    shift_compile_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
-    shift_compile_api_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
-    shift_compile_wasm_mod.addImport("shift_compile_api", shift_compile_api_wasm_mod);
-    const shift_vm_wasm_mod = b.addModule("shift_vm_wasm_artifact_runner", .{
-        .root_source_file = b.path("src/private_modules/shift_vm.zig"),
-        .target = wasm_target,
-        .optimize = optimize,
-    });
-    shift_vm_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
-    private_bundle_env_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
-    private_artifact_vm_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
-    private_artifact_vm_wasm_mod.addImport("host_adapter_v1", private_host_adapter_wasm_mod);
-    shift_vm_wasm_mod.addImport("bundle_envelope_v1", private_bundle_env_wasm_mod);
-    shift_vm_wasm_mod.addImport("host_adapter_v1", private_host_adapter_wasm_mod);
-    shift_vm_wasm_mod.addImport("artifact_vm_runtime", private_artifact_vm_wasm_mod);
-    const artifact_vm_wasm_runner_mod = b.createModule(.{
-        .root_source_file = b.path("tools/artifact_vm_state_writer_runner.zig"),
-        .target = wasm_target,
-        .optimize = optimize,
-    });
-    artifact_vm_wasm_runner_mod.addImport("shift_compile", shift_compile_wasm_mod);
-    artifact_vm_wasm_runner_mod.addImport("shift_vm", shift_vm_wasm_mod);
-    artifact_vm_wasm_runner_mod.addImport("example_open_row_state_writer", createShiftConsumerModule(
-        b,
-        "examples/open_row_state_writer.zig",
-        wasm_target,
-        optimize,
-        .{
-            .shift_mod = shift_wasm_mod,
-            .shift_compile_mod = shift_compile_wasm_mod,
-            .shift_vm_mod = shift_vm_wasm_mod,
-            .lowered_runtime_mod = null,
-        },
-    ));
-    const artifact_vm_wasm_runner_exe = b.addExecutable(.{
-        .name = "shift-artifact-vm-runner-wasm",
-        .root_module = artifact_vm_wasm_runner_mod,
-    });
-    const artifact_vm_wasm_step = b.step("artifact-vm-wasm-parity-check", "Run native and WASM ArtifactV1 state-writer parity through wasmtime.");
-    const wasm_parity_cmd = b.addSystemCommand(&.{ "sh", "test/artifact_vm_wasm_parity/run.sh" });
-    wasm_parity_cmd.addArtifactArg(artifact_vm_runner_exe);
-    wasm_parity_cmd.addArtifactArg(artifact_vm_wasm_runner_exe);
-    artifact_vm_wasm_step.dependOn(&wasm_parity_cmd.step);
 
     const boundary_mod = b.createModule(.{
         .root_source_file = b.path("test/program_frontend_boundary_test.zig"),
@@ -3872,34 +3153,6 @@ pub fn build(b: *std.Build) void {
         .root_module = open_row_lowering_mod,
     });
     const run_open_row_lowering_tests = b.addRunArtifact(open_row_lowering_tests);
-    const compile_fail_escape_helper_src =
-        \\pub fn helper(eff: anytype) !void {
-        \\    try eff.writer.tell("escaped");
-        \\}
-    ;
-    const cf_escape_helper_target = std.fs.path.join(
-        b.allocator,
-        &.{ externalBoundaryFixtureRoot(b), "compile_fail_escape_helper_target.zig" },
-    ) catch std.process.fatal("unable to allocate compile-fail helper target fixture path", .{});
-    const cf_escape_helper_link = b.pathFromRoot("test/compile_fail_inputs/.compile_fail_escape_helper_link.zig");
-    const compile_fail_escape_symlink_ok = compileFailEscapeSymlinkSupported(
-        b,
-        cf_escape_helper_target,
-        cf_escape_helper_link,
-    );
-    const write_cf_escape_helper = addWriteTextFileCommand(
-        b,
-        cf_escape_helper_target,
-        compile_fail_escape_helper_src,
-        "write-compile-fail-escape-helper-fixture",
-    );
-    const prep_cf_escape_symlink = addAbsoluteSymlinkCommand(
-        b,
-        cf_escape_helper_target,
-        cf_escape_helper_link,
-        "write-compile-fail-escape-helper-symlink",
-    );
-    prep_cf_escape_symlink.dependOn(write_cf_escape_helper);
 
     const source_ownership_probe_mod = b.createModule(.{
         .root_source_file = b.path("test/source_ownership_probe_test.zig"),
@@ -3953,65 +3206,14 @@ pub fn build(b: *std.Build) void {
     const source_lowering_tool_step = b.step("source-lower", "Build the internal source-lowering tool.");
     source_lowering_tool_step.dependOn(&source_lowering_tool_exe.step);
     source_lowering_tool_step.dependOn(&source_lowering_tool_install.step);
-    const src_lower_tool_contract = b.addSystemCommand(&.{ "sh", "test/source_lowering_tool_contract/run.sh" });
-    src_lower_tool_contract.step.dependOn(&source_lowering_tool_install.step);
-    const src_lower_tool_contract_step = b.step("source-lowering-tool-contract", "Check internal source-lowering tool rejected and accepted emission contracts.");
-    src_lower_tool_contract_step.dependOn(&src_lower_tool_contract.step);
-    const public_error_api_ban_cmd = b.addSystemCommand(&.{ "sh", "test/public_error_api_ban/run.sh" });
-    const public_error_api_ban_step = b.step("public-error-api-ban", "Fail closed if retired public root spellings reappear.");
-    public_error_api_ban_step.dependOn(&public_error_api_ban_cmd.step);
-    const public_root_snapshot_mod = b.createModule(.{
-        .root_source_file = b.path("tools/check_public_root_contract_snapshot.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const public_root_snapshot_exe = b.addExecutable(.{
-        .name = "shift-public-root-contract-snapshot",
-        .root_module = public_root_snapshot_mod,
-    });
-    const public_root_snapshot_cmd = b.addRunArtifact(public_root_snapshot_exe);
-    const public_root_snapshot_step = b.step("public-root-contract-snapshot-check", "Check the lexical-root public contract snapshot.");
-    public_root_snapshot_step.dependOn(&public_root_snapshot_cmd.step);
-    const interpreter_portability_mod = b.createModule(.{
-        .root_source_file = b.path("tools/check_interpreter_portability.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const interpreter_portability_exe = b.addExecutable(.{
-        .name = "shift-interpreter-portability-check",
-        .root_module = interpreter_portability_mod,
-    });
-    const interpreter_portability_cmd = b.addRunArtifact(interpreter_portability_exe);
-    const interpreter_portability_step = b.step("interpreter-portability-check", "Fail closed if the interpreter core takes on TLS or thread-affinity assumptions.");
-    interpreter_portability_step.dependOn(&interpreter_portability_cmd.step);
-    test_step.dependOn(interpreter_portability_step);
-    const portable_core_mod_check = b.createModule(.{
-        .root_source_file = b.path("tools/check_portable_core.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const portable_core_exe = b.addExecutable(.{
-        .name = "shift-portable-core-check",
-        .root_module = portable_core_mod_check,
-    });
-    const portable_core_cmd = b.addRunArtifact(portable_core_exe);
-    const portable_core_step = b.step("portable-core-check", "Fail closed if the portable core takes on TLS or thread-affinity assumptions.");
-    portable_core_step.dependOn(&portable_core_cmd.step);
-    test_step.dependOn(public_error_api_ban_step);
-    test_step.dependOn(public_root_snapshot_step);
-    test_step.dependOn(portable_core_step);
-
-    const source_lowering_gauntlet_step = b.step("kernel-source-lowering-check", "Check the internal source-lowering proof surface beneath the root execution kernel.");
-    source_lowering_gauntlet_step.dependOn(&run_src_lower_corpus_tests.step);
-    source_lowering_gauntlet_step.dependOn(&run_src_lower_boundary_tests.step);
-    source_lowering_gauntlet_step.dependOn(&run_src_lower_promoted_tests.step);
-    source_lowering_gauntlet_step.dependOn(&run_src_lower_completion_tests.step);
-    source_lowering_gauntlet_step.dependOn(&run_open_row_lowering_tests.step);
-    source_lowering_gauntlet_step.dependOn(&run_src_ownership_probe_tests.step);
-    source_lowering_gauntlet_step.dependOn(&run_src_lower_witness_tests.step);
-    source_lowering_gauntlet_step.dependOn(&run_src_lower_reject_tests.step);
-    source_lowering_gauntlet_step.dependOn(&src_lower_tool_contract.step);
-    test_step.dependOn(source_lowering_gauntlet_step);
+    test_step.dependOn(&run_src_lower_corpus_tests.step);
+    test_step.dependOn(&run_src_lower_boundary_tests.step);
+    test_step.dependOn(&run_src_lower_promoted_tests.step);
+    test_step.dependOn(&run_src_lower_completion_tests.step);
+    test_step.dependOn(&run_open_row_lowering_tests.step);
+    test_step.dependOn(&run_src_ownership_probe_tests.step);
+    test_step.dependOn(&run_src_lower_witness_tests.step);
+    test_step.dependOn(&run_src_lower_reject_tests.step);
 
     const lexical_witness_runners_mod = b.createModule(.{
         .root_source_file = b.path("test/lexical_witness_support.zig"),
@@ -4033,8 +3235,6 @@ pub fn build(b: *std.Build) void {
         .root_module = lexical_witness_mod,
     });
     const run_lexical_witness_tests = b.addRunArtifact(lexical_witness_tests);
-    const lexical_witness_step = b.step("lexical-witness-suite", "Run the lexical witness proof surface.");
-    lexical_witness_step.dependOn(&run_lexical_witness_tests.step);
     test_step.dependOn(&run_lexical_witness_tests.step);
 
     const lexical_with_mod = b.createModule(.{
@@ -4047,150 +3247,9 @@ pub fn build(b: *std.Build) void {
         .root_module = lexical_with_mod,
     });
     const run_lexical_with_tests = b.addRunArtifact(lexical_with_tests);
-    const lexical_with_step = b.step("lexical-with-suite", "Run the lexical descriptor/runtime helper proof surface.");
-    lexical_with_step.dependOn(&run_lexical_with_tests.step);
     test_step.dependOn(&run_lexical_with_tests.step);
-    const cleanup_contract_step = b.step("cleanup-contract-check", "Check cleanup-stack and resource cleanup contracts through the existing lexical/resource proof surface.");
-    cleanup_contract_step.dependOn(&run_lexical_with_tests.step);
 
     test_step.dependOn(&run_boundary_tests.step);
-
-    const compile_fail_step = b.step("compile-fail", "Verify compile-fail misuse fixtures.");
-
-    const compile_fail_owned_fixtures = [_]struct {
-        name: []const u8,
-        path: []const u8,
-        expected: []const u8,
-    }{
-        .{ .name = "cf-retired-program", .path = "test/compile_fail/retired_program_fails.zig", .expected = "has no member named 'Transform'" },
-        .{ .name = "cf-retired-decl", .path = "test/compile_fail/retired_decl_fails.zig", .expected = "has no member named 'Choice'" },
-        .{ .name = "cf-retired-op", .path = "test/compile_fail/retired_op_fails.zig", .expected = "has no member named 'Abort'" },
-        .{ .name = "cf-retired-ops", .path = "test/compile_fail/retired_ops_fails.zig", .expected = "has no member named 'Row'" },
-        .{ .name = "cf-retired-runwith", .path = "test/compile_fail/retired_runwith_fails.zig", .expected = "has no member named 'mergeRows'" },
-        .{ .name = "cf-retired-rowspec", .path = "test/compile_fail/retired_rowspec_fails.zig", .expected = "has no member named 'effects'" },
-        .{ .name = "cf-retired-mergerowspecs", .path = "test/compile_fail/retired_mergerowspecs_fails.zig", .expected = "has no member named 'handlers'" },
-        .{ .name = "cf-resume-value-mismatch", .path = "test/compile_fail/resume_value_mismatch.zig", .expected = ".resumeValue must have type fn () Resume or fn () ResetError(ErrorSet)!Resume" },
-        .{ .name = "cf-source-ownership-mismatch", .path = "test/compile_fail/source_ownership_mismatch_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-source-ownership-content-mirror", .path = "test/compile_fail/source_ownership_content_mirror_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-source-ownership-absolute-content-mirror", .path = "test/compile_fail/source_ownership_absolute_content_mirror_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-absolute-owned-helper-import-absolute-path", .path = "test/compile_fail/absolute_owned_helper_import_absolute_path_fails.zig", .expected = "public lowering imported source helper requires a non-escaping relative .zig import path" },
-        .{ .name = "cf-absolute-owned-helper-import-windows-absolute-path", .path = "test/compile_fail/absolute_owned_helper_import_windows_absolute_path_fails.zig", .expected = "public lowering imported source helper requires a non-escaping relative .zig import path" },
-        .{ .name = "cf-absolute-owned-helper-import-escape", .path = "test/compile_fail/absolute_owned_helper_import_escape_fails.zig", .expected = "public lowering imported source helper requires a non-escaping relative .zig import path" },
-        .{ .name = "cf-source-ownership-relative-no-content", .path = "test/compile_fail/source_ownership_relative_no_content_witness_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-source-ownership-relative-hash-only", .path = "test/compile_fail/source_ownership_relative_hash_only_witness_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-source-ownership-relative-content", .path = "test/compile_fail/source_ownership_relative_content_witness_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-source-ownership-basename-witness", .path = "test/compile_fail/source_ownership_basename_witness_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-source-ownership-owned-root-suffix-spoof", .path = "test/compile_fail/source_ownership_owned_root_suffix_spoof_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-source-with-content-parse-error", .path = "test/compile_fail/source_with_content_parse_error_fails.zig", .expected = "public lowering rejected source text that does not parse as Zig" },
-        .{ .name = "cf-source-with-content-missing-imported-helper", .path = "test/compile_fail/source_with_content_missing_imported_helper_fails.zig", .expected = "public lowering could not resolve one imported helper module or helper symbol" },
-        .{ .name = "cf-source-ref-missing-imported-helper", .path = "test/compile_fail/source_ref_missing_imported_helper_fails.zig", .expected = "public lowering could not resolve one imported helper module or helper symbol" },
-        .{ .name = "cf-source-with-content-owned-helper-override", .path = "test/compile_fail/source_with_content_owned_helper_override_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-source-with-content-absolute-owned-repo-helper-override", .path = "test/compile_fail/source_with_content_absolute_owned_repo_helper_override_fails.zig", .expected = "public lowering could not resolve one imported helper module or helper symbol" },
-        .{ .name = "cf-public-ir-entry-value-run", .path = "test/compile_fail/public_ir_entry_value_run_fails.zig", .expected = "public lowered-program execution is available only when the entry function has no value parameters" },
-        .{ .name = "cf-public-ir-value-dst", .path = "test/compile_fail/public_ir_value_dst_fails.zig", .expected = "runtime plan generator produced an instruction with an out-of-range function-local reference" },
-        .{ .name = "cf-public-ir-terminator-precondition", .path = "test/compile_fail/public_ir_terminator_precondition_fails.zig", .expected = "runtime plan generator produced a block terminator without its required producer instruction" },
-        .{ .name = "cf-public-ir-blockless-entry", .path = "test/compile_fail/public_ir_blockless_entry_fails.zig", .expected = "runtime plan generator produced an invalid function entry block" },
-        .{ .name = "cf-public-ir-invalid-call-helper-target", .path = "test/compile_fail/public_ir_invalid_call_helper_target_fails.zig", .expected = "runtime plan generator produced an out-of-range helper target" },
-        .{ .name = "cf-public-ir-foreign-row-call-op", .path = "test/compile_fail/public_ir_foreign_row_call_op_fails.zig", .expected = "runtime plan generator produced an out-of-range or foreign-row op target" },
-        .{ .name = "cf-string-list-codec", .path = "test/compile_fail/string_list_codec_fails.zig", .expected = "public lowering runtime plan rejected string_list values across executable boundaries" },
-        .{ .name = "cf-entry-value-param-lower-at", .path = "test/compile_fail/entry_value_param_lower_at_fails.zig", .expected = "public lowering rejected entry functions with value parameters because run(runtime, handlers) cannot supply entry arguments" },
-        .{ .name = "cf-unsupported-helper-body", .path = "test/compile_fail/unsupported_helper_body_fails.zig", .expected = "public lowering cannot synthesize unsupported helper or entry bodies; test/compile_fail_inputs/unsupported_helper_body_source.zig:helper must stay within the retained lowered-body subset" },
-        .{ .name = "cf-helper-import-escape-lower-at", .path = "test/compile_fail/helper_import_escape_lower_at_fails.zig", .expected = "public lowering source path must resolve to an owned repo file" },
-        .{ .name = "cf-helper-import-escape-ir-program-at", .path = "test/compile_fail/helper_import_escape_ir_program_at_fails.zig", .expected = "public lowering source path must resolve to an owned repo file" },
-        .{ .name = "cf-entry-path-escape-lower-at", .path = "test/compile_fail/entry_path_escape_lower_at_fails.zig", .expected = "public lowering source path must stay under the package root" },
-        .{ .name = "cf-entry-path-escape-ir-program-at", .path = "test/compile_fail/entry_path_escape_ir_program_at_fails.zig", .expected = "public lowering source path must stay under the package root" },
-        .{ .name = "cf-collect-closed-outputs-const-mutating-finish", .path = "test/compile_fail/collect_closed_outputs_const_mutating_finish_fails.zig", .expected = "cast discards const qualifier" },
-    };
-    assertOwnedCompileFailFixtures(b, "test/compile_fail", compile_fail_owned_fixtures);
-
-    const compile_fail_fixtures = [_]struct {
-        name: []const u8,
-        path: []const u8,
-        expected: []const u8,
-    }{
-        .{ .name = "cf-retired-program", .path = "test/compile_fail/retired_program_fails.zig", .expected = "has no member named 'Transform'" },
-        .{ .name = "cf-retired-decl", .path = "test/compile_fail/retired_decl_fails.zig", .expected = "has no member named 'Choice'" },
-        .{ .name = "cf-retired-op", .path = "test/compile_fail/retired_op_fails.zig", .expected = "has no member named 'Abort'" },
-        .{ .name = "cf-retired-ops", .path = "test/compile_fail/retired_ops_fails.zig", .expected = "has no member named 'Row'" },
-        .{ .name = "cf-retired-runwith", .path = "test/compile_fail/retired_runwith_fails.zig", .expected = "has no member named 'mergeRows'" },
-        .{ .name = "cf-retired-rowspec", .path = "test/compile_fail/retired_rowspec_fails.zig", .expected = "has no member named 'effects'" },
-        .{ .name = "cf-retired-mergerowspecs", .path = "test/compile_fail/retired_mergerowspecs_fails.zig", .expected = "has no member named 'handlers'" },
-        .{ .name = "cf-resume-value-mismatch", .path = "test/compile_fail/resume_value_mismatch.zig", .expected = ".resumeValue must have type fn () Resume or fn () ResetError(ErrorSet)!Resume" },
-        .{ .name = "cf-source-ownership-mismatch", .path = "test/compile_fail/source_ownership_mismatch_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-source-ownership-content-mirror", .path = "test/compile_fail/source_ownership_content_mirror_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-source-ownership-absolute-content-mirror", .path = "test/compile_fail/source_ownership_absolute_content_mirror_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-absolute-owned-helper-import-absolute-path", .path = "test/compile_fail/absolute_owned_helper_import_absolute_path_fails.zig", .expected = "public lowering imported source helper requires a non-escaping relative .zig import path" },
-        .{ .name = "cf-absolute-owned-helper-import-windows-absolute-path", .path = "test/compile_fail/absolute_owned_helper_import_windows_absolute_path_fails.zig", .expected = "public lowering imported source helper requires a non-escaping relative .zig import path" },
-        .{ .name = "cf-absolute-owned-helper-import-escape", .path = "test/compile_fail/absolute_owned_helper_import_escape_fails.zig", .expected = "public lowering imported source helper requires a non-escaping relative .zig import path" },
-        .{ .name = "cf-source-ownership-relative-no-content", .path = "test/compile_fail/source_ownership_relative_no_content_witness_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-source-ownership-relative-hash-only", .path = "test/compile_fail/source_ownership_relative_hash_only_witness_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-source-ownership-relative-content", .path = "test/compile_fail/source_ownership_relative_content_witness_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-source-ownership-basename-witness", .path = "test/compile_fail/source_ownership_basename_witness_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-source-ownership-owned-root-suffix-spoof", .path = "test/compile_fail/source_ownership_owned_root_suffix_spoof_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-source-with-content-parse-error", .path = "test/compile_fail/source_with_content_parse_error_fails.zig", .expected = "public lowering rejected source text that does not parse as Zig" },
-        .{ .name = "cf-source-with-content-missing-imported-helper", .path = "test/compile_fail/source_with_content_missing_imported_helper_fails.zig", .expected = "public lowering could not resolve one imported helper module or helper symbol" },
-        .{ .name = "cf-source-ref-missing-imported-helper", .path = "test/compile_fail/source_ref_missing_imported_helper_fails.zig", .expected = "public lowering could not resolve one imported helper module or helper symbol" },
-        .{ .name = "cf-source-with-content-owned-helper-override", .path = "test/compile_fail/source_with_content_owned_helper_override_fails.zig", .expected = "public lowering source ownership requires caller_file to end with repo_path" },
-        .{ .name = "cf-source-with-content-absolute-owned-repo-helper-override", .path = "test/compile_fail/source_with_content_absolute_owned_repo_helper_override_fails.zig", .expected = "public lowering could not resolve one imported helper module or helper symbol" },
-        .{ .name = "cf-public-ir-entry-value-run", .path = "test/compile_fail/public_ir_entry_value_run_fails.zig", .expected = "public lowered-program execution is available only when the entry function has no value parameters" },
-        .{ .name = "cf-public-ir-value-dst", .path = "test/compile_fail/public_ir_value_dst_fails.zig", .expected = "runtime plan generator produced an instruction with an out-of-range function-local reference" },
-        .{ .name = "cf-public-ir-terminator-precondition", .path = "test/compile_fail/public_ir_terminator_precondition_fails.zig", .expected = "runtime plan generator produced a block terminator without its required producer instruction" },
-        .{ .name = "cf-public-ir-blockless-entry", .path = "test/compile_fail/public_ir_blockless_entry_fails.zig", .expected = "runtime plan generator produced an invalid function entry block" },
-        .{ .name = "cf-public-ir-invalid-call-helper-target", .path = "test/compile_fail/public_ir_invalid_call_helper_target_fails.zig", .expected = "runtime plan generator produced an out-of-range helper target" },
-        .{ .name = "cf-public-ir-foreign-row-call-op", .path = "test/compile_fail/public_ir_foreign_row_call_op_fails.zig", .expected = "runtime plan generator produced an out-of-range or foreign-row op target" },
-        .{ .name = "cf-string-list-codec", .path = "test/compile_fail/string_list_codec_fails.zig", .expected = "public lowering runtime plan rejected string_list values across executable boundaries" },
-        .{ .name = "cf-entry-value-param-lower-at", .path = "test/compile_fail/entry_value_param_lower_at_fails.zig", .expected = "public lowering rejected entry functions with value parameters because run(runtime, handlers) cannot supply entry arguments" },
-        .{ .name = "cf-unsupported-helper-body", .path = "test/compile_fail/unsupported_helper_body_fails.zig", .expected = "public lowering cannot synthesize unsupported helper or entry bodies; test/compile_fail_inputs/unsupported_helper_body_source.zig:helper must stay within the retained lowered-body subset" },
-        .{ .name = "cf-entry-path-escape-lower-at", .path = "test/compile_fail/entry_path_escape_lower_at_fails.zig", .expected = "public lowering source path must stay under the package root" },
-        .{ .name = "cf-entry-path-escape-ir-program-at", .path = "test/compile_fail/entry_path_escape_ir_program_at_fails.zig", .expected = "public lowering source path must stay under the package root" },
-        .{ .name = "cf-collect-closed-outputs-const-mutating-finish", .path = "test/compile_fail/collect_closed_outputs_const_mutating_finish_fails.zig", .expected = "cast discards const qualifier" },
-    };
-    inline for (compile_fail_fixtures) |fixture| {
-        const fixture_mod = createShiftPromptFixtureModule(b, fixture.path, target, optimize, .{
-            .authoring_build_options_mod = authoring_build_options_mod,
-            .shift_mod = shift_mod,
-            .shift_compile_mod = shift_compile_mod,
-            .shift_vm_mod = shift_vm_mod,
-            .prompt_support_mod = prompt_support_mod,
-            .with_api_mod = with_api_mod,
-        });
-        const fixture_check = b.addObject(.{
-            .name = fixture.name,
-            .root_module = fixture_mod,
-        });
-        fixture_check.expect_errors = .{ .contains = fixture.expected };
-        compile_fail_step.dependOn(&fixture_check.step);
-        test_step.dependOn(&fixture_check.step);
-    }
-    // Hosts without symlink support still need ordinary build/test lanes to stay usable.
-    if (compile_fail_escape_symlink_ok) {
-        const compile_fail_escape_fixtures = [_]struct {
-            name: []const u8,
-            path: []const u8,
-            expected: []const u8,
-        }{
-            .{ .name = "cf-helper-import-escape-lower-at", .path = "test/compile_fail/helper_import_escape_lower_at_fails.zig", .expected = "public lowering source path must resolve to an owned repo file" },
-            .{ .name = "cf-helper-import-escape-ir-program-at", .path = "test/compile_fail/helper_import_escape_ir_program_at_fails.zig", .expected = "public lowering source path must resolve to an owned repo file" },
-        };
-        inline for (compile_fail_escape_fixtures) |fixture| {
-            const fixture_mod = createShiftPromptFixtureModule(b, fixture.path, target, optimize, .{
-                .authoring_build_options_mod = authoring_build_options_mod,
-                .shift_mod = shift_mod,
-                .shift_compile_mod = shift_compile_mod,
-                .shift_vm_mod = shift_vm_mod,
-                .prompt_support_mod = prompt_support_mod,
-                .with_api_mod = with_api_mod,
-            });
-            const fixture_check = b.addObject(.{
-                .name = fixture.name,
-                .root_module = fixture_mod,
-            });
-            fixture_check.step.dependOn(prep_cf_escape_symlink);
-            fixture_check.expect_errors = .{ .contains = fixture.expected };
-            compile_fail_step.dependOn(&fixture_check.step);
-            test_step.dependOn(&fixture_check.step);
-        }
-    }
 
     const examples = [_]struct {
         name: []const u8,
@@ -4376,14 +3435,6 @@ pub fn build(b: *std.Build) void {
         const zprof_hotspots_run = b.addRunArtifact(zprof_hotspots_exe);
         zprof_hotspots_step.dependOn(&zprof_hotspots_run.step);
     }
-
-    const bench_artifact_check_cmd = b.addSystemCommand(&.{ "sh", "bench/state_effect_artifact.sh", "check" });
-    const bench_artifact_check_step = b.step("bench-state-effect-check", "Check the state-effect benchmark artifact against the current clean tree.");
-    bench_artifact_check_step.dependOn(&bench_artifact_check_cmd.step);
-
-    const runtime_backend_check_cmd = b.addSystemCommand(&.{ "sh", "bench/runtime_backend_matrix_artifact.sh", "check" });
-    const runtime_backend_check_step = b.step("bench-runtime-backends-check", "Check the runtime backend comparison artifact against the current clean tree.");
-    runtime_backend_check_step.dependOn(&runtime_backend_check_cmd.step);
 
     const lint_step = b.step("lint", "Lint source code.");
     lint_step.dependOn(step: {
