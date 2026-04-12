@@ -1,22 +1,20 @@
-const shift = @import("shift_vm");
+const shift = @import("shift");
 const std = @import("std");
 
-const ReaderProgram = shift.Program(.{
-    .reader = shift.Decl.reader(i32),
-}, struct {
-    /// Read the program environment once and double it.
-    pub fn body(eff: anytype) anyerror!i32 {
-        const env = try eff.reader.ask();
-        return env * 2;
-    }
-});
-
-/// Write the reader-effect transcript through the program kernel.
+/// Write the reader-effect transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
-    const result = try shift.run(&runtime, ReaderProgram, .{ .reader = 21 });
+    const result = try shift.with(&runtime, .{
+        .reader = shift.effect.reader.use(@as(i32, 21)),
+    }, struct {
+        /// Read the environment once and double it.
+        pub fn body(eff: anytype) anyerror!i32 {
+            const env = try eff.reader.ask();
+            return env * 2;
+        }
+    });
 
     try writer.print("env=21\nvalue={d}\n", .{result.value});
 }

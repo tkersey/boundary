@@ -14,16 +14,11 @@ The public docs now frame `shift` around the effects-library surface:
 - lexical authoring through `shift.with(...)`
 - built-in and custom families through `shift.effect.*` and
   `shift.effect.Define(...)`
-- structural row vocabulary through `shift_compile.ir`
-- lowering and source-provenance entrypoints through
-  `shift_compile.lowering` and `shift_compile.lower`
 - explicit `shift.Runtime` ownership beneath those public lanes
-- `shift_vm.Program(...)`, `shift_vm.Decl`, `shift_vm.Op`,
-  `shift_vm.Decision(...)`, `shift_vm.run(...)`, `shift_vm.interpreter`,
-  `shift_vm.durable`, and `shift_vm.ErrorWitnessV1` as supported compatibility
-  surfaces over the same substrate
 
-Current authored frontends lower into that public boundary, but the
+Compile/lowering, executable-plan generation, and retained compatibility
+mechanics remain internal engine layers beneath that public boundary. Current
+authored frontends lower into that internal engine, but the
 source-lowering toolchain remains restricted internal proof scaffolding beneath
 it. Its current implementation compares covered rows against the canonical
 repo-owned structural shape rather than exact source-text hashes, then projects

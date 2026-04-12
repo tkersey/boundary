@@ -20,21 +20,14 @@ In the repo's current state:
 - agentic systems are a primary motivating use case, but the intended scope is
   broader: the library is meant to support general interpreters and
   programmable control systems, not only agent-specific workloads
-- the shipped authoring and lowering surfaces still route through
-  `shift.with(...)`, `shift.effect.*`, `shift.effect.Define(...)`,
-  `shift_compile.ir`, `shift_compile.lowering`, and `shift_compile.lower`
+- the shipped public authoring surface routes through `shift.with(...)`,
+  `shift.effect.*`, and `shift.effect.Define(...)`
 - explicit `shift.Runtime` ownership remains the shared execution boundary
   beneath those surfaces, without exposing a public continuation handle
 
-`shift_vm.Program(...)`, `shift_vm.Decl`, `shift_vm.Op`,
-`shift_vm.Decision(...)`, `shift_vm.run(...)`, `shift_vm.interpreter`,
-`shift_vm.durable`, and `shift_vm.ErrorWitnessV1` still ship, but they are
-retained compatibility, runtime, and proof surfaces over the same substrate
-rather than the enduring product thesis.
-
 Frontend spellings, lowered fixtures, witness registries, unchanged-body bridge
 cases, and source corpus ids remain repo-internal proof scaffolding beneath the
-current shipped surfaces. Retired root spellings are gone from the shipped
+current shipped public surface. Retired root spellings are gone from the shipped
 package and are only guarded by tombstone proofs.
 
 The repo therefore treats purpose, current shipped surfaces, and runtime/proof
@@ -58,13 +51,8 @@ The current shipped surface, in service of that thesis, is:
 
 - `shift.with(...)` plus `shift.effect.*` and `shift.effect.Define(...)` for
   current effect-family authoring
-- `shift_compile.ir`, `shift_compile.lowering`, and `shift_compile.lower` for
-  explicit structural IR, lowering, and source-provenance work
 - explicit `shift.Runtime` ownership beneath every public lane
-- `shift_vm.Program(...)`, `shift_vm.Decl`, `shift_vm.Op`,
-  `shift_vm.Decision(...)`, `shift_vm.run(...)`, `shift_vm.interpreter`,
-  `shift_vm.durable`, and `shift_vm.ErrorWitnessV1` as retained compatibility
-  and proof-facing surfaces over that same substrate
+- `shift.RuntimeError` as the named public runtime error surface
 - the lowered runtime in `src/lowered_machine.zig` as the shipped execution
   path today
 - witness ids, bridge case ids, source corpus ids, and legacy fixture names as
@@ -84,11 +72,9 @@ toward the defunctionalized interpreter model above.
 - the target architecture is a defunctionalized interpreter model that should
   eventually be implementable in WASM, while the current shipped runtime
   remains the lowered Zig backend
-- current public authoring still ships through `shift.with(...)`, typed effect
-  families, and the `shift_compile.*` lowering surfaces
+- current public authoring still ships through `shift.with(...)` and typed
+  effect families
 - internal typed prompt discipline remains beneath those surfaces
-- `shift_vm` remains a retained compatibility and proof lane, not the enduring
-  product center
 - one-shot continuation use
 - no public continuation handle
 - honest answer-type pressure if the kernel requires it
@@ -222,14 +208,8 @@ The current shipped surface contract is now:
 - lexical authoring is rooted in `shift.with(...)`
 - typed built-in and custom families are rooted in `shift.effect.*` and
   `shift.effect.Define(...)`
-- structural rows and resolved programs are inspectable through
-  `shift_compile.ir`
-- lowering and source-provenance entrypoints are rooted in
-  `shift_compile.lowering` and `shift_compile.lower`
-- `shift_vm.Program(...)`, `shift_vm.Decl`, `shift_vm.Op`,
-  `shift_vm.Decision(...)`, `shift_vm.run(...)`, `shift_vm.interpreter`,
-  `shift_vm.durable`, and `shift_vm.ErrorWitnessV1` remain supported
-  compatibility surfaces over that same lowered runtime substrate
+- public runtime misuse and semantic-contract failures are surfaced through
+  `shift.RuntimeError`
 - authored frontends, witness corpora, bridge cases, and source-lowering cases
   remain internal proof infrastructure unless explicitly documented otherwise
 - retired root spellings are checked by tombstone proofs instead of
@@ -240,24 +220,23 @@ The current shipped surface contract is now:
 ### State Writer Walkthrough
 
 ```bash
-zig build run-open-row-state-writer
+zig build run-state-basic
 ```
 
 Expected output:
 
 ```text
-item=query=artifact-search
-item=workflow=queued
+before=5
+after=6
 final_state=6
-value=done
+value=11
 ```
 
-The step id is intentionally unchanged because it is a stable proof handle.
-Treat `run-open-row-state-writer` as a checked legacy fixture name, not as
-documentation of the public product vocabulary. Retired root spellings are
-guarded by tombstone proofs instead of compatibility narratives.
-`open_row_state_writer` is still a retained proof label only; it is not counted
-as an admitted source-lowering row in the coverage matrix.
+This walkthrough is public because it exercises the surviving lexical surface
+only. Retired root spellings are guarded by tombstone proofs instead of
+compatibility narratives. `open_row_state_writer` remains a retained internal
+proof label only; it is not counted as an admitted source-lowering row in the
+coverage matrix.
 
 The generalized construction boundary is checked by:
 
@@ -471,9 +450,10 @@ Repo-owned authored frontends and checked examples still live under `examples/`,
 but they are not the public contract described here. The public story is the
 thesis at the top of this README: generalized algebraic effects for agentic
 systems and broader interpreters or programmable control systems, with the
-current shipped lexical/effect, compile/lowering, and retained compatibility
-surfaces serving that direction. Today those surfaces still ship from
-`src/root.zig`, `src/shift_compile.zig`, and `src/shift_vm.zig`.
+current shipped lexical/effect surface serving that direction. Today that
+surface ships from `src/root.zig`, while compile/lowering, ArtifactV1,
+interpreter, and durable mechanics remain maintainer-facing internal engine
+surfaces.
 
 `FORMAL_CORE.md` tracks the implementation-derived law anchors.
 `docs/source_lowering_contract.md` tracks the internal source-lowering lane.

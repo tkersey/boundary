@@ -113,11 +113,11 @@ src/runtime_error_surface_registry.zig
 src/runtime_obligation_registry.zig
 src/runtime_route_registry.zig
 src/runtime_stack_baseline.zig
-src/shift_compile.zig
 src/shift_compile_api.zig
 src/shift_module.zig
 src/shift_shared.zig
-src/shift_vm.zig
+src/private_modules/shift_compile.zig
+src/private_modules/shift_vm.zig
 src/shipped_open_row_corpus_registry.zig
 src/shipped_surface_frontier_registry.zig
 src/source_lowering.zig

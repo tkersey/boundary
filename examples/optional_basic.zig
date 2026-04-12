@@ -1,4 +1,4 @@
-const shift = @import("shift_vm");
+const shift = @import("shift");
 const std = @import("std");
 
 const transcript = struct {
@@ -13,9 +13,9 @@ const transcript = struct {
 
 const return_now_policy = struct {
     /// Choose the direct-return branch for the front-door optional example.
-    pub fn resumeOrReturn() shift.Decision(i32, []const u8) {
+    pub fn resumeOrReturn() shift.effect.choice.Decision(i32, []const u8) {
         transcript.note("policy-return-now");
-        return shift.Decision(i32, []const u8).returnNow("result=early");
+        return shift.effect.choice.Decision(i32, []const u8).returnNow("result=early");
     }
 
     /// Preserve the early answer unchanged in the return-now branch.
@@ -26,9 +26,9 @@ const return_now_policy = struct {
 
 const resume_policy = struct {
     /// Resume the front-door optional request with the canonical value.
-    pub fn resumeOrReturn() shift.Decision(i32, []const u8) {
+    pub fn resumeOrReturn() shift.effect.choice.Decision(i32, []const u8) {
         transcript.note("policy-resume");
-        return shift.Decision(i32, []const u8).resumeWith(41);
+        return shift.effect.choice.Decision(i32, []const u8).resumeWith(41);
     }
 
     /// Finalize the resumed front-door optional answer.
@@ -38,44 +38,26 @@ const resume_policy = struct {
     }
 };
 
-const ReturnNowProgram = shift.Program(.{
-    .optional = shift.Decl.optional(i32, return_now_policy),
-}, struct {
-    /// Trigger the program optional choice point and prove the continuation is skipped.
-    pub fn body(eff: anytype) ![]const u8 {
-        return try eff.optional.request(struct {
-            /// Apply this public continuation hook.
-            pub fn apply(_: i32, _: anytype) ![]const u8 {
-                unreachable;
-            }
-        });
-    }
-});
-
-const ResumeProgram = shift.Program(.{
-    .optional = shift.Decl.optional(i32, resume_policy),
-}, struct {
-    /// Trigger the program optional choice point and complete the resumed continuation explicitly.
-    pub fn body(eff: anytype) ![]const u8 {
-        return try eff.optional.request(struct {
-            /// Apply this public continuation hook.
-            pub fn apply(value: i32, _: anytype) ![]const u8 {
-                if (value != 41) unreachable;
-                transcript.note("body-after-request");
-                return "answer=42";
-            }
-        });
-    }
-});
-
-/// Write the optional-family transcript through the program kernel.
+/// Write the optional-family transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
     try writer.writeAll("branch=return_now\n");
     transcript.len = 0;
-    const early_result = try shift.run(&runtime, ReturnNowProgram, .{});
+    const early_result = try shift.with(&runtime, .{
+        .optional = shift.effect.optional.use(i32, return_now_policy),
+    }, struct {
+        /// Trigger the optional choice point and prove the continuation is skipped.
+        pub fn body(eff: anytype) ![]const u8 {
+            return try eff.optional.request(struct {
+                /// Apply this continuation hook.
+                pub fn apply(_: i32, _: anytype) ![]const u8 {
+                    unreachable;
+                }
+            });
+        }
+    });
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }
@@ -83,7 +65,21 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=resume_with\n");
     transcript.len = 0;
-    const resumed = try shift.run(&runtime, ResumeProgram, .{});
+    const resumed = try shift.with(&runtime, .{
+        .optional = shift.effect.optional.use(i32, resume_policy),
+    }, struct {
+        /// Trigger the optional choice point and complete the resumed continuation explicitly.
+        pub fn body(eff: anytype) ![]const u8 {
+            return try eff.optional.request(struct {
+                /// Apply this continuation hook.
+                pub fn apply(value: i32, _: anytype) ![]const u8 {
+                    if (value != 41) unreachable;
+                    transcript.note("body-after-request");
+                    return "answer=42";
+                }
+            });
+        }
+    });
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }

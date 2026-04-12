@@ -1,9 +1,9 @@
 /// Exact-build bundle envelope helpers over ArtifactV1 bytes.
-pub const bundle = @import("bundle_envelope_v1.zig");
+pub const bundle = @import("bundle_envelope_v1");
 /// Typed HostAdapterV1 request/result/logging boundary.
-pub const host_adapter = @import("host_adapter_v1.zig");
+pub const host_adapter = @import("host_adapter_v1");
 /// Synchronous ArtifactV1 runtime execution over HostAdapterV1.
-pub const runtime = @import("artifact_vm_runtime.zig");
+pub const runtime = @import("artifact_vm_runtime");
 const shared = @import("shift_shared");
 
 /// ArtifactV1 encoding and decoding helpers shared with `shift_compile`.

@@ -1,7 +1,6 @@
 const prompt_support = @import("prompt_support");
 const shift = @import("shift");
-const shift_compile = @import("shift_compile");
-const shift_vm = @import("shift_vm");
+const shift_shared = @import("shift_shared");
 const std = @import("std");
 
 fn hasErrorName(comptime ErrorSet: type, comptime wanted: []const u8) bool {
@@ -19,7 +18,6 @@ test "prompt shell stays compact" {
 
 test "public root keeps only the lexical surface" {
     try std.testing.expect(@hasDecl(shift, "effect"));
-    try std.testing.expect(@hasDecl(shift, "With"));
     try std.testing.expect(@hasDecl(shift, "with"));
     try std.testing.expect(@hasDecl(shift, "Runtime"));
     try std.testing.expect(@hasDecl(shift, "RuntimeError"));
@@ -57,94 +55,73 @@ test "public root keeps only the lexical surface" {
     try std.testing.expect(!@hasDecl(shift, "ordinary"));
 
     try std.testing.expect(!@hasDecl(shift, "lowerAt"));
+    try std.testing.expect(!@hasDecl(shift, "With"));
 }
 
-test "shift_compile keeps the explicit compile surface" {
-    try std.testing.expect(@hasDecl(shift_compile, "ir"));
-    try std.testing.expect(@hasDecl(shift_compile, "lowering"));
-    try std.testing.expect(@hasDecl(shift_compile, "lower"));
-    try std.testing.expect(@hasDecl(shift_compile.ir, "compile"));
-    try std.testing.expect(!@hasDecl(shift_compile, "effect"));
-    try std.testing.expect(!@hasDecl(shift_compile, "Runtime"));
-    try std.testing.expect(!@hasDecl(shift_compile, "RuntimeError"));
-    try std.testing.expect(!@hasDecl(shift_compile, "With"));
-    try std.testing.expect(!@hasDecl(shift_compile, "with"));
-    try std.testing.expect(!@hasDecl(shift_compile, "durable"));
-    try std.testing.expect(!@hasDecl(shift_compile, "interpreter"));
-    try std.testing.expect(!@hasDecl(shift_compile, "Program"));
-    try std.testing.expect(!@hasDecl(shift_compile, "run"));
-
-    try std.testing.expect(!@hasDecl(shift_compile.lowering, "openRow"));
-    try std.testing.expect(!@hasDecl(shift_compile.lowering, "OpenRowProgram"));
-    try std.testing.expect(!@hasDecl(shift_compile.lowering, "LoweredProgram"));
-    try std.testing.expect(!@hasDecl(shift_compile.lowering, "ProgramPlan"));
-    try std.testing.expect(!@hasDecl(shift_compile.lowering, "lowerOpenRow"));
-    try std.testing.expect(!@hasDecl(shift_compile.lowering, "irProgram"));
-    try std.testing.expect(!@hasDecl(shift_compile.lowering, "validateFileBackedOpenRow"));
-    try std.testing.expect(!@hasDecl(shift_compile.lowering, "CompileOpenRow"));
-    try std.testing.expect(!@hasDecl(shift_compile.lowering, "CompileOpenRowAt"));
-    try std.testing.expect(@hasDecl(shift_compile.lowering, "source"));
+test "internal lexical metadata seam remains available after the public root cut" {
+    try std.testing.expect(@hasDecl(shift_shared, "With"));
+    try std.testing.expect(@hasDecl(shift_shared, "Runtime"));
+    try std.testing.expect(@hasDecl(shift_shared, "RuntimeError"));
+    try std.testing.expect(@hasDecl(shift_shared, "effect"));
+    try std.testing.expect(@hasDecl(shift_shared, "with"));
 }
 
-test "shift_vm keeps runtime and compatibility surfaces" {
-    try std.testing.expect(@hasDecl(shift_vm, "compat"));
-    try std.testing.expect(@hasDecl(shift_vm, "durable"));
-    try std.testing.expect(@hasDecl(shift_vm, "interpreter"));
-    try std.testing.expect(@hasDecl(shift_vm, "ErrorWitnessV1"));
-    try std.testing.expect(@hasDecl(shift_vm, "Runtime"));
-    try std.testing.expect(@hasDecl(shift_vm, "RuntimeError"));
-    try std.testing.expect(@hasDecl(shift_vm, "Decl"));
-    try std.testing.expect(@hasDecl(shift_vm, "Op"));
-    try std.testing.expect(@hasDecl(shift_vm, "Decision"));
-    try std.testing.expect(@hasDecl(shift_vm, "Program"));
-    try std.testing.expect(@hasDecl(shift_vm, "run"));
+test "internal lowering seam remains available without a shipped shift_compile front" {
+    try std.testing.expect(@hasDecl(shift_shared.lowering, "LowerSpec"));
+    try std.testing.expect(@hasDecl(shift_shared.lowering, "SourceRef"));
+    try std.testing.expect(@hasDecl(shift_shared.lowering, "lower"));
+    try std.testing.expect(@hasDecl(shift_shared.lowering, "lowerAt"));
+    try std.testing.expect(@hasDecl(shift_shared.lowering, "irProgramAt"));
+    try std.testing.expect(@hasDecl(shift_shared.lowering, "runtime_support"));
+}
 
-    try std.testing.expect(!@hasDecl(shift_vm, "effect"));
-    try std.testing.expect(!@hasDecl(shift_vm, "With"));
-    try std.testing.expect(!@hasDecl(shift_vm, "with"));
-    try std.testing.expect(!@hasDecl(shift_vm, "ir"));
-    try std.testing.expect(!@hasDecl(shift_vm, "lowering"));
-    try std.testing.expect(!@hasDecl(shift_vm, "lower"));
+test "internal specialist seams remain available without a shipped shift_vm front" {
+    try std.testing.expect(@hasDecl(shift_shared.artifact, "ArtifactV1"));
+    try std.testing.expect(@hasDecl(shift_shared.interpreter, "runSteps"));
+    try std.testing.expect(@hasDecl(shift_shared.durable, "Store"));
+    try std.testing.expect(@hasDecl(shift_shared.compat, "Program"));
+    try std.testing.expect(@hasDecl(shift_shared.compat, "run"));
+    try std.testing.expect(@hasDecl(shift_shared.lowered_machine_internal, "Runtime"));
 }
 
 test "shift.ir preserves the prior effect_ir compatibility surface" {
-    try std.testing.expect(@hasDecl(shift_compile.ir, "Program"));
-    try std.testing.expect(@hasDecl(shift_compile.ir, "compile"));
-    try std.testing.expect(@hasDecl(shift_compile.ir, "ControlMode"));
-    try std.testing.expect(@hasDecl(shift_compile.ir, "OpSpec"));
-    try std.testing.expect(@hasDecl(shift_compile.ir, "Requirement"));
-    try std.testing.expect(@hasDecl(shift_compile.ir, "NormalizeError"));
+    try std.testing.expect(@hasDecl(shift_shared.ir, "Program"));
+    try std.testing.expect(@hasDecl(shift_shared.ir, "compile"));
+    try std.testing.expect(@hasDecl(shift_shared.ir, "ControlMode"));
+    try std.testing.expect(@hasDecl(shift_shared.ir, "OpSpec"));
+    try std.testing.expect(@hasDecl(shift_shared.ir, "Requirement"));
+    try std.testing.expect(@hasDecl(shift_shared.ir, "NormalizeError"));
 
-    try std.testing.expect(hasErrorName(shift_compile.ir.NormalizeError, "DuplicateRequirementLabel"));
-    try std.testing.expect(hasErrorName(shift_compile.ir.NormalizeError, "OutputWithoutRequirement"));
+    try std.testing.expect(hasErrorName(shift_shared.ir.NormalizeError, "DuplicateRequirementLabel"));
+    try std.testing.expect(hasErrorName(shift_shared.ir.NormalizeError, "OutputWithoutRequirement"));
 }
 
 test "public interpreter runs pure step data without host runtime ownership" {
-    const state = shift_vm.interpreter.runSteps(&.{
+    const state = shift_shared.interpreter.runSteps(&.{
         .{ .set_active_prompt = .primary },
         .{ .emit = .{ .note = "queued" } },
         .{ .set_final = .{ .string = "done" } },
     });
 
-    try std.testing.expectEqual(@as(usize, 1), shift_vm.interpreter.events(&state).len);
-    try std.testing.expectEqual(@as(usize, 0), shift_vm.interpreter.checkpoints(&state).len);
-    try std.testing.expectEqual(@as(?shift_vm.interpreter.PromptId, .primary), state.active_prompt);
+    try std.testing.expectEqual(@as(usize, 1), shift_shared.interpreter.events(&state).len);
+    try std.testing.expectEqual(@as(usize, 0), shift_shared.interpreter.checkpoints(&state).len);
+    try std.testing.expectEqual(@as(?shift_shared.interpreter.PromptId, .primary), state.active_prompt);
 }
 
 test "public additive lowering exposes the retained runtime-owned plan" {
-    const spec: shift_compile.lowering.LowerSpec = .{
+    const spec: shift_shared.lowering.LowerSpec = .{
         .label = "example.open_row_state_writer",
         .entry_symbol = "runBody",
-        .row = shift_compile.ir.mergeRows(.{
-            shift_compile.ir.rowFromSpec(.{
+        .row = shift_shared.ir.mergeRows(.{
+            shift_shared.ir.rowFromSpec(.{
                 .state = .{
-                    .get = shift_compile.ir.Transform(void, i32),
-                    .set = shift_compile.ir.Transform(i32, void),
+                    .get = shift_shared.ir.Transform(void, i32),
+                    .set = shift_shared.ir.Transform(i32, void),
                 },
             }),
-            shift_compile.ir.rowFromSpec(.{
+            shift_shared.ir.rowFromSpec(.{
                 .writer = .{
-                    .tell = shift_compile.ir.Transform([]const u8, void),
+                    .tell = shift_shared.ir.Transform([]const u8, void),
                 },
             }),
         }),
@@ -155,8 +132,8 @@ test "public additive lowering exposes the retained runtime-owned plan" {
         },
     };
 
-    const lowered = shift_compile.lowering.lowerAt("examples/open_row_state_writer.zig", spec);
-    const explicit = shift_compile.ir.compile(spec.label, shift_compile.lowering.irProgramAt("examples/open_row_state_writer.zig", spec));
+    const lowered = shift_shared.lowering.lowerAt("examples/open_row_state_writer.zig", spec);
+    const explicit = shift_shared.ir.compile(spec.label, shift_shared.lowering.irProgramAt("examples/open_row_state_writer.zig", spec));
 
     try std.testing.expectEqualStrings("example.open_row_state_writer", lowered.label);
     try std.testing.expectEqualStrings("runBody", lowered.entry_symbol);
@@ -184,9 +161,9 @@ test "public runtime error surface still exposes the current contract" {
 }
 
 test "front-door op shells stay compact" {
-    const Transform = shift_vm.Op.Transform("get", void, i32);
-    const Choice = shift_vm.Op.Choice("pick", bool, []const u8);
-    const Abort = shift_vm.Op.Abort("fail", []const u8);
+    const Transform = shift_shared.compat.Op.Transform("get", void, i32);
+    const Choice = shift_shared.compat.Op.Choice("pick", bool, []const u8);
+    const Abort = shift_shared.compat.Op.Abort("fail", []const u8);
 
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(Transform));
     try std.testing.expectEqual(@as(usize, 0), @sizeOf(Choice));
@@ -218,9 +195,9 @@ test "lexical root stays executable through shift.effect plus shift.with" {
 }
 
 test "compat kernel stays executable through shift.compat.Program plus shift.compat.run" {
-    const WorkflowProgram = shift_vm.Program(.{
-        .state = shift_vm.Decl.state(i32),
-        .writer = shift_vm.Decl.writer([]const u8),
+    const WorkflowProgram = shift_shared.compat.Program(.{
+        .state = shift_shared.compat.Decl.state(i32),
+        .writer = shift_shared.compat.Decl.writer([]const u8),
     }, struct {
         /// Execute the size-check workflow through the compatibility kernel surface.
         pub fn body(eff: anytype) anyerror![]const u8 {
@@ -231,10 +208,10 @@ test "compat kernel stays executable through shift.compat.Program plus shift.com
         }
     });
 
-    var runtime = shift_vm.Runtime.init(std.testing.allocator);
+    var runtime = shift_shared.lowered_machine_internal.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift_vm.run(&runtime, WorkflowProgram, .{ .state = 3 });
+    const result = try shift_shared.compat.run(&runtime, WorkflowProgram, .{ .state = 3 });
     defer std.testing.allocator.free(result.outputs.writer);
 
     try std.testing.expectEqual(@as(i32, 4), result.outputs.state);

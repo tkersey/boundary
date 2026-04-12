@@ -2,10 +2,8 @@
 
 `shift` now treats the effects-library surface built around `shift.with(...)`
 and `shift.effect.*` as the supported public authored-body story. The
-structural vocabulary and lowering entrypoints live in `shift_compile.ir`,
-`shift_compile.lowering`, and `shift_compile.lower`. The source-lowering
-toolchain remains restricted internal scaffolding beneath that public story,
-and the retained `shift_vm` lane is compatibility-only.
+source-lowering toolchain remains restricted internal scaffolding beneath that
+public story.
 
 The lowered path is only acceptable as hidden support infrastructure beneath
 that surface. Today, that support comes in two internal forms:

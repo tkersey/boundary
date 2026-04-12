@@ -6,7 +6,6 @@ const expected_snapshot =
     \\    "effect",
     \\    "Runtime",
     \\    "RuntimeError",
-    \\    "With",
     \\    "with"
     \\  ]
     \\}

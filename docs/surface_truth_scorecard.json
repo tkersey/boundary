@@ -1,6 +1,6 @@
 {
   "public_kernel": {
-    "contract": "shift.with and shift.effect author against one public runtime rooted at shift.Runtime, while shift_compile and shift_vm carry the compile and compatibility surfaces",
+    "contract": "shift.with and shift.effect author against one public runtime rooted at shift.Runtime, with RuntimeError as the named public failure surface while compile, lowering, ArtifactV1, interpreter, and durable mechanics remain internal engine layers",
     "status": "canonical"
   },
   "benchmark_stability": {

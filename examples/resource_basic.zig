@@ -1,4 +1,4 @@
-const shift = @import("shift_vm");
+const shift = @import("shift");
 const std = @import("std");
 
 const transcript = struct {
@@ -31,29 +31,27 @@ const resource_manager = struct {
     }
 };
 
-const ResourceProgram = shift.Program(.{
-    .resource = shift.Decl.resource([]const u8, resource_manager),
-}, struct {
-    /// Acquire and use two resources through the program scope.
-    pub fn body(eff: anytype) ![]const u8 {
-        const first = try eff.resource.acquire();
-        transcript.note(if (std.mem.eql(u8, first, "a")) "use=a" else "use=b");
-
-        const second = try eff.resource.acquire();
-        transcript.note(if (std.mem.eql(u8, second, "a")) "use=a" else "use=b");
-
-        return "done";
-    }
-});
-
-/// Write the resource-effect transcript through the program kernel.
+/// Write the resource-effect transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     resource_manager.next_index = 0;
     transcript.len = 0;
 
-    const result = try shift.run(&runtime, ResourceProgram, .{});
+    const result = try shift.with(&runtime, .{
+        .resource = shift.effect.resource.use([]const u8, resource_manager),
+    }, struct {
+        /// Acquire and use two resources through the lexical scope.
+        pub fn body(eff: anytype) ![]const u8 {
+            const first = try eff.resource.acquire();
+            transcript.note(if (std.mem.eql(u8, first, "a")) "use=a" else "use=b");
+
+            const second = try eff.resource.acquire();
+            transcript.note(if (std.mem.eql(u8, second, "a")) "use=a" else "use=b");
+
+            return "done";
+        }
+    });
 
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
