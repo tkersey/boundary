@@ -111,6 +111,13 @@ fn lazyPathForSourceFile(b: *std.Build, path: []const u8) std.Build.LazyPath {
 }
 
 fn assertOwnedCompileFailFixtures(b: *std.Build, dir_path: []const u8, fixture_table: anytype) void {
+    var test_dir = std.fs.cwd().openDir(b.pathFromRoot("test"), .{}) catch |err| switch (err) {
+        // Published package layouts intentionally omit the proof-only test corpus.
+        error.FileNotFound => return,
+        else => std.process.fatal("unable to open test fixture directory", .{}),
+    };
+    test_dir.close();
+
     var owned = std.StringHashMap(void).init(b.allocator);
     defer owned.deinit();
 
@@ -1787,12 +1794,13 @@ const PackageRootAlias = struct {
     available: bool,
 };
 
+fn scratchRootPath(b: *std.Build, leaf: []const u8) []const u8 {
+    return std.fs.path.join(b.allocator, &.{ "/tmp", leaf }) catch
+        std.process.fatal("unable to allocate scratch root path", .{});
+}
+
 fn boundaryAliasRoot(b: *std.Build) []const u8 {
-    const repo_root = b.pathFromRoot(".");
-    const repo_parent = std.fs.path.dirname(repo_root) orelse
-        std.process.fatal("unable to derive package-root alias parent", .{});
-    return std.fs.path.join(b.allocator, &.{ repo_parent, ".shift_aliases" }) catch
-        std.process.fatal("unable to allocate package-root alias root", .{});
+    return scratchRootPath(b, ".shift_aliases");
 }
 
 fn externalBoundaryFixtureNamespace(allocator: std.mem.Allocator, repo_root: []const u8) ![]u8 {
@@ -1814,10 +1822,7 @@ fn externalBoundaryFixtureRootPath(allocator: std.mem.Allocator, fixture_root: [
 
 fn externalBoundaryFixtureRoot(b: *std.Build) []const u8 {
     const repo_root = b.pathFromRoot(".");
-    const repo_parent = std.fs.path.dirname(repo_root) orelse
-        std.process.fatal("unable to derive external boundary fixture parent", .{});
-    const fixture_root = std.fs.path.join(b.allocator, &.{ repo_parent, ".shift_external_boundary_fixtures" }) catch
-        std.process.fatal("unable to allocate external boundary fixture root", .{});
+    const fixture_root = scratchRootPath(b, ".shift_external_boundary_fixtures");
     return externalBoundaryFixtureRootPath(b.allocator, fixture_root, repo_root) catch
         std.process.fatal("unable to allocate external boundary fixture root", .{});
 }
@@ -2693,7 +2698,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const private_artifact_vm_runtime_core_mod = b.createModule(.{
+    const private_artifact_vm_core_mod = b.createModule(.{
         .root_source_file = b.path("src/artifact_vm_runtime.zig"),
         .target = target,
         .optimize = optimize,
@@ -2814,12 +2819,12 @@ pub fn build(b: *std.Build) void {
     shift_compile_mod.addImport("shift_shared", shift_shared_mod);
     shift_compile_mod.addImport("shift_compile_api", shift_compile_api_mod);
     private_bundle_envelope_mod.addImport("shift_shared", shift_shared_mod);
-    private_artifact_vm_runtime_core_mod.addImport("shift_shared", shift_shared_mod);
-    private_artifact_vm_runtime_core_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
+    private_artifact_vm_core_mod.addImport("shift_shared", shift_shared_mod);
+    private_artifact_vm_core_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
     shift_vm_mod.addImport("shift_shared", shift_shared_mod);
     shift_vm_mod.addImport("bundle_envelope_v1", private_bundle_envelope_mod);
     shift_vm_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
-    shift_vm_mod.addImport("artifact_vm_runtime", private_artifact_vm_runtime_core_mod);
+    shift_vm_mod.addImport("artifact_vm_runtime", private_artifact_vm_core_mod);
     lowered_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
     lowered_machine_mod.addImport("internal_kernel", internal_kernel_mod);
     lowered_machine_mod.addImport("interpreter", interpreter_mod);
@@ -3370,7 +3375,7 @@ pub fn build(b: *std.Build) void {
         b.allocator,
         &.{ externalBoundaryFixtureRoot(b), "single_front_package_contract" },
     ) catch std.process.fatal("unable to allocate single-front contract fixture root", .{});
-    const single_front_consumer_zon_template =
+    const single_front_zon_template =
         ".{{\n    .name = .single_front_consumer,\n    .version = \"0.0.0\",\n    .dependencies = .{{\n        .shift = .{{ .path = \"shift_dep\" }},\n    }},\n    .minimum_zig_version = \"0.15.2\",\n    .paths = .{{\n        \"build.zig\",\n        \"build.zig.zon\",\n        \"probe.zig\",\n    }},\n    .fingerprint = 0x{x},\n}}\n";
     const single_front_fixture_template =
         \\const std = @import("std");
@@ -3411,10 +3416,6 @@ pub fn build(b: *std.Build) void {
         b.allocator,
         &.{ single_front_success_root, "probe.zig" },
     ) catch std.process.fatal("unable to allocate single-front success probe path", .{});
-    const single_front_success_dep_link = std.fs.path.join(
-        b.allocator,
-        &.{ single_front_success_root, "shift_dep" },
-    ) catch std.process.fatal("unable to allocate single-front success dependency link path", .{});
     const single_front_success_build_src = std.fmt.allocPrint(
         b.allocator,
         single_front_fixture_template,
@@ -3422,10 +3423,10 @@ pub fn build(b: *std.Build) void {
     ) catch std.process.fatal("unable to allocate single-front success build source", .{});
     const single_front_success_zon_src = std.fmt.allocPrint(
         b.allocator,
-        single_front_consumer_zon_template,
+        single_front_zon_template,
         .{@as(u64, 0xf26c26a7555f9af0)},
     ) catch std.process.fatal("unable to allocate single-front success zon", .{});
-    const write_single_front_success_build = addWriteTextFileCommand(
+    const write_single_front_build = addWriteTextFileCommand(
         b,
         single_front_success_build,
         single_front_success_build_src,
@@ -3437,12 +3438,14 @@ pub fn build(b: *std.Build) void {
         single_front_success_zon_src,
         "write-single-front-success-build-zig-zon",
     );
-    const write_single_front_success_probe = addWriteTextFileCommand(
+    const write_single_front_probe = addWriteTextFileCommand(
         b,
         single_front_success_probe,
         \\const shift = @import("shift");
         \\
         \\comptime {
+        \\    _ = shift.Runtime;
+        \\    _ = shift.RuntimeError;
         \\    _ = shift.effect;
         \\    _ = shift.with;
         \\}
@@ -3450,12 +3453,6 @@ pub fn build(b: *std.Build) void {
         \\pub export fn touch() void {}
     ,
         "write-single-front-success-probe",
-    );
-    const write_single_front_success_dep_link = addAbsoluteSymlinkCommand(
-        b,
-        b.pathFromRoot("."),
-        single_front_success_dep_link,
-        "write-single-front-success-shift-dep-link",
     );
     const single_front_hidden_fixtures = [_]struct {
         fingerprint: u64,
@@ -3481,6 +3478,13 @@ pub fn build(b: *std.Build) void {
         "-eu",
         "-c",
         \\dir="$1"
+        \\repo_root="$2"
+        \\dep_dir="$dir/shift_dep"
+        \\rm -rf "$dep_dir"
+        \\mkdir -p "$dep_dir"
+        \\for path in README.md build.zig build.zig.zon repo_zig_paths.txt source_graph_embed.zig src; do
+        \\  ln -s "$repo_root/$path" "$dep_dir/$path"
+        \\done
         \\cache_root="$dir/.zig-contract-cache"
         \\rm -rf "$cache_root"
         \\local="$cache_root/local"
@@ -3495,12 +3499,12 @@ pub fn build(b: *std.Build) void {
         ,
         "sh",
         single_front_success_root,
+        b.pathFromRoot("."),
     });
     single_front_success_cmd.setName("single-front dependency consumer success");
-    single_front_success_cmd.step.dependOn(write_single_front_success_build);
+    single_front_success_cmd.step.dependOn(write_single_front_build);
     single_front_success_cmd.step.dependOn(write_single_front_success_zon);
-    single_front_success_cmd.step.dependOn(write_single_front_success_probe);
-    single_front_success_cmd.step.dependOn(write_single_front_success_dep_link);
+    single_front_success_cmd.step.dependOn(write_single_front_probe);
     single_front_package_step.dependOn(&single_front_success_cmd.step);
     inline for (single_front_hidden_fixtures) |fixture| {
         const fixture_root = std.fs.path.join(
@@ -3519,10 +3523,6 @@ pub fn build(b: *std.Build) void {
             b.allocator,
             &.{ fixture_root, "probe.zig" },
         ) catch std.process.fatal("unable to allocate single-front hidden probe path", .{});
-        const fixture_dep_link = std.fs.path.join(
-            b.allocator,
-            &.{ fixture_root, "shift_dep" },
-        ) catch std.process.fatal("unable to allocate single-front hidden dependency link path", .{});
         const fixture_build_src = std.fmt.allocPrint(
             b.allocator,
             single_front_fixture_template,
@@ -3530,7 +3530,7 @@ pub fn build(b: *std.Build) void {
         ) catch std.process.fatal("unable to allocate single-front hidden build source", .{});
         const fixture_zon_src = std.fmt.allocPrint(
             b.allocator,
-            single_front_consumer_zon_template,
+            single_front_zon_template,
             .{fixture.fingerprint},
         ) catch std.process.fatal("unable to allocate single-front hidden zon", .{});
         const write_fixture_build = addWriteTextFileCommand(
@@ -3556,18 +3556,19 @@ pub fn build(b: *std.Build) void {
             probe_src,
             fixture.step_name ++ "-probe-zig",
         );
-        const write_fixture_dep_link = addAbsoluteSymlinkCommand(
-            b,
-            b.pathFromRoot("."),
-            fixture_dep_link,
-            fixture.step_name ++ "-shift-dep-link",
-        );
         const fixture_cmd = b.addSystemCommand(&.{
             "sh",
             "-eu",
             "-c",
             \\dir="$1"
-            \\module_name="$2"
+            \\repo_root="$2"
+            \\module_name="$3"
+            \\dep_dir="$dir/shift_dep"
+            \\rm -rf "$dep_dir"
+            \\mkdir -p "$dep_dir"
+            \\for path in README.md build.zig build.zig.zon repo_zig_paths.txt source_graph_embed.zig src; do
+            \\  ln -s "$repo_root/$path" "$dep_dir/$path"
+            \\done
             \\cache_root="$dir/.zig-contract-cache"
             \\rm -rf "$cache_root"
             \\local="$cache_root/local"
@@ -3587,13 +3588,13 @@ pub fn build(b: *std.Build) void {
             ,
             "sh",
             fixture_root,
+            b.pathFromRoot("."),
             fixture.module_name,
         });
         fixture_cmd.setName(fixture.step_name);
         fixture_cmd.step.dependOn(write_fixture_build);
         fixture_cmd.step.dependOn(write_fixture_zon);
         fixture_cmd.step.dependOn(write_fixture_probe);
-        fixture_cmd.step.dependOn(write_fixture_dep_link);
         single_front_package_step.dependOn(&fixture_cmd.step);
     }
 
@@ -3770,17 +3771,17 @@ pub fn build(b: *std.Build) void {
         .target = wasm_target,
         .optimize = optimize,
     });
-    const private_bundle_envelope_wasm_mod = b.createModule(.{
+    const private_bundle_env_wasm_mod = b.createModule(.{
         .root_source_file = b.path("src/bundle_envelope_v1.zig"),
         .target = wasm_target,
         .optimize = optimize,
     });
-    const private_host_adapter_v1_wasm_mod = b.createModule(.{
+    const private_host_adapter_wasm_mod = b.createModule(.{
         .root_source_file = b.path("src/host_adapter_v1.zig"),
         .target = wasm_target,
         .optimize = optimize,
     });
-    const private_artifact_vm_runtime_core_wasm_mod = b.createModule(.{
+    const private_artifact_vm_wasm_mod = b.createModule(.{
         .root_source_file = b.path("src/artifact_vm_runtime.zig"),
         .target = wasm_target,
         .optimize = optimize,
@@ -3829,12 +3830,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     shift_vm_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
-    private_bundle_envelope_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
-    private_artifact_vm_runtime_core_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
-    private_artifact_vm_runtime_core_wasm_mod.addImport("host_adapter_v1", private_host_adapter_v1_wasm_mod);
-    shift_vm_wasm_mod.addImport("bundle_envelope_v1", private_bundle_envelope_wasm_mod);
-    shift_vm_wasm_mod.addImport("host_adapter_v1", private_host_adapter_v1_wasm_mod);
-    shift_vm_wasm_mod.addImport("artifact_vm_runtime", private_artifact_vm_runtime_core_wasm_mod);
+    private_bundle_env_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
+    private_artifact_vm_wasm_mod.addImport("shift_shared", shift_shared_wasm_mod);
+    private_artifact_vm_wasm_mod.addImport("host_adapter_v1", private_host_adapter_wasm_mod);
+    shift_vm_wasm_mod.addImport("bundle_envelope_v1", private_bundle_env_wasm_mod);
+    shift_vm_wasm_mod.addImport("host_adapter_v1", private_host_adapter_wasm_mod);
+    shift_vm_wasm_mod.addImport("artifact_vm_runtime", private_artifact_vm_wasm_mod);
     const artifact_vm_wasm_runner_mod = b.createModule(.{
         .root_source_file = b.path("tools/artifact_vm_state_writer_runner.zig"),
         .target = wasm_target,
@@ -4497,7 +4498,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    lexical_with_mod.addImport("shift", lexical_runtime_internal_mod);
+    lexical_with_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     const lexical_with_tests = b.addTest(.{
         .root_module = lexical_with_mod,
     });

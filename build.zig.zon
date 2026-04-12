@@ -15,10 +15,15 @@
     .minimum_zig_version = "0.15.2",
     .paths = .{
         "README.md",
+        "bench",
         "build.zig",
         "build.zig.zon",
+        "examples",
         "repo_zig_paths.txt",
+        "source_graph_embed.zig",
         "src",
+        "test",
+        "tools",
     },
     .fingerprint = 0xa50b3b45523140a3,
 }

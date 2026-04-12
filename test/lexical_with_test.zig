@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const shift = @import("lexical_runtime_internal");
 const std = @import("std");
 
 fn hasErrorName(comptime ErrorSet: type, comptime wanted: []const u8) bool {
