@@ -1,4 +1,3 @@
-const formal_core = @import("formal_core_registry");
 const std = @import("std");
 
 /// One proof-surface family represented in the canonical scenario registry.
@@ -130,7 +129,6 @@ pub const Step = union(enum) {
 pub const WitnessMeta = struct {
     evaluator_case: ?[]const u8,
     forbidden_transcript: ?[]const u8,
-    law_anchor: []const u8,
     runtime_case: []const u8,
     title: []const u8,
     witness_id: []const u8,
@@ -669,7 +667,6 @@ pub const scenarios = [_]Scenario{
         .witness = .{
             .evaluator_case = "reference_eval.atm_resume_transform",
             .forbidden_transcript = "handler-enter\nhandler-after-resume\nfinal=answer=42\n",
-            .law_anchor = formal_core.anchorPath(.atm_resume_transform),
             .runtime_case = "witnesses.atm_resume_transform",
             .title = "ATM resume-then-transform",
             .witness_id = "atm_resume_transform",
@@ -685,7 +682,6 @@ pub const scenarios = [_]Scenario{
         .witness = .{
             .evaluator_case = "reference_eval.direct_return",
             .forbidden_transcript = "final=result=early\n",
-            .law_anchor = formal_core.anchorPath(.direct_return),
             .runtime_case = "witnesses.direct_return",
             .title = "Direct return without continuation exposure",
             .witness_id = "direct_return",
@@ -701,7 +697,6 @@ pub const scenarios = [_]Scenario{
         .witness = .{
             .evaluator_case = "reference_eval.resume_or_return_return_now",
             .forbidden_transcript = "final=result=early\n",
-            .law_anchor = formal_core.anchorPath(.optional_resumption),
             .runtime_case = "witnesses.resume_or_return_return_now",
             .title = "Optional resumption chooses direct return",
             .witness_id = "resume_or_return_return_now",
@@ -717,7 +712,6 @@ pub const scenarios = [_]Scenario{
         .witness = .{
             .evaluator_case = "reference_eval.resume_or_return_resume",
             .forbidden_transcript = "handler-decide-resume\nhandler-after-resume\nfinal=answer=42\n",
-            .law_anchor = formal_core.anchorPath(.optional_resumption),
             .runtime_case = "witnesses.resume_or_return_resume",
             .title = "Optional resumption chooses single resume",
             .witness_id = "resume_or_return_resume",
@@ -733,7 +727,6 @@ pub const scenarios = [_]Scenario{
         .witness = .{
             .evaluator_case = "reference_eval.static_redelim",
             .forbidden_transcript = "outer-handler-enter\nafter-outer-shift\nouter-handler-exit\nfinal=12\n",
-            .law_anchor = formal_core.anchorPath(.static_redelim),
             .runtime_case = "witnesses.static_redelim",
             .title = "Static re-delimitation against control/prompt",
             .witness_id = "static_redelim",
@@ -749,7 +742,6 @@ pub const scenarios = [_]Scenario{
         .witness = .{
             .evaluator_case = "reference_eval.multi_prompt",
             .forbidden_transcript = "outer-before-inner\ninner-before\ninner-after\nouter-after-inner\nfinal=42\n",
-            .law_anchor = formal_core.anchorPath(.multi_prompt_separation),
             .runtime_case = "witnesses.multi_prompt",
             .title = "Prompt-value separation",
             .witness_id = "multi_prompt",
@@ -765,7 +757,6 @@ pub const scenarios = [_]Scenario{
         .witness = .{
             .evaluator_case = null,
             .forbidden_transcript = null,
-            .law_anchor = formal_core.anchorPath(.practical_witnesses),
             .runtime_case = "witnesses.generator",
             .title = "Generator",
             .witness_id = "generator",

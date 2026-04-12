@@ -1,16 +1,16 @@
 /// Private benchmark-only runtime facade that preserves the historical
 /// benchmark call surface without widening the public root API.
+const effect_root = @import("effect/root.zig");
 const internal_algebraic = @import("internal/algebraic_engine.zig");
 const lowered_machine = @import("lowered_machine");
 const prompt_support = @import("internal/prompt_support.zig");
-const shift_root = @import("root.zig");
 
 /// Benchmark-visible runtime shell.
-pub const Runtime = shift_root.Runtime;
+pub const Runtime = lowered_machine.Runtime;
 /// Benchmark-visible runtime error surface.
-pub const RuntimeError = shift_root.RuntimeError;
+pub const RuntimeError = lowered_machine.RuntimeError;
 /// Benchmark-visible lexical effect namespace.
-pub const effect = shift_root.effect;
+pub const effect = effect_root;
 
 /// Benchmark-visible explicit frontend helpers.
 pub const frontend = prompt_support.frontend;

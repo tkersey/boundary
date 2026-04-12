@@ -4,7 +4,6 @@ const std = @import("std");
 /// Semantic manifest entry for one active witness in the current rung.
 pub const WitnessEntry = struct {
     witness_id: []const u8,
-    law_anchor: []const u8,
     evaluator_case: ?[]const u8,
     runtime_case: []const u8,
     required_transcript: []const u8,
@@ -16,7 +15,6 @@ fn witnessEntry(witness_id: []const u8) WitnessEntry {
     const witness = scenario.witness.?;
     return .{
         .witness_id = witness.witness_id,
-        .law_anchor = witness.law_anchor,
         .evaluator_case = witness.evaluator_case,
         .runtime_case = witness.runtime_case,
         .required_transcript = scenario.expected_transcript,

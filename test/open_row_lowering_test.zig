@@ -1289,6 +1289,7 @@ test "file-backed validation rejects repo-relative symlink helper imports that c
 
 test "generated validate rejects file-backed helper-body drift against its compile-time snapshot" {
     const fixture_path = "examples/open_row_cross_file_helpers.zig";
+    const snapshot_source = comptime example_open_row_cross_file_writer.loweringSource().imported_sources[0].content;
     const ProgramType = shift.lowering.lowerAt(
         "examples/open_row_cross_file_writer.zig",
         example_open_row_cross_file_writer.loweringSpec(),
@@ -1299,6 +1300,10 @@ test "generated validate rejects file-backed helper-body drift against its compi
         .sub_path = fixture_path,
         .data = original,
     }) catch unreachable;
+    try std.fs.cwd().writeFile(.{
+        .sub_path = fixture_path,
+        .data = snapshot_source,
+    });
 
     var initial_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer initial_arena.deinit();
