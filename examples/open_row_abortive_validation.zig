@@ -1,4 +1,4 @@
-const shift = @import("shift_vm");
+const shift = @import("shift");
 const std = @import("std");
 
 const transcript = struct {
@@ -13,20 +13,11 @@ const guard_handler = struct {
     }
 };
 
-const GuardDecl = shift.Decl.family(.{
+const Guard = shift.effect.Define(.{
     .state_type = void,
     .ops = .{
-        shift.Op.Abort("fail", []const u8),
+        shift.effect.ops.Abort("fail", []const u8),
     },
-}, guard_handler);
-
-const ValidationProgram = shift.Program(.{
-    .guard = GuardDecl,
-}, struct {
-    /// Trigger the validation abort directly.
-    pub fn body(eff: anytype) ![]const u8 {
-        try eff.guard.fail.abort("missing-name");
-    }
 });
 
 /// Render the abortive-validation transcript.
@@ -36,7 +27,14 @@ pub fn run(writer: anytype) anyerror!void {
 
     transcript.abort_line = "";
     try writer.writeAll("validate=name\n");
-    const result = try shift.run(&runtime, ValidationProgram, .{ .guard = guard_handler{} });
+    const result = try shift.with(&runtime, .{
+        .guard = Guard.use(.{ .handler = guard_handler{} }),
+    }, struct {
+        /// Trigger the validation abort directly.
+        pub fn body(eff: anytype) ![]const u8 {
+            try eff.guard.fail.abort("missing-name");
+        }
+    });
     try writer.print("abort={s}\n", .{transcript.abort_line});
     try writer.print("final={s}\n", .{result.value});
 }

@@ -1,4 +1,4 @@
-const shift = @import("shift_vm");
+const shift = @import("shift");
 const std = @import("std");
 
 const transcript = struct {
@@ -15,15 +15,15 @@ const PickerHandler = struct {
     branch: enum { resume_with, return_now },
 
     /// Choose the configured branch.
-    pub fn pick(self: *@This(), payload: i32) !shift.Decision(i32, []const u8) {
+    pub fn pick(self: *@This(), payload: i32) !shift.effect.choice.Decision(i32, []const u8) {
         return switch (self.branch) {
             .return_now => blk: {
                 transcript.note("policy-return-now");
-                break :blk shift.Decision(i32, []const u8).returnNow("result=early");
+                break :blk shift.effect.choice.Decision(i32, []const u8).returnNow("result=early");
             },
             .resume_with => blk: {
                 transcript.note("policy-resume");
-                break :blk shift.Decision(i32, []const u8).resumeWith(payload);
+                break :blk shift.effect.choice.Decision(i32, []const u8).resumeWith(payload);
             },
         };
     }
@@ -35,27 +35,11 @@ const PickerHandler = struct {
     }
 };
 
-const PickerDecl = shift.Decl.family(.{
+const Picker = shift.effect.Define(.{
     .state_type = void,
     .ops = .{
-        shift.Op.Choice("pick", i32, i32),
+        shift.effect.ops.Choice("pick", i32, i32),
     },
-}, PickerHandler);
-
-const PickerProgram = shift.Program(.{
-    .picker = PickerDecl,
-}, struct {
-    /// Trigger the choice point and complete the configured branch.
-    pub fn body(eff: anytype) ![]const u8 {
-        return try eff.picker.pick.perform(41, struct {
-            /// Resume the continuation with the canonical final answer.
-            pub fn apply(value: i32, _: anytype) ![]const u8 {
-                if (value != 41) unreachable;
-                transcript.note("body-after-pick");
-                return "answer=42";
-            }
-        });
-    }
 });
 
 /// Render the choice example transcript.
@@ -65,8 +49,20 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=return_now\n");
     transcript.len = 0;
-    const early = try shift.run(&runtime, PickerProgram, .{
-        .picker = PickerHandler{ .branch = .return_now },
+    const early = try shift.with(&runtime, .{
+        .picker = Picker.use(.{ .handler = PickerHandler{ .branch = .return_now } }),
+    }, struct {
+        /// Trigger the choice point and complete the configured branch.
+        pub fn body(eff: anytype) ![]const u8 {
+            return try eff.picker.pick.perform(41, struct {
+                /// Resume the continuation with the canonical final answer.
+                pub fn apply(value: i32, _: anytype) ![]const u8 {
+                    if (value != 41) unreachable;
+                    transcript.note("body-after-pick");
+                    return "answer=42";
+                }
+            });
+        }
     });
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
@@ -75,8 +71,20 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=resume_with\n");
     transcript.len = 0;
-    const resumed = try shift.run(&runtime, PickerProgram, .{
-        .picker = PickerHandler{ .branch = .resume_with },
+    const resumed = try shift.with(&runtime, .{
+        .picker = Picker.use(.{ .handler = PickerHandler{ .branch = .resume_with } }),
+    }, struct {
+        /// Trigger the choice point and complete the configured branch.
+        pub fn body(eff: anytype) ![]const u8 {
+            return try eff.picker.pick.perform(41, struct {
+                /// Resume the continuation with the canonical final answer.
+                pub fn apply(value: i32, _: anytype) ![]const u8 {
+                    if (value != 41) unreachable;
+                    transcript.note("body-after-pick");
+                    return "answer=42";
+                }
+            });
+        }
     });
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});

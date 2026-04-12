@@ -1,47 +1,47 @@
-/// Exact-build bundle envelope helpers over ArtifactV1 bytes.
+/// Retained internal exact-build bundle envelope helpers over ArtifactV1 bytes.
 pub const bundle = @import("bundle_envelope_v1");
-/// Typed HostAdapterV1 request/result/logging boundary.
+/// Retained internal HostAdapterV1 request/result/logging boundary.
 pub const host_adapter = @import("host_adapter_v1");
-/// Synchronous ArtifactV1 runtime execution over HostAdapterV1.
+/// Retained internal synchronous ArtifactV1 runtime execution over HostAdapterV1.
 pub const runtime = @import("artifact_vm_runtime");
 const shared = @import("shift_shared");
 
-/// ArtifactV1 encoding and decoding helpers shared with `shift_compile`.
+/// Retained internal ArtifactV1 encoding and decoding helpers shared with `shift_compile`.
 pub const artifact = shared.artifact;
-/// Public ArtifactV1 binary representation.
+/// Retained internal ArtifactV1 binary representation.
 pub const ArtifactV1 = artifact.ArtifactV1;
-/// Public capability-manifest metadata carried by ArtifactV1.
+/// Retained internal capability-manifest metadata carried by ArtifactV1.
 pub const CapabilityManifestV1 = artifact.CapabilityManifestV1;
-/// Public capability descriptor carried by ArtifactV1.
+/// Retained internal capability descriptor carried by ArtifactV1.
 pub const CapabilityV1 = artifact.CapabilityV1;
-/// Public capability-op descriptor carried by ArtifactV1.
+/// Retained internal capability-op descriptor carried by ArtifactV1.
 pub const CapabilityOpV1 = artifact.CapabilityOpV1;
-/// Public capability kind tag carried by ArtifactV1.
+/// Retained internal capability kind tag carried by ArtifactV1.
 pub const CapabilityKind = artifact.CapabilityKind;
-/// Public capability codec tag carried by ArtifactV1.
+/// Retained internal capability codec tag carried by ArtifactV1.
 pub const CapabilityCodecV1 = artifact.CapabilityCodecV1;
 
-/// Explicit compatibility namespace for the retained front-door runtime shell.
+/// Retained internal compatibility namespace for the old front-door runtime shell.
 pub const compat = shared.compat;
-/// Public durable session helpers over the interpreter core.
+/// Retained internal durable session helpers over the interpreter core.
 pub const durable = shared.durable;
-/// Public explicit interpreter state and step helpers.
+/// Retained internal explicit interpreter state and step helpers.
 pub const interpreter = shared.interpreter;
-/// Stable public error-witness schema.
+/// Retained internal error-witness schema.
 pub const ErrorWitnessV1 = shared.ErrorWitnessV1;
-/// Canonical runtime handle for explicit VM execution.
+/// Retained internal runtime handle for explicit VM execution.
 pub const Runtime = shared.Runtime;
-/// Public runtime misuse and semantic-contract errors surfaced by `shift_vm`.
+/// Retained internal runtime misuse and semantic-contract errors surfaced by `shift_vm`.
 pub const RuntimeError = shared.RuntimeError;
-/// Public declaration namespace.
+/// Retained internal declaration namespace.
 pub const Decl = shared.Decl;
-/// Public op-descriptor namespace.
+/// Retained internal op-descriptor namespace.
 pub const Op = shared.Op;
-/// Root-level choice-decision helper for the retained front-door API.
+/// Retained internal choice-decision helper for the old explicit front-door API.
 pub const Decision = shared.Decision;
-/// Public program builder.
+/// Retained internal program builder.
 pub const Program = shared.Program;
-/// Run one program with explicit runtime ownership and bindings.
+/// Retained internal explicit program runner.
 pub const run = shared.run;
 
 test {

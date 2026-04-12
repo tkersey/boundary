@@ -1,7 +1,7 @@
-const artifact = @import("shift_shared").artifact;
+const artifact = @import("artifact_api");
 const host = @import("host_adapter_v1");
-const lowered_machine = @import("shift_shared").lowered_machine_internal;
-const program_plan = @import("shift_shared").internal_program_plan;
+const lowered_machine = @import("lowered_machine");
+const program_plan = @import("internal_program_plan");
 const std = @import("std");
 
 const capability_global_tool_call = "tool.call";

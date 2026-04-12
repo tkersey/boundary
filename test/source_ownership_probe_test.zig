@@ -38,6 +38,16 @@ test "public root drops compile entrypoints while shift_compile keeps provenance
     try std.testing.expect(!@hasDecl(shift, "lowerAt"));
     try std.testing.expect(!@hasDecl(shift, "lower"));
     try std.testing.expect(!@hasDecl(shift, "lowering"));
+    try std.testing.expect(!@hasDecl(shift, "compat"));
+    try std.testing.expect(!@hasDecl(shift, "Decl"));
+    try std.testing.expect(!@hasDecl(shift, "Op"));
+    try std.testing.expect(!@hasDecl(shift, "Decision"));
+    try std.testing.expect(!@hasDecl(shift, "Program"));
+    try std.testing.expect(!@hasDecl(shift, "run"));
+    try std.testing.expect(!@hasDecl(shift, "artifact"));
+    try std.testing.expect(!@hasDecl(shift, "durable"));
+    try std.testing.expect(!@hasDecl(shift, "interpreter"));
+    try std.testing.expect(!@hasDecl(shift, "ir"));
     try std.testing.expect(@hasDecl(shift_compile, "lower"));
     try std.testing.expect(@hasDecl(shift_compile, "lowering"));
     try std.testing.expect(@hasDecl(shift_compile.lowering, "lowerAt"));

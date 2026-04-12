@@ -1,5 +1,5 @@
 const conformance = @import("host_adapter_v1_conformance");
-const host = @import("shift_vm").host_adapter;
+const host = @import("host_adapter_v1");
 const std = @import("std");
 
 test "host adapter conformance helper enforces sequential ids and tool echo" {

@@ -1,5 +1,5 @@
 const effect_ir = @import("effect_ir");
-const public_lowering = @import("public_lowering.zig");
+const public_lowering = @import("public_lowering");
 
 /// Preserve the prior effect_ir namespace while layering public compile helpers on top.
 pub const ControlMode = effect_ir.ControlMode;

@@ -1,4 +1,4 @@
-const host = @import("shift_vm").host_adapter;
+const host = @import("host_adapter_v1");
 const std = @import("std");
 
 /// Assert that request ids are strictly sequential and echoed by results.

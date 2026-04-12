@@ -1,6 +1,5 @@
-const artifact = @import("shift_shared").artifact;
-const compile_shared = @import("shift_shared");
-const lowering = compile_shared.lowering;
+const artifact = @import("artifact_api");
+const lowering = @import("public_lowering");
 const std = @import("std");
 
 /// Compile-time options for ArtifactV1 emission and default capability derivation.

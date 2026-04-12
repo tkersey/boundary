@@ -1,33 +1,31 @@
-const shift = @import("shift_vm");
+const shift = @import("shift");
 const std = @import("std");
-
-const GeneratorProgram = shift.Program(.{
-    .state = shift.Decl.state(i32),
-    .writer = shift.Decl.writer([]const u8),
-}, struct {
-    /// Emit three yielded values and return the final counter.
-    pub fn body(eff: anytype) anyerror!i32 {
-        while (true) {
-            const current = try eff.state.get();
-            if (current == 3) return current;
-            const next = current + 1;
-            try eff.state.set(next);
-            const line = switch (next) {
-                1 => "yield=1",
-                2 => "yield=2",
-                3 => "yield=3",
-                else => unreachable,
-            };
-            try eff.writer.tell(line);
-        }
-    }
-});
 
 fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
     var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
-    const result = try shift.run(&runtime, GeneratorProgram, .{ .state = 0 });
+    const result = try shift.with(&runtime, .{
+        .state = shift.effect.state.use(@as(i32, 0)),
+        .writer = shift.effect.writer.use([]const u8, allocator),
+    }, struct {
+        /// Emit three yielded values and return the final counter.
+        pub fn body(eff: anytype) anyerror!i32 {
+            while (true) {
+                const current = try eff.state.get();
+                if (current == 3) return current;
+                const next = current + 1;
+                try eff.state.set(next);
+                const line = switch (next) {
+                    1 => "yield=1",
+                    2 => "yield=2",
+                    3 => "yield=3",
+                    else => unreachable,
+                };
+                try eff.writer.tell(line);
+            }
+        }
+    });
     defer allocator.free(result.outputs.writer);
 
     for (result.outputs.writer) |item| {

@@ -23,12 +23,17 @@ second public story.
 
 ## Examples
 
-Representative examples live under `examples/`.
+The ordinary user-facing examples live under `examples/`.
 
 - `zig build run-state-basic`
 - `zig build run-optional-basic`
 - `zig build run-exception-basic`
 - `zig build run-resource-basic`
+
+Retained lowering, hosted-runtime, and proof fixtures also live under `examples/`
+for maintainer workflows. Those files are executable and tested, but they are not
+the ordinary public API story and should not be read as a second supported front
+door.
 
 ## Verification
 

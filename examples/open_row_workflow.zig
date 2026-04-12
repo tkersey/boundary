@@ -1,4 +1,4 @@
-const shift = @import("shift_vm");
+const shift = @import("shift");
 const std = @import("std");
 
 const transcript = struct {
@@ -22,9 +22,9 @@ const search_handler = struct {
 
 const approval_handler = struct {
     /// Approve publication through the workflow example.
-    pub fn publish(_: *@This()) shift.Decision([]const u8, []const u8) {
+    pub fn publish(_: *@This()) shift.effect.choice.Decision([]const u8, []const u8) {
         transcript.approval_line = "approval=publish";
-        return shift.Decision([]const u8, []const u8).returnNow("completed");
+        return shift.effect.choice.Decision([]const u8, []const u8).returnNow("completed");
     }
 
     /// Preserve the resumed workflow result unchanged.
@@ -33,40 +33,18 @@ const approval_handler = struct {
     }
 };
 
-const SearchDecl = shift.Decl.family(.{
+const Search = shift.effect.Define(.{
     .state_type = struct {},
     .ops = .{
-        shift.Op.Transform("search", []const u8, i32),
+        shift.effect.ops.Transform("search", []const u8, i32),
     },
-}, search_handler);
+});
 
-const ApprovalDecl = shift.Decl.family(.{
+const Approval = shift.effect.Define(.{
     .state_type = void,
     .ops = .{
-        shift.Op.Choice("publish", void, []const u8),
+        shift.effect.ops.Choice("publish", void, []const u8),
     },
-}, approval_handler);
-
-const WorkflowProgram = shift.Program(.{
-    .state = shift.Decl.state(i32),
-    .writer = shift.Decl.writer([]const u8),
-    .search = SearchDecl,
-    .approval = ApprovalDecl,
-}, struct {
-    /// Run the composite workflow.
-    pub fn body(eff: anytype) ![]const u8 {
-        const total = try eff.search.search.perform("artifact-search");
-        try eff.writer.tell("query=artifact-search");
-        const before = try eff.state.get();
-        try eff.state.set(before + total);
-        try eff.writer.tell("workflow=queued");
-        return try eff.approval.publish.perform(struct {
-            /// The return-now branch must skip the continuation.
-            pub fn apply(_: []const u8, _: anytype) ![]const u8 {
-                unreachable;
-            }
-        });
-    }
 });
 
 fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
@@ -75,10 +53,26 @@ fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void
 
     transcript.search_line = "";
     transcript.approval_line = "";
-    const result = try shift.run(&runtime, WorkflowProgram, .{
-        .state = 0,
-        .search = search_handler{},
-        .approval = approval_handler{},
+    const result = try shift.with(&runtime, .{
+        .state = shift.effect.state.use(@as(i32, 0)),
+        .writer = shift.effect.writer.use([]const u8, allocator),
+        .search = Search.use(.{ .handler = search_handler{} }),
+        .approval = Approval.use(.{ .handler = approval_handler{} }),
+    }, struct {
+        /// Run the composite workflow.
+        pub fn body(eff: anytype) ![]const u8 {
+            const total = try eff.search.search.perform("artifact-search");
+            try eff.writer.tell("query=artifact-search");
+            const before = try eff.state.get();
+            try eff.state.set(before + total);
+            try eff.writer.tell("workflow=queued");
+            return try eff.approval.publish.perform(struct {
+                /// The return-now branch must skip the continuation.
+                pub fn apply(_: []const u8, _: anytype) ![]const u8 {
+                    unreachable;
+                }
+            });
+        }
     });
     defer allocator.free(result.outputs.writer);
 

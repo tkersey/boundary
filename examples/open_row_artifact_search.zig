@@ -1,4 +1,4 @@
-const shift = @import("shift_vm");
+const shift = @import("shift");
 const std = @import("std");
 
 const transcript = struct {
@@ -25,26 +25,11 @@ const search_handler = struct {
     }
 };
 
-const SearchDecl = shift.Decl.family(.{
+const Search = shift.effect.Define(.{
     .state_type = struct {},
     .ops = .{
-        shift.Op.Transform("search", []const u8, i32),
+        shift.effect.ops.Transform("search", []const u8, i32),
     },
-}, search_handler);
-
-const ArtifactSearchProgram = shift.Program(.{
-    .search = SearchDecl,
-}, struct {
-    /// Trigger the search operation and emit the canonical transcript fields.
-    pub fn body(eff: anytype) anyerror!i32 {
-        const total = try eff.search.search.perform("artifact-search");
-        if (total != 3) unreachable;
-        transcript.note("messages=1");
-        transcript.note("tool_calls=0");
-        transcript.note("memory_blocks=1");
-        transcript.note("opencode_source=jsonl");
-        return total;
-    }
 });
 
 /// Render the artifact-search transcript.
@@ -53,7 +38,20 @@ pub fn run(writer: anytype) anyerror!void {
     defer runtime.deinit();
 
     transcript.len = 0;
-    const result = try shift.run(&runtime, ArtifactSearchProgram, .{ .search = search_handler{} });
+    const result = try shift.with(&runtime, .{
+        .search = Search.use(.{ .handler = search_handler{} }),
+    }, struct {
+        /// Trigger the search operation and emit the canonical transcript fields.
+        pub fn body(eff: anytype) anyerror!i32 {
+            const total = try eff.search.search.perform("artifact-search");
+            if (total != 3) unreachable;
+            transcript.note("messages=1");
+            transcript.note("tool_calls=0");
+            transcript.note("memory_blocks=1");
+            transcript.note("opencode_source=jsonl");
+            return total;
+        }
+    });
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }

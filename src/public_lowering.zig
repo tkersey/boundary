@@ -3915,11 +3915,23 @@ test "executeLoweredDispatch runs choice ops across resume and return-now branch
     const PickerHandler = struct {
         branch: enum { resume_with, return_now },
         after_calls: usize = 0,
+        const TestDecision = union(enum) {
+            resume_with: []const u8,
+            return_now: []const u8,
 
-        pub fn pick(self: *@This()) anyerror!@import("program_api.zig").Decision([]const u8, []const u8) {
+            fn resumeWith(value: []const u8) @This() {
+                return .{ .resume_with = value };
+            }
+
+            fn returnNow(value: []const u8) @This() {
+                return .{ .return_now = value };
+            }
+        };
+
+        pub fn pick(self: *@This()) anyerror!TestDecision {
             return switch (self.branch) {
-                .resume_with => @import("program_api.zig").Decision([]const u8, []const u8).resumeWith("answer=42"),
-                .return_now => @import("program_api.zig").Decision([]const u8, []const u8).returnNow("result=early"),
+                .resume_with => TestDecision.resumeWith("answer=42"),
+                .return_now => TestDecision.returnNow("result=early"),
             };
         }
 
@@ -4637,9 +4649,17 @@ test "executeLoweredDispatch unwinds caller after handlers across terminal helpe
     const Handlers = struct {
         picker: struct {
             after_calls: usize = 0,
+            const TestDecision = union(enum) {
+                resume_with: []const u8,
+                return_now: []const u8,
 
-            pub fn pick(_: *@This()) anyerror!@import("program_api.zig").Decision([]const u8, []const u8) {
-                return @import("program_api.zig").Decision([]const u8, []const u8).resumeWith("answer=42");
+                fn resumeWith(value: []const u8) @This() {
+                    return .{ .resume_with = value };
+                }
+            };
+
+            pub fn pick(_: *@This()) anyerror!TestDecision {
+                return TestDecision.resumeWith("answer=42");
             }
 
             pub fn afterPick(self: *@This(), answer: []const u8) anyerror![]const u8 {

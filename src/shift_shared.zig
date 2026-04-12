@@ -1,12 +1,12 @@
-const artifact_api = @import("agent_vm_artifact.zig");
+const artifact_api = @import("artifact_api");
 const compat_api = @import("compat.zig");
 const durable_api = @import("durable.zig");
 const effect_root = @import("effect/root.zig");
 const error_witness = @import("error_witness");
 const interpreter_api = @import("interpreter");
 const lowered_machine = @import("lowered_machine");
-const public_ir = @import("public_ir.zig");
-const public_lowering = @import("public_lowering.zig");
+const public_ir = @import("public_ir");
+const public_lowering = @import("public_lowering");
 const with_api = @import("with_api.zig");
 
 /// Shared ArtifactV1 codec and helpers used by the retained public roots.

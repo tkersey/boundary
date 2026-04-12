@@ -1,4 +1,4 @@
-const artifact = @import("shift_shared").artifact;
+const artifact = @import("artifact_api");
 const std = @import("std");
 
 /// One exact-build handoff envelope carrying ArtifactV1 bytes.

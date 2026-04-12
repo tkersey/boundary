@@ -2368,6 +2368,21 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const artifact_api_mod = b.createModule(.{
+        .root_source_file = b.path("src/agent_vm_artifact.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const public_ir_mod = b.createModule(.{
+        .root_source_file = b.path("src/public_ir.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const public_lowering_mod = b.createModule(.{
+        .root_source_file = b.path("src/public_lowering.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const shift_compile_api_mod = b.createModule(.{
         .root_source_file = b.path("src/shift_compile_api.zig"),
         .target = target,
@@ -2394,7 +2409,7 @@ pub fn build(b: *std.Build) void {
         "default_artifact_build_fingerprint",
         defaultArtifactBuildFingerprint(b, target, optimize),
     );
-    shift_shared_mod.addOptions("artifact_build_options", artifact_build_options);
+    artifact_api_mod.addOptions("artifact_build_options", artifact_build_options);
     const portable_core_mod = b.createModule(.{
         .root_source_file = b.path("src/portable_core.zig"),
         .target = target,
@@ -2494,12 +2509,15 @@ pub fn build(b: *std.Build) void {
     shift_mod.addImport("interpreter", interpreter_mod);
     shift_mod.addImport("source_graph_engine", source_graph_engine_mod);
     shift_mod.addImport("source_graph_comptime", source_graph_comptime_mod);
-    shift_compile_api_mod.addImport("shift_shared", shift_shared_mod);
+    artifact_api_mod.addImport("internal_program_plan", internal_program_plan_mod);
+    shift_compile_api_mod.addImport("artifact_api", artifact_api_mod);
     shift_compile_mod.addImport("shift_shared", shift_shared_mod);
     shift_compile_mod.addImport("shift_compile_api", shift_compile_api_mod);
-    private_bundle_envelope_mod.addImport("shift_shared", shift_shared_mod);
-    private_artifact_vm_core_mod.addImport("shift_shared", shift_shared_mod);
+    private_bundle_envelope_mod.addImport("artifact_api", artifact_api_mod);
+    private_artifact_vm_core_mod.addImport("artifact_api", artifact_api_mod);
     private_artifact_vm_core_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
+    private_artifact_vm_core_mod.addImport("internal_program_plan", internal_program_plan_mod);
+    private_artifact_vm_core_mod.addImport("lowered_machine", lowered_machine_mod);
     shift_vm_mod.addImport("shift_shared", shift_shared_mod);
     shift_vm_mod.addImport("bundle_envelope_v1", private_bundle_envelope_mod);
     shift_vm_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
@@ -2629,7 +2647,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     witness_sources_mod.addImport("lowered_machine", lowered_machine_mod);
-    witness_sources_mod.addImport("shift", shift_shared_mod);
+    witness_sources_mod.addImport("shift", shift_mod);
     witness_sources_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
     witness_sources_mod.addImport("frontend_support", frontend_support_mod);
     witnesses_mod.addImport("witness_sources", witness_sources_mod);
@@ -2684,7 +2702,20 @@ pub fn build(b: *std.Build) void {
     source_lowering_mod.addImport("error_witness", error_witness_mod);
     source_lowering_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
     source_lowering_mod.addImport("shipped_open_row_corpus_registry", shipped_open_row_corpus_mod);
+    public_lowering_mod.addImport("authoring_build_options", authoring_build_options_mod);
+    public_lowering_mod.addImport("effect_ir", effect_ir_mod);
+    public_lowering_mod.addImport("lowered_machine", lowered_machine_mod);
+    public_lowering_mod.addImport("program_frontend", program_frontend_mod);
+    public_lowering_mod.addImport("internal_program_plan", internal_program_plan_mod);
+    public_lowering_mod.addImport("source_graph_embed", source_graph_embed_mod);
+    public_lowering_mod.addImport("source_graph_comptime", source_graph_comptime_mod);
+    public_lowering_mod.addImport("source_graph_engine", source_graph_engine_mod);
+    public_lowering_mod.addImport("source_lowering", source_lowering_mod);
+    public_ir_mod.addImport("effect_ir", effect_ir_mod);
+    public_ir_mod.addImport("public_lowering", public_lowering_mod);
+    shift_compile_api_mod.addImport("public_lowering", public_lowering_mod);
     shift_mod.addImport("source_lowering", source_lowering_mod);
+    shift_shared_mod.addImport("artifact_api", artifact_api_mod);
     shift_shared_mod.addImport("portable_core", portable_core_mod);
     shift_shared_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
     shift_shared_mod.addImport("frontend_support", frontend_support_mod);
@@ -2702,6 +2733,8 @@ pub fn build(b: *std.Build) void {
     shift_shared_mod.addImport("source_graph_embed", source_graph_embed_mod);
     shift_shared_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
     shift_shared_mod.addImport("source_lowering", source_lowering_mod);
+    shift_shared_mod.addImport("public_ir", public_ir_mod);
+    shift_shared_mod.addImport("public_lowering", public_lowering_mod);
     witnesses_mod.addImport("private_lowered_runtime", private_lowered_runtime_mod);
     const reference_eval_mod = b.createModule(.{
         .root_source_file = b.path("src/reference_eval.zig"),
@@ -2813,7 +2846,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    witness_mod.addImport("shift", shift_shared_mod);
+    witness_mod.addImport("shift", shift_mod);
     witness_mod.addImport("reference_eval", reference_eval_mod);
     witness_mod.addImport("reference_machine", reference_machine_mod);
     witness_mod.addImport("witnesses", witnesses_mod);
@@ -2829,7 +2862,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    runtime_contract_mod.addImport("shift", shift_shared_mod);
+    runtime_contract_mod.addImport("shift", shift_mod);
     runtime_contract_mod.addImport("prompt_support", prompt_support_mod);
     runtime_contract_mod.addImport("runtime_contract_registry", b.createModule(.{
         .root_source_file = b.path("src/runtime_contract_registry.zig"),
@@ -2911,6 +2944,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    host_adapter_runtime_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
     host_adapter_runtime_mod.addImport("shift_vm", shift_vm_mod);
     artifact_vm_runtime_mod.addImport("shift", shift_mod);
     artifact_vm_runtime_mod.addImport("host_adapter_v1_conformance", host_adapter_runtime_mod);
@@ -2965,12 +2999,14 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    host_adapter_impl_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
     host_adapter_impl_mod.addImport("shift_vm", shift_vm_mod);
     const host_adapter_conformance_mod = b.createModule(.{
         .root_source_file = b.path("test/host_adapter_v1_conformance_test.zig"),
         .target = target,
         .optimize = optimize,
     });
+    host_adapter_conformance_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
     host_adapter_conformance_mod.addImport("shift_vm", shift_vm_mod);
     host_adapter_conformance_mod.addImport("host_adapter_v1_conformance", host_adapter_impl_mod);
     const host_adapter_conformance_tests = b.addTest(.{
@@ -3080,7 +3116,7 @@ pub fn build(b: *std.Build) void {
     });
     source_lowering_boundary_mod.addImport("source_lowering_registry", source_lowering_registry_mod);
     source_lowering_boundary_mod.addImport("source_lowering", source_lowering_mod);
-    source_lowering_boundary_mod.addImport("shift", shift_shared_mod);
+    source_lowering_boundary_mod.addImport("shift", shift_mod);
     const src_lower_boundary_tests = b.addTest(.{
         .root_module = source_lowering_boundary_mod,
     });
