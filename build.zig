@@ -33,6 +33,29 @@ fn absolutizeZlinterRuntimePaths(b: *std.Build) void {
     b.graph.zig_lib_directory.path = absolutizeGraphDirPath(b, b.graph.zig_lib_directory.path);
 }
 
+fn globalCacheRootPath(b: *std.Build) []const u8 {
+    return b.graph.global_cache_root.path orelse
+        std.process.fatal("expected absolute global cache root", .{});
+}
+
+fn tempRootPath(b: *std.Build) []const u8 {
+    const env_names = switch (builtin.os.tag) {
+        .windows => &[_][]const u8{ "TMP", "TEMP" },
+        else => &[_][]const u8{ "TMPDIR", "TMP", "TEMP" },
+    };
+    for (env_names) |name| {
+        const value = std.process.getEnvVarOwned(b.allocator, name) catch |err| switch (err) {
+            error.EnvironmentVariableNotFound => continue,
+            else => continue,
+        };
+        if (value.len != 0) return value;
+    }
+    return switch (builtin.os.tag) {
+        .windows => "C:\\Temp",
+        else => "/tmp",
+    };
+}
+
 fn createShiftConsumerModule(
     b: *std.Build,
     path: []const u8,
@@ -1795,7 +1818,7 @@ const PackageRootAlias = struct {
 };
 
 fn scratchRootPath(b: *std.Build, leaf: []const u8) []const u8 {
-    return std.fs.path.join(b.allocator, &.{ "/tmp", leaf }) catch
+    return std.fs.path.join(b.allocator, &.{ tempRootPath(b), leaf }) catch
         std.process.fatal("unable to allocate scratch root path", .{});
 }
 
@@ -3479,17 +3502,21 @@ pub fn build(b: *std.Build) void {
         "-c",
         \\dir="$1"
         \\repo_root="$2"
+        \\parent_global="$3"
         \\dep_dir="$dir/shift_dep"
         \\rm -rf "$dep_dir"
         \\mkdir -p "$dep_dir"
         \\for path in README.md build.zig build.zig.zon repo_zig_paths.txt source_graph_embed.zig src; do
         \\  ln -s "$repo_root/$path" "$dep_dir/$path"
         \\done
-        \\cache_root="$dir/.zig-contract-cache"
-        \\rm -rf "$cache_root"
+        \\cache_root="$(mktemp -d "${TMPDIR:-/tmp}/shift-single-front-cache.XXXXXX")"
+        \\trap 'rm -rf "$cache_root"' EXIT INT TERM
         \\local="$cache_root/local"
         \\global="$cache_root/global"
         \\mkdir -p "$local" "$global"
+        \\if [ -d "$parent_global/p" ] && [ ! -e "$global/p" ]; then
+        \\  cp -R "$parent_global/p" "$global/p"
+        \\fi
         \\log="$dir/build.log"
         \\cd "$dir"
         \\zig build --cache-dir "$local" --global-cache-dir "$global" >"$log" 2>&1 || {
@@ -3500,6 +3527,7 @@ pub fn build(b: *std.Build) void {
         "sh",
         single_front_success_root,
         b.pathFromRoot("."),
+        globalCacheRootPath(b),
     });
     single_front_success_cmd.setName("single-front dependency consumer success");
     single_front_success_cmd.step.dependOn(write_single_front_build);
@@ -3563,17 +3591,21 @@ pub fn build(b: *std.Build) void {
             \\dir="$1"
             \\repo_root="$2"
             \\module_name="$3"
+            \\parent_global="$4"
             \\dep_dir="$dir/shift_dep"
             \\rm -rf "$dep_dir"
             \\mkdir -p "$dep_dir"
             \\for path in README.md build.zig build.zig.zon repo_zig_paths.txt source_graph_embed.zig src; do
             \\  ln -s "$repo_root/$path" "$dep_dir/$path"
             \\done
-            \\cache_root="$dir/.zig-contract-cache"
-            \\rm -rf "$cache_root"
+            \\cache_root="$(mktemp -d "${TMPDIR:-/tmp}/shift-single-front-cache.XXXXXX")"
+            \\trap 'rm -rf "$cache_root"' EXIT INT TERM
             \\local="$cache_root/local"
             \\global="$cache_root/global"
             \\mkdir -p "$local" "$global"
+            \\if [ -d "$parent_global/p" ] && [ ! -e "$global/p" ]; then
+            \\  cp -R "$parent_global/p" "$global/p"
+            \\fi
             \\log="$dir/build.log"
             \\cd "$dir"
             \\if zig build --cache-dir "$local" --global-cache-dir "$global" >"$log" 2>&1; then
@@ -3590,6 +3622,7 @@ pub fn build(b: *std.Build) void {
             fixture_root,
             b.pathFromRoot("."),
             fixture.module_name,
+            globalCacheRootPath(b),
         });
         fixture_cmd.setName(fixture.step_name);
         fixture_cmd.step.dependOn(write_fixture_build);
