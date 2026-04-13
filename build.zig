@@ -3003,6 +3003,25 @@ test "build invocation step detection ignores option values" {
     try std.testing.expect(buildInvocationRequestsStepInArgs(&maxrss_args, "source-lower"));
 }
 
+test "build invocation step detection ignores long prefix values before non-test steps" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--prefix",
+        "test",
+        "lint",
+        "--",
+        "--max-warnings",
+        "0",
+    };
+    try std.testing.expect(!buildInvocationRequestsStepInArgs(&args, "test"));
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "lint"));
+}
+
 test "build invocation step detection finds explicit test step after options" {
     const args = [_][]const u8{
         "build-helper",
