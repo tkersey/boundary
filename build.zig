@@ -59,6 +59,60 @@ fn emptyTestFilters(allocator: std.mem.Allocator) !TestFilterArgs {
     };
 }
 
+fn buildInvocationArgConsumesNextValue(arg: []const u8) bool {
+    return std.mem.eql(u8, arg, "-p") or
+        std.mem.eql(u8, arg, "--prefix") or
+        std.mem.eql(u8, arg, "--prefix-lib-dir") or
+        std.mem.eql(u8, arg, "--prefix-exe-dir") or
+        std.mem.eql(u8, arg, "--prefix-include-dir") or
+        std.mem.eql(u8, arg, "--color") or
+        std.mem.eql(u8, arg, "--summary") or
+        std.mem.eql(u8, arg, "--maxrss") or
+        std.mem.eql(u8, arg, "--libc-runtimes") or
+        std.mem.eql(u8, arg, "--debounce") or
+        std.mem.eql(u8, arg, "--search-prefix") or
+        std.mem.eql(u8, arg, "--sysroot") or
+        std.mem.eql(u8, arg, "--libc") or
+        std.mem.eql(u8, arg, "--system") or
+        std.mem.eql(u8, arg, "--build-file") or
+        std.mem.eql(u8, arg, "--cache-dir") or
+        std.mem.eql(u8, arg, "--global-cache-dir") or
+        std.mem.eql(u8, arg, "--zig-lib-dir") or
+        std.mem.eql(u8, arg, "--build-runner") or
+        std.mem.eql(u8, arg, "--seed") or
+        std.mem.eql(u8, arg, "--debug-log") or
+        std.mem.eql(u8, arg, "--release") or
+        std.mem.eql(u8, arg, "--fetch") or
+        std.mem.eql(u8, arg, "--webui") or
+        std.mem.eql(u8, arg, "-freference-trace") or
+        std.mem.eql(u8, arg, "--build-id") or
+        std.mem.eql(u8, arg, "--verbose-llvm-ir") or
+        std.mem.eql(u8, arg, "--verbose-llvm-bc");
+}
+
+fn buildInvocationRequestsStepInArgs(args: []const []const u8, step_name: []const u8) bool {
+    var index: usize = @min(args.len, 6);
+    while (index < args.len) {
+        const arg = args[index];
+        if (std.mem.eql(u8, arg, "--")) break;
+        if (arg.len == 0) {
+            index += 1;
+            continue;
+        }
+        if (buildInvocationArgConsumesNextValue(arg)) {
+            index += @min(@as(usize, 2), args.len - index);
+            continue;
+        }
+        if (arg[0] == '-') {
+            index += 1;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, step_name)) return true;
+        index += 1;
+    }
+    return false;
+}
+
 fn buildInvocationRequestsStep(step_name: []const u8) bool {
     const args = std.process.argsAlloc(std.heap.page_allocator) catch
         std.process.fatal("unable to inspect build invocation args", .{});
@@ -67,15 +121,7 @@ fn buildInvocationRequestsStep(step_name: []const u8) bool {
     // The generated build executable receives:
     // argv[0] = build helper exe
     // argv[1..6] = zig_exe, zig_lib_dir, build_root, local_cache_root, global_cache_root
-    var index: usize = @min(args.len, 6);
-    while (index < args.len) : (index += 1) {
-        const arg = args[index];
-        if (std.mem.eql(u8, arg, "--")) break;
-        if (arg.len == 0) continue;
-        if (arg[0] == '-') continue;
-        if (std.mem.eql(u8, arg, step_name)) return true;
-    }
-    return false;
+    return buildInvocationRequestsStepInArgs(args, step_name);
 }
 
 fn findTestSuiteIndex(id: []const u8, specs: []const TestSuiteSpec) ?usize {
@@ -138,13 +184,35 @@ fn testSuiteIdListAlloc(allocator: std.mem.Allocator, specs: []const TestSuiteSp
     return try out.toOwnedSlice(allocator);
 }
 
-fn requireTestSuiteSelection(
+fn parseRequestedTestSuiteSelectionAlloc(
+    allocator: std.mem.Allocator,
+    raw: ?[]const u8,
+    specs: []const TestSuiteSpec,
+    test_requested: bool,
+) !TestSuiteSelectionResult {
+    return parseTestSuiteSelectionAlloc(allocator, if (test_requested) raw else null, specs);
+}
+
+fn resolveTestSuiteSelection(
     b: *std.Build,
     raw: ?[]const u8,
     specs: []const TestSuiteSpec,
+    test_requested: bool,
 ) ?TestSuiteSelection {
-    const selection_result = parseTestSuiteSelectionAlloc(b.allocator, raw, specs) catch |err|
+    const selection_result = parseRequestedTestSuiteSelectionAlloc(
+        b.allocator,
+        raw,
+        specs,
+        test_requested,
+    ) catch |err|
         std.process.fatal("unable to parse -Dtest-suites: {s}", .{@errorName(err)});
+
+    if (!test_requested) {
+        return switch (selection_result) {
+            .selection => |selection| selection,
+            else => unreachable,
+        };
+    }
 
     switch (selection_result) {
         .selection => |selection| return selection,
@@ -2675,6 +2743,27 @@ test "test suite selection rejects unknown suite ids" {
     }
 }
 
+test "test suite selection ignores raw option when test step not requested" {
+    const specs = [_]TestSuiteSpec{
+        .{ .suite_id = "alpha", .description = "alpha suite" },
+        .{ .suite_id = "beta", .description = "beta suite" },
+    };
+    const result = try parseRequestedTestSuiteSelectionAlloc(
+        std.testing.allocator,
+        "does-not-exist",
+        &specs,
+        false,
+    );
+    switch (result) {
+        .selection => |selection| {
+            defer selection.deinit();
+            try std.testing.expect(selection.isEnabled(0));
+            try std.testing.expect(selection.isEnabled(1));
+        },
+        else => return error.UnexpectedSelectionParseResult,
+    }
+}
+
 test "test filter args accept split and equals forms" {
     const result = try parseTestFiltersAlloc(
         std.testing.allocator,
@@ -2702,6 +2791,55 @@ test "test filter args reject unknown post-double-dash flags" {
 test "test filter args reject missing patterns" {
     const result = try parseTestFiltersAlloc(std.testing.allocator, &.{"--test-filter"});
     try std.testing.expect(result == .missing_pattern);
+}
+
+test "build invocation step detection ignores option values" {
+    const prefix_args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "-p",
+        "test",
+        "source-lower",
+        "--",
+        "--bogus",
+    };
+    try std.testing.expect(!buildInvocationRequestsStepInArgs(&prefix_args, "test"));
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&prefix_args, "source-lower"));
+
+    const maxrss_args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--maxrss",
+        "test",
+        "source-lower",
+    };
+    try std.testing.expect(!buildInvocationRequestsStepInArgs(&maxrss_args, "test"));
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&maxrss_args, "source-lower"));
+}
+
+test "build invocation step detection finds explicit test step after options" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--summary",
+        "none",
+        "test",
+        "--",
+        "--test-filter=alpha",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
 }
 
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.
@@ -3596,7 +3734,7 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "lexical-witness", .description = "Lexical witness suite", .run_step = run_lexical_witness_tests },
         .{ .suite_id = "lexical-with", .description = "Lexical with suite", .run_step = run_lexical_with_tests },
     };
-    const test_suite_selection = requireTestSuiteSelection(b, test_suites_raw, &test_suites) orelse return;
+    const test_suite_selection = resolveTestSuiteSelection(b, test_suites_raw, &test_suites, test_requested) orelse return;
     defer test_suite_selection.deinit();
     addSelectedTestSuites(test_step, &test_suites, test_suite_selection);
 
