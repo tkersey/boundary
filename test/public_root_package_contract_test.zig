@@ -1,4 +1,5 @@
 const build_options = @import("build_options");
+const builtin = @import("builtin");
 const std = @import("std");
 
 fn writeTmpFile(dir: std.fs.Dir, path: []const u8, contents: []const u8) !void {
@@ -11,11 +12,17 @@ fn writeTmpFile(dir: std.fs.Dir, path: []const u8, contents: []const u8) !void {
     try writer.interface.flush();
 }
 
-fn runChild(cwd_dir: std.fs.Dir, allocator: std.mem.Allocator, argv: []const []const u8) !std.process.Child.RunResult {
+fn runChild(
+    cwd_dir: std.fs.Dir,
+    allocator: std.mem.Allocator,
+    argv: []const []const u8,
+    env_map: ?*const std.process.EnvMap,
+) !std.process.Child.RunResult {
     return try std.process.Child.run(.{
         .allocator = allocator,
         .argv = argv,
         .cwd_dir = cwd_dir,
+        .env_map = env_map,
         .max_output_bytes = 32 * 1024,
     });
 }
@@ -52,8 +59,9 @@ fn runChildWithFingerprintRepair(
     cwd_dir: std.fs.Dir,
     allocator: std.mem.Allocator,
     argv: []const []const u8,
+    env_map: ?*const std.process.EnvMap,
 ) !std.process.Child.RunResult {
-    const result = try runChild(cwd_dir, allocator, argv);
+    const result = try runChild(cwd_dir, allocator, argv, env_map);
 
     switch (result.term) {
         .Exited => |code| if (code != 0) {
@@ -61,7 +69,7 @@ fn runChildWithFingerprintRepair(
             try rewriteBuildZonFingerprint(cwd_dir, allocator, suggested);
             allocator.free(result.stdout);
             allocator.free(result.stderr);
-            return try runChild(cwd_dir, allocator, argv);
+            return try runChild(cwd_dir, allocator, argv, env_map);
         },
         else => {},
     }
@@ -69,8 +77,13 @@ fn runChildWithFingerprintRepair(
     return result;
 }
 
-fn runChildExpectSuccess(cwd_dir: std.fs.Dir, allocator: std.mem.Allocator, argv: []const []const u8) !void {
-    const result = try runChildWithFingerprintRepair(cwd_dir, allocator, argv);
+fn runChildExpectSuccess(
+    cwd_dir: std.fs.Dir,
+    allocator: std.mem.Allocator,
+    argv: []const []const u8,
+    env_map: ?*const std.process.EnvMap,
+) !void {
+    const result = try runChildWithFingerprintRepair(cwd_dir, allocator, argv, env_map);
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
@@ -86,9 +99,10 @@ fn runChildExpectFailureContains(
     cwd_dir: std.fs.Dir,
     allocator: std.mem.Allocator,
     argv: []const []const u8,
+    env_map: ?*const std.process.EnvMap,
     needle: []const u8,
 ) !void {
-    const result = try runChildWithFingerprintRepair(cwd_dir, allocator, argv);
+    const result = try runChildWithFingerprintRepair(cwd_dir, allocator, argv, env_map);
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
@@ -107,6 +121,22 @@ fn runChildExpectFailureContains(
 
 fn zigBuildArgv() [2][]const u8 {
     return .{ build_options.zig_exe, "build" };
+}
+
+fn writeFakeZigOnPath(tmp: *std.testing.TmpDir) ![]const u8 {
+    try tmp.dir.makePath("shadow-bin");
+    const fake_name = if (builtin.os.tag == .windows) "shadow-bin/zig.bat" else "shadow-bin/zig";
+    const fake_contents = if (builtin.os.tag == .windows)
+        "@echo off\r\necho FAKE-ZIG-IN-PATH 1>&2\r\nexit /b 97\r\n"
+    else
+        "#!/bin/sh\nprintf 'FAKE-ZIG-IN-PATH\\n' >&2\nexit 97\n";
+    try writeTmpFile(tmp.dir, fake_name, fake_contents);
+    if (builtin.os.tag != .windows) {
+        var fake_file = try tmp.dir.openFile(fake_name, .{});
+        defer fake_file.close();
+        try fake_file.chmod(0o755);
+    }
+    return "shadow-bin";
 }
 
 fn writeConsumerBuildFiles(tmp: *std.testing.TmpDir, repo_root: []const u8) !void {
@@ -135,7 +165,7 @@ fn writeConsumerBuildFiles(tmp: *std.testing.TmpDir, repo_root: []const u8) !voi
     try writeTmpFile(tmp.dir, "build.zig.zon", build_zon);
 }
 
-test "downstream consumer can import only the root shift module and root hides specialist symbols" {
+test "downstream consumer can import only the root shift module even when PATH shadows zig" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -189,7 +219,11 @@ test "downstream consumer can import only the root shift module and root hides s
     );
 
     const argv = zigBuildArgv();
-    try runChildExpectSuccess(tmp.dir, std.testing.allocator, &argv);
+    const shadow_path = try writeFakeZigOnPath(&tmp);
+    var env_map = try std.process.getEnvMap(std.testing.allocator);
+    defer env_map.deinit();
+    try env_map.put("PATH", shadow_path);
+    try runChildExpectSuccess(tmp.dir, std.testing.allocator, &argv, &env_map);
 }
 
 test "downstream consumer cannot request shift_compile as a package module" {
@@ -231,5 +265,5 @@ test "downstream consumer cannot request shift_compile as a package module" {
     );
 
     const argv = zigBuildArgv();
-    try runChildExpectFailureContains(tmp.dir, std.testing.allocator, &argv, "shift_compile");
+    try runChildExpectFailureContains(tmp.dir, std.testing.allocator, &argv, null, "shift_compile");
 }
