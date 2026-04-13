@@ -10,6 +10,274 @@ const ShiftConsumerDeps = struct {
     shift_vm_mod: ?*std.Build.Module = null,
 };
 
+const TestSuiteSpec = struct {
+    suite_id: []const u8,
+    description: []const u8,
+    run_step: ?*std.Build.Step.Run = null,
+};
+
+const TestSuiteSelection = struct {
+    allocator: std.mem.Allocator,
+    enabled: []bool,
+
+    fn deinit(self: @This()) void {
+        self.allocator.free(self.enabled);
+    }
+
+    fn isEnabled(self: @This(), index: usize) bool {
+        return self.enabled[index];
+    }
+};
+
+const TestSuiteSelectionResult = union(enum) {
+    duplicate: []const u8,
+    empty_token,
+    selection: TestSuiteSelection,
+    unknown: []const u8,
+};
+
+const TestFilterArgs = struct {
+    allocator: std.mem.Allocator,
+    items: []const []const u8,
+
+    fn deinit(self: @This()) void {
+        self.allocator.free(self.items);
+    }
+};
+
+const TestFilterParseResult = union(enum) {
+    empty_pattern,
+    filters: TestFilterArgs,
+    missing_pattern,
+    unknown_arg: []const u8,
+};
+
+fn emptyTestFilters(allocator: std.mem.Allocator) !TestFilterArgs {
+    return .{
+        .allocator = allocator,
+        .items = try allocator.alloc([]const u8, 0),
+    };
+}
+
+fn buildInvocationRequestsStep(step_name: []const u8) bool {
+    const args = std.process.argsAlloc(std.heap.page_allocator) catch
+        std.process.fatal("unable to inspect build invocation args", .{});
+    defer std.process.argsFree(std.heap.page_allocator, args);
+
+    // The generated build executable receives:
+    // argv[0] = build helper exe
+    // argv[1..6] = zig_exe, zig_lib_dir, build_root, local_cache_root, global_cache_root
+    var index: usize = @min(args.len, 6);
+    while (index < args.len) : (index += 1) {
+        const arg = args[index];
+        if (std.mem.eql(u8, arg, "--")) break;
+        if (arg.len == 0) continue;
+        if (arg[0] == '-') continue;
+        if (std.mem.eql(u8, arg, step_name)) return true;
+    }
+    return false;
+}
+
+fn findTestSuiteIndex(id: []const u8, specs: []const TestSuiteSpec) ?usize {
+    for (specs, 0..) |spec, index| {
+        if (std.mem.eql(u8, spec.suite_id, id)) return index;
+    }
+    return null;
+}
+
+fn parseTestSuiteSelectionAlloc(
+    allocator: std.mem.Allocator,
+    raw: ?[]const u8,
+    specs: []const TestSuiteSpec,
+) !TestSuiteSelectionResult {
+    const enabled = try allocator.alloc(bool, specs.len);
+    errdefer allocator.free(enabled);
+
+    if (raw == null) {
+        @memset(enabled, true);
+        return .{ .selection = .{
+            .allocator = allocator,
+            .enabled = enabled,
+        } };
+    }
+
+    @memset(enabled, false);
+    var iter = std.mem.splitScalar(u8, raw.?, ',');
+    while (iter.next()) |item| {
+        const token = std.mem.trim(u8, item, " \t\r\n");
+        if (token.len == 0) {
+            allocator.free(enabled);
+            return .empty_token;
+        }
+        const index = findTestSuiteIndex(token, specs) orelse {
+            allocator.free(enabled);
+            return .{ .unknown = token };
+        };
+        if (enabled[index]) {
+            allocator.free(enabled);
+            return .{ .duplicate = specs[index].suite_id };
+        }
+        enabled[index] = true;
+    }
+
+    return .{ .selection = .{
+        .allocator = allocator,
+        .enabled = enabled,
+    } };
+}
+
+fn testSuiteIdListAlloc(allocator: std.mem.Allocator, specs: []const TestSuiteSpec) ![]u8 {
+    var out = std.ArrayList(u8).empty;
+    errdefer out.deinit(allocator);
+
+    for (specs, 0..) |spec, index| {
+        if (index != 0) try out.appendSlice(allocator, ", ");
+        try out.appendSlice(allocator, spec.suite_id);
+    }
+
+    return try out.toOwnedSlice(allocator);
+}
+
+fn requireTestSuiteSelection(
+    b: *std.Build,
+    raw: ?[]const u8,
+    specs: []const TestSuiteSpec,
+) ?TestSuiteSelection {
+    const selection_result = parseTestSuiteSelectionAlloc(b.allocator, raw, specs) catch |err|
+        std.process.fatal("unable to parse -Dtest-suites: {s}", .{@errorName(err)});
+
+    switch (selection_result) {
+        .selection => |selection| return selection,
+        .empty_token => {
+            const supported = testSuiteIdListAlloc(b.allocator, specs) catch |err|
+                std.process.fatal("unable to list supported test suite ids: {s}", .{@errorName(err)});
+            std.log.err(
+                "Expected -Dtest-suites to be a comma-separated list of exact suite ids without empty entries. Supported ids: {s}",
+                .{supported},
+            );
+        },
+        .duplicate => |id| {
+            const supported = testSuiteIdListAlloc(b.allocator, specs) catch |err|
+                std.process.fatal("unable to list supported test suite ids: {s}", .{@errorName(err)});
+            std.log.err(
+                "Duplicate test suite id in -Dtest-suites: '{s}'. Supported ids: {s}",
+                .{ id, supported },
+            );
+        },
+        .unknown => |id| {
+            const supported = testSuiteIdListAlloc(b.allocator, specs) catch |err|
+                std.process.fatal("unable to list supported test suite ids: {s}", .{@errorName(err)});
+            std.log.err(
+                "Unknown test suite id in -Dtest-suites: '{s}'. Supported ids: {s}",
+                .{ id, supported },
+            );
+        },
+    }
+    b.invalid_user_input = true;
+    return null;
+}
+
+fn addSelectedTestSuites(
+    test_step: *std.Build.Step,
+    specs: []const TestSuiteSpec,
+    selection: TestSuiteSelection,
+) void {
+    for (specs, 0..) |spec, index| {
+        if (!selection.isEnabled(index)) continue;
+        const run_step = spec.run_step.?;
+        test_step.dependOn(&run_step.step);
+    }
+}
+
+fn parseTestFiltersAlloc(
+    allocator: std.mem.Allocator,
+    args: ?[]const []const u8,
+) !TestFilterParseResult {
+    const raw_args = args orelse &.{};
+    var filter_count: usize = 0;
+    var index: usize = 0;
+    while (index < raw_args.len) {
+        const arg = raw_args[index];
+        if (std.mem.eql(u8, arg, "--test-filter")) {
+            if (index + 1 >= raw_args.len) return .missing_pattern;
+            if (raw_args[index + 1].len == 0) return .empty_pattern;
+            filter_count += 1;
+            index += 2;
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--test-filter=")) {
+            if (arg["--test-filter=".len..].len == 0) return .empty_pattern;
+            filter_count += 1;
+            index += 1;
+            continue;
+        }
+        return .{ .unknown_arg = arg };
+    }
+
+    const filters = try allocator.alloc([]const u8, filter_count);
+    errdefer allocator.free(filters);
+    index = 0;
+    var filter_index: usize = 0;
+    while (index < raw_args.len) {
+        const arg = raw_args[index];
+        if (std.mem.eql(u8, arg, "--test-filter")) {
+            filters[filter_index] = raw_args[index + 1];
+            filter_index += 1;
+            index += 2;
+            continue;
+        }
+        filters[filter_index] = arg["--test-filter=".len..];
+        filter_index += 1;
+        index += 1;
+    }
+
+    return .{ .filters = .{
+        .allocator = allocator,
+        .items = filters,
+    } };
+}
+
+fn requireTestFilters(
+    b: *std.Build,
+    args: ?[]const []const u8,
+    test_requested: bool,
+) ?TestFilterArgs {
+    const parse_result = parseTestFiltersAlloc(b.allocator, args) catch |err|
+        std.process.fatal("unable to parse test filter args: {s}", .{@errorName(err)});
+
+    switch (parse_result) {
+        .filters => |filters| return filters,
+        .unknown_arg => |arg| if (!test_requested) {
+            return emptyTestFilters(b.allocator) catch |err|
+                std.process.fatal("unable to initialize empty test filters: {s}", .{@errorName(err)});
+        } else std.log.err(
+            "Unsupported post-`--` argument for `zig build test`: '{s}'. Supported forms: --test-filter <pattern> or --test-filter=<pattern>.",
+            .{arg},
+        ),
+        .missing_pattern => std.log.err(
+            "Expected a pattern after '--test-filter' in `zig build test -- ...`.",
+            .{},
+        ),
+        .empty_pattern => std.log.err(
+            "Expected '--test-filter' to contain a non-empty pattern in `zig build test -- ...`.",
+            .{},
+        ),
+    }
+    b.invalid_user_input = true;
+    return null;
+}
+
+fn addFilteredTest(
+    b: *std.Build,
+    root_module: *std.Build.Module,
+    filters: []const []const u8,
+) *std.Build.Step.Compile {
+    return b.addTest(.{
+        .root_module = root_module,
+        .filters = filters,
+    });
+}
+
 fn absolutizeGraphDirPath(b: *std.Build, maybe_path: ?[]const u8) ?[]const u8 {
     const path = maybe_path orelse return null;
     if (std.fs.path.isAbsolute(path)) return path;
@@ -2340,10 +2608,114 @@ test "repo Zig path registry ignores deleted tracked files" {
     , registry);
 }
 
+test "test suite selection accepts trimmed multi-suite lists" {
+    const specs = [_]TestSuiteSpec{
+        .{ .suite_id = "alpha", .description = "alpha suite" },
+        .{ .suite_id = "beta", .description = "beta suite" },
+        .{ .suite_id = "gamma", .description = "gamma suite" },
+    };
+    const result = try parseTestSuiteSelectionAlloc(std.testing.allocator, " alpha, gamma ", &specs);
+    switch (result) {
+        .selection => |selection| {
+            defer selection.deinit();
+            try std.testing.expect(selection.isEnabled(0));
+            try std.testing.expect(!selection.isEnabled(1));
+            try std.testing.expect(selection.isEnabled(2));
+        },
+        else => return error.UnexpectedSelectionParseResult,
+    }
+}
+
+test "test suite selection defaults to all suites when unspecified" {
+    const specs = [_]TestSuiteSpec{
+        .{ .suite_id = "alpha", .description = "alpha suite" },
+        .{ .suite_id = "beta", .description = "beta suite" },
+    };
+    const result = try parseTestSuiteSelectionAlloc(std.testing.allocator, null, &specs);
+    switch (result) {
+        .selection => |selection| {
+            defer selection.deinit();
+            try std.testing.expect(selection.isEnabled(0));
+            try std.testing.expect(selection.isEnabled(1));
+        },
+        else => return error.UnexpectedSelectionParseResult,
+    }
+}
+
+test "test suite selection rejects empty tokens" {
+    const specs = [_]TestSuiteSpec{
+        .{ .suite_id = "alpha", .description = "alpha suite" },
+        .{ .suite_id = "beta", .description = "beta suite" },
+    };
+    const result = try parseTestSuiteSelectionAlloc(std.testing.allocator, "alpha,,beta", &specs);
+    try std.testing.expect(result == .empty_token);
+}
+
+test "test suite selection rejects duplicate suite ids" {
+    const specs = [_]TestSuiteSpec{
+        .{ .suite_id = "alpha", .description = "alpha suite" },
+        .{ .suite_id = "beta", .description = "beta suite" },
+    };
+    const result = try parseTestSuiteSelectionAlloc(std.testing.allocator, "alpha, alpha", &specs);
+    switch (result) {
+        .duplicate => |id| try std.testing.expectEqualStrings("alpha", id),
+        else => return error.UnexpectedSelectionParseResult,
+    }
+}
+
+test "test suite selection rejects unknown suite ids" {
+    const specs = [_]TestSuiteSpec{
+        .{ .suite_id = "alpha", .description = "alpha suite" },
+        .{ .suite_id = "beta", .description = "beta suite" },
+    };
+    const result = try parseTestSuiteSelectionAlloc(std.testing.allocator, "alpha, gamma", &specs);
+    switch (result) {
+        .unknown => |id| try std.testing.expectEqualStrings("gamma", id),
+        else => return error.UnexpectedSelectionParseResult,
+    }
+}
+
+test "test filter args accept split and equals forms" {
+    const result = try parseTestFiltersAlloc(
+        std.testing.allocator,
+        &.{ "--test-filter", "alpha beta", "--test-filter=gamma" },
+    );
+    switch (result) {
+        .filters => |filters| {
+            defer filters.deinit();
+            try std.testing.expectEqual(@as(usize, 2), filters.items.len);
+            try std.testing.expectEqualStrings("alpha beta", filters.items[0]);
+            try std.testing.expectEqualStrings("gamma", filters.items[1]);
+        },
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "test filter args reject unknown post-double-dash flags" {
+    const result = try parseTestFiltersAlloc(std.testing.allocator, &.{"--verbose"});
+    switch (result) {
+        .unknown_arg => |arg| try std.testing.expectEqualStrings("--verbose", arg),
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "test filter args reject missing patterns" {
+    const result = try parseTestFiltersAlloc(std.testing.allocator, &.{"--test-filter"});
+    try std.testing.expect(result == .missing_pattern);
+}
+
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const test_suites_raw = b.option(
+        []const u8,
+        "test-suites",
+        "Restrict `zig build test` to a comma-separated list of exact suite ids.",
+    );
+    const test_requested = buildInvocationRequestsStep("test");
+    const test_filters = requireTestFilters(b, b.args, test_requested) orelse return;
+    defer test_filters.deinit();
     const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
 
     absolutizeZlinterRuntimePaths(b);
@@ -2780,13 +3152,15 @@ pub fn build(b: *std.Build) void {
     lib_check.root_module.addImport("error_witness", error_witness_mod);
     check_step.dependOn(&lib_check.step);
 
-    const root_tests = b.addTest(.{
-        .root_module = b.createModule(.{
+    const root_tests = addFilteredTest(
+        b,
+        b.createModule(.{
             .root_source_file = b.path("src/root.zig"),
             .target = target,
             .optimize = optimize,
         }),
-    });
+        test_filters.items,
+    );
     root_tests.root_module.addImport("shift_shared", shift_shared_mod);
     root_tests.root_module.addImport("effect_ir", effect_ir_mod);
     root_tests.root_module.addImport("interpreter", interpreter_mod);
@@ -2807,32 +3181,33 @@ pub fn build(b: *std.Build) void {
     root_tests.root_module.addImport("frontend_support", frontend_support_mod);
     const run_root_tests = b.addRunArtifact(root_tests);
     const test_step = b.step("test", "Run the default shift proof surface.");
-    test_step.dependOn(&run_root_tests.step);
 
-    const frontend_internal_tests = b.addTest(.{
-        .root_module = b.createModule(.{
+    const frontend_internal_tests = addFilteredTest(
+        b,
+        b.createModule(.{
             .root_source_file = b.path("src/frontend.zig"),
             .target = target,
             .optimize = optimize,
         }),
-    });
+        test_filters.items,
+    );
     frontend_internal_tests.root_module.addImport("lowered_machine", lowered_machine_mod);
     frontend_internal_tests.root_module.addImport("portable_core", portable_core_mod);
     frontend_internal_tests.root_module.addImport("prompt_contract_support", prompt_contract_support_mod);
     const run_frontend_internal_tests = b.addRunArtifact(frontend_internal_tests);
-    test_step.dependOn(&run_frontend_internal_tests.step);
 
-    const internal_program_plan_tests = b.addTest(.{
-        .root_module = b.createModule(.{
+    const internal_program_plan_tests = addFilteredTest(
+        b,
+        b.createModule(.{
             .root_source_file = b.path("test/program_plan_review_regression_test.zig"),
             .target = target,
             .optimize = optimize,
         }),
-    });
+        test_filters.items,
+    );
     internal_program_plan_tests.root_module.addImport("internal_program_plan", internal_program_plan_mod);
     internal_program_plan_tests.root_module.addImport("effect_ir", effect_ir_mod);
     const run_plan_review_tests = b.addRunArtifact(internal_program_plan_tests);
-    test_step.dependOn(&run_plan_review_tests.step);
 
     const witness_mod = b.createModule(.{
         .root_source_file = b.path("test/witness_corpus_test.zig"),
@@ -2844,11 +3219,8 @@ pub fn build(b: *std.Build) void {
     witness_mod.addImport("reference_machine", reference_machine_mod);
     witness_mod.addImport("witnesses", witnesses_mod);
     witness_mod.addImport("parity_scenarios", parity_scenarios_mod);
-    const witness_tests = b.addTest(.{
-        .root_module = witness_mod,
-    });
+    const witness_tests = addFilteredTest(b, witness_mod, test_filters.items);
     const run_witness_tests = b.addRunArtifact(witness_tests);
-    test_step.dependOn(&run_witness_tests.step);
 
     const runtime_contract_mod = b.createModule(.{
         .root_source_file = b.path("test/runtime_contract_suite.zig"),
@@ -2862,11 +3234,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     }));
-    const runtime_contract_tests = b.addTest(.{
-        .root_module = runtime_contract_mod,
-    });
+    const runtime_contract_tests = addFilteredTest(b, runtime_contract_mod, test_filters.items);
     const run_runtime_contract_tests = b.addRunArtifact(runtime_contract_tests);
-    test_step.dependOn(&run_runtime_contract_tests.step);
 
     const prompt_token_contract_mod = b.createModule(.{
         .root_source_file = b.path("test/prompt_token_contract_test.zig"),
@@ -2875,21 +3244,15 @@ pub fn build(b: *std.Build) void {
     });
     prompt_token_contract_mod.addImport("portable_core", portable_core_mod);
     prompt_token_contract_mod.addImport("prompt_support", prompt_support_mod);
-    const prompt_token_tests = b.addTest(.{
-        .root_module = prompt_token_contract_mod,
-    });
+    const prompt_token_tests = addFilteredTest(b, prompt_token_contract_mod, test_filters.items);
     const run_prompt_token_tests = b.addRunArtifact(prompt_token_tests);
-    test_step.dependOn(&run_prompt_token_tests.step);
     const portability_contract_mod = b.createModule(.{
         .root_source_file = b.path("test/portability_contract_test.zig"),
         .target = target,
         .optimize = optimize,
     });
-    const portability_contract_tests = b.addTest(.{
-        .root_module = portability_contract_mod,
-    });
+    const portability_contract_tests = addFilteredTest(b, portability_contract_mod, test_filters.items);
     const run_portability_contract_tests = b.addRunArtifact(portability_contract_tests);
-    test_step.dependOn(&run_portability_contract_tests.step);
     const public_root_pkg_contract_mod = b.createModule(.{
         .root_source_file = b.path("test/public_root_package_contract_test.zig"),
         .target = target,
@@ -2898,11 +3261,8 @@ pub fn build(b: *std.Build) void {
     const root_pkg_opts = b.addOptions();
     root_pkg_opts.addOption([:0]const u8, "zig_exe", b.graph.zig_exe);
     public_root_pkg_contract_mod.addOptions("build_options", root_pkg_opts);
-    const public_root_pkg_contract_tests = b.addTest(.{
-        .root_module = public_root_pkg_contract_mod,
-    });
+    const public_root_pkg_contract_tests = addFilteredTest(b, public_root_pkg_contract_mod, test_filters.items);
     const run_root_pkg_contract_tests = b.addRunArtifact(public_root_pkg_contract_tests);
-    test_step.dependOn(&run_root_pkg_contract_tests.step);
     const artifact_v1_api_mod = b.createModule(.{
         .root_source_file = b.path("test/artifact_v1_api_test.zig"),
         .target = target,
@@ -2922,11 +3282,8 @@ pub fn build(b: *std.Build) void {
             .lowered_runtime_mod = private_lowered_runtime_mod,
         },
     ));
-    const artifact_v1_api_tests = b.addTest(.{
-        .root_module = artifact_v1_api_mod,
-    });
+    const artifact_v1_api_tests = addFilteredTest(b, artifact_v1_api_mod, test_filters.items);
     const run_artifact_v1_api_tests = b.addRunArtifact(artifact_v1_api_tests);
-    test_step.dependOn(&run_artifact_v1_api_tests.step);
 
     const artifact_vm_runtime_mod = b.createModule(.{
         .root_source_file = b.path("test/artifact_vm_runtime_test.zig"),
@@ -2957,11 +3314,8 @@ pub fn build(b: *std.Build) void {
             .lowered_runtime_mod = private_lowered_runtime_mod,
         },
     ));
-    const artifact_vm_runtime_tests = b.addTest(.{
-        .root_module = artifact_vm_runtime_mod,
-    });
+    const artifact_vm_runtime_tests = addFilteredTest(b, artifact_vm_runtime_mod, test_filters.items);
     const run_artifact_vm_runtime_tests = b.addRunArtifact(artifact_vm_runtime_tests);
-    test_step.dependOn(&run_artifact_vm_runtime_tests.step);
 
     const host_adapter_impl_mod = b.createModule(.{
         .root_source_file = b.path("src/host_adapter_v1_conformance.zig"),
@@ -2978,11 +3332,8 @@ pub fn build(b: *std.Build) void {
     host_adapter_conformance_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
     host_adapter_conformance_mod.addImport("shift_vm", shift_vm_mod);
     host_adapter_conformance_mod.addImport("host_adapter_v1_conformance", host_adapter_impl_mod);
-    const host_adapter_conformance_tests = b.addTest(.{
-        .root_module = host_adapter_conformance_mod,
-    });
+    const host_adapter_conformance_tests = addFilteredTest(b, host_adapter_conformance_mod, test_filters.items);
     const run_host_adapter_tests = b.addRunArtifact(host_adapter_conformance_tests);
-    test_step.dependOn(&run_host_adapter_tests.step);
 
     const artifact_dump_mod = b.createModule(.{
         .root_source_file = b.path("tools/artifact_v1_dump.zig"),
@@ -3051,9 +3402,7 @@ pub fn build(b: *std.Build) void {
     runtime_stack_baseline_mod.addImport("example_resume_or_return", createShiftConsumerModule(b, "examples/resume_or_return.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     runtime_stack_baseline_mod.addImport("example_state_basic", createShiftConsumerModule(b, "examples/state_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     runtime_stack_baseline_mod.addImport("example_writer_basic", createShiftConsumerModule(b, "examples/writer_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    const boundary_tests = b.addTest(.{
-        .root_module = boundary_mod,
-    });
+    const boundary_tests = addFilteredTest(b, boundary_mod, test_filters.items);
     const run_boundary_tests = b.addRunArtifact(boundary_tests);
 
     const source_lowering_corpus_mod = b.createModule(.{
@@ -3073,9 +3422,7 @@ pub fn build(b: *std.Build) void {
     source_lowering_corpus_mod.addImport("source_fixture_loop_resume", createPlainModule(b, "test/source_lowering_corpus/fixtures/loop_resume.zig", target, optimize));
     source_lowering_corpus_mod.addImport("source_fixture_nested_prompt_static_redelim", createPlainModule(b, "test/source_lowering_corpus/fixtures/nested_prompt_static_redelim.zig", target, optimize));
     source_lowering_corpus_mod.addImport("source_fixture_typed_error_try", createPlainModule(b, "test/source_lowering_corpus/fixtures/typed_error_try.zig", target, optimize));
-    const src_lower_corpus_tests = b.addTest(.{
-        .root_module = source_lowering_corpus_mod,
-    });
+    const src_lower_corpus_tests = addFilteredTest(b, source_lowering_corpus_mod, test_filters.items);
     const run_src_lower_corpus_tests = b.addRunArtifact(src_lower_corpus_tests);
 
     const source_lowering_boundary_mod = b.createModule(.{
@@ -3086,9 +3433,7 @@ pub fn build(b: *std.Build) void {
     source_lowering_boundary_mod.addImport("source_lowering_registry", source_lowering_registry_mod);
     source_lowering_boundary_mod.addImport("source_lowering", source_lowering_mod);
     source_lowering_boundary_mod.addImport("shift", shift_mod);
-    const src_lower_boundary_tests = b.addTest(.{
-        .root_module = source_lowering_boundary_mod,
-    });
+    const src_lower_boundary_tests = addFilteredTest(b, source_lowering_boundary_mod, test_filters.items);
     const run_src_lower_boundary_tests = b.addRunArtifact(src_lower_boundary_tests);
 
     const source_lowering_promoted_mod = b.createModule(.{
@@ -3114,9 +3459,7 @@ pub fn build(b: *std.Build) void {
     source_lowering_promoted_mod.addImport("promoted_example_exception_basic", createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
     source_lowering_promoted_mod.addImport("promoted_example_resource_basic", createShiftConsumerModule(b, "examples/resource_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
     source_lowering_promoted_mod.addImport("promoted_example_writer_basic", createShiftConsumerModule(b, "examples/writer_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    const src_lower_promoted_tests = b.addTest(.{
-        .root_module = source_lowering_promoted_mod,
-    });
+    const src_lower_promoted_tests = addFilteredTest(b, source_lowering_promoted_mod, test_filters.items);
     const run_src_lower_promoted_tests = b.addRunArtifact(src_lower_promoted_tests);
 
     const source_lowering_completion_mod = b.createModule(.{
@@ -3128,9 +3471,7 @@ pub fn build(b: *std.Build) void {
     source_lowering_completion_mod.addImport("parity_scenarios", parity_scenarios_mod);
     source_lowering_completion_mod.addImport("example_resource_basic", createShiftConsumerModule(b, "examples/resource_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
     source_lowering_completion_mod.addImport("example_writer_basic", createShiftConsumerModule(b, "examples/writer_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    const src_lower_completion_tests = b.addTest(.{
-        .root_module = source_lowering_completion_mod,
-    });
+    const src_lower_completion_tests = addFilteredTest(b, source_lowering_completion_mod, test_filters.items);
     const run_src_lower_completion_tests = b.addRunArtifact(src_lower_completion_tests);
 
     const open_row_lowering_mod = b.createModule(.{
@@ -3154,9 +3495,7 @@ pub fn build(b: *std.Build) void {
     open_row_lowering_mod.addImport("example_open_row_state_writer", createShiftConsumerModule(b, "examples/open_row_state_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     open_row_lowering_mod.addImport("example_open_row_recursive_writer", createShiftConsumerModule(b, "examples/open_row_recursive_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     open_row_lowering_mod.addImport("example_open_row_recursive_cross_writer", createShiftConsumerModule(b, "examples/open_row_recursive_cross_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    const open_row_lowering_tests = b.addTest(.{
-        .root_module = open_row_lowering_mod,
-    });
+    const open_row_lowering_tests = addFilteredTest(b, open_row_lowering_mod, test_filters.items);
     const run_open_row_lowering_tests = b.addRunArtifact(open_row_lowering_tests);
 
     const source_ownership_probe_mod = b.createModule(.{
@@ -3166,9 +3505,7 @@ pub fn build(b: *std.Build) void {
     });
     source_ownership_probe_mod.addImport("shift", shift_mod);
     source_ownership_probe_mod.addImport("shift_compile", shift_compile_mod);
-    const source_ownership_probe_tests = b.addTest(.{
-        .root_module = source_ownership_probe_mod,
-    });
+    const source_ownership_probe_tests = addFilteredTest(b, source_ownership_probe_mod, test_filters.items);
     const run_src_ownership_probe_tests = b.addRunArtifact(source_ownership_probe_tests);
 
     const src_lower_witness_mod = b.createModule(.{
@@ -3179,9 +3516,7 @@ pub fn build(b: *std.Build) void {
     src_lower_witness_mod.addImport("source_lowering", source_lowering_mod);
     src_lower_witness_mod.addImport("parity_scenarios", parity_scenarios_mod);
     src_lower_witness_mod.addImport("witness_sources", witness_sources_mod);
-    const src_lower_witness_tests = b.addTest(.{
-        .root_module = src_lower_witness_mod,
-    });
+    const src_lower_witness_tests = addFilteredTest(b, src_lower_witness_mod, test_filters.items);
     const run_src_lower_witness_tests = b.addRunArtifact(src_lower_witness_tests);
 
     const src_lower_reject_mod = b.createModule(.{
@@ -3190,9 +3525,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     src_lower_reject_mod.addImport("source_lowering", source_lowering_mod);
-    const src_lower_reject_tests = b.addTest(.{
-        .root_module = src_lower_reject_mod,
-    });
+    const src_lower_reject_tests = addFilteredTest(b, src_lower_reject_mod, test_filters.items);
     const run_src_lower_reject_tests = b.addRunArtifact(src_lower_reject_tests);
 
     const source_lowering_tool_mod = b.createModule(.{
@@ -3211,14 +3544,6 @@ pub fn build(b: *std.Build) void {
     const source_lowering_tool_step = b.step("source-lower", "Build the internal source-lowering tool.");
     source_lowering_tool_step.dependOn(&source_lowering_tool_exe.step);
     source_lowering_tool_step.dependOn(&source_lowering_tool_install.step);
-    test_step.dependOn(&run_src_lower_corpus_tests.step);
-    test_step.dependOn(&run_src_lower_boundary_tests.step);
-    test_step.dependOn(&run_src_lower_promoted_tests.step);
-    test_step.dependOn(&run_src_lower_completion_tests.step);
-    test_step.dependOn(&run_open_row_lowering_tests.step);
-    test_step.dependOn(&run_src_ownership_probe_tests.step);
-    test_step.dependOn(&run_src_lower_witness_tests.step);
-    test_step.dependOn(&run_src_lower_reject_tests.step);
 
     const lexical_witness_runners_mod = b.createModule(.{
         .root_source_file = b.path("test/lexical_witness_support.zig"),
@@ -3236,11 +3561,8 @@ pub fn build(b: *std.Build) void {
     lexical_witness_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     lexical_witness_mod.addImport("parity_scenarios", parity_scenarios_mod);
     lexical_witness_mod.addImport("lexical_witness_runners", lexical_witness_runners_mod);
-    const lexical_witness_tests = b.addTest(.{
-        .root_module = lexical_witness_mod,
-    });
+    const lexical_witness_tests = addFilteredTest(b, lexical_witness_mod, test_filters.items);
     const run_lexical_witness_tests = b.addRunArtifact(lexical_witness_tests);
-    test_step.dependOn(&run_lexical_witness_tests.step);
 
     const lexical_with_mod = b.createModule(.{
         .root_source_file = b.path("test/lexical_with_test.zig"),
@@ -3248,13 +3570,35 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     lexical_with_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
-    const lexical_with_tests = b.addTest(.{
-        .root_module = lexical_with_mod,
-    });
+    const lexical_with_tests = addFilteredTest(b, lexical_with_mod, test_filters.items);
     const run_lexical_with_tests = b.addRunArtifact(lexical_with_tests);
-    test_step.dependOn(&run_lexical_with_tests.step);
-
-    test_step.dependOn(&run_boundary_tests.step);
+    const test_suites = [_]TestSuiteSpec{
+        .{ .suite_id = "root", .description = "Root lexical surface", .run_step = run_root_tests },
+        .{ .suite_id = "frontend", .description = "Frontend internal module", .run_step = run_frontend_internal_tests },
+        .{ .suite_id = "program-plan-review", .description = "ProgramPlan regression suite", .run_step = run_plan_review_tests },
+        .{ .suite_id = "witness-corpus", .description = "Core witness corpus", .run_step = run_witness_tests },
+        .{ .suite_id = "runtime-contract", .description = "Runtime contract suite", .run_step = run_runtime_contract_tests },
+        .{ .suite_id = "prompt-token", .description = "Prompt token contract suite", .run_step = run_prompt_token_tests },
+        .{ .suite_id = "portability-contract", .description = "Portability contract suite", .run_step = run_portability_contract_tests },
+        .{ .suite_id = "public-root-package-contract", .description = "Public root package contract suite", .run_step = run_root_pkg_contract_tests },
+        .{ .suite_id = "artifact-v1-api", .description = "ArtifactV1 API suite", .run_step = run_artifact_v1_api_tests },
+        .{ .suite_id = "artifact-vm-runtime", .description = "Artifact VM runtime suite", .run_step = run_artifact_vm_runtime_tests },
+        .{ .suite_id = "host-adapter-conformance", .description = "Host adapter conformance suite", .run_step = run_host_adapter_tests },
+        .{ .suite_id = "program-frontend-boundary", .description = "Program frontend boundary suite", .run_step = run_boundary_tests },
+        .{ .suite_id = "source-lowering-corpus", .description = "Source lowering corpus suite", .run_step = run_src_lower_corpus_tests },
+        .{ .suite_id = "source-lowering-boundary", .description = "Source lowering boundary suite", .run_step = run_src_lower_boundary_tests },
+        .{ .suite_id = "source-lowering-promoted", .description = "Promoted source lowering cohort", .run_step = run_src_lower_promoted_tests },
+        .{ .suite_id = "source-lowering-completion", .description = "Source lowering completion suite", .run_step = run_src_lower_completion_tests },
+        .{ .suite_id = "open-row-lowering", .description = "Open-row lowering suite", .run_step = run_open_row_lowering_tests },
+        .{ .suite_id = "source-ownership-probe", .description = "Source ownership probe suite", .run_step = run_src_ownership_probe_tests },
+        .{ .suite_id = "source-lowering-witness", .description = "Source lowering witness completion suite", .run_step = run_src_lower_witness_tests },
+        .{ .suite_id = "source-lowering-reject", .description = "Source lowering rejection corpus suite", .run_step = run_src_lower_reject_tests },
+        .{ .suite_id = "lexical-witness", .description = "Lexical witness suite", .run_step = run_lexical_witness_tests },
+        .{ .suite_id = "lexical-with", .description = "Lexical with suite", .run_step = run_lexical_with_tests },
+    };
+    const test_suite_selection = requireTestSuiteSelection(b, test_suites_raw, &test_suites) orelse return;
+    defer test_suite_selection.deinit();
+    addSelectedTestSuites(test_step, &test_suites, test_suite_selection);
 
     const examples = [_]struct {
         name: []const u8,
