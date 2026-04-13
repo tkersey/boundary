@@ -65,6 +65,7 @@ const TestRunnerArgParseResult = union(enum) {
     empty_pattern,
     missing_passthrough_value: []const u8,
     missing_pattern,
+    unknown_arg: []const u8,
 };
 
 fn emptyArgs(allocator: std.mem.Allocator) !TestFilterArgs {
@@ -173,6 +174,35 @@ fn buildInvocationRequestsStepInArgs(args: []const []const u8, step_name: []cons
     return false;
 }
 
+fn buildInvocationRequestsOnlyStepInArgs(args: []const []const u8, step_name: []const u8) bool {
+    var index: usize = @min(args.len, 6);
+    var saw_step = false;
+    while (index < args.len) {
+        const arg = args[index];
+        if (std.mem.eql(u8, arg, "--")) break;
+        if (arg.len == 0) {
+            index += 1;
+            continue;
+        }
+        if (buildInvocationArgRequiresNextValue(arg)) {
+            index += @min(@as(usize, 2), args.len - index);
+            continue;
+        }
+        if (index + 1 < args.len and buildInvocationArgOptionallyConsumesNextValue(arg, args[index + 1])) {
+            index += @min(@as(usize, 2), args.len - index);
+            continue;
+        }
+        if (arg[0] == '-') {
+            index += 1;
+            continue;
+        }
+        if (!std.mem.eql(u8, arg, step_name)) return false;
+        saw_step = true;
+        index += 1;
+    }
+    return saw_step;
+}
+
 fn buildInvocationRequestsStep(step_name: []const u8) bool {
     const args = std.process.argsAlloc(std.heap.page_allocator) catch
         std.process.fatal("unable to inspect build invocation args", .{});
@@ -182,6 +212,14 @@ fn buildInvocationRequestsStep(step_name: []const u8) bool {
     // argv[0] = build helper exe
     // argv[1..6] = zig_exe, zig_lib_dir, build_root, local_cache_root, global_cache_root
     return buildInvocationRequestsStepInArgs(args, step_name);
+}
+
+fn buildInvocationRequestsOnlyStep(step_name: []const u8) bool {
+    const args = std.process.argsAlloc(std.heap.page_allocator) catch
+        std.process.fatal("unable to inspect build invocation args", .{});
+    defer std.process.argsFree(std.heap.page_allocator, args);
+
+    return buildInvocationRequestsOnlyStepInArgs(args, step_name);
 }
 
 fn findTestSuiteIndex(id: []const u8, specs: []const TestSuiteSpec) ?usize {
@@ -327,8 +365,15 @@ fn testRunnerArgRequiresValue(arg: []const u8) bool {
     return std.mem.eql(u8, arg, "--seed") or std.mem.eql(u8, arg, "--cache-dir");
 }
 
-fn testRunnerValueLooksLikeFlag(arg: []const u8) bool {
-    return arg.len != 0 and arg[0] == '-';
+fn testRunnerValueStartsNewArg(arg: []const u8) bool {
+    return std.mem.eql(u8, arg, "--test-filter") or
+        std.mem.startsWith(u8, arg, "--test-filter=") or
+        std.mem.eql(u8, arg, "--seed") or
+        std.mem.startsWith(u8, arg, "--seed=") or
+        std.mem.eql(u8, arg, "--cache-dir") or
+        std.mem.startsWith(u8, arg, "--cache-dir=") or
+        std.mem.eql(u8, arg, "--listen=-") or
+        std.mem.startsWith(u8, arg, "--");
 }
 
 fn parseTestRunnerArgsAlloc(
@@ -345,7 +390,7 @@ fn parseTestRunnerArgsAlloc(
         if (std.mem.eql(u8, arg, "--test-filter")) {
             if (index + 1 >= raw_args.len) return .missing_pattern;
             if (raw_args[index + 1].len == 0) return .empty_pattern;
-            if (testRunnerValueLooksLikeFlag(raw_args[index + 1])) return .missing_pattern;
+            if (testRunnerValueStartsNewArg(raw_args[index + 1])) return .missing_pattern;
             filter_count += 1;
             index += 2;
             continue;
@@ -362,7 +407,7 @@ fn parseTestRunnerArgsAlloc(
             continue;
         }
         if (testRunnerArgRequiresValue(arg)) {
-            if (index + 1 >= raw_args.len or testRunnerValueLooksLikeFlag(raw_args[index + 1])) {
+            if (index + 1 >= raw_args.len or testRunnerValueStartsNewArg(raw_args[index + 1])) {
                 return .{ .missing_passthrough_value = arg };
             }
             passthrough_count += 1;
@@ -370,7 +415,7 @@ fn parseTestRunnerArgsAlloc(
             index += 2;
             continue;
         }
-        index += 1;
+        return .{ .unknown_arg = arg };
     }
 
     const filters = try allocator.alloc([]const u8, filter_count);
@@ -407,7 +452,7 @@ fn parseTestRunnerArgsAlloc(
             index += 1;
             continue;
         }
-        if (testRunnerArgRequiresValue(arg) and index + 1 < raw_args.len and !testRunnerValueLooksLikeFlag(raw_args[index + 1])) {
+        if (testRunnerArgRequiresValue(arg) and index + 1 < raw_args.len and !testRunnerValueStartsNewArg(raw_args[index + 1])) {
             const normalized_arg = try std.fmt.allocPrint(allocator, "{s}={s}", .{ arg, raw_args[index + 1] });
             owned_passthrough[owned_passthrough_index] = normalized_arg;
             owned_passthrough_index += 1;
@@ -460,6 +505,10 @@ fn requireTestRunnerArgs(
         ),
         .missing_passthrough_value => |arg| std.log.err(
             "Expected a value after '{s}' in `zig build test -- ...`.",
+            .{arg},
+        ),
+        .unknown_arg => |arg| std.log.err(
+            "Unsupported `zig build test --` argument: '{s}'. Supported forms are '--test-filter[=pattern]', '--seed[=value]', '--cache-dir[=path]', and '--listen=-'.",
             .{arg},
         ),
     }
@@ -2938,14 +2987,10 @@ test "test runner args normalize supported runner passthrough args" {
     }
 }
 
-test "test runner args ignore unsupported passthrough args" {
+test "test runner args reject unsupported passthrough args" {
     const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--verbose"});
     switch (result) {
-        .args => |test_runner_args| {
-            defer test_runner_args.deinit();
-            try std.testing.expectEqual(@as(usize, 0), test_runner_args.filters.items.len);
-            try std.testing.expectEqual(@as(usize, 0), test_runner_args.passthrough.items.len);
-        },
+        .unknown_arg => |arg| try std.testing.expectEqualStrings("--verbose", arg),
         else => return error.UnexpectedFilterParseResult,
     }
 }
@@ -2990,7 +3035,10 @@ test "test runner args reject split passthrough args without values" {
         else => return error.UnexpectedFilterParseResult,
     }
 
-    const cache_dir_result = try parseTestRunnerArgsAlloc(std.testing.allocator, args[2..]);
+    const cache_dir_result = try parseTestRunnerArgsAlloc(
+        std.testing.allocator,
+        &.{ "--test-filter", "alpha", "--cache-dir", "--listen=-" },
+    );
     switch (cache_dir_result) {
         .missing_passthrough_value => |arg| try std.testing.expectEqualStrings("--cache-dir", arg),
         else => return error.UnexpectedFilterParseResult,
@@ -3007,6 +3055,31 @@ test "test runner args reject split passthrough args with omitted trailing value
     const cache_dir_result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--cache-dir"});
     switch (cache_dir_result) {
         .missing_passthrough_value => |arg| try std.testing.expectEqualStrings("--cache-dir", arg),
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "test runner args reject unsupported post-double-dash args" {
+    const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--test-filtre=foo"});
+    switch (result) {
+        .unknown_arg => |arg| try std.testing.expectEqualStrings("--test-filtre=foo", arg),
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "test runner args allow dash-prefixed split values" {
+    const result = try parseTestRunnerArgsAlloc(
+        std.testing.allocator,
+        &.{ "--test-filter", "-foo", "--cache-dir", "-tmp" },
+    );
+    switch (result) {
+        .args => |test_runner_args| {
+            defer test_runner_args.deinit();
+            try std.testing.expectEqual(@as(usize, 1), test_runner_args.filters.items.len);
+            try std.testing.expectEqualStrings("-foo", test_runner_args.filters.items[0]);
+            try std.testing.expectEqual(@as(usize, 1), test_runner_args.passthrough.items.len);
+            try std.testing.expectEqualStrings("--cache-dir=-tmp", test_runner_args.passthrough.items[0]);
+        },
         else => return error.UnexpectedFilterParseResult,
     }
 }
@@ -3162,6 +3235,40 @@ test "build invocation step detection does not skip test after flags without val
     try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
 }
 
+test "build invocation exclusive test detection rejects mixed-step invocations" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "lint",
+        "test",
+        "--",
+        "--max-warnings",
+        "0",
+    };
+    try std.testing.expect(!buildInvocationRequestsOnlyStepInArgs(&args, "test"));
+}
+
+test "build invocation exclusive test detection accepts pure test invocations" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--summary",
+        "none",
+        "test",
+        "--",
+        "--test-filter=alpha",
+    };
+    try std.testing.expect(buildInvocationRequestsOnlyStepInArgs(&args, "test"));
+}
+
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -3172,7 +3279,8 @@ pub fn build(b: *std.Build) void {
         "Restrict `zig build test` to a comma-separated list of exact suite ids.",
     );
     const test_requested = buildInvocationRequestsStep("test");
-    const test_runner_args = requireTestRunnerArgs(b, b.args, test_requested) orelse return;
+    const test_runner_args_requested = buildInvocationRequestsOnlyStep("test");
+    const test_runner_args = requireTestRunnerArgs(b, b.args, test_runner_args_requested) orelse return;
     // Compile and run steps retain these slices by reference, so they must live for the build graph lifetime.
     const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
 
