@@ -17,7 +17,7 @@ The ordinary public root is intentionally narrow:
 - `shift.RuntimeError`
 
 The repo also contains maintainer-facing specialist surfaces for explicit IR,
-lowering, ArtifactV1, HostAdapterV1, durable replay, and interpreter stepping.
+lowering, ArtifactV1, HostAdapterV1, and interpreter stepping.
 Those remain executable and tested, but they are not documented here as a
 second public story.
 
@@ -50,7 +50,7 @@ zig build lint -- --max-warnings 0
 - the public lexical root
 - the core semantic witness set
 - source-lowering validation and execution
-- ArtifactV1, HostAdapterV1, durable replay, and interpreter behavior
+- ArtifactV1, HostAdapterV1, and interpreter behavior
 
 It no longer proves downstream package-boundary publication, retired/public-root
 export bans, or compile-time misuse fixtures as part of the default contract.

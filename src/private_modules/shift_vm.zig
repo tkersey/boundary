@@ -1,5 +1,3 @@
-/// Retained internal exact-build bundle envelope helpers over ArtifactV1 bytes.
-pub const bundle = @import("bundle_envelope_v1");
 /// Retained internal HostAdapterV1 request/result/logging boundary.
 pub const host_adapter = @import("host_adapter_v1");
 /// Retained internal synchronous ArtifactV1 runtime execution over HostAdapterV1.
@@ -23,8 +21,6 @@ pub const CapabilityCodecV1 = artifact.CapabilityCodecV1;
 
 /// Retained internal compatibility namespace for the old front-door runtime shell.
 pub const compat = shared.compat;
-/// Retained internal durable session helpers over the interpreter core.
-pub const durable = shared.durable;
 /// Retained internal explicit interpreter state and step helpers.
 pub const interpreter = shared.interpreter;
 /// Retained internal error-witness schema.
@@ -59,9 +55,7 @@ test {
     _ = Runtime;
     _ = RuntimeError;
     _ = artifact;
-    _ = bundle;
     _ = compat;
-    _ = durable;
     _ = host_adapter;
     _ = interpreter;
     _ = runtime;
