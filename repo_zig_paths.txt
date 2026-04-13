@@ -43,11 +43,9 @@ src/agent_vm_artifact.zig
 src/algebraic.zig
 src/artifact_vm_runtime.zig
 src/bench_support.zig
-src/bundle_envelope_v1.zig
 src/compat.zig
 src/decision_api.zig
 src/direct_style_bridge_manifest.zig
-src/durable.zig
 src/effect/algebraic.zig
 src/effect/choice.zig
 src/effect/cleanup.zig
@@ -120,7 +118,6 @@ src/witness_sources.zig
 src/witnesses.zig
 test/artifact_v1_api_test.zig
 test/artifact_vm_runtime_test.zig
-test/bundle_envelope_v1_test.zig
 test/direct_style_bridge/atm_resume_transform.zig
 test/direct_style_bridge/direct_return.zig
 test/direct_style_bridge/early_exit.zig
@@ -139,7 +136,6 @@ test/direct_style_bridge/resume_or_return_return_now.zig
 test/direct_style_bridge/state_basic.zig
 test/direct_style_bridge/static_redelim.zig
 test/direct_style_bridge/writer_basic.zig
-test/durable_session_test.zig
 test/host_adapter_v1_conformance_test.zig
 test/lexical_with_test.zig
 test/lexical_witness_support.zig
@@ -158,6 +154,7 @@ test/portability_contract_test.zig
 test/program_frontend_boundary_test.zig
 test/program_plan_review_regression_test.zig
 test/prompt_token_contract_test.zig
+test/public_root_package_contract_test.zig
 test/runtime_contract_suite.zig
 test/semantic_manifest.zig
 test/source_lowering_boundary_test.zig

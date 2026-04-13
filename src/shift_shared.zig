@@ -1,6 +1,5 @@
 const artifact_api = @import("artifact_api");
 const compat_api = @import("compat.zig");
-const durable_api = @import("durable.zig");
 const effect_root = @import("effect/root.zig");
 const error_witness = @import("error_witness");
 const interpreter_api = @import("interpreter");
@@ -24,8 +23,6 @@ pub const with = with_api.with;
 
 /// Compatibility API namespace retained for existing `shift.compat.*` users.
 pub const compat = compat_api;
-/// Durable session store namespace retained for existing `shift.durable.*` users.
-pub const durable = durable_api;
 /// Interpreter namespace retained for compatibility surfaces.
 pub const interpreter = interpreter_api;
 /// Public semantic-error witness surface.

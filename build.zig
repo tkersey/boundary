@@ -2388,11 +2388,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const private_bundle_envelope_mod = b.createModule(.{
-        .root_source_file = b.path("src/bundle_envelope_v1.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
     const private_host_adapter_v1_mod = b.createModule(.{
         .root_source_file = b.path("src/host_adapter_v1.zig"),
         .target = target,
@@ -2513,13 +2508,11 @@ pub fn build(b: *std.Build) void {
     shift_compile_api_mod.addImport("artifact_api", artifact_api_mod);
     shift_compile_mod.addImport("shift_shared", shift_shared_mod);
     shift_compile_mod.addImport("shift_compile_api", shift_compile_api_mod);
-    private_bundle_envelope_mod.addImport("artifact_api", artifact_api_mod);
     private_artifact_vm_core_mod.addImport("artifact_api", artifact_api_mod);
     private_artifact_vm_core_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
     private_artifact_vm_core_mod.addImport("internal_program_plan", internal_program_plan_mod);
     private_artifact_vm_core_mod.addImport("lowered_machine", lowered_machine_mod);
     shift_vm_mod.addImport("shift_shared", shift_shared_mod);
-    shift_vm_mod.addImport("bundle_envelope_v1", private_bundle_envelope_mod);
     shift_vm_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
     shift_vm_mod.addImport("artifact_vm_runtime", private_artifact_vm_core_mod);
     lowered_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
@@ -2897,18 +2890,19 @@ pub fn build(b: *std.Build) void {
     });
     const run_portability_contract_tests = b.addRunArtifact(portability_contract_tests);
     test_step.dependOn(&run_portability_contract_tests.step);
-    const durable_session_mod = b.createModule(.{
-        .root_source_file = b.path("test/durable_session_test.zig"),
+    const public_root_pkg_contract_mod = b.createModule(.{
+        .root_source_file = b.path("test/public_root_package_contract_test.zig"),
         .target = target,
         .optimize = optimize,
     });
-    durable_session_mod.addImport("shift_vm", shift_vm_mod);
-    const durable_session_tests = b.addTest(.{
-        .root_module = durable_session_mod,
+    const root_pkg_opts = b.addOptions();
+    root_pkg_opts.addOption([:0]const u8, "zig_exe", b.graph.zig_exe);
+    public_root_pkg_contract_mod.addOptions("build_options", root_pkg_opts);
+    const public_root_pkg_contract_tests = b.addTest(.{
+        .root_module = public_root_pkg_contract_mod,
     });
-    const run_durable_session_tests = b.addRunArtifact(durable_session_tests);
-    test_step.dependOn(&run_durable_session_tests.step);
-
+    const run_root_pkg_contract_tests = b.addRunArtifact(public_root_pkg_contract_tests);
+    test_step.dependOn(&run_root_pkg_contract_tests.step);
     const artifact_v1_api_mod = b.createModule(.{
         .root_source_file = b.path("test/artifact_v1_api_test.zig"),
         .target = target,
@@ -2968,31 +2962,6 @@ pub fn build(b: *std.Build) void {
     });
     const run_artifact_vm_runtime_tests = b.addRunArtifact(artifact_vm_runtime_tests);
     test_step.dependOn(&run_artifact_vm_runtime_tests.step);
-
-    const bundle_envelope_mod = b.createModule(.{
-        .root_source_file = b.path("test/bundle_envelope_v1_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    bundle_envelope_mod.addImport("shift_compile", shift_compile_mod);
-    bundle_envelope_mod.addImport("shift_vm", shift_vm_mod);
-    bundle_envelope_mod.addImport("example_open_row_state_writer", createShiftConsumerModule(
-        b,
-        "examples/open_row_state_writer.zig",
-        target,
-        optimize,
-        .{
-            .shift_mod = shift_mod,
-            .shift_compile_mod = shift_compile_mod,
-            .shift_vm_mod = shift_vm_mod,
-            .lowered_runtime_mod = private_lowered_runtime_mod,
-        },
-    ));
-    const bundle_envelope_tests = b.addTest(.{
-        .root_module = bundle_envelope_mod,
-    });
-    const run_bundle_envelope_tests = b.addRunArtifact(bundle_envelope_tests);
-    test_step.dependOn(&run_bundle_envelope_tests.step);
 
     const host_adapter_impl_mod = b.createModule(.{
         .root_source_file = b.path("src/host_adapter_v1_conformance.zig"),
