@@ -59,7 +59,7 @@ fn emptyTestFilters(allocator: std.mem.Allocator) !TestFilterArgs {
     };
 }
 
-fn buildInvocationArgConsumesNextValue(arg: []const u8) bool {
+fn buildInvocationArgRequiresNextValue(arg: []const u8) bool {
     return std.mem.eql(u8, arg, "-p") or
         std.mem.eql(u8, arg, "--prefix") or
         std.mem.eql(u8, arg, "--prefix-lib-dir") or
@@ -80,14 +80,47 @@ fn buildInvocationArgConsumesNextValue(arg: []const u8) bool {
         std.mem.eql(u8, arg, "--zig-lib-dir") or
         std.mem.eql(u8, arg, "--build-runner") or
         std.mem.eql(u8, arg, "--seed") or
-        std.mem.eql(u8, arg, "--debug-log") or
-        std.mem.eql(u8, arg, "--release") or
-        std.mem.eql(u8, arg, "--fetch") or
-        std.mem.eql(u8, arg, "--webui") or
-        std.mem.eql(u8, arg, "-freference-trace") or
-        std.mem.eql(u8, arg, "--build-id") or
-        std.mem.eql(u8, arg, "--verbose-llvm-ir") or
-        std.mem.eql(u8, arg, "--verbose-llvm-bc");
+        std.mem.eql(u8, arg, "--debug-log");
+}
+
+fn buildInvocationArgOptionallyConsumesNextValue(arg: []const u8, next_arg: []const u8) bool {
+    if (std.mem.eql(u8, arg, "--release")) {
+        return std.mem.eql(u8, next_arg, "fast") or
+            std.mem.eql(u8, next_arg, "safe") or
+            std.mem.eql(u8, next_arg, "small");
+    }
+    if (std.mem.eql(u8, arg, "--fetch")) {
+        return std.mem.eql(u8, next_arg, "needed") or
+            std.mem.eql(u8, next_arg, "all");
+    }
+    if (std.mem.eql(u8, arg, "--webui")) {
+        return next_arg.len != 0 and
+            next_arg[0] != '-' and
+            (std.mem.indexOfScalar(u8, next_arg, '.') != null or
+                std.mem.indexOfScalar(u8, next_arg, ':') != null);
+    }
+    if (std.mem.eql(u8, arg, "-freference-trace")) {
+        _ = std.fmt.parseUnsigned(usize, next_arg, 10) catch return false;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--build-id")) {
+        if (std.mem.eql(u8, next_arg, "fast") or
+            std.mem.eql(u8, next_arg, "sha1") or
+            std.mem.eql(u8, next_arg, "tree") or
+            std.mem.eql(u8, next_arg, "md5") or
+            std.mem.eql(u8, next_arg, "uuid") or
+            std.mem.eql(u8, next_arg, "none"))
+        {
+            return true;
+        }
+        if (!std.mem.startsWith(u8, next_arg, "0x") or next_arg.len == 2) return false;
+        for (next_arg["0x".len..]) |char| {
+            if (std.ascii.isHex(char)) continue;
+            return false;
+        }
+        return true;
+    }
+    return false;
 }
 
 fn buildInvocationRequestsStepInArgs(args: []const []const u8, step_name: []const u8) bool {
@@ -99,7 +132,11 @@ fn buildInvocationRequestsStepInArgs(args: []const []const u8, step_name: []cons
             index += 1;
             continue;
         }
-        if (buildInvocationArgConsumesNextValue(arg)) {
+        if (buildInvocationArgRequiresNextValue(arg)) {
+            index += @min(@as(usize, 2), args.len - index);
+            continue;
+        }
+        if (index + 1 < args.len and buildInvocationArgOptionallyConsumesNextValue(arg, args[index + 1])) {
             index += @min(@as(usize, 2), args.len - index);
             continue;
         }
@@ -2842,6 +2879,89 @@ test "build invocation step detection finds explicit test step after options" {
     try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
 }
 
+test "build invocation step detection does not skip test after bare optional-value flags" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--release",
+        "test",
+        "-Dtest-suites=root",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
+}
+
+test "build invocation step detection skips optional-value arguments when present" {
+    const release_args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--release",
+        "fast",
+        "test",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&release_args, "test"));
+
+    const fetch_args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--fetch",
+        "all",
+        "test",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&fetch_args, "test"));
+
+    const reference_trace_args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "-freference-trace",
+        "7",
+        "test",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&reference_trace_args, "test"));
+
+    const build_id_args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--build-id",
+        "uuid",
+        "test",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&build_id_args, "test"));
+}
+
+test "build invocation step detection does not skip test after flags without values" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--verbose-llvm-bc",
+        "test",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
+}
+
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -2853,7 +2973,7 @@ pub fn build(b: *std.Build) void {
     );
     const test_requested = buildInvocationRequestsStep("test");
     const test_filters = requireTestFilters(b, b.args, test_requested) orelse return;
-    defer test_filters.deinit();
+    // Compile steps retain filter slices by reference, so these must live for the build graph lifetime.
     const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
 
     absolutizeZlinterRuntimePaths(b);
