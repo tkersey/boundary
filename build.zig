@@ -2895,6 +2895,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const root_pkg_opts = b.addOptions();
+    root_pkg_opts.addOption([:0]const u8, "zig_exe", b.graph.zig_exe);
+    public_root_pkg_contract_mod.addOptions("build_options", root_pkg_opts);
     const public_root_pkg_contract_tests = b.addTest(.{
         .root_module = public_root_pkg_contract_mod,
     });

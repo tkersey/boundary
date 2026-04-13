@@ -1,3 +1,4 @@
+const build_options = @import("build_options");
 const std = @import("std");
 
 fn writeTmpFile(dir: std.fs.Dir, path: []const u8, contents: []const u8) !void {
@@ -104,6 +105,10 @@ fn runChildExpectFailureContains(
     return error.UnexpectedChildCommandFailure;
 }
 
+fn zigBuildArgv() [2][]const u8 {
+    return .{ build_options.zig_exe, "build" };
+}
+
 fn writeConsumerBuildFiles(tmp: *std.testing.TmpDir, repo_root: []const u8) !void {
     try tmp.dir.makePath("deps");
     try tmp.dir.symLink(repo_root, "deps/shift", .{});
@@ -183,7 +188,8 @@ test "downstream consumer can import only the root shift module and root hides s
         \\
     );
 
-    try runChildExpectSuccess(tmp.dir, std.testing.allocator, &.{ "zig", "build" });
+    const argv = zigBuildArgv();
+    try runChildExpectSuccess(tmp.dir, std.testing.allocator, &argv);
 }
 
 test "downstream consumer cannot request shift_compile as a package module" {
@@ -224,5 +230,6 @@ test "downstream consumer cannot request shift_compile as a package module" {
         \\
     );
 
-    try runChildExpectFailureContains(tmp.dir, std.testing.allocator, &.{ "zig", "build" }, "shift_compile");
+    const argv = zigBuildArgv();
+    try runChildExpectFailureContains(tmp.dir, std.testing.allocator, &argv, "shift_compile");
 }
