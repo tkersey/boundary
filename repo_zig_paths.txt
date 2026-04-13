@@ -154,6 +154,7 @@ test/portability_contract_test.zig
 test/program_frontend_boundary_test.zig
 test/program_plan_review_regression_test.zig
 test/prompt_token_contract_test.zig
+test/public_root_package_contract_test.zig
 test/runtime_contract_suite.zig
 test/semantic_manifest.zig
 test/source_lowering_boundary_test.zig
