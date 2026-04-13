@@ -63,6 +63,7 @@ const TestRunnerArgs = struct {
 const TestRunnerArgParseResult = union(enum) {
     args: TestRunnerArgs,
     empty_pattern,
+    missing_passthrough_value: []const u8,
     missing_pattern,
 };
 
@@ -326,14 +327,8 @@ fn testRunnerArgRequiresValue(arg: []const u8) bool {
     return std.mem.eql(u8, arg, "--seed") or std.mem.eql(u8, arg, "--cache-dir");
 }
 
-fn testRunnerValueLooksLikeStandaloneFlag(arg: []const u8) bool {
-    return std.mem.eql(u8, arg, "--listen=-") or
-        std.mem.eql(u8, arg, "--seed") or
-        std.mem.startsWith(u8, arg, "--seed=") or
-        std.mem.eql(u8, arg, "--cache-dir") or
-        std.mem.startsWith(u8, arg, "--cache-dir=") or
-        std.mem.eql(u8, arg, "--test-filter") or
-        std.mem.startsWith(u8, arg, "--test-filter=");
+fn testRunnerValueLooksLikeFlag(arg: []const u8) bool {
+    return arg.len != 0 and arg[0] == '-';
 }
 
 fn parseTestRunnerArgsAlloc(
@@ -350,6 +345,7 @@ fn parseTestRunnerArgsAlloc(
         if (std.mem.eql(u8, arg, "--test-filter")) {
             if (index + 1 >= raw_args.len) return .missing_pattern;
             if (raw_args[index + 1].len == 0) return .empty_pattern;
+            if (testRunnerValueLooksLikeFlag(raw_args[index + 1])) return .missing_pattern;
             filter_count += 1;
             index += 2;
             continue;
@@ -365,7 +361,10 @@ fn parseTestRunnerArgsAlloc(
             index += 1;
             continue;
         }
-        if (testRunnerArgRequiresValue(arg) and index + 1 < raw_args.len and !testRunnerValueLooksLikeStandaloneFlag(raw_args[index + 1])) {
+        if (testRunnerArgRequiresValue(arg)) {
+            if (index + 1 >= raw_args.len or testRunnerValueLooksLikeFlag(raw_args[index + 1])) {
+                return .{ .missing_passthrough_value = arg };
+            }
             passthrough_count += 1;
             owned_passthrough_count += 1;
             index += 2;
@@ -408,7 +407,7 @@ fn parseTestRunnerArgsAlloc(
             index += 1;
             continue;
         }
-        if (testRunnerArgRequiresValue(arg) and index + 1 < raw_args.len and !testRunnerValueLooksLikeStandaloneFlag(raw_args[index + 1])) {
+        if (testRunnerArgRequiresValue(arg) and index + 1 < raw_args.len and !testRunnerValueLooksLikeFlag(raw_args[index + 1])) {
             const normalized_arg = try std.fmt.allocPrint(allocator, "{s}={s}", .{ arg, raw_args[index + 1] });
             owned_passthrough[owned_passthrough_index] = normalized_arg;
             owned_passthrough_index += 1;
@@ -458,6 +457,10 @@ fn requireTestRunnerArgs(
         .empty_pattern => std.log.err(
             "Expected '--test-filter' to contain a non-empty pattern in `zig build test -- ...`.",
             .{},
+        ),
+        .missing_passthrough_value => |arg| std.log.err(
+            "Expected a value after '{s}' in `zig build test -- ...`.",
+            .{arg},
         ),
     }
     b.invalid_user_input = true;
@@ -2969,6 +2972,43 @@ test "test runner args split filters from passthrough args" {
 test "test runner args reject missing patterns" {
     const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--test-filter"});
     try std.testing.expect(result == .missing_pattern);
+}
+
+test "test runner args reject split filter when next token is another flag" {
+    const result = try parseTestRunnerArgsAlloc(
+        std.testing.allocator,
+        &.{ "--test-filter", "--seed=123" },
+    );
+    try std.testing.expect(result == .missing_pattern);
+}
+
+test "test runner args reject split passthrough args without values" {
+    const args = [_][]const u8{ "--seed", "--test-filter", "alpha", "--cache-dir", "--listen=-" };
+    const seed_result = try parseTestRunnerArgsAlloc(std.testing.allocator, args[0..3]);
+    switch (seed_result) {
+        .missing_passthrough_value => |arg| try std.testing.expectEqualStrings("--seed", arg),
+        else => return error.UnexpectedFilterParseResult,
+    }
+
+    const cache_dir_result = try parseTestRunnerArgsAlloc(std.testing.allocator, args[2..]);
+    switch (cache_dir_result) {
+        .missing_passthrough_value => |arg| try std.testing.expectEqualStrings("--cache-dir", arg),
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "test runner args reject split passthrough args with omitted trailing values" {
+    const seed_result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--seed"});
+    switch (seed_result) {
+        .missing_passthrough_value => |arg| try std.testing.expectEqualStrings("--seed", arg),
+        else => return error.UnexpectedFilterParseResult,
+    }
+
+    const cache_dir_result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--cache-dir"});
+    switch (cache_dir_result) {
+        .missing_passthrough_value => |arg| try std.testing.expectEqualStrings("--cache-dir", arg),
+        else => return error.UnexpectedFilterParseResult,
+    }
 }
 
 test "build invocation step detection ignores option values" {
