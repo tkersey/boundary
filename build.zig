@@ -69,6 +69,11 @@ const TestRunnerArgParseResult = union(enum) {
     unknown_arg: []const u8,
 };
 
+const TestRunnerArgParseMode = enum {
+    allow_unknown_args,
+    strict,
+};
+
 fn emptyArgs(allocator: std.mem.Allocator) !TestFilterArgs {
     return .{
         .allocator = allocator,
@@ -255,7 +260,7 @@ fn buildInvocationRequestsRunnableStep(step_name: []const u8) bool {
     return buildInvocationRequestsRunnableStepInArgs(args, step_name);
 }
 
-fn buildInvocationRequestsOnlyStep(step_name: []const u8) bool {
+fn buildInvocationRequestsStep(step_name: []const u8) bool {
     const args = std.process.argsAlloc(std.heap.page_allocator) catch
         std.process.fatal("unable to inspect build invocation args", .{});
     defer std.process.argsFree(std.heap.page_allocator, args);
@@ -263,7 +268,7 @@ fn buildInvocationRequestsOnlyStep(step_name: []const u8) bool {
     // The generated build executable receives:
     // argv[0] = build helper exe
     // argv[1..6] = zig_exe, zig_lib_dir, build_root, local_cache_root, global_cache_root
-    return buildInvocationRequestsOnlyStepInArgs(args, step_name);
+    return buildInvocationRequestsStepInArgs(args, step_name);
 }
 
 fn findTestSuiteIndex(id: []const u8, specs: []const TestSuiteSpec) ?usize {
@@ -431,6 +436,7 @@ fn testRunnerValueStartsNewArg(arg: []const u8) bool {
 fn parseTestRunnerArgsAlloc(
     allocator: std.mem.Allocator,
     args: ?[]const []const u8,
+    mode: TestRunnerArgParseMode,
 ) !TestRunnerArgParseResult {
     const raw_args = args orelse &.{};
     var filter_count: usize = 0;
@@ -474,6 +480,10 @@ fn parseTestRunnerArgsAlloc(
             passthrough_count += 1;
             owned_passthrough_count += 1;
             index += 2;
+            continue;
+        }
+        if (mode == .allow_unknown_args) {
+            index += 1;
             continue;
         }
         return .{ .unknown_arg = arg };
@@ -552,12 +562,13 @@ fn requireTestRunnerArgs(
     b: *std.Build,
     args: ?[]const []const u8,
     test_requested: bool,
+    allow_unknown_args: bool,
 ) ?TestRunnerArgs {
     if (!test_requested) {
         return emptyTestRunnerArgs(b.allocator) catch |err|
             std.process.fatal("unable to initialize empty test runner args: {s}", .{@errorName(err)});
     }
-    const parse_result = parseTestRunnerArgsAlloc(b.allocator, args) catch |err|
+    const parse_result = parseTestRunnerArgsAlloc(b.allocator, args, if (test_requested and allow_unknown_args) .allow_unknown_args else .strict) catch |err|
         std.process.fatal("unable to parse test runner args: {s}", .{@errorName(err)});
 
     switch (parse_result) {
@@ -3030,6 +3041,7 @@ test "test runner args accept split and equals filter forms" {
     const result = try parseTestRunnerArgsAlloc(
         std.testing.allocator,
         &.{ "--test-filter", "alpha beta", "--test-filter=gamma" },
+        .strict,
     );
     switch (result) {
         .args => |test_runner_args| {
@@ -3044,7 +3056,7 @@ test "test runner args accept split and equals filter forms" {
 }
 
 test "test runner args normalize supported runner passthrough args" {
-    const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{ "--seed", "123", "--cache-dir", "zig-cache" });
+    const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{ "--seed", "123", "--cache-dir", "zig-cache" }, .strict);
     switch (result) {
         .args => |test_runner_args| {
             defer test_runner_args.deinit();
@@ -3058,7 +3070,7 @@ test "test runner args normalize supported runner passthrough args" {
 }
 
 test "test runner args accept supported runner passthrough flags without values" {
-    const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--listen=-"});
+    const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--listen=-"}, .strict);
     switch (result) {
         .args => |test_runner_args| {
             defer test_runner_args.deinit();
@@ -3074,6 +3086,7 @@ test "test runner args split filters from passthrough args" {
     const result = try parseTestRunnerArgsAlloc(
         std.testing.allocator,
         &.{ "--seed", "123", "--test-filter", "alpha beta", "--test-filter=gamma" },
+        .strict,
     );
     switch (result) {
         .args => |test_runner_args| {
@@ -3089,7 +3102,7 @@ test "test runner args split filters from passthrough args" {
 }
 
 test "test runner args reject missing patterns" {
-    const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--test-filter"});
+    const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--test-filter"}, .strict);
     try std.testing.expect(result == .missing_pattern);
 }
 
@@ -3097,13 +3110,14 @@ test "test runner args reject split filter when next token is another flag" {
     const result = try parseTestRunnerArgsAlloc(
         std.testing.allocator,
         &.{ "--test-filter", "--seed=123" },
+        .strict,
     );
     try std.testing.expect(result == .missing_pattern);
 }
 
 test "test runner args reject split passthrough args without values" {
     const args = [_][]const u8{ "--seed", "--test-filter", "alpha", "--cache-dir", "--test-filter=beta" };
-    const seed_result = try parseTestRunnerArgsAlloc(std.testing.allocator, args[0..3]);
+    const seed_result = try parseTestRunnerArgsAlloc(std.testing.allocator, args[0..3], .strict);
     switch (seed_result) {
         .missing_passthrough_value => |arg| try std.testing.expectEqualStrings("--seed", arg),
         else => return error.UnexpectedFilterParseResult,
@@ -3112,6 +3126,7 @@ test "test runner args reject split passthrough args without values" {
     const cache_dir_result = try parseTestRunnerArgsAlloc(
         std.testing.allocator,
         &.{ "--test-filter", "alpha", "--cache-dir", "--test-filter=beta" },
+        .strict,
     );
     switch (cache_dir_result) {
         .missing_passthrough_value => |arg| try std.testing.expectEqualStrings("--cache-dir", arg),
@@ -3120,13 +3135,13 @@ test "test runner args reject split passthrough args without values" {
 }
 
 test "test runner args reject split passthrough args with omitted trailing values" {
-    const seed_result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--seed"});
+    const seed_result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--seed"}, .strict);
     switch (seed_result) {
         .missing_passthrough_value => |arg| try std.testing.expectEqualStrings("--seed", arg),
         else => return error.UnexpectedFilterParseResult,
     }
 
-    const cache_dir_result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--cache-dir"});
+    const cache_dir_result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--cache-dir"}, .strict);
     switch (cache_dir_result) {
         .missing_passthrough_value => |arg| try std.testing.expectEqualStrings("--cache-dir", arg),
         else => return error.UnexpectedFilterParseResult,
@@ -3134,13 +3149,13 @@ test "test runner args reject split passthrough args with omitted trailing value
 }
 
 test "test runner args reject invalid seed values in both supported forms" {
-    const split_result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{ "--seed", "abc" });
+    const split_result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{ "--seed", "abc" }, .strict);
     switch (split_result) {
         .invalid_seed_value => |value| try std.testing.expectEqualStrings("abc", value),
         else => return error.UnexpectedFilterParseResult,
     }
 
-    const attached_result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--seed=abc"});
+    const attached_result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--seed=abc"}, .strict);
     switch (attached_result) {
         .invalid_seed_value => |value| try std.testing.expectEqualStrings("abc", value),
         else => return error.UnexpectedFilterParseResult,
@@ -3148,7 +3163,7 @@ test "test runner args reject invalid seed values in both supported forms" {
 }
 
 test "test runner args reject unsupported post-double-dash args" {
-    const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--test-filtre=foo"});
+    const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--test-filtre=foo"}, .strict);
     switch (result) {
         .unknown_arg => |arg| try std.testing.expectEqualStrings("--test-filtre=foo", arg),
         else => return error.UnexpectedFilterParseResult,
@@ -3159,6 +3174,7 @@ test "test runner args allow dash-prefixed split values" {
     const result = try parseTestRunnerArgsAlloc(
         std.testing.allocator,
         &.{ "--test-filter", "-foo", "--cache-dir", "-tmp" },
+        .strict,
     );
     switch (result) {
         .args => |test_runner_args| {
@@ -3168,6 +3184,36 @@ test "test runner args allow dash-prefixed split values" {
             try std.testing.expectEqual(@as(usize, 1), test_runner_args.passthrough.items.len);
             try std.testing.expectEqualStrings("--cache-dir=-tmp", test_runner_args.passthrough.items[0]);
         },
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "test runner args can ignore foreign shared-tail args while still applying recognized test args" {
+    const result = try parseTestRunnerArgsAlloc(
+        std.testing.allocator,
+        &.{ "--max-warnings", "0", "--seed", "123", "--test-filter=alpha" },
+        .allow_unknown_args,
+    );
+    switch (result) {
+        .args => |test_runner_args| {
+            defer test_runner_args.deinit();
+            try std.testing.expectEqual(@as(usize, 1), test_runner_args.filters.items.len);
+            try std.testing.expectEqualStrings("alpha", test_runner_args.filters.items[0]);
+            try std.testing.expectEqual(@as(usize, 1), test_runner_args.passthrough.items.len);
+            try std.testing.expectEqualStrings("--seed=123", test_runner_args.passthrough.items[0]);
+        },
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "test runner args still reject malformed recognized args when foreign shared-tail args are present" {
+    const result = try parseTestRunnerArgsAlloc(
+        std.testing.allocator,
+        &.{ "--max-warnings", "0", "--seed", "abc" },
+        .allow_unknown_args,
+    );
+    switch (result) {
+        .invalid_seed_value => |value| try std.testing.expectEqualStrings("abc", value),
         else => return error.UnexpectedFilterParseResult,
     }
 }
@@ -3561,8 +3607,15 @@ pub fn build(b: *std.Build) void {
         "Restrict `zig build test` to a comma-separated list of exact suite ids.",
     );
     const test_requested = buildInvocationRequestsRunnableStep("test");
-    const only_test_requested = buildInvocationRequestsOnlyStep("test");
-    const test_runner_args = requireTestRunnerArgs(b, b.args, only_test_requested) orelse return;
+    // `lint` currently owns the only documented non-test shared-tail CLI surface (`--max-warnings`),
+    // so mixed `lint test -- ...` invocations must ignore unknown args while still honoring test flags.
+    const allow_foreign_shared_tail_args = test_requested and buildInvocationRequestsStep("lint");
+    const test_runner_args = requireTestRunnerArgs(
+        b,
+        b.args,
+        test_requested,
+        allow_foreign_shared_tail_args,
+    ) orelse return;
     // Compile and run steps retain these slices by reference, so they must live for the build graph lifetime.
     const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
 
