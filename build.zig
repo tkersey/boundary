@@ -93,11 +93,11 @@ fn buildInvocationArgRequiresNextValue(arg: []const u8) bool {
         std.mem.eql(u8, arg, "--summary") or
         std.mem.eql(u8, arg, "--maxrss") or
         std.mem.eql(u8, arg, "--libc-runtimes") or
+        std.mem.eql(u8, arg, "--glibc-runtimes") or
         std.mem.eql(u8, arg, "--debounce") or
         std.mem.eql(u8, arg, "--search-prefix") or
         std.mem.eql(u8, arg, "--sysroot") or
         std.mem.eql(u8, arg, "--libc") or
-        std.mem.eql(u8, arg, "--system") or
         std.mem.eql(u8, arg, "--build-file") or
         std.mem.eql(u8, arg, "--cache-dir") or
         std.mem.eql(u8, arg, "--global-cache-dir") or
@@ -3235,6 +3235,22 @@ test "build invocation step detection does not skip test after flags without val
     try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
 }
 
+test "build invocation step detection keeps bare --system from swallowing the test step" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--system",
+        "test",
+        "--",
+        "--seed=123",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
+}
+
 test "build invocation exclusive test detection rejects mixed-step invocations" {
     const args = [_][]const u8{
         "build-helper",
@@ -3265,6 +3281,39 @@ test "build invocation exclusive test detection accepts pure test invocations" {
         "test",
         "--",
         "--test-filter=alpha",
+    };
+    try std.testing.expect(buildInvocationRequestsOnlyStepInArgs(&args, "test"));
+}
+
+test "build invocation exclusive test detection keeps bare --system from swallowing the test step" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--system",
+        "test",
+        "--",
+        "--seed=123",
+    };
+    try std.testing.expect(buildInvocationRequestsOnlyStepInArgs(&args, "test"));
+}
+
+test "build invocation exclusive test detection consumes the --glibc-runtimes alias value" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--glibc-runtimes",
+        "runtimes-dir",
+        "test",
+        "--",
+        "--seed=123",
     };
     try std.testing.expect(buildInvocationRequestsOnlyStepInArgs(&args, "test"));
 }
