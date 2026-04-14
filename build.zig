@@ -83,6 +83,10 @@ fn emptyTestRunnerArgs(allocator: std.mem.Allocator) !TestRunnerArgs {
     };
 }
 
+// Keep this in sync with Zig 0.15.2's compiler/build_runner.zig argv handling.
+// The generated build helper only sees the tokens that survive the parent
+// process, so flags such as `--system <pkgdir>` must stay out of this table
+// because the helper receives only the bare `--system` token.
 fn buildInvocationArgRequiresNextValue(arg: []const u8) bool {
     return std.mem.eql(u8, arg, "-p") or
         std.mem.eql(u8, arg, "--prefix") or
@@ -3237,7 +3241,24 @@ test "build invocation step detection does not skip test after flags without val
     try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
 }
 
-test "build invocation step detection keeps bare --system from swallowing the test step" {
+test "build invocation step detection consumes the --debug-log scope" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--debug-log",
+        "scope",
+        "test",
+        "--",
+        "--seed=123",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
+}
+
+test "build invocation step detection keeps build-runner-visible --system from swallowing the test step" {
     const args = [_][]const u8{
         "build-helper",
         "zig",
@@ -3287,7 +3308,24 @@ test "build invocation exclusive test detection accepts pure test invocations" {
     try std.testing.expect(buildInvocationRequestsOnlyStepInArgs(&args, "test"));
 }
 
-test "build invocation exclusive test detection keeps bare --system from swallowing the test step" {
+test "build invocation exclusive test detection consumes the --debug-log scope" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--debug-log",
+        "scope",
+        "test",
+        "--",
+        "--seed=123",
+    };
+    try std.testing.expect(buildInvocationRequestsOnlyStepInArgs(&args, "test"));
+}
+
+test "build invocation exclusive test detection keeps build-runner-visible --system from swallowing the test step" {
     const args = [_][]const u8{
         "build-helper",
         "zig",
