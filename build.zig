@@ -558,6 +558,65 @@ fn parseTestRunnerArgsAlloc(
     } };
 }
 
+fn recognizedTestRunnerArgSpan(args: []const []const u8, index: usize) ?usize {
+    const arg = args[index];
+    if (std.mem.eql(u8, arg, "--test-filter")) {
+        if (index + 1 >= args.len) return null;
+        if (args[index + 1].len == 0) return null;
+        if (testRunnerValueStartsNewArg(args[index + 1])) return null;
+        return 2;
+    }
+    if (std.mem.startsWith(u8, arg, "--test-filter=")) {
+        if (arg["--test-filter=".len..].len == 0) return null;
+        return 1;
+    }
+    if (testRunnerAttachedSeedValue(arg)) |seed_value| {
+        if (!testRunnerSeedValueIsValid(seed_value)) return null;
+        return 1;
+    }
+    if (testRunnerArgCanPassThrough(arg)) return 1;
+    if (testRunnerArgRequiresValue(arg)) {
+        if (index + 1 >= args.len or testRunnerValueStartsNewArg(args[index + 1])) return null;
+        if (std.mem.eql(u8, arg, "--seed") and !testRunnerSeedValueIsValid(args[index + 1])) return null;
+        return 2;
+    }
+    return null;
+}
+
+fn lintSharedTailArgsAlloc(
+    allocator: std.mem.Allocator,
+    args: ?[]const []const u8,
+    strip_test_runner_args: bool,
+) ![]const []const u8 {
+    const raw_args = args orelse &.{};
+    if (!strip_test_runner_args) return allocator.dupe([]const u8, raw_args);
+
+    var filtered_count: usize = 0;
+    var index: usize = 0;
+    while (index < raw_args.len) {
+        if (recognizedTestRunnerArgSpan(raw_args, index)) |span| {
+            index += span;
+            continue;
+        }
+        filtered_count += 1;
+        index += 1;
+    }
+
+    const filtered_args = try allocator.alloc([]const u8, filtered_count);
+    index = 0;
+    var filtered_index: usize = 0;
+    while (index < raw_args.len) {
+        if (recognizedTestRunnerArgSpan(raw_args, index)) |span| {
+            index += span;
+            continue;
+        }
+        filtered_args[filtered_index] = raw_args[index];
+        filtered_index += 1;
+        index += 1;
+    }
+    return filtered_args;
+}
+
 fn requireTestRunnerArgs(
     b: *std.Build,
     args: ?[]const []const u8,
@@ -3218,6 +3277,33 @@ test "test runner args still reject malformed recognized args when foreign share
     }
 }
 
+test "lint shared-tail args keep lint-owned flags while stripping recognized test args" {
+    const filtered_args = try lintSharedTailArgsAlloc(
+        std.testing.allocator,
+        &.{ "--max-warnings", "0", "--test-filter=alpha", "--seed", "123", "--listen=-", "--cache-dir", "zig-cache" },
+        true,
+    );
+    defer std.testing.allocator.free(filtered_args);
+
+    try std.testing.expectEqual(@as(usize, 2), filtered_args.len);
+    try std.testing.expectEqualStrings("--max-warnings", filtered_args[0]);
+    try std.testing.expectEqualStrings("0", filtered_args[1]);
+}
+
+test "lint shared-tail args preserve unknown args for fail-closed mixed-step validation" {
+    const filtered_args = try lintSharedTailArgsAlloc(
+        std.testing.allocator,
+        &.{ "--max-warnings", "0", "--bogus", "--test-filter=alpha" },
+        true,
+    );
+    defer std.testing.allocator.free(filtered_args);
+
+    try std.testing.expectEqual(@as(usize, 3), filtered_args.len);
+    try std.testing.expectEqualStrings("--max-warnings", filtered_args[0]);
+    try std.testing.expectEqualStrings("0", filtered_args[1]);
+    try std.testing.expectEqualStrings("--bogus", filtered_args[2]);
+}
+
 test "build invocation step detection ignores option values" {
     const prefix_args = [_][]const u8{
         "build-helper",
@@ -3610,6 +3696,9 @@ pub fn build(b: *std.Build) void {
     // `lint` currently owns the only documented non-test shared-tail CLI surface (`--max-warnings`),
     // so mixed `lint test -- ...` invocations must ignore unknown args while still honoring test flags.
     const allow_foreign_shared_tail_args = test_requested and buildInvocationRequestsStep("lint");
+    const lint_shared_tail_args = lintSharedTailArgsAlloc(b.allocator, b.args, allow_foreign_shared_tail_args) catch |err|
+        std.process.fatal("unable to prepare lint shared-tail args: {s}", .{@errorName(err)});
+    defer b.allocator.free(lint_shared_tail_args);
     const test_runner_args = requireTestRunnerArgs(
         b,
         b.args,
@@ -4442,7 +4531,6 @@ pub fn build(b: *std.Build) void {
         .root_module = source_lowering_tool_mod,
     });
     const source_lowering_tool_install = b.addInstallArtifact(source_lowering_tool_exe, .{});
-    b.getInstallStep().dependOn(&source_lowering_tool_install.step);
     const source_lowering_tool_step = b.step("source-lower", "Build the internal source-lowering tool.");
     source_lowering_tool_step.dependOn(&source_lowering_tool_exe.step);
     source_lowering_tool_step.dependOn(&source_lowering_tool_install.step);
@@ -4690,8 +4778,13 @@ pub fn build(b: *std.Build) void {
     const lint_step = b.step("lint", "Lint source code.");
     lint_step.dependOn(step: {
         const saved_verbose = b.verbose;
+        const saved_args = b.args;
         b.verbose = true;
-        defer b.verbose = saved_verbose;
+        b.args = lint_shared_tail_args;
+        defer {
+            b.verbose = saved_verbose;
+            b.args = saved_args;
+        }
         var builder = zlinter.builder(b, .{});
         builder.addPaths(.{
             // Feed zlinter the explicit repo path registry so lint stays fail-closed
