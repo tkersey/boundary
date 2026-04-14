@@ -1,10 +1,12 @@
 const choice = @import("choice.zig");
+const effect_schema = @import("../effect_schema.zig");
 const family = @import("family.zig");
 const frontend = @import("frontend_support");
 const internal = @import("../internal/algebraic_engine.zig");
 const lexical_with = @import("../with_api.zig");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
+const sealed_engine = @import("../internal/sealed_engine.zig");
 const shift = lowered_machine;
 const std = @import("std");
 
@@ -562,105 +564,6 @@ fn PreviewBodyErrorSet(
     return ReturnTypeErrorSet(@TypeOf(Body.body(preview_capability, dummyValue(PreviewContext))));
 }
 
-fn computeProgramForPrompt(
-    comptime Cap: type,
-    ctx: anytype,
-    comptime PromptType: type,
-    thunk: anytype,
-) frontend.Program(PromptType) {
-    comptime family.assertContextType(Cap, @TypeOf(ctx));
-    const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
-    const ThunkType = @TypeOf(thunk);
-    _ = ctx._cap;
-    return frontend.computeProgramWithContext(PromptType, ctx, struct {
-        fn invoke(program_ctx: @TypeOf(ctx)) lowered_machine.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
-            switch (@typeInfo(ThunkType)) {
-                .@"fn" => {
-                    const params = @typeInfo(ThunkType).@"fn".params;
-                    const ReturnType = @typeInfo(ThunkType).@"fn".return_type.?;
-                    if (params.len == 0) {
-                        if (@typeInfo(ReturnType) != .error_union) return thunk();
-                        return try thunk();
-                    }
-                    if (@typeInfo(ReturnType) != .error_union) return thunk(Cap, program_ctx);
-                    return try thunk(Cap, program_ctx);
-                },
-                .pointer => |pointer| {
-                    if (@typeInfo(pointer.child) == .@"fn") {
-                        const params = @typeInfo(pointer.child).@"fn".params;
-                        const ReturnType = @typeInfo(pointer.child).@"fn".return_type.?;
-                        if (params.len == 0) {
-                            if (@typeInfo(ReturnType) != .error_union) return thunk();
-                            return try thunk();
-                        }
-                        if (@typeInfo(ReturnType) != .error_union) return thunk(Cap, program_ctx);
-                        return try thunk(Cap, program_ctx);
-                    }
-                },
-                else => {},
-            }
-
-            const RunFn = @TypeOf(thunk.run);
-            const params = @typeInfo(RunFn).@"fn".params;
-            const ReturnType = @typeInfo(RunFn).@"fn".return_type.?;
-            if (params.len == 0) {
-                if (@typeInfo(ReturnType) != .error_union) return thunk.run();
-                return try thunk.run();
-            }
-            if (@typeInfo(ReturnType) != .error_union) return thunk.run(Cap, program_ctx);
-            return try thunk.run(Cap, program_ctx);
-        }
-    }.invoke);
-}
-
-fn runWithSealedEngine(comptime Contract: type, config: anytype, comptime Body: type) lowered_machine.ResetError(Contract.ErrorSetTypeG)!Contract.AnswerTypeG {
-    const PromptType = Contract.PromptTypeG;
-    const StateType = Contract.StateTypeG;
-    const AnswerType = Contract.AnswerTypeG;
-    const ErrorSetType = Contract.ErrorSetTypeG;
-    const capability_decls = Contract.capability_decls;
-    const EnginePtrType = @TypeOf(config.engine_ctx);
-    const EngineContextType = switch (@typeInfo(EnginePtrType)) {
-        .pointer => |pointer| pointer.child,
-        else => @compileError("expected engine context pointer"),
-    };
-
-    const RunnerState = struct {
-        runtime: *shift.Runtime,
-        prompt_identity: *const anyopaque,
-        engine_ctx: *EngineContextType,
-        lexical_state: ?*anyopaque = null,
-    };
-    const runner_state = RunnerState{
-        .runtime = config.runtime,
-        .prompt_identity = config.prompt_identity,
-        .engine_ctx = config.engine_ctx,
-        .lexical_state = if (@hasField(@TypeOf(config), "lexical_state")) config.lexical_state else null,
-    };
-
-    const runner = struct {
-        /// Execute one generated-family body under the installed exact context and engine bindings.
-        pub fn run(state: RunnerState, comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSetType)!AnswerType {
-            const prompt: *const PromptType = @ptrCast(@alignCast(state.prompt_identity));
-            if (comptime family.hasDeclSafe(Body, "program")) {
-                const AuthoredType = @TypeOf(Body.program(Cap, ctx));
-                if (@typeInfo(AuthoredType) == .@"struct") {
-                    var authored = Body.program(Cap, ctx);
-                    authored.activate();
-                    defer authored.deactivate();
-                    return try frontend.run(state.runtime, authored.prompt, authored.program);
-                }
-                return try frontend.run(state.runtime, prompt, Body.program(Cap, ctx));
-            }
-            if (comptime family.hasDeclSafe(Body, "body")) {
-                return try frontend.run(state.runtime, prompt, computeProgramForPrompt(Cap, ctx, PromptType, Body.body));
-            }
-            @compileError("generated effect body must declare program or body");
-        }
-    };
-    return try family.withCapability(family.ContextSpec(StateType, AnswerType, ErrorSetType), capability_decls, runner_state, AnswerType, runner);
-}
-
 fn promptIdentity(prompt: anytype) *const anyopaque {
     return @ptrCast(prompt);
 }
@@ -695,6 +598,10 @@ pub fn Build(comptime spec: anytype) type {
         pub const OpTag = GeneratedOpTag;
         /// Stable compile-time manifest for this generated family.
         pub const definition = family_definition;
+        /// Shared effect schema for this generated family definition.
+        pub fn Schema() type {
+            return effect_schema.generated_family(spec);
+        }
         /// Prompt-sized instance shell for this generated family.
         pub const Instance = family.InstanceWithMode(mode, StateType, ErrorSetType);
 
@@ -709,7 +616,7 @@ pub fn Build(comptime spec: anytype) type {
             comptime family.assertContextType(Cap, @TypeOf(ctx));
             const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
             const FamilyPrompt = prompt_contract.Prompt(mode, ContextType.AnswerType, ContextType.AnswerType, ContextType.ErrorSetType);
-            return computeProgramForPrompt(Cap, ctx, FamilyPrompt, thunk);
+            return sealed_engine.computeProgramForPrompt(Cap, ctx, FamilyPrompt, thunk);
         }
 
         fn GeneratedImplType(comptime AnswerType: type, comptime RunErrorSetType: type, comptime HandlerPtrType: type, comptime index: usize) type {
@@ -890,6 +797,9 @@ pub fn Build(comptime spec: anytype) type {
                     handlers_ptr: ?*Config.Handlers,
                     previous_eff: Config.PreviousEff,
                     outputs_ptr: ?*lexical_with.OutputBundleType(Config.Handlers),
+                    caller_file: []const u8,
+                    caller_line: u32,
+                    caller_column: u32,
 
                     /// Perform one zero-payload generated lexical choice op.
                     pub fn perform(self: Handle, comptime Continuation: anytype) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
@@ -905,6 +815,9 @@ pub fn Build(comptime spec: anytype) type {
                                         .previous_eff = current_handle.previous_eff,
                                         .current_handle = current_handle.*,
                                         .outputs_ptr = current_handle.outputs_ptr.?,
+                                        .caller_file = current_handle.caller_file,
+                                        .caller_line = current_handle.caller_line,
+                                        .caller_column = current_handle.caller_column,
                                     },
                                     Continuation,
                                     value,
@@ -927,6 +840,9 @@ pub fn Build(comptime spec: anytype) type {
                     handlers_ptr: ?*Config.Handlers,
                     previous_eff: Config.PreviousEff,
                     outputs_ptr: ?*lexical_with.OutputBundleType(Config.Handlers),
+                    caller_file: []const u8,
+                    caller_line: u32,
+                    caller_column: u32,
 
                     /// Perform one payload-carrying generated lexical choice op.
                     pub fn perform(self: Handle, payload: OpPayloadType(OpTypeValue), comptime Continuation: anytype) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
@@ -942,6 +858,9 @@ pub fn Build(comptime spec: anytype) type {
                                         .previous_eff = current_handle.previous_eff,
                                         .current_handle = current_handle.*,
                                         .outputs_ptr = current_handle.outputs_ptr.?,
+                                        .caller_file = current_handle.caller_file,
+                                        .caller_line = current_handle.caller_line,
+                                        .caller_column = current_handle.caller_column,
                                     },
                                     Continuation,
                                     value,
@@ -1070,6 +989,9 @@ pub fn Build(comptime spec: anytype) type {
                                 .handlers_ptr = lexical_state.handlers_ptr,
                                 .previous_eff = lexical_state.eff_value,
                                 .outputs_ptr = lexical_state.outputs_ptr,
+                                .caller_file = lexical_state.caller_file,
+                                .caller_line = lexical_state.caller_line,
+                                .caller_column = lexical_state.caller_column,
                             },
                             .direct_return => LexicalOpFieldHandle(@field(OpTag, opName(SpecOp)), LexicalFieldConfig(Cap, @TypeOf(ctx), HandlersType, PreviousEffType, index)){
                                 .ctx = ctx,
@@ -1080,11 +1002,16 @@ pub fn Build(comptime spec: anytype) type {
                     return field_container;
                 }
 
+                /// Return the shared binding schema for this lexical descriptor under one requirement label.
+                pub fn BindingSchema(comptime requirement_label: [:0]const u8) type {
+                    return effect_schema.Binding(requirement_label, self_type.Schema(), HandlerType);
+                }
+
                 /// Run one generated lexical descriptor through the existing generated-family handler path.
-                pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, lexical_state: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType || InferHandlerOperationErrorSet(mode, op_specs, HandlerType))!lexical_with.DescriptorResult(Output, AnswerType) {
+                pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType || InferHandlerOperationErrorSet(mode, op_specs, HandlerType))!lexical_with.DescriptorResult(Output, AnswerType) {
                     var instance = Instance.init();
                     const ActualRunErrorSet = RunErrorSetType || InferHandlerOperationErrorSet(mode, op_specs, HandlerType);
-                    const result = try self_type.handleWithLexicalState(AnswerType, ActualRunErrorSet, runtime, &instance, self.handler, @constCast(lexical_state), Body);
+                    const result = try self_type.handleWithLexicalState(AnswerType, ActualRunErrorSet, run_ctx.runtime, &instance, self.handler, @constCast(run_ctx.lexical_state), Body, @TypeOf(run_ctx).caller_source);
                     if (produces_output) {
                         return .{
                             .output = result.state,
@@ -1119,10 +1046,11 @@ pub fn Build(comptime spec: anytype) type {
 
         /// Public `handleWithErrorSet` helper.
         pub fn handleWithErrorSet(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
-            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body);
+            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body, null);
         }
 
-        fn handleWithLexicalState(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, lexical_state: ?*anyopaque, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+        // zlinter-disable max_positional_args - this internal seam keeps the lexical caller packet explicit until compiled-body dispatch fully replaces the legacy path.
+        fn handleWithLexicalState(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, lexical_state: ?*anyopaque, comptime Body: type, comptime caller_source: ?std.builtin.SourceLocation) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
             var handler_value = handler;
             const handler_ptr = &handler_value;
             const HandlerType = @TypeOf(handler_value);
@@ -1150,9 +1078,13 @@ pub fn Build(comptime spec: anytype) type {
                 const ErrorSetTypeG = RunErrorSetType;
                 const capability_decls = capability_meta;
             };
-            const value = try runWithSealedEngine(
-                sealed_contract,
-                .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = lexical_state },
+            const value = try sealed_engine.runWithSealedEngine(
+                sealed_contract.PromptTypeG,
+                sealed_contract.StateTypeG,
+                sealed_contract.AnswerTypeG,
+                sealed_contract.ErrorSetTypeG,
+                sealed_contract.capability_decls,
+                .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = lexical_state, .caller_source = caller_source },
                 Body,
             );
             if (mode == .resume_then_transform) {

@@ -5,6 +5,8 @@ const with_api = @import("with_api.zig");
 pub const Runtime = lowered_machine.Runtime;
 /// Public `RuntimeError` declaration.
 pub const RuntimeError = lowered_machine.RuntimeError;
+/// Canonical named lexical body helper for compiled witness-only `with(...)` calls.
+pub const NamedBody = with_api.NamedBody;
 /// Public lexical effect namespace for internal witness-only helpers.
 pub const effect = struct {
     /// Public lexical choice-decision helper namespace.

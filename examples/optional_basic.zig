@@ -33,10 +33,29 @@ const resume_policy = struct {
 
     /// Finalize the resumed front-door optional answer.
     pub fn afterResume(answer: []const u8) []const u8 {
+        transcript.note("body-after-request");
         transcript.note("policy-after-resume");
         return answer;
     }
 };
+
+fn optionalReturnNowBody(eff: anytype) anyerror![]const u8 {
+    return try eff.optional.request(struct {
+        /// Apply this continuation hook.
+        pub fn apply(_: i32, _: anytype) anyerror![]const u8 {
+            return "unused";
+        }
+    });
+}
+
+fn optionalResumeBody(eff: anytype) anyerror![]const u8 {
+    return try eff.optional.request(struct {
+        /// Apply this continuation hook.
+        pub fn apply(_: i32, _: anytype) anyerror![]const u8 {
+            return "answer=42";
+        }
+    });
+}
 
 /// Write the optional-family transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
@@ -47,17 +66,7 @@ pub fn run(writer: anytype) anyerror!void {
     transcript.len = 0;
     const early_result = try shift.with(&runtime, .{
         .optional = shift.effect.optional.use(i32, return_now_policy),
-    }, struct {
-        /// Trigger the optional choice point and prove the continuation is skipped.
-        pub fn body(eff: anytype) ![]const u8 {
-            return try eff.optional.request(struct {
-                /// Apply this continuation hook.
-                pub fn apply(_: i32, _: anytype) ![]const u8 {
-                    unreachable;
-                }
-            });
-        }
-    });
+    }, shift.NamedBody("examples/optional_basic.zig", "optionalReturnNowBody", anyerror![]const u8, optionalReturnNowBody));
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }
@@ -67,19 +76,7 @@ pub fn run(writer: anytype) anyerror!void {
     transcript.len = 0;
     const resumed = try shift.with(&runtime, .{
         .optional = shift.effect.optional.use(i32, resume_policy),
-    }, struct {
-        /// Trigger the optional choice point and complete the resumed continuation explicitly.
-        pub fn body(eff: anytype) ![]const u8 {
-            return try eff.optional.request(struct {
-                /// Apply this continuation hook.
-                pub fn apply(value: i32, _: anytype) ![]const u8 {
-                    if (value != 41) unreachable;
-                    transcript.note("body-after-request");
-                    return "answer=42";
-                }
-            });
-        }
-    });
+    }, shift.NamedBody("examples/optional_basic.zig", "optionalResumeBody", anyerror![]const u8, optionalResumeBody));
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }

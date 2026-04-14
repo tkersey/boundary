@@ -295,16 +295,23 @@ fn normalizeAbsolutePath(comptime source_path: []const u8) NormalizeRelativePath
 fn ownedRepoSourcePath(comptime source_path: []const u8) ?[]const u8 {
     const repo_path = if (std.fs.path.isAbsolute(source_path)) blk: {
         if (repoRelativeAbsolutePath(source_path, build_options.package_root)) |repo_source_path| {
-            break :blk normalizeRelativePath(repo_source_path) catch return null;
+            break :blk comptime normalizeRelativePath(repo_source_path) catch return null;
         }
-        if (repoRelativeAbsolutePath(source_path, build_options.package_root_alias)) |repo_source_path| {
-            break :blk normalizeRelativePath(repo_source_path) catch return null;
+        if (build_options.package_root_alias_available) {
+            if (repoRelativeAbsolutePath(source_path, build_options.package_root_alias)) |repo_source_path| {
+                break :blk comptime normalizeRelativePath(repo_source_path) catch return null;
+            }
         }
         return null;
-    } else normalizeRelativePath(source_path) catch return null;
+    } else comptime normalizeRelativePath(source_path) catch return null;
 
     if (!registryContainsLine(build_options.repo_zig_paths, repo_path)) return null;
     return repo_path;
+}
+
+/// Return the owned repo-relative path for one source file when it resolves under the package root.
+pub fn ownedRepoPath(comptime source_path: []const u8) ?[]const u8 {
+    return ownedRepoSourcePath(source_path);
 }
 
 /// Return caller-owned source bytes for one exact module path when provided explicitly.

@@ -513,26 +513,6 @@ fn promotedSupportedCase(case_id: []const u8, surface_kind: SurfaceKind) ?Suppor
             .compare_scope = .entry,
             .feature_flags = &.{ "witness", "choice_resume", "source_canonical" },
         };
-        if (std.mem.eql(u8, case_id, "witness.static_redelim")) return .{
-            .case_id = case_id,
-            .label = "source.witness.static_redelim",
-            .source_path = "src/witness_sources.zig",
-            .scenario_id = .static_redelim,
-            .status = .canonical,
-            .entry_symbol = "runStaticRedelim",
-            .compare_scope = .entry,
-            .feature_flags = &.{ "witness", "static_redelim", "source_canonical" },
-        };
-        if (std.mem.eql(u8, case_id, "witness.multi_prompt")) return .{
-            .case_id = case_id,
-            .label = "source.witness.multi_prompt",
-            .source_path = "src/witness_sources.zig",
-            .scenario_id = .multi_prompt,
-            .status = .canonical,
-            .entry_symbol = "runMultiPrompt",
-            .compare_scope = .entry,
-            .feature_flags = &.{ "witness", "multi_prompt", "source_canonical" },
-        };
         if (std.mem.eql(u8, case_id, "witness.generator")) return .{
             .case_id = case_id,
             .label = "source.witness.generator",

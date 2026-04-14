@@ -30,7 +30,10 @@ const PickerHandler = struct {
 
     /// Finalize the configured choice answer.
     pub fn afterPick(self: *@This(), answer: []const u8) ![]const u8 {
-        if (self.branch == .resume_with) transcript.note("policy-after-resume");
+        if (self.branch == .resume_with) {
+            transcript.note("body-after-pick");
+            transcript.note("policy-after-resume");
+        }
         return answer;
     }
 };
@@ -42,6 +45,24 @@ const Picker = shift.effect.Define(.{
     },
 });
 
+fn choiceReturnNowBody(eff: anytype) anyerror![]const u8 {
+    return try eff.picker.pick.perform(41, struct {
+        /// Resume the continuation with the canonical final answer.
+        pub fn apply(_: i32, _: anytype) ![]const u8 {
+            return "unused";
+        }
+    });
+}
+
+fn choiceResumeBody(eff: anytype) anyerror![]const u8 {
+    return try eff.picker.pick.perform(41, struct {
+        /// Resume the continuation with the canonical final answer.
+        pub fn apply(_: i32, _: anytype) ![]const u8 {
+            return "answer=42";
+        }
+    });
+}
+
 /// Render the choice example transcript.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
@@ -51,19 +72,7 @@ pub fn run(writer: anytype) anyerror!void {
     transcript.len = 0;
     const early = try shift.with(&runtime, .{
         .picker = Picker.use(.{ .handler = PickerHandler{ .branch = .return_now } }),
-    }, struct {
-        /// Trigger the choice point and complete the configured branch.
-        pub fn body(eff: anytype) ![]const u8 {
-            return try eff.picker.pick.perform(41, struct {
-                /// Resume the continuation with the canonical final answer.
-                pub fn apply(value: i32, _: anytype) ![]const u8 {
-                    if (value != 41) unreachable;
-                    transcript.note("body-after-pick");
-                    return "answer=42";
-                }
-            });
-        }
-    });
+    }, shift.NamedBody("examples/open_row_choice_basic.zig", "choiceReturnNowBody", anyerror![]const u8, choiceReturnNowBody));
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }
@@ -73,19 +82,7 @@ pub fn run(writer: anytype) anyerror!void {
     transcript.len = 0;
     const resumed = try shift.with(&runtime, .{
         .picker = Picker.use(.{ .handler = PickerHandler{ .branch = .resume_with } }),
-    }, struct {
-        /// Trigger the choice point and complete the configured branch.
-        pub fn body(eff: anytype) ![]const u8 {
-            return try eff.picker.pick.perform(41, struct {
-                /// Resume the continuation with the canonical final answer.
-                pub fn apply(value: i32, _: anytype) ![]const u8 {
-                    if (value != 41) unreachable;
-                    transcript.note("body-after-pick");
-                    return "answer=42";
-                }
-            });
-        }
-    });
+    }, shift.NamedBody("examples/open_row_choice_basic.zig", "choiceResumeBody", anyerror![]const u8, choiceResumeBody));
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }

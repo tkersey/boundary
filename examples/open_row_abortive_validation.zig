@@ -20,6 +20,10 @@ const Guard = shift.effect.Define(.{
     },
 });
 
+fn abortiveValidationBody(eff: anytype) anyerror![]const u8 {
+    try eff.guard.fail.abort("missing-name");
+}
+
 /// Render the abortive-validation transcript.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
@@ -29,12 +33,7 @@ pub fn run(writer: anytype) anyerror!void {
     try writer.writeAll("validate=name\n");
     const result = try shift.with(&runtime, .{
         .guard = Guard.use(.{ .handler = guard_handler{} }),
-    }, struct {
-        /// Trigger the validation abort directly.
-        pub fn body(eff: anytype) ![]const u8 {
-            try eff.guard.fail.abort("missing-name");
-        }
-    });
+    }, shift.NamedBody("examples/open_row_abortive_validation.zig", "abortiveValidationBody", anyerror![]const u8, abortiveValidationBody));
     try writer.print("abort={s}\n", .{transcript.abort_line});
     try writer.print("final={s}\n", .{result.value});
 }

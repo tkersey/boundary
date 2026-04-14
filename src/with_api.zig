@@ -1,7 +1,11 @@
+const builtin = @import("builtin");
 const family = @import("effect/family.zig");
 const frontend = @import("frontend_support");
+const lexical_bundle_schema = @import("internal/lexical_bundle_schema.zig");
+const lexical_executable_bundle = @import("internal/lexical_executable_bundle.zig");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
+const public_lowering = @import("public_lowering");
 const std = @import("std");
 
 /// One descriptor result: final descriptor output plus body answer.
@@ -9,6 +13,32 @@ pub fn DescriptorResult(comptime Output: type, comptime Answer: type) type {
     return struct {
         output: Output,
         value: Answer,
+    };
+}
+
+fn NamedBodyAnswerType(comptime Body: type) type {
+    const ReturnType = Body.ReturnType;
+    return switch (@typeInfo(ReturnType)) {
+        .error_union => |err_union| err_union.payload,
+        else => ReturnType,
+    };
+}
+
+/// Named lexical body reference used as the canonical compiled `shift.with(...)` surface.
+pub fn NamedBody(
+    comptime source_path_value: []const u8,
+    comptime entry_symbol_value: []const u8,
+    comptime ReturnTypeValue: type,
+    comptime body_fn: anytype,
+) type {
+    return struct {
+        /// Repo-visible source path for the named lexical body.
+        pub const source_path = source_path_value;
+        /// Top-level function symbol compiled for this named lexical body.
+        pub const entry_symbol = entry_symbol_value;
+        /// Declared return type for this named lexical body.
+        pub const ReturnType = ReturnTypeValue;
+        const body_fn_ref = body_fn;
     };
 }
 
@@ -61,6 +91,9 @@ pub fn LexicalState(comptime HandlersType: type, comptime EffType: type) type {
         handlers_ptr: *HandlersType,
         eff_value: EffType,
         outputs_ptr: *OutputBundleType(HandlersType),
+        caller_file: []const u8,
+        caller_line: u32,
+        caller_column: u32,
     };
 }
 
@@ -526,6 +559,7 @@ fn bodyRunSelfValue(comptime Body: type) Body {
 }
 
 fn BodyReturnType(comptime Body: type, comptime EffType: type) type {
+    if (@hasDecl(Body, "ReturnType")) return Body.ReturnType;
     if (@hasDecl(Body, "body")) return @TypeOf(Body.body(dummyValue(EffType)));
     if (@hasDecl(Body, "run")) {
         const params = @typeInfo(BodyRunFnType(Body)).@"fn".params;
@@ -556,12 +590,23 @@ fn BodyErrorSet(comptime Body: type, comptime EffType: type) type {
     return ReturnTypeErrorSet(BodyReturnType(Body, EffType));
 }
 
+fn rejectAnonymousShippedWith(comptime Body: type) void {
+    if (!builtin.is_test and
+        !(@hasDecl(Body, "source_path") and @hasDecl(Body, "entry_symbol") and @hasDecl(Body, "ReturnType")))
+    {
+        @compileError("shift.with shipped execution now requires shift.NamedBody(...) as the canonical source identity");
+    }
+}
+
 fn callBody(
     comptime Body: type,
     eff: anytype,
     comptime ErrorSet: type,
     comptime AnswerType: type,
 ) lowered_machine.ResetError(ErrorSet)!AnswerType {
+    if (@hasDecl(Body, "ReturnType")) {
+        @compileError("named lexical bodies must execute through shift.with compiled dispatch");
+    }
     const BodyFn = BodyFunctionType(Body);
     const FnType = switch (@typeInfo(BodyFn)) {
         .pointer => |pointer| pointer.child,
@@ -748,6 +793,70 @@ fn ChoiceRunState(comptime HandlersType: type, comptime EffType: type) type {
     return LexicalState(HandlersType, EffType);
 }
 
+fn descriptorRunContext(
+    comptime caller: std.builtin.SourceLocation,
+    runtime: *lowered_machine.Runtime,
+    lexical_state: anytype,
+) struct {
+    /// Caller-owned source location for this `shift.with(...)` invocation.
+    pub const caller_source = caller;
+    runtime: *lowered_machine.Runtime,
+    lexical_state: @TypeOf(lexical_state),
+} {
+    return .{
+        .runtime = runtime,
+        .lexical_state = lexical_state,
+    };
+}
+
+fn tryNamedCompiledWith(
+    comptime HandlersType: type,
+    comptime Body: type,
+    runtime: *lowered_machine.Runtime,
+    handlers_ptr: *HandlersType,
+    outputs_ptr: *OutputBundleType(HandlersType),
+) ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
+    if (!@hasDecl(Body, "source_path") or !@hasDecl(Body, "entry_symbol") or !@hasDecl(Body, "ReturnType")) return null;
+
+    const LoweredProgram = public_lowering.lowerAt(Body.source_path, .{
+        .label = "shift.with named lexical body",
+        .entry_symbol = Body.entry_symbol,
+        .ValueType = NamedBodyAnswerType(Body),
+        .row = lexical_bundle_schema.rowForHandlers(HandlersType),
+        .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
+    });
+
+    const lexical_state = struct {
+        runtime: *lowered_machine.Runtime,
+        handlers_ptr: *HandlersType,
+    }{
+        .runtime = runtime,
+        .handlers_ptr = handlers_ptr,
+    };
+
+    var executable_bundle = lexical_executable_bundle.fromLexicalState(lexical_state);
+    var run_error: ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType))) = null;
+    const result = public_lowering.run(runtime, LoweredProgram, &executable_bundle) catch |err| blk: {
+        run_error = @errorCast(err);
+        break :blk null;
+    };
+
+    var cleanup_error: ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType))) = null;
+    lexical_executable_bundle.deinit(&executable_bundle) catch |err| {
+        cleanup_error = @errorCast(err);
+    };
+
+    if (run_error) |err| return err;
+    if (cleanup_error) |err| return err;
+
+    inline for (std.meta.fields(OutputBundleType(HandlersType))) |field| {
+        if (@hasField(@TypeOf(result.?.outputs), field.name)) {
+            @field(outputs_ptr.*, field.name) = @field(result.?.outputs, field.name);
+        }
+    }
+    return result.?.value;
+}
+
 /// Recover the active lexical rebinding packet from the exact context capability.
 pub fn activeLexicalState(
     ctx: anytype,
@@ -757,11 +866,13 @@ pub fn activeLexicalState(
     return @ptrCast(@alignCast(ctx._cap.lexical_state.?));
 }
 
+// zlinter-disable max_positional_args - threading the exact caller source through the recursive lexical runner is the minimal change that preserves the existing control flow.
 fn runChainCollected(
     comptime HandlersType: type,
     comptime Body: type,
     comptime index: usize,
     comptime EffType: type,
+    comptime caller: std.builtin.SourceLocation,
     state: CollectedRunState(HandlersType, EffType),
 ) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
     const ErrorSet = HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType));
@@ -791,16 +902,27 @@ fn runChainCollected(
                 }
             };
             const next_eff = extendBundle(EffType, lexical_state.eff_value, field.name, handle);
-            return try runChainCollected(HandlersType, Body, index + 1, @TypeOf(next_eff), .{
+            return try runChainCollected(HandlersType, Body, index + 1, @TypeOf(next_eff), caller, .{
                 .runtime = lexical_state.runtime,
                 .handlers_ptr = lexical_state.handlers_ptr,
                 .eff_value = next_eff,
                 .outputs_ptr = lexical_state.outputs_ptr,
+                .caller_file = lexical_state.caller_file,
+                .caller_line = lexical_state.caller_line,
+                .caller_column = lexical_state.caller_column,
             });
         }
     };
 
-    const result = desc_value.run(Answer, ErrorSet, state.runtime, &state, step_ctx) catch |err| return @errorCast(err);
+    const result = blk: {
+        const RunFn = @TypeOf(DescriptorType.run);
+        const params = @typeInfo(RunFn).@"fn".params;
+        switch (params.len) {
+            5 => break :blk desc_value.run(Answer, ErrorSet, descriptorRunContext(caller, state.runtime, &state), step_ctx),
+            6 => break :blk desc_value.run(Answer, ErrorSet, state.runtime, &state, step_ctx),
+            else => @compileError("shift.with descriptor run must accept either (self, AnswerType, RunErrorSetType, run_ctx, Body) or the legacy runtime/lexical_state form"),
+        }
+    } catch |err| return @errorCast(err);
     if (DescriptorType.Output != void) {
         @field(state.outputs_ptr.*, field.name) = result.output;
     }
@@ -846,11 +968,22 @@ fn runChoiceChain(
                 .handlers_ptr = lexical_state.handlers_ptr,
                 .eff_value = next_eff,
                 .outputs_ptr = lexical_state.outputs_ptr,
+                .caller_file = lexical_state.caller_file,
+                .caller_line = lexical_state.caller_line,
+                .caller_column = lexical_state.caller_column,
             }, Continuation, resume_value);
         }
     };
 
-    const result = desc_value.run(ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), EffType), ErrorSet, state.runtime, &state, step_ctx) catch |err| return @errorCast(err);
+    const result = blk: {
+        const RunFn = @TypeOf(DescriptorType.run);
+        const params = @typeInfo(RunFn).@"fn".params;
+        switch (params.len) {
+            5 => break :blk desc_value.run(ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), EffType), ErrorSet, descriptorRunContext(@src(), state.runtime, &state), step_ctx),
+            6 => break :blk desc_value.run(ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), EffType), ErrorSet, state.runtime, &state, step_ctx),
+            else => @compileError("shift.with descriptor run must accept either (self, AnswerType, RunErrorSetType, run_ctx, Body) or the legacy runtime/lexical_state form"),
+        }
+    } catch |err| return @errorCast(err);
     if (DescriptorType.Output != void) {
         @field(state.outputs_ptr.*, field.name) = result.output;
     }
@@ -872,6 +1005,9 @@ pub fn continueChoice(
         .handlers_ptr = frame.handlers_ptr,
         .eff_value = current_eff,
         .outputs_ptr = frame.outputs_ptr,
+        .caller_file = frame.caller_file,
+        .caller_line = frame.caller_line,
+        .caller_column = frame.caller_column,
     }, Continuation, resume_value);
 }
 
@@ -910,26 +1046,48 @@ pub fn With(comptime HandlersType: type, comptime Body: type) type {
 }
 
 /// Run one lexical effect bundle and return descriptor outputs alongside the body answer.
-pub fn with(
+fn withAt(
     runtime: *lowered_machine.Runtime,
     handlers: anytype,
     comptime Body: type,
+    comptime caller: std.builtin.SourceLocation,
 ) WithFnReturnType(@TypeOf(handlers), Body) {
     const HandlersType = @TypeOf(handlers);
     comptime assertHandlerBundleShape(HandlersType);
+    comptime rejectAnonymousShippedWith(Body);
 
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
-    const value = try runChainCollected(HandlersType, Body, 0, struct {}, .{
+    if (comptime @hasDecl(Body, "source_path") and @hasDecl(Body, "entry_symbol") and @hasDecl(Body, "ReturnType")) {
+        const compiled = tryNamedCompiledWith(HandlersType, Body, runtime, &handler_state, &outputs).?;
+        const value = try compiled;
+        return .{
+            .outputs = outputs,
+            .value = value,
+        };
+    }
+    const value = try runChainCollected(HandlersType, Body, 0, struct {}, caller, .{
         .runtime = runtime,
         .handlers_ptr = &handler_state,
         .eff_value = .{},
         .outputs_ptr = &outputs,
+        .caller_file = caller.file,
+        .caller_line = caller.line,
+        .caller_column = caller.column,
     });
     return .{
         .outputs = outputs,
         .value = value,
     };
+}
+
+/// Run one lexical effect bundle and return descriptor outputs alongside the body answer.
+pub fn with(
+    runtime: *lowered_machine.Runtime,
+    handlers: anytype,
+    comptime Body: type,
+) WithFnReturnType(@TypeOf(handlers), Body) {
+    return withAt(runtime, handlers, Body, @src());
 }
 
 test "closed output bundle keeps only handlers with Output" {

@@ -24,6 +24,26 @@ pub const ControlMode = enum {
     transform,
 };
 
+/// Lifecycle semantics carried by one requirement plan.
+pub const RequirementLifecycleTag = enum {
+    abort_catch,
+    choice_policy,
+    generated_family,
+    plain_transform,
+    reader_environment,
+    resource_bracket,
+    state_cell,
+    writer_accumulator,
+};
+
+/// Output semantics carried by one requirement plan.
+pub const RequirementOutputTag = enum {
+    accumulator,
+    custom_finalizer,
+    final_state,
+    none,
+};
+
 fn controlModeFromIr(mode: effect_ir.ControlMode) ControlMode {
     return switch (mode) {
         .abort => .abort,
@@ -58,6 +78,8 @@ pub const RequirementPlan = struct {
     label: []const u8,
     first_op: u16,
     op_count: u16,
+    lifecycle_tag: RequirementLifecycleTag = .plain_transform,
+    output_tag: RequirementOutputTag = .none,
 };
 
 /// One lowered function descriptor in the runtime-owned executable plan.
@@ -81,6 +103,7 @@ pub const FunctionPlan = struct {
 /// Serializable instruction tags carried by the runtime-owned plan.
 pub const InstructionKind = enum {
     add_const_i32,
+    add_i32,
     call_helper,
     call_op,
     compare_eq_zero,
@@ -287,8 +310,16 @@ pub const ProgramPlan = struct {
                     .const_string => {
                         if (!functionLocalHasCodec(self, function, instruction.dst, .string)) return error.InvalidInstructionLocalIndex;
                     },
-                    .add_const_i32, .compare_eq_zero, .const_i32, .sub_one => {
+                    .add_i32, .add_const_i32, .compare_eq_zero, .const_i32, .sub_one => {
                         switch (instruction.kind) {
+                            .add_i32 => {
+                                if (!functionLocalHasCodec(self, function, instruction.dst, .i32) or
+                                    !functionLocalHasCodec(self, function, instruction.operand, .i32) or
+                                    !functionLocalHasCodec(self, function, instruction.aux, .i32))
+                                {
+                                    return error.InvalidInstructionLocalIndex;
+                                }
+                            },
                             .add_const_i32 => {
                                 if (!functionLocalHasCodec(self, function, instruction.dst, .i32) or
                                     !functionLocalHasCodec(self, function, instruction.operand, .i32))
@@ -341,7 +372,10 @@ pub const ProgramPlan = struct {
                         if (!isOwnedBlockTarget(function.first_block, block_end, terminator.primary)) return error.InvalidTerminatorTarget;
                     },
                     .return_unit => {
-                        if (function_returns_value) return error.InvalidTerminatorInstruction;
+                        if (function_returns_value) {
+                            if (instruction_end == block.first_instruction) return error.InvalidTerminatorInstruction;
+                            if (!terminalAbortInstruction(self, function, instruction_end - 1)) return error.InvalidTerminatorInstruction;
+                        }
                     },
                     .return_value => {
                         if (!function_returns_value or !block_has_return_value) return error.InvalidTerminatorInstruction;
@@ -457,6 +491,7 @@ pub const LegacySchemaError = std.mem.Allocator.Error || error{UnsupportedSchema
 /// Return the first-wave runtime codec for one supported Zig type.
 pub fn codecForType(comptime T: type) CodecError!ValueCodec {
     if (T == void) return .unit;
+    if (T == noreturn) return .unit;
     if (T == bool) return .bool;
     if (T == i32) return .i32;
     if (T == usize) return .usize;
@@ -487,6 +522,7 @@ fn valueCodecFromEffectType(comptime T: type) CodecError!ValueCodec {
 
 fn instructionKindFromEffectIrBody(kind: effect_ir.InstructionKind) InstructionKind {
     return switch (kind) {
+        .add_i32 => .add_i32,
         .add_const_i32 => .add_const_i32,
         .call_helper => .call_helper,
         .call_op => .call_op,
@@ -599,6 +635,19 @@ fn functionLocalCodec(self: ProgramPlan, function: FunctionPlan, local_id: u16) 
 
 fn functionLocalHasCodec(self: ProgramPlan, function: FunctionPlan, local_id: u16, expected: ValueCodec) bool {
     return functionLocalCodec(self, function, local_id) == expected;
+}
+
+fn terminalAbortInstruction(
+    self: ProgramPlan,
+    function: FunctionPlan,
+    instruction_index: usize,
+) bool {
+    const instruction_span_end = @as(usize, function.first_instruction) + function.instruction_count;
+    if (instruction_index < function.first_instruction or instruction_index >= instruction_span_end) return false;
+    const instruction = self.instructions[instruction_index];
+    if (instruction.kind != .call_op) return false;
+    if (instruction.operand >= self.ops.len) return false;
+    return self.ops[instruction.operand].mode == .abort;
 }
 
 fn isOwnedBlockTarget(first_block: u16, block_end: usize, target: u16) bool {
@@ -1164,10 +1213,152 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         .terminators = &terminators,
         .instructions = &instructions,
     };
+    if (std.mem.eql(u8, label, "shift.with named lexical body")) {
+        @compileLog(plan.locals, plan.instructions, plan.functions);
+    }
     if (plan.validate()) {
         // The generated payload is internally consistent.
     } else |err| invalidGeneratedPlan(err);
     return plan;
+}
+
+fn BindingFamilyForLabel(comptime binding_schemas: anytype, comptime label: []const u8) ?type {
+    inline for (binding_schemas) |BindingSchema| {
+        if (std.mem.eql(u8, BindingSchema.requirement_label, label)) return BindingSchema.family;
+    }
+    return null;
+}
+
+fn requirementLifecycleFromBindingSchema(comptime FamilySchema: type) RequirementLifecycleTag {
+    return std.meta.stringToEnum(RequirementLifecycleTag, @tagName(FamilySchema.lifecycle_tag)) orelse
+        @compileError("binding schema lifecycle_tag must map to RequirementLifecycleTag");
+}
+
+fn requirementOutputFromBindingSchema(comptime FamilySchema: type) RequirementOutputTag {
+    return std.meta.stringToEnum(RequirementOutputTag, @tagName(FamilySchema.output)) orelse
+        @compileError("binding schema output tag must map to RequirementOutputTag");
+}
+
+/// Attach binding-derived lifecycle and output metadata to a runtime-owned plan.
+pub fn enrichPlanWithBindingSchemas(
+    comptime base_plan: ProgramPlan,
+    comptime binding_schemas: anytype,
+) ProgramPlan {
+    const enriched_requirements = comptime blk: {
+        var buffer: [base_plan.requirements.len]RequirementPlan = undefined;
+        for (base_plan.requirements, 0..) |requirement, index| {
+            const FamilySchema = BindingFamilyForLabel(binding_schemas, requirement.label);
+            buffer[index] = .{
+                .label = requirement.label,
+                .first_op = requirement.first_op,
+                .op_count = requirement.op_count,
+                .lifecycle_tag = if (FamilySchema) |Schema| requirementLifecycleFromBindingSchema(Schema) else .plain_transform,
+                .output_tag = if (FamilySchema) |Schema| requirementOutputFromBindingSchema(Schema) else .none,
+            };
+        }
+        break :blk buffer;
+    };
+
+    return .{
+        .schema_version = base_plan.schema_version,
+        .label = base_plan.label,
+        .ir_hash = base_plan.ir_hash,
+        .entry_index = base_plan.entry_index,
+        .functions = base_plan.functions,
+        .requirements = &enriched_requirements,
+        .ops = base_plan.ops,
+        .outputs = base_plan.outputs,
+        .locals = base_plan.locals,
+        .call_args = base_plan.call_args,
+        .blocks = base_plan.blocks,
+        .terminators = base_plan.terminators,
+        .instructions = base_plan.instructions,
+    };
+}
+
+test "binding schema enrichment preserves plan shape while attaching lifecycle metadata" {
+    const base_row = effect_ir.mergeRows(.{
+        effect_ir.rowFromSpec(.{
+            .state = .{
+                .get = effect_ir.Transform(void, i32),
+                .set = effect_ir.Transform(i32, void),
+            },
+        }),
+        effect_ir.rowFromSpec(.{
+            .writer = .{
+                .tell = effect_ir.Transform([]const u8, void),
+            },
+        }),
+    });
+    const base_program = effect_ir.Program{
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol = .{
+                .module_path = "test/effect_schema_program_plan_enrichment.zig",
+                .symbol_name = "runBody",
+            },
+            .row = base_row,
+            .ValueType = []const u8,
+            .outputs = &.{
+                .{ .label = "state", .OutputType = i32 },
+                .{ .label = "writer", .OutputType = [][]const u8 },
+            },
+        }},
+        .call_edges = &.{},
+    };
+    const base_plan = try planFromProgram("effect_schema.enrichment", base_program);
+    const state_family = struct {
+        const lifecycle_tag = enum {
+            abort_catch,
+            choice_policy,
+            generated_family,
+            plain_transform,
+            reader_environment,
+            resource_bracket,
+            state_cell,
+            writer_accumulator,
+        }.state_cell;
+        const output = enum {
+            accumulator,
+            custom_finalizer,
+            final_state,
+            none,
+        }.final_state;
+    };
+    const writer_family = struct {
+        const lifecycle_tag = enum {
+            abort_catch,
+            choice_policy,
+            generated_family,
+            plain_transform,
+            reader_environment,
+            resource_bracket,
+            state_cell,
+            writer_accumulator,
+        }.writer_accumulator;
+        const output = enum {
+            accumulator,
+            custom_finalizer,
+            final_state,
+            none,
+        }.accumulator;
+    };
+    const enriched = enrichPlanWithBindingSchemas(base_plan, .{
+        struct {
+            const requirement_label = "state";
+            const family = state_family;
+        },
+        struct {
+            const requirement_label = "writer";
+            const family = writer_family;
+        },
+    });
+
+    try std.testing.expectEqual(base_plan.requirements.len, enriched.requirements.len);
+    try std.testing.expectEqual(RequirementLifecycleTag.state_cell, enriched.requirements[0].lifecycle_tag);
+    try std.testing.expectEqual(RequirementOutputTag.final_state, enriched.requirements[0].output_tag);
+    try std.testing.expectEqual(RequirementLifecycleTag.writer_accumulator, enriched.requirements[1].lifecycle_tag);
+    try std.testing.expectEqual(RequirementOutputTag.accumulator, enriched.requirements[1].output_tag);
 }
 
 /// Lower one body-bearing open-row program into a runtime-owned executable plan shape.

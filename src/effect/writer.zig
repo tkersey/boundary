@@ -1,4 +1,5 @@
 const algebraic = @import("algebraic.zig");
+const effect_schema = @import("../effect_schema.zig");
 const family = @import("family.zig");
 const lexical_with = @import("../with_api.zig");
 const lowered_machine = @import("lowered_machine");
@@ -101,8 +102,13 @@ pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) t
             return .{ .ctx = ctx };
         }
 
+        /// Return the shared binding schema for this lexical descriptor under one requirement label.
+        pub fn BindingSchema(comptime requirement_label: [:0]const u8) type {
+            return effect_schema.Binding(requirement_label, Schema(ItemType, ErrorSetType), struct {});
+        }
+
         /// Run one lexical writer descriptor through the existing writer family.
-        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, lexical_state: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             var instance = family.Instance(WriterState(ItemType), ErrorSetType).init();
             const writer_contract = struct {
                 /// Item type carried by this lexical writer helper.
@@ -112,11 +118,11 @@ pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) t
                 /// Writer state type carried by this lexical writer helper.
                 pub const WriterStateType = WriterState(ItemType);
             };
-            const result = try algebraic.handleWriterWithErrorSetLexical(writer_contract, RunErrorSetType, .{
-                .runtime = runtime,
+            const result = try algebraic.handleWriterWithErrorSetLexical(writer_contract, RunErrorSetType, @TypeOf(run_ctx).caller_source, .{
+                .runtime = run_ctx.runtime,
                 .instance = &instance,
                 .allocator = self.allocator,
-                .lexical_state = @constCast(lexical_state),
+                .lexical_state = @constCast(run_ctx.lexical_state),
             }, Body);
             return .{
                 .output = result.items,
@@ -129,6 +135,11 @@ pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) t
 /// Create one lexical writer descriptor for `shift.with(...)`.
 pub fn use(comptime ItemType: type, allocator: std.mem.Allocator) LexicalDescriptor(ItemType, error{}) {
     return .{ .allocator = allocator };
+}
+
+/// Shared effect schema for the built-in writer family.
+pub fn Schema(comptime ItemType: type, comptime ErrorSetType: type) type {
+    return effect_schema.writer_accumulator(ItemType, ErrorSetType);
 }
 
 /// Append one item to the current writer log.

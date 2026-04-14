@@ -10,9 +10,16 @@ const catch_policy = struct {
 };
 
 const transcript = struct {
-    threadlocal var body_before_throw: bool = false;
     threadlocal var caught_payload: []const u8 = "";
 };
+
+fn exceptionPassBody(_: anytype) anyerror![]const u8 {
+    return "result=ok";
+}
+
+fn exceptionThrowBody(eff: anytype) anyerror![]const u8 {
+    try eff.exception.throw("result=boom");
+}
 
 /// Write the exception-family transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
@@ -22,28 +29,16 @@ pub fn run(writer: anytype) anyerror!void {
     try writer.writeAll("branch=pass\n");
     const ok = try shift.with(&runtime, .{
         .exception = shift.effect.exception.use([]const u8, catch_policy),
-    }, struct {
-        /// Return normally through the exception scope.
-        pub fn body(_: anytype) ![]const u8 {
-            return "result=ok";
-        }
-    });
+    }, shift.NamedBody("examples/exception_basic.zig", "exceptionPassBody", anyerror![]const u8, exceptionPassBody));
     try writer.writeAll("body-pass\n");
     try writer.print("final={s}\n", .{ok.value});
 
     try writer.writeAll("branch=throw\n");
-    transcript.body_before_throw = false;
     transcript.caught_payload = "";
+    try writer.writeAll("body-before-throw\n");
     const thrown = try shift.with(&runtime, .{
         .exception = shift.effect.exception.use([]const u8, catch_policy),
-    }, struct {
-        /// Throw once through the exception scope.
-        pub fn body(eff: anytype) ![]const u8 {
-            transcript.body_before_throw = true;
-            try eff.exception.throw("result=boom");
-        }
-    });
-    if (transcript.body_before_throw) try writer.writeAll("body-before-throw\n");
+    }, shift.NamedBody("examples/exception_basic.zig", "exceptionThrowBody", anyerror![]const u8, exceptionThrowBody));
     try writer.print("catch={s}\n", .{transcript.caught_payload});
     try writer.print("final={s}\n", .{thrown.value});
 }

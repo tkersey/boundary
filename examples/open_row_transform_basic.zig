@@ -33,17 +33,17 @@ const CounterHandler = struct {
     }
 };
 
+fn counterBody(eff: anytype) anyerror!i32 {
+    const before = try eff.counter.get.perform();
+    try eff.counter.set.perform(before + 1);
+    const after = try eff.counter.get.perform();
+    return after;
+}
+
 fn runCounter(runtime: *shift.Runtime) anyerror!i32 {
     const result = try shift.with(runtime, .{
         .counter = Counter.use(.{ .handler = CounterHandler{ .state = 5 } }),
-    }, struct {
-        /// Increment the counter once and return the new value.
-        pub fn body(eff: anytype) anyerror!i32 {
-            const before = try eff.counter.get.perform();
-            try eff.counter.set.perform(before + 1);
-            return try eff.counter.get.perform();
-        }
-    });
+    }, shift.NamedBody("examples/open_row_transform_basic.zig", "counterBody", anyerror!i32, counterBody));
     return result.value;
 }
 

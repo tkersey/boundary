@@ -1,4 +1,5 @@
 const algebraic = @import("algebraic.zig");
+const effect_schema = @import("../effect_schema.zig");
 const family = @import("family.zig");
 const lexical_with = @import("../with_api.zig");
 const lowered_machine = @import("lowered_machine");
@@ -51,14 +52,19 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
             return .{ .ctx = ctx };
         }
 
+        /// Return the shared binding schema for this lexical descriptor under one requirement label.
+        pub fn BindingSchema(comptime requirement_label: [:0]const u8) type {
+            return effect_schema.Binding(requirement_label, Schema(StateType, ErrorSetType), struct {});
+        }
+
         /// Run one lexical state descriptor through the existing state family.
-        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, lexical_state: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             var instance = family.Instance(StateType, ErrorSetType).init();
-            const result = try algebraic.handleStateWithErrorSetLexical(AnswerType, RunErrorSetType, .{
-                .runtime = runtime,
+            const result = try algebraic.handleStateWithErrorSetLexical(AnswerType, RunErrorSetType, @TypeOf(run_ctx).caller_source, .{
+                .runtime = run_ctx.runtime,
                 .instance = &instance,
                 .initial_state = self.initial_state,
-                .lexical_state = @constCast(lexical_state),
+                .lexical_state = @constCast(run_ctx.lexical_state),
             }, Body);
             return .{
                 .output = result.state,
@@ -71,6 +77,11 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
 /// Create one lexical state descriptor for `shift.with(...)`.
 pub fn use(initial_state: anytype) LexicalDescriptor(@TypeOf(initial_state), error{}) {
     return .{ .initial_state = initial_state };
+}
+
+/// Shared effect schema for the built-in state family.
+pub fn Schema(comptime StateType: type, comptime ErrorSetType: type) type {
+    return effect_schema.state_cell(StateType, ErrorSetType);
 }
 
 /// Read the current state value for the supplied capability and handled context.

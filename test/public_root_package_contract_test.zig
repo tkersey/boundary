@@ -338,3 +338,45 @@ test "downstream consumer cannot request shift_compile as a package module" {
     const argv = zigBuildArgv();
     try runChildExpectFailureContains(tmp.dir, std.testing.allocator, &argv, null, "shift_compile");
 }
+
+test "downstream consumer cannot request shift_vm as a package module" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeConsumerBuildFiles(&tmp, repo_root);
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const shift_dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const exe_mod = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    exe_mod.addImport("shift_vm", shift_dep.module("shift_vm"));
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "consumer_probe",
+        \\        .root_module = exe_mod,
+        \\    });
+        \\    b.installArtifact(exe);
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "main.zig",
+        \\const shift_vm = @import("shift_vm");
+        \\
+        \\pub fn main() void {
+        \\    _ = shift_vm.runtime;
+        \\}
+        \\
+    );
+
+    const argv = zigBuildArgv();
+    try runChildExpectFailureContains(tmp.dir, std.testing.allocator, &argv, null, "shift_vm");
+}

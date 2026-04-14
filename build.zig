@@ -3996,6 +3996,10 @@ pub fn build(b: *std.Build) void {
     lexical_runtime_internal_mod.addImport("frontend_support", frontend_support_mod);
     lexical_runtime_internal_mod.addImport("lowered_machine", lowered_machine_mod);
     lexical_runtime_internal_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
+    lexical_runtime_internal_mod.addImport("effect_ir", effect_ir_mod);
+    lexical_runtime_internal_mod.addImport("public_lowering", public_lowering_mod);
+    lexical_runtime_internal_mod.addImport("source_graph_embed", source_graph_embed_mod);
+    lexical_runtime_internal_mod.addImport("authoring_build_options", authoring_build_options_mod);
     const witness_sources_mod = b.createModule(.{
         .root_source_file = b.path("src/witness_sources.zig"),
         .target = target,
@@ -4253,119 +4257,6 @@ pub fn build(b: *std.Build) void {
     public_root_pkg_contract_mod.addOptions("build_options", root_pkg_opts);
     const public_root_pkg_contract_tests = addFilteredTest(b, public_root_pkg_contract_mod, test_runner_args.filters.items);
     const run_root_pkg_contract_tests = addRunArtifactWithArgs(b, public_root_pkg_contract_tests, test_runner_args.passthrough.items);
-    const artifact_v1_api_mod = b.createModule(.{
-        .root_source_file = b.path("test/artifact_v1_api_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    artifact_v1_api_mod.addImport("shift_compile", shift_compile_mod);
-    artifact_v1_api_mod.addImport("shift_vm", shift_vm_mod);
-    artifact_v1_api_mod.addImport("example_open_row_state_writer", createShiftConsumerModule(
-        b,
-        "examples/open_row_state_writer.zig",
-        target,
-        optimize,
-        .{
-            .shift_mod = shift_mod,
-            .shift_compile_mod = shift_compile_mod,
-            .shift_vm_mod = shift_vm_mod,
-            .lowered_runtime_mod = private_lowered_runtime_mod,
-        },
-    ));
-    const artifact_v1_api_tests = addFilteredTest(b, artifact_v1_api_mod, test_runner_args.filters.items);
-    const run_artifact_v1_api_tests = addRunArtifactWithArgs(b, artifact_v1_api_tests, test_runner_args.passthrough.items);
-
-    const artifact_vm_runtime_mod = b.createModule(.{
-        .root_source_file = b.path("test/artifact_vm_runtime_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const host_adapter_runtime_mod = b.createModule(.{
-        .root_source_file = b.path("src/host_adapter_v1_conformance.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    host_adapter_runtime_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
-    host_adapter_runtime_mod.addImport("shift_vm", shift_vm_mod);
-    artifact_vm_runtime_mod.addImport("shift", shift_mod);
-    artifact_vm_runtime_mod.addImport("host_adapter_v1_conformance", host_adapter_runtime_mod);
-    artifact_vm_runtime_mod.addImport("internal_program_plan", internal_program_plan_mod);
-    artifact_vm_runtime_mod.addImport("shift_compile", shift_compile_mod);
-    artifact_vm_runtime_mod.addImport("shift_vm", shift_vm_mod);
-    artifact_vm_runtime_mod.addImport("example_open_row_state_writer", createShiftConsumerModule(
-        b,
-        "examples/open_row_state_writer.zig",
-        target,
-        optimize,
-        .{
-            .shift_mod = shift_mod,
-            .shift_compile_mod = shift_compile_mod,
-            .shift_vm_mod = shift_vm_mod,
-            .lowered_runtime_mod = private_lowered_runtime_mod,
-        },
-    ));
-    const artifact_vm_runtime_tests = addFilteredTest(b, artifact_vm_runtime_mod, test_runner_args.filters.items);
-    const run_artifact_vm_runtime_tests = addRunArtifactWithArgs(b, artifact_vm_runtime_tests, test_runner_args.passthrough.items);
-
-    const host_adapter_impl_mod = b.createModule(.{
-        .root_source_file = b.path("src/host_adapter_v1_conformance.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    host_adapter_impl_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
-    host_adapter_impl_mod.addImport("shift_vm", shift_vm_mod);
-    const host_adapter_conformance_mod = b.createModule(.{
-        .root_source_file = b.path("test/host_adapter_v1_conformance_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    host_adapter_conformance_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
-    host_adapter_conformance_mod.addImport("shift_vm", shift_vm_mod);
-    host_adapter_conformance_mod.addImport("host_adapter_v1_conformance", host_adapter_impl_mod);
-    const host_adapter_conformance_tests = addFilteredTest(b, host_adapter_conformance_mod, test_runner_args.filters.items);
-    const run_host_adapter_tests = addRunArtifactWithArgs(b, host_adapter_conformance_tests, test_runner_args.passthrough.items);
-
-    const artifact_dump_mod = b.createModule(.{
-        .root_source_file = b.path("tools/artifact_v1_dump.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    artifact_dump_mod.addImport("shift_vm", shift_vm_mod);
-    const artifact_dump_exe = b.addExecutable(.{
-        .name = "shift-artifact-v1-dump",
-        .root_module = artifact_dump_mod,
-    });
-    const artifact_dump_install = b.addInstallArtifact(artifact_dump_exe, .{});
-    const artifact_dump_step = b.step("artifact-v1-dump", "Build the ArtifactV1 dump tool.");
-    artifact_dump_step.dependOn(&artifact_dump_exe.step);
-    artifact_dump_step.dependOn(&artifact_dump_install.step);
-
-    const artifact_vm_runner_mod = b.createModule(.{
-        .root_source_file = b.path("tools/artifact_vm_state_writer_runner.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    artifact_vm_runner_mod.addImport("shift_compile", shift_compile_mod);
-    artifact_vm_runner_mod.addImport("shift_vm", shift_vm_mod);
-    artifact_vm_runner_mod.addImport("example_open_row_state_writer", createShiftConsumerModule(
-        b,
-        "examples/open_row_state_writer.zig",
-        target,
-        optimize,
-        .{
-            .shift_mod = shift_mod,
-            .shift_compile_mod = shift_compile_mod,
-            .shift_vm_mod = shift_vm_mod,
-            .lowered_runtime_mod = private_lowered_runtime_mod,
-        },
-    ));
-    const artifact_vm_runner_exe = b.addExecutable(.{
-        .name = "shift-artifact-vm-runner",
-        .root_module = artifact_vm_runner_mod,
-    });
-    const artifact_vm_runner_step = b.step("artifact-vm-runner", "Build the native ArtifactV1 parity runner.");
-    artifact_vm_runner_step.dependOn(&artifact_vm_runner_exe.step);
-
     const boundary_mod = b.createModule(.{
         .root_source_file = b.path("test/program_frontend_boundary_test.zig"),
         .target = target,
@@ -4518,23 +4409,6 @@ pub fn build(b: *std.Build) void {
     const src_lower_reject_tests = addFilteredTest(b, src_lower_reject_mod, test_runner_args.filters.items);
     const run_src_lower_reject_tests = addRunArtifactWithArgs(b, src_lower_reject_tests, test_runner_args.passthrough.items);
 
-    const source_lowering_tool_mod = b.createModule(.{
-        .root_source_file = b.path("tools/shift_source_lower.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    source_lowering_tool_mod.addImport("source_lowering", source_lowering_mod);
-    source_lowering_tool_mod.addImport("lowered_machine", lowered_machine_mod);
-    source_lowering_tool_mod.addImport("error_witness", error_witness_mod);
-    const source_lowering_tool_exe = b.addExecutable(.{
-        .name = "shift-source-lower",
-        .root_module = source_lowering_tool_mod,
-    });
-    const source_lowering_tool_install = b.addInstallArtifact(source_lowering_tool_exe, .{});
-    const source_lowering_tool_step = b.step("source-lower", "Build the internal source-lowering tool.");
-    source_lowering_tool_step.dependOn(&source_lowering_tool_exe.step);
-    source_lowering_tool_step.dependOn(&source_lowering_tool_install.step);
-
     const lexical_witness_runners_mod = b.createModule(.{
         .root_source_file = b.path("test/lexical_witness_support.zig"),
         .target = target,
@@ -4571,9 +4445,6 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "prompt-token", .description = "Prompt token contract suite", .run_step = run_prompt_token_tests },
         .{ .suite_id = "portability-contract", .description = "Portability contract suite", .run_step = run_portability_contract_tests },
         .{ .suite_id = "public-root-package-contract", .description = "Public root package contract suite", .run_step = run_root_pkg_contract_tests },
-        .{ .suite_id = "artifact-v1-api", .description = "ArtifactV1 API suite", .run_step = run_artifact_v1_api_tests },
-        .{ .suite_id = "artifact-vm-runtime", .description = "Artifact VM runtime suite", .run_step = run_artifact_vm_runtime_tests },
-        .{ .suite_id = "host-adapter-conformance", .description = "Host adapter conformance suite", .run_step = run_host_adapter_tests },
         .{ .suite_id = "program-frontend-boundary", .description = "Program frontend boundary suite", .run_step = run_boundary_tests },
         .{ .suite_id = "source-lowering-corpus", .description = "Source lowering corpus suite", .run_step = run_src_lower_corpus_tests },
         .{ .suite_id = "source-lowering-boundary", .description = "Source lowering boundary suite", .run_step = run_src_lower_boundary_tests },

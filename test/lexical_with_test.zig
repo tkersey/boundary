@@ -12,6 +12,63 @@ fn ExecResult(comptime T: type) type {
     return (shift.RuntimeError || error{ OutOfMemory, BodyOops, ContinueOops, HandlerOops, AfterOops })!T;
 }
 
+fn namedStateBody(eff: anytype) ExecResult(i32) {
+    const before = try eff.state.get();
+    try eff.state.set(before + 1);
+    const after = try eff.state.get();
+    return before + after;
+}
+
+fn namedReaderBody(eff: anytype) ExecResult(i32) {
+    const env = try eff.reader.ask();
+    return env + env;
+}
+
+fn namedWriterBody(eff: anytype) ExecResult([]const u8) {
+    try eff.writer.tell("a");
+    try eff.writer.tell("b");
+    return "done";
+}
+
+fn namedOptionalReturnNowBody(eff: anytype) ExecResult([]const u8) {
+    return try eff.optional.request(struct {
+        /// This continuation stays unreachable in the return-now branch.
+        pub fn apply(_: i32, _: anytype) ExecResult([]const u8) {
+            return "unused";
+        }
+    });
+}
+
+fn namedOptionalResumeBody(eff: anytype) ExecResult([]const u8) {
+    return try eff.optional.request(struct {
+        /// Return the canonical resumed answer for this named-body test.
+        pub fn apply(_: i32, _: anytype) ExecResult([]const u8) {
+            return "answer=42";
+        }
+    });
+}
+
+fn namedGeneratedChoiceBody(eff: anytype) ExecResult([]const u8) {
+    return try eff.picker.pick.perform(41, struct {
+        /// Return the canonical resumed answer for this generated-choice test.
+        pub fn apply(_: i32, _: anytype) ExecResult([]const u8) {
+            return "answer=42";
+        }
+    });
+}
+
+fn namedExceptionPassBody(_: anytype) ExecResult([]const u8) {
+    return "result=ok";
+}
+
+fn namedExceptionThrowBody(eff: anytype) ExecResult([]const u8) {
+    try eff.exception.throw("result=boom");
+}
+
+fn namedGeneratedAbortBody(eff: anytype) ExecResult([]const u8) {
+    try eff.guard.fail.abort("missing-name");
+}
+
 fn expectFixtureTranscript(comptime fixture_path: []const u8, writer_fn: anytype) anyerror!void {
     var buffer: std.io.Writer.Allocating = .init(std.testing.allocator);
     defer buffer.deinit();
@@ -769,25 +826,15 @@ test "shift.with matches the exception fixture transcript through lexical handle
             try writer.writeAll("branch=pass\n");
             const ok = try shift.with(&runtime, .{
                 .exception = shift.effect.exception.use([]const u8, catch_policy),
-            }, struct {
-                /// Return normally through the lexical exception scope.
-                pub fn body(_: anytype) ExecResult([]const u8) {
-                    return "result=ok";
-                }
-            });
+            }, shift.NamedBody("test/lexical_with_test.zig", "namedExceptionPassBody", ExecResult([]const u8), namedExceptionPassBody));
             try writer.writeAll("body-pass\n");
             try writer.print("final={s}\n", .{ok.value});
 
             try writer.writeAll("branch=throw\n");
+            try writer.writeAll("body-before-throw\n");
             const thrown = try shift.with(&runtime, .{
                 .exception = shift.effect.exception.use([]const u8, catch_policy),
-            }, struct {
-                /// Throw once through the lexical exception scope.
-                pub fn body(eff: anytype) ExecResult([]const u8) {
-                    transcript.note("body-before-throw\n");
-                    try eff.exception.throw("result=boom");
-                }
-            });
+            }, shift.NamedBody("test/lexical_with_test.zig", "namedExceptionThrowBody", ExecResult([]const u8), namedExceptionThrowBody));
             try writer.print("final={s}\n", .{thrown.value});
         }
     }.run);
@@ -1005,12 +1052,7 @@ test "generated abort families use the lexical abort form" {
             try writer.writeAll("validate=name\n");
             const result = try shift.with(&runtime, .{
                 .guard = Guard.use(.{ .handler = guard_handler{} }),
-            }, struct {
-                /// Trigger the generated lexical abort point directly.
-                pub fn body(eff: anytype) ExecResult([]const u8) {
-                    try eff.guard.fail.abort("missing-name");
-                }
-            });
+            }, shift.NamedBody("test/lexical_with_test.zig", "namedGeneratedAbortBody", ExecResult([]const u8), namedGeneratedAbortBody));
             try writer.print("final={s}\n", .{result.value});
         }
     }.run);
@@ -1086,4 +1128,118 @@ test "shift.with accepts body run(self, eff)" {
     });
 
     try std.testing.expectEqual(@as(i32, 11), result.value);
+}
+
+test "shift.with accepts NamedBody for state handlers" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(&runtime, .{
+        .state = shift.effect.state.use(@as(i32, 9)),
+    }, shift.NamedBody("test/lexical_with_test.zig", "namedStateBody", ExecResult(i32), namedStateBody));
+
+    try std.testing.expectEqual(@as(i32, 19), result.value);
+    try std.testing.expectEqual(@as(i32, 10), result.outputs.state);
+}
+
+test "shift.with accepts NamedBody for reader handlers" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(&runtime, .{
+        .reader = shift.effect.reader.use(@as(i32, 21)),
+    }, shift.NamedBody("test/lexical_with_test.zig", "namedReaderBody", ExecResult(i32), namedReaderBody));
+
+    try std.testing.expectEqual(@as(i32, 42), result.value);
+}
+
+test "shift.with accepts NamedBody for writer handlers" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(&runtime, .{
+        .writer = shift.effect.writer.use([]const u8, std.testing.allocator),
+    }, shift.NamedBody("test/lexical_with_test.zig", "namedWriterBody", ExecResult([]const u8), namedWriterBody));
+    defer std.testing.allocator.free(result.outputs.writer);
+
+    try std.testing.expectEqual(@as(usize, 2), result.outputs.writer.len);
+    try std.testing.expectEqualStrings("a", result.outputs.writer[0]);
+    try std.testing.expectEqualStrings("b", result.outputs.writer[1]);
+    try std.testing.expectEqualStrings("done", result.value);
+}
+
+test "shift.with accepts NamedBody for optional return-now continuations" {
+    const return_now_policy = struct {
+        /// Return immediately so the continuation stays dormant.
+        pub fn resumeOrReturn() shift.effect.choice.Decision(i32, []const u8) {
+            return shift.effect.choice.Decision(i32, []const u8).returnNow("result=early");
+        }
+
+        /// Preserve the early answer unchanged.
+        pub fn afterResume(answer: []const u8) []const u8 {
+            return answer;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(&runtime, .{
+        .optional = shift.effect.optional.use(i32, return_now_policy),
+    }, shift.NamedBody("test/lexical_with_test.zig", "namedOptionalReturnNowBody", ExecResult([]const u8), namedOptionalReturnNowBody));
+
+    try std.testing.expectEqualStrings("result=early", result.value);
+}
+
+test "shift.with accepts NamedBody for optional resumed continuations" {
+    const resume_policy = struct {
+        /// Resume with the canonical test payload.
+        pub fn resumeOrReturn() shift.effect.choice.Decision(i32, []const u8) {
+            return shift.effect.choice.Decision(i32, []const u8).resumeWith(41);
+        }
+
+        /// Preserve the resumed answer unchanged.
+        pub fn afterResume(answer: []const u8) []const u8 {
+            return answer;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(&runtime, .{
+        .optional = shift.effect.optional.use(i32, resume_policy),
+    }, shift.NamedBody("test/lexical_with_test.zig", "namedOptionalResumeBody", ExecResult([]const u8), namedOptionalResumeBody));
+
+    try std.testing.expectEqualStrings("answer=42", result.value);
+}
+
+test "shift.with accepts NamedBody for generated choice continuations" {
+    const Picker = shift.effect.Define(.{
+        .state_type = void,
+        .ops = .{
+            shift.effect.ops.Choice("pick", i32, i32),
+        },
+    });
+
+    const handler = struct {
+        /// Resume the generated choice with the provided payload.
+        pub fn pick(_: *@This(), value: i32) shift.effect.choice.Decision(i32, []const u8) {
+            return shift.effect.choice.Decision(i32, []const u8).resumeWith(value);
+        }
+
+        /// Preserve the resumed choice answer unchanged.
+        pub fn afterPick(_: *@This(), answer: []const u8) []const u8 {
+            return answer;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(&runtime, .{
+        .picker = Picker.use(.{ .handler = handler{} }),
+    }, shift.NamedBody("test/lexical_with_test.zig", "namedGeneratedChoiceBody", ExecResult([]const u8), namedGeneratedChoiceBody));
+
+    try std.testing.expectEqualStrings("answer=42", result.value);
 }

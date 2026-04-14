@@ -61,18 +61,6 @@ const witness_ror_resume_runner = struct {
         try witness_sources.runResumeOrReturnResume(writer);
     }
 };
-const witness_static_runner = struct {
-    /// Run this public entrypoint.
-    pub fn run(writer: anytype) anyerror!void {
-        try witness_sources.runStaticRedelim(writer);
-    }
-};
-const witness_multi_runner = struct {
-    /// Run this public entrypoint.
-    pub fn run(writer: anytype) anyerror!void {
-        try witness_sources.runMultiPrompt(writer);
-    }
-};
 const witness_generator_runner = struct {
     /// Run this public entrypoint.
     pub fn run(writer: anytype) anyerror!void {
@@ -108,20 +96,6 @@ test "source-lowering witness rows stay source-backed and canonical" {
         .entry_symbol = "runResumeOrReturnResume",
         .scenario_id = .resume_or_return_resume,
         .Runner = witness_ror_resume_runner,
-    });
-    try expectWitnessCase(.{
-        .case_id = "witness.static_redelim",
-        .source_path = "src/witness_sources.zig",
-        .entry_symbol = "runStaticRedelim",
-        .scenario_id = .static_redelim,
-        .Runner = witness_static_runner,
-    });
-    try expectWitnessCase(.{
-        .case_id = "witness.multi_prompt",
-        .source_path = "src/witness_sources.zig",
-        .entry_symbol = "runMultiPrompt",
-        .scenario_id = .multi_prompt,
-        .Runner = witness_multi_runner,
     });
     try expectWitnessCase(.{
         .case_id = "witness.generator",

@@ -1,4 +1,5 @@
 const algebraic = @import("algebraic.zig");
+const effect_schema = @import("../effect_schema.zig");
 const family = @import("family.zig");
 const frontend = @import("frontend_support");
 const lexical_with = @import("../with_api.zig");
@@ -39,6 +40,9 @@ pub fn LexicalHandle(
         handlers_ptr: ?*HandlersType,
         previous_eff: PreviousEffType,
         outputs_ptr: ?*lexical_with.OutputBundleType(HandlersType),
+        caller_file: []const u8,
+        caller_line: u32,
+        caller_column: u32,
 
         /// Request the optional policy decision through the lexical handle and resume through an explicit lexical continuation.
         pub fn request(self: @This(), comptime Continuation: anytype) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(family.ContextErrorSetType(ContextPtrType), Continuation, family.ContextStateType(ContextPtrType), lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, @This())))!lexical_with.ChoiceAnswerTypeFor(Continuation, family.ContextStateType(ContextPtrType), lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, @This())) {
@@ -60,6 +64,9 @@ pub fn LexicalHandle(
                             .previous_eff = current_handle.previous_eff,
                             .current_handle = current_handle.*,
                             .outputs_ptr = current_handle.outputs_ptr.?,
+                            .caller_file = current_handle.caller_file,
+                            .caller_line = current_handle.caller_line,
+                            .caller_column = current_handle.caller_column,
                         },
                         Continuation,
                         value,
@@ -114,17 +121,31 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
                 .handlers_ptr = lexical_state.handlers_ptr,
                 .previous_eff = lexical_state.eff_value,
                 .outputs_ptr = lexical_state.outputs_ptr,
+                .caller_file = lexical_state.caller_file,
+                .caller_line = lexical_state.caller_line,
+                .caller_column = lexical_state.caller_column,
             };
         }
 
+        /// Return the shared binding schema for this lexical descriptor under one requirement label.
+        pub fn BindingSchema(comptime requirement_label: [:0]const u8) type {
+            const policy_binding_handler = struct {
+                /// Finalize the resumed optional answer through the policy after-hook.
+                pub fn afterRequest(_: *@This(), answer: anytype) @TypeOf(Policy.afterResume(answer)) {
+                    return Policy.afterResume(answer);
+                }
+            };
+            return effect_schema.Binding(requirement_label, Schema(ResumeType, ErrorSetType, Policy), policy_binding_handler);
+        }
+
         /// Run one lexical optional descriptor through the continuation-taking lexical optional family.
-        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, lexical_state: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
             var instance = family.InstanceWithMode(.resume_or_return, ResumeType, ErrorSetType).init();
-            const result = try algebraic.handleOptionalLexicalWithErrorSet(AnswerType, RunErrorSetType, .{
-                .runtime = runtime,
+            const result = try algebraic.handleOptionalLexicalWithErrorSet(AnswerType, RunErrorSetType, @TypeOf(run_ctx).caller_source, .{
+                .runtime = run_ctx.runtime,
                 .instance = &instance,
-                .lexical_state = @constCast(lexical_state),
+                .lexical_state = @constCast(run_ctx.lexical_state),
             }, Policy, Body);
             return .{
                 .output = {},
@@ -137,6 +158,11 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
 /// Create one lexical optional descriptor for `shift.with(...)`.
 pub fn use(comptime ResumeType: type, comptime Policy: type) LexicalDescriptor(ResumeType, PolicyErrorSet(Policy), Policy) {
     return .{};
+}
+
+/// Shared effect schema for the built-in optional family.
+pub fn Schema(comptime ResumeType: type, comptime ErrorSetType: type, comptime Policy: type) type {
+    return effect_schema.choice_policy(ResumeType, ErrorSetType, Policy);
 }
 
 /// Request a policy decision for the supplied capability and handled context.
