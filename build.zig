@@ -4358,8 +4358,11 @@ pub fn build(b: *std.Build) void {
         .name = "shift-source-lower",
         .root_module = source_lowering_tool_mod,
     });
+    const source_lowering_tool_install = b.addInstallArtifact(source_lowering_tool_exe, .{});
+    b.getInstallStep().dependOn(&source_lowering_tool_install.step);
     const source_lowering_tool_step = b.step("source-lower", "Build the internal source-lowering tool.");
     source_lowering_tool_step.dependOn(&source_lowering_tool_exe.step);
+    source_lowering_tool_step.dependOn(&source_lowering_tool_install.step);
 
     const lexical_witness_runners_mod = b.createModule(.{
         .root_source_file = b.path("test/lexical_witness_support.zig"),
