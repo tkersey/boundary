@@ -10,6 +10,674 @@ const ShiftConsumerDeps = struct {
     shift_vm_mod: ?*std.Build.Module = null,
 };
 
+const TestSuiteSpec = struct {
+    suite_id: []const u8,
+    description: []const u8,
+    run_step: ?*std.Build.Step.Run = null,
+};
+
+const TestSuiteSelection = struct {
+    allocator: std.mem.Allocator,
+    enabled: []bool,
+
+    fn deinit(self: @This()) void {
+        self.allocator.free(self.enabled);
+    }
+
+    fn isEnabled(self: @This(), index: usize) bool {
+        return self.enabled[index];
+    }
+};
+
+const TestSuiteSelectionResult = union(enum) {
+    duplicate: []const u8,
+    empty_token,
+    selection: TestSuiteSelection,
+    unknown: []const u8,
+};
+
+const TestFilterArgs = struct {
+    allocator: std.mem.Allocator,
+    items: []const []const u8,
+
+    fn deinit(self: @This()) void {
+        self.allocator.free(self.items);
+    }
+};
+
+const TestRunnerArgs = struct {
+    filters: TestFilterArgs,
+    passthrough: TestFilterArgs,
+    owned_passthrough: TestFilterArgs,
+
+    fn deinit(self: @This()) void {
+        for (self.owned_passthrough.items) |arg| {
+            self.owned_passthrough.allocator.free(arg);
+        }
+        self.filters.deinit();
+        self.passthrough.deinit();
+        self.owned_passthrough.deinit();
+    }
+};
+
+const TestRunnerArgParseResult = union(enum) {
+    args: TestRunnerArgs,
+    empty_pattern,
+    invalid_seed_value: []const u8,
+    missing_passthrough_value: []const u8,
+    missing_pattern,
+    unknown_arg: []const u8,
+};
+
+const TestRunnerArgParseMode = enum {
+    allow_unknown_args,
+    strict,
+};
+
+fn emptyArgs(allocator: std.mem.Allocator) !TestFilterArgs {
+    return .{
+        .allocator = allocator,
+        .items = try allocator.alloc([]const u8, 0),
+    };
+}
+
+fn emptyTestRunnerArgs(allocator: std.mem.Allocator) !TestRunnerArgs {
+    return .{
+        .filters = try emptyArgs(allocator),
+        .passthrough = try emptyArgs(allocator),
+        .owned_passthrough = try emptyArgs(allocator),
+    };
+}
+
+// Keep this in sync with Zig 0.15.2's compiler/build_runner.zig argv handling.
+// The generated build helper only sees the tokens that survive the parent
+// process, so flags such as `--system <pkgdir>` must stay out of this table
+// because the helper receives only the bare `--system` token.
+fn buildInvocationArgRequiresNextValue(arg: []const u8) bool {
+    return std.mem.eql(u8, arg, "-p") or
+        std.mem.eql(u8, arg, "--prefix") or
+        std.mem.eql(u8, arg, "--prefix-lib-dir") or
+        std.mem.eql(u8, arg, "--prefix-exe-dir") or
+        std.mem.eql(u8, arg, "--prefix-include-dir") or
+        std.mem.eql(u8, arg, "--color") or
+        std.mem.eql(u8, arg, "--summary") or
+        std.mem.eql(u8, arg, "--maxrss") or
+        std.mem.eql(u8, arg, "--libc-runtimes") or
+        std.mem.eql(u8, arg, "--glibc-runtimes") or
+        std.mem.eql(u8, arg, "--debounce") or
+        std.mem.eql(u8, arg, "--search-prefix") or
+        std.mem.eql(u8, arg, "--sysroot") or
+        std.mem.eql(u8, arg, "--libc") or
+        std.mem.eql(u8, arg, "--build-file") or
+        std.mem.eql(u8, arg, "--cache-dir") or
+        std.mem.eql(u8, arg, "--global-cache-dir") or
+        std.mem.eql(u8, arg, "--zig-lib-dir") or
+        std.mem.eql(u8, arg, "--build-runner") or
+        std.mem.eql(u8, arg, "--seed") or
+        std.mem.eql(u8, arg, "--debug-log");
+}
+
+fn buildInvocationArgOptionallyConsumesNextValue(arg: []const u8, next_arg: []const u8) bool {
+    if (std.mem.eql(u8, arg, "--release")) {
+        return std.mem.eql(u8, next_arg, "fast") or
+            std.mem.eql(u8, next_arg, "safe") or
+            std.mem.eql(u8, next_arg, "small");
+    }
+    if (std.mem.eql(u8, arg, "--fetch")) {
+        return std.mem.eql(u8, next_arg, "needed") or
+            std.mem.eql(u8, next_arg, "all");
+    }
+    if (std.mem.eql(u8, arg, "--webui")) {
+        return next_arg.len != 0 and
+            next_arg[0] != '-' and
+            (std.mem.indexOfScalar(u8, next_arg, '.') != null or
+                std.mem.indexOfScalar(u8, next_arg, ':') != null);
+    }
+    if (std.mem.eql(u8, arg, "-freference-trace")) {
+        _ = std.fmt.parseUnsigned(usize, next_arg, 10) catch return false;
+        return true;
+    }
+    if (std.mem.eql(u8, arg, "--build-id")) {
+        if (std.mem.eql(u8, next_arg, "fast") or
+            std.mem.eql(u8, next_arg, "sha1") or
+            std.mem.eql(u8, next_arg, "tree") or
+            std.mem.eql(u8, next_arg, "md5") or
+            std.mem.eql(u8, next_arg, "uuid") or
+            std.mem.eql(u8, next_arg, "none"))
+        {
+            return true;
+        }
+        if (!std.mem.startsWith(u8, next_arg, "0x") or next_arg.len == 2) return false;
+        for (next_arg["0x".len..]) |char| {
+            if (std.ascii.isHex(char)) continue;
+            return false;
+        }
+        return true;
+    }
+    return false;
+}
+
+fn buildInvocationRequestsStepInArgs(args: []const []const u8, step_name: []const u8) bool {
+    var index: usize = @min(args.len, 6);
+    while (index < args.len) {
+        const arg = args[index];
+        if (std.mem.eql(u8, arg, "--")) break;
+        if (arg.len == 0) {
+            index += 1;
+            continue;
+        }
+        if (buildInvocationArgRequiresNextValue(arg)) {
+            index += @min(@as(usize, 2), args.len - index);
+            continue;
+        }
+        if (index + 1 < args.len and buildInvocationArgOptionallyConsumesNextValue(arg, args[index + 1])) {
+            index += @min(@as(usize, 2), args.len - index);
+            continue;
+        }
+        if (arg[0] == '-') {
+            index += 1;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, step_name)) return true;
+        index += 1;
+    }
+    return false;
+}
+
+fn buildInvocationRequestsOnlyStepInArgs(args: []const []const u8, step_name: []const u8) bool {
+    var index: usize = @min(args.len, 6);
+    var saw_step = false;
+    while (index < args.len) {
+        const arg = args[index];
+        if (std.mem.eql(u8, arg, "--")) break;
+        if (arg.len == 0) {
+            index += 1;
+            continue;
+        }
+        if (buildInvocationArgRequiresNextValue(arg)) {
+            index += @min(@as(usize, 2), args.len - index);
+            continue;
+        }
+        if (index + 1 < args.len and buildInvocationArgOptionallyConsumesNextValue(arg, args[index + 1])) {
+            index += @min(@as(usize, 2), args.len - index);
+            continue;
+        }
+        if (arg[0] == '-') {
+            index += 1;
+            continue;
+        }
+        if (!std.mem.eql(u8, arg, step_name)) return false;
+        saw_step = true;
+        index += 1;
+    }
+    return saw_step;
+}
+
+fn buildInvocationSkipsStepExecutionInArgs(args: []const []const u8) bool {
+    var index: usize = @min(args.len, 6);
+    while (index < args.len) {
+        const arg = args[index];
+        if (std.mem.eql(u8, arg, "--")) break;
+        if (arg.len == 0) {
+            index += 1;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "-h") or
+            std.mem.eql(u8, arg, "--help") or
+            std.mem.eql(u8, arg, "-l") or
+            std.mem.eql(u8, arg, "--list-steps") or
+            std.mem.eql(u8, arg, "--fetch") or
+            std.mem.startsWith(u8, arg, "--fetch="))
+        {
+            return true;
+        }
+        if (buildInvocationArgRequiresNextValue(arg)) {
+            index += @min(@as(usize, 2), args.len - index);
+            continue;
+        }
+        if (index + 1 < args.len and buildInvocationArgOptionallyConsumesNextValue(arg, args[index + 1])) {
+            index += @min(@as(usize, 2), args.len - index);
+            continue;
+        }
+        index += 1;
+    }
+    return false;
+}
+
+fn buildInvocationRequestsRunnableStepInArgs(args: []const []const u8, step_name: []const u8) bool {
+    return !buildInvocationSkipsStepExecutionInArgs(args) and
+        buildInvocationRequestsStepInArgs(args, step_name);
+}
+
+fn buildInvocationRequestsRunnableStep(step_name: []const u8) bool {
+    const args = std.process.argsAlloc(std.heap.page_allocator) catch
+        std.process.fatal("unable to inspect build invocation args", .{});
+    defer std.process.argsFree(std.heap.page_allocator, args);
+
+    // The generated build executable receives:
+    // argv[0] = build helper exe
+    // argv[1..6] = zig_exe, zig_lib_dir, build_root, local_cache_root, global_cache_root
+    return buildInvocationRequestsRunnableStepInArgs(args, step_name);
+}
+
+fn buildInvocationRequestsStep(step_name: []const u8) bool {
+    const args = std.process.argsAlloc(std.heap.page_allocator) catch
+        std.process.fatal("unable to inspect build invocation args", .{});
+    defer std.process.argsFree(std.heap.page_allocator, args);
+
+    // The generated build executable receives:
+    // argv[0] = build helper exe
+    // argv[1..6] = zig_exe, zig_lib_dir, build_root, local_cache_root, global_cache_root
+    return buildInvocationRequestsStepInArgs(args, step_name);
+}
+
+fn findTestSuiteIndex(id: []const u8, specs: []const TestSuiteSpec) ?usize {
+    for (specs, 0..) |spec, index| {
+        if (std.mem.eql(u8, spec.suite_id, id)) return index;
+    }
+    return null;
+}
+
+fn parseTestSuiteSelectionAlloc(
+    allocator: std.mem.Allocator,
+    raw: ?[]const u8,
+    specs: []const TestSuiteSpec,
+) !TestSuiteSelectionResult {
+    const enabled = try allocator.alloc(bool, specs.len);
+    errdefer allocator.free(enabled);
+
+    if (raw == null) {
+        @memset(enabled, true);
+        return .{ .selection = .{
+            .allocator = allocator,
+            .enabled = enabled,
+        } };
+    }
+
+    @memset(enabled, false);
+    var iter = std.mem.splitScalar(u8, raw.?, ',');
+    while (iter.next()) |item| {
+        const token = std.mem.trim(u8, item, " \t\r\n");
+        if (token.len == 0) {
+            allocator.free(enabled);
+            return .empty_token;
+        }
+        const index = findTestSuiteIndex(token, specs) orelse {
+            allocator.free(enabled);
+            return .{ .unknown = token };
+        };
+        if (enabled[index]) {
+            allocator.free(enabled);
+            return .{ .duplicate = specs[index].suite_id };
+        }
+        enabled[index] = true;
+    }
+
+    return .{ .selection = .{
+        .allocator = allocator,
+        .enabled = enabled,
+    } };
+}
+
+fn testSuiteIdListAlloc(allocator: std.mem.Allocator, specs: []const TestSuiteSpec) ![]u8 {
+    var out = std.ArrayList(u8).empty;
+    errdefer out.deinit(allocator);
+
+    for (specs, 0..) |spec, index| {
+        if (index != 0) try out.appendSlice(allocator, ", ");
+        try out.appendSlice(allocator, spec.suite_id);
+    }
+
+    return try out.toOwnedSlice(allocator);
+}
+
+fn parseRequestedTestSuiteSelectionAlloc(
+    allocator: std.mem.Allocator,
+    raw: ?[]const u8,
+    specs: []const TestSuiteSpec,
+    test_requested: bool,
+) !TestSuiteSelectionResult {
+    return parseTestSuiteSelectionAlloc(allocator, if (test_requested) raw else null, specs);
+}
+
+fn resolveTestSuiteSelection(
+    b: *std.Build,
+    raw: ?[]const u8,
+    specs: []const TestSuiteSpec,
+    test_requested: bool,
+) ?TestSuiteSelection {
+    const selection_result = parseRequestedTestSuiteSelectionAlloc(
+        b.allocator,
+        raw,
+        specs,
+        test_requested,
+    ) catch |err|
+        std.process.fatal("unable to parse -Dtest-suites: {s}", .{@errorName(err)});
+
+    if (!test_requested) {
+        return switch (selection_result) {
+            .selection => |selection| selection,
+            else => unreachable,
+        };
+    }
+
+    switch (selection_result) {
+        .selection => |selection| return selection,
+        .empty_token => {
+            const supported = testSuiteIdListAlloc(b.allocator, specs) catch |err|
+                std.process.fatal("unable to list supported test suite ids: {s}", .{@errorName(err)});
+            std.log.err(
+                "Expected -Dtest-suites to be a comma-separated list of exact suite ids without empty entries. Supported ids: {s}",
+                .{supported},
+            );
+        },
+        .duplicate => |id| {
+            const supported = testSuiteIdListAlloc(b.allocator, specs) catch |err|
+                std.process.fatal("unable to list supported test suite ids: {s}", .{@errorName(err)});
+            std.log.err(
+                "Duplicate test suite id in -Dtest-suites: '{s}'. Supported ids: {s}",
+                .{ id, supported },
+            );
+        },
+        .unknown => |id| {
+            const supported = testSuiteIdListAlloc(b.allocator, specs) catch |err|
+                std.process.fatal("unable to list supported test suite ids: {s}", .{@errorName(err)});
+            std.log.err(
+                "Unknown test suite id in -Dtest-suites: '{s}'. Supported ids: {s}",
+                .{ id, supported },
+            );
+        },
+    }
+    b.invalid_user_input = true;
+    return null;
+}
+
+fn addSelectedTestSuites(
+    test_step: *std.Build.Step,
+    specs: []const TestSuiteSpec,
+    selection: TestSuiteSelection,
+) void {
+    for (specs, 0..) |spec, index| {
+        if (!selection.isEnabled(index)) continue;
+        const run_step = spec.run_step.?;
+        test_step.dependOn(&run_step.step);
+    }
+}
+
+fn testRunnerArgCanPassThrough(arg: []const u8) bool {
+    return std.mem.eql(u8, arg, "--listen=-") or
+        std.mem.startsWith(u8, arg, "--cache-dir=");
+}
+
+fn testRunnerArgRequiresValue(arg: []const u8) bool {
+    return std.mem.eql(u8, arg, "--seed") or std.mem.eql(u8, arg, "--cache-dir");
+}
+
+fn testRunnerAttachedSeedValue(arg: []const u8) ?[]const u8 {
+    if (!std.mem.startsWith(u8, arg, "--seed=")) return null;
+    return arg["--seed=".len..];
+}
+
+fn testRunnerSeedValueIsValid(value: []const u8) bool {
+    _ = std.fmt.parseUnsigned(u32, value, 0) catch return false;
+    return true;
+}
+
+fn testRunnerValueStartsNewArg(arg: []const u8) bool {
+    return std.mem.eql(u8, arg, "--test-filter") or
+        std.mem.startsWith(u8, arg, "--test-filter=") or
+        std.mem.eql(u8, arg, "--seed") or
+        std.mem.startsWith(u8, arg, "--seed=") or
+        std.mem.eql(u8, arg, "--cache-dir") or
+        std.mem.startsWith(u8, arg, "--cache-dir=") or
+        std.mem.startsWith(u8, arg, "--");
+}
+
+fn parseTestRunnerArgsAlloc(
+    allocator: std.mem.Allocator,
+    args: ?[]const []const u8,
+    mode: TestRunnerArgParseMode,
+) !TestRunnerArgParseResult {
+    const raw_args = args orelse &.{};
+    var filter_count: usize = 0;
+    var passthrough_count: usize = 0;
+    var owned_passthrough_count: usize = 0;
+    var index: usize = 0;
+    while (index < raw_args.len) {
+        const arg = raw_args[index];
+        if (std.mem.eql(u8, arg, "--test-filter")) {
+            if (index + 1 >= raw_args.len) return .missing_pattern;
+            if (raw_args[index + 1].len == 0) return .empty_pattern;
+            if (testRunnerValueStartsNewArg(raw_args[index + 1])) return .missing_pattern;
+            filter_count += 1;
+            index += 2;
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--test-filter=")) {
+            if (arg["--test-filter=".len..].len == 0) return .empty_pattern;
+            filter_count += 1;
+            index += 1;
+            continue;
+        }
+        if (testRunnerAttachedSeedValue(arg)) |seed_value| {
+            if (!testRunnerSeedValueIsValid(seed_value)) return .{ .invalid_seed_value = seed_value };
+            passthrough_count += 1;
+            index += 1;
+            continue;
+        }
+        if (testRunnerArgCanPassThrough(arg)) {
+            passthrough_count += 1;
+            index += 1;
+            continue;
+        }
+        if (testRunnerArgRequiresValue(arg)) {
+            if (index + 1 >= raw_args.len or testRunnerValueStartsNewArg(raw_args[index + 1])) {
+                return .{ .missing_passthrough_value = arg };
+            }
+            if (std.mem.eql(u8, arg, "--seed") and !testRunnerSeedValueIsValid(raw_args[index + 1])) {
+                return .{ .invalid_seed_value = raw_args[index + 1] };
+            }
+            passthrough_count += 1;
+            owned_passthrough_count += 1;
+            index += 2;
+            continue;
+        }
+        if (mode == .allow_unknown_args) {
+            index += 1;
+            continue;
+        }
+        return .{ .unknown_arg = arg };
+    }
+
+    const filters = try allocator.alloc([]const u8, filter_count);
+    errdefer allocator.free(filters);
+    const passthrough = try allocator.alloc([]const u8, passthrough_count);
+    errdefer allocator.free(passthrough);
+    const owned_passthrough = try allocator.alloc([]const u8, owned_passthrough_count);
+    var owned_passthrough_allocated: usize = 0;
+    errdefer {
+        for (owned_passthrough[0..owned_passthrough_allocated]) |arg| allocator.free(arg);
+        allocator.free(owned_passthrough);
+    }
+    index = 0;
+    var filter_index: usize = 0;
+    var passthrough_index: usize = 0;
+    var owned_passthrough_index: usize = 0;
+    while (index < raw_args.len) {
+        const arg = raw_args[index];
+        if (std.mem.eql(u8, arg, "--test-filter")) {
+            filters[filter_index] = raw_args[index + 1];
+            filter_index += 1;
+            index += 2;
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--test-filter=")) {
+            filters[filter_index] = arg["--test-filter=".len..];
+            filter_index += 1;
+            index += 1;
+            continue;
+        }
+        if (testRunnerAttachedSeedValue(arg) != null) {
+            passthrough[passthrough_index] = arg;
+            passthrough_index += 1;
+            index += 1;
+            continue;
+        }
+        if (testRunnerArgCanPassThrough(arg)) {
+            passthrough[passthrough_index] = arg;
+            passthrough_index += 1;
+            index += 1;
+            continue;
+        }
+        if (testRunnerArgRequiresValue(arg) and index + 1 < raw_args.len and !testRunnerValueStartsNewArg(raw_args[index + 1])) {
+            const normalized_arg = try std.fmt.allocPrint(allocator, "{s}={s}", .{ arg, raw_args[index + 1] });
+            owned_passthrough[owned_passthrough_index] = normalized_arg;
+            owned_passthrough_index += 1;
+            owned_passthrough_allocated += 1;
+            passthrough[passthrough_index] = normalized_arg;
+            passthrough_index += 1;
+            index += 2;
+            continue;
+        }
+        index += 1;
+    }
+
+    return .{ .args = .{
+        .filters = .{
+            .allocator = allocator,
+            .items = filters,
+        },
+        .passthrough = .{
+            .allocator = allocator,
+            .items = passthrough,
+        },
+        .owned_passthrough = .{
+            .allocator = allocator,
+            .items = owned_passthrough,
+        },
+    } };
+}
+
+fn recognizedTestRunnerArgSpan(args: []const []const u8, index: usize) ?usize {
+    const arg = args[index];
+    if (std.mem.eql(u8, arg, "--test-filter")) {
+        if (index + 1 >= args.len) return null;
+        if (args[index + 1].len == 0) return null;
+        if (testRunnerValueStartsNewArg(args[index + 1])) return null;
+        return 2;
+    }
+    if (std.mem.startsWith(u8, arg, "--test-filter=")) {
+        if (arg["--test-filter=".len..].len == 0) return null;
+        return 1;
+    }
+    if (testRunnerAttachedSeedValue(arg)) |seed_value| {
+        if (!testRunnerSeedValueIsValid(seed_value)) return null;
+        return 1;
+    }
+    if (testRunnerArgCanPassThrough(arg)) return 1;
+    if (testRunnerArgRequiresValue(arg)) {
+        if (index + 1 >= args.len or testRunnerValueStartsNewArg(args[index + 1])) return null;
+        if (std.mem.eql(u8, arg, "--seed") and !testRunnerSeedValueIsValid(args[index + 1])) return null;
+        return 2;
+    }
+    return null;
+}
+
+fn lintSharedTailArgsAlloc(
+    allocator: std.mem.Allocator,
+    args: ?[]const []const u8,
+    strip_test_runner_args: bool,
+) ![]const []const u8 {
+    const raw_args = args orelse &.{};
+    if (!strip_test_runner_args) return allocator.dupe([]const u8, raw_args);
+
+    var filtered_count: usize = 0;
+    var index: usize = 0;
+    while (index < raw_args.len) {
+        if (recognizedTestRunnerArgSpan(raw_args, index)) |span| {
+            index += span;
+            continue;
+        }
+        filtered_count += 1;
+        index += 1;
+    }
+
+    const filtered_args = try allocator.alloc([]const u8, filtered_count);
+    index = 0;
+    var filtered_index: usize = 0;
+    while (index < raw_args.len) {
+        if (recognizedTestRunnerArgSpan(raw_args, index)) |span| {
+            index += span;
+            continue;
+        }
+        filtered_args[filtered_index] = raw_args[index];
+        filtered_index += 1;
+        index += 1;
+    }
+    return filtered_args;
+}
+
+fn requireTestRunnerArgs(
+    b: *std.Build,
+    args: ?[]const []const u8,
+    test_requested: bool,
+    allow_unknown_args: bool,
+) ?TestRunnerArgs {
+    if (!test_requested) {
+        return emptyTestRunnerArgs(b.allocator) catch |err|
+            std.process.fatal("unable to initialize empty test runner args: {s}", .{@errorName(err)});
+    }
+    const parse_result = parseTestRunnerArgsAlloc(b.allocator, args, if (test_requested and allow_unknown_args) .allow_unknown_args else .strict) catch |err|
+        std.process.fatal("unable to parse test runner args: {s}", .{@errorName(err)});
+
+    switch (parse_result) {
+        .args => |test_runner_args| return test_runner_args,
+        .missing_pattern => std.log.err(
+            "Expected a pattern after '--test-filter' in `zig build test -- ...`.",
+            .{},
+        ),
+        .empty_pattern => std.log.err(
+            "Expected '--test-filter' to contain a non-empty pattern in `zig build test -- ...`.",
+            .{},
+        ),
+        .invalid_seed_value => |value| std.log.err(
+            "Expected '--seed' to contain an unsigned 32-bit integer in `zig build test -- ...`; got '{s}'.",
+            .{value},
+        ),
+        .missing_passthrough_value => |arg| std.log.err(
+            "Expected a value after '{s}' in `zig build test -- ...`.",
+            .{arg},
+        ),
+        .unknown_arg => |arg| std.log.err(
+            "Unsupported `zig build test --` argument: '{s}'. Supported forms are '--test-filter[=pattern]', '--listen=-', '--seed[=value]', and '--cache-dir[=path]'.",
+            .{arg},
+        ),
+    }
+    b.invalid_user_input = true;
+    return null;
+}
+
+fn addFilteredTest(
+    b: *std.Build,
+    root_module: *std.Build.Module,
+    filters: []const []const u8,
+) *std.Build.Step.Compile {
+    return b.addTest(.{
+        .root_module = root_module,
+        .filters = filters,
+    });
+}
+
+fn addRunArtifactWithArgs(
+    b: *std.Build,
+    artifact: *std.Build.Step.Compile,
+    args: []const []const u8,
+) *std.Build.Step.Run {
+    const run_step = b.addRunArtifact(artifact);
+    if (args.len != 0) run_step.addArgs(args);
+    return run_step;
+}
+
 fn absolutizeGraphDirPath(b: *std.Build, maybe_path: ?[]const u8) ?[]const u8 {
     const path = maybe_path orelse return null;
     if (std.fs.path.isAbsolute(path)) return path;
@@ -2340,10 +3008,704 @@ test "repo Zig path registry ignores deleted tracked files" {
     , registry);
 }
 
+test "test suite selection accepts trimmed multi-suite lists" {
+    const specs = [_]TestSuiteSpec{
+        .{ .suite_id = "alpha", .description = "alpha suite" },
+        .{ .suite_id = "beta", .description = "beta suite" },
+        .{ .suite_id = "gamma", .description = "gamma suite" },
+    };
+    const result = try parseTestSuiteSelectionAlloc(std.testing.allocator, " alpha, gamma ", &specs);
+    switch (result) {
+        .selection => |selection| {
+            defer selection.deinit();
+            try std.testing.expect(selection.isEnabled(0));
+            try std.testing.expect(!selection.isEnabled(1));
+            try std.testing.expect(selection.isEnabled(2));
+        },
+        else => return error.UnexpectedSelectionParseResult,
+    }
+}
+
+test "test suite selection defaults to all suites when unspecified" {
+    const specs = [_]TestSuiteSpec{
+        .{ .suite_id = "alpha", .description = "alpha suite" },
+        .{ .suite_id = "beta", .description = "beta suite" },
+    };
+    const result = try parseTestSuiteSelectionAlloc(std.testing.allocator, null, &specs);
+    switch (result) {
+        .selection => |selection| {
+            defer selection.deinit();
+            try std.testing.expect(selection.isEnabled(0));
+            try std.testing.expect(selection.isEnabled(1));
+        },
+        else => return error.UnexpectedSelectionParseResult,
+    }
+}
+
+test "test suite selection rejects empty tokens" {
+    const specs = [_]TestSuiteSpec{
+        .{ .suite_id = "alpha", .description = "alpha suite" },
+        .{ .suite_id = "beta", .description = "beta suite" },
+    };
+    const result = try parseTestSuiteSelectionAlloc(std.testing.allocator, "alpha,,beta", &specs);
+    try std.testing.expect(result == .empty_token);
+}
+
+test "test suite selection rejects duplicate suite ids" {
+    const specs = [_]TestSuiteSpec{
+        .{ .suite_id = "alpha", .description = "alpha suite" },
+        .{ .suite_id = "beta", .description = "beta suite" },
+    };
+    const result = try parseTestSuiteSelectionAlloc(std.testing.allocator, "alpha, alpha", &specs);
+    switch (result) {
+        .duplicate => |id| try std.testing.expectEqualStrings("alpha", id),
+        else => return error.UnexpectedSelectionParseResult,
+    }
+}
+
+test "test suite selection rejects unknown suite ids" {
+    const specs = [_]TestSuiteSpec{
+        .{ .suite_id = "alpha", .description = "alpha suite" },
+        .{ .suite_id = "beta", .description = "beta suite" },
+    };
+    const result = try parseTestSuiteSelectionAlloc(std.testing.allocator, "alpha, gamma", &specs);
+    switch (result) {
+        .unknown => |id| try std.testing.expectEqualStrings("gamma", id),
+        else => return error.UnexpectedSelectionParseResult,
+    }
+}
+
+test "test suite selection ignores raw option when test step not requested" {
+    const specs = [_]TestSuiteSpec{
+        .{ .suite_id = "alpha", .description = "alpha suite" },
+        .{ .suite_id = "beta", .description = "beta suite" },
+    };
+    const result = try parseRequestedTestSuiteSelectionAlloc(
+        std.testing.allocator,
+        "does-not-exist",
+        &specs,
+        false,
+    );
+    switch (result) {
+        .selection => |selection| {
+            defer selection.deinit();
+            try std.testing.expect(selection.isEnabled(0));
+            try std.testing.expect(selection.isEnabled(1));
+        },
+        else => return error.UnexpectedSelectionParseResult,
+    }
+}
+
+test "test runner args accept split and equals filter forms" {
+    const result = try parseTestRunnerArgsAlloc(
+        std.testing.allocator,
+        &.{ "--test-filter", "alpha beta", "--test-filter=gamma" },
+        .strict,
+    );
+    switch (result) {
+        .args => |test_runner_args| {
+            defer test_runner_args.deinit();
+            try std.testing.expectEqual(@as(usize, 2), test_runner_args.filters.items.len);
+            try std.testing.expectEqualStrings("alpha beta", test_runner_args.filters.items[0]);
+            try std.testing.expectEqualStrings("gamma", test_runner_args.filters.items[1]);
+            try std.testing.expectEqual(@as(usize, 0), test_runner_args.passthrough.items.len);
+        },
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "test runner args normalize supported runner passthrough args" {
+    const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{ "--seed", "123", "--cache-dir", "zig-cache" }, .strict);
+    switch (result) {
+        .args => |test_runner_args| {
+            defer test_runner_args.deinit();
+            try std.testing.expectEqual(@as(usize, 0), test_runner_args.filters.items.len);
+            try std.testing.expectEqual(@as(usize, 2), test_runner_args.passthrough.items.len);
+            try std.testing.expectEqualStrings("--seed=123", test_runner_args.passthrough.items[0]);
+            try std.testing.expectEqualStrings("--cache-dir=zig-cache", test_runner_args.passthrough.items[1]);
+        },
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "test runner args accept supported runner passthrough flags without values" {
+    const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--listen=-"}, .strict);
+    switch (result) {
+        .args => |test_runner_args| {
+            defer test_runner_args.deinit();
+            try std.testing.expectEqual(@as(usize, 0), test_runner_args.filters.items.len);
+            try std.testing.expectEqual(@as(usize, 1), test_runner_args.passthrough.items.len);
+            try std.testing.expectEqualStrings("--listen=-", test_runner_args.passthrough.items[0]);
+        },
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "test runner args split filters from passthrough args" {
+    const result = try parseTestRunnerArgsAlloc(
+        std.testing.allocator,
+        &.{ "--seed", "123", "--test-filter", "alpha beta", "--test-filter=gamma" },
+        .strict,
+    );
+    switch (result) {
+        .args => |test_runner_args| {
+            defer test_runner_args.deinit();
+            try std.testing.expectEqual(@as(usize, 2), test_runner_args.filters.items.len);
+            try std.testing.expectEqualStrings("alpha beta", test_runner_args.filters.items[0]);
+            try std.testing.expectEqualStrings("gamma", test_runner_args.filters.items[1]);
+            try std.testing.expectEqual(@as(usize, 1), test_runner_args.passthrough.items.len);
+            try std.testing.expectEqualStrings("--seed=123", test_runner_args.passthrough.items[0]);
+        },
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "test runner args reject missing patterns" {
+    const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--test-filter"}, .strict);
+    try std.testing.expect(result == .missing_pattern);
+}
+
+test "test runner args reject split filter when next token is another flag" {
+    const result = try parseTestRunnerArgsAlloc(
+        std.testing.allocator,
+        &.{ "--test-filter", "--seed=123" },
+        .strict,
+    );
+    try std.testing.expect(result == .missing_pattern);
+}
+
+test "test runner args reject split passthrough args without values" {
+    const args = [_][]const u8{ "--seed", "--test-filter", "alpha", "--cache-dir", "--test-filter=beta" };
+    const seed_result = try parseTestRunnerArgsAlloc(std.testing.allocator, args[0..3], .strict);
+    switch (seed_result) {
+        .missing_passthrough_value => |arg| try std.testing.expectEqualStrings("--seed", arg),
+        else => return error.UnexpectedFilterParseResult,
+    }
+
+    const cache_dir_result = try parseTestRunnerArgsAlloc(
+        std.testing.allocator,
+        &.{ "--test-filter", "alpha", "--cache-dir", "--test-filter=beta" },
+        .strict,
+    );
+    switch (cache_dir_result) {
+        .missing_passthrough_value => |arg| try std.testing.expectEqualStrings("--cache-dir", arg),
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "test runner args reject split passthrough args with omitted trailing values" {
+    const seed_result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--seed"}, .strict);
+    switch (seed_result) {
+        .missing_passthrough_value => |arg| try std.testing.expectEqualStrings("--seed", arg),
+        else => return error.UnexpectedFilterParseResult,
+    }
+
+    const cache_dir_result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--cache-dir"}, .strict);
+    switch (cache_dir_result) {
+        .missing_passthrough_value => |arg| try std.testing.expectEqualStrings("--cache-dir", arg),
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "test runner args reject invalid seed values in both supported forms" {
+    const split_result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{ "--seed", "abc" }, .strict);
+    switch (split_result) {
+        .invalid_seed_value => |value| try std.testing.expectEqualStrings("abc", value),
+        else => return error.UnexpectedFilterParseResult,
+    }
+
+    const attached_result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--seed=abc"}, .strict);
+    switch (attached_result) {
+        .invalid_seed_value => |value| try std.testing.expectEqualStrings("abc", value),
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "test runner args reject unsupported post-double-dash args" {
+    const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--test-filtre=foo"}, .strict);
+    switch (result) {
+        .unknown_arg => |arg| try std.testing.expectEqualStrings("--test-filtre=foo", arg),
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "test runner args allow dash-prefixed split values" {
+    const result = try parseTestRunnerArgsAlloc(
+        std.testing.allocator,
+        &.{ "--test-filter", "-foo", "--cache-dir", "-tmp" },
+        .strict,
+    );
+    switch (result) {
+        .args => |test_runner_args| {
+            defer test_runner_args.deinit();
+            try std.testing.expectEqual(@as(usize, 1), test_runner_args.filters.items.len);
+            try std.testing.expectEqualStrings("-foo", test_runner_args.filters.items[0]);
+            try std.testing.expectEqual(@as(usize, 1), test_runner_args.passthrough.items.len);
+            try std.testing.expectEqualStrings("--cache-dir=-tmp", test_runner_args.passthrough.items[0]);
+        },
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "test runner args can ignore foreign shared-tail args while still applying recognized test args" {
+    const result = try parseTestRunnerArgsAlloc(
+        std.testing.allocator,
+        &.{ "--max-warnings", "0", "--seed", "123", "--test-filter=alpha" },
+        .allow_unknown_args,
+    );
+    switch (result) {
+        .args => |test_runner_args| {
+            defer test_runner_args.deinit();
+            try std.testing.expectEqual(@as(usize, 1), test_runner_args.filters.items.len);
+            try std.testing.expectEqualStrings("alpha", test_runner_args.filters.items[0]);
+            try std.testing.expectEqual(@as(usize, 1), test_runner_args.passthrough.items.len);
+            try std.testing.expectEqualStrings("--seed=123", test_runner_args.passthrough.items[0]);
+        },
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "test runner args still reject malformed recognized args when foreign shared-tail args are present" {
+    const result = try parseTestRunnerArgsAlloc(
+        std.testing.allocator,
+        &.{ "--max-warnings", "0", "--seed", "abc" },
+        .allow_unknown_args,
+    );
+    switch (result) {
+        .invalid_seed_value => |value| try std.testing.expectEqualStrings("abc", value),
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "lint shared-tail args keep lint-owned flags while stripping recognized test args" {
+    const filtered_args = try lintSharedTailArgsAlloc(
+        std.testing.allocator,
+        &.{ "--max-warnings", "0", "--test-filter=alpha", "--seed", "123", "--listen=-", "--cache-dir", "zig-cache" },
+        true,
+    );
+    defer std.testing.allocator.free(filtered_args);
+
+    try std.testing.expectEqual(@as(usize, 2), filtered_args.len);
+    try std.testing.expectEqualStrings("--max-warnings", filtered_args[0]);
+    try std.testing.expectEqualStrings("0", filtered_args[1]);
+}
+
+test "lint shared-tail args preserve unknown args for fail-closed mixed-step validation" {
+    const filtered_args = try lintSharedTailArgsAlloc(
+        std.testing.allocator,
+        &.{ "--max-warnings", "0", "--bogus", "--test-filter=alpha" },
+        true,
+    );
+    defer std.testing.allocator.free(filtered_args);
+
+    try std.testing.expectEqual(@as(usize, 3), filtered_args.len);
+    try std.testing.expectEqualStrings("--max-warnings", filtered_args[0]);
+    try std.testing.expectEqualStrings("0", filtered_args[1]);
+    try std.testing.expectEqualStrings("--bogus", filtered_args[2]);
+}
+
+test "build invocation step detection ignores option values" {
+    const prefix_args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "-p",
+        "test",
+        "source-lower",
+        "--",
+        "--bogus",
+    };
+    try std.testing.expect(!buildInvocationRequestsStepInArgs(&prefix_args, "test"));
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&prefix_args, "source-lower"));
+
+    const maxrss_args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--maxrss",
+        "test",
+        "source-lower",
+    };
+    try std.testing.expect(!buildInvocationRequestsStepInArgs(&maxrss_args, "test"));
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&maxrss_args, "source-lower"));
+}
+
+test "build invocation step detection ignores long prefix values before non-test steps" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--prefix",
+        "test",
+        "lint",
+        "--",
+        "--max-warnings",
+        "0",
+    };
+    try std.testing.expect(!buildInvocationRequestsStepInArgs(&args, "test"));
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "lint"));
+}
+
+test "build invocation step detection finds explicit test step after options" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--summary",
+        "none",
+        "test",
+        "--",
+        "--test-filter=alpha",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
+}
+
+test "build invocation step detection does not skip test after bare optional-value flags" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--release",
+        "test",
+        "-Dtest-suites=root",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
+}
+
+test "build invocation step detection skips optional-value arguments when present" {
+    const release_args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--release",
+        "fast",
+        "test",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&release_args, "test"));
+
+    const fetch_args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--fetch",
+        "all",
+        "test",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&fetch_args, "test"));
+
+    const reference_trace_args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "-freference-trace",
+        "7",
+        "test",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&reference_trace_args, "test"));
+
+    const build_id_args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--build-id",
+        "uuid",
+        "test",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&build_id_args, "test"));
+}
+
+test "build invocation step detection does not skip test after flags without values" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--verbose-llvm-bc",
+        "test",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
+}
+
+test "build invocation step detection consumes the --debug-log scope" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--debug-log",
+        "scope",
+        "test",
+        "--",
+        "--seed=123",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
+}
+
+test "build invocation step detection keeps build-runner-visible --system from swallowing the test step" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--system",
+        "test",
+        "--",
+        "--seed=123",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
+}
+
+test "build invocation step detection still finds test in mixed-step invocations" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "test",
+        "source-lower",
+        "--",
+        "--seed=123",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "source-lower"));
+}
+
+test "build invocation runnable step detection still finds mixed-step test invocations" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "test",
+        "source-lower",
+        "--",
+        "--seed=123",
+    };
+    try std.testing.expect(buildInvocationRequestsRunnableStepInArgs(&args, "test"));
+}
+
+test "build invocation runnable step detection skips discovery and fetch exit modes" {
+    const help_args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "-h",
+        "test",
+        "--",
+        "--test-filtre=foo",
+    };
+    try std.testing.expect(!buildInvocationRequestsRunnableStepInArgs(&help_args, "test"));
+
+    const list_args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--list-steps",
+        "test",
+        "-Dtest-suites=does-not-exist",
+    };
+    try std.testing.expect(!buildInvocationRequestsRunnableStepInArgs(&list_args, "test"));
+
+    const fetch_args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--fetch=all",
+        "test",
+        "-Dtest-suites=does-not-exist",
+    };
+    try std.testing.expect(!buildInvocationRequestsRunnableStepInArgs(&fetch_args, "test"));
+}
+
+test "build invocation skip-step-execution ignores consumed option values" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "-p",
+        "-h",
+        "test",
+        "--",
+        "--seed=123",
+    };
+    try std.testing.expect(!buildInvocationSkipsStepExecutionInArgs(&args));
+    try std.testing.expect(buildInvocationRequestsRunnableStepInArgs(&args, "test"));
+}
+
+test "build invocation exclusive test detection rejects mixed-step invocations" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "lint",
+        "test",
+        "--",
+        "--max-warnings",
+        "0",
+    };
+    try std.testing.expect(!buildInvocationRequestsOnlyStepInArgs(&args, "test"));
+}
+
+test "build invocation mixed-step test keeps runnable detection without claiming the shared tail" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "lint",
+        "test",
+        "--",
+        "--max-warnings",
+        "0",
+    };
+    try std.testing.expect(buildInvocationRequestsRunnableStepInArgs(&args, "test"));
+    try std.testing.expect(!buildInvocationRequestsOnlyStepInArgs(&args, "test"));
+}
+
+test "build invocation exclusive test detection accepts pure test invocations" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--summary",
+        "none",
+        "test",
+        "--",
+        "--test-filter=alpha",
+    };
+    try std.testing.expect(buildInvocationRequestsOnlyStepInArgs(&args, "test"));
+}
+
+test "build invocation exclusive test detection consumes the --debug-log scope" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--debug-log",
+        "scope",
+        "test",
+        "--",
+        "--seed=123",
+    };
+    try std.testing.expect(buildInvocationRequestsOnlyStepInArgs(&args, "test"));
+}
+
+test "build invocation exclusive test detection keeps build-runner-visible --system from swallowing the test step" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--system",
+        "test",
+        "--",
+        "--seed=123",
+    };
+    try std.testing.expect(buildInvocationRequestsOnlyStepInArgs(&args, "test"));
+}
+
+test "build invocation exclusive test detection consumes the --glibc-runtimes alias value" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--glibc-runtimes",
+        "runtimes-dir",
+        "test",
+        "--",
+        "--seed=123",
+    };
+    try std.testing.expect(buildInvocationRequestsOnlyStepInArgs(&args, "test"));
+}
+
 /// Configure build, test, lint, example, and benchmark entrypoints for shift.
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const test_suites_raw = b.option(
+        []const u8,
+        "test-suites",
+        "Restrict `zig build test` to a comma-separated list of exact suite ids.",
+    );
+    const test_requested = buildInvocationRequestsRunnableStep("test");
+    // `lint` currently owns the only documented non-test shared-tail CLI surface (`--max-warnings`),
+    // so mixed `lint test -- ...` invocations must ignore unknown args while still honoring test flags.
+    const allow_foreign_shared_tail_args = test_requested and buildInvocationRequestsStep("lint");
+    const lint_shared_tail_args = lintSharedTailArgsAlloc(b.allocator, b.args, allow_foreign_shared_tail_args) catch |err|
+        std.process.fatal("unable to prepare lint shared-tail args: {s}", .{@errorName(err)});
+    defer b.allocator.free(lint_shared_tail_args);
+    const test_runner_args = requireTestRunnerArgs(
+        b,
+        b.args,
+        test_requested,
+        allow_foreign_shared_tail_args,
+    ) orelse return;
+    // Compile and run steps retain these slices by reference, so they must live for the build graph lifetime.
     const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
 
     absolutizeZlinterRuntimePaths(b);
@@ -2780,13 +4142,15 @@ pub fn build(b: *std.Build) void {
     lib_check.root_module.addImport("error_witness", error_witness_mod);
     check_step.dependOn(&lib_check.step);
 
-    const root_tests = b.addTest(.{
-        .root_module = b.createModule(.{
+    const root_tests = addFilteredTest(
+        b,
+        b.createModule(.{
             .root_source_file = b.path("src/root.zig"),
             .target = target,
             .optimize = optimize,
         }),
-    });
+        test_runner_args.filters.items,
+    );
     root_tests.root_module.addImport("shift_shared", shift_shared_mod);
     root_tests.root_module.addImport("effect_ir", effect_ir_mod);
     root_tests.root_module.addImport("interpreter", interpreter_mod);
@@ -2805,34 +4169,35 @@ pub fn build(b: *std.Build) void {
     root_tests.root_module.addImport("error_witness", error_witness_mod);
     root_tests.root_module.addImport("prompt_contract_support", prompt_contract_support_mod);
     root_tests.root_module.addImport("frontend_support", frontend_support_mod);
-    const run_root_tests = b.addRunArtifact(root_tests);
+    const run_root_tests = addRunArtifactWithArgs(b, root_tests, test_runner_args.passthrough.items);
     const test_step = b.step("test", "Run the default shift proof surface.");
-    test_step.dependOn(&run_root_tests.step);
 
-    const frontend_internal_tests = b.addTest(.{
-        .root_module = b.createModule(.{
+    const frontend_internal_tests = addFilteredTest(
+        b,
+        b.createModule(.{
             .root_source_file = b.path("src/frontend.zig"),
             .target = target,
             .optimize = optimize,
         }),
-    });
+        test_runner_args.filters.items,
+    );
     frontend_internal_tests.root_module.addImport("lowered_machine", lowered_machine_mod);
     frontend_internal_tests.root_module.addImport("portable_core", portable_core_mod);
     frontend_internal_tests.root_module.addImport("prompt_contract_support", prompt_contract_support_mod);
-    const run_frontend_internal_tests = b.addRunArtifact(frontend_internal_tests);
-    test_step.dependOn(&run_frontend_internal_tests.step);
+    const run_frontend_internal_tests = addRunArtifactWithArgs(b, frontend_internal_tests, test_runner_args.passthrough.items);
 
-    const internal_program_plan_tests = b.addTest(.{
-        .root_module = b.createModule(.{
+    const internal_program_plan_tests = addFilteredTest(
+        b,
+        b.createModule(.{
             .root_source_file = b.path("test/program_plan_review_regression_test.zig"),
             .target = target,
             .optimize = optimize,
         }),
-    });
+        test_runner_args.filters.items,
+    );
     internal_program_plan_tests.root_module.addImport("internal_program_plan", internal_program_plan_mod);
     internal_program_plan_tests.root_module.addImport("effect_ir", effect_ir_mod);
-    const run_plan_review_tests = b.addRunArtifact(internal_program_plan_tests);
-    test_step.dependOn(&run_plan_review_tests.step);
+    const run_plan_review_tests = addRunArtifactWithArgs(b, internal_program_plan_tests, test_runner_args.passthrough.items);
 
     const witness_mod = b.createModule(.{
         .root_source_file = b.path("test/witness_corpus_test.zig"),
@@ -2844,11 +4209,8 @@ pub fn build(b: *std.Build) void {
     witness_mod.addImport("reference_machine", reference_machine_mod);
     witness_mod.addImport("witnesses", witnesses_mod);
     witness_mod.addImport("parity_scenarios", parity_scenarios_mod);
-    const witness_tests = b.addTest(.{
-        .root_module = witness_mod,
-    });
-    const run_witness_tests = b.addRunArtifact(witness_tests);
-    test_step.dependOn(&run_witness_tests.step);
+    const witness_tests = addFilteredTest(b, witness_mod, test_runner_args.filters.items);
+    const run_witness_tests = addRunArtifactWithArgs(b, witness_tests, test_runner_args.passthrough.items);
 
     const runtime_contract_mod = b.createModule(.{
         .root_source_file = b.path("test/runtime_contract_suite.zig"),
@@ -2862,11 +4224,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     }));
-    const runtime_contract_tests = b.addTest(.{
-        .root_module = runtime_contract_mod,
-    });
-    const run_runtime_contract_tests = b.addRunArtifact(runtime_contract_tests);
-    test_step.dependOn(&run_runtime_contract_tests.step);
+    const runtime_contract_tests = addFilteredTest(b, runtime_contract_mod, test_runner_args.filters.items);
+    const run_runtime_contract_tests = addRunArtifactWithArgs(b, runtime_contract_tests, test_runner_args.passthrough.items);
 
     const prompt_token_contract_mod = b.createModule(.{
         .root_source_file = b.path("test/prompt_token_contract_test.zig"),
@@ -2875,21 +4234,15 @@ pub fn build(b: *std.Build) void {
     });
     prompt_token_contract_mod.addImport("portable_core", portable_core_mod);
     prompt_token_contract_mod.addImport("prompt_support", prompt_support_mod);
-    const prompt_token_tests = b.addTest(.{
-        .root_module = prompt_token_contract_mod,
-    });
-    const run_prompt_token_tests = b.addRunArtifact(prompt_token_tests);
-    test_step.dependOn(&run_prompt_token_tests.step);
+    const prompt_token_tests = addFilteredTest(b, prompt_token_contract_mod, test_runner_args.filters.items);
+    const run_prompt_token_tests = addRunArtifactWithArgs(b, prompt_token_tests, test_runner_args.passthrough.items);
     const portability_contract_mod = b.createModule(.{
         .root_source_file = b.path("test/portability_contract_test.zig"),
         .target = target,
         .optimize = optimize,
     });
-    const portability_contract_tests = b.addTest(.{
-        .root_module = portability_contract_mod,
-    });
-    const run_portability_contract_tests = b.addRunArtifact(portability_contract_tests);
-    test_step.dependOn(&run_portability_contract_tests.step);
+    const portability_contract_tests = addFilteredTest(b, portability_contract_mod, test_runner_args.filters.items);
+    const run_portability_contract_tests = addRunArtifactWithArgs(b, portability_contract_tests, test_runner_args.passthrough.items);
     const public_root_pkg_contract_mod = b.createModule(.{
         .root_source_file = b.path("test/public_root_package_contract_test.zig"),
         .target = target,
@@ -2898,11 +4251,8 @@ pub fn build(b: *std.Build) void {
     const root_pkg_opts = b.addOptions();
     root_pkg_opts.addOption([:0]const u8, "zig_exe", b.graph.zig_exe);
     public_root_pkg_contract_mod.addOptions("build_options", root_pkg_opts);
-    const public_root_pkg_contract_tests = b.addTest(.{
-        .root_module = public_root_pkg_contract_mod,
-    });
-    const run_root_pkg_contract_tests = b.addRunArtifact(public_root_pkg_contract_tests);
-    test_step.dependOn(&run_root_pkg_contract_tests.step);
+    const public_root_pkg_contract_tests = addFilteredTest(b, public_root_pkg_contract_mod, test_runner_args.filters.items);
+    const run_root_pkg_contract_tests = addRunArtifactWithArgs(b, public_root_pkg_contract_tests, test_runner_args.passthrough.items);
     const artifact_v1_api_mod = b.createModule(.{
         .root_source_file = b.path("test/artifact_v1_api_test.zig"),
         .target = target,
@@ -2922,11 +4272,8 @@ pub fn build(b: *std.Build) void {
             .lowered_runtime_mod = private_lowered_runtime_mod,
         },
     ));
-    const artifact_v1_api_tests = b.addTest(.{
-        .root_module = artifact_v1_api_mod,
-    });
-    const run_artifact_v1_api_tests = b.addRunArtifact(artifact_v1_api_tests);
-    test_step.dependOn(&run_artifact_v1_api_tests.step);
+    const artifact_v1_api_tests = addFilteredTest(b, artifact_v1_api_mod, test_runner_args.filters.items);
+    const run_artifact_v1_api_tests = addRunArtifactWithArgs(b, artifact_v1_api_tests, test_runner_args.passthrough.items);
 
     const artifact_vm_runtime_mod = b.createModule(.{
         .root_source_file = b.path("test/artifact_vm_runtime_test.zig"),
@@ -2957,11 +4304,8 @@ pub fn build(b: *std.Build) void {
             .lowered_runtime_mod = private_lowered_runtime_mod,
         },
     ));
-    const artifact_vm_runtime_tests = b.addTest(.{
-        .root_module = artifact_vm_runtime_mod,
-    });
-    const run_artifact_vm_runtime_tests = b.addRunArtifact(artifact_vm_runtime_tests);
-    test_step.dependOn(&run_artifact_vm_runtime_tests.step);
+    const artifact_vm_runtime_tests = addFilteredTest(b, artifact_vm_runtime_mod, test_runner_args.filters.items);
+    const run_artifact_vm_runtime_tests = addRunArtifactWithArgs(b, artifact_vm_runtime_tests, test_runner_args.passthrough.items);
 
     const host_adapter_impl_mod = b.createModule(.{
         .root_source_file = b.path("src/host_adapter_v1_conformance.zig"),
@@ -2978,11 +4322,8 @@ pub fn build(b: *std.Build) void {
     host_adapter_conformance_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
     host_adapter_conformance_mod.addImport("shift_vm", shift_vm_mod);
     host_adapter_conformance_mod.addImport("host_adapter_v1_conformance", host_adapter_impl_mod);
-    const host_adapter_conformance_tests = b.addTest(.{
-        .root_module = host_adapter_conformance_mod,
-    });
-    const run_host_adapter_tests = b.addRunArtifact(host_adapter_conformance_tests);
-    test_step.dependOn(&run_host_adapter_tests.step);
+    const host_adapter_conformance_tests = addFilteredTest(b, host_adapter_conformance_mod, test_runner_args.filters.items);
+    const run_host_adapter_tests = addRunArtifactWithArgs(b, host_adapter_conformance_tests, test_runner_args.passthrough.items);
 
     const artifact_dump_mod = b.createModule(.{
         .root_source_file = b.path("tools/artifact_v1_dump.zig"),
@@ -3051,10 +4392,8 @@ pub fn build(b: *std.Build) void {
     runtime_stack_baseline_mod.addImport("example_resume_or_return", createShiftConsumerModule(b, "examples/resume_or_return.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     runtime_stack_baseline_mod.addImport("example_state_basic", createShiftConsumerModule(b, "examples/state_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     runtime_stack_baseline_mod.addImport("example_writer_basic", createShiftConsumerModule(b, "examples/writer_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    const boundary_tests = b.addTest(.{
-        .root_module = boundary_mod,
-    });
-    const run_boundary_tests = b.addRunArtifact(boundary_tests);
+    const boundary_tests = addFilteredTest(b, boundary_mod, test_runner_args.filters.items);
+    const run_boundary_tests = addRunArtifactWithArgs(b, boundary_tests, test_runner_args.passthrough.items);
 
     const source_lowering_corpus_mod = b.createModule(.{
         .root_source_file = b.path("test/source_lowering_corpus_test.zig"),
@@ -3073,10 +4412,8 @@ pub fn build(b: *std.Build) void {
     source_lowering_corpus_mod.addImport("source_fixture_loop_resume", createPlainModule(b, "test/source_lowering_corpus/fixtures/loop_resume.zig", target, optimize));
     source_lowering_corpus_mod.addImport("source_fixture_nested_prompt_static_redelim", createPlainModule(b, "test/source_lowering_corpus/fixtures/nested_prompt_static_redelim.zig", target, optimize));
     source_lowering_corpus_mod.addImport("source_fixture_typed_error_try", createPlainModule(b, "test/source_lowering_corpus/fixtures/typed_error_try.zig", target, optimize));
-    const src_lower_corpus_tests = b.addTest(.{
-        .root_module = source_lowering_corpus_mod,
-    });
-    const run_src_lower_corpus_tests = b.addRunArtifact(src_lower_corpus_tests);
+    const src_lower_corpus_tests = addFilteredTest(b, source_lowering_corpus_mod, test_runner_args.filters.items);
+    const run_src_lower_corpus_tests = addRunArtifactWithArgs(b, src_lower_corpus_tests, test_runner_args.passthrough.items);
 
     const source_lowering_boundary_mod = b.createModule(.{
         .root_source_file = b.path("test/source_lowering_boundary_test.zig"),
@@ -3086,10 +4423,8 @@ pub fn build(b: *std.Build) void {
     source_lowering_boundary_mod.addImport("source_lowering_registry", source_lowering_registry_mod);
     source_lowering_boundary_mod.addImport("source_lowering", source_lowering_mod);
     source_lowering_boundary_mod.addImport("shift", shift_mod);
-    const src_lower_boundary_tests = b.addTest(.{
-        .root_module = source_lowering_boundary_mod,
-    });
-    const run_src_lower_boundary_tests = b.addRunArtifact(src_lower_boundary_tests);
+    const src_lower_boundary_tests = addFilteredTest(b, source_lowering_boundary_mod, test_runner_args.filters.items);
+    const run_src_lower_boundary_tests = addRunArtifactWithArgs(b, src_lower_boundary_tests, test_runner_args.passthrough.items);
 
     const source_lowering_promoted_mod = b.createModule(.{
         .root_source_file = b.path("test/source_lowering_promoted_cohort_test.zig"),
@@ -3114,10 +4449,8 @@ pub fn build(b: *std.Build) void {
     source_lowering_promoted_mod.addImport("promoted_example_exception_basic", createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
     source_lowering_promoted_mod.addImport("promoted_example_resource_basic", createShiftConsumerModule(b, "examples/resource_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
     source_lowering_promoted_mod.addImport("promoted_example_writer_basic", createShiftConsumerModule(b, "examples/writer_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    const src_lower_promoted_tests = b.addTest(.{
-        .root_module = source_lowering_promoted_mod,
-    });
-    const run_src_lower_promoted_tests = b.addRunArtifact(src_lower_promoted_tests);
+    const src_lower_promoted_tests = addFilteredTest(b, source_lowering_promoted_mod, test_runner_args.filters.items);
+    const run_src_lower_promoted_tests = addRunArtifactWithArgs(b, src_lower_promoted_tests, test_runner_args.passthrough.items);
 
     const source_lowering_completion_mod = b.createModule(.{
         .root_source_file = b.path("test/source_lowering_completion_test.zig"),
@@ -3128,10 +4461,8 @@ pub fn build(b: *std.Build) void {
     source_lowering_completion_mod.addImport("parity_scenarios", parity_scenarios_mod);
     source_lowering_completion_mod.addImport("example_resource_basic", createShiftConsumerModule(b, "examples/resource_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
     source_lowering_completion_mod.addImport("example_writer_basic", createShiftConsumerModule(b, "examples/writer_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    const src_lower_completion_tests = b.addTest(.{
-        .root_module = source_lowering_completion_mod,
-    });
-    const run_src_lower_completion_tests = b.addRunArtifact(src_lower_completion_tests);
+    const src_lower_completion_tests = addFilteredTest(b, source_lowering_completion_mod, test_runner_args.filters.items);
+    const run_src_lower_completion_tests = addRunArtifactWithArgs(b, src_lower_completion_tests, test_runner_args.passthrough.items);
 
     const open_row_lowering_mod = b.createModule(.{
         .root_source_file = b.path("test/open_row_lowering_test.zig"),
@@ -3154,10 +4485,8 @@ pub fn build(b: *std.Build) void {
     open_row_lowering_mod.addImport("example_open_row_state_writer", createShiftConsumerModule(b, "examples/open_row_state_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     open_row_lowering_mod.addImport("example_open_row_recursive_writer", createShiftConsumerModule(b, "examples/open_row_recursive_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     open_row_lowering_mod.addImport("example_open_row_recursive_cross_writer", createShiftConsumerModule(b, "examples/open_row_recursive_cross_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    const open_row_lowering_tests = b.addTest(.{
-        .root_module = open_row_lowering_mod,
-    });
-    const run_open_row_lowering_tests = b.addRunArtifact(open_row_lowering_tests);
+    const open_row_lowering_tests = addFilteredTest(b, open_row_lowering_mod, test_runner_args.filters.items);
+    const run_open_row_lowering_tests = addRunArtifactWithArgs(b, open_row_lowering_tests, test_runner_args.passthrough.items);
 
     const source_ownership_probe_mod = b.createModule(.{
         .root_source_file = b.path("test/source_ownership_probe_test.zig"),
@@ -3166,10 +4495,8 @@ pub fn build(b: *std.Build) void {
     });
     source_ownership_probe_mod.addImport("shift", shift_mod);
     source_ownership_probe_mod.addImport("shift_compile", shift_compile_mod);
-    const source_ownership_probe_tests = b.addTest(.{
-        .root_module = source_ownership_probe_mod,
-    });
-    const run_src_ownership_probe_tests = b.addRunArtifact(source_ownership_probe_tests);
+    const source_ownership_probe_tests = addFilteredTest(b, source_ownership_probe_mod, test_runner_args.filters.items);
+    const run_src_ownership_probe_tests = addRunArtifactWithArgs(b, source_ownership_probe_tests, test_runner_args.passthrough.items);
 
     const src_lower_witness_mod = b.createModule(.{
         .root_source_file = b.path("test/source_lowering_witness_completion_test.zig"),
@@ -3179,10 +4506,8 @@ pub fn build(b: *std.Build) void {
     src_lower_witness_mod.addImport("source_lowering", source_lowering_mod);
     src_lower_witness_mod.addImport("parity_scenarios", parity_scenarios_mod);
     src_lower_witness_mod.addImport("witness_sources", witness_sources_mod);
-    const src_lower_witness_tests = b.addTest(.{
-        .root_module = src_lower_witness_mod,
-    });
-    const run_src_lower_witness_tests = b.addRunArtifact(src_lower_witness_tests);
+    const src_lower_witness_tests = addFilteredTest(b, src_lower_witness_mod, test_runner_args.filters.items);
+    const run_src_lower_witness_tests = addRunArtifactWithArgs(b, src_lower_witness_tests, test_runner_args.passthrough.items);
 
     const src_lower_reject_mod = b.createModule(.{
         .root_source_file = b.path("test/source_lowering_rejection_corpus_test.zig"),
@@ -3190,10 +4515,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     src_lower_reject_mod.addImport("source_lowering", source_lowering_mod);
-    const src_lower_reject_tests = b.addTest(.{
-        .root_module = src_lower_reject_mod,
-    });
-    const run_src_lower_reject_tests = b.addRunArtifact(src_lower_reject_tests);
+    const src_lower_reject_tests = addFilteredTest(b, src_lower_reject_mod, test_runner_args.filters.items);
+    const run_src_lower_reject_tests = addRunArtifactWithArgs(b, src_lower_reject_tests, test_runner_args.passthrough.items);
 
     const source_lowering_tool_mod = b.createModule(.{
         .root_source_file = b.path("tools/shift_source_lower.zig"),
@@ -3211,14 +4534,6 @@ pub fn build(b: *std.Build) void {
     const source_lowering_tool_step = b.step("source-lower", "Build the internal source-lowering tool.");
     source_lowering_tool_step.dependOn(&source_lowering_tool_exe.step);
     source_lowering_tool_step.dependOn(&source_lowering_tool_install.step);
-    test_step.dependOn(&run_src_lower_corpus_tests.step);
-    test_step.dependOn(&run_src_lower_boundary_tests.step);
-    test_step.dependOn(&run_src_lower_promoted_tests.step);
-    test_step.dependOn(&run_src_lower_completion_tests.step);
-    test_step.dependOn(&run_open_row_lowering_tests.step);
-    test_step.dependOn(&run_src_ownership_probe_tests.step);
-    test_step.dependOn(&run_src_lower_witness_tests.step);
-    test_step.dependOn(&run_src_lower_reject_tests.step);
 
     const lexical_witness_runners_mod = b.createModule(.{
         .root_source_file = b.path("test/lexical_witness_support.zig"),
@@ -3236,11 +4551,8 @@ pub fn build(b: *std.Build) void {
     lexical_witness_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     lexical_witness_mod.addImport("parity_scenarios", parity_scenarios_mod);
     lexical_witness_mod.addImport("lexical_witness_runners", lexical_witness_runners_mod);
-    const lexical_witness_tests = b.addTest(.{
-        .root_module = lexical_witness_mod,
-    });
-    const run_lexical_witness_tests = b.addRunArtifact(lexical_witness_tests);
-    test_step.dependOn(&run_lexical_witness_tests.step);
+    const lexical_witness_tests = addFilteredTest(b, lexical_witness_mod, test_runner_args.filters.items);
+    const run_lexical_witness_tests = addRunArtifactWithArgs(b, lexical_witness_tests, test_runner_args.passthrough.items);
 
     const lexical_with_mod = b.createModule(.{
         .root_source_file = b.path("test/lexical_with_test.zig"),
@@ -3248,13 +4560,35 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     lexical_with_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
-    const lexical_with_tests = b.addTest(.{
-        .root_module = lexical_with_mod,
-    });
-    const run_lexical_with_tests = b.addRunArtifact(lexical_with_tests);
-    test_step.dependOn(&run_lexical_with_tests.step);
-
-    test_step.dependOn(&run_boundary_tests.step);
+    const lexical_with_tests = addFilteredTest(b, lexical_with_mod, test_runner_args.filters.items);
+    const run_lexical_with_tests = addRunArtifactWithArgs(b, lexical_with_tests, test_runner_args.passthrough.items);
+    const test_suites = [_]TestSuiteSpec{
+        .{ .suite_id = "root", .description = "Root lexical surface", .run_step = run_root_tests },
+        .{ .suite_id = "frontend", .description = "Frontend internal module", .run_step = run_frontend_internal_tests },
+        .{ .suite_id = "program-plan-review", .description = "ProgramPlan regression suite", .run_step = run_plan_review_tests },
+        .{ .suite_id = "witness-corpus", .description = "Core witness corpus", .run_step = run_witness_tests },
+        .{ .suite_id = "runtime-contract", .description = "Runtime contract suite", .run_step = run_runtime_contract_tests },
+        .{ .suite_id = "prompt-token", .description = "Prompt token contract suite", .run_step = run_prompt_token_tests },
+        .{ .suite_id = "portability-contract", .description = "Portability contract suite", .run_step = run_portability_contract_tests },
+        .{ .suite_id = "public-root-package-contract", .description = "Public root package contract suite", .run_step = run_root_pkg_contract_tests },
+        .{ .suite_id = "artifact-v1-api", .description = "ArtifactV1 API suite", .run_step = run_artifact_v1_api_tests },
+        .{ .suite_id = "artifact-vm-runtime", .description = "Artifact VM runtime suite", .run_step = run_artifact_vm_runtime_tests },
+        .{ .suite_id = "host-adapter-conformance", .description = "Host adapter conformance suite", .run_step = run_host_adapter_tests },
+        .{ .suite_id = "program-frontend-boundary", .description = "Program frontend boundary suite", .run_step = run_boundary_tests },
+        .{ .suite_id = "source-lowering-corpus", .description = "Source lowering corpus suite", .run_step = run_src_lower_corpus_tests },
+        .{ .suite_id = "source-lowering-boundary", .description = "Source lowering boundary suite", .run_step = run_src_lower_boundary_tests },
+        .{ .suite_id = "source-lowering-promoted", .description = "Promoted source lowering cohort", .run_step = run_src_lower_promoted_tests },
+        .{ .suite_id = "source-lowering-completion", .description = "Source lowering completion suite", .run_step = run_src_lower_completion_tests },
+        .{ .suite_id = "open-row-lowering", .description = "Open-row lowering suite", .run_step = run_open_row_lowering_tests },
+        .{ .suite_id = "source-ownership-probe", .description = "Source ownership probe suite", .run_step = run_src_ownership_probe_tests },
+        .{ .suite_id = "source-lowering-witness", .description = "Source lowering witness completion suite", .run_step = run_src_lower_witness_tests },
+        .{ .suite_id = "source-lowering-reject", .description = "Source lowering rejection corpus suite", .run_step = run_src_lower_reject_tests },
+        .{ .suite_id = "lexical-witness", .description = "Lexical witness suite", .run_step = run_lexical_witness_tests },
+        .{ .suite_id = "lexical-with", .description = "Lexical with suite", .run_step = run_lexical_with_tests },
+    };
+    const test_suite_selection = resolveTestSuiteSelection(b, test_suites_raw, &test_suites, test_requested) orelse return;
+    defer test_suite_selection.deinit();
+    addSelectedTestSuites(test_step, &test_suites, test_suite_selection);
 
     const examples = [_]struct {
         name: []const u8,
@@ -3444,8 +4778,13 @@ pub fn build(b: *std.Build) void {
     const lint_step = b.step("lint", "Lint source code.");
     lint_step.dependOn(step: {
         const saved_verbose = b.verbose;
+        const saved_args = b.args;
         b.verbose = true;
-        defer b.verbose = saved_verbose;
+        b.args = lint_shared_tail_args;
+        defer {
+            b.verbose = saved_verbose;
+            b.args = saved_args;
+        }
         var builder = zlinter.builder(b, .{});
         builder.addPaths(.{
             // Feed zlinter the explicit repo path registry so lint stays fail-closed
