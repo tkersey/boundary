@@ -208,7 +208,43 @@ fn buildInvocationRequestsOnlyStepInArgs(args: []const []const u8, step_name: []
     return saw_step;
 }
 
-fn buildInvocationRequestsStep(step_name: []const u8) bool {
+fn buildInvocationSkipsStepExecutionInArgs(args: []const []const u8) bool {
+    var index: usize = @min(args.len, 6);
+    while (index < args.len) {
+        const arg = args[index];
+        if (std.mem.eql(u8, arg, "--")) break;
+        if (arg.len == 0) {
+            index += 1;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "-h") or
+            std.mem.eql(u8, arg, "--help") or
+            std.mem.eql(u8, arg, "-l") or
+            std.mem.eql(u8, arg, "--list-steps") or
+            std.mem.eql(u8, arg, "--fetch") or
+            std.mem.startsWith(u8, arg, "--fetch="))
+        {
+            return true;
+        }
+        if (buildInvocationArgRequiresNextValue(arg)) {
+            index += @min(@as(usize, 2), args.len - index);
+            continue;
+        }
+        if (index + 1 < args.len and buildInvocationArgOptionallyConsumesNextValue(arg, args[index + 1])) {
+            index += @min(@as(usize, 2), args.len - index);
+            continue;
+        }
+        index += 1;
+    }
+    return false;
+}
+
+fn buildInvocationRequestsRunnableStepInArgs(args: []const []const u8, step_name: []const u8) bool {
+    return !buildInvocationSkipsStepExecutionInArgs(args) and
+        buildInvocationRequestsStepInArgs(args, step_name);
+}
+
+fn buildInvocationRequestsRunnableStep(step_name: []const u8) bool {
     const args = std.process.argsAlloc(std.heap.page_allocator) catch
         std.process.fatal("unable to inspect build invocation args", .{});
     defer std.process.argsFree(std.heap.page_allocator, args);
@@ -216,17 +252,7 @@ fn buildInvocationRequestsStep(step_name: []const u8) bool {
     // The generated build executable receives:
     // argv[0] = build helper exe
     // argv[1..6] = zig_exe, zig_lib_dir, build_root, local_cache_root, global_cache_root
-    return buildInvocationRequestsStepInArgs(args, step_name);
-}
-
-fn buildInvocationRequestsOnlyStep(step_name: []const u8) bool {
-    const args = std.process.argsAlloc(std.heap.page_allocator) catch
-        std.process.fatal("unable to inspect build invocation args", .{});
-    defer std.process.argsFree(std.heap.page_allocator, args);
-
-    // argv[0] = build helper exe
-    // argv[1..6] = zig_exe, zig_lib_dir, build_root, local_cache_root, global_cache_root
-    return buildInvocationRequestsOnlyStepInArgs(args, step_name);
+    return buildInvocationRequestsRunnableStepInArgs(args, step_name);
 }
 
 fn findTestSuiteIndex(id: []const u8, specs: []const TestSuiteSpec) ?usize {
@@ -3336,6 +3362,82 @@ test "build invocation step detection still finds test in mixed-step invocations
     try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "source-lower"));
 }
 
+test "build invocation runnable step detection still finds mixed-step test invocations" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "test",
+        "source-lower",
+        "--",
+        "--seed=123",
+    };
+    try std.testing.expect(buildInvocationRequestsRunnableStepInArgs(&args, "test"));
+}
+
+test "build invocation runnable step detection skips discovery and fetch exit modes" {
+    const help_args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "-h",
+        "test",
+        "--",
+        "--test-filtre=foo",
+    };
+    try std.testing.expect(!buildInvocationRequestsRunnableStepInArgs(&help_args, "test"));
+
+    const list_args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--list-steps",
+        "test",
+        "-Dtest-suites=does-not-exist",
+    };
+    try std.testing.expect(!buildInvocationRequestsRunnableStepInArgs(&list_args, "test"));
+
+    const fetch_args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "--fetch=all",
+        "test",
+        "-Dtest-suites=does-not-exist",
+    };
+    try std.testing.expect(!buildInvocationRequestsRunnableStepInArgs(&fetch_args, "test"));
+}
+
+test "build invocation skip-step-execution ignores consumed option values" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "-p",
+        "-h",
+        "test",
+        "--",
+        "--seed=123",
+    };
+    try std.testing.expect(!buildInvocationSkipsStepExecutionInArgs(&args));
+    try std.testing.expect(buildInvocationRequestsRunnableStepInArgs(&args, "test"));
+}
+
 test "build invocation exclusive test detection rejects mixed-step invocations" {
     const args = [_][]const u8{
         "build-helper",
@@ -3429,9 +3531,8 @@ pub fn build(b: *std.Build) void {
         "test-suites",
         "Restrict `zig build test` to a comma-separated list of exact suite ids.",
     );
-    const test_requested = buildInvocationRequestsStep("test");
-    const test_runner_args_requested = buildInvocationRequestsOnlyStep("test");
-    const test_runner_args = requireTestRunnerArgs(b, b.args, test_runner_args_requested) orelse return;
+    const test_requested = buildInvocationRequestsRunnableStep("test");
+    const test_runner_args = requireTestRunnerArgs(b, b.args, test_requested) orelse return;
     // Compile and run steps retain these slices by reference, so they must live for the build graph lifetime.
     const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
 
