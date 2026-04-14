@@ -219,14 +219,6 @@ fn buildInvocationRequestsStep(step_name: []const u8) bool {
     return buildInvocationRequestsStepInArgs(args, step_name);
 }
 
-fn buildInvocationRequestsOnlyStep(step_name: []const u8) bool {
-    const args = std.process.argsAlloc(std.heap.page_allocator) catch
-        std.process.fatal("unable to inspect build invocation args", .{});
-    defer std.process.argsFree(std.heap.page_allocator, args);
-
-    return buildInvocationRequestsOnlyStepInArgs(args, step_name);
-}
-
 fn findTestSuiteIndex(id: []const u8, specs: []const TestSuiteSpec) ?usize {
     for (specs, 0..) |spec, index| {
         if (std.mem.eql(u8, spec.suite_id, id)) return index;
@@ -3317,6 +3309,23 @@ test "build invocation step detection keeps build-runner-visible --system from s
     try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
 }
 
+test "build invocation step detection still finds test in mixed-step invocations" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "test",
+        "source-lower",
+        "--",
+        "--seed=123",
+    };
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
+    try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "source-lower"));
+}
+
 test "build invocation exclusive test detection rejects mixed-step invocations" {
     const args = [_][]const u8{
         "build-helper",
@@ -3411,7 +3420,7 @@ pub fn build(b: *std.Build) void {
         "Restrict `zig build test` to a comma-separated list of exact suite ids.",
     );
     const test_requested = buildInvocationRequestsStep("test");
-    const test_runner_args_requested = buildInvocationRequestsOnlyStep("test");
+    const test_runner_args_requested = test_requested;
     const test_runner_args = requireTestRunnerArgs(b, b.args, test_runner_args_requested) orelse return;
     // Compile and run steps retain these slices by reference, so they must live for the build graph lifetime.
     const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
