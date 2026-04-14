@@ -356,8 +356,7 @@ fn addSelectedTestSuites(
 }
 
 fn testRunnerArgCanPassThrough(arg: []const u8) bool {
-    return std.mem.eql(u8, arg, "--listen=-") or
-        std.mem.startsWith(u8, arg, "--seed=") or
+    return std.mem.startsWith(u8, arg, "--seed=") or
         std.mem.startsWith(u8, arg, "--cache-dir=");
 }
 
@@ -372,7 +371,6 @@ fn testRunnerValueStartsNewArg(arg: []const u8) bool {
         std.mem.startsWith(u8, arg, "--seed=") or
         std.mem.eql(u8, arg, "--cache-dir") or
         std.mem.startsWith(u8, arg, "--cache-dir=") or
-        std.mem.eql(u8, arg, "--listen=-") or
         std.mem.startsWith(u8, arg, "--");
 }
 
@@ -508,7 +506,7 @@ fn requireTestRunnerArgs(
             .{arg},
         ),
         .unknown_arg => |arg| std.log.err(
-            "Unsupported `zig build test --` argument: '{s}'. Supported forms are '--test-filter[=pattern]', '--seed[=value]', '--cache-dir[=path]', and '--listen=-'.",
+            "Unsupported `zig build test --` argument: '{s}'. Supported forms are '--test-filter[=pattern]', '--seed[=value]', and '--cache-dir[=path]'.",
             .{arg},
         ),
     }
@@ -2973,24 +2971,23 @@ test "test runner args accept split and equals filter forms" {
 }
 
 test "test runner args normalize supported runner passthrough args" {
-    const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{ "--seed", "123", "--listen=-", "--cache-dir", "zig-cache" });
+    const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{ "--seed", "123", "--cache-dir", "zig-cache" });
     switch (result) {
         .args => |test_runner_args| {
             defer test_runner_args.deinit();
             try std.testing.expectEqual(@as(usize, 0), test_runner_args.filters.items.len);
-            try std.testing.expectEqual(@as(usize, 3), test_runner_args.passthrough.items.len);
+            try std.testing.expectEqual(@as(usize, 2), test_runner_args.passthrough.items.len);
             try std.testing.expectEqualStrings("--seed=123", test_runner_args.passthrough.items[0]);
-            try std.testing.expectEqualStrings("--listen=-", test_runner_args.passthrough.items[1]);
-            try std.testing.expectEqualStrings("--cache-dir=zig-cache", test_runner_args.passthrough.items[2]);
+            try std.testing.expectEqualStrings("--cache-dir=zig-cache", test_runner_args.passthrough.items[1]);
         },
         else => return error.UnexpectedFilterParseResult,
     }
 }
 
 test "test runner args reject unsupported passthrough args" {
-    const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--verbose"});
+    const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--listen=-"});
     switch (result) {
-        .unknown_arg => |arg| try std.testing.expectEqualStrings("--verbose", arg),
+        .unknown_arg => |arg| try std.testing.expectEqualStrings("--listen=-", arg),
         else => return error.UnexpectedFilterParseResult,
     }
 }
@@ -2998,7 +2995,7 @@ test "test runner args reject unsupported passthrough args" {
 test "test runner args split filters from passthrough args" {
     const result = try parseTestRunnerArgsAlloc(
         std.testing.allocator,
-        &.{ "--seed", "123", "--test-filter", "alpha beta", "--listen=-", "--test-filter=gamma" },
+        &.{ "--seed", "123", "--test-filter", "alpha beta", "--test-filter=gamma" },
     );
     switch (result) {
         .args => |test_runner_args| {
@@ -3006,9 +3003,8 @@ test "test runner args split filters from passthrough args" {
             try std.testing.expectEqual(@as(usize, 2), test_runner_args.filters.items.len);
             try std.testing.expectEqualStrings("alpha beta", test_runner_args.filters.items[0]);
             try std.testing.expectEqualStrings("gamma", test_runner_args.filters.items[1]);
-            try std.testing.expectEqual(@as(usize, 2), test_runner_args.passthrough.items.len);
+            try std.testing.expectEqual(@as(usize, 1), test_runner_args.passthrough.items.len);
             try std.testing.expectEqualStrings("--seed=123", test_runner_args.passthrough.items[0]);
-            try std.testing.expectEqualStrings("--listen=-", test_runner_args.passthrough.items[1]);
         },
         else => return error.UnexpectedFilterParseResult,
     }
@@ -3028,7 +3024,7 @@ test "test runner args reject split filter when next token is another flag" {
 }
 
 test "test runner args reject split passthrough args without values" {
-    const args = [_][]const u8{ "--seed", "--test-filter", "alpha", "--cache-dir", "--listen=-" };
+    const args = [_][]const u8{ "--seed", "--test-filter", "alpha", "--cache-dir", "--test-filter=beta" };
     const seed_result = try parseTestRunnerArgsAlloc(std.testing.allocator, args[0..3]);
     switch (seed_result) {
         .missing_passthrough_value => |arg| try std.testing.expectEqualStrings("--seed", arg),
@@ -3037,7 +3033,7 @@ test "test runner args reject split passthrough args without values" {
 
     const cache_dir_result = try parseTestRunnerArgsAlloc(
         std.testing.allocator,
-        &.{ "--test-filter", "alpha", "--cache-dir", "--listen=-" },
+        &.{ "--test-filter", "alpha", "--cache-dir", "--test-filter=beta" },
     );
     switch (cache_dir_result) {
         .missing_passthrough_value => |arg| try std.testing.expectEqualStrings("--cache-dir", arg),
