@@ -1,3 +1,7 @@
+// zlinter-disable field_ordering - result union order stays value-first to match the interpreter control flow.
+// zlinter-disable function_naming - internal codec helpers intentionally mirror the ProgramPlan vocabulary even when they return comptime types.
+// zlinter-disable max_positional_args - the interpreter core keeps the live execution state explicit instead of packing it into a transient context struct.
+// zlinter-disable no_undefined - fixed-size local helper buffers are completely overwritten before observation in the interpreter hot path.
 const lowered_machine = @import("lowered_machine");
 const program_plan = @import("internal_program_plan");
 const std = @import("std");
@@ -133,8 +137,6 @@ fn afterMethodName(comptime op_name: []const u8) []const u8 {
     var upper_next = true;
     inline for (op_name) |byte| {
         if (byte == '_') {
-            buffer[len] = '_';
-            len += 1;
             upper_next = true;
             continue;
         }

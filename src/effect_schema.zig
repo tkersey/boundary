@@ -1,3 +1,9 @@
+// zlinter-disable declaration_naming - this internal schema DSL keeps semantic names aligned with lifecycle/output vocabulary rather than style-driven aliases.
+// zlinter-disable field_ordering - enum and schema field order stay semantically grouped for effect-family readability.
+// zlinter-disable function_naming - lower-case schema constructors intentionally read like a DSL even when they return comptime types.
+// zlinter-disable import_ordering - keeping `std` before `effect_ir` matches the rest of the local schema helpers.
+// zlinter-disable max_positional_args - the family schema constructor keeps the lifecycle/output axes explicit instead of hiding them in an extra config struct.
+// zlinter-disable require_doc_comment - this internal schema DSL uses public declarations for comptime reflection rather than human-facing API docs.
 const std = @import("std");
 const effect_ir = @import("effect_ir");
 

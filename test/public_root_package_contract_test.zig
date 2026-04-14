@@ -380,3 +380,54 @@ test "downstream consumer cannot request shift_vm as a package module" {
     const argv = zigBuildArgv();
     try runChildExpectFailureContains(tmp.dir, std.testing.allocator, &argv, null, "shift_vm");
 }
+
+test "downstream consumer cannot compile caller-owned NamedBody sources through the root package yet" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeConsumerBuildFiles(&tmp, repo_root);
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const shift_dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const exe_mod = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    exe_mod.addImport("shift", shift_dep.module("shift"));
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "consumer_probe",
+        \\        .root_module = exe_mod,
+        \\    });
+        \\    b.installArtifact(exe);
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "main.zig",
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\fn body(_: anytype) anyerror!i32 {
+        \\    return 0;
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\    _ = try shift.with(&runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }, shift.NamedBody("main.zig", "body", anyerror!i32, body));
+        \\}
+        \\
+    );
+
+    const argv = zigBuildArgv();
+    try runChildExpectFailureContains(tmp.dir, std.testing.allocator, &argv, null, "public lowering source path must resolve to an owned repo file");
+}

@@ -57,6 +57,15 @@ fn namedGeneratedChoiceBody(eff: anytype) ExecResult([]const u8) {
     });
 }
 
+fn namedGeneratedChoiceUnderscoreBody(eff: anytype) ExecResult([]const u8) {
+    return try eff.picker.pick_item.perform(41, struct {
+        /// Return the canonical resumed answer for this underscored generated-choice test.
+        pub fn apply(_: i32, _: anytype) ExecResult([]const u8) {
+            return "answer=42";
+        }
+    });
+}
+
 fn namedExceptionPassBody(_: anytype) ExecResult([]const u8) {
     return "result=ok";
 }
@@ -1241,5 +1250,42 @@ test "shift.with accepts NamedBody for generated choice continuations" {
         .picker = Picker.use(.{ .handler = handler{} }),
     }, shift.NamedBody("test/lexical_with_test.zig", "namedGeneratedChoiceBody", ExecResult([]const u8), namedGeneratedChoiceBody));
 
+    try std.testing.expectEqualStrings("answer=42", result.value);
+}
+
+test "shift.with accepts NamedBody for underscored generated choice after hooks" {
+    const Picker = shift.effect.Define(.{
+        .state_type = void,
+        .ops = .{
+            shift.effect.ops.Choice("pick_item", i32, i32),
+        },
+    });
+
+    const transcript = struct {
+        threadlocal var after_called = false;
+    };
+
+    const handler = struct {
+        /// Resume the generated choice with the provided payload.
+        pub fn pick_item(_: *@This(), value: i32) shift.effect.choice.Decision(i32, []const u8) {
+            return shift.effect.choice.Decision(i32, []const u8).resumeWith(value);
+        }
+
+        /// Preserve the resumed choice answer unchanged.
+        pub fn afterPickItem(_: *@This(), answer: []const u8) []const u8 {
+            transcript.after_called = true;
+            return answer;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    transcript.after_called = false;
+
+    const result = try shift.with(&runtime, .{
+        .picker = Picker.use(.{ .handler = handler{} }),
+    }, shift.NamedBody("test/lexical_with_test.zig", "namedGeneratedChoiceUnderscoreBody", ExecResult([]const u8), namedGeneratedChoiceUnderscoreBody));
+
+    try std.testing.expect(transcript.after_called);
     try std.testing.expectEqualStrings("answer=42", result.value);
 }

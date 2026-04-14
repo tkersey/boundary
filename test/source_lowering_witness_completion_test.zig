@@ -68,7 +68,7 @@ const witness_generator_runner = struct {
     }
 };
 
-test "source-lowering witness rows stay source-backed and canonical" {
+test "admitted source-lowering witness rows stay source-backed and canonical" {
     try expectWitnessCase(.{
         .case_id = "witness.atm_resume_transform",
         .source_path = "src/witness_sources.zig",

@@ -21,10 +21,13 @@ The repo also contains maintainer-facing specialist surfaces for lowering and
 interpreter stepping. Those remain implementation detail territory, not a
 second public story.
 
-For shipped execution, `shift.NamedBody(...)` is the canonical source identity
-for `shift.with(...)`. The retained examples and witness surfaces are being
-driven onto that compiled path rather than relying on anonymous inline lexical
-body execution in shipped builds.
+For shipped execution inside this package, `shift.NamedBody(...)` is the
+canonical source identity for `shift.with(...)`. The retained ordinary examples
+and admitted single-prompt witness subset are driven onto that compiled path
+rather than relying on anonymous inline lexical body execution in shipped
+builds. Downstream caller-owned source files, plus the nested-prompt
+`static_redelim` and `multi_prompt` witnesses, are not yet admitted to the
+compiled NamedBody subset.
 
 ## Examples
 

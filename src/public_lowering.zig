@@ -388,6 +388,18 @@ fn repoPathIsOwned(comptime repo_path: []const u8) bool {
     return registryContainsLine(build_options.repo_zig_paths, repo_path);
 }
 
+/// Report whether one source path is a repo-owned relative Zig source admitted to the compiled lowering surface.
+pub fn repoOwnedSourcePathSupported(comptime source_path: []const u8) bool {
+    if (std.fs.path.isAbsolute(source_path)) return false;
+    return std.mem.startsWith(u8, source_path, "src/") or
+        std.mem.startsWith(u8, source_path, "examples/") or
+        std.mem.startsWith(u8, source_path, "test/") or
+        std.mem.startsWith(u8, source_path, "bench/") or
+        std.mem.startsWith(u8, source_path, "tools/") or
+        std.mem.eql(u8, source_path, "build.zig") or
+        std.mem.eql(u8, source_path, "source_graph_embed.zig");
+}
+
 fn registryContainsLine(comptime registry: []const u8, comptime candidate: []const u8) bool {
     comptime {
         @setEvalBranchQuota(50_000);

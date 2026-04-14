@@ -1,3 +1,4 @@
+// zlinter-disable no_undefined - fixed-size comptime assembly buffers are fully overwritten before observation in this internal schema helper.
 const effect_ir = @import("effect_ir");
 const effect_schema = @import("../effect_schema.zig");
 const std = @import("std");
@@ -36,7 +37,7 @@ fn mergeRows(comptime rows: anytype) effect_ir.Row {
 }
 
 /// Return the binding-schema tuple for one lexical handler bundle.
-pub fn bindingSchemas(comptime HandlersType: type) type {
+pub fn BindingSchemas(comptime HandlersType: type) type {
     const fields = @typeInfo(HandlersType).@"struct".fields;
     var types: [fields.len]type = undefined;
     inline for (fields, 0..) |field, index| {

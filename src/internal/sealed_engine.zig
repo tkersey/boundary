@@ -1,3 +1,5 @@
+// zlinter-disable require_doc_comment - this internal sealed-engine adapter exposes public hooks for comptime plumbing, not end-user API docs.
+// zlinter-disable max_positional_args - threading prompt, state, answer, error, capabilities, config, and body explicitly avoids a synthetic wrapper in the exact-capability path.
 const family = @import("../effect/family.zig");
 const frontend = @import("frontend_support");
 const lowered_machine = @import("lowered_machine");

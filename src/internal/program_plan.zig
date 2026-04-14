@@ -1213,9 +1213,6 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         .terminators = &terminators,
         .instructions = &instructions,
     };
-    if (std.mem.eql(u8, label, "shift.with named lexical body")) {
-        @compileLog(plan.locals, plan.instructions, plan.functions);
-    }
     if (plan.validate()) {
         // The generated payload is internally consistent.
     } else |err| invalidGeneratedPlan(err);

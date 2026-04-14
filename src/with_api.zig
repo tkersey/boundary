@@ -817,7 +817,6 @@ fn tryNamedCompiledWith(
     outputs_ptr: *OutputBundleType(HandlersType),
 ) ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
     if (!@hasDecl(Body, "source_path") or !@hasDecl(Body, "entry_symbol") or !@hasDecl(Body, "ReturnType")) return null;
-
     const LoweredProgram = public_lowering.lowerAt(Body.source_path, .{
         .label = "shift.with named lexical body",
         .entry_symbol = Body.entry_symbol,

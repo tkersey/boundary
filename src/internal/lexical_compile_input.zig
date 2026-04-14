@@ -1,3 +1,5 @@
+// zlinter-disable declaration_naming - local test-only witness names stay capitalized to mirror the derived types under test.
+// zlinter-disable import_ordering - helper imports stay grouped by local compile-input layering.
 const lexical_bundle_schema = @import("lexical_bundle_schema.zig");
 const std = @import("std");
 
