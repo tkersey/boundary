@@ -219,6 +219,16 @@ fn buildInvocationRequestsStep(step_name: []const u8) bool {
     return buildInvocationRequestsStepInArgs(args, step_name);
 }
 
+fn buildInvocationRequestsOnlyStep(step_name: []const u8) bool {
+    const args = std.process.argsAlloc(std.heap.page_allocator) catch
+        std.process.fatal("unable to inspect build invocation args", .{});
+    defer std.process.argsFree(std.heap.page_allocator, args);
+
+    // argv[0] = build helper exe
+    // argv[1..6] = zig_exe, zig_lib_dir, build_root, local_cache_root, global_cache_root
+    return buildInvocationRequestsOnlyStepInArgs(args, step_name);
+}
+
 fn findTestSuiteIndex(id: []const u8, specs: []const TestSuiteSpec) ?usize {
     for (specs, 0..) |spec, index| {
         if (std.mem.eql(u8, spec.suite_id, id)) return index;
@@ -3420,7 +3430,7 @@ pub fn build(b: *std.Build) void {
         "Restrict `zig build test` to a comma-separated list of exact suite ids.",
     );
     const test_requested = buildInvocationRequestsStep("test");
-    const test_runner_args_requested = test_requested;
+    const test_runner_args_requested = buildInvocationRequestsOnlyStep("test");
     const test_runner_args = requireTestRunnerArgs(b, b.args, test_runner_args_requested) orelse return;
     // Compile and run steps retain these slices by reference, so they must live for the build graph lifetime.
     const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
