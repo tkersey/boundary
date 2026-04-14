@@ -255,6 +255,17 @@ fn buildInvocationRequestsRunnableStep(step_name: []const u8) bool {
     return buildInvocationRequestsRunnableStepInArgs(args, step_name);
 }
 
+fn buildInvocationRequestsOnlyStep(step_name: []const u8) bool {
+    const args = std.process.argsAlloc(std.heap.page_allocator) catch
+        std.process.fatal("unable to inspect build invocation args", .{});
+    defer std.process.argsFree(std.heap.page_allocator, args);
+
+    // The generated build executable receives:
+    // argv[0] = build helper exe
+    // argv[1..6] = zig_exe, zig_lib_dir, build_root, local_cache_root, global_cache_root
+    return buildInvocationRequestsOnlyStepInArgs(args, step_name);
+}
+
 fn findTestSuiteIndex(id: []const u8, specs: []const TestSuiteSpec) ?usize {
     for (specs, 0..) |spec, index| {
         if (std.mem.eql(u8, spec.suite_id, id)) return index;
@@ -3455,6 +3466,24 @@ test "build invocation exclusive test detection rejects mixed-step invocations" 
     try std.testing.expect(!buildInvocationRequestsOnlyStepInArgs(&args, "test"));
 }
 
+test "build invocation mixed-step test keeps runnable detection without claiming the shared tail" {
+    const args = [_][]const u8{
+        "build-helper",
+        "zig",
+        "lib-dir",
+        "build-root",
+        "local-cache",
+        "global-cache",
+        "lint",
+        "test",
+        "--",
+        "--max-warnings",
+        "0",
+    };
+    try std.testing.expect(buildInvocationRequestsRunnableStepInArgs(&args, "test"));
+    try std.testing.expect(!buildInvocationRequestsOnlyStepInArgs(&args, "test"));
+}
+
 test "build invocation exclusive test detection accepts pure test invocations" {
     const args = [_][]const u8{
         "build-helper",
@@ -3532,7 +3561,8 @@ pub fn build(b: *std.Build) void {
         "Restrict `zig build test` to a comma-separated list of exact suite ids.",
     );
     const test_requested = buildInvocationRequestsRunnableStep("test");
-    const test_runner_args = requireTestRunnerArgs(b, b.args, test_requested) orelse return;
+    const only_test_requested = buildInvocationRequestsOnlyStep("test");
+    const test_runner_args = requireTestRunnerArgs(b, b.args, only_test_requested) orelse return;
     // Compile and run steps retain these slices by reference, so they must live for the build graph lifetime.
     const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
 
