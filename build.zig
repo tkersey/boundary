@@ -63,6 +63,7 @@ const TestRunnerArgs = struct {
 const TestRunnerArgParseResult = union(enum) {
     args: TestRunnerArgs,
     empty_pattern,
+    invalid_seed_value: []const u8,
     missing_passthrough_value: []const u8,
     missing_pattern,
     unknown_arg: []const u8,
@@ -361,12 +362,21 @@ fn addSelectedTestSuites(
 
 fn testRunnerArgCanPassThrough(arg: []const u8) bool {
     return std.mem.eql(u8, arg, "--listen=-") or
-        std.mem.startsWith(u8, arg, "--seed=") or
         std.mem.startsWith(u8, arg, "--cache-dir=");
 }
 
 fn testRunnerArgRequiresValue(arg: []const u8) bool {
     return std.mem.eql(u8, arg, "--seed") or std.mem.eql(u8, arg, "--cache-dir");
+}
+
+fn testRunnerAttachedSeedValue(arg: []const u8) ?[]const u8 {
+    if (!std.mem.startsWith(u8, arg, "--seed=")) return null;
+    return arg["--seed=".len..];
+}
+
+fn testRunnerSeedValueIsValid(value: []const u8) bool {
+    _ = std.fmt.parseUnsigned(u32, value, 0) catch return false;
+    return true;
 }
 
 fn testRunnerValueStartsNewArg(arg: []const u8) bool {
@@ -404,6 +414,12 @@ fn parseTestRunnerArgsAlloc(
             index += 1;
             continue;
         }
+        if (testRunnerAttachedSeedValue(arg)) |seed_value| {
+            if (!testRunnerSeedValueIsValid(seed_value)) return .{ .invalid_seed_value = seed_value };
+            passthrough_count += 1;
+            index += 1;
+            continue;
+        }
         if (testRunnerArgCanPassThrough(arg)) {
             passthrough_count += 1;
             index += 1;
@@ -412,6 +428,9 @@ fn parseTestRunnerArgsAlloc(
         if (testRunnerArgRequiresValue(arg)) {
             if (index + 1 >= raw_args.len or testRunnerValueStartsNewArg(raw_args[index + 1])) {
                 return .{ .missing_passthrough_value = arg };
+            }
+            if (std.mem.eql(u8, arg, "--seed") and !testRunnerSeedValueIsValid(raw_args[index + 1])) {
+                return .{ .invalid_seed_value = raw_args[index + 1] };
             }
             passthrough_count += 1;
             owned_passthrough_count += 1;
@@ -446,6 +465,12 @@ fn parseTestRunnerArgsAlloc(
         if (std.mem.startsWith(u8, arg, "--test-filter=")) {
             filters[filter_index] = arg["--test-filter=".len..];
             filter_index += 1;
+            index += 1;
+            continue;
+        }
+        if (testRunnerAttachedSeedValue(arg) != null) {
+            passthrough[passthrough_index] = arg;
+            passthrough_index += 1;
             index += 1;
             continue;
         }
@@ -505,6 +530,10 @@ fn requireTestRunnerArgs(
         .empty_pattern => std.log.err(
             "Expected '--test-filter' to contain a non-empty pattern in `zig build test -- ...`.",
             .{},
+        ),
+        .invalid_seed_value => |value| std.log.err(
+            "Expected '--seed' to contain an unsigned 32-bit integer in `zig build test -- ...`; got '{s}'.",
+            .{value},
         ),
         .missing_passthrough_value => |arg| std.log.err(
             "Expected a value after '{s}' in `zig build test -- ...`.",
@@ -3061,6 +3090,20 @@ test "test runner args reject split passthrough args with omitted trailing value
     const cache_dir_result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--cache-dir"});
     switch (cache_dir_result) {
         .missing_passthrough_value => |arg| try std.testing.expectEqualStrings("--cache-dir", arg),
+        else => return error.UnexpectedFilterParseResult,
+    }
+}
+
+test "test runner args reject invalid seed values in both supported forms" {
+    const split_result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{ "--seed", "abc" });
+    switch (split_result) {
+        .invalid_seed_value => |value| try std.testing.expectEqualStrings("abc", value),
+        else => return error.UnexpectedFilterParseResult,
+    }
+
+    const attached_result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--seed=abc"});
+    switch (attached_result) {
+        .invalid_seed_value => |value| try std.testing.expectEqualStrings("abc", value),
         else => return error.UnexpectedFilterParseResult,
     }
 }
