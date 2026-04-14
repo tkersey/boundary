@@ -356,7 +356,8 @@ fn addSelectedTestSuites(
 }
 
 fn testRunnerArgCanPassThrough(arg: []const u8) bool {
-    return std.mem.startsWith(u8, arg, "--seed=") or
+    return std.mem.eql(u8, arg, "--listen=-") or
+        std.mem.startsWith(u8, arg, "--seed=") or
         std.mem.startsWith(u8, arg, "--cache-dir=");
 }
 
@@ -506,7 +507,7 @@ fn requireTestRunnerArgs(
             .{arg},
         ),
         .unknown_arg => |arg| std.log.err(
-            "Unsupported `zig build test --` argument: '{s}'. Supported forms are '--test-filter[=pattern]', '--seed[=value]', and '--cache-dir[=path]'.",
+            "Unsupported `zig build test --` argument: '{s}'. Supported forms are '--test-filter[=pattern]', '--listen=-', '--seed[=value]', and '--cache-dir[=path]'.",
             .{arg},
         ),
     }
@@ -2984,10 +2985,15 @@ test "test runner args normalize supported runner passthrough args" {
     }
 }
 
-test "test runner args reject unsupported passthrough args" {
+test "test runner args accept supported runner passthrough flags without values" {
     const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{"--listen=-"});
     switch (result) {
-        .unknown_arg => |arg| try std.testing.expectEqualStrings("--listen=-", arg),
+        .args => |test_runner_args| {
+            defer test_runner_args.deinit();
+            try std.testing.expectEqual(@as(usize, 0), test_runner_args.filters.items.len);
+            try std.testing.expectEqual(@as(usize, 1), test_runner_args.passthrough.items.len);
+            try std.testing.expectEqualStrings("--listen=-", test_runner_args.passthrough.items[0]);
+        },
         else => return error.UnexpectedFilterParseResult,
     }
 }
