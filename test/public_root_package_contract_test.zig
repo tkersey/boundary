@@ -166,6 +166,29 @@ const published_package_paths = [_][]const u8{
     "tools",
 };
 
+const fixture_zlinter_import = "const zlinter = @import(\"zlinter\");";
+const fixture_zlinter_stub =
+    \\const zlinter = struct {
+    \\    pub const BuiltinLintRule = enum { fixture_noop };
+    \\
+    \\    pub fn builder(b: *std.Build, _: anytype) Builder {
+    \\        return .{ .step = b.step("fixture-zlinter-noop", "No-op fixture zlinter step") };
+    \\    }
+    \\
+    \\    pub const Builder = struct {
+    \\        step: *std.Build.Step,
+    \\
+    \\        pub fn addPaths(_: *Builder, _: anytype) void {}
+    \\
+    \\        pub fn addRule(_: *Builder, _: anytype, _: anytype) void {}
+    \\
+    \\        pub fn build(self: *Builder) *std.Build.Step {
+    \\            return self.step;
+    \\        }
+    \\    };
+    \\};
+;
+
 fn copyRepoFileIntoFixture(
     repo_dir: std.fs.Dir,
     fixture_dir: std.fs.Dir,
@@ -225,8 +248,26 @@ fn mirrorPublishedPackageIntoFixture(tmp: *std.testing.TmpDir, repo_root: []cons
     }
 }
 
+fn rewriteFixtureShiftBuildForHermeticTests(tmp: *std.testing.TmpDir) !void {
+    const fixture_path = "deps/shift/build.zig";
+    const original = try tmp.dir.readFileAlloc(std.testing.allocator, fixture_path, std.math.maxInt(usize));
+    defer std.testing.allocator.free(original);
+
+    const replace_start = std.mem.indexOf(u8, original, fixture_zlinter_import) orelse return error.InvalidPublishedPackageFixture;
+    const replace_end = replace_start + fixture_zlinter_import.len;
+    const rewritten = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "{s}{s}{s}",
+        .{ original[0..replace_start], fixture_zlinter_stub, original[replace_end..] },
+    );
+    defer std.testing.allocator.free(rewritten);
+
+    try writeTmpFile(tmp.dir, fixture_path, rewritten);
+}
+
 fn writeConsumerBuildFiles(tmp: *std.testing.TmpDir, repo_root: []const u8) !void {
     try mirrorPublishedPackageIntoFixture(tmp, repo_root);
+    try rewriteFixtureShiftBuildForHermeticTests(tmp);
 
     const build_zon = try std.fmt.allocPrint(std.testing.allocator,
         \\.{{
