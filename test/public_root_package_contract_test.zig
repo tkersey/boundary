@@ -18,6 +18,9 @@ fn runChild(
     argv: []const []const u8,
     env_map: ?*const std.process.EnvMap,
 ) !std.process.Child.RunResult {
+    const cwd_path = try cwd_dir.realpathAlloc(allocator, ".");
+    defer allocator.free(cwd_path);
+
     var effective_env = if (env_map) |existing| blk: {
         var cloned = std.process.EnvMap.init(allocator);
         var it = existing.iterator();
@@ -32,10 +35,26 @@ fn runChild(
         try effective_env.put("ZIG_GLOBAL_CACHE_DIR", ".zig-global-cache");
     }
 
+    if (builtin.os.tag != .windows) {
+        var command = try std.fmt.allocPrint(allocator, "cd '{s}' && exec", .{cwd_path});
+        defer allocator.free(command);
+        for (argv) |arg| {
+            const next = try std.fmt.allocPrint(allocator, "{s} '{s}'", .{ command, arg });
+            allocator.free(command);
+            command = next;
+        }
+        return try std.process.Child.run(.{
+            .allocator = allocator,
+            .argv = &.{ "zsh", "-lc", command },
+            .env_map = &effective_env,
+            .max_output_bytes = 32 * 1024,
+        });
+    }
+
     return try std.process.Child.run(.{
         .allocator = allocator,
         .argv = argv,
-        .cwd_dir = cwd_dir,
+        .cwd = cwd_path,
         .env_map = &effective_env,
         .max_output_bytes = 32 * 1024,
     });
@@ -130,6 +149,29 @@ fn runChildExpectSuccess(
     return error.UnexpectedChildCommandFailure;
 }
 
+fn repairChildFingerprintIfNeeded(
+    cwd_dir: std.fs.Dir,
+    allocator: std.mem.Allocator,
+    argv: []const []const u8,
+    env_map: ?*const std.process.EnvMap,
+) !void {
+    while (true) {
+        const result = try runChild(cwd_dir, allocator, argv, env_map);
+        defer allocator.free(result.stdout);
+        defer allocator.free(result.stderr);
+
+        switch (result.term) {
+            .Exited => |code| {
+                if (code == 0) return;
+                const suggested = extractSuggestedFingerprint(result.stderr) orelse return;
+                try rewriteBuildZonFingerprint(allocator, suggested.manifest_path, suggested.fingerprint);
+                continue;
+            },
+            else => return error.UnexpectedChildCommandFailure,
+        }
+    }
+}
+
 fn runChildExpectFailureContains(
     cwd_dir: std.fs.Dir,
     allocator: std.mem.Allocator,
@@ -137,7 +179,7 @@ fn runChildExpectFailureContains(
     env_map: ?*const std.process.EnvMap,
     needle: []const u8,
 ) !void {
-    const result = try runChildWithFingerprintRepair(cwd_dir, allocator, argv, env_map);
+    const result = try runChild(cwd_dir, allocator, argv, env_map);
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
@@ -231,8 +273,12 @@ const fixture_zprof_build =
     \\const std = @import("std");
     \\
     \\pub fn build(b: *std.Build) void {
+    \\    const target = b.standardTargetOptions(.{});
+    \\    const optimize = b.standardOptimizeOption(.{});
     \\    _ = b.addModule("zprof", .{
     \\        .root_source_file = b.path("src/root.zig"),
+    \\        .target = target,
+    \\        .optimize = optimize,
     \\    });
     \\}
 ;
@@ -500,6 +546,7 @@ test "downstream consumer cannot request shift_compile as a package module" {
     );
 
     const argv = zigBuildArgv();
+    try repairChildFingerprintIfNeeded(tmp.dir, std.testing.allocator, &argv, null);
     try runChildExpectFailureContains(tmp.dir, std.testing.allocator, &argv, null, "shift_compile");
 }
 
@@ -542,6 +589,7 @@ test "downstream consumer cannot request shift_vm as a package module" {
     );
 
     const argv = zigBuildArgv();
+    try repairChildFingerprintIfNeeded(tmp.dir, std.testing.allocator, &argv, null);
     try runChildExpectFailureContains(tmp.dir, std.testing.allocator, &argv, null, "shift_vm");
 }
 
@@ -593,6 +641,7 @@ test "downstream consumer cannot compile caller-owned NamedBody sources through 
     );
 
     const argv = zigBuildArgv();
+    try repairChildFingerprintIfNeeded(tmp.dir, std.testing.allocator, &argv, null);
     try runChildExpectFailureContains(tmp.dir, std.testing.allocator, &argv, null, "public lowering source path must resolve to an owned repo file");
 }
 
@@ -644,6 +693,7 @@ test "downstream consumer cannot bind a repo-owned NamedBody source_path to a di
     );
 
     const argv = zigBuildArgv();
+    try repairChildFingerprintIfNeeded(tmp.dir, std.testing.allocator, &argv, null);
     try runChildExpectFailureContains(tmp.dir, std.testing.allocator, &argv, null, "entry_symbol must be unique across owned repo sources");
 }
 

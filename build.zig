@@ -786,6 +786,11 @@ fn pathExistsAtRoot(root_dir: std.fs.Dir, path: []const u8) bool {
     return true;
 }
 
+fn repoRootContainsGitMetadata(root_dir: std.fs.Dir) bool {
+    root_dir.access(".git", .{}) catch return false;
+    return true;
+}
+
 fn hashBuildIdentityFileAtRoot(
     hasher: *std.crypto.hash.Blake3,
     repo_root: []const u8,
@@ -2158,6 +2163,10 @@ fn collectTrackedRepoZigPathsAlloc(
     paths: *std.ArrayList([]const u8),
     path_set: *std.StringHashMap(void),
 ) bool {
+    var root_dir = std.fs.openDirAbsolute(repo_root, .{}) catch return false;
+    defer root_dir.close();
+    if (!repoRootContainsGitMetadata(root_dir)) return false;
+
     const result = std.process.Child.run(.{
         .allocator = allocator,
         .argv = &.{ "git", "-C", repo_root, "ls-files", "--cached", "--", "*.zig" },
@@ -2170,9 +2179,6 @@ fn collectTrackedRepoZigPathsAlloc(
         .Exited => |code| if (code != 0) return false,
         else => return false,
     }
-
-    var root_dir = std.fs.openDirAbsolute(repo_root, .{}) catch return false;
-    defer root_dir.close();
 
     var lines = std.mem.tokenizeScalar(u8, result.stdout, '\n');
     while (lines.next()) |line| {
@@ -2213,9 +2219,10 @@ fn collectRepoZigPathsAlloc(
     path_set: *std.StringHashMap(void),
 ) void {
     if (!collectTrackedRepoZigPathsAlloc(allocator, repo_root, paths, path_set)) {
-        _ = collectRepoZigPathsFromRegistryFile(allocator, repo_root, paths, path_set);
+        if (!collectRepoZigPathsFromRegistryFile(allocator, repo_root, paths, path_set)) {
+            collectFilesystemRepoZigPaths(allocator, repo_root, paths, path_set);
+        }
     }
-    collectFilesystemRepoZigPaths(allocator, repo_root, paths, path_set);
 }
 
 fn artifactBuildInputPathsAlloc(
