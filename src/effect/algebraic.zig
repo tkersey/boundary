@@ -138,7 +138,7 @@ pub fn handleStateWithErrorSet(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
-    return try handleStateWithErrorSetLexical(AnswerType, RunErrorSetType, @src(), .{
+    return try handleStateWithErrorSetLexical(AnswerType, RunErrorSetType, .{
         .runtime = runtime,
         .instance = instance,
         .initial_state = initial_state,
@@ -148,6 +148,19 @@ pub fn handleStateWithErrorSet(
 
 /// Handle the public state capability with an explicit lexical-state carrier.
 pub fn handleStateWithErrorSetLexical(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    config: anytype,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!family.HandleResult(
+    family.InstanceStateType(@TypeOf(config.instance)),
+    AnswerType,
+) {
+    return try handleStateWithErrorSetLexicalAt(AnswerType, RunErrorSetType, @src(), config, Body);
+}
+
+/// Handle the public state capability with an explicit lexical-state carrier and caller source.
+pub fn handleStateWithErrorSetLexicalAt(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     comptime caller_source: std.builtin.SourceLocation,
@@ -311,7 +324,7 @@ pub fn handleReaderWithErrorSet(
     environment: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleReaderWithErrorSetLexical(AnswerType, RunErrorSetType, @src(), .{
+    return try handleReaderWithErrorSetLexical(AnswerType, RunErrorSetType, .{
         .runtime = runtime,
         .instance = instance,
         .environment = environment,
@@ -321,6 +334,16 @@ pub fn handleReaderWithErrorSet(
 
 /// Handle the public reader capability with an explicit lexical-state carrier.
 pub fn handleReaderWithErrorSetLexical(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    config: anytype,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    return try handleReaderWithErrorSetLexicalAt(AnswerType, RunErrorSetType, @src(), config, Body);
+}
+
+/// Handle the public reader capability with an explicit lexical-state carrier and caller source.
+pub fn handleReaderWithErrorSetLexicalAt(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     comptime caller_source: std.builtin.SourceLocation,
@@ -476,7 +499,7 @@ pub fn handleWriterWithErrorSet(
     items: []WriterContract.Item,
     value: WriterContract.Answer,
 } {
-    return try handleWriterWithErrorSetLexical(WriterContract, RunErrorSetType, @src(), .{
+    return try handleWriterWithErrorSetLexical(WriterContract, RunErrorSetType, .{
         .runtime = runtime,
         .instance = instance,
         .allocator = allocator,
@@ -486,6 +509,19 @@ pub fn handleWriterWithErrorSet(
 
 /// Handle the public writer capability with an explicit lexical-state carrier.
 pub fn handleWriterWithErrorSetLexical(
+    comptime WriterContract: type,
+    comptime RunErrorSetType: type,
+    config: anytype,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!struct {
+    items: []WriterContract.Item,
+    value: WriterContract.Answer,
+} {
+    return try handleWriterWithErrorSetLexicalAt(WriterContract, RunErrorSetType, @src(), config, Body);
+}
+
+/// Handle the public writer capability with an explicit lexical-state carrier and caller source.
+pub fn handleWriterWithErrorSetLexicalAt(
     comptime WriterContract: type,
     comptime RunErrorSetType: type,
     comptime caller_source: std.builtin.SourceLocation,
@@ -907,6 +943,17 @@ pub fn handleOptionalLexical(
 pub fn handleOptionalLexicalWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
+    config: anytype,
+    comptime Policy: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    return try handleOptionalLexicalWithErrorSetAt(AnswerType, RunErrorSetType, @src(), config, Policy, Body);
+}
+
+/// Handle the public optional lexical capability with an explicit error set and caller source.
+pub fn handleOptionalLexicalWithErrorSetAt(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
     comptime caller_source: std.builtin.SourceLocation,
     config: anytype,
     comptime Policy: type,
@@ -1147,7 +1194,7 @@ pub fn handleExceptionWithErrorSet(
     comptime Catch: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleExceptionWithErrorSetLexical(AnswerType, RunErrorSetType, @src(), .{
+    return try handleExceptionWithErrorSetLexical(AnswerType, RunErrorSetType, .{
         .runtime = runtime,
         .instance = instance,
         .lexical_state = null,
@@ -1156,6 +1203,17 @@ pub fn handleExceptionWithErrorSet(
 
 /// Handle the public exception capability with an explicit lexical-state carrier.
 pub fn handleExceptionWithErrorSetLexical(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    config: anytype,
+    comptime Catch: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    return try handleExceptionWithErrorSetLexicalAt(AnswerType, RunErrorSetType, @src(), config, Catch, Body);
+}
+
+/// Handle the public exception capability with an explicit lexical-state carrier and caller source.
+pub fn handleExceptionWithErrorSetLexicalAt(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     comptime caller_source: std.builtin.SourceLocation,
@@ -1404,7 +1462,7 @@ pub fn handleResourceWithErrorSet(
     comptime Manager: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleResourceWithErrorSetLexical(AnswerType, RunErrorSetType, @src(), .{
+    return try handleResourceWithErrorSetLexical(AnswerType, RunErrorSetType, .{
         .runtime = runtime,
         .instance = instance,
         .lexical_state = null,
@@ -1413,6 +1471,17 @@ pub fn handleResourceWithErrorSet(
 
 /// Handle the public resource capability with an explicit lexical-state carrier.
 pub fn handleResourceWithErrorSetLexical(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    config: anytype,
+    comptime Manager: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    return try handleResourceWithErrorSetLexicalAt(AnswerType, RunErrorSetType, @src(), config, Manager, Body);
+}
+
+/// Handle the public resource capability with an explicit lexical-state carrier and caller source.
+pub fn handleResourceWithErrorSetLexicalAt(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     comptime caller_source: std.builtin.SourceLocation,

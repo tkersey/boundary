@@ -17,6 +17,46 @@ pub fn DescriptorResult(comptime Output: type, comptime Answer: type) type {
     };
 }
 
+fn NamedBodyFunctionType(comptime body_fn: anytype) type {
+    const BodyFn = @TypeOf(body_fn);
+    return switch (@typeInfo(BodyFn)) {
+        .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn")
+            pointer.child
+        else
+            @compileError("shift.NamedBody body_fn must be callable"),
+        .@"fn" => BodyFn,
+        else => @compileError("shift.NamedBody body_fn must be callable"),
+    };
+}
+
+fn namedBodyFunctionName(comptime body_fn: anytype) ?[]const u8 {
+    const wrapped_name = @typeName(@TypeOf(.{body_fn}));
+    const prefix = "(function '";
+    const start = std.mem.indexOf(u8, wrapped_name, prefix) orelse return null;
+    const name_start = start + prefix.len;
+    const end = std.mem.indexOfPos(u8, wrapped_name, name_start, "')") orelse return null;
+    return wrapped_name[name_start..end];
+}
+
+fn validateNamedBodyDeclaration(
+    comptime source_path_value: []const u8,
+    comptime entry_symbol_value: []const u8,
+    comptime ReturnTypeValue: type,
+    comptime body_fn: anytype,
+) void {
+    _ = source_path_value;
+    const FnType = NamedBodyFunctionType(body_fn);
+    const ActualReturnType = @typeInfo(FnType).@"fn".return_type.?;
+    if (ActualReturnType != ReturnTypeValue) {
+        @compileError("shift.NamedBody ReturnType must match the supplied body function");
+    }
+    const function_name = namedBodyFunctionName(body_fn) orelse
+        @compileError("shift.NamedBody body_fn must be a named function");
+    if (!std.mem.eql(u8, function_name, entry_symbol_value)) {
+        @compileError("shift.NamedBody entry_symbol must match the supplied body function name");
+    }
+}
+
 fn NamedBodyAnswerType(comptime Body: type) type {
     const ReturnType = Body.ReturnType;
     return switch (@typeInfo(ReturnType)) {
@@ -32,6 +72,7 @@ pub fn NamedBody(
     comptime ReturnTypeValue: type,
     comptime body_fn: anytype,
 ) type {
+    comptime validateNamedBodyDeclaration(source_path_value, entry_symbol_value, ReturnTypeValue, body_fn);
     return struct {
         /// Repo-visible source path for the named lexical body.
         pub const source_path = source_path_value;
@@ -788,6 +829,21 @@ fn witnessSyntheticSource(
     );
 }
 
+fn ownedSourceLocation(
+    comptime caller: std.builtin.SourceLocation,
+    comptime source_path: []const u8,
+) std.builtin.SourceLocation {
+    if (std.mem.eql(u8, caller.file, source_path)) return caller;
+    const source_path_sentinel = std.fmt.comptimePrint("{s}\x00", .{source_path});
+    return .{
+        .module = caller.module,
+        .file = source_path_sentinel[0..source_path.len :0],
+        .line = caller.line,
+        .column = caller.column,
+        .fn_name = caller.fn_name,
+    };
+}
+
 test "owned source witness appended body stays visible to the source graph" {
     const caller = std.builtin.SourceLocation{
         .module = @src().module,
@@ -870,6 +926,31 @@ test "caller-owned anonymous body routing stays explicit for withCallerSource" {
         caller_source,
         .none,
     ));
+}
+
+fn namedBodyValidationExpected(_: anytype) anyerror!i32 {
+    return 1;
+}
+
+fn namedBodyValidationOther(_: anytype) anyerror!i32 {
+    return 2;
+}
+
+test "NamedBody extracts and validates the supplied function name" {
+    try std.testing.expectEqualStrings(
+        "namedBodyValidationExpected",
+        namedBodyFunctionName(namedBodyValidationExpected).?,
+    );
+    try std.testing.expectEqualStrings(
+        "namedBodyValidationOther",
+        namedBodyFunctionName(namedBodyValidationOther).?,
+    );
+    _ = NamedBody(
+        "src/with_api.zig",
+        "namedBodyValidationExpected",
+        anyerror!i32,
+        namedBodyValidationExpected,
+    );
 }
 
 test "withCallerSource runs anonymous lexical bodies through the public API" {
@@ -1194,6 +1275,7 @@ fn tryOwnedSourceCompiledWith(
         Body.source_path
     else
         caller.file;
+    const source_owner = comptime ownedSourceLocation(caller, source_path);
     const entry_symbol = witness.entry_symbol orelse if (witness.body_source != null)
         witness.body_method_name
     else if (@hasDecl(Body, "entry_symbol"))
@@ -1203,14 +1285,14 @@ fn tryOwnedSourceCompiledWith(
     const source_ref = comptime if (witness.body_source != null) blk: {
         break :blk public_lowering.sourceWithContentAndImports(
             source_path,
-            caller,
-            witnessSyntheticSource(caller_source, caller, witness).?,
+            source_owner,
+            witnessSyntheticSource(caller_source, source_owner, witness).?,
             witness.imported_sources,
         );
     } else blk: {
         break :blk public_lowering.sourceWithContentAndImports(
             source_path,
-            caller,
+            source_owner,
             caller_source,
             witness.imported_sources,
         );

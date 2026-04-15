@@ -66,7 +66,7 @@ pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: typ
         pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
             var instance = family.InstanceWithMode(.resume_then_transform, ResourceType, ErrorSetType).init();
-            const result = try algebraic.handleResourceWithErrorSetLexical(AnswerType, RunErrorSetType, @TypeOf(run_ctx).caller_source, .{
+            const result = try algebraic.handleResourceWithErrorSetLexicalAt(AnswerType, RunErrorSetType, @TypeOf(run_ctx).caller_source, .{
                 .runtime = run_ctx.runtime,
                 .instance = &instance,
                 .lexical_state = @constCast(run_ctx.lexical_state),

@@ -167,6 +167,12 @@ const published_package_paths = [_][]const u8{
 };
 
 const fixture_zlinter_import = "const zlinter = @import(\"zlinter\");";
+const fixture_zlinter_dependency =
+    \\        .zlinter = .{
+    \\            .url = "git+https://github.com/tkersey/zlinter.git?ref=zig015-fixes#42461509e68f2f947f7594fdf4d63f46db40ab87",
+    \\            .hash = "zlinter-0.0.1-OjQ08dCnCwBINQWXHHWuaDi4eSx9hRXBbJUtySTqfcU3",
+    \\        },
+;
 const fixture_zlinter_stub =
     \\const zlinter = struct {
     \\    pub const BuiltinLintRule = enum { fixture_noop };
@@ -249,20 +255,35 @@ fn mirrorPublishedPackageIntoFixture(tmp: *std.testing.TmpDir, repo_root: []cons
 }
 
 fn rewriteFixtureShiftBuildForHermeticTests(tmp: *std.testing.TmpDir) !void {
-    const fixture_path = "deps/shift/build.zig";
-    const original = try tmp.dir.readFileAlloc(std.testing.allocator, fixture_path, std.math.maxInt(usize));
-    defer std.testing.allocator.free(original);
+    const fixture_build_path = "deps/shift/build.zig";
+    const original_build = try tmp.dir.readFileAlloc(std.testing.allocator, fixture_build_path, std.math.maxInt(usize));
+    defer std.testing.allocator.free(original_build);
 
-    const replace_start = std.mem.indexOf(u8, original, fixture_zlinter_import) orelse return error.InvalidPublishedPackageFixture;
-    const replace_end = replace_start + fixture_zlinter_import.len;
-    const rewritten = try std.fmt.allocPrint(
+    const import_start = std.mem.indexOf(u8, original_build, fixture_zlinter_import) orelse return error.InvalidPublishedPackageFixture;
+    const import_end = import_start + fixture_zlinter_import.len;
+    const rewritten_build = try std.fmt.allocPrint(
         std.testing.allocator,
         "{s}{s}{s}",
-        .{ original[0..replace_start], fixture_zlinter_stub, original[replace_end..] },
+        .{ original_build[0..import_start], fixture_zlinter_stub, original_build[import_end..] },
     );
-    defer std.testing.allocator.free(rewritten);
+    defer std.testing.allocator.free(rewritten_build);
 
-    try writeTmpFile(tmp.dir, fixture_path, rewritten);
+    try writeTmpFile(tmp.dir, fixture_build_path, rewritten_build);
+
+    const fixture_zon_path = "deps/shift/build.zig.zon";
+    const original_zon = try tmp.dir.readFileAlloc(std.testing.allocator, fixture_zon_path, std.math.maxInt(usize));
+    defer std.testing.allocator.free(original_zon);
+
+    const dependency_start = std.mem.indexOf(u8, original_zon, fixture_zlinter_dependency) orelse return error.InvalidPublishedPackageFixture;
+    const dependency_end = dependency_start + fixture_zlinter_dependency.len;
+    const rewritten_zon = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "{s}{s}",
+        .{ original_zon[0..dependency_start], original_zon[dependency_end..] },
+    );
+    defer std.testing.allocator.free(rewritten_zon);
+
+    try writeTmpFile(tmp.dir, fixture_zon_path, rewritten_zon);
 }
 
 fn writeConsumerBuildFiles(tmp: *std.testing.TmpDir, repo_root: []const u8) !void {
@@ -599,6 +620,65 @@ test "downstream consumer can compile caller-owned NamedBody sources through the
         \\    defer runtime.deinit();
         \\    const named = shift.NamedBody(@src().file, "body", anyerror!i32, body);
         \\    const result = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{}, &runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }, named);
+        \\    if (result.value != 1) return error.UnexpectedResult;
+        \\}
+        \\
+    ;
+    try writeTmpFile(tmp.dir, "main.zig", main_source);
+
+    const argv = zigBuildArgv();
+    try runChildExpectSuccess(tmp.dir, std.testing.allocator, &argv, null);
+}
+
+test "downstream consumer can compile caller-owned cross-file NamedBody sources through the root package via explicit withOwnedSource witness" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeConsumerBuildFiles(&tmp, repo_root);
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const shift_dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const exe_mod = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    exe_mod.addImport("shift", shift_dep.module("shift"));
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "consumer_probe",
+        \\        .root_module = exe_mod,
+        \\    });
+        \\    b.installArtifact(exe);
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "body.zig",
+        \\pub fn body(eff: anytype) anyerror!i32 {
+        \\    const before = try eff.state.get();
+        \\    try eff.state.set(before + 1);
+        \\    return try eff.state.get();
+        \\}
+        \\
+    );
+    const main_source =
+        \\const body_mod = @import("body.zig");
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\    const named = shift.NamedBody("body.zig", "body", anyerror!i32, body_mod.body);
+        \\    const result = try shift.withOwnedSource(@src(), @embedFile("body.zig"), .{}, &runtime, .{
         \\        .state = shift.effect.state.use(@as(i32, 0)),
         \\    }, named);
         \\    if (result.value != 1) return error.UnexpectedResult;

@@ -118,7 +118,7 @@ pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) t
                 /// Writer state type carried by this lexical writer helper.
                 pub const WriterStateType = WriterState(ItemType);
             };
-            const result = try algebraic.handleWriterWithErrorSetLexical(writer_contract, RunErrorSetType, @TypeOf(run_ctx).caller_source, .{
+            const result = try algebraic.handleWriterWithErrorSetLexicalAt(writer_contract, RunErrorSetType, @TypeOf(run_ctx).caller_source, .{
                 .runtime = run_ctx.runtime,
                 .instance = &instance,
                 .allocator = self.allocator,

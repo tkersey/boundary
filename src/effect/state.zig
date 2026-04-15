@@ -60,7 +60,7 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
         /// Run one lexical state descriptor through the existing state family.
         pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             var instance = family.Instance(StateType, ErrorSetType).init();
-            const result = try algebraic.handleStateWithErrorSetLexical(AnswerType, RunErrorSetType, @TypeOf(run_ctx).caller_source, .{
+            const result = try algebraic.handleStateWithErrorSetLexicalAt(AnswerType, RunErrorSetType, @TypeOf(run_ctx).caller_source, .{
                 .runtime = run_ctx.runtime,
                 .instance = &instance,
                 .initial_state = self.initial_state,
