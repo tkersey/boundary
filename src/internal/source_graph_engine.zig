@@ -884,6 +884,16 @@ fn statementMatchesSupportedDirectOp(
     }
 }
 
+fn statementMatchesSupportedReturnDirectOp(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    statement: []const TokenItem,
+) bool {
+    const tokens = statementTrimSemicolon(statement);
+    if (tokens.len == 0 or tokens[0].tag != .keyword_return) return false;
+    return statementMatchesSupportedDirectOp(effect_param, aliases, tokens[1..]);
+}
+
 fn continuationStructStart(args: []const TokenItem) ?struct {
     payload_end: usize,
     struct_start: usize,
@@ -1272,6 +1282,7 @@ fn statementSupportsBodyLowering(
     if (statementMatchesSupportedIfLocalEqZeroReturn(statement)) return true;
     if (statementMatchesSupportedIfLocalEqZeroBranch(effect_param, aliases, imports, statement)) return true;
     if (statementMatchesSupportedContinuationDirectOp(effect_param, aliases, statement)) return true;
+    if (statementMatchesSupportedReturnDirectOp(effect_param, aliases, statement)) return true;
     if (statementMatchesSupportedDirectOp(effect_param, aliases, statement)) return true;
     if (statementMatchesSupportedLocalDecrementOp(effect_param, aliases, statement)) return true;
     if (statementMatchesSupportedHelperCall(imports, statement)) return true;

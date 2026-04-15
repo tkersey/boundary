@@ -1049,6 +1049,16 @@ fn parseReturnLocalStatement(comptime statement: []const BodyToken) ?[]const u8 
     return statement[1].lexeme;
 }
 
+fn parseReturnDirectCall(
+    comptime effect_param: ?[]const u8,
+    comptime aliases: []const BodyAlias,
+    comptime statement: []const BodyToken,
+) ?DirectCall {
+    const tokens = statementTrimSemicolon(statement);
+    if (tokens.len == 0 or tokens[0].tag != .keyword_return) return null;
+    return parseDirectCall(effect_param, aliases, tokens[1..]);
+}
+
 fn parseReturnAddLocalsStatement(comptime statement: []const BodyToken) ?struct {
     left_name: []const u8,
     right_name: []const u8,
@@ -1846,6 +1856,54 @@ fn buildLinearBodyForFunction(
                 appendInstruction(instructions[0..], &instruction_count, .{
                     .kind = .return_value,
                     .operand = local.local_id,
+                });
+                terminator = .{ .kind = .return_value };
+                terminated = true;
+                continue;
+            }
+            if (parseReturnDirectCall(function.effect_param, aliases[0..alias_count], statement)) |direct_call| {
+                if (statement_index + 1 != statement_ranges.len) break :blk null;
+                const expected_codec: effect_ir.LocalCodec = switch (context.functions[context.lowered_function_index].ValueType) {
+                    void => break :blk null,
+                    bool => .bool,
+                    i32 => .i32,
+                    []const u8 => .string,
+                    usize => .usize,
+                    else => break :blk null,
+                };
+                if (opModeForFunctionUse(
+                    context.functions,
+                    context.lowered_function_index,
+                    direct_call.requirement_label,
+                    direct_call.op_name,
+                ) == .abort) break :blk null;
+                const resume_codec = resumeCodecForFunctionUse(
+                    context.functions,
+                    context.lowered_function_index,
+                    direct_call.requirement_label,
+                    direct_call.op_name,
+                );
+                if (resume_codec != expected_codec) break :blk null;
+                const payload_local = emitPayloadValueForDirectCall(
+                    direct_call,
+                    local_bindings[0..binding_count],
+                    &body_state,
+                ) orelse break :blk null;
+                const dst = appendAnonymousLocal(&local_storage, expected_codec);
+                appendInstruction(instructions[0..], &instruction_count, .{
+                    .kind = .call_op,
+                    .dst = dst,
+                    .operand = opIndexForFunctionUse(
+                        context.functions,
+                        context.lowered_function_index,
+                        direct_call.requirement_label,
+                        direct_call.op_name,
+                    ),
+                    .aux = payload_local,
+                });
+                appendInstruction(instructions[0..], &instruction_count, .{
+                    .kind = .return_value,
+                    .operand = dst,
                 });
                 terminator = .{ .kind = .return_value };
                 terminated = true;

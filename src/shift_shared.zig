@@ -22,6 +22,12 @@ pub const With = with_api.With;
 pub const NamedBody = with_api.NamedBody;
 /// Public `with(...)` helper retained at the root surface.
 pub const with = with_api.with;
+/// Public `withCallerSource(...)` helper retained for caller-owned lexical compilation.
+pub const withCallerSource = with_api.withCallerSource;
+/// Public `withCallerSourceAndContent(...)` helper retained for caller-owned lexical compilation with explicit source bytes.
+pub const withCallerSourceAndContent = with_api.withCallerSourceAndContent;
+/// Public `withOwnedSource(...)` helper retained for explicit caller-owned lexical compilation witnesses.
+pub const withOwnedSource = with_api.withOwnedSource;
 
 /// Compatibility API namespace retained for existing `shift.compat.*` users.
 pub const compat = compat_api;

@@ -431,3 +431,146 @@ test "downstream consumer cannot compile caller-owned NamedBody sources through 
     const argv = zigBuildArgv();
     try runChildExpectFailureContains(tmp.dir, std.testing.allocator, &argv, null, "public lowering source path must resolve to an owned repo file");
 }
+
+test "downstream consumer can compile an anonymous same-file lexical body through the root package" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeConsumerBuildFiles(&tmp, repo_root);
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const shift_dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const exe_mod = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    exe_mod.addImport("shift", shift_dep.module("shift"));
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "consumer_probe",
+        \\        .root_module = exe_mod,
+        \\    });
+        \\    b.installArtifact(exe);
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "main.zig", "pub fn main() void {}\n");
+    const main_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.zig");
+    defer std.testing.allocator.free(main_path);
+    const main_source = try std.fmt.allocPrint(std.testing.allocator,
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn main() !void {{
+        \\    const caller_src: std.builtin.SourceLocation = .{{
+        \\        .module = @src().module,
+        \\        .file = "{s}",
+        \\        .line = @src().line,
+        \\        .column = @src().column,
+        \\        .fn_name = @src().fn_name,
+        \\    }};
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\    const result = try shift.withOwnedSource(caller_src, @embedFile(@src().file), .{{
+        \\        .source_path = "{s}",
+        \\        .entry_symbol = "__owned_body",
+        \\        .body_source =
+        \\            \\pub fn __owned_body(eff: anytype) anyerror!i32 {{
+        \\            \\    const before = try eff.state.get();
+        \\            \\    try eff.state.set(before + 1);
+        \\            \\    return try eff.state.get();
+        \\            \\}}
+        \\        ,
+        \\    }}, &runtime, .{{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }}, struct {{
+        \\        pub fn body(eff: anytype) anyerror!i32 {{
+        \\            const before = try eff.state.get();
+        \\            try eff.state.set(before + 1);
+        \\            return try eff.state.get();
+        \\        }}
+        \\    }});
+        \\    if (result.value != 1) return error.UnexpectedResult;
+        \\}}
+        \\
+    , .{ main_path, main_path });
+    defer std.testing.allocator.free(main_source);
+    try writeTmpFile(tmp.dir, "main.zig", main_source);
+
+    const argv = zigBuildArgv();
+    try runChildExpectSuccess(tmp.dir, std.testing.allocator, &argv, null);
+}
+
+test "downstream consumer can compile caller-owned NamedBody sources through the root package via explicit withOwnedSource witness" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeConsumerBuildFiles(&tmp, repo_root);
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const shift_dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const exe_mod = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    exe_mod.addImport("shift", shift_dep.module("shift"));
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "consumer_probe",
+        \\        .root_module = exe_mod,
+        \\    });
+        \\    b.installArtifact(exe);
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "main.zig", "pub fn main() void {}\n");
+    const main_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.zig");
+    defer std.testing.allocator.free(main_path);
+    const main_source = try std.fmt.allocPrint(std.testing.allocator,
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn body(eff: anytype) anyerror!i32 {{
+        \\    const before = try eff.state.get();
+        \\    try eff.state.set(before + 1);
+        \\    return try eff.state.get();
+        \\}}
+        \\
+        \\pub fn main() !void {{
+        \\    const caller_src: std.builtin.SourceLocation = .{{
+        \\        .module = @src().module,
+        \\        .file = "{s}",
+        \\        .line = @src().line,
+        \\        .column = @src().column,
+        \\        .fn_name = @src().fn_name,
+        \\    }};
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\    const named = shift.NamedBody("{s}", "body", anyerror!i32, body);
+        \\    const result = try shift.withOwnedSource(caller_src, @embedFile(@src().file), .{{}}, &runtime, .{{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }}, named);
+        \\    if (result.value != 1) return error.UnexpectedResult;
+        \\}}
+        \\
+    , .{ main_path, main_path });
+    defer std.testing.allocator.free(main_source);
+    try writeTmpFile(tmp.dir, "main.zig", main_source);
+
+    const argv = zigBuildArgv();
+    try runChildExpectSuccess(tmp.dir, std.testing.allocator, &argv, null);
+}

@@ -10,6 +10,12 @@ pub const RuntimeError = shared.RuntimeError;
 pub const NamedBody = shared.NamedBody;
 /// Run the public lexical handler entrypoint.
 pub const with = shared.with;
+/// Run the public lexical handler entrypoint with an explicit caller source witness.
+pub const withCallerSource = shared.withCallerSource;
+/// Run the public lexical handler entrypoint with explicit caller source location and bytes.
+pub const withCallerSourceAndContent = shared.withCallerSourceAndContent;
+/// Run the public lexical handler entrypoint through an explicit caller-owned source witness.
+pub const withOwnedSource = shared.withOwnedSource;
 
 test {
     _ = Runtime;
@@ -17,4 +23,7 @@ test {
     _ = effect;
     _ = NamedBody;
     _ = with;
+    _ = withCallerSource;
+    _ = withCallerSourceAndContent;
+    _ = withOwnedSource;
 }
