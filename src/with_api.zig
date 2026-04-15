@@ -113,6 +113,16 @@ fn NamedBodyAnswerType(comptime Body: type) type {
     };
 }
 
+fn isNamedBodyDescriptor(comptime Body: type) bool {
+    return switch (@typeInfo(Body)) {
+        .pointer, .@"fn" => false,
+        else => @hasDecl(Body, "is_named_body") and
+            @hasDecl(Body, "source_path") and
+            @hasDecl(Body, "entry_symbol") and
+            @hasDecl(Body, "ReturnType"),
+    };
+}
+
 /// Named lexical body reference used as the canonical compiled `shift.with(...)` surface.
 pub fn NamedBody(
     comptime source_path_value: []const u8,
@@ -122,6 +132,8 @@ pub fn NamedBody(
 ) type {
     comptime validateNamedBodyDeclaration(source_path_value, entry_symbol_value, ReturnTypeValue, body_fn);
     return struct {
+        /// Marker used to distinguish canonical NamedBody descriptors from ordinary inline bodies.
+        pub const is_named_body = true;
         /// Repo-visible source path for the named lexical body.
         pub const source_path = source_path_value;
         /// Top-level function symbol compiled for this named lexical body.
@@ -636,6 +648,7 @@ fn BodyFunctionType(comptime Body: type) type {
         .@"fn" => true,
         else => false,
     }) return Body;
+    if (comptime isNamedBodyDescriptor(Body)) return @TypeOf(Body.body_fn_ref);
     if (@hasDecl(Body, "body")) return @TypeOf(Body.body);
     if (@hasDecl(Body, "run")) return @TypeOf(Body.run);
     @compileError("shift.with body must be a function or a type declaring body(eff)");
@@ -658,7 +671,7 @@ fn bodyRunSelfValue(comptime Body: type) Body {
 }
 
 fn BodyReturnType(comptime Body: type, comptime EffType: type) type {
-    if (@hasDecl(Body, "ReturnType")) return Body.ReturnType;
+    if (isNamedBodyDescriptor(Body)) return Body.ReturnType;
     if (@hasDecl(Body, "body")) return @TypeOf(Body.body(dummyValue(EffType)));
     if (@hasDecl(Body, "run")) {
         const params = @typeInfo(BodyRunFnType(Body)).@"fn".params;
@@ -1020,6 +1033,29 @@ test "withCallerSource runs anonymous lexical bodies through the public API" {
     try std.testing.expectEqual(@as(i32, 1), result.outputs.state);
 }
 
+test "withCallerSource ignores unrelated ReturnType decls on non-NamedBody bodies" {
+    const state = @import("effect/state.zig");
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try withCallerSource(@src(), &runtime, .{
+        .state = state.use(@as(i32, 0)),
+    }, struct {
+        /// Unrelated decl that must not affect ordinary body return inference.
+        pub const ReturnType = []const u8;
+
+        fn body(eff: anytype) anyerror!i32 {
+            const before = try eff.state.get();
+            try eff.state.set(before + 1);
+            return try eff.state.get();
+        }
+    });
+
+    try std.testing.expectEqual(@as(i32, 1), result.value);
+    try std.testing.expectEqual(@as(i32, 1), result.outputs.state);
+}
+
 test "withCallerSource preserves lexical continuation caller provenance through optional resume" {
     const choice = @import("effect/choice.zig");
     const optional = @import("effect/optional.zig");
@@ -1063,7 +1099,7 @@ fn rejectUnsupportedShippedWith(
     comptime caller_owned_kind: CallerOwnedCompilationKind,
 ) void {
     if (builtin.is_test) return;
-    if (@hasDecl(Body, "source_path") and @hasDecl(Body, "entry_symbol") and @hasDecl(Body, "ReturnType")) return;
+    if (isNamedBodyDescriptor(Body)) return;
     if (anonymousBodySyntheticSource(caller, Body, caller_source_override, caller_owned_kind) != null) return;
     @compileError("shift.with shipped execution currently requires either shift.NamedBody(...) or a caller-owned lexical body shape that can be compiled from the callsite");
 }
@@ -1074,9 +1110,6 @@ fn callBody(
     comptime ErrorSet: type,
     comptime AnswerType: type,
 ) lowered_machine.ResetError(ErrorSet)!AnswerType {
-    if (@hasDecl(Body, "ReturnType")) {
-        @compileError("named lexical bodies must execute through shift.with compiled dispatch");
-    }
     const BodyFn = BodyFunctionType(Body);
     const FnType = switch (@typeInfo(BodyFn)) {
         .pointer => |pointer| pointer.child,
@@ -1084,6 +1117,13 @@ fn callBody(
         else => unreachable,
     };
     const ReturnType = @typeInfo(FnType).@"fn".return_type.?;
+
+    if (comptime isNamedBodyDescriptor(Body)) {
+        if (@typeInfo(ReturnType) == .error_union) {
+            return Body.body_fn_ref(eff) catch |err| return @errorCast(err);
+        }
+        return Body.body_fn_ref(eff);
+    }
 
     if (@hasDecl(Body, "body")) {
         if (@typeInfo(ReturnType) == .error_union) {
@@ -1297,7 +1337,7 @@ fn tryNamedCompiledWith(
     handlers_ptr: *HandlersType,
     outputs_ptr: *OutputBundleType(HandlersType),
 ) ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
-    if (!@hasDecl(Body, "source_path") or !@hasDecl(Body, "entry_symbol") or !@hasDecl(Body, "ReturnType")) return null;
+    if (!isNamedBodyDescriptor(Body)) return null;
     const lowered_program = public_lowering.lowerOpenRowAt(Body.source_path, .{
         .label = "shift.with named lexical body",
         .entry_symbol = Body.entry_symbol,
@@ -1330,7 +1370,7 @@ fn tryCallerOwnedCompiledWith(
     handlers_ptr: *HandlersType,
     outputs_ptr: *OutputBundleType(HandlersType),
 ) ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
-    if (@hasDecl(Body, "source_path") or @hasDecl(Body, "entry_symbol") or @hasDecl(Body, "ReturnType")) return null;
+    if (isNamedBodyDescriptor(Body)) return null;
     const synthetic_source = anonymousBodySyntheticSource(caller, Body, caller_source_override, caller_owned_kind) orelse return null;
     const source_ref = public_lowering.sourceWithContent(caller.file, caller, synthetic_source);
     const lowered_program = public_lowering.lowerOpenRow(source_ref, .{
@@ -1667,7 +1707,7 @@ fn withAt(
 
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
-    if (comptime @hasDecl(Body, "source_path") and @hasDecl(Body, "entry_symbol") and @hasDecl(Body, "ReturnType")) {
+    if (comptime isNamedBodyDescriptor(Body)) {
         const compiled = tryNamedCompiledWith(HandlersType, Body, runtime, &handler_state, &outputs).?;
         const value = try compiled;
         return .{

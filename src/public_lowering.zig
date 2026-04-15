@@ -4428,6 +4428,50 @@ test "authoredBoundProgramPlan validates choice plans with void resumptions" {
     try std.testing.expectEqual(@as(usize, 1), handlers.authored.after_calls);
 }
 
+test "authoredBoundProgramPlan preserves terminal choice answers when resumptions are void" {
+    const plan = authoredBoundProgramPlan(
+        "example.authored_choice_void_resume_return_now",
+        []const u8,
+        void,
+        []const u8,
+        .choice,
+    ).?;
+    const Handlers = struct {
+        authored: struct {
+            seen_payload: ?[]const u8 = null,
+            after_calls: usize = 0,
+
+            const decision = union(enum) {
+                resume_with: void,
+                return_now: []const u8,
+            };
+
+            fn dispatch(self: *@This(), payload: []const u8) anyerror!decision {
+                self.seen_payload = payload;
+                return .{ .return_now = "result=early" };
+            }
+
+            fn afterDispatch(self: *@This(), _: void) anyerror![]const u8 {
+                self.after_calls += 1;
+                return "wrapped-choice";
+            }
+        } = .{},
+    };
+    var handlers: Handlers = .{};
+
+    try std.testing.expectEqual(program_plan.TerminatorKind.return_unit, plan.terminators[0].kind);
+    try std.testing.expectEqual(@as(usize, 1), plan.instructions.len);
+    try plan.validate();
+
+    const result = try executeLoweredDispatch(plan, &handlers, 0, &.{.{ .string = "select" }});
+    switch (result) {
+        .value => |_| return error.TestUnexpectedResult,
+        .terminal => |answer| try std.testing.expectEqualStrings("result=early", decodeRuntimeValue(.string, answer)),
+    }
+    try std.testing.expectEqualStrings("select", handlers.authored.seen_payload.?);
+    try std.testing.expectEqual(@as(usize, 0), handlers.authored.after_calls);
+}
+
 test "executeLoweredDispatch returns abort answers through terminal control" {
     const plan: program_plan.ProgramPlan = .{
         .label = "example.abort_root",
