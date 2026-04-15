@@ -72,6 +72,7 @@ pub fn runWithSealedEngine(
     };
 
     const RunnerState = struct {
+        pub const caller_source = if (@hasField(@TypeOf(config), "caller_source")) config.caller_source else null;
         runtime: *lowered_machine.Runtime,
         prompt_identity: *const anyopaque,
         engine_ctx: *EngineContextType,

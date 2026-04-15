@@ -2064,6 +2064,8 @@ fn pathIsIgnoredBuildInput(path: []const u8) bool {
         std.mem.startsWith(u8, path, ".git/") or
         std.mem.eql(u8, path, ".zig-cache") or
         std.mem.startsWith(u8, path, ".zig-cache/") or
+        std.mem.eql(u8, path, ".zig-global-cache") or
+        std.mem.startsWith(u8, path, ".zig-global-cache/") or
         std.mem.eql(u8, path, "zig-out") or
         std.mem.startsWith(u8, path, "zig-out/");
 }
@@ -2211,10 +2213,9 @@ fn collectRepoZigPathsAlloc(
     path_set: *std.StringHashMap(void),
 ) void {
     if (!collectTrackedRepoZigPathsAlloc(allocator, repo_root, paths, path_set)) {
-        if (!collectRepoZigPathsFromRegistryFile(allocator, repo_root, paths, path_set)) {
-            collectFilesystemRepoZigPaths(allocator, repo_root, paths, path_set);
-        }
+        _ = collectRepoZigPathsFromRegistryFile(allocator, repo_root, paths, path_set);
     }
+    collectFilesystemRepoZigPaths(allocator, repo_root, paths, path_set);
 }
 
 fn artifactBuildInputPathsAlloc(
@@ -3972,6 +3973,9 @@ pub fn build(b: *std.Build) void {
     with_api_mod.addImport("frontend_support", frontend_support_mod);
     with_api_mod.addImport("lowered_machine", lowered_machine_mod);
     with_api_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
+    with_api_mod.addImport("authoring_build_options", authoring_build_options_mod);
+    with_api_mod.addImport("source_graph_embed", source_graph_embed_mod);
+    with_api_mod.addImport("source_graph_engine", source_graph_engine_mod);
     const program_frontend_mod = b.createModule(.{
         .root_source_file = b.path("src/program_frontend.zig"),
         .target = target,
@@ -3999,6 +4003,7 @@ pub fn build(b: *std.Build) void {
     lexical_runtime_internal_mod.addImport("effect_ir", effect_ir_mod);
     lexical_runtime_internal_mod.addImport("public_lowering", public_lowering_mod);
     lexical_runtime_internal_mod.addImport("source_graph_embed", source_graph_embed_mod);
+    lexical_runtime_internal_mod.addImport("source_graph_engine", source_graph_engine_mod);
     lexical_runtime_internal_mod.addImport("authoring_build_options", authoring_build_options_mod);
     const witness_sources_mod = b.createModule(.{
         .root_source_file = b.path("src/witness_sources.zig"),

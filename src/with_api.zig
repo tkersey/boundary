@@ -1,3 +1,4 @@
+const build_options = @import("authoring_build_options");
 const builtin = @import("builtin");
 const family = @import("effect/family.zig");
 const frontend = @import("frontend_support");
@@ -6,6 +7,7 @@ const lexical_executable_bundle = @import("internal/lexical_executable_bundle.zi
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
 const public_lowering = @import("public_lowering");
+const source_graph_embed = @import("source_graph_embed");
 const source_graph_engine = @import("source_graph_engine");
 const std = @import("std");
 
@@ -38,13 +40,58 @@ fn namedBodyFunctionName(comptime body_fn: anytype) ?[]const u8 {
     return wrapped_name[name_start..end];
 }
 
+fn validateNamedBodyRepoIdentity(
+    comptime source_path_value: []const u8,
+    comptime entry_symbol_value: []const u8,
+    comptime body_fn: anytype,
+) void {
+    _ = body_fn;
+    const owned_repo_path = source_graph_embed.ownedRepoPath(source_path_value) orelse return;
+    comptime {
+        @setEvalBranchQuota(20_000_000);
+    }
+
+    var matches: usize = 0;
+    var start: usize = 0;
+    while (start < build_options.repo_zig_paths.len) {
+        var end = start;
+        while (end < build_options.repo_zig_paths.len and build_options.repo_zig_paths[end] != '\n') : (end += 1) {}
+        const candidate = build_options.repo_zig_paths[start..end];
+        start = end + 1;
+        if (candidate.len == 0) continue;
+        const candidate_source = source_graph_embed.embeddedSource(candidate);
+        if (std.mem.indexOf(u8, candidate_source, entry_symbol_value) == null) continue;
+
+        const graph = source_graph_engine.analyzeComptime(candidate_source, .{
+            .entry_symbol = null,
+            .reject_recursive_helpers = false,
+            .reject_indirect_effect_access = false,
+            .reject_malformed_statements = false,
+        }) catch continue;
+
+        inline for (graph.functions) |function| {
+            if (std.mem.eql(u8, function.name, entry_symbol_value)) {
+                matches += 1;
+                break;
+            }
+        }
+    }
+
+    if (matches == 0) {
+        @compileError("shift.NamedBody source_path must export the supplied entry_symbol");
+    }
+    if (matches > 1) {
+        @compileError("shift.NamedBody entry_symbol must be unique across owned repo sources");
+    }
+    _ = owned_repo_path;
+}
+
 fn validateNamedBodyDeclaration(
     comptime source_path_value: []const u8,
     comptime entry_symbol_value: []const u8,
     comptime ReturnTypeValue: type,
     comptime body_fn: anytype,
 ) void {
-    _ = source_path_value;
     const FnType = NamedBodyFunctionType(body_fn);
     const ActualReturnType = @typeInfo(FnType).@"fn".return_type.?;
     if (ActualReturnType != ReturnTypeValue) {
@@ -55,6 +102,7 @@ fn validateNamedBodyDeclaration(
     if (!std.mem.eql(u8, function_name, entry_symbol_value)) {
         @compileError("shift.NamedBody entry_symbol must match the supplied body function name");
     }
+    validateNamedBodyRepoIdentity(source_path_value, entry_symbol_value, body_fn);
 }
 
 fn NamedBodyAnswerType(comptime Body: type) type {
@@ -137,15 +185,14 @@ pub fn WithResult(comptime HandlersType: type, comptime Answer: type) type {
 }
 
 /// Explicit lexical rebinding packet threaded through `shift.with(...)` continuations.
-pub fn LexicalState(comptime HandlersType: type, comptime EffType: type) type {
+pub fn LexicalState(comptime HandlersType: type, comptime EffType: type, comptime caller_source_value: std.builtin.SourceLocation) type {
     return struct {
+        /// Original caller source location threaded through this lexical rebinding packet.
+        pub const caller_source = caller_source_value;
         runtime: *lowered_machine.Runtime,
         handlers_ptr: *HandlersType,
         eff_value: EffType,
         outputs_ptr: *OutputBundleType(HandlersType),
-        caller_file: []const u8,
-        caller_line: u32,
-        caller_column: u32,
     };
 }
 
@@ -973,6 +1020,42 @@ test "withCallerSource runs anonymous lexical bodies through the public API" {
     try std.testing.expectEqual(@as(i32, 1), result.outputs.state);
 }
 
+test "withCallerSource preserves lexical continuation caller provenance through optional resume" {
+    const choice = @import("effect/choice.zig");
+    const optional = @import("effect/optional.zig");
+
+    const resume_policy = struct {
+        /// Resume the optional continuation with the canonical witness value.
+        pub fn resumeOrReturn() choice.Decision(i32, []const u8) {
+            return choice.Decision(i32, []const u8).resumeWith(41);
+        }
+
+        /// Preserve the resumed answer after the optional continuation completes.
+        pub fn afterResume(answer: []const u8) []const u8 {
+            return answer;
+        }
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try withCallerSource(@src(), &runtime, .{
+        .optional = optional.use(i32, resume_policy),
+    }, struct {
+        fn body(eff: anytype) anyerror![]const u8 {
+            return try eff.optional.request(struct {
+                /// Complete the resumed optional continuation with the expected final answer.
+                pub fn apply(value: i32, _: anytype) anyerror![]const u8 {
+                    if (value != 41) unreachable;
+                    return "answer=42";
+                }
+            });
+        }
+    });
+
+    try std.testing.expectEqualStrings("answer=42", result.value);
+}
+
 fn rejectUnsupportedShippedWith(
     comptime Body: type,
     comptime caller: std.builtin.SourceLocation,
@@ -1083,6 +1166,13 @@ fn dummyPointer(comptime PtrType: type) PtrType {
     return switch (pointer.size) {
         .slice => blk: {
             const base = std.mem.alignForward(usize, 1, @alignOf(Child));
+            if (pointer.sentinel_ptr) |sentinel_ptr| {
+                const sentinel = @as(*const Child, @ptrCast(@alignCast(sentinel_ptr))).*;
+                const many = @as([*:sentinel]Child, @ptrFromInt(base));
+                const slice = many[0..0];
+                if (pointer.is_const) break :blk @as(PtrType, slice);
+                break :blk @as(PtrType, @constCast(slice));
+            }
             const many = @as([*]Child, @ptrFromInt(base));
             const slice = many[0..1];
             if (pointer.is_const) break :blk @as(PtrType, slice);
@@ -1172,12 +1262,16 @@ fn callChoiceContinuation(
     return Continuation(resume_value, eff);
 }
 
-fn CollectedRunState(comptime HandlersType: type, comptime EffType: type) type {
-    return LexicalState(HandlersType, EffType);
+fn fallbackCallerSource() std.builtin.SourceLocation {
+    return @src();
 }
 
-fn ChoiceRunState(comptime HandlersType: type, comptime EffType: type) type {
-    return LexicalState(HandlersType, EffType);
+fn CollectedRunState(comptime HandlersType: type, comptime EffType: type, comptime caller: std.builtin.SourceLocation) type {
+    return LexicalState(HandlersType, EffType, caller);
+}
+
+fn ChoiceRunState(comptime HandlersType: type, comptime EffType: type, comptime caller: std.builtin.SourceLocation) type {
+    return LexicalState(HandlersType, EffType, caller);
 }
 
 fn descriptorRunContext(
@@ -1185,7 +1279,7 @@ fn descriptorRunContext(
     runtime: *lowered_machine.Runtime,
     lexical_state: anytype,
 ) struct {
-    /// Caller-owned source location for this `shift.with(...)` invocation.
+    /// Caller-owned source location for this descriptor run context.
     pub const caller_source = caller;
     runtime: *lowered_machine.Runtime,
     lexical_state: @TypeOf(lexical_state),
@@ -1382,7 +1476,7 @@ pub fn activeLexicalState(
     ctx: anytype,
     comptime HandlersType: type,
     comptime EffType: type,
-) *LexicalState(HandlersType, EffType) {
+) *LexicalState(HandlersType, EffType, if (family.ContextTypeFromPtr(@TypeOf(ctx)).caller_source) |caller_source| caller_source else fallbackCallerSource()) {
     return @ptrCast(@alignCast(ctx._cap.lexical_state.?));
 }
 
@@ -1393,7 +1487,7 @@ fn runChainCollected(
     comptime index: usize,
     comptime EffType: type,
     comptime caller: std.builtin.SourceLocation,
-    state: CollectedRunState(HandlersType, EffType),
+    state: CollectedRunState(HandlersType, EffType, caller),
 ) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
     const ErrorSet = HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType));
     const Answer = BodyAnswerType(Body, PreviewBodyEffType(HandlersType));
@@ -1427,9 +1521,6 @@ fn runChainCollected(
                 .handlers_ptr = lexical_state.handlers_ptr,
                 .eff_value = next_eff,
                 .outputs_ptr = lexical_state.outputs_ptr,
-                .caller_file = lexical_state.caller_file,
-                .caller_line = lexical_state.caller_line,
-                .caller_column = lexical_state.caller_column,
             });
         }
     };
@@ -1453,7 +1544,8 @@ fn runChoiceChain(
     comptime HandlersType: type,
     comptime index: usize,
     comptime EffType: type,
-    state: ChoiceRunState(HandlersType, EffType),
+    comptime caller: std.builtin.SourceLocation,
+    state: ChoiceRunState(HandlersType, EffType, caller),
     comptime Continuation: anytype,
     resume_value: anytype,
 ) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation, @TypeOf(resume_value), EffType))!ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), EffType) {
@@ -1483,14 +1575,11 @@ fn runChoiceChain(
                 }
             };
             const next_eff = extendBundle(EffType, lexical_state.eff_value, field.name, handle);
-            return try runChoiceChain(HandlersType, index + 1, @TypeOf(next_eff), .{
+            return try runChoiceChain(HandlersType, index + 1, @TypeOf(next_eff), caller, .{
                 .runtime = lexical_state.runtime,
                 .handlers_ptr = lexical_state.handlers_ptr,
                 .eff_value = next_eff,
                 .outputs_ptr = lexical_state.outputs_ptr,
-                .caller_file = lexical_state.caller_file,
-                .caller_line = lexical_state.caller_line,
-                .caller_column = lexical_state.caller_column,
             }, Continuation, resume_value);
         }
     };
@@ -1499,7 +1588,7 @@ fn runChoiceChain(
         const RunFn = @TypeOf(DescriptorType.run);
         const params = @typeInfo(RunFn).@"fn".params;
         switch (params.len) {
-            5 => break :blk desc_value.run(ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), EffType), ErrorSet, descriptorRunContext(@src(), state.runtime, &state), step_ctx),
+            5 => break :blk desc_value.run(ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), EffType), ErrorSet, descriptorRunContext(caller, state.runtime, &state), step_ctx),
             6 => break :blk desc_value.run(ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), EffType), ErrorSet, state.runtime, &state, step_ctx),
             else => @compileError("shift.with descriptor run must accept either (self, AnswerType, RunErrorSetType, run_ctx, Body) or the legacy runtime/lexical_state form"),
         }
@@ -1518,16 +1607,14 @@ pub fn continueChoice(
     comptime Continuation: anytype,
     resume_value: anytype,
 ) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || ChoiceErrorSet(Continuation, @TypeOf(resume_value), ContinuationEffType(HandlersType, index, @TypeOf(frame.previous_eff), @TypeOf(frame.current_handle))))!ChoiceAnswerTypeFor(Continuation, @TypeOf(resume_value), ContinuationEffType(HandlersType, index, @TypeOf(frame.previous_eff), @TypeOf(frame.current_handle))) {
+    const caller = @TypeOf(frame).caller_source;
     const field = @typeInfo(HandlersType).@"struct".fields[index];
     const current_eff = extendBundle(@TypeOf(frame.previous_eff), frame.previous_eff, field.name, frame.current_handle);
-    return try runChoiceChain(HandlersType, index + 1, @TypeOf(current_eff), .{
+    return try runChoiceChain(HandlersType, index + 1, @TypeOf(current_eff), caller, .{
         .runtime = frame.runtime,
         .handlers_ptr = frame.handlers_ptr,
         .eff_value = current_eff,
         .outputs_ptr = frame.outputs_ptr,
-        .caller_file = frame.caller_file,
-        .caller_line = frame.caller_line,
-        .caller_column = frame.caller_column,
     }, Continuation, resume_value);
 }
 
@@ -1601,9 +1688,6 @@ fn withAt(
         .handlers_ptr = &handler_state,
         .eff_value = .{},
         .outputs_ptr = &outputs,
-        .caller_file = caller.file,
-        .caller_line = caller.line,
-        .caller_column = caller.column,
     });
     return .{
         .outputs = outputs,

@@ -129,6 +129,10 @@ fn ReturnTypeErrorSet(comptime ReturnType: type) type {
     };
 }
 
+fn fallbackCallerSource() std.builtin.SourceLocation {
+    return @src();
+}
+
 fn ExplicitContinuationFnType(comptime Continuation: anytype) type {
     const Carrier = ContinuationCarrierType(Continuation);
     if (continuationHasApply(Continuation)) return @TypeOf(Continuation.apply);
@@ -791,34 +795,41 @@ pub fn Build(comptime spec: anytype) type {
                 .resume_or_return => if (OpPayloadType(OpTypeValue) == void) struct {
                     const Handle = @This();
                     const ContinuationEff = lexical_with.ContinuationEffType(Config.Handlers, Config.binder_index, Config.PreviousEff, Handle);
+                    /// Caller source location preserved across generated lexical choice continuation re-entry.
+                    pub const caller_source = family.ContextTypeFromPtr(Config.ContextPtr).caller_source orelse fallbackCallerSource();
 
                     ctx: ?Config.ContextPtr,
                     runtime: ?*shift.Runtime,
                     handlers_ptr: ?*Config.Handlers,
                     previous_eff: Config.PreviousEff,
                     outputs_ptr: ?*lexical_with.OutputBundleType(Config.Handlers),
-                    caller_file: []const u8,
-                    caller_line: u32,
-                    caller_column: u32,
 
                     /// Perform one zero-payload generated lexical choice op.
                     pub fn perform(self: Handle, comptime Continuation: anytype) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
                         const request_state = struct {
+                            /// Caller source location preserved for the resumed generated choice continuation frame.
+                            pub const caller_source = Handle.caller_source;
                             /// Re-enter the lexical continuation after one generated choice resume.
                             pub fn apply(current_handle: *Handle, value: OpResumeType(OpTypeValue)) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
+                                const frame = struct {
+                                    /// Caller source location forwarded into the rebuilt generated continuation chain.
+                                    pub const caller_source = Handle.caller_source;
+                                    runtime: *shift.Runtime,
+                                    handlers_ptr: *Config.Handlers,
+                                    previous_eff: Config.PreviousEff,
+                                    current_handle: Handle,
+                                    outputs_ptr: *lexical_with.OutputBundleType(Config.Handlers),
+                                }{
+                                    .runtime = current_handle.runtime.?,
+                                    .handlers_ptr = current_handle.handlers_ptr.?,
+                                    .previous_eff = current_handle.previous_eff,
+                                    .current_handle = current_handle.*,
+                                    .outputs_ptr = current_handle.outputs_ptr.?,
+                                };
                                 return try lexical_with.continueChoice(
                                     Config.Handlers,
                                     Config.binder_index,
-                                    .{
-                                        .runtime = current_handle.runtime.?,
-                                        .handlers_ptr = current_handle.handlers_ptr.?,
-                                        .previous_eff = current_handle.previous_eff,
-                                        .current_handle = current_handle.*,
-                                        .outputs_ptr = current_handle.outputs_ptr.?,
-                                        .caller_file = current_handle.caller_file,
-                                        .caller_line = current_handle.caller_line,
-                                        .caller_column = current_handle.caller_column,
-                                    },
+                                    frame,
                                     Continuation,
                                     value,
                                 );
@@ -837,34 +848,41 @@ pub fn Build(comptime spec: anytype) type {
                 } else struct {
                     const Handle = @This();
                     const ContinuationEff = lexical_with.ContinuationEffType(Config.Handlers, Config.binder_index, Config.PreviousEff, Handle);
+                    /// Caller source location preserved across payload-carrying generated choice continuation re-entry.
+                    pub const caller_source = family.ContextTypeFromPtr(Config.ContextPtr).caller_source orelse fallbackCallerSource();
 
                     ctx: ?Config.ContextPtr,
                     runtime: ?*shift.Runtime,
                     handlers_ptr: ?*Config.Handlers,
                     previous_eff: Config.PreviousEff,
                     outputs_ptr: ?*lexical_with.OutputBundleType(Config.Handlers),
-                    caller_file: []const u8,
-                    caller_line: u32,
-                    caller_column: u32,
 
                     /// Perform one payload-carrying generated lexical choice op.
                     pub fn perform(self: Handle, payload: OpPayloadType(OpTypeValue), comptime Continuation: anytype) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
                         const request_state = struct {
+                            /// Caller source location preserved for the resumed payload-carrying generated choice frame.
+                            pub const caller_source = Handle.caller_source;
                             /// Re-enter the lexical continuation after one generated choice resume.
                             pub fn apply(current_handle: *Handle, value: OpResumeType(OpTypeValue)) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
+                                const frame = struct {
+                                    /// Caller source location forwarded into the rebuilt payload-carrying continuation chain.
+                                    pub const caller_source = Handle.caller_source;
+                                    runtime: *shift.Runtime,
+                                    handlers_ptr: *Config.Handlers,
+                                    previous_eff: Config.PreviousEff,
+                                    current_handle: Handle,
+                                    outputs_ptr: *lexical_with.OutputBundleType(Config.Handlers),
+                                }{
+                                    .runtime = current_handle.runtime.?,
+                                    .handlers_ptr = current_handle.handlers_ptr.?,
+                                    .previous_eff = current_handle.previous_eff,
+                                    .current_handle = current_handle.*,
+                                    .outputs_ptr = current_handle.outputs_ptr.?,
+                                };
                                 return try lexical_with.continueChoice(
                                     Config.Handlers,
                                     Config.binder_index,
-                                    .{
-                                        .runtime = current_handle.runtime.?,
-                                        .handlers_ptr = current_handle.handlers_ptr.?,
-                                        .previous_eff = current_handle.previous_eff,
-                                        .current_handle = current_handle.*,
-                                        .outputs_ptr = current_handle.outputs_ptr.?,
-                                        .caller_file = current_handle.caller_file,
-                                        .caller_line = current_handle.caller_line,
-                                        .caller_column = current_handle.caller_column,
-                                    },
+                                    frame,
                                     Continuation,
                                     value,
                                 );
@@ -995,9 +1013,6 @@ pub fn Build(comptime spec: anytype) type {
                                 .handlers_ptr = lexical_state.handlers_ptr,
                                 .previous_eff = lexical_state.eff_value,
                                 .outputs_ptr = lexical_state.outputs_ptr,
-                                .caller_file = lexical_state.caller_file,
-                                .caller_line = lexical_state.caller_line,
-                                .caller_column = lexical_state.caller_column,
                             },
                             .direct_return => LexicalOpFieldHandle(@field(OpTag, opName(SpecOp)), LexicalFieldConfig(Cap, @TypeOf(ctx), HandlersType, PreviousEffType, index)){
                                 .ctx = ctx,

@@ -596,6 +596,57 @@ test "downstream consumer cannot compile caller-owned NamedBody sources through 
     try runChildExpectFailureContains(tmp.dir, std.testing.allocator, &argv, null, "public lowering source path must resolve to an owned repo file");
 }
 
+test "downstream consumer cannot bind a repo-owned NamedBody source_path to a different function with the same name" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeConsumerBuildFiles(&tmp, repo_root);
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const shift_dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const exe_mod = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    exe_mod.addImport("shift", shift_dep.module("shift"));
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "consumer_probe",
+        \\        .root_module = exe_mod,
+        \\    });
+        \\    b.installArtifact(exe);
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "main.zig",
+        \\const shift = @import("shift");
+        \\
+        \\fn namedBodyRepoSourceCollision(_: anytype) anyerror!i32 {
+        \\    return 0;
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    _ = shift.NamedBody(
+        \\        "test/named_body_repo_source_collision_a.zig",
+        \\        "namedBodyRepoSourceCollision",
+        \\        anyerror!i32,
+        \\        namedBodyRepoSourceCollision,
+        \\    );
+        \\}
+        \\
+    );
+
+    const argv = zigBuildArgv();
+    try runChildExpectFailureContains(tmp.dir, std.testing.allocator, &argv, null, "entry_symbol must be unique across owned repo sources");
+}
+
 test "downstream consumer can compile an anonymous same-file lexical body through the root package" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();

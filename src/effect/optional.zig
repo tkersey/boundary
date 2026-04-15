@@ -20,6 +20,10 @@ fn PolicyErrorSet(comptime Policy: type) type {
         ReturnTypeErrorSet(@typeInfo(@TypeOf(Policy.afterResume)).@"fn".return_type.?);
 }
 
+fn fallbackCallerSource() std.builtin.SourceLocation {
+    return @src();
+}
+
 /// Prompt-backed effect instance for an optional-resumption family.
 pub fn Instance(comptime ResumeType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.resume_or_return, ResumeType, ErrorSetType);
@@ -35,14 +39,13 @@ pub fn LexicalHandle(
 ) type {
     const binder_index = index;
     return struct {
+        /// Caller source location preserved across optional lexical continuation re-entry.
+        pub const caller_source = family.ContextTypeFromPtr(ContextPtrType).caller_source orelse fallbackCallerSource();
         ctx: ?ContextPtrType,
         runtime: ?*shift.Runtime,
         handlers_ptr: ?*HandlersType,
         previous_eff: PreviousEffType,
         outputs_ptr: ?*lexical_with.OutputBundleType(HandlersType),
-        caller_file: []const u8,
-        caller_line: u32,
-        caller_column: u32,
 
         /// Request the optional policy decision through the lexical handle and resume through an explicit lexical continuation.
         pub fn request(self: @This(), comptime Continuation: anytype) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(family.ContextErrorSetType(ContextPtrType), Continuation, family.ContextStateType(ContextPtrType), lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, @This())))!lexical_with.ChoiceAnswerTypeFor(Continuation, family.ContextStateType(ContextPtrType), lexical_with.ContinuationEffType(HandlersType, binder_index, PreviousEffType, @This())) {
@@ -53,21 +56,29 @@ pub fn LexicalHandle(
             const ExecutionError = lexical_with.ChoiceExecutionErrorSet(family.ContextErrorSetType(ContextPtrType), Continuation, ResumeType, ContinuationEff);
 
             const request_state = struct {
+                /// Caller source location preserved for the resumed optional continuation frame.
+                pub const caller_source = Handle.caller_source;
                 /// Re-enter the lexical continuation after one optional resume.
                 pub fn apply(current_handle: *Handle, value: ResumeType) lowered_machine.ResetError(ExecutionError)!AnswerType {
+                    const frame = struct {
+                        /// Caller source location forwarded into the rebuilt continuation chain.
+                        pub const caller_source = Handle.caller_source;
+                        runtime: *shift.Runtime,
+                        handlers_ptr: *HandlersType,
+                        previous_eff: PreviousEffType,
+                        current_handle: Handle,
+                        outputs_ptr: *lexical_with.OutputBundleType(HandlersType),
+                    }{
+                        .runtime = current_handle.runtime.?,
+                        .handlers_ptr = current_handle.handlers_ptr.?,
+                        .previous_eff = current_handle.previous_eff,
+                        .current_handle = current_handle.*,
+                        .outputs_ptr = current_handle.outputs_ptr.?,
+                    };
                     return try lexical_with.continueChoice(
                         HandlersType,
                         binder_index,
-                        .{
-                            .runtime = current_handle.runtime.?,
-                            .handlers_ptr = current_handle.handlers_ptr.?,
-                            .previous_eff = current_handle.previous_eff,
-                            .current_handle = current_handle.*,
-                            .outputs_ptr = current_handle.outputs_ptr.?,
-                            .caller_file = current_handle.caller_file,
-                            .caller_line = current_handle.caller_line,
-                            .caller_column = current_handle.caller_column,
-                        },
+                        frame,
                         Continuation,
                         value,
                     );
@@ -124,9 +135,6 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
                 .handlers_ptr = lexical_state.handlers_ptr,
                 .previous_eff = lexical_state.eff_value,
                 .outputs_ptr = lexical_state.outputs_ptr,
-                .caller_file = lexical_state.caller_file,
-                .caller_line = lexical_state.caller_line,
-                .caller_column = lexical_state.caller_column,
             };
         }
 

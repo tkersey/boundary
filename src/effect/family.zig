@@ -58,6 +58,8 @@ pub fn Context(comptime Cap: type, comptime StateTypeParam: type, comptime Answe
     return struct {
         /// Unique capability witness type for this private context.
         pub const capability = Cap;
+        /// Caller source location carried through lexical continuation re-entry when available.
+        pub const caller_source = if (hasDeclSafe(Cap, "caller_source")) Cap.caller_source else null;
         /// State type threaded through this private context.
         pub const StateType = StateTypeParam;
         /// Answer type produced by this private context.
@@ -161,6 +163,8 @@ pub fn withCapability(
         engine_ctx: ?*anyopaque = null,
         lexical_state: ?*anyopaque = null,
         const capability_tag = capability_decls;
+        /// Caller source location forwarded through exact-capability execution when supplied by the caller.
+        pub const caller_source = if (@hasField(@TypeOf(runner_state), "caller_source")) runner_state.caller_source else null;
 
         /// Opaque metadata bundle for effect-family-specific internal wiring.
         pub fn CapabilityTag() type {
