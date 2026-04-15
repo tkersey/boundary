@@ -131,6 +131,8 @@ fn afterMethodName(comptime op_name: []const u8) []const u8 {
     var upper_next = true;
     inline for (op_name) |byte| {
         if (byte == '_') {
+            buffer[len] = byte;
+            len += 1;
             upper_next = true;
             continue;
         }
@@ -3468,20 +3470,20 @@ test "file-backed validation rejects Windows absolute helper imports" {
     );
 }
 
-test "after hook naming strips underscore boundaries" {
+test "after hook naming preserves underscore boundaries" {
     comptime {
         const foo_bar = afterMethodName("foo_bar");
         const foo__bar = afterMethodName("foo__bar");
         const _foo_bar = afterMethodName("_foo_bar");
 
-        if (!std.mem.eql(u8, foo_bar, "afterFooBar")) {
-            @compileError("after hook naming must strip single underscore boundaries");
+        if (!std.mem.eql(u8, foo_bar, "afterFoo_Bar")) {
+            @compileError("after hook naming must preserve single underscore boundaries");
         }
-        if (!std.mem.eql(u8, foo__bar, "afterFooBar")) {
-            @compileError("after hook naming must strip repeated underscore boundaries");
+        if (!std.mem.eql(u8, foo__bar, "afterFoo__Bar")) {
+            @compileError("after hook naming must preserve repeated underscore boundaries");
         }
-        if (!std.mem.eql(u8, _foo_bar, "afterFooBar")) {
-            @compileError("after hook naming must strip leading underscore boundaries");
+        if (!std.mem.eql(u8, _foo_bar, "after_Foo_Bar")) {
+            @compileError("after hook naming must preserve leading underscore boundaries");
         }
     }
 }

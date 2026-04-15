@@ -1415,7 +1415,8 @@ test "shift.with accepts NamedBody for underscored generated choice after hooks"
         }
 
         /// Preserve the resumed choice answer unchanged.
-        pub fn afterPickItem(_: *@This(), answer: []const u8) []const u8 {
+        // zlinter-disable-next-line function_naming - this regression witness must spell the generated underscored after-hook exactly.
+        pub fn afterPick_Item(_: *@This(), answer: []const u8) []const u8 {
             transcript.after_called = true;
             return answer;
         }

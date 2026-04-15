@@ -282,6 +282,8 @@ fn afterMethodName(comptime op_name: []const u8) []const u8 {
     var upper_next = true;
     inline for (op_name) |byte| {
         if (byte == '_') {
+            buffer[len] = byte;
+            len += 1;
             upper_next = true;
             continue;
         }

@@ -345,6 +345,21 @@ fn executeFunction(
         while (instruction_index < instruction_end) : (instruction_index += 1) {
             const instruction = ctx.plan.instructions[instruction_index];
             switch (instruction.kind) {
+                .add_i32 => setLocal(
+                    ctx.allocator,
+                    locals,
+                    local_owns_value,
+                    instruction.dst,
+                    .{
+                        .value = switch (locals[instruction.operand]) {
+                            .i32 => |left| switch (locals[instruction.aux]) {
+                                .i32 => |right| .{ .i32 = std.math.add(i32, left, right) catch return error.ProgramContractViolation },
+                                else => return error.ProgramContractViolation,
+                            },
+                            else => return error.ProgramContractViolation,
+                        },
+                    },
+                ),
                 .add_const_i32 => setLocal(
                     ctx.allocator,
                     locals,
@@ -1141,6 +1156,109 @@ test "helper frames clone string parameters before returning them" {
             try std.testing.expect(value.value == .string);
             try std.testing.expectEqualStrings("borrowed", value.value.string);
             try std.testing.expect(value.value.string.ptr != arg.string.ptr);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "artifact runtime preserves underscore after-hook names" {
+    const allocator = std.testing.allocator;
+
+    const single = try afterMethodNameAlloc(allocator, "pick_item");
+    defer allocator.free(single);
+    try std.testing.expectEqualStrings("afterPick_Item", single);
+
+    const repeated = try afterMethodNameAlloc(allocator, "foo__bar");
+    defer allocator.free(repeated);
+    try std.testing.expectEqualStrings("afterFoo__Bar", repeated);
+
+    const leading = try afterMethodNameAlloc(allocator, "_foo_bar");
+    defer allocator.free(leading);
+    try std.testing.expectEqualStrings("after_Foo_Bar", leading);
+}
+
+test "artifact runtime executes add_i32 instructions" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.add_i32",
+        .ir_hash = 0x302,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "add",
+            .value_codec = .i32,
+            .parameter_count = 2,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 3,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{
+            .{ .codec = .i32 },
+            .{ .codec = .i32 },
+            .{ .codec = .i32 },
+        },
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .add_i32, .dst = 2, .operand = 0, .aux = 1 },
+            .{ .kind = .return_value, .operand = 2 },
+        },
+    };
+
+    var logs = std.ArrayList(host.HostLogEntryV1).empty;
+    defer logs.deinit(std.testing.allocator);
+    var next_request_id: u64 = 1;
+    const decoded = artifact.ArtifactV1{
+        .semantic_ir_hash64 = plan.ir_hash,
+        .manifest_build_fingerprint = std.mem.zeroes([32]u8),
+        .build_fingerprint_blake3_256 = std.mem.zeroes([32]u8),
+        .capabilities = &.{},
+        .requirement_capability_ids = &.{},
+        .functions = plan.functions,
+        .requirements = plan.requirements,
+        .ops = plan.ops,
+        .outputs = plan.outputs,
+        .locals = plan.locals,
+        .call_args = plan.call_args,
+        .blocks = plan.blocks,
+        .terminators = plan.terminators,
+        .instructions = plan.instructions,
+    };
+    var ctx = ExecutionContext{
+        .allocator = std.testing.allocator,
+        .decoded = &decoded,
+        .plan = plan,
+        .adapter = .{
+            .ctx = null,
+            .dispatchFn = struct {
+                fn dispatch(_: ?*anyopaque, _: std.mem.Allocator, _: host.HostEffectRequestV1) anyerror!host.HostEffectResultV1 {
+                    return error.UnexpectedHostDispatch;
+                }
+            }.dispatch,
+        },
+        .logs = &logs,
+        .next_request_id = &next_request_id,
+    };
+
+    var returned = try executeFunction(&ctx, 0, &.{
+        .{ .i32 = 20 },
+        .{ .i32 = 22 },
+    });
+    switch (returned) {
+        .value => |*value| {
+            defer deinitRuntimeValue(std.testing.allocator, value);
+            try std.testing.expect(!value.owned);
+            try std.testing.expectEqual(@as(i32, 42), value.value.i32);
         },
         else => return error.TestUnexpectedResult,
     }

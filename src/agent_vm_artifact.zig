@@ -1013,6 +1013,7 @@ fn encodeInstructionTable(allocator: std.mem.Allocator, strings: *StringTable, p
 fn canonicalInstruction(plan: program_plan.ProgramPlan, instruction: program_plan.Instruction) program_plan.Instruction {
     var canonical = instruction;
     switch (instruction.kind) {
+        .add_i32 => canonical.string_literal = "",
         .add_const_i32 => canonical.string_literal = "",
         .call_helper => {
             const callee = plan.functions[instruction.operand];
@@ -2981,6 +2982,77 @@ test "ArtifactV1 encoding canonicalizes ignored instruction fields" {
         .instructions = &.{
             .{ .kind = .const_string, .dst = 0, .operand = 17, .aux = 23, .string_literal = "done" },
             .{ .kind = .return_value, .dst = 9, .operand = 0, .aux = 11, .string_literal = "ignored" },
+        },
+    };
+
+    const base_bytes = try encodeProgramPlan(std.testing.allocator, base_plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(base_bytes);
+
+    const noisy_bytes = try encodeProgramPlan(std.testing.allocator, noisy_plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(noisy_bytes);
+
+    try std.testing.expectEqualSlices(u8, base_bytes, noisy_bytes);
+}
+
+test "ArtifactV1 encoding canonicalizes add_i32 ignored fields" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-v1-canonical-add-i32");
+    const base_plan: program_plan.ProgramPlan = .{
+        .label = "artifact.canonical_add_i32",
+        .ir_hash = 0x93,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .i32,
+            .parameter_count = 2,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 3,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{
+            .{ .codec = .i32 },
+            .{ .codec = .i32 },
+            .{ .codec = .i32 },
+        },
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .add_i32, .dst = 2, .operand = 0, .aux = 1 },
+            .{ .kind = .return_value, .operand = 2 },
+        },
+    };
+    const noisy_plan: program_plan.ProgramPlan = .{
+        .label = "artifact.canonical_add_i32",
+        .ir_hash = 0x93,
+        .entry_index = 0,
+        .functions = base_plan.functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = base_plan.locals,
+        .call_args = &.{},
+        .blocks = base_plan.blocks,
+        .terminators = base_plan.terminators,
+        .instructions = &.{
+            .{ .kind = .add_i32, .dst = 2, .operand = 0, .aux = 1, .string_literal = "ignored" },
+            .{ .kind = .return_value, .dst = 9, .operand = 2, .aux = 11, .string_literal = "ignored" },
         },
     };
 
