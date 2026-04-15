@@ -12,22 +12,6 @@ fn writeTmpFile(dir: std.fs.Dir, path: []const u8, contents: []const u8) !void {
     try writer.interface.flush();
 }
 
-fn shellSingleQuoteAlloc(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
-    var quoted = std.ArrayList(u8).empty;
-    defer quoted.deinit(allocator);
-
-    try quoted.append(allocator, '\'');
-    for (value) |char| {
-        if (char == '\'') {
-            try quoted.appendSlice(allocator, "'\\''");
-            continue;
-        }
-        try quoted.append(allocator, char);
-    }
-    try quoted.append(allocator, '\'');
-    return try quoted.toOwnedSlice(allocator);
-}
-
 fn runChild(
     cwd_dir: std.fs.Dir,
     allocator: std.mem.Allocator,
@@ -49,28 +33,6 @@ fn runChild(
 
     if (!effective_env.hash_map.contains("ZIG_GLOBAL_CACHE_DIR")) {
         try effective_env.put("ZIG_GLOBAL_CACHE_DIR", ".zig-global-cache");
-    }
-
-    if (builtin.os.tag != .windows) {
-        const quoted_cwd = try shellSingleQuoteAlloc(allocator, cwd_path);
-        defer allocator.free(quoted_cwd);
-
-        var command = try std.fmt.allocPrint(allocator, "cd {s} && exec", .{quoted_cwd});
-        defer allocator.free(command);
-        for (argv) |arg| {
-            const quoted_arg = try shellSingleQuoteAlloc(allocator, arg);
-            defer allocator.free(quoted_arg);
-
-            const next = try std.fmt.allocPrint(allocator, "{s} {s}", .{ command, quoted_arg });
-            allocator.free(command);
-            command = next;
-        }
-        return try std.process.Child.run(.{
-            .allocator = allocator,
-            .argv = &.{ "zsh", "-lc", command },
-            .env_map = &effective_env,
-            .max_output_bytes = 32 * 1024,
-        });
     }
 
     return try std.process.Child.run(.{
@@ -830,6 +792,114 @@ test "downstream consumer can compile caller-owned NamedBody sources through the
     try runChildExpectSuccess(tmp.dir, std.testing.allocator, &argv, null);
 }
 
+test "downstream consumer can compile caller-owned bool literal NamedBody sources through withOwnedSource witness" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeConsumerBuildFiles(&tmp, repo_root);
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const shift_dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const exe_mod = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    exe_mod.addImport("shift", shift_dep.module("shift"));
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "consumer_probe",
+        \\        .root_module = exe_mod,
+        \\    });
+        \\    b.installArtifact(exe);
+        \\}
+        \\
+    );
+    const main_source =
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn body(_: anytype) anyerror!bool {
+        \\    return true;
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\    const named = shift.NamedBody(@src().file, "body", anyerror!bool, body);
+        \\    const result = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{}, &runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }, named);
+        \\    if (!result.value) return error.UnexpectedResult;
+        \\}
+        \\
+    ;
+    try writeTmpFile(tmp.dir, "main.zig", main_source);
+
+    const argv = zigBuildArgv();
+    try runChildExpectSuccess(tmp.dir, std.testing.allocator, &argv, null);
+}
+
+test "downstream consumer can compile caller-owned usize literal NamedBody sources through withOwnedSource witness" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeConsumerBuildFiles(&tmp, repo_root);
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const shift_dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const exe_mod = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    exe_mod.addImport("shift", shift_dep.module("shift"));
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "consumer_probe",
+        \\        .root_module = exe_mod,
+        \\    });
+        \\    b.installArtifact(exe);
+        \\}
+        \\
+    );
+    const main_source =
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn body(_: anytype) anyerror!usize {
+        \\    return 1;
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\    const named = shift.NamedBody(@src().file, "body", anyerror!usize, body);
+        \\    const result = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{}, &runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }, named);
+        \\    if (result.value != 1) return error.UnexpectedResult;
+        \\}
+        \\
+    ;
+    try writeTmpFile(tmp.dir, "main.zig", main_source);
+
+    const argv = zigBuildArgv();
+    try runChildExpectSuccess(tmp.dir, std.testing.allocator, &argv, null);
+}
+
 test "downstream consumer can compile caller-owned cross-file NamedBody sources through the root package via explicit withOwnedSource witness" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -889,7 +959,7 @@ test "downstream consumer can compile caller-owned cross-file NamedBody sources 
     try runChildExpectSuccess(tmp.dir, std.testing.allocator, &argv, null);
 }
 
-test "runChild escapes apostrophes in non-Windows cwd and argv" {
+test "runChild accepts apostrophes in non-Windows cwd and argv" {
     if (builtin.os.tag == .windows) return error.SkipZigTest;
 
     var tmp = std.testing.tmpDir(.{});

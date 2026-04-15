@@ -766,10 +766,17 @@ fn statementIsSimpleReturn(statement: []const TokenItem) bool {
     return statement.len == 2 and statement[0].tag == .keyword_return and statement[1].tag == .semicolon;
 }
 
+fn tokenIsBoolLiteral(token: TokenItem) bool {
+    return token.tag == .identifier and
+        (std.mem.eql(u8, token.lexeme, "true") or std.mem.eql(u8, token.lexeme, "false"));
+}
+
 fn statementIsLiteralReturn(statement: []const TokenItem) bool {
     return statement.len == 3 and
         statement[0].tag == .keyword_return and
-        (statement[1].tag == .string_literal or statement[1].tag == .number_literal) and
+        (statement[1].tag == .string_literal or
+            statement[1].tag == .number_literal or
+            tokenIsBoolLiteral(statement[1])) and
         statement[2].tag == .semicolon;
 }
 
@@ -1938,6 +1945,49 @@ test "shared engine keeps explicit continuation request bodies in the lowering s
         \\    return try eff.optional.request(struct {
         \\        pub fn apply(_: i32, _: anytype) anyerror![]const u8 {
         \\            return "answer=42";
+        \\        }
+        \\    });
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), graph.direct_op_uses.len);
+    try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
+    try std.testing.expectEqualStrings("optional", graph.direct_op_uses[0].requirement_label);
+    try std.testing.expectEqualStrings("request", graph.direct_op_uses[0].op_name);
+}
+
+test "shared engine keeps bool payload literals in the lowering subset" {
+    const graph = try analyzeComptime(
+        \\pub fn runBody(eff: anytype) anyerror!bool {
+        \\    try eff.state.set(true);
+        \\    return try eff.state.get();
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 2), graph.direct_op_uses.len);
+    try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
+    try std.testing.expectEqualStrings("state", graph.direct_op_uses[0].requirement_label);
+    try std.testing.expectEqualStrings("set", graph.direct_op_uses[0].op_name);
+}
+
+test "shared engine keeps bool literal continuation request bodies in the lowering subset" {
+    const graph = try analyzeComptime(
+        \\pub fn runBody(eff: anytype) anyerror!bool {
+        \\    return try eff.optional.request(struct {
+        \\        pub fn apply(_: i32, _: anytype) anyerror!bool {
+        \\            return true;
         \\        }
         \\    });
         \\}

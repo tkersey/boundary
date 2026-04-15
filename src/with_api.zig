@@ -1339,13 +1339,13 @@ fn tryNamedCompiledWith(
     outputs_ptr: *OutputBundleType(HandlersType),
 ) ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
     if (!isNamedBodyDescriptor(Body)) return null;
-    const lowered_program = public_lowering.lowerOpenRowAt(Body.source_path, .{
+    const lowered_program = public_lowering.maybeLowerAt(Body.source_path, .{
         .label = "shift.with named lexical body",
         .entry_symbol = Body.entry_symbol,
         .ValueType = NamedBodyAnswerType(Body),
         .row = lexical_bundle_schema.rowForHandlers(HandlersType),
         .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
-    }) catch |err| invalidGeneratedPlan(err);
+    }) orelse return null;
     return try runCompiledLexicalPlan(
         HandlersType,
         Body,
@@ -1374,13 +1374,13 @@ fn tryCallerOwnedCompiledWith(
     if (isNamedBodyDescriptor(Body)) return null;
     const synthetic_source = anonymousBodySyntheticSource(caller, Body, caller_source_override, caller_owned_kind) orelse return null;
     const source_ref = public_lowering.sourceWithContent(caller.file, caller, synthetic_source);
-    const lowered_program = public_lowering.lowerOpenRow(source_ref, .{
+    const lowered_program = public_lowering.maybeLower(source_ref, .{
         .label = "shift.with caller-owned lexical body",
         .entry_symbol = anonymousBodyEntryName(caller),
         .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
         .row = lexical_bundle_schema.rowForHandlers(HandlersType),
         .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
-    }) catch |err| invalidGeneratedPlan(err);
+    }) orelse return null;
     return try runCompiledLexicalPlan(
         HandlersType,
         Body,
@@ -1405,7 +1405,7 @@ fn tryOwnedSourceCompiledWith(
     runtime: *lowered_machine.Runtime,
     handlers_ptr: *HandlersType,
     outputs_ptr: *OutputBundleType(HandlersType),
-) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
+) ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
     const source_path = witness.source_path orelse if (@hasDecl(Body, "source_path"))
         Body.source_path
     else
@@ -1432,13 +1432,13 @@ fn tryOwnedSourceCompiledWith(
             witness.imported_sources,
         );
     };
-    const lowered_program = public_lowering.lowerOpenRow(source_ref, .{
+    const lowered_program = public_lowering.maybeLower(source_ref, .{
         .label = "shift.with owned lexical body",
         .entry_symbol = entry_symbol,
         .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
         .row = lexical_bundle_schema.rowForHandlers(HandlersType),
         .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
-    }) catch |err| invalidGeneratedPlan(err);
+    }) orelse return null;
     return try runCompiledLexicalPlan(
         HandlersType,
         Body,
@@ -1451,10 +1451,6 @@ fn tryOwnedSourceCompiledWith(
             lexicalBindingSchemasValue(HandlersType),
         ),
     );
-}
-
-fn invalidGeneratedPlan(err: anytype) noreturn {
-    @compileError(std.fmt.comptimePrint("lexical ProgramPlan generation failed: {s}", .{@errorName(err)}));
 }
 
 fn lexicalBindingSchemasValue(comptime HandlersType: type) lexical_bundle_schema.BindingSchemas(HandlersType) {
@@ -1709,20 +1705,22 @@ fn withAt(
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
     if (comptime isNamedBodyDescriptor(Body)) {
-        const compiled = tryNamedCompiledWith(HandlersType, Body, runtime, &handler_state, &outputs).?;
-        const value = try compiled;
-        return .{
-            .outputs = outputs,
-            .value = value,
-        };
+        if (tryNamedCompiledWith(HandlersType, Body, runtime, &handler_state, &outputs)) |compiled| {
+            const value = try compiled;
+            return .{
+                .outputs = outputs,
+                .value = value,
+            };
+        }
     }
     if (comptime anonymousBodyCompilable(caller, Body, caller_source_override, caller_owned_kind)) {
-        const compiled = tryCallerOwnedCompiledWith(HandlersType, Body, caller, caller_source_override, caller_owned_kind, runtime, &handler_state, &outputs).?;
-        const value = try compiled;
-        return .{
-            .outputs = outputs,
-            .value = value,
-        };
+        if (tryCallerOwnedCompiledWith(HandlersType, Body, caller, caller_source_override, caller_owned_kind, runtime, &handler_state, &outputs)) |compiled| {
+            const value = try compiled;
+            return .{
+                .outputs = outputs,
+                .value = value,
+            };
+        }
     }
     const value = try runChainCollected(HandlersType, Body, 0, struct {}, caller, .{
         .runtime = runtime,
@@ -1777,10 +1775,15 @@ pub fn withOwnedSource(
 ) WithFnReturnType(@TypeOf(handlers), Body) {
     const HandlersType = @TypeOf(handlers);
     comptime assertHandlerBundleShape(HandlersType);
+    const source_path = comptime witness.source_path orelse if (@hasDecl(Body, "source_path"))
+        Body.source_path
+    else
+        caller.file;
+    const source_owner = comptime ownedSourceLocation(caller, source_path);
 
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
-    const value = try tryOwnedSourceCompiledWith(
+    if (tryOwnedSourceCompiledWith(
         HandlersType,
         Body,
         caller,
@@ -1789,7 +1792,19 @@ pub fn withOwnedSource(
         runtime,
         &handler_state,
         &outputs,
-    );
+    )) |compiled| {
+        const value = try compiled;
+        return .{
+            .outputs = outputs,
+            .value = value,
+        };
+    }
+    const value = try runChainCollected(HandlersType, Body, 0, struct {}, source_owner, .{
+        .runtime = runtime,
+        .handlers_ptr = &handler_state,
+        .eff_value = .{},
+        .outputs_ptr = &outputs,
+    });
     return .{
         .outputs = outputs,
         .value = value,

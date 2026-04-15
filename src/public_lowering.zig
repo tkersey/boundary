@@ -2442,6 +2442,139 @@ pub const lower = Lower;
 /// Compile one explicit-path lowering request into a generated type using a caller-visible source path.
 pub const lowerAt = LowerAt;
 
+/// Try to lower one file-backed request, returning null when the retained compiled subset cannot represent the body.
+pub fn maybeLowerAt(comptime source_path: []const u8, comptime spec: LowerSpec) ?source_lowering.OpenRowGeneratedProgram {
+    comptime {
+        @setEvalBranchQuota(1_000_000);
+    }
+
+    const graph = analyzeProgramGraphAt(source_path, spec.entry_symbol);
+    const functions = buildFunctionsForGraph(graph, spec);
+    const function_bodies = helper_body_lowering.maybeBuildFunctionBodiesForGraph(
+        graph,
+        functions,
+        reachableFunctions(graph),
+        loweredFunctionIndexMap(graph),
+        .{
+            .path = null,
+            .content = null,
+            .imported_sources = &.{},
+        },
+    ) orelse return null;
+
+    const payload: program_frontend.OpenRowProgram = .{
+        .label = spec.label,
+        .entry_symbol = spec.entry_symbol,
+        .entry_module_path = graph.functions[graph.entry_index].module_path,
+        .functions = functions,
+        .call_edges = buildCallEdgesForGraph(graph),
+        .function_bodies = function_bodies,
+    };
+    const lowered_program = source_lowering.lowerOpenRowProgram(payload) catch |err| switch (err) {
+        error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
+        error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
+        error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
+        error.EmptyRequirementLabel => @compileError("public lowering rejected an empty requirement label"),
+        error.EmptyOpName => @compileError("public lowering rejected an empty op name"),
+        error.InvalidProgramBodyShape => @compileError("public lowering rejected a helper-body payload that does not align to its function list"),
+        error.InvalidRequirementShape => @compileError("public lowering rejected an invalid requirement shape"),
+        error.InvalidRowShape => @compileError("public lowering rejected an invalid row shape"),
+        error.OutputWithoutRequirement => @compileError("public lowering rejected outputs without matching requirements"),
+        error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
+        error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
+        error.UnsupportedHelperCallEdge => @compileError("public lowering rejected helper call edges outside the retained open-row shell"),
+        error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
+    };
+    const compiled_plan = program_plan.planFromOpenRowProgram(spec.label, lowered_program.program) catch |err| switch (err) {
+        error.UnsupportedCodecType => return null,
+        error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
+        error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
+        error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
+        error.EmptyProgram => @compileError("public lowering rejected an empty effect-ir program"),
+        error.EmptyRequirementLabel => @compileError("public lowering rejected an empty requirement label"),
+        error.EmptyOpName => @compileError("public lowering rejected an empty op name"),
+        error.InvalidProgramBodyShape => @compileError("public lowering rejected a helper-body payload that does not align to its function list"),
+        error.InvalidRequirementShape => @compileError("public lowering rejected an invalid requirement shape"),
+        error.InvalidRowShape => @compileError("public lowering rejected an invalid row shape"),
+        error.OutputWithoutRequirement => @compileError("public lowering rejected outputs without matching requirements"),
+        error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
+        error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
+        error.UnsupportedHelperCallEdge => @compileError("public lowering runtime plan rejected helper call edges outside the retained open-row shell"),
+        error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
+    };
+    if (!executableCodecSupported(compiled_plan)) return null;
+    return lowered_program;
+}
+
+/// Try to lower one caller-owned or file-backed request, returning null when the retained compiled subset cannot represent the body.
+pub fn maybeLower(comptime source_ref: SourceRef, comptime spec: LowerSpec) ?source_lowering.OpenRowGeneratedProgram {
+    assertSourceOwnership(source_ref);
+    if (source_ref.caller_source) |caller_source| {
+        const source_path = sourcePathForLowering(source_ref);
+        comptime {
+            @setEvalBranchQuota(1_000_000);
+        }
+
+        const graph = analyzeProgramGraphWithRootSource(source_path, caller_source, source_ref.imported_sources, spec.entry_symbol);
+        const functions = buildFunctionsForGraph(graph, spec);
+        const function_bodies = helper_body_lowering.maybeBuildFunctionBodiesForGraph(
+            graph,
+            functions,
+            reachableFunctions(graph),
+            loweredFunctionIndexMap(graph),
+            .{
+                .path = source_path,
+                .content = caller_source,
+                .imported_sources = source_ref.imported_sources,
+            },
+        ) orelse return null;
+
+        const payload: program_frontend.OpenRowProgram = .{
+            .label = spec.label,
+            .entry_symbol = spec.entry_symbol,
+            .entry_module_path = graph.functions[graph.entry_index].module_path,
+            .functions = functions,
+            .call_edges = buildCallEdgesForGraph(graph),
+            .function_bodies = function_bodies,
+        };
+        const lowered_program = source_lowering.lowerOpenRowProgram(payload) catch |err| switch (err) {
+            error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
+            error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
+            error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
+            error.EmptyRequirementLabel => @compileError("public lowering rejected an empty requirement label"),
+            error.EmptyOpName => @compileError("public lowering rejected an empty op name"),
+            error.InvalidProgramBodyShape => @compileError("public lowering rejected one helper body outside the retained lowered-body subset"),
+            error.InvalidRequirementShape => @compileError("public lowering rejected a requirement shape produced by source lowering"),
+            error.InvalidRowShape => @compileError("public lowering rejected a row shape produced by source lowering"),
+            error.OutputWithoutRequirement => @compileError("public lowering rejected source-lowered outputs without matching requirements"),
+            error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
+            error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
+            error.UnsupportedHelperCallEdge => @compileError("public lowering rejected helper call edges outside the retained open-row shell"),
+            error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
+        };
+        const compiled_plan = program_plan.planFromOpenRowProgram(spec.label, lowered_program.program) catch |err| switch (err) {
+            error.UnsupportedCodecType => return null,
+            error.DuplicateRequirementLabel => @compileError("public lowering rejected duplicate requirement labels"),
+            error.DuplicateOpName => @compileError("public lowering rejected duplicate op names"),
+            error.DuplicateOutputLabel => @compileError("public lowering rejected duplicate output labels"),
+            error.EmptyProgram => @compileError("public lowering rejected an empty effect-ir program"),
+            error.EmptyRequirementLabel => @compileError("public lowering rejected an empty requirement label"),
+            error.EmptyOpName => @compileError("public lowering rejected an empty op name"),
+            error.InvalidProgramBodyShape => @compileError("public lowering rejected a helper-body payload that does not align to its function list"),
+            error.InvalidRequirementShape => @compileError("public lowering rejected an invalid requirement shape"),
+            error.InvalidRowShape => @compileError("public lowering rejected an invalid row shape"),
+            error.OutputWithoutRequirement => @compileError("public lowering rejected outputs without matching requirements"),
+            error.DuplicateSymbol => @compileError("public lowering rejected duplicate function symbols"),
+            error.UnknownSymbol => @compileError("public lowering rejected an unknown function symbol"),
+            error.UnsupportedHelperCallEdge => @compileError("public lowering runtime plan rejected helper call edges outside the retained open-row shell"),
+            error.OutOfMemory => @compileError("public lowering ran out of memory at comptime"),
+        };
+        if (!executableCodecSupported(compiled_plan)) return null;
+        return lowered_program;
+    }
+    return maybeLowerAt(sourcePathForLowering(source_ref), spec);
+}
+
 /// Try to compile one caller-owned root source into a generated lowered type, returning null instead of failing closed.
 pub fn maybeLowerWithRootSourceAt(
     comptime source_path: []const u8,

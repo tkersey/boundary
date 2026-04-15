@@ -83,6 +83,21 @@ fn encodeI32LiteralInstruction(value: i32) program_frontend.BodyInstruction {
     };
 }
 
+fn appendBoolLiteralValue(state: *BodyBuildState, value: bool) u16 {
+    const raw_local = appendAnonymousLocal(&state.local_storage, .i32);
+    var raw_instruction = encodeI32LiteralInstruction(if (value) 0 else 1);
+    raw_instruction.dst = raw_local;
+    appendInstruction(state.instructions, state.instruction_count, raw_instruction);
+
+    const bool_local = appendAnonymousLocal(&state.local_storage, .bool);
+    appendInstruction(state.instructions, state.instruction_count, .{
+        .kind = .compare_eq_zero,
+        .dst = bool_local,
+        .operand = raw_local,
+    });
+    return bool_local;
+}
+
 fn failUnsupportedBodyLowering(comptime function: source_graph_embed.ProgramFunction) noreturn {
     @compileError(std.fmt.comptimePrint(
         "public lowering cannot synthesize unsupported helper or entry bodies; {s}:{s} must stay within the retained lowered-body subset",
@@ -224,6 +239,11 @@ fn statementTrimSemicolon(comptime statement: []const BodyToken) []const BodyTok
     return statement[0 .. statement.len - 1];
 }
 
+fn tokenIsBoolLiteral(token: BodyToken) bool {
+    return token.tag == .identifier and
+        (std.mem.eql(u8, token.lexeme, "true") or std.mem.eql(u8, token.lexeme, "false"));
+}
+
 fn statementArgsSupported(args: []const BodyToken) bool {
     for (args) |item| switch (item.tag) {
         .comma,
@@ -246,7 +266,9 @@ fn statementIsSimpleReturn(comptime statement: []const BodyToken) bool {
 fn statementIsLiteralReturn(comptime statement: []const BodyToken) bool {
     return statement.len == 3 and
         statement[0].tag == .keyword_return and
-        (statement[1].tag == .string_literal or statement[1].tag == .number_literal) and
+        (statement[1].tag == .string_literal or
+            statement[1].tag == .number_literal or
+            tokenIsBoolLiteral(statement[1])) and
         statement[2].tag == .semicolon;
 }
 
@@ -747,8 +769,20 @@ fn lowerContinuationApplyBody(
     if (statementIsLiteralReturn(apply_body)) {
         const return_literal = parseReturnLiteralStatement(apply_body) orelse return null;
         switch (return_literal) {
-            .i32_value => |value| {
+            .bool_value => |value| {
+                if (expected_codec != .bool) return null;
+                const dst = appendBoolLiteralValue(body_state, value);
+                appendInstruction(body_state.instructions, body_state.instruction_count, .{
+                    .kind = .return_value,
+                    .operand = dst,
+                });
+                terminator.* = .{ .kind = .return_value };
+                terminated.* = true;
+                return;
+            },
+            .number_literal => |literal| {
                 if (expected_codec != .i32) return null;
+                const value = std.fmt.parseInt(i32, literal, 10) catch return null;
                 const dst = appendAnonymousLocal(local_storage, .i32);
                 var instruction = encodeI32LiteralInstruction(value);
                 instruction.dst = dst;
@@ -1029,14 +1063,21 @@ fn parseHelperCallStatement(comptime effect_param: ?[]const u8, comptime stateme
 }
 
 fn parseReturnLiteralStatement(comptime statement: []const BodyToken) ?union(enum) {
-    i32_value: i32,
+    bool_value: bool,
+    number_literal: []const u8,
     string_value: []const u8,
 } {
     if (statement.len != 3) return null;
     if (statement[0].tag != .keyword_return) return null;
     if (statement[2].tag != .semicolon) return null;
     return switch (statement[1].tag) {
-        .number_literal => .{ .i32_value = std.fmt.parseInt(i32, statement[1].lexeme, 10) catch return null },
+        .identifier => if (std.mem.eql(u8, statement[1].lexeme, "true"))
+            .{ .bool_value = true }
+        else if (std.mem.eql(u8, statement[1].lexeme, "false"))
+            .{ .bool_value = false }
+        else
+            null,
+        .number_literal => .{ .number_literal = statement[1].lexeme },
         .string_literal => .{
             .string_value = stringLiteralContents(statement[1].lexeme) orelse return null,
         },
@@ -1098,6 +1139,28 @@ fn resumeCodecForFunctionUse(
         }
     }
     @compileError("public lowering recursive helper subset could not map one bound local to an op resume codec");
+}
+
+fn payloadCodecForFunctionUse(
+    comptime functions: []const effect_ir.Function,
+    comptime function_index: usize,
+    comptime requirement_label: []const u8,
+    comptime op_name: []const u8,
+) effect_ir.LocalCodec {
+    for (functions[function_index].row.requirements) |requirement| {
+        if (!std.mem.eql(u8, requirement.label, requirement_label)) continue;
+        for (requirement.ops) |op| {
+            if (!std.mem.eql(u8, op.op_name, op_name)) continue;
+            if (op.PayloadType == void) return .unit;
+            if (op.PayloadType == bool) return .bool;
+            if (op.PayloadType == i32) return .i32;
+            if (op.PayloadType == usize) return .usize;
+            if (op.PayloadType == []const u8) return .string;
+            if (op.PayloadType == [][]const u8) return .string_list;
+            @compileError("public lowering recursive helper subset produced an unsupported payload codec");
+        }
+    }
+    @compileError("public lowering recursive helper subset could not map one bound local to an op payload codec");
 }
 
 fn opIndexForFunctionUse(
@@ -1204,6 +1267,43 @@ fn noLocalId() u16 {
     return std.math.maxInt(u16);
 }
 
+fn emitSingleTokenForExpectedCodec(
+    comptime token: BodyToken,
+    comptime expected_codec: effect_ir.LocalCodec,
+    state: *BodyBuildState,
+) ?u16 {
+    return switch (token.tag) {
+        .identifier => if (std.mem.eql(u8, token.lexeme, "true")) blk: {
+            if (expected_codec != .bool) break :blk null;
+            const bool_value = std.mem.eql(u8, token.lexeme, "true");
+            break :blk appendBoolLiteralValue(state, bool_value);
+        } else if (std.mem.eql(u8, token.lexeme, "false")) blk: {
+            if (expected_codec != .bool) break :blk null;
+            const bool_value = false;
+            break :blk appendBoolLiteralValue(state, bool_value);
+        } else null,
+        .number_literal => if (expected_codec == .i32) blk: {
+            const value = std.fmt.parseInt(i32, token.lexeme, 10) catch return null;
+            const dst = appendAnonymousLocal(&state.local_storage, .i32);
+            var instruction = encodeI32LiteralInstruction(value);
+            instruction.dst = dst;
+            appendInstruction(state.instructions, state.instruction_count, instruction);
+            break :blk dst;
+        } else null,
+        .string_literal => if (expected_codec == .string) blk: {
+            const literal = stringLiteralContents(token.lexeme) orelse return null;
+            const dst = appendAnonymousLocal(&state.local_storage, .string);
+            appendInstruction(state.instructions, state.instruction_count, .{
+                .kind = .const_string,
+                .dst = dst,
+                .string_literal = cloneBytes(literal),
+            });
+            break :blk dst;
+        } else null,
+        else => null,
+    };
+}
+
 fn stringLiteralContents(comptime literal: []const u8) ?[]const u8 {
     if (literal.len < 2) return null;
     if (literal[0] != '"' or literal[literal.len - 1] != '"') return null;
@@ -1282,6 +1382,7 @@ fn appendInstruction(
 
 fn emitPayloadValueForDirectCall(
     comptime direct_call: DirectCall,
+    comptime expected_codec: effect_ir.LocalCodec,
     comptime local_bindings: []const BoundLocal,
     state: *BodyBuildState,
 ) ?u16 {
@@ -1292,25 +1393,10 @@ fn emitPayloadValueForDirectCall(
             .identifier => if (findBoundLocal(local_bindings, direct_call.args[0].lexeme)) |local|
                 local.local_id
             else
-                null,
-            .number_literal => blk: {
-                const value = std.fmt.parseInt(i32, direct_call.args[0].lexeme, 10) catch return null;
-                const dst = appendAnonymousLocal(&state.local_storage, .i32);
-                var instruction = encodeI32LiteralInstruction(value);
-                instruction.dst = dst;
-                appendInstruction(state.instructions, state.instruction_count, instruction);
-                break :blk dst;
-            },
-            .string_literal => blk: {
-                const literal = stringLiteralContents(direct_call.args[0].lexeme) orelse return null;
-                const dst = appendAnonymousLocal(&state.local_storage, .string);
-                appendInstruction(state.instructions, state.instruction_count, .{
-                    .kind = .const_string,
-                    .dst = dst,
-                    .string_literal = cloneBytes(literal),
-                });
-                break :blk dst;
-            },
+                emitSingleTokenForExpectedCodec(direct_call.args[0], expected_codec, state),
+            .number_literal,
+            .string_literal,
+            => emitSingleTokenForExpectedCodec(direct_call.args[0], expected_codec, state),
             else => null,
         };
     }
@@ -1344,31 +1430,13 @@ fn emitValueForExpectedCodec(
 ) ?u16 {
     if (value_tokens.len == 1) {
         return switch (value_tokens[0].tag) {
-            .identifier => blk: {
-                const local = findBoundLocal(local_bindings, value_tokens[0].lexeme) orelse return null;
+            .identifier => if (findBoundLocal(local_bindings, value_tokens[0].lexeme)) |local| blk: {
                 if (local.codec != expected_codec) return null;
                 break :blk local.local_id;
-            },
-            .number_literal => blk: {
-                if (expected_codec != .i32) return null;
-                const value = std.fmt.parseInt(i32, value_tokens[0].lexeme, 10) catch return null;
-                const dst = appendAnonymousLocal(&state.local_storage, .i32);
-                var instruction = encodeI32LiteralInstruction(value);
-                instruction.dst = dst;
-                appendInstruction(state.instructions, state.instruction_count, instruction);
-                break :blk dst;
-            },
-            .string_literal => blk: {
-                if (expected_codec != .string) return null;
-                const literal = stringLiteralContents(value_tokens[0].lexeme) orelse return null;
-                const dst = appendAnonymousLocal(&state.local_storage, .string);
-                appendInstruction(state.instructions, state.instruction_count, .{
-                    .kind = .const_string,
-                    .dst = dst,
-                    .string_literal = cloneBytes(literal),
-                });
-                break :blk dst;
-            },
+            } else emitSingleTokenForExpectedCodec(value_tokens[0], expected_codec, state),
+            .number_literal,
+            .string_literal,
+            => emitSingleTokenForExpectedCodec(value_tokens[0], expected_codec, state),
             else => null,
         };
     }
@@ -1470,7 +1538,17 @@ fn appendBranchActionInstructions(
 ) ?program_frontend.BodyTerminator {
     switch (action) {
         .direct_call => |direct_call| {
-            const payload_local = emitPayloadValueForDirectCall(direct_call, local_bindings, state) orelse return null;
+            const payload_local = emitPayloadValueForDirectCall(
+                direct_call,
+                payloadCodecForFunctionUse(
+                    context.functions,
+                    context.lowered_function_index,
+                    direct_call.requirement_label,
+                    direct_call.op_name,
+                ),
+                local_bindings,
+                state,
+            ) orelse return null;
             appendInstruction(state.instructions, state.instruction_count, .{
                 .kind = .call_op,
                 .operand = opIndexForFunctionUse(
@@ -1620,6 +1698,12 @@ fn buildLinearBodyForFunction(
                         .op_name = bound_local.op_name,
                         .args = parseDirectCall(function.effect_param, aliases[0..alias_count], statement[3..]).?.args,
                     },
+                    payloadCodecForFunctionUse(
+                        context.functions,
+                        context.lowered_function_index,
+                        bound_local.requirement_label,
+                        bound_local.op_name,
+                    ),
                     local_bindings[0..binding_count],
                     &body_state,
                 ) orelse break :blk null;
@@ -1700,6 +1784,12 @@ fn buildLinearBodyForFunction(
                 );
                 const payload_local = emitPayloadValueForDirectCall(
                     continuation_call.direct_call,
+                    payloadCodecForFunctionUse(
+                        context.functions,
+                        context.lowered_function_index,
+                        continuation_call.direct_call.requirement_label,
+                        continuation_call.direct_call.op_name,
+                    ),
                     local_bindings[0..binding_count],
                     &body_state,
                 ) orelse break :blk null;
@@ -1734,6 +1824,12 @@ fn buildLinearBodyForFunction(
             if (parseDirectCall(function.effect_param, aliases[0..alias_count], statement)) |direct_call| {
                 const payload_local = emitPayloadValueForDirectCall(
                     direct_call,
+                    payloadCodecForFunctionUse(
+                        context.functions,
+                        context.lowered_function_index,
+                        direct_call.requirement_label,
+                        direct_call.op_name,
+                    ),
                     local_bindings[0..binding_count],
                     &body_state,
                 ) orelse break :blk null;
@@ -1807,8 +1903,19 @@ fn buildLinearBodyForFunction(
                 if (statement_index + 1 != statement_ranges.len) break :blk null;
                 const return_literal = parseReturnLiteralStatement(statement) orelse break :blk null;
                 switch (return_literal) {
-                    .i32_value => |value| {
+                    .bool_value => |value| {
+                        if (context.functions[context.lowered_function_index].ValueType != bool) break :blk null;
+                        const dst = appendBoolLiteralValue(&body_state, value);
+                        appendInstruction(instructions[0..], &instruction_count, .{
+                            .kind = .return_value,
+                            .operand = dst,
+                        });
+                        terminator = .{ .kind = .return_value };
+                        terminated = true;
+                    },
+                    .number_literal => |literal| {
                         if (context.functions[context.lowered_function_index].ValueType != i32) break :blk null;
+                        const value = std.fmt.parseInt(i32, literal, 10) catch break :blk null;
                         const dst = appendAnonymousLocal(&local_storage, .i32);
                         var instruction = encodeI32LiteralInstruction(value);
                         instruction.dst = dst;
@@ -1889,6 +1996,12 @@ fn buildLinearBodyForFunction(
                 if (resume_codec != expected_codec) break :blk null;
                 const payload_local = emitPayloadValueForDirectCall(
                     direct_call,
+                    payloadCodecForFunctionUse(
+                        context.functions,
+                        context.lowered_function_index,
+                        direct_call.requirement_label,
+                        direct_call.op_name,
+                    ),
                     local_bindings[0..binding_count],
                     &body_state,
                 ) orelse break :blk null;
@@ -1968,13 +2081,17 @@ fn buildReturnLiteralBodyForFunction(
     const tail_statement = tokens[statement_ranges[statement_ranges.len - 1].start..statement_ranges[statement_ranges.len - 1].end];
     const return_literal = parseReturnLiteralStatement(tail_statement) orelse return null;
     switch (return_literal) {
-        .i32_value => if (lowered_function.ValueType != i32) return null,
+        .bool_value => if (lowered_function.ValueType != bool) return null,
+        .number_literal => |literal| {
+            if (lowered_function.ValueType != i32) return null;
+            _ = std.fmt.parseInt(i32, literal, 10) catch return null;
+        },
         .string_value => if (lowered_function.ValueType != []const u8) return null,
     }
 
     const instructions = comptime blk: {
         const leading_instructions = buildBodyInstructionsForFunction(context);
-        var buffer: [leading_instructions.len + 2]program_frontend.BodyInstruction = undefined;
+        var buffer: [leading_instructions.len + 3]program_frontend.BodyInstruction = undefined;
         var index: usize = 0;
         for (leading_instructions) |instruction| {
             buffer[index] = instruction;
@@ -1982,7 +2099,28 @@ fn buildReturnLiteralBodyForFunction(
         }
 
         switch (return_literal) {
-            .i32_value => |value| buffer[index] = encodeI32LiteralInstruction(value),
+            .bool_value => |value| {
+                var raw_instruction = encodeI32LiteralInstruction(if (value) 0 else 1);
+                raw_instruction.dst = 0;
+                buffer[index] = raw_instruction;
+                index += 1;
+                buffer[index] = .{
+                    .kind = .compare_eq_zero,
+                    .dst = 1,
+                    .operand = 0,
+                };
+                index += 1;
+                buffer[index] = .{
+                    .kind = .return_value,
+                    .operand = 1,
+                };
+                index += 1;
+                break :blk buffer[0..index];
+            },
+            .number_literal => |literal| {
+                const value = std.fmt.parseInt(i32, literal, 10) catch return null;
+                buffer[index] = encodeI32LiteralInstruction(value);
+            },
             .string_value => |value| buffer[index] = .{
                 .kind = .const_string,
                 .dst = 0,
@@ -1994,19 +2132,20 @@ fn buildReturnLiteralBodyForFunction(
             .kind = .return_value,
             .operand = 0,
         };
-        break :blk &buffer;
+        break :blk buffer[0 .. index + 1];
     };
 
-    const return_codec: effect_ir.LocalCodec = switch (return_literal) {
-        .i32_value => .i32,
-        .string_value => .string,
+    const return_codecs: []const effect_ir.LocalCodec = switch (return_literal) {
+        .bool_value => &.{ .i32, .bool },
+        .number_literal => &.{.i32},
+        .string_value => &.{.string},
     };
     const blocks = [_]program_frontend.BodyBlock{.{
         .instructions = instructions,
         .terminator = .{ .kind = .return_value },
     }};
     return .{
-        .local_codecs = &.{return_codec},
+        .local_codecs = return_codecs,
         .call_arg_locals = &.{},
         .entry_block = 0,
         .blocks = &blocks,
