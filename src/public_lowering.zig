@@ -151,10 +151,16 @@ pub fn assertExecutablePlanCodecSupport(comptime compiled_plan: program_plan.Pro
 }
 
 fn executableCodecSupported(comptime compiled_plan: program_plan.ProgramPlan) bool {
-    inline for (compiled_plan.functions) |function| switch (function.value_codec) {
-        .unit, .bool, .i32, .string, .usize => {},
-        .string_list => return false,
-    };
+    inline for (compiled_plan.functions) |function| {
+        switch (function.value_codec) {
+            .unit, .bool, .i32, .string, .usize => {},
+            .string_list => return false,
+        }
+        if (function.result_codec) |codec| switch (codec) {
+            .unit, .bool, .i32, .string, .usize => {},
+            .string_list => return false,
+        };
+    }
     inline for (compiled_plan.ops) |op| {
         inline for ([_]program_plan.ValueCodec{ op.payload_codec, op.resume_codec }) |codec| switch (codec) {
             .unit, .bool, .i32, .string, .usize => {},
@@ -4470,6 +4476,20 @@ test "authoredBoundProgramPlan preserves terminal choice answers when resumption
     }
     try std.testing.expectEqualStrings("select", handlers.authored.seen_payload.?);
     try std.testing.expectEqual(@as(usize, 0), handlers.authored.after_calls);
+}
+
+test "authoredBoundProgramPlan rejects executable selection when function result codec is string_list" {
+    const plan = authoredBoundProgramPlan(
+        "example.authored_choice_string_list_result",
+        []const u8,
+        void,
+        [][]const u8,
+        .choice,
+    ).?;
+
+    try plan.validate();
+    try std.testing.expectEqual(program_plan.ValueCodec.string_list, plan.functions[plan.entry_index].result_codec.?);
+    try std.testing.expect(!executableCodecSupported(plan));
 }
 
 test "executeLoweredDispatch returns abort answers through terminal control" {

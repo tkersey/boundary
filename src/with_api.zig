@@ -1099,6 +1099,7 @@ fn rejectUnsupportedShippedWith(
     comptime caller_owned_kind: CallerOwnedCompilationKind,
 ) void {
     if (builtin.is_test) return;
+    if (caller_owned_kind == .none) return;
     if (isNamedBodyDescriptor(Body)) return;
     if (anonymousBodySyntheticSource(caller, Body, caller_source_override, caller_owned_kind) != null) return;
     @compileError("shift.with shipped execution currently requires either shift.NamedBody(...) or a caller-owned lexical body shape that can be compiled from the callsite");

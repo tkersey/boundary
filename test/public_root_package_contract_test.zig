@@ -755,17 +755,7 @@ test "downstream consumer can compile an anonymous same-file lexical body throug
         \\pub fn main() !void {
         \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
         \\    defer runtime.deinit();
-        \\    const result = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{
-        \\        .source_path = @src().file,
-        \\        .body_method_name = "__owned_body",
-        \\        .body_source =
-        \\            \\pub fn __owned_body(eff: anytype) anyerror!i32 {
-        \\            \\    const before = try eff.state.get();
-        \\            \\    try eff.state.set(before + 1);
-        \\            \\    return try eff.state.get();
-        \\            \\}
-        \\        ,
-        \\    }, &runtime, .{
+        \\    const result = try shift.with(&runtime, .{
         \\        .state = shift.effect.state.use(@as(i32, 0)),
         \\    }, struct {
         \\        pub fn body(eff: anytype) anyerror!i32 {
