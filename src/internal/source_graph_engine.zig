@@ -639,7 +639,10 @@ fn isEffectParamName(name: []const u8) bool {
         std.mem.eql(u8, name, "_eff") or
         std.mem.eql(u8, name, "outer_eff") or
         std.mem.eql(u8, name, "inner_eff") or
-        std.mem.endsWith(u8, name, "_eff");
+        std.mem.eql(u8, name, "ctx") or
+        std.mem.eql(u8, name, "context") or
+        std.mem.endsWith(u8, name, "_eff") or
+        std.mem.endsWith(u8, name, "_ctx");
 }
 
 fn pushValueParam(
@@ -807,12 +810,17 @@ fn statementArgsSupported(args: []const TokenItem) bool {
     return true;
 }
 
-fn helperCallArgsSupported(args: []const TokenItem) bool {
-    if (args.len == 1 and args[0].tag == .identifier and std.mem.eql(u8, args[0].lexeme, "eff")) {
-        return true;
+fn helperCallArgsSupported(effect_param: ?[]const u8, args: []const TokenItem) bool {
+    if (args.len == 1 and args[0].tag == .identifier) {
+        if (effect_param) |param| return std.mem.eql(u8, args[0].lexeme, param);
+        return std.mem.eql(u8, args[0].lexeme, "eff");
     }
     if (args.len < 3) return false;
-    if (args[args.len - 1].tag != .identifier or !std.mem.eql(u8, args[args.len - 1].lexeme, "eff")) return false;
+    if (args[args.len - 1].tag != .identifier) return false;
+    const trailing_identifier = args[args.len - 1].lexeme;
+    if (effect_param) |param| {
+        if (!std.mem.eql(u8, trailing_identifier, param)) return false;
+    } else if (!std.mem.eql(u8, trailing_identifier, "eff")) return false;
     if (args[args.len - 2].tag != .comma) return false;
     return statementArgsSupported(args[0 .. args.len - 2]);
 }
@@ -1145,6 +1153,7 @@ fn statementMatchesSupportedLocalFromDirectOp(
 }
 
 fn statementMatchesSupportedLocalFromHelperCall(
+    effect_param: ?[]const u8,
     imports: []const ImportAlias,
     statement: []const TokenItem,
 ) bool {
@@ -1152,10 +1161,11 @@ fn statementMatchesSupportedLocalFromHelperCall(
     if (statement[0].tag != .keyword_const) return false;
     if (statement[1].tag != .identifier) return false;
     if (statement[2].tag != .equal) return false;
-    return statementMatchesSupportedHelperCall(imports, statement[3..]);
+    return statementMatchesSupportedHelperCall(effect_param, imports, statement[3..]);
 }
 
 fn statementMatchesSupportedHelperCall(
+    effect_param: ?[]const u8,
     imports: []const ImportAlias,
     statement: []const TokenItem,
 ) bool {
@@ -1170,7 +1180,7 @@ fn statementMatchesSupportedHelperCall(
         tokens[index + 1].tag == .l_paren and
         tokens[tokens.len - 1].tag == .r_paren)
     {
-        return helperCallArgsSupported(tokens[index + 2 .. tokens.len - 1]);
+        return helperCallArgsSupported(effect_param, tokens[index + 2 .. tokens.len - 1]);
     }
 
     if (index + 4 > tokens.len) return false;
@@ -1180,7 +1190,7 @@ fn statementMatchesSupportedHelperCall(
     if (tokens[tokens.len - 1].tag != .r_paren) return false;
     const import_alias = findImportAlias(imports, tokens[index].lexeme) orelse return false;
     if (!importPathEndsWithZig(import_alias.import_path)) return false;
-    return helperCallArgsSupported(tokens[index + 4 .. tokens.len - 1]);
+    return helperCallArgsSupported(effect_param, tokens[index + 4 .. tokens.len - 1]);
 }
 
 fn statementMatchesSupportedIfLocalEqZeroReturn(statement: []const TokenItem) bool {
@@ -1223,10 +1233,10 @@ fn statementMatchesSupportedIfLocalEqZeroBranch(
     const then_branch = statement[6..else_index];
     const else_branch = statement[(else_index + 1)..];
     const then_supported = statementMatchesSupportedDirectOp(effect_param, aliases, then_branch) or
-        statementMatchesSupportedHelperCall(imports, then_branch) or
+        statementMatchesSupportedHelperCall(effect_param, imports, then_branch) or
         statementIsSimpleReturn(then_branch);
     const else_supported = statementMatchesSupportedDirectOp(effect_param, aliases, else_branch) or
-        statementMatchesSupportedHelperCall(imports, else_branch) or
+        statementMatchesSupportedHelperCall(effect_param, imports, else_branch) or
         statementIsSimpleReturn(else_branch);
     return then_supported and else_supported;
 }
@@ -1277,7 +1287,7 @@ fn statementSupportsBodyLowering(
     var token_window = TokenWindow{};
     for (statement) |item| token_window.push(item);
     if (maybeAliasFromDeclaration(effect_param, aliases, &token_window) != null) return true;
-    if (statementMatchesSupportedLocalFromHelperCall(imports, statement)) return true;
+    if (statementMatchesSupportedLocalFromHelperCall(effect_param, imports, statement)) return true;
     if (statementMatchesSupportedLocalFromDirectOp(effect_param, aliases, statement)) return true;
     if (statementMatchesSupportedIfLocalEqZeroReturn(statement)) return true;
     if (statementMatchesSupportedIfLocalEqZeroBranch(effect_param, aliases, imports, statement)) return true;
@@ -1285,7 +1295,7 @@ fn statementSupportsBodyLowering(
     if (statementMatchesSupportedReturnDirectOp(effect_param, aliases, statement)) return true;
     if (statementMatchesSupportedDirectOp(effect_param, aliases, statement)) return true;
     if (statementMatchesSupportedLocalDecrementOp(effect_param, aliases, statement)) return true;
-    if (statementMatchesSupportedHelperCall(imports, statement)) return true;
+    if (statementMatchesSupportedHelperCall(effect_param, imports, statement)) return true;
     return false;
 }
 

@@ -12,6 +12,22 @@ fn writeTmpFile(dir: std.fs.Dir, path: []const u8, contents: []const u8) !void {
     try writer.interface.flush();
 }
 
+fn shellSingleQuoteAlloc(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
+    var quoted = std.ArrayList(u8).empty;
+    defer quoted.deinit(allocator);
+
+    try quoted.append(allocator, '\'');
+    for (value) |char| {
+        if (char == '\'') {
+            try quoted.appendSlice(allocator, "'\\''");
+            continue;
+        }
+        try quoted.append(allocator, char);
+    }
+    try quoted.append(allocator, '\'');
+    return try quoted.toOwnedSlice(allocator);
+}
+
 fn runChild(
     cwd_dir: std.fs.Dir,
     allocator: std.mem.Allocator,
@@ -36,10 +52,16 @@ fn runChild(
     }
 
     if (builtin.os.tag != .windows) {
-        var command = try std.fmt.allocPrint(allocator, "cd '{s}' && exec", .{cwd_path});
+        const quoted_cwd = try shellSingleQuoteAlloc(allocator, cwd_path);
+        defer allocator.free(quoted_cwd);
+
+        var command = try std.fmt.allocPrint(allocator, "cd {s} && exec", .{quoted_cwd});
         defer allocator.free(command);
         for (argv) |arg| {
-            const next = try std.fmt.allocPrint(allocator, "{s} '{s}'", .{ command, arg });
+            const quoted_arg = try shellSingleQuoteAlloc(allocator, arg);
+            defer allocator.free(quoted_arg);
+
+            const next = try std.fmt.allocPrint(allocator, "{s} {s}", .{ command, quoted_arg });
             allocator.free(command);
             command = next;
         }
@@ -875,4 +897,23 @@ test "downstream consumer can compile caller-owned cross-file NamedBody sources 
 
     const argv = zigBuildArgv();
     try runChildExpectSuccess(tmp.dir, std.testing.allocator, &argv, null);
+}
+
+test "runChild escapes apostrophes in non-Windows cwd and argv" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("o'connor");
+    var quoted_dir = try tmp.dir.openDir("o'connor", .{});
+    defer quoted_dir.close();
+
+    const argv: [3][]const u8 = .{ "printf", "%s", "o'connor" };
+    const result = try runChild(quoted_dir, std.testing.allocator, &argv, null);
+    defer std.testing.allocator.free(result.stdout);
+    defer std.testing.allocator.free(result.stderr);
+
+    try std.testing.expectEqual(@as(std.process.Child.Term, .{ .Exited = 0 }), result.term);
+    try std.testing.expectEqualStrings("o'connor", result.stdout);
 }

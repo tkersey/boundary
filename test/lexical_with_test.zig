@@ -19,6 +19,15 @@ fn namedStateBody(eff: anytype) ExecResult(i32) {
     return before + after;
 }
 
+fn namedStateHelper(ctx: anytype) ExecResult(void) {
+    _ = try ctx.state.get();
+}
+
+fn namedStateBodyWithRenamedEffectParam(ctx: anytype) ExecResult(i32) {
+    try namedStateHelper(ctx);
+    return 9;
+}
+
 fn namedReaderBody(eff: anytype) ExecResult(i32) {
     const env = try eff.reader.ask();
     return env + env;
@@ -1149,6 +1158,18 @@ test "shift.with accepts NamedBody for state handlers" {
 
     try std.testing.expectEqual(@as(i32, 19), result.value);
     try std.testing.expectEqual(@as(i32, 10), result.outputs.state);
+}
+
+test "shift.with accepts NamedBody helpers when the effect parameter is renamed" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(&runtime, .{
+        .state = shift.effect.state.use(@as(i32, 9)),
+    }, shift.NamedBody("test/lexical_with_test.zig", "namedStateBodyWithRenamedEffectParam", ExecResult(i32), namedStateBodyWithRenamedEffectParam));
+
+    try std.testing.expectEqual(@as(i32, 9), result.value);
+    try std.testing.expectEqual(@as(i32, 9), result.outputs.state);
 }
 
 test "shift.with accepts NamedBody for reader handlers" {

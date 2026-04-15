@@ -270,6 +270,65 @@ test "public lowered runner decodes escaped return string literals before const_
     try std.testing.expectEqualStrings("done\n", result.value);
 }
 
+test "recursive helper lowering honors renamed effect params" {
+    const source_path = "/tmp/inline_recursive_ctx.zig";
+    const source_bytes =
+        \\fn countdown(ctx: anytype) !void {
+        \\    const remaining = try ctx.state.get();
+        \\    if (remaining == 0) return;
+        \\    try ctx.writer.tell("tick");
+        \\    try ctx.state.set(remaining - 1);
+        \\    try countdown(ctx);
+        \\}
+        \\
+        \\pub fn runBody(ctx: anytype) ![]const u8 {
+        \\    try countdown(ctx);
+        \\    return "done";
+        \\}
+    ;
+    const RecursiveCtx = shift.lower(.{
+        .repo_path = source_path,
+        .caller_file = source_path,
+        .caller_hash = std.hash.Wyhash.hash(0, source_bytes),
+        .caller_source = source_bytes,
+    }, .{
+        .label = "test.inline_recursive_ctx",
+        .entry_symbol = "runBody",
+        .row = shift.ir.mergeRows(.{
+            shift.ir.rowFromSpec(.{
+                .state = .{
+                    .get = shift.ir.Transform(void, i32),
+                    .set = shift.ir.Transform(i32, void),
+                },
+            }),
+            shift.ir.rowFromSpec(.{
+                .writer = .{
+                    .tell = shift.ir.Transform([]const u8, void),
+                },
+            }),
+        }),
+        .ValueType = []const u8,
+        .outputs = &.{
+            .{ .label = "state", .OutputType = i32 },
+            .{ .label = "writer", .OutputType = [][]const u8 },
+        },
+    });
+
+    const runtime_plan = RecursiveCtx.runtime_plan;
+    const countdown_index = comptime blk: {
+        for (runtime_plan.functions, 0..) |function, function_index| {
+            if (std.mem.eql(u8, function.symbol_name, "countdown")) break :blk function_index;
+        }
+        unreachable;
+    };
+    const countdown = runtime_plan.functions[countdown_index];
+
+    try std.testing.expectEqual(@as(u16, 4), countdown.local_count);
+    try std.testing.expectEqual(@as(u16, 3), countdown.block_count);
+    try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction].kind), .call_op), runtime_plan.instructions[countdown.first_instruction].kind);
+    try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction + 1].kind), .compare_eq_zero), runtime_plan.instructions[countdown.first_instruction + 1].kind);
+}
+
 test "branching helper body lowers a real if-else control-flow body" {
     const lowered = try example_open_row_branching_helper_body.loweredProgram();
 

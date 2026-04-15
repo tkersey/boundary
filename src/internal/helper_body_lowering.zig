@@ -854,15 +854,14 @@ fn helperCallValueArgs(comptime effect_param: ?[]const u8, comptime args: []cons
         if (args.len == 1 and args[0].tag == .identifier and std.mem.eql(u8, args[0].lexeme, param)) {
             return &.{};
         }
-    }
-    if (args.len == 1 and args[0].tag == .identifier and std.mem.eql(u8, args[0].lexeme, "eff")) {
+    } else if (args.len == 1 and args[0].tag == .identifier and std.mem.eql(u8, args[0].lexeme, "eff")) {
         return &.{};
     }
     if (args.len < 3) return null;
     if (args[args.len - 1].tag != .identifier) return null;
     const trailing_identifier = args[args.len - 1].lexeme;
     if (effect_param) |param| {
-        if (!std.mem.eql(u8, trailing_identifier, param) and !std.mem.eql(u8, trailing_identifier, "eff")) return null;
+        if (!std.mem.eql(u8, trailing_identifier, param)) return null;
     } else if (!std.mem.eql(u8, trailing_identifier, "eff")) return null;
     if (args[args.len - 2].tag != .comma) return null;
     return args[0 .. args.len - 2];
@@ -887,6 +886,7 @@ fn parseBoundLocalFromHelperCall(
 }
 
 fn parseLocalFromOpStatement(
+    comptime effect_param: ?[]const u8,
     comptime statement: []const BodyToken,
 ) ?struct {
     local_name: []const u8,
@@ -898,7 +898,10 @@ fn parseLocalFromOpStatement(
     if (statement[1].tag != .identifier) return null;
     if (statement[2].tag != .equal) return null;
     if (statement[3].tag != .keyword_try) return null;
-    if (statement[4].tag != .identifier or !std.mem.eql(u8, statement[4].lexeme, "eff")) return null;
+    if (statement[4].tag != .identifier) return null;
+    if (effect_param) |param| {
+        if (!std.mem.eql(u8, statement[4].lexeme, param)) return null;
+    } else if (!std.mem.eql(u8, statement[4].lexeme, "eff")) return null;
     if (statement[5].tag != .period) return null;
     if (statement[6].tag != .identifier) return null;
     if (statement[7].tag != .period) return null;
@@ -2020,7 +2023,7 @@ fn buildRecursiveGuardBodyForFunction(
     const statement_ranges = statementRangesForTokens(tokens);
     if (statement_ranges.len < 3) return null;
 
-    const bound = parseLocalFromOpStatement(tokens[statement_ranges[0].start..statement_ranges[0].end]) orelse return null;
+    const bound = parseLocalFromOpStatement(function.effect_param, tokens[statement_ranges[0].start..statement_ranges[0].end]) orelse return null;
     if (!parseIfLocalEqZeroReturnStatement(tokens[statement_ranges[1].start..statement_ranges[1].end], bound.local_name)) return null;
 
     const local_codec = resumeCodecForFunctionUse(
