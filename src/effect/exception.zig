@@ -107,6 +107,15 @@ pub inline fn throwProgram(
     return algebraic.throwExceptionProgram(Cap, ctx, payload);
 }
 
+/// Build one bound exception throw program for the supplied payload.
+pub inline fn throwBoundProgram(
+    comptime Cap: type,
+    ctx: anytype,
+    payload: family.ContextStateType(@TypeOf(ctx)),
+) @TypeOf(algebraic.throwExceptionBoundProgram(Cap, ctx, payload)) {
+    return algebraic.throwExceptionBoundProgram(Cap, ctx, payload);
+}
+
 /// Build one explicit exception body program with no throw operation.
 pub inline fn computeProgram(
     comptime Cap: type,
@@ -156,8 +165,8 @@ test "exception handle can throw directly to the catch policy" {
         var after_throw: bool = false;
 
         /// Throw once and prove the body tail never resumes.
-        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(throwProgram(Cap, ctx, "result=early")) {
-            return throwProgram(Cap, ctx, "result=early");
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(throwBoundProgram(Cap, ctx, "result=early")) {
+            return throwBoundProgram(Cap, ctx, "result=early");
         }
     };
 
@@ -232,8 +241,8 @@ test "exception throwProgram keeps direct explicit-program state thread-local ac
                 var shared_ptr: *Shared = undefined;
 
                 /// Build the first explicit throw program, then wait for the second thread to overwrite shared direct state.
-                pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(throwProgram(Cap, ctx, "first")) {
-                    const explicit_program = throwProgram(Cap, ctx, "first");
+                pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(throwBoundProgram(Cap, ctx, "first")) {
+                    const explicit_program = throwBoundProgram(Cap, ctx, "first");
                     shared_ptr.stage.store(1, .release);
                     waitForStage(&shared_ptr.stage, 2);
                     return explicit_program;
@@ -256,8 +265,8 @@ test "exception throwProgram keeps direct explicit-program state thread-local ac
                 var shared_ptr: *Shared = undefined;
 
                 /// Build the second explicit throw program after the first thread has published its pending direct state.
-                pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(throwProgram(Cap, ctx, "second")) {
-                    const explicit_program = throwProgram(Cap, ctx, "second");
+                pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(throwBoundProgram(Cap, ctx, "second")) {
+                    const explicit_program = throwBoundProgram(Cap, ctx, "second");
                     shared_ptr.stage.store(2, .release);
                     return explicit_program;
                 }

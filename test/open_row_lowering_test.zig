@@ -1368,7 +1368,7 @@ test "recursive same-file helper runtime plan preserves full instruction operand
     };
     const countdown = runtime_plan.functions[countdown_index];
 
-    try std.testing.expectEqual(@as(u32, 4), runtime_plan.schema_version);
+    try std.testing.expectEqual(@as(u32, 5), runtime_plan.schema_version);
     try std.testing.expectEqual(@as(u16, 4), countdown.local_count);
     try std.testing.expectEqual(@as(u16, 3), countdown.block_count);
     try std.testing.expectEqual(@as(u16, 7), countdown.instruction_count);
@@ -1546,7 +1546,7 @@ test "recursive imported helper runtime plan preserves full instruction operands
     };
     const countdown = runtime_plan.functions[countdown_index];
 
-    try std.testing.expectEqual(@as(u32, 4), runtime_plan.schema_version);
+    try std.testing.expectEqual(@as(u32, 5), runtime_plan.schema_version);
     try std.testing.expectEqual(@as(u16, 4), countdown.local_count);
     try std.testing.expectEqual(@as(u16, 3), countdown.block_count);
     try std.testing.expectEqual(@as(@TypeOf(runtime_plan.instructions[countdown.first_instruction + 1].kind), .compare_eq_zero), runtime_plan.instructions[countdown.first_instruction + 1].kind);

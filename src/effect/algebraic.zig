@@ -1028,6 +1028,26 @@ pub inline fn throwExceptionProgram(
     });
 }
 
+/// Build one bound exception throw program for the supplied capability and payload.
+pub inline fn throwExceptionBoundProgram(
+    comptime Cap: type,
+    ctx: anytype,
+    payload: family.ContextStateType(@TypeOf(ctx)),
+) @TypeOf(activeEngineContext(Cap, ctx).performProgram(Cap.ThrowOp(), payload, struct {
+    /// Unreachable continuation placeholder for direct-return bound programs.
+    pub fn apply(_: noreturn) family.ContextAnswerType(@TypeOf(ctx)) {
+        unreachable;
+    }
+})) {
+    comptime family.assertContextType(Cap, @TypeOf(ctx));
+    return activeEngineContext(Cap, ctx).performProgram(Cap.ThrowOp(), payload, struct {
+        /// Unreachable continuation placeholder for direct-return bound programs.
+        pub fn apply(_: noreturn) family.ContextAnswerType(@TypeOf(ctx)) {
+            unreachable;
+        }
+    });
+}
+
 /// Build one explicit exception body program with no throw operation.
 pub inline fn exceptionComputeProgram(
     comptime Cap: type,

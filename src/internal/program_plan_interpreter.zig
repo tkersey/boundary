@@ -55,7 +55,7 @@ pub fn ResultOutputsTypeForPlan(comptime compiled_plan: program_plan.ProgramPlan
 pub fn RunResultTypeForPlan(comptime compiled_plan: program_plan.ProgramPlan) type {
     return struct {
         outputs: ResultOutputsTypeForPlan(compiled_plan),
-        value: runtimeValueType(compiled_plan.functions[compiled_plan.entry_index].value_codec),
+        value: runtimeValueType(program_plan.functionResultCodec(compiled_plan.functions[compiled_plan.entry_index])),
     };
 }
 
@@ -121,6 +121,12 @@ pub fn assertExecutableCodecSupport(comptime compiled_plan: program_plan.Program
         .unit, .bool, .i32, .string, .usize => {},
         .string_list => @compileError("public lowering runtime plan rejected string_list values across executable boundaries"),
     };
+    inline for (compiled_plan.functions) |function| {
+        if (function.result_codec) |codec| switch (codec) {
+            .unit, .bool, .i32, .string, .usize => {},
+            .string_list => @compileError("public lowering runtime plan rejected string_list values across executable boundaries"),
+        };
+    }
     inline for (compiled_plan.ops) |op| {
         inline for ([_]program_plan.ValueCodec{ op.payload_codec, op.resume_codec }) |codec| switch (codec) {
             .unit, .bool, .i32, .string, .usize => {},
@@ -166,7 +172,7 @@ pub const FunctionResult = union(enum) {
 fn callOp(
     comptime compiled_plan: program_plan.ProgramPlan,
     handlers_ptr: anytype,
-    comptime function_value_codec: program_plan.ValueCodec,
+    comptime function_result_codec: program_plan.ValueCodec,
     op_index: u16,
     payload: lowered_machine.ProgramValue,
 ) anyerror!OpResult {
@@ -179,7 +185,7 @@ fn callOp(
             const HandlerType = @TypeOf(handler_ptr.*);
             const method = @field(HandlerType, op.op_name);
             const ResumeType = runtimeValueType(op.resume_codec);
-            const AnswerType = runtimeValueType(function_value_codec);
+            const ResultType = runtimeValueType(function_result_codec);
             const after_name = comptime afterMethodName(op.op_name);
             const has_after = @hasDecl(HandlerType, after_name);
 
@@ -223,7 +229,7 @@ fn callOp(
                                 encodeRuntimeValue(op.resume_codec, @as(ResumeType, resume_value)),
                             .apply_after = has_after,
                         } },
-                        .return_now => |answer| .{ .terminal = encodeRuntimeValue(function_value_codec, @as(AnswerType, answer)) },
+                        .return_now => |answer| .{ .terminal = encodeRuntimeValue(function_result_codec, @as(ResultType, answer)) },
                     };
                 },
                 .abort => {
@@ -234,7 +240,7 @@ fn callOp(
                         const decoded_payload = decodeRuntimeValue(op.payload_codec, payload);
                         break :blk_answer try resolveMaybeError(@call(.auto, method, .{ handler_ptr, @as(PayloadType, decoded_payload) }));
                     };
-                    break :blk .{ .terminal = encodeRuntimeValue(function_value_codec, @as(AnswerType, answer)) };
+                    break :blk .{ .terminal = encodeRuntimeValue(function_result_codec, @as(ResultType, answer)) };
                 },
             }
         },
@@ -246,6 +252,7 @@ fn applyAfter(
     comptime compiled_plan: program_plan.ProgramPlan,
     handlers_ptr: anytype,
     comptime function_value_codec: program_plan.ValueCodec,
+    comptime function_result_codec: program_plan.ValueCodec,
     op_index: u16,
     answer: lowered_machine.ProgramValue,
 ) anyerror!lowered_machine.ProgramValue {
@@ -259,11 +266,12 @@ fn applyAfter(
             const after_name = comptime afterMethodName(op.op_name);
             if (!@hasDecl(HandlerType, after_name)) break :blk answer;
 
-            const AnswerType = runtimeValueType(function_value_codec);
+            const InputType = runtimeValueType(function_value_codec);
+            const ResultType = runtimeValueType(function_result_codec);
             const method = @field(HandlerType, after_name);
             const decoded_answer = decodeRuntimeValue(function_value_codec, answer);
-            const transformed_answer = try resolveMaybeError(@call(.auto, method, .{ handler_ptr, @as(AnswerType, decoded_answer) }));
-            break :blk encodeRuntimeValue(function_value_codec, @as(AnswerType, transformed_answer));
+            const transformed_answer = try resolveMaybeError(@call(.auto, method, .{ handler_ptr, @as(InputType, decoded_answer) }));
+            break :blk encodeRuntimeValue(function_result_codec, @as(ResultType, transformed_answer));
         },
         else => error.ProgramContractViolation,
     };
@@ -273,6 +281,7 @@ fn unwindAfterStack(
     comptime compiled_plan: program_plan.ProgramPlan,
     handlers_ptr: anytype,
     comptime function_value_codec: program_plan.ValueCodec,
+    comptime function_result_codec: program_plan.ValueCodec,
     after_stack: *std.ArrayList(u16),
     result: FunctionResult,
 ) anyerror!FunctionResult {
@@ -280,8 +289,8 @@ fn unwindAfterStack(
     while (after_stack.items.len != 0) {
         const op_index = after_stack.pop().?;
         final_result = switch (final_result) {
-            .value => |typed| .{ .value = try applyAfter(compiled_plan, handlers_ptr, function_value_codec, op_index, typed) },
-            .terminal => |typed| .{ .terminal = try applyAfter(compiled_plan, handlers_ptr, function_value_codec, op_index, typed) },
+            .value => |typed| .{ .value = try applyAfter(compiled_plan, handlers_ptr, function_value_codec, function_result_codec, op_index, typed) },
+            .terminal => |typed| .{ .terminal = try applyAfter(compiled_plan, handlers_ptr, function_value_codec, function_result_codec, op_index, typed) },
         };
     }
     return final_result;
@@ -298,6 +307,7 @@ fn continueFunction(
     initial_return_local: ?u16,
 ) anyerror!FunctionResult {
     const function = compiled_plan.functions[function_index];
+    const function_result_codec = comptime program_plan.functionResultCodec(function);
     var current_block_index = initial_block_index;
     var instruction_index = initial_instruction_index;
     var return_local = initial_return_local;
@@ -342,11 +352,12 @@ fn continueFunction(
                             }
                         },
                         .terminal => |terminal| {
-                            if (!runtimeValueMatchesCodec(function.value_codec, terminal)) return error.ProgramContractViolation;
+                            if (!runtimeValueMatchesCodec(function_result_codec, terminal)) return error.ProgramContractViolation;
                             return unwindAfterStack(
                                 compiled_plan,
                                 handlers_ptr,
                                 function.value_codec,
+                                function_result_codec,
                                 after_stack,
                                 .{ .terminal = terminal },
                             );
@@ -361,7 +372,7 @@ fn continueFunction(
                         getLocal(locals, instruction.aux)
                     else
                         return error.ProgramContractViolation;
-                    const result = try callOp(compiled_plan, handlers_ptr, function.value_codec, instruction.operand, payload);
+                    const result = try callOp(compiled_plan, handlers_ptr, function_result_codec, instruction.operand, payload);
                     switch (result) {
                         .resumed => |resumed_value| {
                             if (instruction.dst < locals.len and op.resume_codec != .unit) {
@@ -375,6 +386,7 @@ fn continueFunction(
                             compiled_plan,
                             handlers_ptr,
                             function.value_codec,
+                            function_result_codec,
                             after_stack,
                             .{ .terminal = terminal },
                         ),
@@ -423,6 +435,7 @@ fn continueFunction(
                 compiled_plan,
                 handlers_ptr,
                 function.value_codec,
+                function_result_codec,
                 after_stack,
                 .{ .value = .none },
             ),
@@ -430,6 +443,7 @@ fn continueFunction(
                 compiled_plan,
                 handlers_ptr,
                 function.value_codec,
+                function_result_codec,
                 after_stack,
                 .{ .value = getLocal(locals, return_local orelse return error.ProgramContractViolation) },
             ),
@@ -493,6 +507,16 @@ fn helperArgStorageCapacity(comptime compiled_plan: program_plan.ProgramPlan) us
     return @max(@as(usize, 1), maxFunctionParameterCount(compiled_plan));
 }
 
+fn requirementForOutputLabel(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime label: []const u8,
+) ?program_plan.RequirementPlan {
+    inline for (compiled_plan.requirements) |requirement| {
+        if (std.mem.eql(u8, requirement.label, label)) return requirement;
+    }
+    return null;
+}
+
 /// Finalize the declared entry outputs for one ProgramPlan from the current handlers.
 pub fn collectOutputsForPlan(
     comptime compiled_plan: program_plan.ProgramPlan,
@@ -502,15 +526,36 @@ pub fn collectOutputsForPlan(
     var value: ResultOutputsTypeForPlan(compiled_plan) = std.mem.zeroInit(ResultOutputsTypeForPlan(compiled_plan), .{});
     inline for (outputs) |output| {
         const handler_ptr = &@field(handlers_ptr.*, output.label);
-        if (@hasDecl(@TypeOf(handler_ptr.*), "finish")) {
-            @field(value, output.label) = try resolveMaybeError(handler_ptr.finish());
-            continue;
+        const requirement = comptime requirementForOutputLabel(compiled_plan, output.label) orelse
+            @compileError("ProgramPlan outputs must map to one requirement");
+        switch (comptime requirement.output_tag) {
+            .none => {
+                if (@hasDecl(@TypeOf(handler_ptr.*), "finish")) {
+                    @field(value, output.label) = try resolveMaybeError(handler_ptr.finish());
+                    continue;
+                }
+                if (@hasField(@TypeOf(handler_ptr.*), "state")) {
+                    @field(value, output.label) = handler_ptr.state;
+                    continue;
+                }
+                return error.ProgramContractViolation;
+            },
+            .accumulator, .custom_finalizer => {
+                if (!@hasDecl(@TypeOf(handler_ptr.*), "finish")) return error.ProgramContractViolation;
+                @field(value, output.label) = try resolveMaybeError(handler_ptr.finish());
+            },
+            .final_state => {
+                if (@hasDecl(@TypeOf(handler_ptr.*), "finish")) {
+                    @field(value, output.label) = try resolveMaybeError(handler_ptr.finish());
+                    continue;
+                }
+                if (@hasField(@TypeOf(handler_ptr.*), "state")) {
+                    @field(value, output.label) = handler_ptr.state;
+                    continue;
+                }
+                return error.ProgramContractViolation;
+            },
         }
-        if (@hasField(@TypeOf(handler_ptr.*), "state")) {
-            @field(value, output.label) = handler_ptr.state;
-            continue;
-        }
-        return error.ProgramContractViolation;
     }
     return value;
 }
@@ -545,6 +590,26 @@ pub fn runEntry(
     };
     return .{
         .outputs = try collectOutputsForPlan(compiled_plan, handlers),
-        .value = decodeRuntimeValue(compiled_plan.functions[compiled_plan.entry_index].value_codec, value),
+        .value = decodeRuntimeValue(program_plan.functionResultCodec(compiled_plan.functions[compiled_plan.entry_index]), value),
+    };
+}
+
+/// Execute the entry function of one ProgramPlan with explicit runtime entry arguments and finalize its outputs.
+pub fn runEntryWithArgs(
+    runtime: *lowered_machine.Runtime,
+    comptime compiled_plan: program_plan.ProgramPlan,
+    handlers: anytype,
+    args: []const lowered_machine.ProgramValue,
+) anyerror!RunResultTypeForPlan(compiled_plan) {
+    try lowered_machine.beginExecution(runtime);
+    defer lowered_machine.endExecution(runtime);
+    const outcome = try executeDispatch(compiled_plan, handlers, compiled_plan.entry_index, args);
+    const value = switch (outcome) {
+        .value => |typed| typed,
+        .terminal => |typed| typed,
+    };
+    return .{
+        .outputs = try collectOutputsForPlan(compiled_plan, handlers),
+        .value = decodeRuntimeValue(program_plan.functionResultCodec(compiled_plan.functions[compiled_plan.entry_index]), value),
     };
 }

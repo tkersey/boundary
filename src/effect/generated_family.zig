@@ -827,6 +827,9 @@ pub fn Build(comptime spec: anytype) type {
 
                         var current_handle = self;
                         var authored = activeEngineContext(Config.Capability, self.ctx.?).performProgramWithContext(OpTypeValue, {}, &current_handle, request_state);
+                        if (@hasDecl(@TypeOf(authored), "has_compiled_plan") and @TypeOf(authored).has_compiled_plan) {
+                            return try authored.runCompiled(self.runtime.?);
+                        }
                         authored.activate();
                         defer authored.deactivate();
                         return try frontend.run(self.runtime.?, authored.prompt, authored.program);
@@ -870,6 +873,9 @@ pub fn Build(comptime spec: anytype) type {
 
                         var current_handle = self;
                         var authored = activeEngineContext(Config.Capability, self.ctx.?).performProgramWithContext(OpTypeValue, payload, &current_handle, request_state);
+                        if (@hasDecl(@TypeOf(authored), "has_compiled_plan") and @TypeOf(authored).has_compiled_plan) {
+                            return try authored.runCompiled(self.runtime.?);
+                        }
                         authored.activate();
                         defer authored.deactivate();
                         return try frontend.run(self.runtime.?, authored.prompt, authored.program);

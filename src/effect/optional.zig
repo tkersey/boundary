@@ -76,6 +76,9 @@ pub fn LexicalHandle(
 
             var current_handle = self;
             var authored = algebraic.activeEngineContext(Cap, self.ctx.?).performProgramWithContext(Cap.RequestOp(), {}, &current_handle, request_state);
+            if (@hasDecl(@TypeOf(authored), "has_compiled_plan") and @TypeOf(authored).has_compiled_plan) {
+                return try authored.runCompiled(self.runtime.?);
+            }
             authored.activate();
             defer authored.deactivate();
             return try frontend.run(self.runtime.?, authored.prompt, authored.program);
@@ -182,6 +185,25 @@ pub inline fn requestProgram(
     return algebraic.optionalRequestProgram(Cap, ctx, Continuation);
 }
 
+/// Build one bound optional request program for the supplied continuation.
+pub inline fn requestBoundProgram(
+    comptime Cap: type,
+    ctx: anytype,
+    comptime Continuation: anytype,
+) @TypeOf(algebraic.optionalRequestBoundProgram(Cap, ctx, Continuation)) {
+    return algebraic.optionalRequestBoundProgram(Cap, ctx, Continuation);
+}
+
+/// Build one bound optional request program with one runtime continuation context.
+pub inline fn requestBoundProgramWithContext(
+    comptime Cap: type,
+    ctx: anytype,
+    continuation_ctx: anytype,
+    comptime Continuation: type,
+) @TypeOf(algebraic.optionalRequestBoundProgramWithContext(Cap, ctx, continuation_ctx, Continuation)) {
+    return algebraic.optionalRequestBoundProgramWithContext(Cap, ctx, continuation_ctx, Continuation);
+}
+
 /// Build one explicit optional body program with no request operation.
 pub inline fn computeProgram(
     comptime Cap: type,
@@ -236,14 +258,14 @@ test "optional handle can return now without resuming the body tail" {
         var after_request: bool = false;
 
         /// Attempt one optional request and prove the body tail never runs.
-        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(requestProgram(Cap, ctx, struct {
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(requestBoundProgram(Cap, ctx, struct {
             /// Mark that the request continuation resumed unexpectedly.
             pub fn apply(_: i32) i32 {
                 after_request = true;
                 return 0;
             }
         })) {
-            return requestProgram(Cap, ctx, struct {
+            return requestBoundProgram(Cap, ctx, struct {
                 /// Mark that the request continuation resumed unexpectedly.
                 pub fn apply(_: i32) i32 {
                     after_request = true;
@@ -322,14 +344,30 @@ test "optional handle can resume and transform the resumed answer" {
     };
     const demo = struct {
         /// Request once and increment the resumed answer.
-        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(requestProgram(Cap, ctx, struct {
+        pub fn program(comptime Cap: type, ctx: anytype) @TypeOf(requestBoundProgram(Cap, ctx, struct {
             /// Increment the resumed optional answer.
             pub fn apply(current: i32) i32 {
                 return current + 1;
             }
         })) {
-            return requestProgram(Cap, ctx, struct {
-                /// Increment the resumed optional answer.
+            const ProgramType = @TypeOf(requestBoundProgram(Cap, ctx, struct {
+                /// Increment the resumed optional answer through the compiled bound-program proof path.
+                pub fn apply(current: i32) i32 {
+                    return current + 1;
+                }
+            }));
+            comptime {
+                if (!ProgramType.has_compiled_plan) @compileError("optional bound program should expose a compiled ProgramPlan");
+                const compiled_plan = ProgramType.compiledPlan().?;
+                if (compiled_plan.functions[compiled_plan.entry_index].value_codec != .i32) {
+                    @compileError("optional bound program should preserve the continuation resume codec in ProgramPlan");
+                }
+                if (compiled_plan.functions[compiled_plan.entry_index].result_codec.? != .string) {
+                    @compileError("optional bound program should preserve the final answer codec separately in ProgramPlan");
+                }
+            }
+            return requestBoundProgram(Cap, ctx, struct {
+                /// Increment the resumed optional answer through the compiled bound-program path.
                 pub fn apply(current: i32) i32 {
                     return current + 1;
                 }

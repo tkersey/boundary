@@ -1072,43 +1072,25 @@ fn tryNamedCompiledWith(
     outputs_ptr: *OutputBundleType(HandlersType),
 ) ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
     if (!@hasDecl(Body, "source_path") or !@hasDecl(Body, "entry_symbol") or !@hasDecl(Body, "ReturnType")) return null;
-    const LoweredProgram = public_lowering.lowerAt(Body.source_path, .{
+    const lowered_program = public_lowering.lowerOpenRowAt(Body.source_path, .{
         .label = "shift.with named lexical body",
         .entry_symbol = Body.entry_symbol,
         .ValueType = NamedBodyAnswerType(Body),
         .row = lexical_bundle_schema.rowForHandlers(HandlersType),
         .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
-    });
-
-    const lexical_state = struct {
-        runtime: *lowered_machine.Runtime,
-        handlers_ptr: *HandlersType,
-    }{
-        .runtime = runtime,
-        .handlers_ptr = handlers_ptr,
-    };
-
-    var executable_bundle = lexical_executable_bundle.fromLexicalState(lexical_state);
-    var run_error: ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType))) = null;
-    const result = public_lowering.run(runtime, LoweredProgram, &executable_bundle) catch |err| blk: {
-        run_error = @errorCast(err);
-        break :blk null;
-    };
-
-    var cleanup_error: ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType))) = null;
-    lexical_executable_bundle.deinit(&executable_bundle) catch |err| {
-        cleanup_error = @errorCast(err);
-    };
-
-    if (run_error) |err| return err;
-    if (cleanup_error) |err| return err;
-
-    inline for (std.meta.fields(OutputBundleType(HandlersType))) |field| {
-        if (@hasField(@TypeOf(result.?.outputs), field.name)) {
-            @field(outputs_ptr.*, field.name) = @field(result.?.outputs, field.name);
-        }
-    }
-    return result.?.value;
+    }) catch |err| invalidGeneratedPlan(err);
+    return try runCompiledLexicalPlan(
+        HandlersType,
+        Body,
+        runtime,
+        handlers_ptr,
+        outputs_ptr,
+        comptime public_lowering.enrichOpenRowPlan(
+            "shift.with named lexical body",
+            lowered_program,
+            lexicalBindingSchemasValue(HandlersType),
+        ),
+    );
 }
 
 // zlinter-disable max_positional_args - this internal compiled caller-owned seam keeps provenance and lexical state explicit across the public-lowering handoff.
@@ -1124,43 +1106,25 @@ fn tryCallerOwnedCompiledWith(
     if (@hasDecl(Body, "source_path") or @hasDecl(Body, "entry_symbol") or @hasDecl(Body, "ReturnType")) return null;
     const synthetic_source = anonymousBodySyntheticSource(caller, Body, caller_source_override) orelse return null;
     const source_ref = public_lowering.sourceWithContent(caller.file, caller, synthetic_source);
-    const LoweredProgram = public_lowering.lower(source_ref, .{
+    const lowered_program = public_lowering.lowerOpenRow(source_ref, .{
         .label = "shift.with caller-owned lexical body",
         .entry_symbol = anonymousBodyEntryName(caller),
         .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
         .row = lexical_bundle_schema.rowForHandlers(HandlersType),
         .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
-    });
-
-    const lexical_state = struct {
-        runtime: *lowered_machine.Runtime,
-        handlers_ptr: *HandlersType,
-    }{
-        .runtime = runtime,
-        .handlers_ptr = handlers_ptr,
-    };
-
-    var executable_bundle = lexical_executable_bundle.fromLexicalState(lexical_state);
-    var run_error: ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType))) = null;
-    const result = public_lowering.run(runtime, LoweredProgram, &executable_bundle) catch |err| blk: {
-        run_error = @errorCast(err);
-        break :blk null;
-    };
-
-    var cleanup_error: ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType))) = null;
-    lexical_executable_bundle.deinit(&executable_bundle) catch |err| {
-        cleanup_error = @errorCast(err);
-    };
-
-    if (run_error) |err| return err;
-    if (cleanup_error) |err| return err;
-
-    inline for (std.meta.fields(OutputBundleType(HandlersType))) |field| {
-        if (@hasField(@TypeOf(result.?.outputs), field.name)) {
-            @field(outputs_ptr.*, field.name) = @field(result.?.outputs, field.name);
-        }
-    }
-    return result.?.value;
+    }) catch |err| invalidGeneratedPlan(err);
+    return try runCompiledLexicalPlan(
+        HandlersType,
+        Body,
+        runtime,
+        handlers_ptr,
+        outputs_ptr,
+        comptime public_lowering.enrichOpenRowPlan(
+            "shift.with caller-owned lexical body",
+            lowered_program,
+            lexicalBindingSchemasValue(HandlersType),
+        ),
+    );
 }
 
 // zlinter-disable max_positional_args - the explicit owned-source seam threads witness, caller bytes, and lexical state directly to keep ownership boundaries obvious.
@@ -1182,32 +1146,60 @@ fn tryOwnedSourceCompiledWith(
         Body.entry_symbol
     else
         anonymousBodyEntryName(caller);
-    const LoweredProgram = if (witness.body_source != null)
-        public_lowering.lower(public_lowering.sourceWithContentAndImports(
+    const source_ref = comptime if (witness.body_source != null) blk: {
+        break :blk public_lowering.sourceWithContentAndImports(
             source_path,
             caller,
             witnessSyntheticSource(caller_source, caller, witness).?,
             witness.imported_sources,
-        ), .{
-            .label = "shift.with owned lexical body",
-            .entry_symbol = entry_symbol,
-            .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
-            .row = lexical_bundle_schema.rowForHandlers(HandlersType),
-            .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
-        })
-    else
-        public_lowering.lower(public_lowering.sourceWithContentAndImports(
+        );
+    } else blk: {
+        break :blk public_lowering.sourceWithContentAndImports(
             source_path,
             caller,
             caller_source,
             witness.imported_sources,
-        ), .{
-            .label = "shift.with owned lexical body",
-            .entry_symbol = entry_symbol,
-            .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
-            .row = lexical_bundle_schema.rowForHandlers(HandlersType),
-            .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
-        });
+        );
+    };
+    const lowered_program = public_lowering.lowerOpenRow(source_ref, .{
+        .label = "shift.with owned lexical body",
+        .entry_symbol = entry_symbol,
+        .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+        .row = lexical_bundle_schema.rowForHandlers(HandlersType),
+        .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
+    }) catch |err| invalidGeneratedPlan(err);
+    return try runCompiledLexicalPlan(
+        HandlersType,
+        Body,
+        runtime,
+        handlers_ptr,
+        outputs_ptr,
+        comptime public_lowering.enrichOpenRowPlan(
+            "shift.with owned lexical body",
+            lowered_program,
+            lexicalBindingSchemasValue(HandlersType),
+        ),
+    );
+}
+
+fn invalidGeneratedPlan(err: anytype) noreturn {
+    @compileError(std.fmt.comptimePrint("lexical ProgramPlan generation failed: {s}", .{@errorName(err)}));
+}
+
+fn lexicalBindingSchemasValue(comptime HandlersType: type) lexical_bundle_schema.BindingSchemas(HandlersType) {
+    return dummyValue(lexical_bundle_schema.BindingSchemas(HandlersType));
+}
+
+// zlinter-disable max_positional_args - this compiled lexical runner keeps runtime, handler bundle, and explicit ProgramPlan state visible at the call site.
+fn runCompiledLexicalPlan(
+    comptime HandlersType: type,
+    comptime Body: type,
+    runtime: *lowered_machine.Runtime,
+    handlers_ptr: *HandlersType,
+    outputs_ptr: *OutputBundleType(HandlersType),
+    comptime compiled_plan: anytype,
+) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
+    public_lowering.assertExecutablePlanCodecSupport(compiled_plan);
 
     const lexical_state = struct {
         runtime: *lowered_machine.Runtime,
@@ -1219,7 +1211,7 @@ fn tryOwnedSourceCompiledWith(
 
     var executable_bundle = lexical_executable_bundle.fromLexicalState(lexical_state);
     var run_error: ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType))) = null;
-    const result = public_lowering.run(runtime, LoweredProgram, &executable_bundle) catch |err| blk: {
+    const result = public_lowering.runExecutablePlan(runtime, compiled_plan, &executable_bundle) catch |err| blk: {
         run_error = @errorCast(err);
         break :blk null;
     };
@@ -1654,4 +1646,47 @@ test "collectClosedOutputs preserves const handler pointers for const-safe finis
 
     const outputs = collectClosedOutputs(&handlers);
     try std.testing.expectEqual(@as(i32, 9), outputs.reader);
+}
+
+fn compiledPlanLifecycleProbeAdvance(eff: anytype) anyerror!void {
+    const before = try eff.state.get();
+    try eff.state.set(before + 1);
+    try eff.writer.tell("queued");
+}
+
+/// Drive the compiled lexical lifecycle probe through one state increment and one writer output.
+pub fn compiledPlanLifecycleProbeBody(eff: anytype) anyerror![]const u8 {
+    try compiledPlanLifecycleProbeAdvance(eff);
+    return "done";
+}
+
+test "compiled lexical plans preserve binding-schema lifecycle metadata in ProgramPlan" {
+    const state = @import("effect/state.zig");
+    const writer = @import("effect/writer.zig");
+
+    const Handlers = struct {
+        state: state.LexicalDescriptor(i32, error{}),
+        writer: writer.LexicalDescriptor([]const u8, error{}),
+    };
+
+    const lowered_program = try public_lowering.lowerOpenRowAt(
+        "src/with_api.zig",
+        .{
+            .label = "with_api.compiled_plan_lifecycle_probe",
+            .entry_symbol = "compiledPlanLifecycleProbeBody",
+            .ValueType = []const u8,
+            .row = lexical_bundle_schema.rowForHandlers(Handlers),
+            .outputs = lexical_bundle_schema.outputsForHandlers(Handlers),
+        },
+    );
+    const enriched_plan = public_lowering.enrichOpenRowPlan(
+        "with_api.compiled_plan_lifecycle_probe",
+        lowered_program,
+        lexicalBindingSchemasValue(Handlers),
+    );
+
+    try std.testing.expectEqual(.state_cell, enriched_plan.requirements[0].lifecycle_tag);
+    try std.testing.expectEqual(.final_state, enriched_plan.requirements[0].output_tag);
+    try std.testing.expectEqual(.writer_accumulator, enriched_plan.requirements[1].lifecycle_tag);
+    try std.testing.expectEqual(.accumulator, enriched_plan.requirements[1].output_tag);
 }

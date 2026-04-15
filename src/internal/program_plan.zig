@@ -86,6 +86,7 @@ pub const RequirementPlan = struct {
 pub const FunctionPlan = struct {
     symbol_name: []const u8,
     value_codec: ValueCodec = .unit,
+    result_codec: ?ValueCodec = null,
     parameter_count: u16 = 0,
     first_requirement: u16,
     requirement_count: u16,
@@ -147,7 +148,7 @@ pub const BlockPlan = struct {
 /// Runtime-owned serializable executable plan for lowered or explicit IR programs.
 pub const ProgramPlan = struct {
     /// Stable schema version for JSON-serialized runtime plans.
-    pub const current_schema_version: u32 = 4;
+    pub const current_schema_version: u32 = 5;
 
     schema_version: u32 = current_schema_version,
     label: []const u8,
@@ -396,6 +397,8 @@ pub const ProgramPlan = struct {
         for (self.functions) |function| {
             hashBytes(&hasher, function.symbol_name);
             hashBytes(&hasher, @tagName(function.value_codec));
+            hasher.update(&[_]u8{@intFromBool(function.result_codec != null)});
+            if (function.result_codec) |codec| hashBytes(&hasher, @tagName(codec));
             hasher.update(std.mem.asBytes(&function.parameter_count));
             hasher.update(std.mem.asBytes(&function.first_requirement));
             hasher.update(std.mem.asBytes(&function.requirement_count));
@@ -498,6 +501,11 @@ pub fn codecForType(comptime T: type) CodecError!ValueCodec {
     if (T == []const u8) return .string;
     if (T == [][]const u8) return .string_list;
     return error.UnsupportedCodecType;
+}
+
+/// Return the externally observable result codec for one function plan.
+pub fn functionResultCodec(function: FunctionPlan) ValueCodec {
+    return function.result_codec orelse function.value_codec;
 }
 
 fn hashBytes(hasher: *std.hash.Wyhash, value: []const u8) void {
@@ -611,6 +619,11 @@ pub fn upgradeLegacyProgramPlan(allocator: std.mem.Allocator, plan: *ProgramPlan
     }
 
     if (plan.schema_version == 3) {
+        plan.schema_version = ProgramPlan.current_schema_version;
+        return;
+    }
+
+    if (plan.schema_version == 4) {
         plan.schema_version = ProgramPlan.current_schema_version;
         return;
     }
@@ -1221,7 +1234,8 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
 
 fn BindingFamilyForLabel(comptime binding_schemas: anytype, comptime label: []const u8) ?type {
     inline for (binding_schemas) |BindingSchema| {
-        if (std.mem.eql(u8, BindingSchema.requirement_label, label)) return BindingSchema.family;
+        const BindingSchemaType = if (@TypeOf(BindingSchema) == type) BindingSchema else @TypeOf(BindingSchema);
+        if (std.mem.eql(u8, BindingSchemaType.requirement_label, label)) return BindingSchemaType.family;
     }
     return null;
 }

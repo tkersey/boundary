@@ -13,6 +13,23 @@ const std = @import("std");
 
 /// Public support handlers for lowered open-row example runners.
 pub const runtime_support = @import("open_row_runtime_support.zig");
+pub const ProgramPlan = program_plan.ProgramPlan;
+pub const FunctionPlan = program_plan.FunctionPlan;
+
+pub fn executableResultCodecForType(comptime T: type) program_plan.CodecError!program_plan.ValueCodec {
+    return try program_plan.codecForType(T);
+}
+
+fn authoredBoundLocalCodecForType(comptime T: type) ?effect_ir.LocalCodec {
+    return switch (T) {
+        void => .unit,
+        bool => .bool,
+        i32 => .i32,
+        usize => .usize,
+        []const u8 => .string,
+        else => null,
+    };
+}
 
 /// Public additive spec for one same-module lowering request.
 pub const LowerSpec = struct {
@@ -130,6 +147,11 @@ fn assertExecutableCodecSupport(comptime compiled_plan: program_plan.ProgramPlan
     program_plan_interpreter.assertExecutableCodecSupport(compiled_plan);
 }
 
+/// Reject unsupported codecs before executing one ProgramPlan through direct native handlers.
+pub fn assertExecutablePlanCodecSupport(comptime compiled_plan: program_plan.ProgramPlan) void {
+    assertExecutableCodecSupport(compiled_plan);
+}
+
 fn executableCodecSupported(comptime compiled_plan: program_plan.ProgramPlan) bool {
     inline for (compiled_plan.functions) |function| switch (function.value_codec) {
         .unit, .bool, .i32, .string, .usize => {},
@@ -146,6 +168,25 @@ fn executableCodecSupported(comptime compiled_plan: program_plan.ProgramPlan) bo
 
 fn collectLoweredOutputsForPlan(comptime compiled_plan: program_plan.ProgramPlan, handlers_ptr: anytype) anyerror!ResultOutputsTypeForPlan(compiled_plan) {
     return program_plan_interpreter.collectOutputsForPlan(compiled_plan, handlers_ptr);
+}
+
+/// Execute one explicit ProgramPlan through the direct native handler interpreter.
+pub fn runExecutablePlan(
+    runtime: *lowered_machine.Runtime,
+    comptime compiled_plan: program_plan.ProgramPlan,
+    handlers: anytype,
+) anyerror!program_plan_interpreter.RunResultTypeForPlan(compiled_plan) {
+    return try program_plan_interpreter.runEntry(runtime, compiled_plan, handlers);
+}
+
+/// Execute one explicit ProgramPlan through the direct native handler interpreter with runtime entry arguments.
+pub fn runExecutablePlanWithArgs(
+    runtime: *lowered_machine.Runtime,
+    comptime compiled_plan: program_plan.ProgramPlan,
+    handlers: anytype,
+    args: []const lowered_machine.ProgramValue,
+) anyerror!program_plan_interpreter.RunResultTypeForPlan(compiled_plan) {
+    return try program_plan_interpreter.runEntryWithArgs(runtime, compiled_plan, handlers, args);
 }
 
 const LoweredFunctionResult = program_plan_interpreter.FunctionResult;
@@ -1072,6 +1113,164 @@ fn openRowWithRootSource(
 /// Lower one explicit-path open-row payload into the retained effect-ir shell.
 pub fn lowerOpenRowAt(comptime source_path: []const u8, comptime spec: LowerSpec) LowerError!source_lowering.OpenRowGeneratedProgram {
     return try source_lowering.lowerOpenRowProgram(openRowAt(source_path, spec));
+}
+
+/// Lower one caller-owned or file-backed open-row payload into the retained effect-ir shell.
+pub fn lowerOpenRow(comptime source_ref: SourceRef, comptime spec: LowerSpec) LowerError!source_lowering.OpenRowGeneratedProgram {
+    assertSourceOwnership(source_ref);
+    if (source_ref.caller_source) |caller_source| {
+        const source_path = sourcePathForLowering(source_ref);
+        return try source_lowering.lowerOpenRowProgram(openRowWithRootSource(
+            source_path,
+            caller_source,
+            source_ref.imported_sources,
+            spec,
+        ));
+    }
+    return try lowerOpenRowAt(sourcePathForLowering(source_ref), spec);
+}
+
+fn invalidOpenRowPlan(err: anytype) noreturn {
+    @compileError(std.fmt.comptimePrint("open-row ProgramPlan generation failed: {s}", .{@errorName(err)}));
+}
+
+/// Build one runtime-owned ProgramPlan from a lowered open-row payload.
+pub fn planFromOpenRowGenerated(
+    comptime label: []const u8,
+    comptime lowered_program: source_lowering.OpenRowGeneratedProgram,
+) program_plan.ProgramPlan {
+    return program_plan.planFromOpenRowProgram(label, lowered_program.program) catch |err| invalidOpenRowPlan(err);
+}
+
+/// Build one runtime-owned ProgramPlan from a semantic lowered open-row program.
+pub fn planFromLoweredOpenRowProgram(
+    comptime label: []const u8,
+    comptime lowered_program: program_frontend.LoweredOpenRowProgram,
+) program_plan.ProgramPlan {
+    return program_plan.planFromOpenRowProgram(label, lowered_program) catch |err| invalidOpenRowPlan(err);
+}
+
+pub fn authoredBoundProgramPlan(
+    comptime label: []const u8,
+    comptime payload_type: type,
+    comptime resume_type: type,
+    comptime result_type: type,
+    comptime control_mode: program_plan.ControlMode,
+) ?program_plan.ProgramPlan {
+    const payload_codec = authoredBoundLocalCodecForType(payload_type) orelse return null;
+    const result_codec = executableResultCodecForType(result_type) catch return null;
+    const local_codecs = comptime switch (control_mode) {
+        .abort => if (payload_codec == .unit)
+            [0]effect_ir.LocalCodec{}
+        else
+            [1]effect_ir.LocalCodec{payload_codec},
+        .transform, .choice => blk: {
+            const resume_codec = authoredBoundLocalCodecForType(resume_type) orelse return null;
+            break :blk if (payload_codec == .unit)
+                [1]effect_ir.LocalCodec{resume_codec}
+            else
+                [2]effect_ir.LocalCodec{ payload_codec, resume_codec };
+        },
+    };
+    const instructions = comptime switch (control_mode) {
+        .abort => [1]effect_ir.Instruction{.{
+            .kind = .call_op,
+            .dst = std.math.maxInt(u16),
+            .operand = 0,
+            .aux = if (payload_codec == .unit) std.math.maxInt(u16) else 0,
+        }},
+        .transform, .choice => [2]effect_ir.Instruction{
+            .{
+                .kind = .call_op,
+                .dst = if (payload_codec == .unit) 0 else 1,
+                .operand = 0,
+                .aux = if (payload_codec == .unit) std.math.maxInt(u16) else 0,
+            },
+            .{
+                .kind = .return_value,
+                .dst = 0,
+                .operand = if (payload_codec == .unit) 0 else 1,
+                .aux = 0,
+            },
+        },
+    };
+    const lowered = program_frontend.LoweredOpenRowProgram{
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol = .{
+                .module_path = "<authored>",
+                .symbol_name = "runAuthored",
+            },
+            .row = .{
+                .requirements = &.{.{
+                    .label = "authored",
+                    .ops = &.{.{
+                        .requirement_label = "authored",
+                        .op_name = "dispatch",
+                        .mode = switch (control_mode) {
+                            .abort => .abort,
+                            .choice => .choice,
+                            .transform => .transform,
+                        },
+                        .PayloadType = payload_type,
+                        .ResumeType = resume_type,
+                        .has_after = control_mode != .abort,
+                    }},
+                }},
+            },
+            .parameter_codecs = if (payload_codec == .unit) &.{} else &.{payload_codec},
+            .ValueType = switch (control_mode) {
+                .abort => void,
+                .transform, .choice => resume_type,
+            },
+        }},
+        .call_edges = &.{},
+        .function_bodies = &.{.{
+            .local_codecs = &local_codecs,
+            .call_arg_locals = &.{},
+            .entry_block = 0,
+            .blocks = &.{.{
+                .instructions = &instructions,
+                .terminator = switch (control_mode) {
+                    .abort => .{ .kind = .return_unit },
+                    .transform, .choice => .{ .kind = .return_value },
+                },
+            }},
+        }},
+    };
+    const base_plan = planFromLoweredOpenRowProgram(label, lowered);
+    const functions = comptime blk: {
+        var buffer: [base_plan.functions.len]FunctionPlan = undefined;
+        for (base_plan.functions, 0..) |function, index| {
+            buffer[index] = function;
+        }
+        buffer[base_plan.entry_index].result_codec = result_codec;
+        break :blk buffer;
+    };
+    return .{
+        .schema_version = base_plan.schema_version,
+        .label = base_plan.label,
+        .ir_hash = base_plan.ir_hash,
+        .entry_index = base_plan.entry_index,
+        .functions = &functions,
+        .requirements = base_plan.requirements,
+        .ops = base_plan.ops,
+        .outputs = base_plan.outputs,
+        .locals = base_plan.locals,
+        .call_args = base_plan.call_args,
+        .blocks = base_plan.blocks,
+        .terminators = base_plan.terminators,
+        .instructions = base_plan.instructions,
+    };
+}
+
+/// Attach binding-derived lifecycle/output metadata to one lowered open-row ProgramPlan.
+pub fn enrichOpenRowPlan(
+    comptime label: []const u8,
+    comptime lowered_program: source_lowering.OpenRowGeneratedProgram,
+    comptime binding_schemas: anytype,
+) program_plan.ProgramPlan {
+    return program_plan.enrichPlanWithBindingSchemas(planFromOpenRowGenerated(label, lowered_program), binding_schemas);
 }
 
 /// Rebuild the public effect-ir program view for one additive lowering request.

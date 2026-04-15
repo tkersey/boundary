@@ -1,6 +1,8 @@
+const effect_ir = @import("effect_ir");
 const frontend = @import("frontend_support");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
+const public_lowering = @import("public_lowering");
 const std = @import("std");
 
 const BuilderKind = enum {
@@ -249,6 +251,56 @@ fn ExplicitContinuationErrorSet(comptime Continuation: anytype, comptime ResumeT
     return ReturnTypeErrorSet(ExplicitContinuationReturnType(Continuation, ResumeType));
 }
 
+fn ExplicitContinuationReturnTypeWithContext(
+    comptime ContextPtrType: type,
+    comptime Continuation: type,
+    comptime ResumeType: type,
+) type {
+    return @TypeOf(Continuation.apply(dummyValue(ContextPtrType), dummyValue(ResumeType)));
+}
+
+fn ExplicitContinuationErrorSetWithContext(
+    comptime ContextPtrType: type,
+    comptime Continuation: type,
+    comptime ResumeType: type,
+) type {
+    return ReturnTypeErrorSet(ExplicitContinuationReturnTypeWithContext(ContextPtrType, Continuation, ResumeType));
+}
+
+fn callExplicitContinuation(
+    comptime Continuation: anytype,
+    resume_value: anytype,
+) lowered_machine.ResetError(ExplicitContinuationErrorSet(Continuation, @TypeOf(resume_value)))!switch (@typeInfo(ExplicitContinuationReturnType(Continuation, @TypeOf(resume_value)))) {
+    .error_union => |err_union| err_union.payload,
+    else => ExplicitContinuationReturnType(Continuation, @TypeOf(resume_value)),
+} {
+    if (comptime continuationHasApply(Continuation)) {
+        const ReturnType = @TypeOf(Continuation.apply(resume_value));
+        if (@typeInfo(ReturnType) == .error_union) return try Continuation.apply(resume_value);
+        return Continuation.apply(resume_value);
+    }
+    if (comptime @TypeOf(Continuation) == type) {
+        @compileError("explicit program continuations must be passed as callable values, not function types");
+    }
+    const ReturnType = @TypeOf(Continuation(resume_value));
+    if (@typeInfo(ReturnType) == .error_union) return try Continuation(resume_value);
+    return Continuation(resume_value);
+}
+
+fn callExplicitContinuationWithContext(
+    comptime ContextPtrType: type,
+    comptime Continuation: type,
+    continuation_ctx: ContextPtrType,
+    resume_value: anytype,
+) lowered_machine.ResetError(ExplicitContinuationErrorSetWithContext(ContextPtrType, Continuation, @TypeOf(resume_value)))!switch (@typeInfo(ExplicitContinuationReturnTypeWithContext(ContextPtrType, Continuation, @TypeOf(resume_value)))) {
+    .error_union => |err_union| err_union.payload,
+    else => ExplicitContinuationReturnTypeWithContext(ContextPtrType, Continuation, @TypeOf(resume_value)),
+} {
+    const ReturnType = @TypeOf(Continuation.apply(continuation_ctx, resume_value));
+    if (@typeInfo(ReturnType) == .error_union) return try Continuation.apply(continuation_ctx, resume_value);
+    return Continuation.apply(continuation_ctx, resume_value);
+}
+
 fn assertTransformImplType(comptime TransformContract: type) void {
     const StateType = TransformContract.state_type;
     const Op = TransformContract.op_type;
@@ -462,6 +514,190 @@ fn Binding(
             };
         }
 
+        fn supportedAuthoredPayloadCodec() ?effect_ir.LocalCodec {
+            return switch (Op.Payload) {
+                void => .unit,
+                bool => .bool,
+                i32 => .i32,
+                usize => .usize,
+                []const u8 => .string,
+                else => null,
+            };
+        }
+
+        fn supportedAuthoredResumeCodec() ?effect_ir.LocalCodec {
+            return switch (Op.Resume) {
+                void => .unit,
+                bool => .bool,
+                i32 => .i32,
+                usize => .usize,
+                []const u8 => .string,
+                else => null,
+            };
+        }
+
+        fn SupportedAuthoredResultType() ?type {
+            return switch (Answer) {
+                void, bool, i32, usize, []const u8 => Answer,
+                else => null,
+            };
+        }
+
+        fn encodeAuthoredPayload(comptime codec: effect_ir.LocalCodec, payload: Op.Payload) lowered_machine.ProgramValue {
+            return switch (codec) {
+                .unit => .none,
+                .bool => .{ .bool = payload },
+                .i32 => .{ .i32 = payload },
+                .usize => .{ .usize = payload },
+                .string => .{ .string = payload },
+                .string_list => unreachable,
+            };
+        }
+
+        fn authoredCompiledProgram() ?public_lowering.ProgramPlan {
+            _ = supportedAuthoredPayloadCodec() orelse return null;
+            _ = SupportedAuthoredResultType() orelse return null;
+            return public_lowering.authoredBoundProgramPlan(switch (SpecType.builder_kind) {
+                .abort => "authored.abort.bound_program",
+                .choice => "authored.choice.bound_program",
+                .transform => "authored.transform.bound_program",
+                .direct_transform => return null,
+            }, Op.Payload, Op.Resume, Answer, switch (SpecType.builder_kind) {
+                .abort => .abort,
+                .choice => .choice,
+                .transform => .transform,
+                .direct_transform => unreachable,
+            });
+        }
+
+        fn AuthoredCompiledHandlers(comptime Continuation: anytype) type {
+            const BindingType = Self;
+            return switch (SpecType.builder_kind) {
+                .abort => if (Op.Payload == void) struct {
+                    authored: struct {
+                        binding: *BindingType,
+
+                        /// Dispatch one zero-payload authored abort operation through the live binding.
+                        pub fn dispatch(self: *@This()) lowered_machine.ResetError(ErrorSet)!Answer {
+                            return try BindingType.callDirectReturn(self.binding.spec, {});
+                        }
+                    },
+                } else struct {
+                    authored: struct {
+                        binding: *BindingType,
+
+                        /// Dispatch one payload-carrying authored abort operation through the live binding.
+                        pub fn dispatch(self: *@This(), payload: Op.Payload) lowered_machine.ResetError(ErrorSet)!Answer {
+                            return try BindingType.callDirectReturn(self.binding.spec, payload);
+                        }
+                    },
+                },
+                .transform => if (Op.Payload == void) struct {
+                    authored: struct {
+                        binding: *BindingType,
+
+                        /// Dispatch one zero-payload authored transform operation through the live binding.
+                        pub fn dispatch(self: *@This()) lowered_machine.ResetError(ErrorSet)!Op.Resume {
+                            return try BindingType.callResumeValue(self.binding.spec, {});
+                        }
+
+                        /// Finish one resumed authored transform by running the explicit continuation and after-resume hook.
+                        pub fn afterDispatch(self: *@This(), resume_value: Op.Resume) lowered_machine.ResetError(ErrorSet || ExplicitContinuationErrorSet(Continuation, Op.Resume))!Answer {
+                            const continued = try callExplicitContinuation(Continuation, resume_value);
+                            return try BindingType.callAfterResume(self.binding.spec, continued);
+                        }
+                    },
+                } else struct {
+                    authored: struct {
+                        binding: *BindingType,
+
+                        /// Dispatch one payload-carrying authored transform operation through the live binding.
+                        pub fn dispatch(self: *@This(), payload: Op.Payload) lowered_machine.ResetError(ErrorSet)!Op.Resume {
+                            return try BindingType.callResumeValue(self.binding.spec, payload);
+                        }
+
+                        /// Finish one resumed authored transform by running the explicit continuation and after-resume hook.
+                        pub fn afterDispatch(self: *@This(), resume_value: Op.Resume) lowered_machine.ResetError(ErrorSet || ExplicitContinuationErrorSet(Continuation, Op.Resume))!Answer {
+                            const continued = try callExplicitContinuation(Continuation, resume_value);
+                            return try BindingType.callAfterResume(self.binding.spec, continued);
+                        }
+                    },
+                },
+                .choice => if (Op.Payload == void) struct {
+                    authored: struct {
+                        binding: *BindingType,
+
+                        /// Dispatch one zero-payload authored choice operation through the live binding.
+                        pub fn dispatch(self: *@This()) lowered_machine.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
+                            return try BindingType.callResumeOrReturn(self.binding.spec, {});
+                        }
+
+                        /// Finish one resumed authored choice by running the explicit continuation and after-resume hook.
+                        pub fn afterDispatch(self: *@This(), resume_value: Op.Resume) lowered_machine.ResetError(ErrorSet || ExplicitContinuationErrorSet(Continuation, Op.Resume))!Answer {
+                            const continued = try callExplicitContinuation(Continuation, resume_value);
+                            return try BindingType.callAfterResume(self.binding.spec, continued);
+                        }
+                    },
+                } else struct {
+                    authored: struct {
+                        binding: *BindingType,
+
+                        /// Dispatch one payload-carrying authored choice operation through the live binding.
+                        pub fn dispatch(self: *@This(), payload: Op.Payload) lowered_machine.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
+                            return try BindingType.callResumeOrReturn(self.binding.spec, payload);
+                        }
+
+                        /// Finish one resumed authored choice by running the explicit continuation and after-resume hook.
+                        pub fn afterDispatch(self: *@This(), resume_value: Op.Resume) lowered_machine.ResetError(ErrorSet || ExplicitContinuationErrorSet(Continuation, Op.Resume))!Answer {
+                            const continued = try callExplicitContinuation(Continuation, resume_value);
+                            return try BindingType.callAfterResume(self.binding.spec, continued);
+                        }
+                    },
+                },
+                .direct_transform => @compileError("compiled authored program path is unavailable for this binding"),
+            };
+        }
+
+        fn AuthoredCompiledHandlersWithContext(comptime ContextPtrType: type, comptime Continuation: type) type {
+            const BindingType = Self;
+            return switch (SpecType.builder_kind) {
+                .choice => if (Op.Payload == void) struct {
+                    authored: struct {
+                        binding: *BindingType,
+                        continuation_ctx: ContextPtrType,
+
+                        /// Dispatch one zero-payload authored contextual choice operation through the live binding.
+                        pub fn dispatch(self: *@This()) lowered_machine.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
+                            return try BindingType.callResumeOrReturn(self.binding.spec, {});
+                        }
+
+                        /// Finish one resumed authored contextual choice by running the contextual continuation and after-resume hook.
+                        pub fn afterDispatch(self: *@This(), resume_value: Op.Resume) lowered_machine.ResetError(ErrorSet || ExplicitContinuationErrorSetWithContext(ContextPtrType, Continuation, Op.Resume))!Answer {
+                            const continued = try callExplicitContinuationWithContext(ContextPtrType, Continuation, self.continuation_ctx, resume_value);
+                            return try BindingType.callAfterResume(self.binding.spec, continued);
+                        }
+                    },
+                } else struct {
+                    authored: struct {
+                        binding: *BindingType,
+                        continuation_ctx: ContextPtrType,
+
+                        /// Dispatch one payload-carrying authored contextual choice operation through the live binding.
+                        pub fn dispatch(self: *@This(), payload: Op.Payload) lowered_machine.ResetError(ErrorSet)!prompt_contract.ResumeOrReturn(Op.Resume, Answer) {
+                            return try BindingType.callResumeOrReturn(self.binding.spec, payload);
+                        }
+
+                        /// Finish one resumed authored contextual choice by running the contextual continuation and after-resume hook.
+                        pub fn afterDispatch(self: *@This(), resume_value: Op.Resume) lowered_machine.ResetError(ErrorSet || ExplicitContinuationErrorSetWithContext(ContextPtrType, Continuation, Op.Resume))!Answer {
+                            const continued = try callExplicitContinuationWithContext(ContextPtrType, Continuation, self.continuation_ctx, resume_value);
+                            return try BindingType.callAfterResume(self.binding.spec, continued);
+                        }
+                    },
+                },
+                else => @compileError("compiled authored contextual program path is currently available only for choice bindings"),
+            };
+        }
+
         const ActiveCarrierNode = struct {
             prompt_key: usize,
             carrier: HandlerCarrier(),
@@ -506,6 +742,18 @@ fn Binding(
                 carrier: HandlerCarrier(),
                 prompt: *const ProgramPrompt,
                 program: frontend.Program(ProgramPrompt),
+                /// Prompt mode carried by this authored program witness.
+                pub const authored_prompt_mode = Op.mode;
+                /// Payload type accepted by the authored operation carrier.
+                pub const AuthoredPayloadType = Op.Payload;
+                /// Resume type emitted by the authored operation carrier.
+                pub const AuthoredResumeType = Op.Resume;
+                /// Continuation answer type consumed by the binding after-resume hook.
+                pub const AuthoredContinueAnswerType = ContinueAnswer;
+                /// Final answer type produced by the authored program.
+                pub const AuthoredAnswerType = Answer;
+                /// Whether this authored program has a semantic compiled ProgramPlan path.
+                pub const has_compiled_plan = authoredCompiledProgram() != null;
 
                 /// Install the explicit handler carrier onto the authored program before execution.
                 pub fn activate(self: *const @This()) void {
@@ -518,6 +766,26 @@ fn Binding(
                     const mutable_self: *@This() = @constCast(self);
                     Self.popActiveCarrier(&mutable_self.active_node, self.prompt);
                 }
+
+                /// Return the compiled ProgramPlan when this authored carrier can lower semantically.
+                pub fn compiledPlan() ?public_lowering.ProgramPlan {
+                    return authoredCompiledProgram();
+                }
+
+                /// Execute this authored program through its compiled ProgramPlan when available.
+                pub fn runCompiled(self: @This(), runtime: *lowered_machine.Runtime) lowered_machine.ResetError(ErrorSet || ExplicitContinuationErrorSet(Continuation, Op.Resume))!Answer {
+                    const compiled_plan = comptime authoredCompiledProgram() orelse
+                        @compileError("compiled authored program path is unavailable for this binding");
+                    var handlers: AuthoredCompiledHandlers(Continuation) = .{
+                        .authored = .{ .binding = self.carrier.binding },
+                    };
+                    const payload_codec = comptime supportedAuthoredPayloadCodec().?;
+                    const args = if (payload_codec == .unit)
+                        &.{}
+                    else
+                        &.{encodeAuthoredPayload(payload_codec, self.carrier.payload)};
+                    return (public_lowering.runExecutablePlanWithArgs(runtime, compiled_plan, &handlers, args) catch |err| return @errorCast(err)).value;
+                }
             };
         }
 
@@ -528,6 +796,22 @@ fn Binding(
                 carrier: HandlerCarrier(),
                 prompt: *const ProgramPrompt,
                 program: frontend.Program(ProgramPrompt),
+                continuation_ctx: ContextPtrType,
+                /// Prompt mode carried by this authored contextual program witness.
+                pub const authored_prompt_mode = Op.mode;
+                /// Payload type accepted by the authored contextual operation carrier.
+                pub const AuthoredPayloadType = Op.Payload;
+                /// Resume type emitted by the authored contextual operation carrier.
+                pub const AuthoredResumeType = Op.Resume;
+                /// Continuation answer type consumed by the binding after-resume hook.
+                pub const AuthoredContinueAnswerType = switch (@typeInfo(@TypeOf(Continuation.apply(dummyValue(ContextPtrType), dummyValue(Op.Resume))))) {
+                    .error_union => |err_union| err_union.payload,
+                    else => @TypeOf(Continuation.apply(dummyValue(ContextPtrType), dummyValue(Op.Resume))),
+                };
+                /// Final answer type produced by the authored contextual program.
+                pub const AuthoredAnswerType = Answer;
+                /// Whether this authored contextual program has a semantic compiled ProgramPlan path.
+                pub const has_compiled_plan = authoredCompiledProgram() != null and SpecType.builder_kind == .choice;
 
                 /// Install the explicit handler carrier onto the authored choice program before execution.
                 pub fn activate(self: *const @This()) void {
@@ -539,6 +823,33 @@ fn Binding(
                 pub fn deactivate(self: *const @This()) void {
                     const mutable_self: *@This() = @constCast(self);
                     Self.popActiveCarrier(&mutable_self.active_node, self.prompt);
+                }
+
+                /// Return the compiled ProgramPlan when this authored contextual carrier can lower semantically.
+                pub fn compiledPlan() ?public_lowering.ProgramPlan {
+                    if (SpecType.builder_kind != .choice) return null;
+                    return authoredCompiledProgram();
+                }
+
+                /// Execute this authored contextual program through its compiled ProgramPlan when available.
+                pub fn runCompiled(self: @This(), runtime: *lowered_machine.Runtime) lowered_machine.ResetError(ErrorSet || ExplicitContinuationErrorSetWithContext(ContextPtrType, Continuation, Op.Resume))!Answer {
+                    if (SpecType.builder_kind != .choice) {
+                        @compileError("compiled authored contextual program path is unavailable for this binding");
+                    }
+                    const compiled_plan = comptime authoredCompiledProgram() orelse
+                        @compileError("compiled authored contextual program path is unavailable for this binding");
+                    var handlers: AuthoredCompiledHandlersWithContext(ContextPtrType, Continuation) = .{
+                        .authored = .{
+                            .binding = self.carrier.binding,
+                            .continuation_ctx = self.continuation_ctx,
+                        },
+                    };
+                    const payload_codec = comptime supportedAuthoredPayloadCodec().?;
+                    const args = if (payload_codec == .unit)
+                        &.{}
+                    else
+                        &.{encodeAuthoredPayload(payload_codec, self.carrier.payload)};
+                    return (public_lowering.runExecutablePlanWithArgs(runtime, compiled_plan, &handlers, args) catch |err| return @errorCast(err)).value;
                 }
             };
         }
@@ -694,6 +1005,7 @@ fn Binding(
             return .{
                 .carrier = .{ .binding = self, .payload = payload },
                 .prompt = self.promptRefWithContext(@TypeOf(continuation_ctx), Continuation),
+                .continuation_ctx = continuation_ctx,
                 .program = frontend.choiceProgramWithContexts(
                     ProgramPrompt,
                     Op.Resume,
@@ -952,6 +1264,11 @@ pub fn Program(
                     var ctx = Context{ .bindings = &bindings };
                     if (comptime @hasDecl(Body, "program")) {
                         var authored = Body.program(&ctx);
+                        if (@hasDecl(@TypeOf(authored), "has_compiled_plan") and
+                            @TypeOf(authored).has_compiled_plan)
+                        {
+                            return try authored.runCompiled(runtime);
+                        }
                         authored.activate();
                         defer authored.deactivate();
                         return try frontend.run(runtime, authored.prompt, authored.program);
