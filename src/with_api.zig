@@ -608,6 +608,28 @@ fn callerSourceBytes(
     return caller_source_override orelse @embedFile(caller.file);
 }
 
+const CallerOwnedCompilationKind = enum {
+    explicit_location,
+    explicit_location_and_content,
+    none,
+};
+
+fn callerOwnedCallName(comptime kind: CallerOwnedCompilationKind) ?[]const u8 {
+    return switch (kind) {
+        .none => null,
+        .explicit_location => "withCallerSource",
+        .explicit_location_and_content => "withCallerSourceAndContent",
+    };
+}
+
+fn callerOwnedBodyArgIndex(comptime kind: CallerOwnedCompilationKind) ?usize {
+    return switch (kind) {
+        .none => null,
+        .explicit_location => 3,
+        .explicit_location_and_content => 4,
+    };
+}
+
 fn offsetForLineColumn(
     comptime source: []const u8,
     comptime target_line: u32,
@@ -640,17 +662,15 @@ fn isIgnorableCallsiteToken(tag: std.zig.Token.Tag) bool {
 fn anonymousBodyExprBounds(
     comptime caller: std.builtin.SourceLocation,
     comptime caller_source_override: ?[:0]const u8,
+    comptime caller_owned_kind: CallerOwnedCompilationKind,
 ) ?struct { start: usize, end: usize } {
     comptime {
         @setEvalBranchQuota(2_000_000);
     }
+    const call_name = comptime callerOwnedCallName(caller_owned_kind) orelse return null;
+    const body_arg_index = comptime callerOwnedBodyArgIndex(caller_owned_kind).?;
     const source = comptime callerSourceBytes(caller, caller_source_override);
     const target_offset = comptime offsetForLineColumn(source, caller.line, caller.column) orelse return null;
-    const call_name = if (caller_source_override != null)
-        "withCallerSourceAndContent"
-    else
-        "withCallerSource";
-    const body_arg_index: usize = if (caller_source_override != null) 4 else 3;
     const call_offset = std.mem.lastIndexOf(u8, source[0..target_offset], call_name) orelse return null;
     var tokenizer = std.zig.Tokenizer.init(source);
     var seen_with_name = false;
@@ -734,10 +754,11 @@ fn anonymousBodySyntheticSource(
     comptime caller: std.builtin.SourceLocation,
     comptime Body: type,
     comptime caller_source_override: ?[:0]const u8,
+    comptime caller_owned_kind: CallerOwnedCompilationKind,
 ) ?[:0]const u8 {
     const method_name = anonymousBodyMethodName(Body) orelse return null;
     const caller_source = comptime callerSourceBytes(caller, caller_source_override);
-    const expr_bounds = comptime anonymousBodyExprBounds(caller, caller_source_override) orelse return null;
+    const expr_bounds = comptime anonymousBodyExprBounds(caller, caller_source_override, caller_owned_kind) orelse return null;
     const expr_len = comptime expr_bounds.end - expr_bounds.start;
     const expr_source = comptime blk: {
         var buffer: [expr_len]u8 = undefined;
@@ -842,14 +863,74 @@ test "owned source witness appended body stays visible to the source graph" {
     try std.testing.expectEqualStrings("__owned_body", graph.functions[graph.entry_index.?].name);
 }
 
+test "caller-owned anonymous body routing stays explicit for withCallerSource" {
+    const caller = std.builtin.SourceLocation{
+        .module = @src().module,
+        .file = "/tmp/caller_owned_routing_probe.zig",
+        .line = 7,
+        .column = 6,
+        .fn_name = "probe",
+    };
+    const caller_source =
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn probe() !void {
+        \\    const caller = @src();
+        \\    _ = try shift.withCallerSource(caller, undefined, .{}, struct {
+        \\        pub fn body(eff: anytype) anyerror!void { _ = eff; }
+        \\    });
+        \\}
+    ;
+    const probe_body = struct {
+        fn body(eff: anytype) anyerror!void {
+            _ = eff;
+        }
+    };
+
+    try std.testing.expect(comptime anonymousBodyCompilable(
+        caller,
+        probe_body,
+        caller_source,
+        .explicit_location,
+    ));
+    try std.testing.expect(!comptime anonymousBodyCompilable(
+        caller,
+        probe_body,
+        caller_source,
+        .none,
+    ));
+}
+
+test "withCallerSource runs anonymous lexical bodies through the public API" {
+    const state = @import("effect/state.zig");
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try withCallerSource(@src(), &runtime, .{
+        .state = state.use(@as(i32, 0)),
+    }, struct {
+        fn body(eff: anytype) anyerror!i32 {
+            const before = try eff.state.get();
+            try eff.state.set(before + 1);
+            return try eff.state.get();
+        }
+    });
+
+    try std.testing.expectEqual(@as(i32, 1), result.value);
+    try std.testing.expectEqual(@as(i32, 1), result.outputs.state);
+}
+
 fn rejectUnsupportedShippedWith(
     comptime Body: type,
     comptime caller: std.builtin.SourceLocation,
     comptime caller_source_override: ?[:0]const u8,
+    comptime caller_owned_kind: CallerOwnedCompilationKind,
 ) void {
     if (builtin.is_test) return;
     if (@hasDecl(Body, "source_path") and @hasDecl(Body, "entry_symbol") and @hasDecl(Body, "ReturnType")) return;
-    if (anonymousBodySyntheticSource(caller, Body, caller_source_override) != null) return;
+    if (anonymousBodySyntheticSource(caller, Body, caller_source_override, caller_owned_kind) != null) return;
     @compileError("shift.with shipped execution currently requires either shift.NamedBody(...) or a caller-owned lexical body shape that can be compiled from the callsite");
 }
 
@@ -1099,12 +1180,13 @@ fn tryCallerOwnedCompiledWith(
     comptime Body: type,
     comptime caller: std.builtin.SourceLocation,
     comptime caller_source_override: ?[:0]const u8,
+    comptime caller_owned_kind: CallerOwnedCompilationKind,
     runtime: *lowered_machine.Runtime,
     handlers_ptr: *HandlersType,
     outputs_ptr: *OutputBundleType(HandlersType),
 ) ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
     if (@hasDecl(Body, "source_path") or @hasDecl(Body, "entry_symbol") or @hasDecl(Body, "ReturnType")) return null;
-    const synthetic_source = anonymousBodySyntheticSource(caller, Body, caller_source_override) orelse return null;
+    const synthetic_source = anonymousBodySyntheticSource(caller, Body, caller_source_override, caller_owned_kind) orelse return null;
     const source_ref = public_lowering.sourceWithContent(caller.file, caller, synthetic_source);
     const lowered_program = public_lowering.lowerOpenRow(source_ref, .{
         .label = "shift.with caller-owned lexical body",
@@ -1236,8 +1318,9 @@ fn anonymousBodyCompilable(
     comptime caller: std.builtin.SourceLocation,
     comptime Body: type,
     comptime caller_source_override: ?[:0]const u8,
+    comptime caller_owned_kind: CallerOwnedCompilationKind,
 ) bool {
-    return anonymousBodySyntheticSource(caller, Body, caller_source_override) != null;
+    return anonymousBodySyntheticSource(caller, Body, caller_source_override, caller_owned_kind) != null;
 }
 
 /// Recover the active lexical rebinding packet from the exact context capability.
@@ -1435,10 +1518,11 @@ fn withAt(
     comptime Body: type,
     comptime caller: std.builtin.SourceLocation,
     comptime caller_source_override: ?[:0]const u8,
+    comptime caller_owned_kind: CallerOwnedCompilationKind,
 ) WithFnReturnType(@TypeOf(handlers), Body) {
     const HandlersType = @TypeOf(handlers);
     comptime assertHandlerBundleShape(HandlersType);
-    comptime rejectUnsupportedShippedWith(Body, caller, caller_source_override);
+    comptime rejectUnsupportedShippedWith(Body, caller, caller_source_override, caller_owned_kind);
 
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
@@ -1450,8 +1534,8 @@ fn withAt(
             .value = value,
         };
     }
-    if (caller_source_override != null and comptime anonymousBodyCompilable(caller, Body, caller_source_override)) {
-        const compiled = tryCallerOwnedCompiledWith(HandlersType, Body, caller, caller_source_override, runtime, &handler_state, &outputs).?;
+    if (comptime anonymousBodyCompilable(caller, Body, caller_source_override, caller_owned_kind)) {
+        const compiled = tryCallerOwnedCompiledWith(HandlersType, Body, caller, caller_source_override, caller_owned_kind, runtime, &handler_state, &outputs).?;
         const value = try compiled;
         return .{
             .outputs = outputs,
@@ -1479,7 +1563,7 @@ pub fn with(
     handlers: anytype,
     comptime Body: type,
 ) WithFnReturnType(@TypeOf(handlers), Body) {
-    return withAt(runtime, handlers, Body, @src(), null);
+    return withAt(runtime, handlers, Body, @src(), null, .none);
 }
 
 /// Run one lexical effect bundle while the caller explicitly supplies the source location used for caller-owned compilation.
@@ -1489,7 +1573,7 @@ pub fn withCallerSource(
     handlers: anytype,
     comptime Body: type,
 ) WithFnReturnType(@TypeOf(handlers), Body) {
-    return withAt(runtime, handlers, Body, caller, null);
+    return withAt(runtime, handlers, Body, caller, null, .explicit_location);
 }
 
 /// Run one lexical effect bundle while the caller explicitly supplies both source location and source bytes for caller-owned compilation.
@@ -1500,7 +1584,7 @@ pub fn withCallerSourceAndContent(
     handlers: anytype,
     comptime Body: type,
 ) WithFnReturnType(@TypeOf(handlers), Body) {
-    return withAt(runtime, handlers, Body, caller, caller_source);
+    return withAt(runtime, handlers, Body, caller, caller_source, .explicit_location_and_content);
 }
 
 /// Run one lexical effect bundle through an explicit caller-owned source witness surface.

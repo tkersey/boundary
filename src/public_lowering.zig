@@ -1158,18 +1158,25 @@ pub fn authoredBoundProgramPlan(
     comptime control_mode: program_plan.ControlMode,
 ) ?program_plan.ProgramPlan {
     const payload_codec = authoredBoundLocalCodecForType(payload_type) orelse return null;
+    const resume_codec = switch (control_mode) {
+        .abort => effect_ir.LocalCodec.unit,
+        .transform, .choice => authoredBoundLocalCodecForType(resume_type) orelse return null,
+    };
     const result_codec = executableResultCodecForType(result_type) catch return null;
     const local_codecs = comptime switch (control_mode) {
         .abort => if (payload_codec == .unit)
             [0]effect_ir.LocalCodec{}
         else
             [1]effect_ir.LocalCodec{payload_codec},
-        .transform, .choice => blk: {
-            const resume_codec = authoredBoundLocalCodecForType(resume_type) orelse return null;
-            break :blk if (payload_codec == .unit)
-                [1]effect_ir.LocalCodec{resume_codec}
+        .transform, .choice => switch (payload_codec == .unit) {
+            true => if (resume_codec == .unit)
+                [0]effect_ir.LocalCodec{}
             else
-                [2]effect_ir.LocalCodec{ payload_codec, resume_codec };
+                [1]effect_ir.LocalCodec{resume_codec},
+            false => if (resume_codec == .unit)
+                [1]effect_ir.LocalCodec{payload_codec}
+            else
+                [2]effect_ir.LocalCodec{ payload_codec, resume_codec },
         },
     };
     const instructions = comptime switch (control_mode) {
@@ -1179,20 +1186,28 @@ pub fn authoredBoundProgramPlan(
             .operand = 0,
             .aux = if (payload_codec == .unit) std.math.maxInt(u16) else 0,
         }},
-        .transform, .choice => [2]effect_ir.Instruction{
-            .{
+        .transform, .choice => if (resume_codec == .unit)
+            [1]effect_ir.Instruction{.{
                 .kind = .call_op,
-                .dst = if (payload_codec == .unit) 0 else 1,
+                .dst = std.math.maxInt(u16),
                 .operand = 0,
                 .aux = if (payload_codec == .unit) std.math.maxInt(u16) else 0,
+            }}
+        else
+            [2]effect_ir.Instruction{
+                .{
+                    .kind = .call_op,
+                    .dst = if (payload_codec == .unit) 0 else 1,
+                    .operand = 0,
+                    .aux = if (payload_codec == .unit) std.math.maxInt(u16) else 0,
+                },
+                .{
+                    .kind = .return_value,
+                    .dst = 0,
+                    .operand = if (payload_codec == .unit) 0 else 1,
+                    .aux = 0,
+                },
             },
-            .{
-                .kind = .return_value,
-                .dst = 0,
-                .operand = if (payload_codec == .unit) 0 else 1,
-                .aux = 0,
-            },
-        },
     };
     const lowered = program_frontend.LoweredOpenRowProgram{
         .entry_index = 0,
@@ -1233,7 +1248,10 @@ pub fn authoredBoundProgramPlan(
                 .instructions = &instructions,
                 .terminator = switch (control_mode) {
                     .abort => .{ .kind = .return_unit },
-                    .transform, .choice => .{ .kind = .return_value },
+                    .transform, .choice => if (resume_codec == .unit)
+                        .{ .kind = .return_unit }
+                    else
+                        .{ .kind = .return_value },
                 },
             }},
         }},
@@ -4334,6 +4352,88 @@ test "CompileIr run applies after handlers for repeated loop resumes" {
     try std.testing.expectEqual(@as(i32, 607), result.value);
     try std.testing.expectEqual(@as(usize, 6), handlers.counter.step_calls);
     try std.testing.expectEqual(@as(usize, 6), handlers.counter.after_calls);
+}
+
+test "authoredBoundProgramPlan validates transform plans with void resumptions" {
+    const plan = authoredBoundProgramPlan(
+        "example.authored_transform_void_resume",
+        []const u8,
+        void,
+        []const u8,
+        .transform,
+    ).?;
+    const Handlers = struct {
+        authored: struct {
+            seen_payload: ?[]const u8 = null,
+            after_calls: usize = 0,
+
+            fn dispatch(self: *@This(), payload: []const u8) anyerror!void {
+                self.seen_payload = payload;
+            }
+
+            fn afterDispatch(self: *@This(), _: void) anyerror![]const u8 {
+                self.after_calls += 1;
+                return "wrapped-transform";
+            }
+        } = .{},
+    };
+    var handlers: Handlers = .{};
+
+    try std.testing.expectEqual(program_plan.TerminatorKind.return_unit, plan.terminators[0].kind);
+    try std.testing.expectEqual(@as(usize, 1), plan.instructions.len);
+    try plan.validate();
+
+    const result = try executeLoweredDispatch(plan, &handlers, 0, &.{.{ .string = "payload" }});
+    switch (result) {
+        .value => |answer| try std.testing.expectEqualStrings("wrapped-transform", decodeRuntimeValue(.string, answer)),
+        .terminal => |_| return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings("payload", handlers.authored.seen_payload.?);
+    try std.testing.expectEqual(@as(usize, 1), handlers.authored.after_calls);
+}
+
+test "authoredBoundProgramPlan validates choice plans with void resumptions" {
+    const plan = authoredBoundProgramPlan(
+        "example.authored_choice_void_resume",
+        []const u8,
+        void,
+        []const u8,
+        .choice,
+    ).?;
+    const Handlers = struct {
+        authored: struct {
+            seen_payload: ?[]const u8 = null,
+            after_calls: usize = 0,
+
+            const decision = union(enum) {
+                resume_with: void,
+                return_now: []const u8,
+            };
+
+            fn dispatch(self: *@This(), payload: []const u8) anyerror!decision {
+                self.seen_payload = payload;
+                return .{ .resume_with = {} };
+            }
+
+            fn afterDispatch(self: *@This(), _: void) anyerror![]const u8 {
+                self.after_calls += 1;
+                return "wrapped-choice";
+            }
+        } = .{},
+    };
+    var handlers: Handlers = .{};
+
+    try std.testing.expectEqual(program_plan.TerminatorKind.return_unit, plan.terminators[0].kind);
+    try std.testing.expectEqual(@as(usize, 1), plan.instructions.len);
+    try plan.validate();
+
+    const result = try executeLoweredDispatch(plan, &handlers, 0, &.{.{ .string = "select" }});
+    switch (result) {
+        .value => |answer| try std.testing.expectEqualStrings("wrapped-choice", decodeRuntimeValue(.string, answer)),
+        .terminal => |_| return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqualStrings("select", handlers.authored.seen_payload.?);
+    try std.testing.expectEqual(@as(usize, 1), handlers.authored.after_calls);
 }
 
 test "executeLoweredDispatch returns abort answers through terminal control" {
