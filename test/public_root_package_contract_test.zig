@@ -18,11 +18,25 @@ fn runChild(
     argv: []const []const u8,
     env_map: ?*const std.process.EnvMap,
 ) !std.process.Child.RunResult {
+    var effective_env = if (env_map) |existing| blk: {
+        var cloned = std.process.EnvMap.init(allocator);
+        var it = existing.iterator();
+        while (it.next()) |entry| {
+            try cloned.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+        break :blk cloned;
+    } else try std.process.getEnvMap(allocator);
+    defer effective_env.deinit();
+
+    if (!effective_env.hash_map.contains("ZIG_GLOBAL_CACHE_DIR")) {
+        try effective_env.put("ZIG_GLOBAL_CACHE_DIR", ".zig-global-cache");
+    }
+
     return try std.process.Child.run(.{
         .allocator = allocator,
         .argv = argv,
         .cwd_dir = cwd_dir,
-        .env_map = env_map,
+        .env_map = &effective_env,
         .max_output_bytes = 32 * 1024,
     });
 }
@@ -278,6 +292,8 @@ test "downstream consumer can import only the root shift module even when PATH s
         \\    if (@hasDecl(shift, "artifact")) @compileError("root leaked artifact");
         \\    if (@hasDecl(shift, "durable")) @compileError("root leaked durable");
         \\    if (@hasDecl(shift, "interpreter")) @compileError("root leaked interpreter");
+        \\    if (@hasDecl(shift, "withCallerSource")) @compileError("root leaked withCallerSource");
+        \\    if (@hasDecl(shift, "withCallerSourceAndContent")) @compileError("root leaked withCallerSourceAndContent");
         \\}
         \\
         \\pub fn main() void {
@@ -285,6 +301,7 @@ test "downstream consumer can import only the root shift module even when PATH s
         \\    _ = shift.RuntimeError;
         \\    _ = shift.effect;
         \\    _ = shift.with;
+        \\    _ = shift.withOwnedSource;
         \\}
         \\
     );
@@ -461,47 +478,36 @@ test "downstream consumer can compile an anonymous same-file lexical body throug
         \\}
         \\
     );
-    try writeTmpFile(tmp.dir, "main.zig", "pub fn main() void {}\n");
-    const main_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.zig");
-    defer std.testing.allocator.free(main_path);
-    const main_source = try std.fmt.allocPrint(std.testing.allocator,
+    const main_source =
         \\const shift = @import("shift");
         \\const std = @import("std");
         \\
-        \\pub fn main() !void {{
-        \\    const caller_src: std.builtin.SourceLocation = .{{
-        \\        .module = @src().module,
-        \\        .file = "{s}",
-        \\        .line = @src().line,
-        \\        .column = @src().column,
-        \\        .fn_name = @src().fn_name,
-        \\    }};
+        \\pub fn main() !void {
         \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
         \\    defer runtime.deinit();
-        \\    const result = try shift.withOwnedSource(caller_src, @embedFile(@src().file), .{{
-        \\        .source_path = "{s}",
-        \\        .entry_symbol = "__owned_body",
+        \\    const result = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{
+        \\        .source_path = @src().file,
+        \\        .body_method_name = "__owned_body",
         \\        .body_source =
-        \\            \\pub fn __owned_body(eff: anytype) anyerror!i32 {{
+        \\            \\pub fn __owned_body(eff: anytype) anyerror!i32 {
         \\            \\    const before = try eff.state.get();
         \\            \\    try eff.state.set(before + 1);
         \\            \\    return try eff.state.get();
-        \\            \\}}
+        \\            \\}
         \\        ,
-        \\    }}, &runtime, .{{
+        \\    }, &runtime, .{
         \\        .state = shift.effect.state.use(@as(i32, 0)),
-        \\    }}, struct {{
-        \\        pub fn body(eff: anytype) anyerror!i32 {{
+        \\    }, struct {
+        \\        pub fn body(eff: anytype) anyerror!i32 {
         \\            const before = try eff.state.get();
         \\            try eff.state.set(before + 1);
         \\            return try eff.state.get();
-        \\        }}
-        \\    }});
+        \\        }
+        \\    });
         \\    if (result.value != 1) return error.UnexpectedResult;
-        \\}}
+        \\}
         \\
-    , .{ main_path, main_path });
-    defer std.testing.allocator.free(main_source);
+    ;
     try writeTmpFile(tmp.dir, "main.zig", main_source);
 
     const argv = zigBuildArgv();
@@ -537,38 +543,27 @@ test "downstream consumer can compile caller-owned NamedBody sources through the
         \\}
         \\
     );
-    try writeTmpFile(tmp.dir, "main.zig", "pub fn main() void {}\n");
-    const main_path = try tmp.dir.realpathAlloc(std.testing.allocator, "main.zig");
-    defer std.testing.allocator.free(main_path);
-    const main_source = try std.fmt.allocPrint(std.testing.allocator,
+    const main_source =
         \\const shift = @import("shift");
         \\const std = @import("std");
         \\
-        \\pub fn body(eff: anytype) anyerror!i32 {{
+        \\pub fn body(eff: anytype) anyerror!i32 {
         \\    const before = try eff.state.get();
         \\    try eff.state.set(before + 1);
         \\    return try eff.state.get();
-        \\}}
+        \\}
         \\
-        \\pub fn main() !void {{
-        \\    const caller_src: std.builtin.SourceLocation = .{{
-        \\        .module = @src().module,
-        \\        .file = "{s}",
-        \\        .line = @src().line,
-        \\        .column = @src().column,
-        \\        .fn_name = @src().fn_name,
-        \\    }};
+        \\pub fn main() !void {
         \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
         \\    defer runtime.deinit();
-        \\    const named = shift.NamedBody("{s}", "body", anyerror!i32, body);
-        \\    const result = try shift.withOwnedSource(caller_src, @embedFile(@src().file), .{{}}, &runtime, .{{
+        \\    const named = shift.NamedBody(@src().file, "body", anyerror!i32, body);
+        \\    const result = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{}, &runtime, .{
         \\        .state = shift.effect.state.use(@as(i32, 0)),
-        \\    }}, named);
+        \\    }, named);
         \\    if (result.value != 1) return error.UnexpectedResult;
-        \\}}
+        \\}
         \\
-    , .{ main_path, main_path });
-    defer std.testing.allocator.free(main_source);
+    ;
     try writeTmpFile(tmp.dir, "main.zig", main_source);
 
     const argv = zigBuildArgv();

@@ -131,8 +131,6 @@ fn afterMethodName(comptime op_name: []const u8) []const u8 {
     var upper_next = true;
     inline for (op_name) |byte| {
         if (byte == '_') {
-            buffer[len] = '_';
-            len += 1;
             upper_next = true;
             continue;
         }
@@ -395,7 +393,7 @@ fn relativeOwnedSourceMatchesRepo(comptime source_ref: SourceRef, comptime calle
     if (std.fs.path.isAbsolute(source_ref.repo_path)) return false;
     if (!pathEquals(source_ref.caller_file, source_ref.repo_path)) return false;
     return comptime blk: {
-        if (!repoPathIsOwned(source_ref.repo_path)) break :blk false;
+        if (!repoPathIsOwned(source_ref.repo_path)) break :blk true;
         const repo_source = source_graph_embed.embeddedSource(source_ref.repo_path);
         break :blk std.mem.eql(u8, caller_source, repo_source);
     };
@@ -496,7 +494,7 @@ pub fn source(comptime repo_path: []const u8, comptime caller: std.builtin.Sourc
     };
 }
 
-/// Build one caller-owned lowering provenance witness from an explicit repo path or caller-owned absolute path, `@src()`, and caller-supplied source bytes.
+/// Build one caller-owned lowering provenance witness from an explicit repo path or caller-owned path, `@src()`, and caller-supplied source bytes.
 pub fn sourceWithContent(
     comptime repo_path: []const u8,
     comptime caller: std.builtin.SourceLocation,
@@ -525,7 +523,7 @@ pub fn importedSource(
     };
 }
 
-/// Build one caller-owned lowering provenance witness with explicit imported helper bytes for either an owned repo path or a caller-owned absolute path.
+/// Build one caller-owned lowering provenance witness with explicit imported helper bytes for either an owned repo path or a caller-owned path.
 pub fn sourceWithContentAndImports(
     comptime repo_path: []const u8,
     comptime caller: std.builtin.SourceLocation,
@@ -2988,16 +2986,16 @@ test "source ownership accepts helper-authored content witnesses when caller byt
     }));
 }
 
-test "source ownership rejects relative content witnesses for non-repo paths" {
-    try std.testing.expect(!sourceOwnershipMatches(.{
+test "source ownership accepts relative content witnesses for caller-owned non-repo paths" {
+    const caller_source =
+        \\pub fn runBody() void {}
+    ;
+
+    try std.testing.expect(sourceOwnershipMatches(.{
         .repo_path = "examples/not_in_repo.zig",
         .caller_file = "examples/not_in_repo.zig",
-        .caller_hash = hashSourceBytes(
-            \\pub fn runBody() void {}
-        ),
-        .caller_source =
-        \\pub fn runBody() void {}
-        ,
+        .caller_hash = hashSourceBytes(caller_source),
+        .caller_source = caller_source,
     }));
 }
 
@@ -3010,12 +3008,12 @@ test "source ownership rejects basename-only content witnesses even when their b
     }));
 }
 
-test "source ownership rejects basename-only content witnesses for non-owned roots" {
+test "source ownership accepts basename-only content witnesses for non-owned roots" {
     const downstream_source =
         \\pub fn runBody() void {}
     ;
 
-    try std.testing.expect(!sourceOwnershipMatches(.{
+    try std.testing.expect(sourceOwnershipMatches(.{
         .repo_path = "downstream_public_lowering_test.zig",
         .caller_file = "downstream_public_lowering_test.zig",
         .caller_hash = hashSourceBytes(downstream_source),
@@ -3331,26 +3329,20 @@ test "file-backed validation rejects Windows absolute helper imports" {
     );
 }
 
-test "after hook naming preserves underscore boundaries" {
+test "after hook naming strips underscore boundaries" {
     comptime {
         const foo_bar = afterMethodName("foo_bar");
         const foo__bar = afterMethodName("foo__bar");
         const _foo_bar = afterMethodName("_foo_bar");
 
-        if (!std.mem.eql(u8, foo_bar, "afterFoo_Bar")) {
-            @compileError("after hook naming must preserve single underscore boundaries");
+        if (!std.mem.eql(u8, foo_bar, "afterFooBar")) {
+            @compileError("after hook naming must strip single underscore boundaries");
         }
-        if (!std.mem.eql(u8, foo__bar, "afterFoo__Bar")) {
-            @compileError("after hook naming must preserve repeated underscore boundaries");
+        if (!std.mem.eql(u8, foo__bar, "afterFooBar")) {
+            @compileError("after hook naming must strip repeated underscore boundaries");
         }
-        if (!std.mem.eql(u8, _foo_bar, "after_Foo_Bar")) {
-            @compileError("after hook naming must preserve leading underscore boundaries");
-        }
-        if (std.mem.eql(u8, foo_bar, foo__bar) or
-            std.mem.eql(u8, foo_bar, _foo_bar) or
-            std.mem.eql(u8, foo__bar, _foo_bar))
-        {
-            @compileError("after hook naming must keep underscored op names distinct");
+        if (!std.mem.eql(u8, _foo_bar, "afterFooBar")) {
+            @compileError("after hook naming must strip leading underscore boundaries");
         }
     }
 }

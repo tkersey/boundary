@@ -66,5 +66,6 @@ export bans, or compile-time misuse fixtures as part of the default contract.
 Manual run, tool, and benchmark surfaces still exist for local iteration:
 
 - `zig build run-*` for retained examples
+- `zig build source-lower`
 - `zig build bench*`
 - `zig build zprof-hotspots`

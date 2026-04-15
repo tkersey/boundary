@@ -4005,8 +4005,22 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const bridge_multi_mod = b.createModule(.{
+        .root_source_file = b.path("test/direct_style_bridge/multi_prompt.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    bridge_multi_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    const bridge_redelim_mod = b.createModule(.{
+        .root_source_file = b.path("test/direct_style_bridge/static_redelim.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    bridge_redelim_mod.addImport("parity_scenarios", parity_scenarios_mod);
     witness_sources_mod.addImport("lowered_machine", lowered_machine_mod);
     witness_sources_mod.addImport("shift", shift_mod);
+    witness_sources_mod.addImport("bridge_fixture_multi_prompt", bridge_multi_mod);
+    witness_sources_mod.addImport("bridge_fixture_static_redelim", bridge_redelim_mod);
     witness_sources_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
     witness_sources_mod.addImport("frontend_support", frontend_support_mod);
     witnesses_mod.addImport("witness_sources", witness_sources_mod);
@@ -4409,6 +4423,23 @@ pub fn build(b: *std.Build) void {
     const src_lower_reject_tests = addFilteredTest(b, src_lower_reject_mod, test_runner_args.filters.items);
     const run_src_lower_reject_tests = addRunArtifactWithArgs(b, src_lower_reject_tests, test_runner_args.passthrough.items);
 
+    const source_lowering_tool_mod = b.createModule(.{
+        .root_source_file = b.path("tools/shift_source_lower.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    source_lowering_tool_mod.addImport("source_lowering", source_lowering_mod);
+    source_lowering_tool_mod.addImport("lowered_machine", lowered_machine_mod);
+    source_lowering_tool_mod.addImport("error_witness", error_witness_mod);
+    const source_lowering_tool_exe = b.addExecutable(.{
+        .name = "shift-source-lower",
+        .root_module = source_lowering_tool_mod,
+    });
+    const source_lowering_tool_install = b.addInstallArtifact(source_lowering_tool_exe, .{});
+    const source_lowering_tool_step = b.step("source-lower", "Build the internal source-lowering tool.");
+    source_lowering_tool_step.dependOn(&source_lowering_tool_exe.step);
+    source_lowering_tool_step.dependOn(&source_lowering_tool_install.step);
+
     const lexical_witness_runners_mod = b.createModule(.{
         .root_source_file = b.path("test/lexical_witness_support.zig"),
         .target = target,
@@ -4436,10 +4467,22 @@ pub fn build(b: *std.Build) void {
     lexical_with_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     const lexical_with_tests = addFilteredTest(b, lexical_with_mod, test_runner_args.filters.items);
     const run_lexical_with_tests = addRunArtifactWithArgs(b, lexical_with_tests, test_runner_args.passthrough.items);
+
+    const program_bridge_test_mod = b.createModule(.{
+        .root_source_file = b.path("test/program_bridge_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    program_bridge_test_mod.addImport("lowered_machine", lowered_machine_mod);
+    program_bridge_test_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    program_bridge_test_mod.addImport("program_bridge", program_bridge_mod);
+    const program_bridge_tests = addFilteredTest(b, program_bridge_test_mod, test_runner_args.filters.items);
+    const run_program_bridge_tests = addRunArtifactWithArgs(b, program_bridge_tests, test_runner_args.passthrough.items);
     const test_suites = [_]TestSuiteSpec{
         .{ .suite_id = "root", .description = "Root lexical surface", .run_step = run_root_tests },
         .{ .suite_id = "frontend", .description = "Frontend internal module", .run_step = run_frontend_internal_tests },
         .{ .suite_id = "program-plan-review", .description = "ProgramPlan regression suite", .run_step = run_plan_review_tests },
+        .{ .suite_id = "program-bridge", .description = "Program bridge suite", .run_step = run_program_bridge_tests },
         .{ .suite_id = "witness-corpus", .description = "Core witness corpus", .run_step = run_witness_tests },
         .{ .suite_id = "runtime-contract", .description = "Runtime contract suite", .run_step = run_runtime_contract_tests },
         .{ .suite_id = "prompt-token", .description = "Prompt token contract suite", .run_step = run_prompt_token_tests },

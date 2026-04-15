@@ -769,40 +769,10 @@ fn anonymousBodySyntheticSource(
     };
     const holder_name = anonymousBodyHolderName(caller);
     const entry_name = anonymousBodyEntryName(caller);
-    return comptime blk: {
-        var buffer: [caller_source.len + 4096:0]u8 = undefined;
-        var index: usize = 0;
-
-        const append = struct {
-            fn bytes(buffer_ptr: []u8, index_ptr: *usize, comptime segment: []const u8) void {
-                @memcpy(buffer_ptr[index_ptr.* .. index_ptr.* + segment.len], segment);
-                index_ptr.* += segment.len;
-            }
-        }.bytes;
-
-        append(buffer[0..], &index, caller_source);
-        append(buffer[0..], &index, "\nconst ");
-        append(buffer[0..], &index, holder_name);
-        append(buffer[0..], &index, " = ");
-        append(buffer[0..], &index, expr_source);
-        append(buffer[0..], &index, ";\npub fn ");
-        append(buffer[0..], &index, entry_name);
-        append(buffer[0..], &index, "(eff: anytype) @TypeOf(");
-        append(buffer[0..], &index, holder_name);
-        append(buffer[0..], &index, ".");
-        append(buffer[0..], &index, method_name);
-        append(buffer[0..], &index, "(eff)) { return ");
-        append(buffer[0..], &index, holder_name);
-        append(buffer[0..], &index, ".");
-        append(buffer[0..], &index, method_name);
-        append(buffer[0..], &index, "(eff); }\n");
-
-        if (index > buffer.len - 1) {
-            @compileError("anonymous caller-owned lexical body wrapper exceeded the fixed synthetic source buffer");
-        }
-        buffer[index] = 0;
-        break :blk buffer[0..index :0];
-    };
+    return std.fmt.comptimePrint(
+        "{s}\nconst {s} = {s};\npub fn {s}(eff: anytype) @TypeOf({s}.{s}(eff)) {{ return {s}.{s}(eff); }}\n",
+        .{ caller_source, holder_name, expr_source, entry_name, holder_name, method_name, holder_name, method_name },
+    );
 }
 
 fn witnessSyntheticSource(
@@ -1224,7 +1194,9 @@ fn tryOwnedSourceCompiledWith(
         Body.source_path
     else
         caller.file;
-    const entry_symbol = witness.entry_symbol orelse if (@hasDecl(Body, "entry_symbol"))
+    const entry_symbol = witness.entry_symbol orelse if (witness.body_source != null)
+        witness.body_method_name
+    else if (@hasDecl(Body, "entry_symbol"))
         Body.entry_symbol
     else
         anonymousBodyEntryName(caller);

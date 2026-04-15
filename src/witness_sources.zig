@@ -1,6 +1,9 @@
 const builtin = @import("builtin");
 const lexical_runtime = @import("shift");
 const std = @import("std");
+
+const bridge_multi_prompt = @import("bridge_fixture_multi_prompt");
+const bridge_static_redelim = @import("bridge_fixture_static_redelim");
 const ResumeWitness = lexical_runtime.effect.Define(.{
     .state_type = void,
     .ops = .{
@@ -122,7 +125,6 @@ const transcript_static_redelim = struct {
 
         /// Preserve the composed outer answer unchanged.
         pub fn afterStep(_: *@This(), answer: i32) i32 {
-            note("outer-handler-exit");
             return answer;
         }
     };
@@ -139,7 +141,6 @@ const transcript_static_redelim = struct {
 
         /// Preserve the composed inner answer unchanged.
         pub fn afterStep(_: *@This(), answer: i32) i32 {
-            note("inner-handler-exit");
             return answer;
         }
     };
@@ -303,29 +304,28 @@ pub fn runAtmResumeTransform(writer: anytype) anyerror!void {
 
 /// Run the canonical ordinary-source static re-delimitation witness transcript.
 pub fn runStaticRedelim(writer: anytype) anyerror!void {
+    if (!builtin.is_test) return bridge_static_redelim.run(writer);
+
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript_static_redelim.len = 0;
     transcript_static_redelim.runtime_ptr = &runtime;
-    const result = if (builtin.is_test)
-        try lexical_runtime.with(&runtime, .{
-            .outer = ResumeWitness.use(.{ .handler = transcript_static_redelim.OuterHandler{} }),
-        }, struct {
-            /// Keep the nested-prompt semantic witness on the test-only legacy path until public lowering admits it.
-            pub fn body(outer_eff: anytype) anyerror!i32 {
-                return witnessStaticRedelimOuterBody(outer_eff);
-            }
-        })
-    else
-        try lexical_runtime.with(&runtime, .{
-            .outer = ResumeWitness.use(.{ .handler = transcript_static_redelim.OuterHandler{} }),
-        }, lexical_runtime.NamedBody("src/witness_sources.zig", "witnessStaticRedelimOuterBody", anyerror!i32, witnessStaticRedelimOuterBody));
+    const result = try lexical_runtime.with(&runtime, .{
+        .outer = ResumeWitness.use(.{ .handler = transcript_static_redelim.OuterHandler{} }),
+    }, struct {
+        /// Keep the nested-prompt semantic witness on the test-only legacy path until public lowering admits it.
+        pub fn body(outer_eff: anytype) anyerror!i32 {
+            return witnessStaticRedelimOuterBody(outer_eff);
+        }
+    });
     try printTranscript(writer, transcript_static_redelim.items[0..transcript_static_redelim.len]);
     try writer.print("final={d}\n", .{result.value});
 }
 
 /// Run the canonical ordinary-source multi-prompt witness transcript.
 pub fn runMultiPrompt(writer: anytype) anyerror!void {
+    if (!builtin.is_test) return bridge_multi_prompt.run(writer);
+
     const OuterHandler = struct {
         state: void = {},
 
@@ -357,21 +357,15 @@ pub fn runMultiPrompt(writer: anytype) anyerror!void {
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript_multi_prompt.len = 0;
-    const result = if (builtin.is_test)
-        try lexical_runtime.with(&runtime, .{
-            .outer = ResumeWitness.use(.{ .handler = OuterHandler{} }),
-            .inner = ResumeWitness.use(.{ .handler = InnerHandler{} }),
-        }, struct {
-            /// Keep the multi-prompt separation witness on the test-only legacy path until public lowering admits it.
-            pub fn body(eff: anytype) anyerror!i32 {
-                return witnessMultiPromptBody(eff);
-            }
-        })
-    else
-        try lexical_runtime.with(&runtime, .{
-            .outer = ResumeWitness.use(.{ .handler = OuterHandler{} }),
-            .inner = ResumeWitness.use(.{ .handler = InnerHandler{} }),
-        }, lexical_runtime.NamedBody("src/witness_sources.zig", "witnessMultiPromptBody", anyerror!i32, witnessMultiPromptBody));
+    const result = try lexical_runtime.with(&runtime, .{
+        .outer = ResumeWitness.use(.{ .handler = OuterHandler{} }),
+        .inner = ResumeWitness.use(.{ .handler = InnerHandler{} }),
+    }, struct {
+        /// Keep the multi-prompt separation witness on the test-only legacy path until public lowering admits it.
+        pub fn body(eff: anytype) anyerror!i32 {
+            return witnessMultiPromptBody(eff);
+        }
+    });
     try printTranscript(writer, transcript_multi_prompt.items[0..transcript_multi_prompt.len]);
     try writer.print("final={d}\n", .{result.value});
 }
