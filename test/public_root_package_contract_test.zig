@@ -41,16 +41,35 @@ fn runChild(
     });
 }
 
-fn extractSuggestedFingerprint(stderr: []const u8) ?[]const u8 {
+const FingerprintRepair = struct {
+    manifest_path: []const u8,
+    fingerprint: []const u8,
+};
+
+fn extractSuggestedFingerprint(stderr: []const u8) ?FingerprintRepair {
     const marker = "if this is a new or forked package, use this value: ";
     const start = std.mem.indexOf(u8, stderr, marker) orelse return null;
-    const fingerprint = stderr[start + marker.len ..];
-    const line_end = std.mem.indexOfScalar(u8, fingerprint, '\n') orelse fingerprint.len;
-    return fingerprint[0..line_end];
+    const fingerprint_tail = stderr[start + marker.len ..];
+    const fingerprint_end = std.mem.indexOfScalar(u8, fingerprint_tail, '\n') orelse fingerprint_tail.len;
+    const fingerprint = fingerprint_tail[0..fingerprint_end];
+
+    const path_marker = ":1:2: error: invalid fingerprint:";
+    const path_end = std.mem.indexOf(u8, stderr, path_marker) orelse return null;
+    const line_start = std.mem.lastIndexOfScalar(u8, stderr[0..path_end], '\n') orelse 0;
+    const path_start = if (line_start == 0) 0 else line_start + 1;
+    return .{
+        .manifest_path = stderr[path_start..path_end],
+        .fingerprint = fingerprint,
+    };
 }
 
-fn rewriteBuildZonFingerprint(cwd_dir: std.fs.Dir, allocator: std.mem.Allocator, fingerprint: []const u8) !void {
-    const manifest = try cwd_dir.readFileAlloc(allocator, "build.zig.zon", std.math.maxInt(usize));
+fn rewriteBuildZonFingerprint(allocator: std.mem.Allocator, manifest_path: []const u8, fingerprint: []const u8) !void {
+    const manifest_dir_path = std.fs.path.dirname(manifest_path) orelse return error.InvalidConsumerManifest;
+    const manifest_basename = std.fs.path.basename(manifest_path);
+    var manifest_dir = try std.fs.openDirAbsolute(manifest_dir_path, .{});
+    defer manifest_dir.close();
+
+    const manifest = try manifest_dir.readFileAlloc(allocator, manifest_basename, std.math.maxInt(usize));
     defer allocator.free(manifest);
 
     const marker = ".fingerprint = ";
@@ -66,7 +85,7 @@ fn rewriteBuildZonFingerprint(cwd_dir: std.fs.Dir, allocator: std.mem.Allocator,
         .{ manifest[0..value_start], fingerprint, manifest[value_end..] },
     );
     defer allocator.free(repaired);
-    try writeTmpFile(cwd_dir, "build.zig.zon", repaired);
+    try writeTmpFile(manifest_dir, manifest_basename, repaired);
 }
 
 fn runChildWithFingerprintRepair(
@@ -75,20 +94,22 @@ fn runChildWithFingerprintRepair(
     argv: []const []const u8,
     env_map: ?*const std.process.EnvMap,
 ) !std.process.Child.RunResult {
-    const result = try runChild(cwd_dir, allocator, argv, env_map);
+    while (true) {
+        const result = try runChild(cwd_dir, allocator, argv, env_map);
 
-    switch (result.term) {
-        .Exited => |code| if (code != 0) {
-            const suggested = extractSuggestedFingerprint(result.stderr) orelse return result;
-            try rewriteBuildZonFingerprint(cwd_dir, allocator, suggested);
-            allocator.free(result.stdout);
-            allocator.free(result.stderr);
-            return try runChild(cwd_dir, allocator, argv, env_map);
-        },
-        else => {},
+        switch (result.term) {
+            .Exited => |code| if (code != 0) {
+                const suggested = extractSuggestedFingerprint(result.stderr) orelse return result;
+                try rewriteBuildZonFingerprint(allocator, suggested.manifest_path, suggested.fingerprint);
+                allocator.free(result.stdout);
+                allocator.free(result.stderr);
+                continue;
+            },
+            else => {},
+        }
+
+        return result;
     }
-
-    return result;
 }
 
 fn runChildExpectSuccess(
@@ -173,6 +194,18 @@ const fixture_zlinter_dependency =
     \\            .hash = "zlinter-0.0.1-OjQ08dCnCwBINQWXHHWuaDi4eSx9hRXBbJUtySTqfcU3",
     \\        },
 ;
+const fixture_zprof_dependency =
+    \\        .zprof = .{
+    \\            .url = "https://github.com/ANDRVV/zprof/archive/v3.0.1.zip",
+    \\            .hash = "zprof-3.0.0-Z3ILTYpyAABVThrMKcGO58SgE-kGtctSugefMGgSPEyy",
+    \\            .lazy = true,
+    \\        },
+;
+const fixture_zprof_stub_dependency =
+    \\        .zprof = .{
+    \\            .path = "deps/zprof",
+    \\        },
+;
 const fixture_zlinter_stub =
     \\const zlinter = struct {
     \\    pub const BuiltinLintRule = enum { fixture_noop };
@@ -193,6 +226,31 @@ const fixture_zlinter_stub =
     \\        }
     \\    };
     \\};
+;
+const fixture_zprof_build =
+    \\const std = @import("std");
+    \\
+    \\pub fn build(b: *std.Build) void {
+    \\    _ = b.addModule("zprof", .{
+    \\        .root_source_file = b.path("src/root.zig"),
+    \\    });
+    \\}
+;
+const fixture_zprof_zon =
+    \\.{
+    \\    .name = .zprof,
+    \\    .version = "0.0.0",
+    \\    .minimum_zig_version = "0.15.2",
+    \\    .paths = .{
+    \\        "build.zig",
+    \\        "build.zig.zon",
+    \\        "src",
+    \\    },
+    \\    .fingerprint = 0xfeedfacecafebeef,
+    \\}
+;
+const fixture_zprof_root =
+    \\pub const Profiler = struct {};
 ;
 
 fn copyRepoFileIntoFixture(
@@ -274,16 +332,43 @@ fn rewriteFixtureShiftBuildForHermeticTests(tmp: *std.testing.TmpDir) !void {
     const original_zon = try tmp.dir.readFileAlloc(std.testing.allocator, fixture_zon_path, std.math.maxInt(usize));
     defer std.testing.allocator.free(original_zon);
 
-    const dependency_start = std.mem.indexOf(u8, original_zon, fixture_zlinter_dependency) orelse return error.InvalidPublishedPackageFixture;
-    const dependency_end = dependency_start + fixture_zlinter_dependency.len;
-    const rewritten_zon = try std.fmt.allocPrint(
-        std.testing.allocator,
-        "{s}{s}",
-        .{ original_zon[0..dependency_start], original_zon[dependency_end..] },
-    );
+    const hermetic_dependency_blocks = [_][]const u8{
+        fixture_zlinter_dependency,
+    };
+    var rewritten_zon = try std.testing.allocator.dupe(u8, original_zon);
     defer std.testing.allocator.free(rewritten_zon);
 
+    for (hermetic_dependency_blocks) |dependency_block| {
+        const dependency_start = std.mem.indexOf(u8, rewritten_zon, dependency_block) orelse return error.InvalidPublishedPackageFixture;
+        const dependency_end = dependency_start + dependency_block.len;
+        const next_zon = try std.fmt.allocPrint(
+            std.testing.allocator,
+            "{s}{s}",
+            .{ rewritten_zon[0..dependency_start], rewritten_zon[dependency_end..] },
+        );
+        std.testing.allocator.free(rewritten_zon);
+        rewritten_zon = next_zon;
+    }
+
+    const zprof_dependency_start = std.mem.indexOf(u8, rewritten_zon, fixture_zprof_dependency) orelse return error.InvalidPublishedPackageFixture;
+    const zprof_dependency_end = zprof_dependency_start + fixture_zprof_dependency.len;
+    const rewritten_with_stub_zprof = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "{s}{s}{s}",
+        .{
+            rewritten_zon[0..zprof_dependency_start],
+            fixture_zprof_stub_dependency,
+            rewritten_zon[zprof_dependency_end..],
+        },
+    );
+    std.testing.allocator.free(rewritten_zon);
+    rewritten_zon = rewritten_with_stub_zprof;
+
     try writeTmpFile(tmp.dir, fixture_zon_path, rewritten_zon);
+
+    try writeTmpFile(tmp.dir, "deps/shift/deps/zprof/build.zig", fixture_zprof_build);
+    try writeTmpFile(tmp.dir, "deps/shift/deps/zprof/build.zig.zon", fixture_zprof_zon);
+    try writeTmpFile(tmp.dir, "deps/shift/deps/zprof/src/root.zig", fixture_zprof_root);
 }
 
 fn writeConsumerBuildFiles(tmp: *std.testing.TmpDir, repo_root: []const u8) !void {
