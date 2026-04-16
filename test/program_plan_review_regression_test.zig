@@ -662,6 +662,96 @@ test "ProgramPlan.validate accepts helper terminal escapes when result codecs ma
     try plan.validate();
 }
 
+test "ProgramPlan.validate accepts helper value destinations typed by helper result codecs" {
+    const plan = internal_program_plan.ProgramPlan{
+        .label = "valid.helper_value_result_codec_match",
+        .ir_hash = 2,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "root",
+                .value_codec = .string,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 2,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .unit,
+                .result_codec = .string,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 1,
+                .local_count = 0,
+                .first_block = 1,
+                .block_count = 1,
+                .first_instruction = 2,
+                .instruction_count = 1,
+            },
+        },
+        .requirements = &.{.{
+            .label = "tooling",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "dispatch",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .unit,
+            .has_after = true,
+        }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .call_args = &.{},
+        .blocks = &.{
+            .{
+                .first_instruction = 0,
+                .instruction_count = 2,
+                .terminator_index = 0,
+            },
+            .{
+                .first_instruction = 2,
+                .instruction_count = 1,
+                .terminator_index = 1,
+            },
+        },
+        .terminators = &.{
+            .{ .kind = .return_value },
+            .{ .kind = .return_unit },
+        },
+        .instructions = &.{
+            .{
+                .kind = .call_helper,
+                .dst = 0,
+                .operand = 1,
+                .aux = std.math.maxInt(u16),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+            .{
+                .kind = .call_op,
+                .operand = 0,
+                .aux = std.math.maxInt(u16),
+            },
+        },
+    };
+
+    try plan.validate();
+}
+
 test "ProgramPlan.validate ignores unreachable helper terminal-only paths when checking helper codec escape" {
     const plan = internal_program_plan.ProgramPlan{
         .label = "valid.helper_unreachable_terminal_codec_escape",

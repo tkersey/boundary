@@ -375,6 +375,7 @@ fn executeFunction(
                 ),
                 .call_helper => {
                     const callee = ctx.plan.functions[instruction.operand];
+                    const helper_result_codec = program_plan.functionResultCodec(callee);
                     const helper_args = try ctx.allocator.alloc(lowered_machine.ProgramValue, callee.parameter_count);
                     defer ctx.allocator.free(helper_args);
                     for (helper_args, 0..) |*slot, arg_index| {
@@ -384,7 +385,7 @@ fn executeFunction(
                     const helper_result = try executeFunction(ctx, instruction.operand, helper_args);
                     switch (helper_result) {
                         .value => |value| {
-                            if (callee.value_codec != .unit) setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, value);
+                            if (helper_result_codec != .unit) setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, value);
                         },
                         .terminal => |value| return try unwindAfterStack(ctx, function.value_codec, function_result_codec, &after_stack, .{ .terminal = value }),
                         .rejected => |failure| return .{ .rejected = failure },
@@ -1327,6 +1328,171 @@ test "artifact runtime decodes after-hook replies with the function result codec
             defer deinitRuntimeValue(std.testing.allocator, value);
             try std.testing.expect(value.owned);
             try std.testing.expectEqualStrings("wrapped-transform", value.value.string);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqual(@as(usize, 1), after_calls);
+}
+
+test "artifact runtime stores helper values using helper result codecs" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.helper_value_result_codec_runtime",
+        .ir_hash = 0x306,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "entry",
+                .value_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 2,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .unit,
+                .result_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 1,
+                .local_count = 0,
+                .first_block = 1,
+                .entry_block = 1,
+                .block_count = 1,
+                .first_instruction = 2,
+                .instruction_count = 1,
+            },
+        },
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "dispatch", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit, .has_after = true }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .call_args = &.{},
+        .blocks = &.{
+            .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+            .{ .first_instruction = 2, .instruction_count = 1, .terminator_index = 1 },
+        },
+        .terminators = &.{
+            .{ .kind = .return_value },
+            .{ .kind = .return_unit },
+        },
+        .instructions = &.{
+            .{ .kind = .call_helper, .dst = 0, .operand = 1, .aux = std.math.maxInt(u16) },
+            .{ .kind = .return_value, .operand = 0 },
+            .{ .kind = .call_op, .operand = 0, .aux = std.math.maxInt(u16) },
+        },
+    };
+
+    const capabilities = [_]artifact.CapabilityV1{.{
+        .capability_id = 0,
+        .kind = .tool,
+        .label = "generated/tooling@v1",
+        .ops = &.{
+            .{
+                .capability_id = 0,
+                .op_id = 0,
+                .global_op_name = capability_global_tool_call,
+                .payload_codec = .unit,
+                .result_codec = .unit,
+                .plan_op_ordinal = 0,
+            },
+            .{
+                .capability_id = 0,
+                .op_id = 1,
+                .global_op_name = capability_global_tool_after,
+                .payload_codec = .unit,
+                .result_codec = .string,
+                .plan_op_ordinal = 0,
+            },
+        },
+    }};
+
+    var logs = std.ArrayList(host.HostLogEntryV1).empty;
+    defer logs.deinit(std.testing.allocator);
+    var next_request_id: u64 = 1;
+    const decoded = artifact.ArtifactV1{
+        .semantic_ir_hash64 = plan.ir_hash,
+        .manifest_build_fingerprint = std.mem.zeroes([32]u8),
+        .build_fingerprint_blake3_256 = std.mem.zeroes([32]u8),
+        .capabilities = &capabilities,
+        .requirement_capability_ids = &.{0},
+        .functions = plan.functions,
+        .requirements = plan.requirements,
+        .ops = plan.ops,
+        .outputs = plan.outputs,
+        .locals = plan.locals,
+        .call_args = plan.call_args,
+        .blocks = plan.blocks,
+        .terminators = plan.terminators,
+        .instructions = plan.instructions,
+    };
+    var after_calls: usize = 0;
+    var ctx = ExecutionContext{
+        .allocator = std.testing.allocator,
+        .decoded = &decoded,
+        .plan = plan,
+        .adapter = .{
+            .ctx = &after_calls,
+            .dispatchFn = struct {
+                fn dispatch(ctx_ptr: ?*anyopaque, allocator: std.mem.Allocator, request: host.HostEffectRequestV1) anyerror!host.HostEffectResultV1 {
+                    const counter = @as(*usize, @ptrCast(@alignCast(ctx_ptr.?)));
+                    switch (request.body) {
+                        .tool_call => |tool_call| {
+                            if (std.mem.eql(u8, tool_call.op_name, "dispatch")) {
+                                return .{
+                                    .schema_version = 1,
+                                    .request_id = request.request_id,
+                                    .body = .{ .success = .{
+                                        .tool_id = try allocator.dupe(u8, tool_call.tool_id),
+                                        .call_id = 41,
+                                        .control = .@"resume",
+                                        .value = .null,
+                                        .owns_tool_id = true,
+                                    } },
+                                };
+                            }
+                            if (std.mem.eql(u8, tool_call.op_name, "afterDispatch")) {
+                                counter.* += 1;
+                                return .{
+                                    .schema_version = 1,
+                                    .request_id = request.request_id,
+                                    .body = .{ .success = .{
+                                        .tool_id = try allocator.dupe(u8, tool_call.tool_id),
+                                        .call_id = tool_call.call_id,
+                                        .control = .@"resume",
+                                        .value = .{ .string = try allocator.dupe(u8, "wrapped-helper") },
+                                        .owns_tool_id = true,
+                                    } },
+                                };
+                            }
+                            return error.UnexpectedHostDispatch;
+                        },
+                        else => return error.UnexpectedHostDispatch,
+                    }
+                }
+            }.dispatch,
+        },
+        .logs = &logs,
+        .next_request_id = &next_request_id,
+    };
+
+    var returned = try executeFunction(&ctx, 0, &.{});
+    switch (returned) {
+        .value => |*value| {
+            defer deinitRuntimeValue(std.testing.allocator, value);
+            try std.testing.expect(value.owned);
+            try std.testing.expectEqualStrings("wrapped-helper", value.value.string);
         },
         else => return error.TestUnexpectedResult,
     }

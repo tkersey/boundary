@@ -346,6 +346,7 @@ fn continueFunction(
                 }),
                 .call_helper => {
                     const callee = compiled_plan.functions[instruction.operand];
+                    const helper_result_codec = program_plan.functionResultCodec(callee);
                     var helper_args_storage: [helperArgStorageCapacity(compiled_plan)]lowered_machine.ProgramValue = undefined;
                     const helper_args = helper_args: {
                         if (callee.parameter_count == 0) break :helper_args &.{};
@@ -360,7 +361,7 @@ fn continueFunction(
                     const result = try executeDispatch(compiled_plan, handlers_ptr, instruction.operand, helper_args);
                     switch (result) {
                         .value => |typed| {
-                            if (instruction.dst < locals.len and compiled_plan.functions[instruction.operand].value_codec != .unit) {
+                            if (instruction.dst < locals.len and helper_result_codec != .unit) {
                                 setLocal(locals, instruction.dst, typed);
                             }
                         },

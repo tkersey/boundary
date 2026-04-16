@@ -1,9 +1,5 @@
-const builtin = @import("builtin");
 const lexical_runtime = @import("shift");
 const std = @import("std");
-
-const bridge_multi_prompt = @import("bridge_fixture_multi_prompt");
-const bridge_static_redelim = @import("bridge_fixture_static_redelim");
 const ResumeWitness = lexical_runtime.effect.Define(.{
     .state_type = void,
     .ops = .{
@@ -68,27 +64,22 @@ fn witnessAtmBody(eff: anytype) anyerror![]const u8 {
 fn witnessStaticRedelimInnerBody(inner_eff: anytype) anyerror!i32 {
     const inner_value = try inner_eff.inner.step.perform();
     transcript_static_redelim.note("after-inner-shift");
-    if (builtin.is_test) transcript_static_redelim.note("inner-handler-exit");
+    transcript_static_redelim.note("inner-handler-exit");
     return inner_value + 9 + transcript_static_redelim.outer_value;
 }
 
 fn witnessStaticRedelimOuterBody(outer_eff: anytype) anyerror!i32 {
     transcript_static_redelim.outer_value = try outer_eff.outer.step.perform();
     transcript_static_redelim.note("after-outer-shift");
-    const nested = if (builtin.is_test)
-        try lexical_runtime.with(@src(), transcript_static_redelim.runtime_ptr.?, .{
-            .inner = ResumeWitness.use(.{ .handler = transcript_static_redelim.InnerHandler{} }),
-        }, struct {
-            /// Keep the nested inner witness on the test-only legacy path until public lowering admits nested prompts.
-            pub fn body(inner_eff: anytype) anyerror!i32 {
-                return witnessStaticRedelimInnerBody(inner_eff);
-            }
-        })
-    else
-        try lexical_runtime.with(@src(), transcript_static_redelim.runtime_ptr.?, .{
-            .inner = ResumeWitness.use(.{ .handler = transcript_static_redelim.InnerHandler{} }),
-        }, lexical_runtime.NamedBody("src/witness_sources.zig", "witnessStaticRedelimInnerBody", anyerror!i32, witnessStaticRedelimInnerBody));
-    if (builtin.is_test) transcript_static_redelim.note("outer-handler-exit");
+    const nested = try lexical_runtime.with(@src(), transcript_static_redelim.runtime_ptr.?, .{
+        .inner = ResumeWitness.use(.{ .handler = transcript_static_redelim.InnerHandler{} }),
+    }, struct {
+        /// Execute the nested inner witness through the legacy runtime path.
+        pub fn body(inner_eff: anytype) anyerror!i32 {
+            return witnessStaticRedelimInnerBody(inner_eff);
+        }
+    });
+    transcript_static_redelim.note("outer-handler-exit");
     return nested.value;
 }
 
@@ -304,8 +295,6 @@ pub fn runAtmResumeTransform(writer: anytype) anyerror!void {
 
 /// Run the canonical ordinary-source static re-delimitation witness transcript.
 pub fn runStaticRedelim(writer: anytype) anyerror!void {
-    if (!builtin.is_test) return bridge_static_redelim.run(writer);
-
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript_static_redelim.len = 0;
@@ -324,8 +313,6 @@ pub fn runStaticRedelim(writer: anytype) anyerror!void {
 
 /// Run the canonical ordinary-source multi-prompt witness transcript.
 pub fn runMultiPrompt(writer: anytype) anyerror!void {
-    if (!builtin.is_test) return bridge_multi_prompt.run(writer);
-
     const OuterHandler = struct {
         state: void = {},
 

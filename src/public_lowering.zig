@@ -4998,6 +4998,83 @@ test "executeLoweredDispatch rejects return-value terminators without a return i
     try std.testing.expectError(error.ProgramContractViolation, executeLoweredDispatch(plan, &handlers, 0, &.{}));
 }
 
+test "executeLoweredDispatch stores helper values using helper result codecs" {
+    const plan: ProgramPlan = .{
+        .label = "execute.helper_value_result_codec",
+        .ir_hash = 0x702,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "root",
+                .value_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 2,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .unit,
+                .result_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 1,
+                .local_count = 0,
+                .first_block = 1,
+                .entry_block = 1,
+                .block_count = 1,
+                .first_instruction = 2,
+                .instruction_count = 1,
+            },
+        },
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "dispatch", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit, .has_after = true }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .call_args = &.{},
+        .blocks = &.{
+            .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+            .{ .first_instruction = 2, .instruction_count = 1, .terminator_index = 1 },
+        },
+        .terminators = &.{
+            .{ .kind = .return_value },
+            .{ .kind = .return_unit },
+        },
+        .instructions = &.{
+            .{ .kind = .call_helper, .dst = 0, .operand = 1, .aux = std.math.maxInt(u16) },
+            .{ .kind = .return_value, .operand = 0 },
+            .{ .kind = .call_op, .operand = 0, .aux = std.math.maxInt(u16) },
+        },
+    };
+    const Handlers = struct {
+        tooling: struct {
+            pub fn dispatch(_: *@This()) anyerror!void {}
+
+            pub fn afterDispatch(_: *@This(), _: void) anyerror![]const u8 {
+                return "wrapped-helper";
+            }
+        } = .{},
+    };
+    var handlers: Handlers = .{};
+
+    const result = try executeLoweredDispatch(plan, &handlers, 0, &.{});
+    switch (result) {
+        .value => |value| try std.testing.expectEqualStrings("wrapped-helper", value.string),
+        else => return error.TestUnexpectedResult,
+    }
+}
+
 test "runtimeValueMatchesCodec rejects mismatched program-value tags" {
     try std.testing.expect(runtimeValueMatchesCodec(.i32, .{ .i32 = 42 }));
     try std.testing.expect(!runtimeValueMatchesCodec(.i32, .{ .string = "result=early" }));
