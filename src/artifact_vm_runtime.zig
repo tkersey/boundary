@@ -443,7 +443,7 @@ fn executeFunction(
                     instruction.dst,
                     .{
                         .value = .{
-                            .usize = std.fmt.parseUnsigned(usize, instruction.string_literal, 10) catch
+                            .usize = std.fmt.parseUnsigned(usize, instruction.string_literal, 0) catch
                                 return error.ProgramContractViolation,
                         },
                     },
@@ -1497,6 +1497,86 @@ test "artifact runtime returns ProgramContractViolation on add_i32 overflow" {
         .{ .i32 = std.math.maxInt(i32) },
         .{ .i32 = 1 },
     }));
+}
+
+test "artifact runtime decodes hexadecimal const_usize literals" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.const_usize_hex",
+        .ir_hash = 0x304,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "hexUsize",
+            .value_codec = .usize,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .usize }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_usize, .dst = 0, .string_literal = "0xff" },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+
+    var logs = std.ArrayList(host.HostLogEntryV1).empty;
+    defer logs.deinit(std.testing.allocator);
+    var next_request_id: u64 = 1;
+    const decoded = artifact.ArtifactV1{
+        .semantic_ir_hash64 = plan.ir_hash,
+        .manifest_build_fingerprint = std.mem.zeroes([32]u8),
+        .build_fingerprint_blake3_256 = std.mem.zeroes([32]u8),
+        .capabilities = &.{},
+        .requirement_capability_ids = &.{},
+        .functions = plan.functions,
+        .requirements = plan.requirements,
+        .ops = plan.ops,
+        .outputs = plan.outputs,
+        .locals = plan.locals,
+        .call_args = plan.call_args,
+        .blocks = plan.blocks,
+        .terminators = plan.terminators,
+        .instructions = plan.instructions,
+    };
+    var ctx = ExecutionContext{
+        .allocator = std.testing.allocator,
+        .decoded = &decoded,
+        .plan = plan,
+        .adapter = .{
+            .ctx = null,
+            .dispatchFn = struct {
+                fn dispatch(_: ?*anyopaque, _: std.mem.Allocator, _: host.HostEffectRequestV1) anyerror!host.HostEffectResultV1 {
+                    return error.UnexpectedHostDispatch;
+                }
+            }.dispatch,
+        },
+        .logs = &logs,
+        .next_request_id = &next_request_id,
+    };
+
+    var returned = try executeFunction(&ctx, 0, &.{});
+    switch (returned) {
+        .value => |*value| {
+            defer deinitRuntimeValue(std.testing.allocator, value);
+            try std.testing.expect(!value.owned);
+            try std.testing.expectEqual(@as(usize, 0xff), value.value.usize);
+        },
+        else => return error.TestUnexpectedResult,
+    }
 }
 
 test "artifact runtime returns ProgramContractViolation on add_const_i32 overflow" {

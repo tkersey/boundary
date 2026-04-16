@@ -1188,6 +1188,60 @@ test "downstream consumer can compile caller-owned large usize literal NamedBody
     try runChildExpectSuccess(tmp.dir, std.testing.allocator, &argv, null);
 }
 
+test "downstream consumer can compile caller-owned underscored usize literal NamedBody sources through withOwnedSource witness" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeConsumerBuildFiles(&tmp, repo_root);
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const shift_dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const exe_mod = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    exe_mod.addImport("shift", shift_dep.module("shift"));
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "consumer_probe",
+        \\        .root_module = exe_mod,
+        \\    });
+        \\    b.installArtifact(exe);
+        \\}
+        \\
+    );
+    const main_source =
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn body(_: anytype) anyerror!usize {
+        \\    return 1_000;
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\    const named = shift.NamedBody(@src().file, "body", anyerror!usize, body);
+        \\    const result = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{}, &runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }, named);
+        \\    if (result.value != 1_000) return error.UnexpectedResult;
+        \\}
+        \\
+    ;
+    try writeTmpFile(tmp.dir, "main.zig", main_source);
+
+    const argv = zigBuildArgv();
+    try runChildExpectSuccess(tmp.dir, std.testing.allocator, &argv, null);
+}
+
 test "downstream consumer can compile caller-owned cross-file NamedBody sources through the root package via explicit withOwnedSource witness" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();

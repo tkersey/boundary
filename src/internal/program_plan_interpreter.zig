@@ -418,7 +418,7 @@ fn continueFunction(
                     else => return error.ProgramContractViolation,
                 }),
                 .const_usize => setLocal(locals, instruction.dst, .{
-                    .usize = std.fmt.parseUnsigned(usize, instruction.string_literal, 10) catch
+                    .usize = std.fmt.parseUnsigned(usize, instruction.string_literal, 0) catch
                         return error.ProgramContractViolation,
                 }),
                 .const_string => setLocal(locals, instruction.dst, .{ .string = instruction.string_literal }),

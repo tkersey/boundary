@@ -317,7 +317,7 @@ pub const ProgramPlan = struct {
                     },
                     .const_usize => {
                         if (!functionLocalHasCodec(self, function, instruction.dst, .usize)) return error.InvalidInstructionLocalIndex;
-                        _ = std.fmt.parseUnsigned(usize, instruction.string_literal, 10) catch
+                        _ = std.fmt.parseUnsigned(usize, instruction.string_literal, 0) catch
                             return error.InvalidInstructionLocalIndex;
                     },
                     .add_i32, .add_const_i32, .compare_eq_zero, .const_i32, .sub_one => {
@@ -2634,6 +2634,53 @@ test "ProgramPlan.validate rejects functions whose instruction span is not attac
         .instructions = &.{.{ .kind = .return_value, .operand = 0 }},
     };
     try std.testing.expectError(error.InvalidFunctionInstructionSpan, uncovered_instruction_plan.validate());
+}
+
+test "ProgramPlan.validate accepts hexadecimal const_usize literals" {
+    const plan = ProgramPlan{
+        .label = "valid.const_usize_hex",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .usize,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .usize }},
+        .call_args = &.{},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 2,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{
+                .kind = .const_usize,
+                .dst = 0,
+                .string_literal = "0xff",
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+        },
+    };
+
+    try plan.validate();
 }
 
 test "ProgramPlan hash survives JSON roundtrip" {

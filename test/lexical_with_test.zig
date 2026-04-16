@@ -93,6 +93,15 @@ fn namedOptionalResumeUsizeBody(eff: anytype) ExecResult(usize) {
     });
 }
 
+fn namedOptionalResumeHexUsizeBody(eff: anytype) ExecResult(usize) {
+    return try eff.optional.request(struct {
+        /// Return the canonical hexadecimal usize answer for this named-body test.
+        pub fn apply(_: i32, _: anytype) ExecResult(usize) {
+            return 0xff;
+        }
+    });
+}
+
 fn namedOptionalResumeLargeUsizeBody(eff: anytype) ExecResult(usize) {
     return try eff.optional.request(struct {
         /// Return the canonical resumed large usize answer for this named-body test.
@@ -1422,6 +1431,34 @@ test "shift.with accepts NamedBody usize literal continuation answers" {
     }, shift.NamedBody("test/lexical_with_test.zig", "namedOptionalResumeUsizeBody", ExecResult(usize), namedOptionalResumeUsizeBody));
 
     try std.testing.expectEqual(@as(usize, 1), result.value);
+}
+
+test "shift.with accepts NamedBody hexadecimal usize literal continuation answers" {
+    const resume_policy = struct {
+        /// Resume with the canonical usize payload.
+        pub fn resumeOrReturn() shift.effect.choice.Decision(i32, usize) {
+            return shift.effect.choice.Decision(i32, usize).resumeWith(41);
+        }
+
+        /// Preserve the resumed hexadecimal usize answer unchanged.
+        pub fn afterResume(answer: usize) usize {
+            return answer;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(@src(), &runtime, .{
+        .optional = shift.effect.optional.use(i32, resume_policy),
+    }, shift.NamedBody(
+        "test/lexical_with_test.zig",
+        "namedOptionalResumeHexUsizeBody",
+        ExecResult(usize),
+        namedOptionalResumeHexUsizeBody,
+    ));
+
+    try std.testing.expectEqual(@as(usize, 0xff), result.value);
 }
 
 test "shift.with accepts NamedBody large usize literal continuation answers" {
