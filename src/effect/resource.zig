@@ -108,13 +108,14 @@ pub inline fn computeProgram(
 
 /// Run a resource effect body and guarantee LIFO cleanup of acquired resources.
 pub fn handle(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
     comptime Manager: type,
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try handleAt(@src(), AnswerType, runtime, instance, Manager, Body);
+    return try handleAt(caller_source, AnswerType, runtime, instance, Manager, Body);
 }
 
 /// Run a resource effect body with explicit caller provenance and guarantee LIFO cleanup of acquired resources.
@@ -132,6 +133,7 @@ pub fn handleAt(
 /// Public `handleWithErrorSet` helper.
 // zlinter-disable max_positional_args - public caller provenance and manager inputs stay explicit at this compatibility wrapper.
 pub fn handleWithErrorSet(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -139,7 +141,7 @@ pub fn handleWithErrorSet(
     comptime Manager: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleWithErrorSetAt(@src(), AnswerType, RunErrorSetType, runtime, instance, Manager, Body);
+    return try handleWithErrorSetAt(caller_source, AnswerType, RunErrorSetType, runtime, instance, Manager, Body);
 }
 
 /// Public `handleWithErrorSetAt` helper.
@@ -218,7 +220,7 @@ test "resource handle releases in LIFO order after normal completion" {
     var instance = ResourceInstance.init();
     manager.next_index = 0;
     manager.transcript_len = 0;
-    const result = try handle([]const u8, &runtime, &instance, manager, demo);
+    const result = try handle(@src(), []const u8, &runtime, &instance, manager, demo);
     try std.testing.expectEqualStrings("done", result);
     try std.testing.expectEqualStrings("a", manager.transcript[0]);
     try std.testing.expectEqualStrings("a", manager.transcript[1]);
@@ -300,7 +302,7 @@ test "resource handle releases before outer exception catch returns" {
             const previous_exception_ctx = inner.active_exception_ctx;
             inner.active_exception_ctx = exception_ctx;
             defer inner.active_exception_ctx = previous_exception_ctx;
-            return try handle([]const u8, runtime_ptr.?, resource_ptr.?, manager, inner);
+            return try handle(@src(), []const u8, runtime_ptr.?, resource_ptr.?, manager, inner);
         }
     };
 
@@ -311,7 +313,7 @@ test "resource handle releases before outer exception catch returns" {
     scenario.runtime_ptr = &runtime;
     scenario.resource_ptr = &resource_instance;
     manager.transcript_len = 0;
-    const result = try @import("exception.zig").handle([]const u8, &runtime, &exception_instance, catcher, struct {
+    const result = try @import("exception.zig").handle(@src(), []const u8, &runtime, &exception_instance, catcher, struct {
         /// Enter the outer exception handle and hand its capability to the inner resource scope.
         pub fn program(comptime ExceptionCap: type, exception_ctx: anytype) @TypeOf(@import("exception.zig").computeProgram(ExceptionCap, exception_ctx, struct {
             /// Re-enter the resource witness through the outer exception capability.
@@ -341,7 +343,7 @@ test "resource handle releases before outer exception catch returns" {
     try std.testing.expectEqualStrings("catch=boom", manager.transcript[3]);
 }
 
-test "public resource handleWithErrorSetAt preserves caller provenance" {
+test "public resource handleWithErrorSet preserves caller provenance" {
     const NoError = error{};
     const ResourceInstance = Instance([]const u8, NoError);
     const manager = struct {
@@ -360,7 +362,7 @@ test "public resource handleWithErrorSetAt preserves caller provenance" {
     defer runtime.deinit();
     var instance = ResourceInstance.init();
 
-    const result = try handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &instance, manager, struct {
+    const result = try handleWithErrorSet(@src(), []const u8, NoError, &runtime, &instance, manager, struct {
         /// Return the exact caller-owned source file observed through the public resource wrapper.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             _ = try acquire(Cap, ctx);
@@ -449,7 +451,7 @@ test "resource handle releases before outer optional return-now completes" {
             const previous_optional_ctx = inner.active_optional_ctx;
             inner.active_optional_ctx = optional_ctx;
             defer inner.active_optional_ctx = previous_optional_ctx;
-            return try handle([]const u8, runtime_ptr.?, resource_ptr.?, manager, inner);
+            return try handle(@src(), []const u8, runtime_ptr.?, resource_ptr.?, manager, inner);
         }
     };
 
@@ -460,7 +462,7 @@ test "resource handle releases before outer optional return-now completes" {
     scenario.runtime_ptr = &runtime;
     scenario.resource_ptr = &resource_instance;
     manager.transcript_len = 0;
-    const result = try @import("optional.zig").handle([]const u8, &runtime, &optional_instance, policy, struct {
+    const result = try @import("optional.zig").handle(@src(), []const u8, &runtime, &optional_instance, policy, struct {
         /// Enter the outer optional handle and hand its capability to the inner resource scope.
         pub fn program(comptime OptionalCap: type, optional_ctx: anytype) @TypeOf(@import("optional.zig").computeProgram(OptionalCap, optional_ctx, struct {
             /// Re-enter the resource witness through the outer optional capability.
@@ -528,7 +530,7 @@ test "resource release error wins after a successful body" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ResourceInstance.init();
-    try std.testing.expectError(error.ReleaseFailed, handle([]const u8, &runtime, &instance, manager, demo));
+    try std.testing.expectError(error.ReleaseFailed, handle(@src(), []const u8, &runtime, &instance, manager, demo));
 }
 
 test "resource body error wins over release error" {
@@ -569,7 +571,7 @@ test "resource body error wins over release error" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ResourceInstance.init();
-    try std.testing.expectError(error.BodyFailed, handle([]const u8, &runtime, &instance, manager, demo));
+    try std.testing.expectError(error.BodyFailed, handle(@src(), []const u8, &runtime, &instance, manager, demo));
 }
 
 test "nested same-shaped resource handles get distinct capability types" {
@@ -592,7 +594,7 @@ test "nested same-shaped resource handles get distinct capability types" {
 
         /// Open an inner resource handle and prove its capability differs from the outer one.
         pub fn outer(comptime OuterCap: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
-            return try handle(i32, runtime_ptr.?, inner_ptr.?, manager, struct {
+            return try handle(@src(), i32, runtime_ptr.?, inner_ptr.?, manager, struct {
                 /// Reject capability-type collapse inside the nested resource handle.
                 pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(computeProgram(InnerCap, inner_ctx, struct {
                     /// Return a neutral value from the nested resource body.
@@ -620,7 +622,7 @@ test "nested same-shaped resource handles get distinct capability types" {
     var inner_instance = ResourceInstance.init();
     demo.runtime_ptr = &runtime;
     demo.inner_ptr = &inner_instance;
-    const result = try handle(i32, &runtime, &outer_instance, manager, struct {
+    const result = try handle(@src(), i32, &runtime, &outer_instance, manager, struct {
         /// Enter the outer resource handle and hand its capability inward.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested resource witness through the outer capability.

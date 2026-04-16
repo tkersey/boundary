@@ -853,6 +853,96 @@ test "ProgramPlan.validate ignores unreachable helper terminal-only paths when c
     try plan.validate();
 }
 
+test "ProgramPlan.validate rejects mixed terminal and value helpers without a valid destination local" {
+    const plan = internal_program_plan.ProgramPlan{
+        .label = "invalid.helper_mixed_terminal_and_value_result_local",
+        .ir_hash = 3,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "root",
+                .value_codec = .unit,
+                .result_codec = .string,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 0,
+                .first_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 1,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .string,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 1,
+                .block_count = 1,
+                .first_instruction = 1,
+                .instruction_count = 2,
+            },
+        },
+        .requirements = &.{.{
+            .label = "picker",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "pick",
+            .mode = .choice,
+            .payload_codec = .unit,
+            .resume_codec = .string,
+        }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .call_args = &.{},
+        .blocks = &.{
+            .{
+                .first_instruction = 0,
+                .instruction_count = 1,
+                .terminator_index = 0,
+            },
+            .{
+                .first_instruction = 1,
+                .instruction_count = 2,
+                .terminator_index = 1,
+            },
+        },
+        .terminators = &.{
+            .{ .kind = .return_unit },
+            .{ .kind = .return_value },
+        },
+        .instructions = &.{
+            .{
+                .kind = .call_helper,
+                .dst = 0,
+                .operand = 1,
+                .aux = std.math.maxInt(u16),
+            },
+            .{
+                .kind = .call_op,
+                .dst = 0,
+                .operand = 0,
+                .aux = std.math.maxInt(u16),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+        },
+    };
+
+    try std.testing.expectError(error.InvalidInstructionLocalIndex, plan.validate());
+}
+
 test "planFromProgram rejects bodyless helper fan-out without explicit bodies" {
     const row = effect_ir.rowFromSpec(.{});
     const root_symbol = effect_ir.SymbolRef{

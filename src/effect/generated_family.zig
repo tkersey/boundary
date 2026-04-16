@@ -1064,10 +1064,10 @@ pub fn Build(comptime spec: anytype) type {
         }
 
         /// Run one generated family body under a fresh exact context and hidden engine bindings.
-        pub fn handle(comptime AnswerType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler), Body))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+        pub fn handle(comptime caller_source: std.builtin.SourceLocation, comptime AnswerType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler), Body))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
             const HandlerType = @TypeOf(handler);
             const RunErrorSetType = HandleErrorSet(AnswerType, HandlerType, Body);
-            return self_type.handleWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, handler, Body);
+            return self_type.handleWithErrorSet(caller_source, AnswerType, RunErrorSetType, runtime, instance, handler, Body);
         }
 
         /// Run one generated family body with explicit caller provenance.
@@ -1078,8 +1078,8 @@ pub fn Build(comptime spec: anytype) type {
         }
 
         /// Public `handleWithErrorSet` helper.
-        pub fn handleWithErrorSet(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
-            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body, @src());
+        pub fn handleWithErrorSet(comptime caller_source: std.builtin.SourceLocation, comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body, caller_source);
         }
 
         /// Public `handleWithErrorSetAt` helper.
@@ -1218,7 +1218,7 @@ pub fn Build(comptime spec: anytype) type {
 
             /// Run one generated-family example harness through the public handle surface.
             pub fn exampleHarness(comptime AnswerType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler), Body))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
-                return self_type.handle(AnswerType, runtime, instance, handler, Body);
+                return self_type.handleAt(@src(), AnswerType, runtime, instance, handler, Body);
             }
         };
     };

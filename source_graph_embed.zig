@@ -444,6 +444,11 @@ pub fn embeddedSource(comptime source_path: []const u8) [:0]const u8 {
     return @embedFile(ownedRepoRelativePath(source_path));
 }
 
+/// Embed one already-owned repo-relative source file without re-checking registry membership.
+pub fn embeddedOwnedRepoSource(comptime repo_relative_path: []const u8) [:0]const u8 {
+    return @embedFile(repo_relative_path);
+}
+
 /// Analyze one repo-relative source file through the shared comptime source-graph extractor.
 pub fn analyzeModuleAt(comptime source_path: []const u8, comptime entry_symbol: []const u8) source_graph_comptime.Error!source_graph_comptime.ModuleGraph {
     return source_graph_comptime.analyzeModule(embeddedSource(source_path), entry_symbol);

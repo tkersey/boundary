@@ -361,7 +361,8 @@ fn continueFunction(
                     const result = try executeDispatch(compiled_plan, handlers_ptr, instruction.operand, helper_args);
                     switch (result) {
                         .value => |typed| {
-                            if (instruction.dst < locals.len and helper_result_codec != .unit) {
+                            if (helper_result_codec != .unit) {
+                                if (instruction.dst >= locals.len) return error.ProgramContractViolation;
                                 setLocal(locals, instruction.dst, typed);
                             }
                         },

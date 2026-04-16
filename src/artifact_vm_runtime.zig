@@ -385,7 +385,10 @@ fn executeFunction(
                     const helper_result = try executeFunction(ctx, instruction.operand, helper_args);
                     switch (helper_result) {
                         .value => |value| {
-                            if (helper_result_codec != .unit) setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, value);
+                            if (helper_result_codec != .unit) {
+                                if (instruction.dst >= locals.len) return error.ProgramContractViolation;
+                                setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, value);
+                            }
                         },
                         .terminal => |value| return try unwindAfterStack(ctx, function.value_codec, function_result_codec, &after_stack, .{ .terminal = value }),
                         .rejected => |failure| return .{ .rejected = failure },

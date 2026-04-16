@@ -112,6 +112,7 @@ pub inline fn computeProgram(
 
 /// Run a state effect body and return the final state plus the body answer.
 pub fn handle(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
@@ -121,7 +122,7 @@ pub fn handle(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
-    return try handleAt(@src(), AnswerType, runtime, instance, initial_state, Body);
+    return try handleAt(caller_source, AnswerType, runtime, instance, initial_state, Body);
 }
 
 /// Run a state effect body with explicit caller provenance and return the final state plus the body answer.
@@ -142,6 +143,7 @@ pub fn handleAt(
 /// Public `handleWithErrorSet` helper.
 // zlinter-disable max_positional_args - public caller provenance and state inputs stay explicit at this compatibility wrapper.
 pub fn handleWithErrorSet(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -152,7 +154,7 @@ pub fn handleWithErrorSet(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
-    return try handleWithErrorSetAt(@src(), AnswerType, RunErrorSetType, runtime, instance, initial_state, Body);
+    return try handleWithErrorSetAt(caller_source, AnswerType, RunErrorSetType, runtime, instance, initial_state, Body);
 }
 
 /// Public `handleWithErrorSetAt` helper.
@@ -211,7 +213,7 @@ test "state handle threads value and final state" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = StateInstance.init();
-    const result = try handle(i32, &runtime, &instance, 5, demo);
+    const result = try handle(@src(), i32, &runtime, &instance, 5, demo);
     try std.testing.expectEqual(@as(i32, 6), result.state);
     try std.testing.expectEqual(@as(i32, 6), result.value);
 }
@@ -225,7 +227,7 @@ test "nested same-shaped state handles get distinct capability types" {
 
         /// Open an inner handle and prove its capability type differs from the outer one.
         pub fn outer(comptime OuterCap: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
-            const result = try handle(i32, runtime_ptr.?, inner_ptr.?, 0, struct {
+            const result = try handle(@src(), i32, runtime_ptr.?, inner_ptr.?, 0, struct {
                 /// Reject capability-type collapse inside the nested handle.
                 pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(family.computeProgram(InnerCap, inner_ctx, struct {
                     /// Return a neutral value from the nested state body.
@@ -254,7 +256,7 @@ test "nested same-shaped state handles get distinct capability types" {
     var inner_instance = StateInstance.init();
     demo.runtime_ptr = &runtime;
     demo.inner_ptr = &inner_instance;
-    const result = try handle(i32, &runtime, &outer_instance, 0, struct {
+    const result = try handle(@src(), i32, &runtime, &outer_instance, 0, struct {
         /// Enter the outer handle and hand its capability to the nested check.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(family.computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested state witness through the outer capability.
@@ -273,7 +275,7 @@ test "nested same-shaped state handles get distinct capability types" {
     try std.testing.expectEqual(@as(i32, 0), result.value);
 }
 
-test "public state handleWithErrorSetAt preserves caller provenance" {
+test "public state handleWithErrorSet preserves caller provenance" {
     const NoError = error{};
     const StateInstance = Instance(i32, NoError);
 
@@ -281,7 +283,7 @@ test "public state handleWithErrorSetAt preserves caller provenance" {
     defer runtime.deinit();
     var instance = StateInstance.init();
 
-    const result = try handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &instance, @as(i32, 0), struct {
+    const result = try handleWithErrorSet(@src(), []const u8, NoError, &runtime, &instance, @as(i32, 0), struct {
         /// Return the exact caller-owned source file observed through the public state wrapper.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             _ = Cap;

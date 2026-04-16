@@ -13,7 +13,7 @@ const ShiftConsumerDeps = struct {
 const TestSuiteSpec = struct {
     suite_id: []const u8,
     description: []const u8,
-    run_step: ?*std.Build.Step.Run = null,
+    run_step: ?*std.Build.Step = null,
 };
 
 const TestSuiteSelection = struct {
@@ -399,8 +399,7 @@ fn addSelectedTestSuites(
 ) void {
     for (specs, 0..) |spec, index| {
         if (!selection.isEnabled(index)) continue;
-        const run_step = spec.run_step.?;
-        test_step.dependOn(&run_step.step);
+        test_step.dependOn(spec.run_step.?);
     }
 }
 
@@ -3808,6 +3807,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const lexical_witness_runners_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_witness_support.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const parity_scenarios_mod = b.createModule(.{
         .root_source_file = b.path("src/parity_scenarios.zig"),
         .target = target,
@@ -3961,9 +3965,7 @@ pub fn build(b: *std.Build) void {
     frontend_support_mod.addImport("lowered_machine", lowered_machine_mod);
     shift_mod.addImport("effect_ir", effect_ir_mod);
     shift_mod.addImport("lowered_machine", lowered_machine_mod);
-    witnesses_mod.addImport("lowered_machine", lowered_machine_mod);
-    witnesses_mod.addImport("frontend_support", frontend_support_mod);
-    witnesses_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
+    witnesses_mod.addImport("lexical_witness_support", lexical_witness_runners_mod);
     const prompt_support_mod = b.createModule(.{
         .root_source_file = b.path("src/internal/prompt_support.zig"),
         .target = target,
@@ -4030,7 +4032,7 @@ pub fn build(b: *std.Build) void {
     });
     bridge_redelim_mod.addImport("parity_scenarios", parity_scenarios_mod);
     witness_sources_mod.addImport("lowered_machine", lowered_machine_mod);
-    witness_sources_mod.addImport("shift", shift_mod);
+    witness_sources_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     witness_sources_mod.addImport("bridge_fixture_multi_prompt", bridge_multi_mod);
     witness_sources_mod.addImport("bridge_fixture_static_redelim", bridge_redelim_mod);
     witness_sources_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
@@ -4234,7 +4236,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    witness_mod.addImport("shift", shift_mod);
     witness_mod.addImport("reference_eval", reference_eval_mod);
     witness_mod.addImport("reference_machine", reference_machine_mod);
     witness_mod.addImport("witnesses", witnesses_mod);
@@ -4343,30 +4344,14 @@ pub fn build(b: *std.Build) void {
     const src_lower_boundary_tests = addFilteredTest(b, source_lowering_boundary_mod, test_runner_args.filters.items);
     const run_src_lower_boundary_tests = addRunArtifactWithArgs(b, src_lower_boundary_tests, test_runner_args.passthrough.items);
 
-    const source_lowering_promoted_mod = b.createModule(.{
-        .root_source_file = b.path("test/source_lowering_promoted_cohort_test.zig"),
+    const src_lower_promoted_mod = b.createModule(.{
+        .root_source_file = b.path("test/source_lowering_promoted_examples_test.zig"),
         .target = target,
         .optimize = optimize,
     });
-    source_lowering_promoted_mod.addImport("source_lowering", source_lowering_mod);
-    source_lowering_promoted_mod.addImport("parity_scenarios", parity_scenarios_mod);
-    source_lowering_promoted_mod.addImport("promoted_example_early_exit", createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    source_lowering_promoted_mod.addImport("promoted_example_open_row_abort_basic", createShiftConsumerModule(b, "examples/open_row_abort_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    source_lowering_promoted_mod.addImport("promoted_example_open_row_abortive_validation", createShiftConsumerModule(b, "examples/open_row_abortive_validation.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    source_lowering_promoted_mod.addImport("promoted_example_open_row_artifact_search", createShiftConsumerModule(b, "examples/open_row_artifact_search.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    source_lowering_promoted_mod.addImport("promoted_example_open_row_choice_basic", createShiftConsumerModule(b, "examples/open_row_choice_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    source_lowering_promoted_mod.addImport("promoted_example_open_row_generator", createShiftConsumerModule(b, "examples/open_row_generator.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    source_lowering_promoted_mod.addImport("promoted_example_open_row_transform_basic", createShiftConsumerModule(b, "examples/open_row_transform_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    source_lowering_promoted_mod.addImport("promoted_example_open_row_workflow", createShiftConsumerModule(b, "examples/open_row_workflow.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    source_lowering_promoted_mod.addImport("promoted_example_resume_or_return", createShiftConsumerModule(b, "examples/resume_or_return.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    source_lowering_promoted_mod.addImport("promoted_example_nested_workflow", createShiftConsumerModule(b, "examples/nested_workflow.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    source_lowering_promoted_mod.addImport("promoted_example_state_basic", createShiftConsumerModule(b, "examples/state_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    source_lowering_promoted_mod.addImport("promoted_example_reader_basic", createShiftConsumerModule(b, "examples/reader_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    source_lowering_promoted_mod.addImport("promoted_example_optional_basic", createShiftConsumerModule(b, "examples/optional_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    source_lowering_promoted_mod.addImport("promoted_example_exception_basic", createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    source_lowering_promoted_mod.addImport("promoted_example_resource_basic", createShiftConsumerModule(b, "examples/resource_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    source_lowering_promoted_mod.addImport("promoted_example_writer_basic", createShiftConsumerModule(b, "examples/writer_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    const src_lower_promoted_tests = addFilteredTest(b, source_lowering_promoted_mod, test_runner_args.filters.items);
+    src_lower_promoted_mod.addImport("source_lowering", source_lowering_mod);
+    src_lower_promoted_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    const src_lower_promoted_tests = addFilteredTest(b, src_lower_promoted_mod, test_runner_args.filters.items);
     const run_src_lower_promoted_tests = addRunArtifactWithArgs(b, src_lower_promoted_tests, test_runner_args.passthrough.items);
 
     const source_lowering_completion_mod = b.createModule(.{
@@ -4452,11 +4437,6 @@ pub fn build(b: *std.Build) void {
     source_lowering_tool_step.dependOn(&source_lowering_tool_exe.step);
     source_lowering_tool_step.dependOn(&source_lowering_tool_install.step);
 
-    const lexical_witness_runners_mod = b.createModule(.{
-        .root_source_file = b.path("test/lexical_witness_support.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
     lexical_witness_runners_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
 
     const lexical_witness_mod = b.createModule(.{
@@ -4477,8 +4457,28 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     lexical_with_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    const lex_with_named_support_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_named_body_support.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_with_mod.addImport("lexical_with_named_body_support", lex_with_named_support_mod);
     const lexical_with_tests = addFilteredTest(b, lexical_with_mod, test_runner_args.filters.items);
-    const run_lexical_with_tests = addRunArtifactWithArgs(b, lexical_with_tests, test_runner_args.passthrough.items);
+    const run_lexical_with_tests_core = addRunArtifactWithArgs(b, lexical_with_tests, test_runner_args.passthrough.items);
+
+    const lexical_with_named_body_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_named_body_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_with_named_body_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    lexical_with_named_body_mod.addImport("lexical_with_named_body_support", lex_with_named_support_mod);
+    const lexical_with_named_body_tests = addFilteredTest(b, lexical_with_named_body_mod, test_runner_args.filters.items);
+    const run_lexical_with_named_tests = addRunArtifactWithArgs(b, lexical_with_named_body_tests, test_runner_args.passthrough.items);
+
+    const run_lexical_with_tests = b.step("lexical-with-all", "Run the lexical-with suite.");
+    run_lexical_with_tests.dependOn(&run_lexical_with_tests_core.step);
+    run_lexical_with_tests.dependOn(&run_lexical_with_named_tests.step);
 
     const program_bridge_test_mod = b.createModule(.{
         .root_source_file = b.path("test/program_bridge_test.zig"),
@@ -4492,25 +4492,25 @@ pub fn build(b: *std.Build) void {
     const program_bridge_tests = addFilteredTest(b, program_bridge_test_mod, test_runner_args.filters.items);
     const run_program_bridge_tests = addRunArtifactWithArgs(b, program_bridge_tests, test_runner_args.passthrough.items);
     const test_suites = [_]TestSuiteSpec{
-        .{ .suite_id = "root", .description = "Root lexical surface", .run_step = run_root_tests },
-        .{ .suite_id = "frontend", .description = "Frontend internal module", .run_step = run_frontend_internal_tests },
-        .{ .suite_id = "program-plan-review", .description = "ProgramPlan regression suite", .run_step = run_plan_review_tests },
-        .{ .suite_id = "program-bridge", .description = "Program bridge suite", .run_step = run_program_bridge_tests },
-        .{ .suite_id = "witness-corpus", .description = "Core witness corpus", .run_step = run_witness_tests },
-        .{ .suite_id = "runtime-contract", .description = "Runtime contract suite", .run_step = run_runtime_contract_tests },
-        .{ .suite_id = "prompt-token", .description = "Prompt token contract suite", .run_step = run_prompt_token_tests },
-        .{ .suite_id = "portability-contract", .description = "Portability contract suite", .run_step = run_portability_contract_tests },
-        .{ .suite_id = "public-root-package-contract", .description = "Public root package contract suite", .run_step = run_root_pkg_contract_tests },
-        .{ .suite_id = "program-frontend-boundary", .description = "Program frontend boundary suite", .run_step = run_boundary_tests },
-        .{ .suite_id = "source-lowering-corpus", .description = "Source lowering corpus suite", .run_step = run_src_lower_corpus_tests },
-        .{ .suite_id = "source-lowering-boundary", .description = "Source lowering boundary suite", .run_step = run_src_lower_boundary_tests },
-        .{ .suite_id = "source-lowering-promoted", .description = "Promoted source lowering cohort", .run_step = run_src_lower_promoted_tests },
-        .{ .suite_id = "source-lowering-completion", .description = "Source lowering completion suite", .run_step = run_src_lower_completion_tests },
-        .{ .suite_id = "open-row-lowering", .description = "Open-row lowering suite", .run_step = run_open_row_lowering_tests },
-        .{ .suite_id = "source-ownership-probe", .description = "Source ownership probe suite", .run_step = run_src_ownership_probe_tests },
-        .{ .suite_id = "source-lowering-witness", .description = "Source lowering witness completion suite", .run_step = run_src_lower_witness_tests },
-        .{ .suite_id = "source-lowering-reject", .description = "Source lowering rejection corpus suite", .run_step = run_src_lower_reject_tests },
-        .{ .suite_id = "lexical-witness", .description = "Lexical witness suite", .run_step = run_lexical_witness_tests },
+        .{ .suite_id = "root", .description = "Root lexical surface", .run_step = &run_root_tests.step },
+        .{ .suite_id = "frontend", .description = "Frontend internal module", .run_step = &run_frontend_internal_tests.step },
+        .{ .suite_id = "program-plan-review", .description = "ProgramPlan regression suite", .run_step = &run_plan_review_tests.step },
+        .{ .suite_id = "program-bridge", .description = "Program bridge suite", .run_step = &run_program_bridge_tests.step },
+        .{ .suite_id = "witness-corpus", .description = "Core witness corpus", .run_step = &run_witness_tests.step },
+        .{ .suite_id = "runtime-contract", .description = "Runtime contract suite", .run_step = &run_runtime_contract_tests.step },
+        .{ .suite_id = "prompt-token", .description = "Prompt token contract suite", .run_step = &run_prompt_token_tests.step },
+        .{ .suite_id = "portability-contract", .description = "Portability contract suite", .run_step = &run_portability_contract_tests.step },
+        .{ .suite_id = "public-root-package-contract", .description = "Public root package contract suite", .run_step = &run_root_pkg_contract_tests.step },
+        .{ .suite_id = "program-frontend-boundary", .description = "Program frontend boundary suite", .run_step = &run_boundary_tests.step },
+        .{ .suite_id = "source-lowering-corpus", .description = "Source lowering corpus suite", .run_step = &run_src_lower_corpus_tests.step },
+        .{ .suite_id = "source-lowering-boundary", .description = "Source lowering boundary suite", .run_step = &run_src_lower_boundary_tests.step },
+        .{ .suite_id = "source-lowering-promoted", .description = "Promoted source lowering cohort", .run_step = &run_src_lower_promoted_tests.step },
+        .{ .suite_id = "source-lowering-completion", .description = "Source lowering completion suite", .run_step = &run_src_lower_completion_tests.step },
+        .{ .suite_id = "open-row-lowering", .description = "Open-row lowering suite", .run_step = &run_open_row_lowering_tests.step },
+        .{ .suite_id = "source-ownership-probe", .description = "Source ownership probe suite", .run_step = &run_src_ownership_probe_tests.step },
+        .{ .suite_id = "source-lowering-witness", .description = "Source lowering witness completion suite", .run_step = &run_src_lower_witness_tests.step },
+        .{ .suite_id = "source-lowering-reject", .description = "Source lowering rejection corpus suite", .run_step = &run_src_lower_reject_tests.step },
+        .{ .suite_id = "lexical-witness", .description = "Lexical witness suite", .run_step = &run_lexical_witness_tests.step },
         .{ .suite_id = "lexical-with", .description = "Lexical with suite", .run_step = run_lexical_with_tests },
     };
     const test_suite_selection = resolveTestSuiteSelection(b, test_suites_raw, &test_suites, test_requested) orelse return;

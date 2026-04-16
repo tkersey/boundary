@@ -173,6 +173,7 @@ pub const ProgramPlan = struct {
         if (self.entry_index >= self.functions.len) return error.InvalidEntryIndex;
         var reachable_blocks = [_]bool{false} ** (std.math.maxInt(u16) + 1);
         var terminal_reachability = [_]bool{false} ** (std.math.maxInt(u16) + 1);
+        var completion_reachability = [_]bool{false} ** (std.math.maxInt(u16) + 1);
 
         for (self.functions) |function| {
             if (function.symbol_name.len == 0) return error.EmptyFunctionSymbol;
@@ -255,6 +256,54 @@ pub const ProgramPlan = struct {
             }
         }
 
+        changed = true;
+        while (changed) {
+            changed = false;
+            for (self.functions, 0..) |function, function_index| {
+                if (completion_reachability[function_index]) continue;
+                const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
+                for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
+                    const block_index = @as(usize, function.first_block) + relative_block_index;
+                    if (!reachable_blocks[block_index]) continue;
+                    const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
+                    var block_can_complete = true;
+                    for (self.instructions[block.first_instruction..instruction_end]) |instruction| {
+                        switch (instruction.kind) {
+                            .call_helper => {
+                                if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
+                                if (!completion_reachability[instruction.operand]) {
+                                    block_can_complete = false;
+                                    break;
+                                }
+                            },
+                            .call_op => {
+                                if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
+                                    return error.InvalidCallOpTarget;
+                                }
+                                if (self.ops[instruction.operand].mode == .abort) {
+                                    block_can_complete = false;
+                                    break;
+                                }
+                            },
+                            else => {},
+                        }
+                    }
+                    if (!block_can_complete) continue;
+                    const terminator = self.terminators[block.terminator_index];
+                    const block_completes = switch (terminator.kind) {
+                        .return_unit, .return_value => true,
+                        .jump => completion_reachability[terminator.primary],
+                        .branch_if => completion_reachability[terminator.primary] or completion_reachability[terminator.secondary],
+                    };
+                    if (block_completes) {
+                        completion_reachability[function_index] = true;
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+
         for (self.functions) |function| {
             const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
             const function_instruction_end = rangeEnd(function.first_instruction, function.instruction_count) orelse return error.InvalidFunctionInstructionSpan;
@@ -280,7 +329,7 @@ pub const ProgramPlan = struct {
                             return error.InvalidInstructionLocalIndex;
                         }
                         if (helper_result_codec != .unit and
-                            !terminal_reachability[instruction.operand] and
+                            completion_reachability[instruction.operand] and
                             !functionLocalHasCodec(self, function, instruction.dst, helper_result_codec))
                         {
                             return error.InvalidInstructionLocalIndex;

@@ -48,42 +48,48 @@ fn validateNamedBodyRepoIdentity(
     _ = body_fn;
     const owned_repo_path = source_graph_embed.ownedRepoPath(source_path_value) orelse return;
     comptime {
-        @setEvalBranchQuota(20_000_000);
+        @setEvalBranchQuota(2_000_000);
+    }
+    const source = source_graph_embed.embeddedSource(owned_repo_path);
+    const graph = source_graph_engine.analyzeComptime(source, .{
+        .entry_symbol = null,
+        .reject_recursive_helpers = false,
+        .reject_indirect_effect_access = false,
+        .reject_malformed_statements = false,
+    }) catch @compileError("shift.NamedBody source_path must export the supplied entry_symbol");
+
+    inline for (graph.functions) |function| {
+        if (std.mem.eql(u8, function.name, entry_symbol_value)) break;
+    } else {
+        @compileError("shift.NamedBody source_path must export the supplied entry_symbol");
     }
 
-    var matches: usize = 0;
-    var source_path_matches = false;
+    const bare_fn_pattern = "fn " ++ entry_symbol_value;
+    const pub_fn_pattern = "pub fn " ++ entry_symbol_value;
     var start: usize = 0;
     while (start < build_options.repo_zig_paths.len) {
         var end = start;
         while (end < build_options.repo_zig_paths.len and build_options.repo_zig_paths[end] != '\n') : (end += 1) {}
         const candidate = build_options.repo_zig_paths[start..end];
         start = end + 1;
-        if (candidate.len == 0) continue;
-        const candidate_source = source_graph_embed.embeddedSource(candidate);
-        if (std.mem.indexOf(u8, candidate_source, entry_symbol_value) == null) continue;
-
-        const graph = source_graph_engine.analyzeComptime(candidate_source, .{
+        if (candidate.len == 0 or std.mem.eql(u8, candidate, owned_repo_path)) continue;
+        const candidate_source = source_graph_embed.embeddedOwnedRepoSource(candidate);
+        if (std.mem.indexOf(u8, candidate_source, bare_fn_pattern) == null and
+            std.mem.indexOf(u8, candidate_source, pub_fn_pattern) == null)
+        {
+            continue;
+        }
+        const candidate_graph = source_graph_engine.analyzeComptime(candidate_source, .{
             .entry_symbol = null,
             .reject_recursive_helpers = false,
             .reject_indirect_effect_access = false,
             .reject_malformed_statements = false,
         }) catch continue;
-
-        inline for (graph.functions) |function| {
+        inline for (candidate_graph.functions) |function| {
             if (std.mem.eql(u8, function.name, entry_symbol_value)) {
-                matches += 1;
-                if (std.mem.eql(u8, candidate, owned_repo_path)) source_path_matches = true;
-                break;
+                @compileError("shift.NamedBody entry_symbol must be unique across owned repo sources");
             }
         }
-    }
-
-    if (!source_path_matches) {
-        @compileError("shift.NamedBody source_path must export the supplied entry_symbol");
-    }
-    if (matches > 1) {
-        @compileError("shift.NamedBody entry_symbol must be unique across owned repo sources");
     }
 }
 
@@ -1880,11 +1886,11 @@ fn rejectUnsupportedOwnedSourceWith(
     comptime HandlersType: type,
     comptime Body: type,
     comptime caller: std.builtin.SourceLocation,
-    comptime caller_source: [:0]const u8,
+    comptime root_source: [:0]const u8,
     comptime witness: OwnedSourceWitness,
 ) void {
     if (ownedSourceUsesAnonymousCallerCompilation(Body, witness)) {
-        if (callerOwnedCompilationSupported(HandlersType, Body, caller, caller_source, .owned_source)) return;
+        if (callerOwnedCompilationSupported(HandlersType, Body, caller, root_source, .owned_source)) return;
     }
     const source_path = witness.source_path orelse if (@hasDecl(Body, "source_path"))
         Body.source_path
@@ -1897,11 +1903,11 @@ fn rejectUnsupportedOwnedSourceWith(
         Body.entry_symbol
     else
         anonymousBodyEntryName(caller);
-    const synthetic_source = comptime ownedSourceSyntheticSource(Body, caller, caller_source, witness, entry_symbol);
+    const synthetic_source = comptime ownedSourceSyntheticSource(Body, caller, root_source, witness, entry_symbol);
     const source_ref = comptime public_lowering.sourceWithContentAndImports(
         source_path,
         source_owner,
-        synthetic_source orelse caller_source,
+        synthetic_source orelse root_source,
         witness.imported_sources,
     );
     if (public_lowering.maybeLower(source_ref, .{
@@ -1919,7 +1925,7 @@ fn tryOwnedSourceCompiledWith(
     comptime HandlersType: type,
     comptime Body: type,
     comptime caller: std.builtin.SourceLocation,
-    comptime caller_source: [:0]const u8,
+    comptime root_source: [:0]const u8,
     comptime witness: OwnedSourceWitness,
     runtime: *lowered_machine.Runtime,
     handlers_ptr: *HandlersType,
@@ -1930,7 +1936,7 @@ fn tryOwnedSourceCompiledWith(
             HandlersType,
             Body,
             caller,
-            caller_source,
+            root_source,
             .owned_source,
             runtime,
             handlers_ptr,
@@ -1948,11 +1954,11 @@ fn tryOwnedSourceCompiledWith(
         Body.entry_symbol
     else
         anonymousBodyEntryName(caller);
-    const synthetic_source = comptime ownedSourceSyntheticSource(Body, caller, caller_source, witness, entry_symbol);
+    const synthetic_source = comptime ownedSourceSyntheticSource(Body, caller, root_source, witness, entry_symbol);
     const source_ref = comptime public_lowering.sourceWithContentAndImports(
         source_path,
         source_owner,
-        synthetic_source orelse caller_source,
+        synthetic_source orelse root_source,
         witness.imported_sources,
     );
     const lowered_program = public_lowering.maybeLower(source_ref, .{
@@ -2291,9 +2297,10 @@ pub fn withCallerSourceAndContent(
 }
 
 /// Run one lexical effect bundle through an explicit caller-owned source witness surface.
+/// The `root_source` bytes must match the source file identified by `witness.source_path` / `Body.source_path`.
 pub fn withOwnedSource(
     comptime caller: std.builtin.SourceLocation,
-    comptime caller_source: [:0]const u8,
+    comptime root_source: [:0]const u8,
     comptime witness: OwnedSourceWitness,
     runtime: *lowered_machine.Runtime,
     handlers: anytype,
@@ -2302,7 +2309,7 @@ pub fn withOwnedSource(
     const HandlersType = @TypeOf(handlers);
     const canonical_caller = comptime source_graph_embed.canonicalCallerLocation(caller);
     comptime assertHandlerBundleShape(HandlersType);
-    comptime rejectUnsupportedOwnedSourceWith(HandlersType, Body, canonical_caller, caller_source, witness);
+    comptime rejectUnsupportedOwnedSourceWith(HandlersType, Body, canonical_caller, root_source, witness);
 
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
@@ -2310,7 +2317,7 @@ pub fn withOwnedSource(
         HandlersType,
         Body,
         canonical_caller,
-        caller_source,
+        root_source,
         witness,
         runtime,
         &handler_state,

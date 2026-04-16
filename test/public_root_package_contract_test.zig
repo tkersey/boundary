@@ -1301,6 +1301,64 @@ test "downstream consumer can compile caller-owned cross-file NamedBody sources 
     try runChildExpectSuccess(tmp.dir, std.testing.allocator, &argv, null);
 }
 
+test "downstream consumer rejects cross-file NamedBody witnesses when withOwnedSource root bytes do not match the witness source path" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeConsumerBuildFiles(&tmp, repo_root);
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const shift_dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const exe_mod = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    exe_mod.addImport("shift", shift_dep.module("shift"));
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "consumer_probe",
+        \\        .root_module = exe_mod,
+        \\    });
+        \\    b.installArtifact(exe);
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "body.zig",
+        \\pub fn body(eff: anytype) anyerror!i32 {
+        \\    const before = try eff.state.get();
+        \\    try eff.state.set(before + 1);
+        \\    return try eff.state.get();
+        \\}
+        \\
+    );
+    const main_source =
+        \\const body_mod = @import("body.zig");
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\    const named = shift.NamedBody("body.zig", "body", anyerror!i32, body_mod.body);
+        \\    _ = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{}, &runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }, named);
+        \\}
+        \\
+    ;
+    try writeTmpFile(tmp.dir, "main.zig", main_source);
+
+    const argv = zigBuildArgv();
+    try runChildExpectFailureContains(tmp.dir, std.testing.allocator, &argv, null, "public lowering could not find the requested entry symbol in the embedded source");
+}
+
 test "downstream consumer rejects withOwnedSource witness bodies outside the retained compiled subset" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
