@@ -123,7 +123,7 @@ fn isNamedBodyDescriptor(comptime Body: type) bool {
     };
 }
 
-/// Named lexical body reference used as the canonical compiled `shift.with(...)` surface.
+/// Named lexical body reference used as the canonical compiled `shift.with(@src(), ...)` surface.
 pub fn NamedBody(
     comptime source_path_value: []const u8,
     comptime entry_symbol_value: []const u8,
@@ -188,7 +188,7 @@ pub fn OutputBundleType(comptime HandlersType: type) type {
     });
 }
 
-/// Canonical lexical outputs plus body answer returned from `shift.with(...)`.
+/// Canonical lexical outputs plus body answer returned from `shift.with(@src(), ...)`.
 pub fn WithResult(comptime HandlersType: type, comptime Answer: type) type {
     return struct {
         outputs: OutputBundleType(HandlersType),
@@ -196,7 +196,7 @@ pub fn WithResult(comptime HandlersType: type, comptime Answer: type) type {
     };
 }
 
-/// Explicit lexical rebinding packet threaded through `shift.with(...)` continuations.
+/// Explicit lexical rebinding packet threaded through `shift.with(@src(), ...)` continuations.
 pub fn LexicalState(comptime HandlersType: type, comptime EffType: type, comptime caller_source_value: std.builtin.SourceLocation) type {
     return struct {
         /// Original caller source location threaded through this lexical rebinding packet.
@@ -706,7 +706,12 @@ fn callerSourceBytes(
     comptime caller: std.builtin.SourceLocation,
     comptime caller_source_override: ?[:0]const u8,
 ) [:0]const u8 {
-    return caller_source_override orelse @embedFile(caller.file);
+    if (caller_source_override) |caller_source| return caller_source;
+    const canonical_caller = comptime source_graph_embed.canonicalCallerLocation(caller);
+    if (source_graph_embed.ownedRepoPath(canonical_caller.file)) |repo_path| {
+        return source_graph_embed.embeddedSource(repo_path);
+    }
+    return @embedFile(canonical_caller.file);
 }
 
 const CallerOwnedCompilationKind = enum {
@@ -858,8 +863,8 @@ fn anonymousBodySyntheticSource(
     comptime caller_owned_kind: CallerOwnedCompilationKind,
 ) ?[:0]const u8 {
     const method_name = anonymousBodyMethodName(Body) orelse return null;
-    const caller_source = comptime callerSourceBytes(caller, caller_source_override);
     const expr_bounds = comptime anonymousBodyExprBounds(caller, caller_source_override, caller_owned_kind) orelse return null;
+    const caller_source = comptime callerSourceBytes(caller, caller_source_override);
     const expr_len = comptime expr_bounds.end - expr_bounds.start;
     const expr_source = comptime blk: {
         var buffer: [expr_len]u8 = undefined;
@@ -1133,6 +1138,61 @@ test "withCallerSource preserves lexical continuation caller provenance through 
     });
 
     try std.testing.expectEqualStrings("answer=42", result.value);
+}
+
+test "with preserves caller provenance through the legacy lexical path" {
+    const state = @import("effect/state.zig");
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try with(@src(), &runtime, .{
+        .state = state.use(@as(i32, 0)),
+    }, struct {
+        fn body(eff: anytype) anyerror![]const u8 {
+            return @TypeOf(eff.state.ctx.?.*).caller_source.?.file;
+        }
+    });
+
+    try std.testing.expectEqualStrings(@src().file, result.value);
+}
+
+test "with preserves caller provenance through optional continuation resume" {
+    const choice = @import("effect/choice.zig");
+    const optional = @import("effect/optional.zig");
+    const state = @import("effect/state.zig");
+
+    const resume_policy = struct {
+        /// Resume the optional continuation with the canonical witness value.
+        pub fn resumeOrReturn() choice.Decision(i32, []const u8) {
+            return choice.Decision(i32, []const u8).resumeWith(41);
+        }
+
+        /// Preserve the resumed answer after the optional continuation completes.
+        pub fn afterResume(answer: []const u8) []const u8 {
+            return answer;
+        }
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try with(@src(), &runtime, .{
+        .optional = optional.use(i32, resume_policy),
+        .state = state.use(@as(i32, 0)),
+    }, struct {
+        fn body(eff: anytype) anyerror![]const u8 {
+            return try eff.optional.request(struct {
+                /// Return the caller-owned source file observed through the resumed continuation handle set.
+                pub fn apply(value: i32, resumed_eff: anytype) anyerror![]const u8 {
+                    if (value != 41) unreachable;
+                    return @TypeOf(resumed_eff.state.ctx.?.*).caller_source.?.file;
+                }
+            });
+        }
+    });
+
+    try std.testing.expectEqualStrings(@src().file, result.value);
 }
 
 fn rejectUnsupportedShippedWith(
@@ -1761,7 +1821,7 @@ pub fn continueChoice(
     }, Continuation, resume_value);
 }
 
-/// Return type for one lexical `shift.with(...)` instantiation.
+/// Return type for one lexical `shift.with(@src(), ...)` instantiation.
 pub fn WithFnReturnType(comptime HandlersType: type, comptime Body: type) type {
     const HandlerSet = HandlerErrorSet(HandlersType);
     const PreviewEff = PreviewBodyEffType(HandlersType);
@@ -1805,8 +1865,9 @@ fn withAt(
     comptime caller_owned_kind: CallerOwnedCompilationKind,
 ) WithFnReturnType(@TypeOf(handlers), Body) {
     const HandlersType = @TypeOf(handlers);
+    const canonical_caller = comptime source_graph_embed.canonicalCallerLocation(caller);
     comptime assertHandlerBundleShape(HandlersType);
-    comptime rejectUnsupportedShippedWith(HandlersType, Body, caller, caller_source_override, caller_owned_kind);
+    comptime rejectUnsupportedShippedWith(HandlersType, Body, canonical_caller, caller_source_override, caller_owned_kind);
 
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
@@ -1819,8 +1880,8 @@ fn withAt(
             };
         }
     }
-    if (comptime anonymousBodyCompilable(HandlersType, caller, Body, caller_source_override, caller_owned_kind)) {
-        if (tryCallerOwnedCompiledWith(HandlersType, Body, caller, caller_source_override, caller_owned_kind, runtime, &handler_state, &outputs)) |compiled| {
+    if (comptime anonymousBodyCompilable(HandlersType, canonical_caller, Body, caller_source_override, caller_owned_kind)) {
+        if (tryCallerOwnedCompiledWith(HandlersType, Body, canonical_caller, caller_source_override, caller_owned_kind, runtime, &handler_state, &outputs)) |compiled| {
             const value = try compiled;
             return .{
                 .outputs = outputs,
@@ -1828,7 +1889,7 @@ fn withAt(
             };
         }
     }
-    const value = try runChainCollected(HandlersType, Body, 0, struct {}, caller, .{
+    const value = try runChainCollected(HandlersType, Body, 0, struct {}, canonical_caller, .{
         .runtime = runtime,
         .handlers_ptr = &handler_state,
         .eff_value = .{},
@@ -1842,11 +1903,12 @@ fn withAt(
 
 /// Run one lexical effect bundle and return descriptor outputs alongside the body answer.
 pub fn with(
+    comptime caller: std.builtin.SourceLocation,
     runtime: *lowered_machine.Runtime,
     handlers: anytype,
     comptime Body: type,
 ) WithFnReturnType(@TypeOf(handlers), Body) {
-    return withAt(runtime, handlers, Body, @src(), null, .none);
+    return withAt(runtime, handlers, Body, caller, null, .none);
 }
 
 /// Run one lexical effect bundle while the caller explicitly supplies the source location used for caller-owned compilation.
@@ -1880,15 +1942,16 @@ pub fn withOwnedSource(
     comptime Body: type,
 ) WithFnReturnType(@TypeOf(handlers), Body) {
     const HandlersType = @TypeOf(handlers);
+    const canonical_caller = comptime source_graph_embed.canonicalCallerLocation(caller);
     comptime assertHandlerBundleShape(HandlersType);
-    comptime rejectUnsupportedOwnedSourceWith(HandlersType, Body, caller, caller_source, witness);
+    comptime rejectUnsupportedOwnedSourceWith(HandlersType, Body, canonical_caller, caller_source, witness);
 
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
     if (tryOwnedSourceCompiledWith(
         HandlersType,
         Body,
-        caller,
+        canonical_caller,
         caller_source,
         witness,
         runtime,

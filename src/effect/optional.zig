@@ -29,7 +29,7 @@ pub fn Instance(comptime ResumeType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.resume_or_return, ResumeType, ErrorSetType);
 }
 
-/// Lexical optional handle used by `shift.with(...)`.
+/// Lexical optional handle used by `shift.with(@src(), ...)`.
 pub fn LexicalHandle(
     comptime Cap: type,
     comptime ContextPtrType: type,
@@ -97,7 +97,7 @@ pub fn LexicalHandle(
     };
 }
 
-/// Descriptor value used by `shift.with(...)` for the built-in optional family.
+/// Descriptor value used by `shift.with(@src(), ...)` for the built-in optional family.
 pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type, comptime Policy: type) type {
     return struct {
         /// Shared error set carried by the lexical optional descriptor.
@@ -166,7 +166,7 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
     };
 }
 
-/// Create one lexical optional descriptor for `shift.with(...)`.
+/// Create one lexical optional descriptor for `shift.with(@src(), ...)`.
 pub fn use(comptime ResumeType: type, comptime Policy: type) LexicalDescriptor(ResumeType, PolicyErrorSet(Policy), Policy) {
     return .{};
 }
@@ -223,17 +223,20 @@ pub inline fn computeProgram(
 
 /// Run an optional-resumption effect body and return the final handler answer.
 pub fn handle(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
     comptime Policy: type,
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try algebraic.handleOptional(AnswerType, runtime, instance, Policy, Body);
+    return try algebraic.handleOptional(caller_source, AnswerType, runtime, instance, Policy, Body);
 }
 
 /// Public `handleWithErrorSet` helper.
+// zlinter-disable max_positional_args - public caller provenance and optional policy inputs stay explicit at this compatibility wrapper.
 pub fn handleWithErrorSet(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -241,7 +244,7 @@ pub fn handleWithErrorSet(
     comptime Policy: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try algebraic.handleOptionalWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, Policy, Body);
+    return try algebraic.handleOptionalWithErrorSet(caller_source, AnswerType, RunErrorSetType, runtime, instance, Policy, Body);
 }
 
 test "optional instance shell stays prompt-sized" {
@@ -388,6 +391,37 @@ test "optional handle can resume and transform the resumed answer" {
     var instance = OptionalInstance.init();
     const result = try handle([]const u8, &runtime, &instance, policy, demo);
     try std.testing.expectEqualStrings("answer=42", result);
+}
+
+test "public optional handleWithErrorSet preserves caller provenance" {
+    const NoError = error{};
+    const OptionalInstance = Instance(i32, NoError);
+    const policy = struct {
+        /// Return early so the body can observe the public wrapper context directly.
+        pub fn resumeOrReturn() prompt_contract.ResumeOrReturn(i32, []const u8) {
+            return prompt_contract.ResumeOrReturn(i32, []const u8).returnNow("unused");
+        }
+
+        /// Preserve a placeholder resumed answer for shape completeness.
+        pub fn afterResume(value: i32) []const u8 {
+            _ = value;
+            return "unused";
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = OptionalInstance.init();
+
+    const result = try handleWithErrorSet(@src(), []const u8, NoError, &runtime, &instance, policy, struct {
+        /// Return the exact caller-owned source file observed through the public optional wrapper.
+        pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
+            _ = Cap;
+            return @TypeOf(ctx.*).caller_source.?.file;
+        }
+    });
+
+    try std.testing.expectEqualStrings(@src().file, result);
 }
 
 test "nested same-shaped optional handles get distinct capability types" {

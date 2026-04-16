@@ -11,7 +11,7 @@ fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void
     var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(@src(), &runtime, .{
         .writer = shift.effect.writer.use([]const u8, allocator),
     }, shift.NamedBody("examples/writer_basic.zig", "writerBody", anyerror![]const u8, writerBody));
     defer allocator.free(result.outputs.writer);

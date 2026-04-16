@@ -27,7 +27,7 @@ pub fn runDirectReturn(writer: anytype) anyerror!void {
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.handler_line = "";
-    const result = try lexical_runtime.with(&runtime, .{
+    const result = try lexical_runtime.with(@src(), &runtime, .{
         .exception = lexical_runtime.effect.exception.use([]const u8, catch_policy),
     }, struct {
         /// Abort immediately through the lexical exception surface.
@@ -66,7 +66,7 @@ pub fn runResumeOrReturnReturnNow(writer: anytype) anyerror!void {
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.len = 0;
-    const result = try lexical_runtime.with(&runtime, .{
+    const result = try lexical_runtime.with(@src(), &runtime, .{
         .optional = lexical_runtime.effect.optional.use(i32, policy),
     }, struct {
         /// Trigger the lexical choice point and confirm the continuation is skipped.
@@ -111,7 +111,7 @@ pub fn runResumeOrReturnResume(writer: anytype) anyerror!void {
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.len = 0;
-    const result = try lexical_runtime.with(&runtime, .{
+    const result = try lexical_runtime.with(@src(), &runtime, .{
         .optional = lexical_runtime.effect.optional.use(i32, policy),
     }, struct {
         /// Trigger the lexical choice point and finish the resumed continuation.
@@ -136,7 +136,7 @@ pub fn runGenerator(writer: anytype) anyerror!void {
     defer runtime.deinit();
     var output_buffer: [256]u8 = undefined;
     var output_fba = std.heap.FixedBufferAllocator.init(&output_buffer);
-    const result = try lexical_runtime.with(&runtime, .{
+    const result = try lexical_runtime.with(@src(), &runtime, .{
         .writer = lexical_runtime.effect.writer.use([]const u8, output_fba.allocator()),
         .state = lexical_runtime.effect.state.use(@as(i32, 0)),
     }, struct {
@@ -190,7 +190,7 @@ pub fn runAtmResumeTransform(writer: anytype) anyerror!void {
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.len = 0;
-    const result = try lexical_runtime.with(&runtime, .{
+    const result = try lexical_runtime.with(@src(), &runtime, .{
         .atm = ResumeWitness.use(.{ .handler = Handler{} }),
     }, struct {
         /// Resume once through the lexical ATM witness and return the final answer.
@@ -251,14 +251,14 @@ pub fn runStaticRedelim(writer: anytype) anyerror!void {
     defer runtime.deinit();
     transcript.len = 0;
     transcript.runtime_ptr = &runtime;
-    const result = try lexical_runtime.with(&runtime, .{
+    const result = try lexical_runtime.with(@src(), &runtime, .{
         .outer = ResumeWitness.use(.{ .handler = OuterHandler{} }),
     }, struct {
         /// Resume the outer witness, then open and resolve the nested inner witness.
         pub fn body(outer_eff: anytype) anyerror!i32 {
             transcript.outer_value = try outer_eff.outer.step.perform();
             transcript.note("after-outer-shift");
-            const nested = try lexical_runtime.with(transcript.runtime_ptr.?, .{
+            const nested = try lexical_runtime.with(@src(), transcript.runtime_ptr.?, .{
                 .inner = ResumeWitness.use(.{ .handler = InnerHandler{} }),
             }, struct {
                 /// Resume the nested inner witness and return the composed answer.
@@ -319,7 +319,7 @@ pub fn runMultiPrompt(writer: anytype) anyerror!void {
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.len = 0;
-    const result = try lexical_runtime.with(&runtime, .{
+    const result = try lexical_runtime.with(@src(), &runtime, .{
         .outer = ResumeWitness.use(.{ .handler = OuterHandler{} }),
         .inner = ResumeWitness.use(.{ .handler = InnerHandler{} }),
     }, struct {

@@ -24,7 +24,7 @@ pub fn Instance(comptime ResourceType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.resume_then_transform, ResourceType, ErrorSetType);
 }
 
-/// Lexical resource handle used by `shift.with(...)`.
+/// Lexical resource handle used by `shift.with(@src(), ...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -36,7 +36,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     };
 }
 
-/// Descriptor value used by `shift.with(...)` for the built-in resource family.
+/// Descriptor value used by `shift.with(@src(), ...)` for the built-in resource family.
 pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: type, comptime Manager: type) type {
     return struct {
         /// Shared error set carried by the lexical resource descriptor.
@@ -79,7 +79,7 @@ pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: typ
     };
 }
 
-/// Create one lexical resource descriptor for `shift.with(...)`.
+/// Create one lexical resource descriptor for `shift.with(@src(), ...)`.
 pub fn use(comptime ResourceType: type, comptime Manager: type) LexicalDescriptor(ResourceType, ManagerErrorSet(Manager), Manager) {
     return .{};
 }
@@ -108,17 +108,20 @@ pub inline fn computeProgram(
 
 /// Run a resource effect body and guarantee LIFO cleanup of acquired resources.
 pub fn handle(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
     comptime Manager: type,
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try algebraic.handleResource(AnswerType, runtime, instance, Manager, Body);
+    return try algebraic.handleResource(caller_source, AnswerType, runtime, instance, Manager, Body);
 }
 
 /// Public `handleWithErrorSet` helper.
+// zlinter-disable max_positional_args - public caller provenance and manager inputs stay explicit at this compatibility wrapper.
 pub fn handleWithErrorSet(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -126,7 +129,7 @@ pub fn handleWithErrorSet(
     comptime Manager: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try algebraic.handleResourceWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, Manager, Body);
+    return try algebraic.handleResourceWithErrorSet(caller_source, AnswerType, RunErrorSetType, runtime, instance, Manager, Body);
 }
 
 test "resource instance shell stays prompt-sized" {

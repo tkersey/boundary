@@ -64,7 +64,7 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=return_now\n");
     transcript.len = 0;
-    const early_result = try shift.with(&runtime, .{
+    const early_result = try shift.with(@src(), &runtime, .{
         .optional = shift.effect.optional.use(i32, return_now_policy),
     }, shift.NamedBody("examples/optional_basic.zig", "optionalReturnNowBody", anyerror![]const u8, optionalReturnNowBody));
     for (transcript.items[0..transcript.len]) |item| {
@@ -74,7 +74,7 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=resume_with\n");
     transcript.len = 0;
-    const resumed = try shift.with(&runtime, .{
+    const resumed = try shift.with(@src(), &runtime, .{
         .optional = shift.effect.optional.use(i32, resume_policy),
     }, shift.NamedBody("examples/optional_basic.zig", "optionalResumeBody", anyerror![]const u8, optionalResumeBody));
     for (transcript.items[0..transcript.len]) |item| {

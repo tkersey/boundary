@@ -12,7 +12,7 @@ pub const Instance = family.Instance;
 /// Final state plus body answer returned from a handled state program.
 pub const HandleResult = family.HandleResult;
 
-/// Lexical state handle used by `shift.with(...)`.
+/// Lexical state handle used by `shift.with(@src(), ...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -29,7 +29,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     };
 }
 
-/// Descriptor value used by `shift.with(...)` for the built-in state family.
+/// Descriptor value used by `shift.with(@src(), ...)` for the built-in state family.
 pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) type {
     return struct {
         /// Shared error set carried by the lexical state descriptor.
@@ -74,7 +74,7 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
     };
 }
 
-/// Create one lexical state descriptor for `shift.with(...)`.
+/// Create one lexical state descriptor for `shift.with(@src(), ...)`.
 pub fn use(initial_state: anytype) LexicalDescriptor(@TypeOf(initial_state), error{}) {
     return .{ .initial_state = initial_state };
 }
@@ -112,6 +112,7 @@ pub inline fn computeProgram(
 
 /// Run a state effect body and return the final state plus the body answer.
 pub fn handle(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
@@ -121,11 +122,13 @@ pub fn handle(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
-    return try algebraic.handleState(AnswerType, runtime, instance, initial_state, Body);
+    return try algebraic.handleState(caller_source, AnswerType, runtime, instance, initial_state, Body);
 }
 
 /// Public `handleWithErrorSet` helper.
+// zlinter-disable max_positional_args - public caller provenance and state inputs stay explicit at this compatibility wrapper.
 pub fn handleWithErrorSet(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -136,7 +139,7 @@ pub fn handleWithErrorSet(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
-    return try algebraic.handleStateWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, initial_state, Body);
+    return try algebraic.handleStateWithErrorSet(caller_source, AnswerType, RunErrorSetType, runtime, instance, initial_state, Body);
 }
 
 test "state instance shell stays prompt-sized" {
@@ -238,4 +241,23 @@ test "nested same-shaped state handles get distinct capability types" {
         }
     });
     try std.testing.expectEqual(@as(i32, 0), result.value);
+}
+
+test "public state handleWithErrorSet preserves caller provenance" {
+    const NoError = error{};
+    const StateInstance = Instance(i32, NoError);
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = StateInstance.init();
+
+    const result = try handleWithErrorSet(@src(), []const u8, NoError, &runtime, &instance, @as(i32, 0), struct {
+        /// Return the exact caller-owned source file observed through the public state wrapper.
+        pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
+            _ = Cap;
+            return @TypeOf(ctx.*).caller_source.?.file;
+        }
+    });
+
+    try std.testing.expectEqualStrings(@src().file, result.value);
 }

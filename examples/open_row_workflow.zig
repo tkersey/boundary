@@ -66,7 +66,7 @@ fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void
 
     transcript.search_line = "";
     transcript.approval_line = "";
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 0)),
         .writer = shift.effect.writer.use([]const u8, allocator),
         .search = Search.use(.{ .handler = search_handler{} }),

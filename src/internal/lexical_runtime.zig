@@ -1,4 +1,5 @@
 const lowered_machine = @import("lowered_machine");
+const std = @import("std");
 const with_api = @import("../with_api.zig");
 
 /// Public `Runtime` declaration.
@@ -15,9 +16,10 @@ pub fn With(comptime HandlersType: type, comptime Body: type) type {
 
 /// Run the public lexical handler entrypoint.
 pub fn with(
+    comptime caller: std.builtin.SourceLocation,
     runtime: *Runtime,
     handlers: anytype,
     comptime Body: type,
 ) with_api.WithFnReturnType(@TypeOf(handlers), Body) {
-    return with_api.with(runtime, handlers, Body);
+    return with_api.with(caller, runtime, handlers, Body);
 }

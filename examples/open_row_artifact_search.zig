@@ -47,7 +47,7 @@ pub fn run(writer: anytype) anyerror!void {
     defer runtime.deinit();
 
     transcript.len = 0;
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(@src(), &runtime, .{
         .search = Search.use(.{ .handler = search_handler{} }),
     }, shift.NamedBody("examples/open_row_artifact_search.zig", "artifactSearchBody", anyerror!i32, artifactSearchBody));
     for (transcript.items[0..transcript.len]) |item| {

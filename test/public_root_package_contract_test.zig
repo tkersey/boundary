@@ -617,7 +617,7 @@ test "downstream consumer cannot compile caller-owned NamedBody sources through 
         \\pub fn main() !void {
         \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
         \\    defer runtime.deinit();
-        \\    _ = try shift.with(&runtime, .{
+        \\    _ = try shift.with(@src(), &runtime, .{
         \\        .state = shift.effect.state.use(@as(i32, 0)),
         \\    }, shift.NamedBody("main.zig", "body", anyerror!i32, body));
         \\}
@@ -717,7 +717,7 @@ test "downstream consumer can compile an anonymous same-file lexical body throug
         \\pub fn main() !void {
         \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
         \\    defer runtime.deinit();
-        \\    const result = try shift.with(&runtime, .{
+        \\    const result = try shift.with(@src(), &runtime, .{
         \\        .state = shift.effect.state.use(@as(i32, 0)),
         \\    }, struct {
         \\        pub fn body(eff: anytype) anyerror!i32 {

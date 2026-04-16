@@ -67,7 +67,7 @@ pub fn HandleResult(comptime ItemType: type, comptime ValueType: type) type {
     };
 }
 
-/// Lexical writer handle used by `shift.with(...)`.
+/// Lexical writer handle used by `shift.with(@src(), ...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type, comptime ItemType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -79,7 +79,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type, comptime
     };
 }
 
-/// Descriptor value used by `shift.with(...)` for the built-in writer family.
+/// Descriptor value used by `shift.with(@src(), ...)` for the built-in writer family.
 pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) type {
     return struct {
         /// Shared error set carried by the lexical writer descriptor.
@@ -132,7 +132,7 @@ pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) t
     };
 }
 
-/// Create one lexical writer descriptor for `shift.with(...)`.
+/// Create one lexical writer descriptor for `shift.with(@src(), ...)`.
 pub fn use(comptime ItemType: type, allocator: std.mem.Allocator) LexicalDescriptor(ItemType, error{}) {
     return .{ .allocator = allocator };
 }
@@ -161,7 +161,9 @@ pub inline fn computeProgram(
 }
 
 /// Run a writer effect body and return the accumulated log plus the body answer.
+// zlinter-disable max_positional_args - public caller provenance and writer inputs stay explicit at this compatibility wrapper.
 pub fn handle(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime ItemType: type,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
@@ -171,7 +173,7 @@ pub fn handle(
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!HandleResult(ItemType, AnswerType) {
     const item_type = ItemType;
     const answer_type = AnswerType;
-    const result = try algebraic.handleWriter(struct {
+    const result = try algebraic.handleWriter(caller_source, struct {
         /// Item type threaded through the shared writer engine adapter.
         pub const Item = item_type;
         /// Final answer type threaded through the shared writer engine adapter.
@@ -187,6 +189,7 @@ pub fn handle(
 
 /// Public `handleWithErrorSet` helper.
 pub fn handleWithErrorSet(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime Types: struct {
         Item: type,
         Answer: type,
@@ -199,7 +202,7 @@ pub fn handleWithErrorSet(
 ) lowered_machine.ResetError(Types.ErrorSet)!HandleResult(Types.Item, Types.Answer) {
     const ItemType = Types.Item;
     const AnswerType = Types.Answer;
-    const result = try algebraic.handleWriterWithErrorSet(struct {
+    const result = try algebraic.handleWriterWithErrorSet(caller_source, struct {
         /// Public `Item` declaration.
         pub const Item = ItemType;
         /// Public `Answer` declaration.

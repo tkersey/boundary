@@ -24,7 +24,7 @@ pub fn Instance(comptime PayloadType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.direct_return, PayloadType, ErrorSetType);
 }
 
-/// Lexical exception handle used by `shift.with(...)`.
+/// Lexical exception handle used by `shift.with(@src(), ...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -36,7 +36,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     };
 }
 
-/// Descriptor value used by `shift.with(...)` for the built-in exception family.
+/// Descriptor value used by `shift.with(@src(), ...)` for the built-in exception family.
 pub fn LexicalDescriptor(comptime PayloadType: type, comptime ErrorSetType: type, comptime Catch: type) type {
     return struct {
         /// Shared error set carried by the lexical exception descriptor.
@@ -79,7 +79,7 @@ pub fn LexicalDescriptor(comptime PayloadType: type, comptime ErrorSetType: type
     };
 }
 
-/// Create one lexical exception descriptor for `shift.with(...)`.
+/// Create one lexical exception descriptor for `shift.with(@src(), ...)`.
 pub fn use(comptime PayloadType: type, comptime Catch: type) LexicalDescriptor(PayloadType, CatchErrorSet(Catch), Catch) {
     return .{};
 }
@@ -127,17 +127,20 @@ pub inline fn computeProgram(
 
 /// Run an exception effect body and return the final caught or normal answer.
 pub fn handle(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
     comptime Catch: type,
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try algebraic.handleException(AnswerType, runtime, instance, Catch, Body);
+    return try algebraic.handleException(caller_source, AnswerType, runtime, instance, Catch, Body);
 }
 
 /// Public `handleWithErrorSet` helper.
+// zlinter-disable max_positional_args - public caller provenance and catch inputs stay explicit at this compatibility wrapper.
 pub fn handleWithErrorSet(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -145,7 +148,7 @@ pub fn handleWithErrorSet(
     comptime Catch: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try algebraic.handleExceptionWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, Catch, Body);
+    return try algebraic.handleExceptionWithErrorSet(caller_source, AnswerType, RunErrorSetType, runtime, instance, Catch, Body);
 }
 
 test "exception instance shell stays prompt-sized" {

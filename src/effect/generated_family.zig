@@ -956,7 +956,7 @@ pub fn Build(comptime spec: anytype) type {
             });
         }
 
-        /// Lexical handle used by `shift.with(...)` for generated families.
+        /// Lexical handle used by `shift.with(@src(), ...)` for generated families.
         pub fn LexicalHandle(
             comptime Cap: type,
             comptime ContextPtrType: type,
@@ -967,7 +967,7 @@ pub fn Build(comptime spec: anytype) type {
             return LexicalFieldContainerHandle(Cap, ContextPtrType, HandlersType, PreviousEffType, index);
         }
 
-        /// Descriptor value used by `shift.with(...)` for generated families.
+        /// Descriptor value used by `shift.with(@src(), ...)` for generated families.
         pub fn LexicalDescriptor(comptime HandlerType: type) type {
             return struct {
                 const produces_output = mode == .resume_then_transform and stateTypeProducesOutput(StateType);

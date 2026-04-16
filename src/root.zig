@@ -6,7 +6,7 @@ pub const effect = shared.effect;
 pub const Runtime = shared.Runtime;
 /// Public runtime misuse and semantic-contract errors surfaced by `shift`.
 pub const RuntimeError = shared.RuntimeError;
-/// Canonical named lexical body helper for compiled `shift.with(...)`.
+/// Canonical named lexical body helper for compiled `shift.with(@src(), ...)`.
 pub const NamedBody = shared.NamedBody;
 /// Run the public lexical handler entrypoint.
 pub const with = shared.with;

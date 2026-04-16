@@ -41,7 +41,7 @@ fn counterBody(eff: anytype) anyerror!i32 {
 }
 
 fn runCounter(runtime: *shift.Runtime) anyerror!i32 {
-    const result = try shift.with(runtime, .{
+    const result = try shift.with(@src(), runtime, .{
         .counter = Counter.use(.{ .handler = CounterHandler{ .state = 5 } }),
     }, shift.NamedBody("examples/open_row_transform_basic.zig", "counterBody", anyerror!i32, counterBody));
     return result.value;

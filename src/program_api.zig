@@ -344,8 +344,8 @@ pub fn Program(comptime declaration_values: anytype, comptime BodyType: type) ty
         pub const declarations = declaration_values;
 
         /// Run this public entrypoint.
-        pub fn run(runtime: *lowered_machine.Runtime, bindings: Bindings) RunReturnType(@This()) {
-            return programRun(runtime, @This(), bindings);
+        pub fn run(comptime caller: std.builtin.SourceLocation, runtime: *lowered_machine.Runtime, bindings: Bindings) RunReturnType(@This()) {
+            return programRun(caller, runtime, @This(), bindings);
         }
     };
 }
@@ -355,14 +355,14 @@ pub fn RunReturnType(comptime ProgramType: type) type {
     return program_runtime.RunReturnType(HandlerBundleType(@TypeOf(ProgramType.declarations)), ProgramType.Body);
 }
 
-fn programRun(runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) RunReturnType(ProgramType) {
+fn programRun(comptime caller: std.builtin.SourceLocation, runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) RunReturnType(ProgramType) {
     const handlers = buildHandlers(ProgramType, runtime, bindings);
-    return program_runtime.run(runtime, handlers, ProgramType.Body);
+    return program_runtime.run(caller, runtime, handlers, ProgramType.Body);
 }
 
 /// Run this public entrypoint.
-pub fn run(runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) RunReturnType(ProgramType) {
-    return programRun(runtime, ProgramType, bindings);
+pub fn run(comptime caller: std.builtin.SourceLocation, runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) RunReturnType(ProgramType) {
+    return programRun(caller, runtime, ProgramType, bindings);
 }
 
 test "program manifest records declaration metadata and outputs" {

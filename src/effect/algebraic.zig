@@ -44,6 +44,7 @@ pub inline fn stateSet(
 
 /// Run a state family through the shared algebraic engine.
 pub fn handleState(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
@@ -120,14 +121,16 @@ pub fn handleState(
         contract.AnswerTypeV,
         contract.ErrorSetTypeV,
         contract.capability_decls,
-        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx },
+        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .caller_source = caller_source },
         Body,
     );
     return .{ .state = state_cell, .value = value };
 }
 
 /// Handle the public state capability with an explicit error set.
+// zlinter-disable max_positional_args - public caller provenance and effect inputs stay explicit at this compatibility wrapper.
 pub fn handleStateWithErrorSet(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -138,7 +141,7 @@ pub fn handleStateWithErrorSet(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
-    return try handleStateWithErrorSetLexical(AnswerType, RunErrorSetType, .{
+    return try handleStateWithErrorSetLexical(caller_source, AnswerType, RunErrorSetType, .{
         .runtime = runtime,
         .instance = instance,
         .initial_state = initial_state,
@@ -148,6 +151,7 @@ pub fn handleStateWithErrorSet(
 
 /// Handle the public state capability with an explicit lexical-state carrier.
 pub fn handleStateWithErrorSetLexical(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     config: anytype,
@@ -156,7 +160,7 @@ pub fn handleStateWithErrorSetLexical(
     family.InstanceStateType(@TypeOf(config.instance)),
     AnswerType,
 ) {
-    return try handleStateWithErrorSetLexicalAt(AnswerType, RunErrorSetType, @src(), config, Body);
+    return try handleStateWithErrorSetLexicalAt(AnswerType, RunErrorSetType, caller_source, config, Body);
 }
 
 /// Handle the public state capability with an explicit lexical-state carrier and caller source.
@@ -253,6 +257,7 @@ pub inline fn readerAsk(
 
 /// Run a reader family through the shared algebraic engine.
 pub fn handleReader(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
@@ -310,13 +315,15 @@ pub fn handleReader(
         contract.AnswerTypeV,
         contract.ErrorSetTypeV,
         contract.capability_decls,
-        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx },
+        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .caller_source = caller_source },
         Body,
     );
 }
 
 /// Handle the public reader capability with an explicit error set.
+// zlinter-disable max_positional_args - public caller provenance and reader inputs stay explicit at this compatibility wrapper.
 pub fn handleReaderWithErrorSet(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -324,7 +331,7 @@ pub fn handleReaderWithErrorSet(
     environment: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleReaderWithErrorSetLexical(AnswerType, RunErrorSetType, .{
+    return try handleReaderWithErrorSetLexical(caller_source, AnswerType, RunErrorSetType, .{
         .runtime = runtime,
         .instance = instance,
         .environment = environment,
@@ -334,12 +341,13 @@ pub fn handleReaderWithErrorSet(
 
 /// Handle the public reader capability with an explicit lexical-state carrier.
 pub fn handleReaderWithErrorSetLexical(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     config: anytype,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleReaderWithErrorSetLexicalAt(AnswerType, RunErrorSetType, @src(), config, Body);
+    return try handleReaderWithErrorSetLexicalAt(AnswerType, RunErrorSetType, caller_source, config, Body);
 }
 
 /// Handle the public reader capability with an explicit lexical-state carrier and caller source.
@@ -417,6 +425,7 @@ pub inline fn writerTell(
 
 /// Run a writer family through the shared algebraic engine.
 pub fn handleWriter(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime WriterContract: type,
     runtime: *shift.Runtime,
     instance: anytype,
@@ -480,7 +489,7 @@ pub fn handleWriter(
         contract.AnswerTypeV,
         contract.ErrorSetTypeV,
         contract.capability_decls,
-        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx },
+        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .caller_source = caller_source },
         Body,
     );
     const items = try writer_state.intoOwnedSlice();
@@ -488,7 +497,9 @@ pub fn handleWriter(
 }
 
 /// Handle the public writer capability with an explicit error set.
+// zlinter-disable max_positional_args - public caller provenance and writer inputs stay explicit at this compatibility wrapper.
 pub fn handleWriterWithErrorSet(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime WriterContract: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -499,7 +510,7 @@ pub fn handleWriterWithErrorSet(
     items: []WriterContract.Item,
     value: WriterContract.Answer,
 } {
-    return try handleWriterWithErrorSetLexical(WriterContract, RunErrorSetType, .{
+    return try handleWriterWithErrorSetLexical(caller_source, WriterContract, RunErrorSetType, .{
         .runtime = runtime,
         .instance = instance,
         .allocator = allocator,
@@ -509,6 +520,7 @@ pub fn handleWriterWithErrorSet(
 
 /// Handle the public writer capability with an explicit lexical-state carrier.
 pub fn handleWriterWithErrorSetLexical(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime WriterContract: type,
     comptime RunErrorSetType: type,
     config: anytype,
@@ -517,7 +529,7 @@ pub fn handleWriterWithErrorSetLexical(
     items: []WriterContract.Item,
     value: WriterContract.Answer,
 } {
-    return try handleWriterWithErrorSetLexicalAt(WriterContract, RunErrorSetType, @src(), config, Body);
+    return try handleWriterWithErrorSetLexicalAt(WriterContract, RunErrorSetType, caller_source, config, Body);
 }
 
 /// Handle the public writer capability with an explicit lexical-state carrier and caller source.
@@ -696,6 +708,7 @@ pub inline fn optionalComputeProgram(
 
 /// Run an optional family through the shared algebraic engine.
 pub fn handleOptional(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
@@ -771,13 +784,15 @@ pub fn handleOptional(
         contract.AnswerTypeV,
         contract.ErrorSetTypeV,
         contract.capability_decls,
-        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx },
+        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .caller_source = caller_source },
         Body,
     );
 }
 
 /// Handle the public optional capability with an explicit error set.
+// zlinter-disable max_positional_args - public caller provenance and optional policy inputs stay explicit at this compatibility wrapper.
 pub fn handleOptionalWithErrorSet(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -854,13 +869,14 @@ pub fn handleOptionalWithErrorSet(
         contract.AnswerTypeV,
         contract.ErrorSetTypeV,
         contract.capability_decls,
-        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx },
+        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .caller_source = caller_source },
         Body,
     );
 }
 
 /// Run a continuation-taking lexical optional family through the shared algebraic engine.
 pub fn handleOptionalLexical(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
@@ -934,20 +950,21 @@ pub fn handleOptionalLexical(
         contract.AnswerTypeV,
         contract.ErrorSetTypeV,
         contract.capability_decls,
-        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx },
+        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .caller_source = caller_source },
         Body,
     );
 }
 
 /// Handle the public optional lexical capability with an explicit error set.
 pub fn handleOptionalLexicalWithErrorSet(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     config: anytype,
     comptime Policy: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleOptionalLexicalWithErrorSetAt(AnswerType, RunErrorSetType, @src(), config, Policy, Body);
+    return try handleOptionalLexicalWithErrorSetAt(AnswerType, RunErrorSetType, caller_source, config, Policy, Body);
 }
 
 /// Handle the public optional lexical capability with an explicit error set and caller source.
@@ -1113,6 +1130,7 @@ pub inline fn exceptionComputeProgram(
 
 /// Run an exception family through the shared algebraic engine.
 pub fn handleException(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
@@ -1180,13 +1198,15 @@ pub fn handleException(
         contract.AnswerTypeV,
         contract.ErrorSetTypeV,
         contract.capability_decls,
-        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx },
+        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .caller_source = caller_source },
         Body,
     );
 }
 
 /// Handle the public exception capability with an explicit error set.
+// zlinter-disable max_positional_args - public caller provenance and catch inputs stay explicit at this compatibility wrapper.
 pub fn handleExceptionWithErrorSet(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -1194,7 +1214,7 @@ pub fn handleExceptionWithErrorSet(
     comptime Catch: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleExceptionWithErrorSetLexical(AnswerType, RunErrorSetType, .{
+    return try handleExceptionWithErrorSetLexical(caller_source, AnswerType, RunErrorSetType, .{
         .runtime = runtime,
         .instance = instance,
         .lexical_state = null,
@@ -1203,13 +1223,14 @@ pub fn handleExceptionWithErrorSet(
 
 /// Handle the public exception capability with an explicit lexical-state carrier.
 pub fn handleExceptionWithErrorSetLexical(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     config: anytype,
     comptime Catch: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleExceptionWithErrorSetLexicalAt(AnswerType, RunErrorSetType, @src(), config, Catch, Body);
+    return try handleExceptionWithErrorSetLexicalAt(AnswerType, RunErrorSetType, caller_source, config, Catch, Body);
 }
 
 /// Handle the public exception capability with an explicit lexical-state carrier and caller source.
@@ -1334,6 +1355,7 @@ pub inline fn resourceComputeProgram(
 
 /// Run a resource family through the shared algebraic engine.
 pub fn handleResource(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
@@ -1435,7 +1457,7 @@ pub fn handleResource(
         contract.AnswerTypeV,
         contract.ErrorSetTypeV,
         contract.capability_decls,
-        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx },
+        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .caller_source = caller_source },
         Body,
     ) catch |err| blk: {
         body_error = err;
@@ -1454,7 +1476,9 @@ pub fn handleResource(
 }
 
 /// Handle the public resource capability with an explicit error set.
+// zlinter-disable max_positional_args - public caller provenance and manager inputs stay explicit at this compatibility wrapper.
 pub fn handleResourceWithErrorSet(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -1462,7 +1486,7 @@ pub fn handleResourceWithErrorSet(
     comptime Manager: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleResourceWithErrorSetLexical(AnswerType, RunErrorSetType, .{
+    return try handleResourceWithErrorSetLexical(caller_source, AnswerType, RunErrorSetType, .{
         .runtime = runtime,
         .instance = instance,
         .lexical_state = null,
@@ -1471,13 +1495,14 @@ pub fn handleResourceWithErrorSet(
 
 /// Handle the public resource capability with an explicit lexical-state carrier.
 pub fn handleResourceWithErrorSetLexical(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     config: anytype,
     comptime Manager: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleResourceWithErrorSetLexicalAt(AnswerType, RunErrorSetType, @src(), config, Manager, Body);
+    return try handleResourceWithErrorSetLexicalAt(AnswerType, RunErrorSetType, caller_source, config, Manager, Body);
 }
 
 /// Handle the public resource capability with an explicit lexical-state carrier and caller source.

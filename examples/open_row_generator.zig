@@ -28,7 +28,7 @@ fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void
     var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 0)),
         .writer = shift.effect.writer.use([]const u8, allocator),
     }, shift.NamedBody("examples/open_row_generator.zig", "generatorBody", anyerror!i32, generatorBody));

@@ -23,7 +23,7 @@ pub fn run(writer: anytype) anyerror!void {
     defer runtime.deinit();
     transcript.handler_line = "";
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.with(@src(), &runtime, .{
         .exception = shift.effect.exception.use([]const u8, catch_policy),
     }, shift.NamedBody("examples/early_exit.zig", "earlyExitBody", anyerror![]const u8, earlyExitBody));
 
