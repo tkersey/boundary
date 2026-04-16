@@ -97,6 +97,11 @@ fn namedBodyCompilationSupported(comptime HandlersType: type, comptime Body: typ
     }) != null;
 }
 
+fn namedBodyAllowsTestFallback(comptime Body: type) bool {
+    const owned_repo_path = source_graph_embed.ownedRepoPath(Body.source_path) orelse return false;
+    return std.mem.startsWith(u8, owned_repo_path, "test/");
+}
+
 fn validateNamedBodyDeclaration(
     comptime source_path_value: []const u8,
     comptime entry_symbol_value: []const u8,
@@ -862,8 +867,12 @@ fn anonymousBodyMethodName(comptime Body: type) ?[]const u8 {
     return null;
 }
 
-fn anonymousBodyEntryName(_: std.builtin.SourceLocation) [:0]const u8 {
-    return "__shift_with_entry"[0.."__shift_with_entry".len :0];
+fn anonymousBodyEntryName(caller: std.builtin.SourceLocation) [:0]const u8 {
+    const entry_name = std.fmt.comptimePrint(
+        "__shift_with_entry_l{d}_c{d}\x00",
+        .{ caller.line, caller.column },
+    );
+    return entry_name[0 .. entry_name.len - 1 :0];
 }
 
 fn extractedAnonymousEntrySource(
@@ -1536,11 +1545,12 @@ fn rejectUnsupportedShippedWith(
     comptime caller_source_override: ?[:0]const u8,
     comptime caller_owned_kind: CallerOwnedCompilationKind,
 ) void {
-    if (builtin.is_test) return;
     if (isNamedBodyDescriptor(Body)) {
         if (namedBodyCompilationSupported(HandlersType, Body)) return;
-        @compileError("shift.NamedBody shipped execution must stay within the retained compiled lexical subset");
+        if (builtin.is_test and namedBodyAllowsTestFallback(Body)) return;
+        @compileError("shift.NamedBody execution must stay within the retained compiled lexical subset");
     }
+    if (builtin.is_test) return;
     if (caller_owned_kind == .none) return;
     if (callerOwnedCompilationSupported(HandlersType, Body, caller, caller_source_override, caller_owned_kind)) return;
     @compileError("shift.with shipped execution currently requires either shift.NamedBody(...) or a caller-owned lexical body shape that can be compiled from the callsite");

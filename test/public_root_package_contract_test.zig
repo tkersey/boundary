@@ -787,7 +787,72 @@ test "downstream consumer cannot ship NamedBody paths outside the retained compi
 
     const argv = zigBuildArgv();
     try repairChildFingerprintIfNeeded(tmp.dir, std.testing.allocator, &argv, null);
-    try runChildExpectFailureContains(tmp.dir, std.testing.allocator, &argv, null, "shift.NamedBody shipped execution must stay within the retained compiled lexical subset");
+    try runChildExpectFailureContains(tmp.dir, std.testing.allocator, &argv, null, "shift.NamedBody execution must stay within the retained compiled lexical subset");
+}
+
+test "downstream consumer test builds fail closed instead of running repo-owned NamedBody through a local fallback" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeConsumerBuildFiles(&tmp, repo_root);
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const shift_dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const test_mod = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    test_mod.addImport("shift", shift_dep.module("shift"));
+        \\    const unit_tests = b.addTest(.{
+        \\        .name = "consumer_probe",
+        \\        .root_module = test_mod,
+        \\    });
+        \\    const run_tests = b.addRunArtifact(unit_tests);
+        \\    const test_step = b.step("test", "Run consumer tests");
+        \\    test_step.dependOn(&run_tests.step);
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "main.zig",
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\fn witnessMultiPromptBody(_: anytype) anyerror!i32 {
+        \\    return 0;
+        \\}
+        \\
+        \\test "repo-owned NamedBody does not use a local fallback in test builds" {
+        \\    var runtime = shift.Runtime.init(std.testing.allocator);
+        \\    defer runtime.deinit();
+        \\    _ = try shift.with(@src(), &runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }, shift.NamedBody(
+        \\        "src/witness_sources.zig",
+        \\        "witnessMultiPromptBody",
+        \\        anyerror!i32,
+        \\        witnessMultiPromptBody,
+        \\    ));
+        \\}
+        \\
+    );
+
+    const argv = [_][]const u8{ build_options.zig_exe, "build", "test" };
+    try repairChildFingerprintIfNeeded(tmp.dir, std.testing.allocator, &argv, null);
+    try runChildExpectFailureContains(
+        tmp.dir,
+        std.testing.allocator,
+        &argv,
+        null,
+        "shift.NamedBody execution must stay within the retained compiled lexical subset",
+    );
 }
 
 test "downstream consumer can compile an anonymous same-file lexical body through the root package" {
@@ -877,6 +942,65 @@ test "downstream consumer can compile an anonymous same-file lexical body throug
     const main_source =
         \\const shift = @import("shift");
         \\const std = @import("std");
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\    const result = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{}, &runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }, struct {
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            const before = try eff.state.get();
+        \\            try eff.state.set(before + 1);
+        \\            return try eff.state.get();
+        \\        }
+        \\    });
+        \\    if (result.value != 1) return error.UnexpectedResult;
+        \\}
+        \\
+    ;
+    try writeTmpFile(tmp.dir, "main.zig", main_source);
+
+    const argv = zigBuildArgv();
+    try runChildExpectSuccess(tmp.dir, std.testing.allocator, &argv, null);
+}
+
+test "downstream consumer anonymous caller-owned lowering ignores unrelated __shift_with_entry helpers" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeConsumerBuildFiles(&tmp, repo_root);
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const shift_dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const exe_mod = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    exe_mod.addImport("shift", shift_dep.module("shift"));
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "consumer_probe",
+        \\        .root_module = exe_mod,
+        \\    });
+        \\    b.installArtifact(exe);
+        \\}
+        \\
+    );
+    const main_source =
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\fn __shift_with_entry(_: anytype) anyerror!i32 {
+        \\    return 999;
+        \\}
         \\
         \\pub fn main() !void {
         \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
