@@ -40,7 +40,7 @@ pub fn LexicalHandle(
     const binder_index = index;
     return struct {
         /// Caller source location preserved across optional lexical continuation re-entry.
-        pub const caller_source = family.ContextTypeFromPtr(ContextPtrType).caller_source orelse fallbackCallerSource();
+        pub const caller_source = family.ContextCallerSource(ContextPtrType);
         ctx: ?ContextPtrType,
         runtime: ?*shift.Runtime,
         handlers_ptr: ?*HandlersType,
@@ -223,6 +223,17 @@ pub inline fn computeProgram(
 
 /// Run an optional-resumption effect body and return the final handler answer.
 pub fn handle(
+    comptime AnswerType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Policy: type,
+    comptime Body: type,
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
+    return try handleAt(@src(), AnswerType, runtime, instance, Policy, Body);
+}
+
+/// Run an optional-resumption effect body with explicit caller provenance and return the final handler answer.
+pub fn handleAt(
     comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
@@ -236,6 +247,19 @@ pub fn handle(
 /// Public `handleWithErrorSet` helper.
 // zlinter-disable max_positional_args - public caller provenance and optional policy inputs stay explicit at this compatibility wrapper.
 pub fn handleWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Policy: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    return try handleWithErrorSetAt(@src(), AnswerType, RunErrorSetType, runtime, instance, Policy, Body);
+}
+
+/// Public `handleWithErrorSetAt` helper.
+// zlinter-disable max_positional_args - public caller provenance and optional policy inputs stay explicit at this compatibility wrapper.
+pub fn handleWithErrorSetAt(
     comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
@@ -393,7 +417,7 @@ test "optional handle can resume and transform the resumed answer" {
     try std.testing.expectEqualStrings("answer=42", result);
 }
 
-test "public optional handleWithErrorSet preserves caller provenance" {
+test "public optional handleWithErrorSetAt preserves caller provenance" {
     const NoError = error{};
     const OptionalInstance = Instance(i32, NoError);
     const policy = struct {
@@ -413,7 +437,7 @@ test "public optional handleWithErrorSet preserves caller provenance" {
     defer runtime.deinit();
     var instance = OptionalInstance.init();
 
-    const result = try handleWithErrorSet(@src(), []const u8, NoError, &runtime, &instance, policy, struct {
+    const result = try handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &instance, policy, struct {
         /// Return the exact caller-owned source file observed through the public optional wrapper.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             _ = Cap;

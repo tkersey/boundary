@@ -1,6 +1,7 @@
 const frontend = @import("frontend_support");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
+const std = @import("std");
 
 /// Resolve an effect instance type from a pointer passed into a family handler.
 pub fn InstanceTypeFromPtr(comptime InstancePtrType: type) type {
@@ -117,6 +118,16 @@ pub fn ContextErrorSetType(comptime ContextPtrType: type) type {
     return ContextTypeFromPtr(ContextPtrType).ErrorSetType;
 }
 
+/// Normalize the caller provenance carried by one checked context pointer.
+pub fn ContextCallerSource(comptime ContextPtrType: type) std.builtin.SourceLocation {
+    const caller_source = ContextTypeFromPtr(ContextPtrType).caller_source;
+    return switch (@typeInfo(@TypeOf(caller_source))) {
+        .optional => caller_source orelse @src(),
+        .null => @src(),
+        else => caller_source,
+    };
+}
+
 /// Package the three family types used to build an exact private context.
 pub fn ContextSpec(comptime StateType: type, comptime AnswerType: type, comptime ErrorSetType: type) type {
     return struct {
@@ -164,7 +175,7 @@ pub fn withCapability(
         lexical_state: ?*anyopaque = null,
         const capability_tag = capability_decls;
         /// Caller source location forwarded through exact-capability execution when supplied by the caller.
-        pub const caller_source = if (@hasField(@TypeOf(runner_state), "caller_source")) runner_state.caller_source else null;
+        pub const caller_source = if (hasDeclSafe(@TypeOf(runner_state), "caller_source")) @TypeOf(runner_state).caller_source else null;
 
         /// Opaque metadata bundle for effect-family-specific internal wiring.
         pub fn CapabilityTag() type {

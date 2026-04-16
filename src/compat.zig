@@ -34,3 +34,21 @@ test {
     _ = RuntimeError;
     _ = run;
 }
+
+test "compat run preserves legacy program runner arity" {
+    const demo_program = Program(.{
+        .state = Decl.state(i32),
+    }, struct {
+        /// Read one state value through the compatibility front door.
+        pub fn body(eff: anytype) anyerror!i32 {
+            return try eff.state.get();
+        }
+    });
+
+    var runtime = Runtime.init(@import("std").testing.allocator);
+    defer runtime.deinit();
+
+    const result = try run(&runtime, demo_program, .{ .state = 7 });
+    try @import("std").testing.expectEqual(@as(i32, 7), result.outputs.state);
+    try @import("std").testing.expectEqual(@as(i32, 7), result.value);
+}

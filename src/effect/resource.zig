@@ -108,6 +108,17 @@ pub inline fn computeProgram(
 
 /// Run a resource effect body and guarantee LIFO cleanup of acquired resources.
 pub fn handle(
+    comptime AnswerType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Manager: type,
+    comptime Body: type,
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
+    return try handleAt(@src(), AnswerType, runtime, instance, Manager, Body);
+}
+
+/// Run a resource effect body with explicit caller provenance and guarantee LIFO cleanup of acquired resources.
+pub fn handleAt(
     comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
@@ -121,6 +132,19 @@ pub fn handle(
 /// Public `handleWithErrorSet` helper.
 // zlinter-disable max_positional_args - public caller provenance and manager inputs stay explicit at this compatibility wrapper.
 pub fn handleWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Manager: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    return try handleWithErrorSetAt(@src(), AnswerType, RunErrorSetType, runtime, instance, Manager, Body);
+}
+
+/// Public `handleWithErrorSetAt` helper.
+// zlinter-disable max_positional_args - public caller provenance and manager inputs stay explicit at this compatibility wrapper.
+pub fn handleWithErrorSetAt(
     comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
@@ -315,6 +339,36 @@ test "resource handle releases before outer exception catch returns" {
     try std.testing.expectEqualStrings("use=r", manager.transcript[1]);
     try std.testing.expectEqualStrings("release=r", manager.transcript[2]);
     try std.testing.expectEqualStrings("catch=boom", manager.transcript[3]);
+}
+
+test "public resource handleWithErrorSetAt preserves caller provenance" {
+    const NoError = error{};
+    const ResourceInstance = Instance([]const u8, NoError);
+    const manager = struct {
+        /// Return one resource for provenance verification.
+        pub fn acquire() []const u8 {
+            return "resource";
+        }
+
+        /// Release the borrowed resource with no extra effect.
+        pub fn release(_: []const u8) void {
+            // This provenance witness only needs the resource bracket shape.
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = ResourceInstance.init();
+
+    const result = try handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &instance, manager, struct {
+        /// Return the exact caller-owned source file observed through the public resource wrapper.
+        pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
+            _ = try acquire(Cap, ctx);
+            return @TypeOf(ctx.*).caller_source.?.file;
+        }
+    });
+
+    try std.testing.expectEqualStrings(@src().file, result);
 }
 
 test "resource handle releases before outer optional return-now completes" {

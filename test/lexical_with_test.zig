@@ -671,6 +671,35 @@ test "generated lexical handlers infer after-hook errors when error_set_type is 
     try std.testing.expect(hasErrorName(ErrorSet, "AfterOops"));
 }
 
+test "generated family handleWithErrorSetAt preserves caller provenance" {
+    const NoError = error{};
+    const Audit = shift.effect.Define(.{
+        .state_type = void,
+        .ops = .{
+            shift.effect.ops.Transform("note", []const u8, void),
+        },
+    });
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = Audit.Instance.init();
+
+    const result = try Audit.handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &instance, struct {
+        /// Accept the generated payload while leaving the handler stateless.
+        pub fn note(_: *@This(), _: []const u8) void {
+            // Keep the generated handler stateless for the caller-provenance witness.
+        }
+    }{}, struct {
+        /// Return the exact caller-owned source file observed through the generated-family wrapper.
+        pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
+            _ = Cap;
+            return @TypeOf(ctx.*).caller_source.?.file;
+        }
+    });
+
+    try std.testing.expectEqualStrings(@src().file, result.value);
+}
+
 test "generated lexical transform handlers accept void state without a state field" {
     const Search = shift.effect.Define(.{
         .state_type = void,

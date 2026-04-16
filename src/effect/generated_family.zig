@@ -545,6 +545,9 @@ fn PreviewBodyErrorSet(
     };
 
     const preview_capability = struct {
+        /// Preview caller provenance for generated-family body error-set inference.
+        pub const caller_source = fallbackCallerSource();
+
         /// Return the engine context type for this public helper.
         pub fn EngineContextType() type {
             return preview_engine;
@@ -798,7 +801,7 @@ pub fn Build(comptime spec: anytype) type {
                     const Handle = @This();
                     const ContinuationEff = lexical_with.ContinuationEffType(Config.Handlers, Config.binder_index, Config.PreviousEff, Handle);
                     /// Caller source location preserved across generated lexical choice continuation re-entry.
-                    pub const caller_source = family.ContextTypeFromPtr(Config.ContextPtr).caller_source orelse fallbackCallerSource();
+                    pub const caller_source = family.ContextCallerSource(Config.ContextPtr);
 
                     ctx: ?Config.ContextPtr,
                     runtime: ?*shift.Runtime,
@@ -851,7 +854,7 @@ pub fn Build(comptime spec: anytype) type {
                     const Handle = @This();
                     const ContinuationEff = lexical_with.ContinuationEffType(Config.Handlers, Config.binder_index, Config.PreviousEff, Handle);
                     /// Caller source location preserved across payload-carrying generated choice continuation re-entry.
-                    pub const caller_source = family.ContextTypeFromPtr(Config.ContextPtr).caller_source orelse fallbackCallerSource();
+                    pub const caller_source = family.ContextCallerSource(Config.ContextPtr);
 
                     ctx: ?Config.ContextPtr,
                     runtime: ?*shift.Runtime,
@@ -1067,9 +1070,21 @@ pub fn Build(comptime spec: anytype) type {
             return self_type.handleWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, handler, Body);
         }
 
+        /// Run one generated family body with explicit caller provenance.
+        pub fn handleAt(comptime caller_source: std.builtin.SourceLocation, comptime AnswerType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler), Body))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+            const HandlerType = @TypeOf(handler);
+            const RunErrorSetType = HandleErrorSet(AnswerType, HandlerType, Body);
+            return self_type.handleWithErrorSetAt(caller_source, AnswerType, RunErrorSetType, runtime, instance, handler, Body);
+        }
+
         /// Public `handleWithErrorSet` helper.
         pub fn handleWithErrorSet(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
-            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body, null);
+            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body, @src());
+        }
+
+        /// Public `handleWithErrorSetAt` helper.
+        pub fn handleWithErrorSetAt(comptime caller_source: std.builtin.SourceLocation, comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body, caller_source);
         }
 
         // zlinter-disable max_positional_args - this internal seam keeps the lexical caller packet explicit until compiled-body dispatch fully replaces the legacy path.

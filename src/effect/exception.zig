@@ -127,6 +127,17 @@ pub inline fn computeProgram(
 
 /// Run an exception effect body and return the final caught or normal answer.
 pub fn handle(
+    comptime AnswerType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Catch: type,
+    comptime Body: type,
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
+    return try handleAt(@src(), AnswerType, runtime, instance, Catch, Body);
+}
+
+/// Run an exception effect body with explicit caller provenance and return the final caught or normal answer.
+pub fn handleAt(
     comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
@@ -140,6 +151,19 @@ pub fn handle(
 /// Public `handleWithErrorSet` helper.
 // zlinter-disable max_positional_args - public caller provenance and catch inputs stay explicit at this compatibility wrapper.
 pub fn handleWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Catch: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    return try handleWithErrorSetAt(@src(), AnswerType, RunErrorSetType, runtime, instance, Catch, Body);
+}
+
+/// Public `handleWithErrorSetAt` helper.
+// zlinter-disable max_positional_args - public caller provenance and catch inputs stay explicit at this compatibility wrapper.
+pub fn handleWithErrorSetAt(
     comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
@@ -288,6 +312,31 @@ test "exception throwProgram keeps direct explicit-program state thread-local ac
 
     try std.testing.expectEqualStrings("first", shared.first_result);
     try std.testing.expectEqualStrings("second", shared.second_result);
+}
+
+test "public exception handleWithErrorSetAt preserves caller provenance" {
+    const NoError = error{};
+    const ExceptionInstance = Instance([]const u8, NoError);
+    const catcher = struct {
+        /// Preserve the normal body answer for provenance verification.
+        pub fn directReturn(payload: []const u8) []const u8 {
+            return payload;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = ExceptionInstance.init();
+
+    const result = try handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &instance, catcher, struct {
+        /// Return the exact caller-owned source file observed through the public exception wrapper.
+        pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
+            _ = Cap;
+            return @TypeOf(ctx.*).caller_source.?.file;
+        }
+    });
+
+    try std.testing.expectEqualStrings(@src().file, result);
 }
 
 test "nested same-shaped exception handles get distinct capability types" {

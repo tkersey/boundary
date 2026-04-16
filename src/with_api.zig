@@ -1411,6 +1411,10 @@ fn fallbackCallerSource() std.builtin.SourceLocation {
     return @src();
 }
 
+fn exactContextCallerSource(comptime ContextPtrType: type) std.builtin.SourceLocation {
+    return family.ContextCallerSource(ContextPtrType);
+}
+
 fn CollectedRunState(comptime HandlersType: type, comptime EffType: type, comptime caller: std.builtin.SourceLocation) type {
     return LexicalState(HandlersType, EffType, caller);
 }
@@ -1679,7 +1683,7 @@ pub fn activeLexicalState(
     ctx: anytype,
     comptime HandlersType: type,
     comptime EffType: type,
-) *LexicalState(HandlersType, EffType, if (family.ContextTypeFromPtr(@TypeOf(ctx)).caller_source) |caller_source| caller_source else fallbackCallerSource()) {
+) *LexicalState(HandlersType, EffType, exactContextCallerSource(@TypeOf(ctx))) {
     return @ptrCast(@alignCast(ctx._cap.lexical_state.?));
 }
 

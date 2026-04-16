@@ -112,6 +112,20 @@ pub inline fn computeProgram(
 
 /// Run a state effect body and return the final state plus the body answer.
 pub fn handle(
+    comptime AnswerType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    initial_state: family.InstanceStateType(@TypeOf(instance)),
+    comptime Body: type,
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!HandleResult(
+    family.InstanceStateType(@TypeOf(instance)),
+    AnswerType,
+) {
+    return try handleAt(@src(), AnswerType, runtime, instance, initial_state, Body);
+}
+
+/// Run a state effect body with explicit caller provenance and return the final state plus the body answer.
+pub fn handleAt(
     comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
@@ -128,6 +142,22 @@ pub fn handle(
 /// Public `handleWithErrorSet` helper.
 // zlinter-disable max_positional_args - public caller provenance and state inputs stay explicit at this compatibility wrapper.
 pub fn handleWithErrorSet(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    initial_state: family.InstanceStateType(@TypeOf(instance)),
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!HandleResult(
+    family.InstanceStateType(@TypeOf(instance)),
+    AnswerType,
+) {
+    return try handleWithErrorSetAt(@src(), AnswerType, RunErrorSetType, runtime, instance, initial_state, Body);
+}
+
+/// Public `handleWithErrorSetAt` helper.
+// zlinter-disable max_positional_args - public caller provenance and state inputs stay explicit at this compatibility wrapper.
+pub fn handleWithErrorSetAt(
     comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
@@ -243,7 +273,7 @@ test "nested same-shaped state handles get distinct capability types" {
     try std.testing.expectEqual(@as(i32, 0), result.value);
 }
 
-test "public state handleWithErrorSet preserves caller provenance" {
+test "public state handleWithErrorSetAt preserves caller provenance" {
     const NoError = error{};
     const StateInstance = Instance(i32, NoError);
 
@@ -251,7 +281,7 @@ test "public state handleWithErrorSet preserves caller provenance" {
     defer runtime.deinit();
     var instance = StateInstance.init();
 
-    const result = try handleWithErrorSet(@src(), []const u8, NoError, &runtime, &instance, @as(i32, 0), struct {
+    const result = try handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &instance, @as(i32, 0), struct {
         /// Return the exact caller-owned source file observed through the public state wrapper.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             _ = Cap;

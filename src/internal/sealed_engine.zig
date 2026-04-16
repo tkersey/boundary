@@ -70,9 +70,10 @@ pub fn runWithSealedEngine(
         .pointer => |pointer| pointer.child,
         else => @compileError("expected engine context pointer"),
     };
+    const caller_source_value = if (@hasField(@TypeOf(config), "caller_source")) config.caller_source else null;
 
     const RunnerState = struct {
-        pub const caller_source = if (@hasField(@TypeOf(config), "caller_source")) config.caller_source else null;
+        pub const caller_source = caller_source_value;
         runtime: *lowered_machine.Runtime,
         prompt_identity: *const anyopaque,
         engine_ctx: *EngineContextType,
