@@ -315,6 +315,7 @@ fn executeFunction(
     args: []const lowered_machine.ProgramValue,
 ) anyerror!FunctionResult {
     const function = ctx.plan.functions[function_index];
+    const function_result_codec = program_plan.functionResultCodec(function);
     var locals = try ctx.allocator.alloc(lowered_machine.ProgramValue, function.local_count);
     defer ctx.allocator.free(locals);
     const local_owns_value = try ctx.allocator.alloc(bool, function.local_count);
@@ -385,7 +386,7 @@ fn executeFunction(
                         .value => |value| {
                             if (callee.value_codec != .unit) setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, value);
                         },
-                        .terminal => |value| return try unwindAfterStack(ctx, function.value_codec, &after_stack, .{ .terminal = value }),
+                        .terminal => |value| return try unwindAfterStack(ctx, function.value_codec, function_result_codec, &after_stack, .{ .terminal = value }),
                         .rejected => |failure| return .{ .rejected = failure },
                         .failed => |failure| return .{ .failed = failure },
                     }
@@ -404,7 +405,7 @@ fn executeFunction(
                                 });
                             }
                         },
-                        .terminal => |value| return try unwindAfterStack(ctx, function.value_codec, &after_stack, .{ .terminal = value }),
+                        .terminal => |value| return try unwindAfterStack(ctx, function.value_codec, function_result_codec, &after_stack, .{ .terminal = value }),
                         .rejected => |failure| return .{ .rejected = failure },
                         .failed => |failure| return .{ .failed = failure },
                     }
@@ -482,10 +483,11 @@ fn executeFunction(
                 instruction_index = ctx.plan.blocks[current_block_index].first_instruction;
                 return_local = null;
             },
-            .return_unit => return try unwindAfterStack(ctx, function.value_codec, &after_stack, .{ .value = .{ .value = .none } }),
+            .return_unit => return try unwindAfterStack(ctx, function.value_codec, function_result_codec, &after_stack, .{ .value = .{ .value = .none } }),
             .return_value => return try unwindAfterStack(
                 ctx,
                 function.value_codec,
+                function_result_codec,
                 &after_stack,
                 .{ .value = takeLocalValue(locals, local_owns_value, return_local orelse return error.ProgramContractViolation) },
             ),
@@ -755,6 +757,7 @@ fn afterMethodNameAlloc(allocator: std.mem.Allocator, op_name: []const u8) ![]u8
 fn unwindAfterStack(
     ctx: *ExecutionContext,
     function_value_codec: program_plan.ValueCodec,
+    function_result_codec: program_plan.ValueCodec,
     after_stack: *std.ArrayList(AfterFrame),
     result: FunctionResult,
 ) anyerror!FunctionResult {
@@ -764,7 +767,7 @@ fn unwindAfterStack(
         final_result = switch (final_result) {
             .value => |value| blk: {
                 var current = value;
-                switch (try callHostAfterOp(ctx, function_value_codec, after_frame.op_index, after_frame.call_id, current)) {
+                switch (try callHostAfterOp(ctx, function_value_codec, function_result_codec, after_frame.op_index, after_frame.call_id, current)) {
                     .value => |next| {
                         deinitRuntimeValue(ctx.allocator, &current);
                         break :blk .{ .value = next };
@@ -780,24 +783,7 @@ fn unwindAfterStack(
                     .terminal => unreachable,
                 }
             },
-            .terminal => |value| blk: {
-                var current = value;
-                switch (try callHostAfterOp(ctx, function_value_codec, after_frame.op_index, after_frame.call_id, current)) {
-                    .value => |next| {
-                        deinitRuntimeValue(ctx.allocator, &current);
-                        break :blk .{ .terminal = next };
-                    },
-                    .failed => |failure| {
-                        deinitRuntimeValue(ctx.allocator, &current);
-                        break :blk .{ .failed = failure };
-                    },
-                    .rejected => |failure| {
-                        deinitRuntimeValue(ctx.allocator, &current);
-                        break :blk .{ .rejected = failure };
-                    },
-                    .terminal => unreachable,
-                }
-            },
+            .terminal => |value| .{ .terminal = value },
             .failed, .rejected => final_result,
         };
         switch (final_result) {
@@ -808,9 +794,11 @@ fn unwindAfterStack(
     return final_result;
 }
 
+// zlinter-disable max_positional_args - the artifact after-hook bridge keeps value/result codec seams explicit to preserve direct-interpreter parity.
 fn callHostAfterOp(
     ctx: *ExecutionContext,
     function_value_codec: program_plan.ValueCodec,
+    function_result_codec: program_plan.ValueCodec,
     op_index: u16,
     call_id: u64,
     answer: RuntimeValue,
@@ -881,7 +869,7 @@ fn callHostAfterOp(
                 return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply control is incompatible with the op mode") };
             }
             return .{
-                .value = dataValueToRuntimeValue(ctx.allocator, function_value_codec, tool_result.value) catch |err| switch (err) {
+                .value = dataValueToRuntimeValue(ctx.allocator, function_result_codec, tool_result.value) catch |err| switch (err) {
                     error.ProgramContractViolation => {
                         return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply value does not match the declared codec") };
                     },
@@ -1210,6 +1198,139 @@ test "artifact runtime preserves underscore after-hook names" {
     const leading = try afterMethodNameAlloc(allocator, "_foo_bar");
     defer allocator.free(leading);
     try std.testing.expectEqualStrings("after_Foo_Bar", leading);
+}
+
+test "artifact runtime decodes after-hook replies with the function result codec" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.after_result_codec_runtime",
+        .ir_hash = 0x305,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .result_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "dispatch", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit, .has_after = true }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{ .kind = .call_op, .operand = 0 }},
+    };
+
+    const capabilities = [_]artifact.CapabilityV1{.{
+        .capability_id = 0,
+        .kind = .tool,
+        .label = "generated/tooling@v1",
+        .ops = &.{
+            .{
+                .capability_id = 0,
+                .op_id = 0,
+                .global_op_name = capability_global_tool_call,
+                .payload_codec = .unit,
+                .result_codec = .unit,
+                .plan_op_ordinal = 0,
+            },
+            .{
+                .capability_id = 0,
+                .op_id = 1,
+                .global_op_name = capability_global_tool_after,
+                .payload_codec = .unit,
+                .result_codec = .string,
+                .plan_op_ordinal = 0,
+            },
+        },
+    }};
+
+    var logs = std.ArrayList(host.HostLogEntryV1).empty;
+    defer logs.deinit(std.testing.allocator);
+    var next_request_id: u64 = 1;
+    const decoded = artifact.ArtifactV1{
+        .semantic_ir_hash64 = plan.ir_hash,
+        .manifest_build_fingerprint = std.mem.zeroes([32]u8),
+        .build_fingerprint_blake3_256 = std.mem.zeroes([32]u8),
+        .capabilities = &capabilities,
+        .requirement_capability_ids = &.{0},
+        .functions = plan.functions,
+        .requirements = plan.requirements,
+        .ops = plan.ops,
+        .outputs = plan.outputs,
+        .locals = plan.locals,
+        .call_args = plan.call_args,
+        .blocks = plan.blocks,
+        .terminators = plan.terminators,
+        .instructions = plan.instructions,
+    };
+    var after_calls: usize = 0;
+    var ctx = ExecutionContext{
+        .allocator = std.testing.allocator,
+        .decoded = &decoded,
+        .plan = plan,
+        .adapter = .{
+            .ctx = &after_calls,
+            .dispatchFn = struct {
+                fn dispatch(ctx_ptr: ?*anyopaque, allocator: std.mem.Allocator, request: host.HostEffectRequestV1) anyerror!host.HostEffectResultV1 {
+                    const counter: *usize = @ptrCast(@alignCast(ctx_ptr.?));
+                    const tool_call = request.body.tool_call;
+                    if (std.mem.eql(u8, tool_call.op_name, "dispatch")) {
+                        return .{
+                            .schema_version = 1,
+                            .request_id = request.request_id,
+                            .body = .{ .success = .{
+                                .tool_id = try allocator.dupe(u8, tool_call.tool_id),
+                                .call_id = 44,
+                                .control = .@"resume",
+                                .value = .null,
+                                .owns_tool_id = true,
+                            } },
+                        };
+                    }
+                    if (std.mem.eql(u8, tool_call.op_name, "afterDispatch")) {
+                        counter.* += 1;
+                        return .{
+                            .schema_version = 1,
+                            .request_id = request.request_id,
+                            .body = .{ .success = .{
+                                .tool_id = try allocator.dupe(u8, tool_call.tool_id),
+                                .call_id = tool_call.call_id,
+                                .control = .@"resume",
+                                .value = .{ .string = try allocator.dupe(u8, "wrapped-transform") },
+                                .owns_tool_id = true,
+                            } },
+                        };
+                    }
+                    return error.UnexpectedHostDispatch;
+                }
+            }.dispatch,
+        },
+        .logs = &logs,
+        .next_request_id = &next_request_id,
+    };
+
+    var returned = try executeFunction(&ctx, 0, &.{});
+    switch (returned) {
+        .value => |*value| {
+            defer deinitRuntimeValue(std.testing.allocator, value);
+            try std.testing.expect(value.owned);
+            try std.testing.expectEqualStrings("wrapped-transform", value.value.string);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expectEqual(@as(usize, 1), after_calls);
 }
 
 test "artifact runtime executes add_i32 instructions" {

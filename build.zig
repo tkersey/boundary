@@ -4485,6 +4485,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    program_bridge_test_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
     program_bridge_test_mod.addImport("lowered_machine", lowered_machine_mod);
     program_bridge_test_mod.addImport("parity_scenarios", parity_scenarios_mod);
     program_bridge_test_mod.addImport("program_bridge", program_bridge_mod);

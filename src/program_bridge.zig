@@ -85,14 +85,13 @@ pub fn inspectCaseIdSourceText(
 ) anyerror!authoring_lowerer.LoweredAuthoring {
     const case = bridge_manifest.find(case_id) orelse return error.UnsupportedBridgeCase;
     if (case.status == .blocked) return error.UnsupportedBridgeCase;
-    const fixture_backed = std.mem.eql(u8, case.source_module, case.fixture_module);
-    const source_path = if (fixture_backed) case.fixture_module else case.source_module;
+    const source_path = case.source_module;
     const resolved_source_path = try authoring_lowerer.resolveRepoSourcePathAlloc(allocator, source_path);
     defer allocator.free(resolved_source_path);
 
     return try authoring_lowerer.lowerFileBackedSourceText(.{
         .allocator = allocator,
-        .case = if (fixture_backed) canonicalFixtureCase(case) else canonicalBridgeCase(case),
+        .case = canonicalBridgeCase(case),
         .display_path = source_path,
         .actual_path = resolved_source_path,
         .source_text = source_text,
@@ -104,14 +103,13 @@ pub fn inspectCaseIdSourceText(
 pub fn lowerCaseId(allocator: std.mem.Allocator, case_id: []const u8) anyerror!authoring_lowerer.LoweredAuthoring {
     const case = bridge_manifest.find(case_id) orelse return error.UnsupportedBridgeCase;
     if (case.status == .blocked) return error.UnsupportedBridgeCase;
-    const fixture_backed = std.mem.eql(u8, case.source_module, case.fixture_module);
-    const source_path = if (fixture_backed) case.fixture_module else case.source_module;
+    const source_path = case.source_module;
     const resolved_source_path = try authoring_lowerer.resolveRepoSourcePathAlloc(allocator, source_path);
     defer allocator.free(resolved_source_path);
 
     return try authoring_lowerer.lowerSourceFile(
         allocator,
-        if (fixture_backed) canonicalFixtureCase(case) else canonicalBridgeCase(case),
+        canonicalBridgeCase(case),
         source_path,
         resolved_source_path,
         .canonical,

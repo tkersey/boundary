@@ -289,6 +289,7 @@ pub fn deriveToolCapabilitiesFromPlan(
         for (plan.ops[op_start..op_end], 0..) |op, op_index| {
             if (!op.has_after) continue;
             if (op.mode == .abort) return error.InvalidRequiredSection;
+            _ = afterCapabilityPayloadCodecForOp(plan, @intCast(op_start + op_index)) orelse return error.InvalidRequiredSection;
             _ = afterCapabilityResultCodecForOp(plan, @intCast(op_start + op_index)) orelse return error.InvalidRequiredSection;
             extra_after_ops += 1;
         }
@@ -310,12 +311,13 @@ pub fn deriveToolCapabilitiesFromPlan(
         for (plan.ops[op_start..op_end], 0..) |op, op_index| {
             if (!op.has_after) continue;
             if (op.mode == .abort) return error.InvalidRequiredSection;
+            const after_payload_codec = afterCapabilityPayloadCodecForOp(plan, @intCast(op_start + op_index)) orelse return error.InvalidRequiredSection;
             const after_result_codec = afterCapabilityResultCodecForOp(plan, @intCast(op_start + op_index)) orelse return error.InvalidRequiredSection;
             ops[initialized_ops] = .{
                 .capability_id = @intCast(index),
                 .op_id = @intCast(next_after_op_id),
                 .global_op_name = try allocator.dupe(u8, capability_global_tool_after),
-                .payload_codec = mapPlanCodecToCapabilityCodec(after_result_codec),
+                .payload_codec = mapPlanCodecToCapabilityCodec(after_payload_codec),
                 .result_codec = mapPlanCodecToCapabilityCodec(after_result_codec),
                 .plan_op_ordinal = @intCast(op_index),
             };
@@ -700,7 +702,7 @@ fn validateManifest(build_fingerprint: [32]u8, capabilities: []const CapabilityV
 
 fn validateExecutableCodecSupport(plan: program_plan.ProgramPlan) !void {
     for (plan.functions) |function| {
-        if (!executableCodecSupported(function.value_codec)) return error.UnsupportedExecutableCodec;
+        if (!executableCodecSupported(program_plan.functionResultCodec(function))) return error.UnsupportedExecutableCodec;
     }
     for (plan.ops) |op| {
         if (!executableCodecSupported(op.payload_codec)) return error.UnsupportedExecutableCodec;
@@ -952,7 +954,9 @@ fn encodeFunctionTable(allocator: std.mem.Allocator, strings: *StringTable, func
         const symbol_ref = try strings.add(function.symbol_name);
         try encodeStringRef(&out, allocator, symbol_ref);
         try out.append(allocator, @intFromEnum(function.value_codec));
-        try out.appendNTimes(allocator, 0, 3);
+        try out.append(allocator, @intFromBool(function.result_codec != null));
+        try out.append(allocator, if (function.result_codec) |codec| @intFromEnum(codec) else 0);
+        try out.append(allocator, 0);
         try appendU16(&out, allocator, function.parameter_count);
         try appendU16(&out, allocator, function.first_requirement);
         try appendU16(&out, allocator, function.requirement_count);
@@ -1138,10 +1142,10 @@ fn toolCapabilityMatchesRequirement(plan: program_plan.ProgramPlan, requirement_
         const matched_after_op = findCapabilityOpByPlanOrdinalAndGlobalName(capability.ops, @intCast(op_offset), capability_global_tool_after);
         if (plan_op.has_after) {
             const after_op = matched_after_op orelse return false;
-            const after_codec = afterCapabilityResultCodecForOp(plan, @intCast(op_start + op_offset)) orelse return false;
-            const expected_after_codec = mapPlanCodecToCapabilityCodec(after_codec);
-            if (after_op.payload_codec != expected_after_codec) return false;
-            if (after_op.result_codec != expected_after_codec) return false;
+            const after_payload_codec = afterCapabilityPayloadCodecForOp(plan, @intCast(op_start + op_offset)) orelse return false;
+            const after_result_codec = afterCapabilityResultCodecForOp(plan, @intCast(op_start + op_offset)) orelse return false;
+            if (after_op.payload_codec != mapPlanCodecToCapabilityCodec(after_payload_codec)) return false;
+            if (after_op.result_codec != mapPlanCodecToCapabilityCodec(after_result_codec)) return false;
         } else if (matched_after_op != null) {
             return false;
         }
@@ -1279,6 +1283,27 @@ pub fn afterCapabilityResultCodecForOp(plan: program_plan.ProgramPlan, op_index:
             const op_end = op_start + requirement.op_count;
             if (op_index < op_start or op_index >= op_end) continue;
             if (resolved) |codec| {
+                if (codec != program_plan.functionResultCodec(function)) return null;
+            } else {
+                resolved = program_plan.functionResultCodec(function);
+            }
+        }
+    }
+    return resolved;
+}
+
+/// Resolve the unique function value codec that one transform/choice op would feed into an `after*` hook.
+pub fn afterCapabilityPayloadCodecForOp(plan: program_plan.ProgramPlan, op_index: u16) ?program_plan.ValueCodec {
+    if (op_index >= plan.ops.len or !plan.ops[op_index].has_after) return null;
+    var resolved: ?program_plan.ValueCodec = null;
+    for (plan.functions) |function| {
+        const req_start: usize = function.first_requirement;
+        const req_end = req_start + function.requirement_count;
+        for (plan.requirements[req_start..req_end]) |requirement| {
+            const op_start = requirement.first_op;
+            const op_end = op_start + requirement.op_count;
+            if (op_index < op_start or op_index >= op_end) continue;
+            if (resolved) |codec| {
                 if (codec != function.value_codec) return null;
             } else {
                 resolved = function.value_codec;
@@ -1299,9 +1324,9 @@ pub fn terminalResultCodecForOp(plan: program_plan.ProgramPlan, op_index: u16) !
             const op_end = op_start + requirement.op_count;
             if (op_index < op_start or op_index >= op_end) continue;
             if (resolved) |codec| {
-                if (codec != function.value_codec) return error.InvalidRequiredSection;
+                if (codec != program_plan.functionResultCodec(function)) return error.InvalidRequiredSection;
             } else {
-                resolved = function.value_codec;
+                resolved = program_plan.functionResultCodec(function);
             }
         }
     }
@@ -1389,10 +1414,20 @@ fn decodeFunctionTable(allocator: std.mem.Allocator, string_bytes: []const u8, b
     var cursor: usize = 0;
     for (items) |*item| {
         const value_codec = std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 8]) orelse return error.UnsupportedVersion;
-        for (bytes[cursor + 9 .. cursor + 12]) |byte| if (byte != 0) return error.NonZeroReserved;
+        const has_result_codec = switch (bytes[cursor + 9]) {
+            0 => false,
+            1 => true,
+            else => return error.NonZeroReserved,
+        };
+        const result_codec = if (has_result_codec)
+            std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 10]) orelse return error.UnsupportedVersion
+        else
+            null;
+        if (bytes[cursor + 11] != 0) return error.NonZeroReserved;
         item.* = .{
             .symbol_name = try readStringRefDup(allocator, string_bytes, bytes[cursor .. cursor + 8]),
             .value_codec = value_codec,
+            .result_codec = result_codec,
             .parameter_count = readU16(bytes, cursor + 12),
             .first_requirement = readU16(bytes, cursor + 14),
             .requirement_count = readU16(bytes, cursor + 16),
@@ -1923,6 +1958,7 @@ test "ArtifactV1 encode/decode preserves plan structure and capability manifest"
         .functions = &.{.{
             .symbol_name = "entry",
             .value_codec = .i32,
+            .result_codec = .string,
             .parameter_count = 0,
             .first_requirement = 0,
             .requirement_count = 1,
@@ -1975,6 +2011,7 @@ test "ArtifactV1 encode/decode preserves plan structure and capability manifest"
     try std.testing.expectEqual(@as(u16, 0), decoded.capabilities[0].ops[0].plan_op_ordinal);
     try std.testing.expectEqual(@as(usize, 1), decoded.functions.len);
     try std.testing.expectEqualStrings("entry", decoded.functions[0].symbol_name);
+    try std.testing.expectEqual(program_plan.ValueCodec.string, decoded.functions[0].result_codec.?);
     try std.testing.expectEqual(@as(usize, 1), decoded.instructions.len);
 }
 
@@ -2935,6 +2972,121 @@ test "ArtifactV1 rejects executable string_list codecs during encode" {
         .build_fingerprint_blake3_256 = build_fingerprint,
         .capabilities = &.{},
     }));
+}
+
+test "ArtifactV1 rejects executable string_list result codecs during encode" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-v1-string-list-result-boundary");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.result_codec_string_list",
+        .ir_hash = 0x58,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .result_codec = .string_list,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "dispatch", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit, .has_after = true }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{ .kind = .call_op, .operand = 0 }},
+    };
+
+    try std.testing.expectError(error.UnsupportedExecutableCodec, encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &.{},
+    }));
+}
+
+test "ArtifactV1 derives after capability payload and result codecs from function value and result codecs" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.after_result_codec_split",
+        .ir_hash = 0x59,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .result_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "dispatch", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit, .has_after = true }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{ .kind = .call_op, .operand = 0 }},
+    };
+
+    const capabilities = try deriveToolCapabilitiesFromPlan(std.testing.allocator, plan);
+    defer deepFreeCapabilities(std.testing.allocator, capabilities);
+
+    try std.testing.expectEqual(@as(usize, 1), capabilities.len);
+    try std.testing.expectEqual(@as(usize, 2), capabilities[0].ops.len);
+    try std.testing.expectEqual(CapabilityCodecV1.unit, capabilities[0].ops[1].payload_codec);
+    try std.testing.expectEqual(CapabilityCodecV1.string, capabilities[0].ops[1].result_codec);
+}
+
+test "ArtifactV1 rejects mixed-codec choice result codecs" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.choice_result_codec",
+        .ir_hash = 0x5a,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .result_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{.{ .label = "chooser", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "pick", .mode = .choice, .payload_codec = .unit, .resume_codec = .unit }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{ .kind = .call_op, .operand = 0 }},
+    };
+
+    try std.testing.expectError(error.InvalidRequiredSection, deriveToolCapabilitiesFromPlan(std.testing.allocator, plan));
 }
 
 test "ArtifactV1 encoding canonicalizes ignored instruction fields" {

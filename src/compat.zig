@@ -3,6 +3,7 @@ const lowered_machine = @import("lowered_machine");
 const op_compat = @import("op_compat.zig");
 const program_api = @import("program_api.zig");
 const root_decl_api = @import("root_decl_api.zig");
+const std = @import("std");
 
 /// Explicit compatibility namespace for the prior root-kernel front door.
 pub const Runtime = lowered_machine.Runtime;
@@ -19,9 +20,9 @@ pub const Decision = program_api.Decision;
 /// Public program builder.
 pub const Program = program_api.Program;
 
-/// Run one program with explicit runtime ownership and bindings.
-pub fn run(runtime: *Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) program_api.RunReturnType(ProgramType) {
-    return program_api.run(runtime, ProgramType, bindings);
+/// Run one program with explicit runtime ownership, caller provenance, and bindings.
+pub fn run(comptime caller: std.builtin.SourceLocation, runtime: *Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) program_api.RunReturnType(ProgramType) {
+    return program_api.run(caller, runtime, ProgramType, bindings);
 }
 
 test {
@@ -35,7 +36,7 @@ test {
     _ = run;
 }
 
-test "compat run preserves legacy program runner arity" {
+test "compat run preserves explicit caller program runner arity" {
     const demo_program = Program(.{
         .state = Decl.state(i32),
     }, struct {
@@ -48,7 +49,7 @@ test "compat run preserves legacy program runner arity" {
     var runtime = Runtime.init(@import("std").testing.allocator);
     defer runtime.deinit();
 
-    const result = try run(&runtime, demo_program, .{ .state = 7 });
+    const result = try run(@src(), &runtime, demo_program, .{ .state = 7 });
     try @import("std").testing.expectEqual(@as(i32, 7), result.outputs.state);
     try @import("std").testing.expectEqual(@as(i32, 7), result.value);
 }
