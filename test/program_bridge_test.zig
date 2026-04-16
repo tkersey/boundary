@@ -9,6 +9,7 @@ fn expectBridgeCase(case_id: []const u8) !void {
 
     try std.testing.expect(lowered.status == .canonical);
     try std.testing.expect(lowered.canonical_scenario_id != null);
+    try std.testing.expectEqualStrings("src/witness_sources.zig", lowered.source_path);
 
     const scenario = parity_scenarios.byId(lowered.canonical_scenario_id.?);
     const state = lowered_machine.runSteps(lowered.steps);
