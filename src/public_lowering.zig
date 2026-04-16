@@ -4325,6 +4325,108 @@ test "executeLoweredDispatch decodes full-width const_i32 literals" {
     }
 }
 
+test "executeLoweredDispatch returns ProgramContractViolation on add_i32 overflow" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "example.add_i32_overflow",
+        .ir_hash = 3,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "addOverflow",
+            .value_codec = .i32,
+            .parameter_count = 2,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 3,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{
+            .{ .codec = .i32 },
+            .{ .codec = .i32 },
+            .{ .codec = .i32 },
+        },
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 2,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .add_i32, .dst = 2, .operand = 0, .aux = 1 },
+            .{ .kind = .return_value, .operand = 2 },
+        },
+    };
+    const Handlers = struct {};
+    var handlers: Handlers = .{};
+
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        executeLoweredDispatch(plan, &handlers, 0, &.{
+            .{ .i32 = std.math.maxInt(i32) },
+            .{ .i32 = 1 },
+        }),
+    );
+}
+
+test "executeLoweredDispatch returns ProgramContractViolation on add_const_i32 overflow" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "example.add_const_i32_overflow",
+        .ir_hash = 4,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "addConstOverflow",
+            .value_codec = .i32,
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 2,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{
+            .{ .codec = .i32 },
+            .{ .codec = .i32 },
+        },
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 2,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .add_const_i32, .dst = 1, .operand = 0, .aux = 1 },
+            .{ .kind = .return_value, .operand = 1 },
+        },
+    };
+    const Handlers = struct {};
+    var handlers: Handlers = .{};
+
+    try std.testing.expectError(
+        error.ProgramContractViolation,
+        executeLoweredDispatch(plan, &handlers, 0, &.{
+            .{ .i32 = std.math.maxInt(i32) },
+        }),
+    );
+}
+
 test "CompileIr run decodes full-width const_i32 literals" {
     const negative_bits: u32 = @bitCast(@as(i32, -1));
     const large_bits: u32 = @bitCast(@as(i32, 70_000));

@@ -593,7 +593,10 @@ fn maybeRecordDirectOpUse(
                     .requirement_label = tail[2].lexeme,
                     .op_name = tail[4].lexeme,
                 },
-                .requirement => null,
+                .requirement => |requirement_label| .{
+                    .requirement_label = requirement_label,
+                    .op_name = tail[2].lexeme,
+                },
             };
         }
     }
@@ -2026,6 +2029,30 @@ test "shared engine keeps explicit continuation perform bodies in the lowering s
     try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
     try std.testing.expectEqualStrings("picker", graph.direct_op_uses[0].requirement_label);
     try std.testing.expectEqualStrings("pick", graph.direct_op_uses[0].op_name);
+}
+
+test "shared engine records explicit perform and abort calls through requirement aliases" {
+    const graph = try analyzeComptime(
+        \\pub fn runBody(eff: anytype) anyerror!i32 {
+        \\    const counter = eff.counter;
+        \\    const guard = eff.guard;
+        \\    _ = try counter.get.perform();
+        \\    try guard.fail.abort("missing-name");
+        \\    return 42;
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 2), graph.direct_op_uses.len);
+    try std.testing.expectEqualStrings("counter", graph.direct_op_uses[0].requirement_label);
+    try std.testing.expectEqualStrings("get", graph.direct_op_uses[0].op_name);
+    try std.testing.expectEqualStrings("guard", graph.direct_op_uses[1].requirement_label);
+    try std.testing.expectEqualStrings("fail", graph.direct_op_uses[1].op_name);
 }
 
 test "shared engine rejects unsupported effect access" {

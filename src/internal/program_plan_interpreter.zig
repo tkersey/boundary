@@ -292,7 +292,7 @@ fn unwindAfterStack(
         const op_index = after_stack.pop().?;
         final_result = switch (final_result) {
             .value => |typed| .{ .value = try applyAfter(compiled_plan, handlers_ptr, function_value_codec, function_result_codec, op_index, typed) },
-            .terminal => |typed| .{ .terminal = typed },
+            .terminal => |typed| .{ .terminal = try applyAfter(compiled_plan, handlers_ptr, function_value_codec, function_result_codec, op_index, typed) },
         };
     }
     return final_result;
@@ -323,14 +323,14 @@ fn continueFunction(
                 .add_i32 => setLocal(locals, instruction.dst, .{
                     .i32 = switch (getLocal(locals, instruction.operand)) {
                         .i32 => |left| switch (getLocal(locals, instruction.aux)) {
-                            .i32 => |right| left + right,
+                            .i32 => |right| try checkedAddI32(left, right),
                             else => unreachable,
                         },
                         else => unreachable,
                     },
                 }),
                 .add_const_i32 => setLocal(locals, instruction.dst, switch (getLocal(locals, instruction.operand)) {
-                    .i32 => |typed| .{ .i32 = typed + @as(i32, @intCast(instruction.aux)) },
+                    .i32 => |typed| .{ .i32 = try checkedAddI32(typed, @as(i32, @intCast(instruction.aux))) },
                     else => unreachable,
                 }),
                 .call_helper => {
@@ -575,6 +575,10 @@ fn resolveMaybeError(value: anytype) anyerror!switch (@typeInfo(@TypeOf(value)))
     else => @TypeOf(value),
 } {
     return if (@typeInfo(@TypeOf(value)) == .error_union) try value else value;
+}
+
+fn checkedAddI32(left: i32, right: i32) anyerror!i32 {
+    return std.math.add(i32, left, right) catch return error.ProgramContractViolation;
 }
 
 /// Execute the entry function of one ProgramPlan and finalize its outputs.
