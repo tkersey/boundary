@@ -417,6 +417,10 @@ fn continueFunction(
                     .usize => .{ .usize = decodeU32InstructionLiteral(instruction) },
                     else => return error.ProgramContractViolation,
                 }),
+                .const_usize => setLocal(locals, instruction.dst, .{
+                    .usize = std.fmt.parseUnsigned(usize, instruction.string_literal, 10) catch
+                        return error.ProgramContractViolation,
+                }),
                 .const_string => setLocal(locals, instruction.dst, .{ .string = instruction.string_literal }),
                 .return_value => return_local = instruction.operand,
                 .sub_one => setLocal(locals, instruction.dst, switch (getLocal(locals, instruction.operand)) {

@@ -47,6 +47,10 @@ fn namedUsizeLiteralBody(_: anytype) ExecResult(usize) {
     return 1;
 }
 
+fn namedLargeUsizeLiteralBody(_: anytype) ExecResult(usize) {
+    return 5_000_000_000;
+}
+
 fn namedBoolStateBody(eff: anytype) ExecResult(bool) {
     const enabled = true;
     try eff.state.set(enabled);
@@ -85,6 +89,15 @@ fn namedOptionalResumeUsizeBody(eff: anytype) ExecResult(usize) {
         /// Return the canonical resumed usize answer for this named-body test.
         pub fn apply(_: i32, _: anytype) ExecResult(usize) {
             return 1;
+        }
+    });
+}
+
+fn namedOptionalResumeLargeUsizeBody(eff: anytype) ExecResult(usize) {
+    return try eff.optional.request(struct {
+        /// Return the canonical resumed large usize answer for this named-body test.
+        pub fn apply(_: i32, _: anytype) ExecResult(usize) {
+            return 5_000_000_000;
         }
     });
 }
@@ -1291,6 +1304,22 @@ test "shift.with accepts NamedBody usize literal returns" {
     try std.testing.expectEqual(@as(usize, 1), result.value);
 }
 
+test "shift.with accepts NamedBody large usize literal returns" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(@src(), &runtime, .{
+        .state = shift.effect.state.use(@as(i32, 0)),
+    }, shift.NamedBody(
+        "test/lexical_with_test.zig",
+        "namedLargeUsizeLiteralBody",
+        ExecResult(usize),
+        namedLargeUsizeLiteralBody,
+    ));
+
+    try std.testing.expectEqual(@as(usize, 5_000_000_000), result.value);
+}
+
 test "shift.with accepts NamedBody bool payload literals for state handlers" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -1393,6 +1422,34 @@ test "shift.with accepts NamedBody usize literal continuation answers" {
     }, shift.NamedBody("test/lexical_with_test.zig", "namedOptionalResumeUsizeBody", ExecResult(usize), namedOptionalResumeUsizeBody));
 
     try std.testing.expectEqual(@as(usize, 1), result.value);
+}
+
+test "shift.with accepts NamedBody large usize literal continuation answers" {
+    const resume_policy = struct {
+        /// Resume with the canonical large usize payload.
+        pub fn resumeOrReturn() shift.effect.choice.Decision(i32, usize) {
+            return shift.effect.choice.Decision(i32, usize).resumeWith(41);
+        }
+
+        /// Preserve the resumed large usize answer unchanged.
+        pub fn afterResume(answer: usize) usize {
+            return answer;
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.with(@src(), &runtime, .{
+        .optional = shift.effect.optional.use(i32, resume_policy),
+    }, shift.NamedBody(
+        "test/lexical_with_test.zig",
+        "namedOptionalResumeLargeUsizeBody",
+        ExecResult(usize),
+        namedOptionalResumeLargeUsizeBody,
+    ));
+
+    try std.testing.expectEqual(@as(usize, 5_000_000_000), result.value);
 }
 
 test "shift.with accepts NamedBody for generated choice continuations" {

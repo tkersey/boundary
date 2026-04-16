@@ -83,12 +83,11 @@ fn encodeI32LiteralInstruction(value: i32) program_frontend.BodyInstruction {
     };
 }
 
-fn encodeU32LiteralInstruction(value: u32) program_frontend.BodyInstruction {
+fn encodeUsizeLiteralInstruction(comptime literal: []const u8) program_frontend.BodyInstruction {
     return .{
-        .kind = .const_i32,
+        .kind = .const_usize,
         .dst = 0,
-        .operand = @truncate(value),
-        .aux = @truncate(value >> 16),
+        .string_literal = cloneBytes(literal),
     };
 }
 
@@ -790,10 +789,18 @@ fn lowerContinuationApplyBody(
                 return;
             },
             .number_literal => |literal| {
-                if (expected_codec != .i32) return null;
-                const value = std.fmt.parseInt(i32, literal, 10) catch return null;
-                const dst = appendAnonymousLocal(local_storage, .i32);
-                var instruction = encodeI32LiteralInstruction(value);
+                const dst = appendAnonymousLocal(local_storage, expected_codec);
+                var instruction = switch (expected_codec) {
+                    .i32 => literal_i32: {
+                        const value = std.fmt.parseInt(i32, literal, 10) catch return null;
+                        break :literal_i32 encodeI32LiteralInstruction(value);
+                    },
+                    .usize => literal_usize: {
+                        _ = std.fmt.parseUnsigned(usize, literal, 10) catch return null;
+                        break :literal_usize encodeUsizeLiteralInstruction(literal);
+                    },
+                    else => return null,
+                };
                 instruction.dst = dst;
                 appendInstruction(body_state.instructions, body_state.instruction_count, instruction);
                 appendInstruction(body_state.instructions, body_state.instruction_count, .{
@@ -1291,14 +1298,25 @@ fn emitSingleTokenForExpectedCodec(
             const bool_value = false;
             break :blk appendBoolLiteralValue(state, bool_value);
         } else null,
-        .number_literal => if (expected_codec == .i32) blk: {
-            const value = std.fmt.parseInt(i32, token.lexeme, 10) catch return null;
-            const dst = appendAnonymousLocal(&state.local_storage, .i32);
-            var instruction = encodeI32LiteralInstruction(value);
-            instruction.dst = dst;
-            appendInstruction(state.instructions, state.instruction_count, instruction);
-            break :blk dst;
-        } else null,
+        .number_literal => switch (expected_codec) {
+            .i32 => literal_i32: {
+                const value = std.fmt.parseInt(i32, token.lexeme, 10) catch return null;
+                const dst = appendAnonymousLocal(&state.local_storage, .i32);
+                var instruction = encodeI32LiteralInstruction(value);
+                instruction.dst = dst;
+                appendInstruction(state.instructions, state.instruction_count, instruction);
+                break :literal_i32 dst;
+            },
+            .usize => literal_usize: {
+                _ = std.fmt.parseUnsigned(usize, token.lexeme, 10) catch return null;
+                const dst = appendAnonymousLocal(&state.local_storage, .usize);
+                var instruction = encodeUsizeLiteralInstruction(token.lexeme);
+                instruction.dst = dst;
+                appendInstruction(state.instructions, state.instruction_count, instruction);
+                break :literal_usize dst;
+            },
+            else => null,
+        },
         .string_literal => if (expected_codec == .string) blk: {
             const literal = stringLiteralContents(token.lexeme) orelse return null;
             const dst = appendAnonymousLocal(&state.local_storage, .string);
@@ -1923,10 +1941,23 @@ fn buildLinearBodyForFunction(
                         terminated = true;
                     },
                     .number_literal => |literal| {
-                        if (context.functions[context.lowered_function_index].ValueType != i32) break :blk null;
-                        const value = std.fmt.parseInt(i32, literal, 10) catch break :blk null;
-                        const dst = appendAnonymousLocal(&local_storage, .i32);
-                        var instruction = encodeI32LiteralInstruction(value);
+                        const expected_codec: effect_ir.LocalCodec = switch (context.functions[context.lowered_function_index].ValueType) {
+                            i32 => .i32,
+                            usize => .usize,
+                            else => break :blk null,
+                        };
+                        const dst = appendAnonymousLocal(&local_storage, expected_codec);
+                        var instruction = switch (expected_codec) {
+                            .i32 => literal_i32: {
+                                const value = std.fmt.parseInt(i32, literal, 10) catch break :blk null;
+                                break :literal_i32 encodeI32LiteralInstruction(value);
+                            },
+                            .usize => literal_usize: {
+                                _ = std.fmt.parseUnsigned(usize, literal, 10) catch break :blk null;
+                                break :literal_usize encodeUsizeLiteralInstruction(literal);
+                            },
+                            else => unreachable,
+                        };
                         instruction.dst = dst;
                         appendInstruction(instructions[0..], &instruction_count, instruction);
                         appendInstruction(instructions[0..], &instruction_count, .{
@@ -2094,7 +2125,7 @@ fn buildReturnLiteralBodyForFunction(
         .number_literal => |literal| {
             switch (lowered_function.ValueType) {
                 i32 => _ = std.fmt.parseInt(i32, literal, 10) catch return null,
-                usize => _ = std.fmt.parseUnsigned(u32, literal, 10) catch return null,
+                usize => _ = std.fmt.parseUnsigned(usize, literal, 10) catch return null,
                 else => return null,
             }
         },
@@ -2136,8 +2167,8 @@ fn buildReturnLiteralBodyForFunction(
                         buffer[index] = encodeI32LiteralInstruction(value);
                     },
                     usize => {
-                        const value = std.fmt.parseUnsigned(u32, literal, 10) catch return null;
-                        buffer[index] = encodeU32LiteralInstruction(value);
+                        _ = std.fmt.parseUnsigned(usize, literal, 10) catch return null;
+                        buffer[index] = encodeUsizeLiteralInstruction(literal);
                     },
                     else => return null,
                 }

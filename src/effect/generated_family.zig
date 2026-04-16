@@ -801,7 +801,7 @@ pub fn Build(comptime spec: anytype) type {
                     const Handle = @This();
                     const ContinuationEff = lexical_with.ContinuationEffType(Config.Handlers, Config.binder_index, Config.PreviousEff, Handle);
                     /// Caller source location preserved across generated lexical choice continuation re-entry.
-                    pub const caller_source = family.ContextCallerSource(Config.ContextPtr);
+                    pub const caller_source = family.contextCallerSource(Config.ContextPtr);
 
                     ctx: ?Config.ContextPtr,
                     runtime: ?*shift.Runtime,
@@ -854,7 +854,7 @@ pub fn Build(comptime spec: anytype) type {
                     const Handle = @This();
                     const ContinuationEff = lexical_with.ContinuationEffType(Config.Handlers, Config.binder_index, Config.PreviousEff, Handle);
                     /// Caller source location preserved across payload-carrying generated choice continuation re-entry.
-                    pub const caller_source = family.ContextCallerSource(Config.ContextPtr);
+                    pub const caller_source = family.contextCallerSource(Config.ContextPtr);
 
                     ctx: ?Config.ContextPtr,
                     runtime: ?*shift.Runtime,

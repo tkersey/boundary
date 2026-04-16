@@ -1396,12 +1396,14 @@ test "withOwnedSource chooses the top-level anonymous body over nested same-name
     const result = try withOwnedSource(@src(), @embedFile(@src().file), .{}, &runtime, .{
         .state = state.use(@as(i32, 0)),
     }, struct {
-        const Helper = struct {
+        const helper = struct {
+            /// Prove nested same-named helpers do not steal the top-level anonymous body.
             pub fn body(_: anytype) anyerror!i32 {
                 return 99;
             }
         };
 
+        /// Use the top-level anonymous body even when a nested helper exports the same symbol name.
         pub fn body(eff: anytype) anyerror!i32 {
             const before = try eff.state.get();
             try eff.state.set(before + 1);
@@ -1742,12 +1744,8 @@ fn callChoiceContinuation(
     return Continuation(resume_value, eff);
 }
 
-fn fallbackCallerSource() std.builtin.SourceLocation {
-    return @src();
-}
-
 fn exactContextCallerSource(comptime ContextPtrType: type) std.builtin.SourceLocation {
-    return family.ContextCallerSource(ContextPtrType);
+    return family.contextCallerSource(ContextPtrType);
 }
 
 fn CollectedRunState(comptime HandlersType: type, comptime EffType: type, comptime caller: std.builtin.SourceLocation) type {

@@ -344,7 +344,7 @@ pub fn Program(comptime declaration_values: anytype, comptime BodyType: type) ty
         pub const declarations = declaration_values;
 
         /// Run this public entrypoint through the retained compatibility surface.
-        pub fn run(runtime: *lowered_machine.Runtime, bindings: Bindings) RunReturnType(@This()) {
+        pub inline fn run(runtime: *lowered_machine.Runtime, bindings: Bindings) RunReturnType(@This()) {
             return programRun(@src(), runtime, @This(), bindings);
         }
 
@@ -366,7 +366,7 @@ fn programRun(comptime caller: std.builtin.SourceLocation, runtime: *lowered_mac
 }
 
 /// Run this public entrypoint through the retained compatibility surface.
-pub fn run(runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) RunReturnType(ProgramType) {
+pub inline fn run(runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) RunReturnType(ProgramType) {
     return programRun(@src(), runtime, ProgramType, bindings);
 }
 
@@ -562,5 +562,39 @@ test "program runAt preserves caller provenance" {
     defer runtime.deinit();
 
     const result = try runAt(@src(), &runtime, demo_program, .{ .state = 0 });
+    try std.testing.expectEqualStrings(@src().file, result.value);
+}
+
+test "program run preserves caller provenance" {
+    const demo_program = Program(.{
+        .state = decl.state(i32),
+    }, struct {
+        /// Observe the caller provenance threaded through the default program entrypoint.
+        pub fn body(eff: anytype) anyerror![]const u8 {
+            return @TypeOf(eff.state.ctx.?.*).caller_source.?.file;
+        }
+    });
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try run(&runtime, demo_program, .{ .state = 0 });
+    try std.testing.expectEqualStrings(@src().file, result.value);
+}
+
+test "program type run preserves caller provenance" {
+    const demo_program = Program(.{
+        .state = decl.state(i32),
+    }, struct {
+        /// Observe the caller provenance threaded through the default program-type entrypoint.
+        pub fn body(eff: anytype) anyerror![]const u8 {
+            return @TypeOf(eff.state.ctx.?.*).caller_source.?.file;
+        }
+    });
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try demo_program.run(&runtime, .{ .state = 0 });
     try std.testing.expectEqualStrings(@src().file, result.value);
 }

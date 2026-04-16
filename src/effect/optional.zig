@@ -20,10 +20,6 @@ fn PolicyErrorSet(comptime Policy: type) type {
         ReturnTypeErrorSet(@typeInfo(@TypeOf(Policy.afterResume)).@"fn".return_type.?);
 }
 
-fn fallbackCallerSource() std.builtin.SourceLocation {
-    return @src();
-}
-
 /// Prompt-backed effect instance for an optional-resumption family.
 pub fn Instance(comptime ResumeType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.resume_or_return, ResumeType, ErrorSetType);
@@ -40,7 +36,7 @@ pub fn LexicalHandle(
     const binder_index = index;
     return struct {
         /// Caller source location preserved across optional lexical continuation re-entry.
-        pub const caller_source = family.ContextCallerSource(ContextPtrType);
+        pub const caller_source = family.contextCallerSource(ContextPtrType);
         ctx: ?ContextPtrType,
         runtime: ?*shift.Runtime,
         handlers_ptr: ?*HandlersType,

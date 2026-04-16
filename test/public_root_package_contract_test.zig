@@ -1010,7 +1010,7 @@ test "downstream consumer can compile caller-owned bool literal NamedBody source
     try runChildExpectSuccess(tmp.dir, std.testing.allocator, &argv, null);
 }
 
-test "downstream consumer can compile caller-owned usize literal NamedBody sources through withOwnedSource witness" {
+test "downstream consumer can compile caller-owned large usize literal NamedBody sources through withOwnedSource witness" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1044,7 +1044,7 @@ test "downstream consumer can compile caller-owned usize literal NamedBody sourc
         \\const std = @import("std");
         \\
         \\pub fn body(_: anytype) anyerror!usize {
-        \\    return 1;
+        \\    return 5000000000;
         \\}
         \\
         \\pub fn main() !void {
@@ -1054,7 +1054,7 @@ test "downstream consumer can compile caller-owned usize literal NamedBody sourc
         \\    const result = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{}, &runtime, .{
         \\        .state = shift.effect.state.use(@as(i32, 0)),
         \\    }, named);
-        \\    if (result.value != 1) return error.UnexpectedResult;
+        \\    if (result.value != 5000000000) return error.UnexpectedResult;
         \\}
         \\
     ;

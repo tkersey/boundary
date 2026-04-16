@@ -119,7 +119,7 @@ pub fn ContextErrorSetType(comptime ContextPtrType: type) type {
 }
 
 /// Normalize the caller provenance carried by one checked context pointer.
-pub fn ContextCallerSource(comptime ContextPtrType: type) std.builtin.SourceLocation {
+pub fn contextCallerSource(comptime ContextPtrType: type) std.builtin.SourceLocation {
     const caller_source = ContextTypeFromPtr(ContextPtrType).caller_source;
     return switch (@typeInfo(@TypeOf(caller_source))) {
         .optional => caller_source orelse @src(),

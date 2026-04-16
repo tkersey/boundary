@@ -110,6 +110,7 @@ pub const InstructionKind = enum {
     compare_eq_zero,
     const_i32,
     const_string,
+    const_usize,
     return_value,
     sub_one,
 };
@@ -148,7 +149,7 @@ pub const BlockPlan = struct {
 /// Runtime-owned serializable executable plan for lowered or explicit IR programs.
 pub const ProgramPlan = struct {
     /// Stable schema version for JSON-serialized runtime plans.
-    pub const current_schema_version: u32 = 5;
+    pub const current_schema_version: u32 = 6;
 
     schema_version: u32 = current_schema_version,
     label: []const u8,
@@ -314,6 +315,11 @@ pub const ProgramPlan = struct {
                     .const_string => {
                         if (!functionLocalHasCodec(self, function, instruction.dst, .string)) return error.InvalidInstructionLocalIndex;
                     },
+                    .const_usize => {
+                        if (!functionLocalHasCodec(self, function, instruction.dst, .usize)) return error.InvalidInstructionLocalIndex;
+                        _ = std.fmt.parseUnsigned(usize, instruction.string_literal, 10) catch
+                            return error.InvalidInstructionLocalIndex;
+                    },
                     .add_i32, .add_const_i32, .compare_eq_zero, .const_i32, .sub_one => {
                         switch (instruction.kind) {
                             .add_i32 => {
@@ -342,6 +348,7 @@ pub const ProgramPlan = struct {
                                     return error.InvalidInstructionLocalIndex;
                                 if (dst_codec != .i32 and dst_codec != .usize) return error.InvalidInstructionLocalIndex;
                             },
+                            .const_usize => unreachable,
                             .sub_one => {
                                 const operand_codec = functionLocalCodec(self, function, instruction.operand) orelse
                                     return error.InvalidInstructionLocalIndex;
@@ -541,6 +548,7 @@ fn instructionKindFromEffectIrBody(kind: effect_ir.InstructionKind) InstructionK
         .call_op => .call_op,
         .compare_eq_zero => .compare_eq_zero,
         .const_i32 => .const_i32,
+        .const_usize => .const_usize,
         .const_string => .const_string,
         .return_value => .return_value,
         .sub_one => .sub_one,
@@ -629,6 +637,10 @@ pub fn upgradeLegacyProgramPlan(allocator: std.mem.Allocator, plan: *ProgramPlan
     }
 
     if (plan.schema_version == 4) {
+        plan.schema_version = 5;
+    }
+
+    if (plan.schema_version == 5) {
         plan.schema_version = ProgramPlan.current_schema_version;
         return;
     }

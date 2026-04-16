@@ -435,6 +435,18 @@ fn executeFunction(
                         },
                     },
                 ),
+                .const_usize => setLocal(
+                    ctx.allocator,
+                    locals,
+                    local_owns_value,
+                    instruction.dst,
+                    .{
+                        .value = .{
+                            .usize = std.fmt.parseUnsigned(usize, instruction.string_literal, 10) catch
+                                return error.ProgramContractViolation,
+                        },
+                    },
+                ),
                 .const_string => setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, .{ .value = .{ .string = instruction.string_literal } }),
                 .return_value => return_local = instruction.operand,
                 .sub_one => setLocal(

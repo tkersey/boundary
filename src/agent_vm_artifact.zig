@@ -1032,6 +1032,10 @@ fn canonicalInstruction(plan: program_plan.ProgramPlan, instruction: program_pla
             canonical.string_literal = "";
         },
         .const_i32 => canonical.string_literal = "",
+        .const_usize => {
+            canonical.operand = 0;
+            canonical.aux = 0;
+        },
         .const_string => {
             canonical.operand = 0;
             canonical.aux = 0;
