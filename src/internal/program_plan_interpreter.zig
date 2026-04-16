@@ -303,7 +303,7 @@ fn unwindAfterStack(
         const op_index = after_stack.pop().?;
         final_result = switch (final_result) {
             .value => |typed| .{ .value = try applyAfter(compiled_plan, handlers_ptr, function_value_codec, function_result_codec, op_index, typed) },
-            .terminal => |typed| .{ .terminal = try applyAfter(compiled_plan, handlers_ptr, function_value_codec, function_result_codec, op_index, typed) },
+            .terminal => |typed| .{ .terminal = typed },
         };
     }
     return final_result;

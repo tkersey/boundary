@@ -271,7 +271,10 @@ pub const ProgramPlan = struct {
                     .call_helper => {
                         if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
                         const callee = self.functions[instruction.operand];
-                        if (block_is_reachable and callee.value_codec != function.value_codec and terminal_reachability[instruction.operand]) {
+                        if (block_is_reachable and
+                            functionResultCodec(callee) != functionResultCodec(function) and
+                            terminal_reachability[instruction.operand])
+                        {
                             return error.InvalidInstructionLocalIndex;
                         }
                         if (callee.value_codec != .unit and

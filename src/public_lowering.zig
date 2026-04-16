@@ -4797,7 +4797,7 @@ test "executeLoweredDispatch returns abort answers through terminal control" {
     try std.testing.expectEqualStrings("missing-name", handlers.guard.payload);
 }
 
-test "executeLoweredDispatch unwinds caller after handlers across terminal helper returns" {
+test "executeLoweredDispatch preserves terminal helper returns while unwinding after stack" {
     const plan: program_plan.ProgramPlan = .{
         .label = "example.helper_terminal_after_root",
         .ir_hash = 1,
@@ -4922,8 +4922,8 @@ test "executeLoweredDispatch unwinds caller after handlers across terminal helpe
 
             pub fn afterPick(self: *@This(), answer: []const u8) anyerror![]const u8 {
                 self.after_calls += 1;
-                try std.testing.expectEqualStrings("result=early", answer);
-                return "wrapped-early";
+                try std.testing.expectEqualStrings("answer=42", answer);
+                return "wrapped-answer";
             }
         } = .{},
         guard: struct {
@@ -4936,10 +4936,10 @@ test "executeLoweredDispatch unwinds caller after handlers across terminal helpe
     var handlers: Handlers = .{};
     const result = try executeLoweredDispatch(plan, &handlers, 0, &.{});
     switch (result) {
-        .terminal => |answer| try std.testing.expectEqualStrings("wrapped-early", decodeRuntimeValue(.string, answer)),
+        .terminal => |answer| try std.testing.expectEqualStrings("result=early", decodeRuntimeValue(.string, answer)),
         .value => |_| return error.TestUnexpectedResult,
     }
-    try std.testing.expectEqual(@as(usize, 1), handlers.picker.after_calls);
+    try std.testing.expectEqual(@as(usize, 0), handlers.picker.after_calls);
 }
 
 test "executeLoweredDispatch rejects return-value terminators without a return instruction" {

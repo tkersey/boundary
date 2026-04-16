@@ -52,6 +52,7 @@ fn validateNamedBodyRepoIdentity(
     }
 
     var matches: usize = 0;
+    var source_path_matches = false;
     var start: usize = 0;
     while (start < build_options.repo_zig_paths.len) {
         var end = start;
@@ -72,18 +73,28 @@ fn validateNamedBodyRepoIdentity(
         inline for (graph.functions) |function| {
             if (std.mem.eql(u8, function.name, entry_symbol_value)) {
                 matches += 1;
+                if (std.mem.eql(u8, candidate, owned_repo_path)) source_path_matches = true;
                 break;
             }
         }
     }
 
-    if (matches == 0) {
+    if (!source_path_matches) {
         @compileError("shift.NamedBody source_path must export the supplied entry_symbol");
     }
     if (matches > 1) {
         @compileError("shift.NamedBody entry_symbol must be unique across owned repo sources");
     }
-    _ = owned_repo_path;
+}
+
+fn namedBodyCompilationSupported(comptime HandlersType: type, comptime Body: type) bool {
+    return public_lowering.maybeLowerAt(Body.source_path, .{
+        .label = "shift.with named lexical body",
+        .entry_symbol = Body.entry_symbol,
+        .ValueType = NamedBodyAnswerType(Body),
+        .row = lexical_bundle_schema.rowForHandlers(HandlersType),
+        .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
+    }) != null;
 }
 
 fn validateNamedBodyDeclaration(
@@ -718,6 +729,7 @@ const CallerOwnedCompilationKind = enum {
     explicit_location,
     explicit_location_and_content,
     none,
+    owned_source,
 };
 
 fn callerOwnedCallName(comptime kind: CallerOwnedCompilationKind) ?[]const u8 {
@@ -725,6 +737,7 @@ fn callerOwnedCallName(comptime kind: CallerOwnedCompilationKind) ?[]const u8 {
         .none => null,
         .explicit_location => "withCallerSource",
         .explicit_location_and_content => "withCallerSourceAndContent",
+        .owned_source => "withOwnedSource",
     };
 }
 
@@ -733,6 +746,7 @@ fn callerOwnedBodyArgIndex(comptime kind: CallerOwnedCompilationKind) ?usize {
         .none => null,
         .explicit_location => 3,
         .explicit_location_and_content => 4,
+        .owned_source => 5,
     };
 }
 
@@ -848,21 +862,84 @@ fn anonymousBodyMethodName(comptime Body: type) ?[]const u8 {
     return null;
 }
 
-fn anonymousBodyHolderName(_: std.builtin.SourceLocation) [:0]const u8 {
-    return "__shift_with_body"[0.."__shift_with_body".len :0];
-}
-
 fn anonymousBodyEntryName(_: std.builtin.SourceLocation) [:0]const u8 {
     return "__shift_with_entry"[0.."__shift_with_entry".len :0];
 }
 
-fn anonymousBodySyntheticSource(
+fn extractedAnonymousEntrySource(
+    comptime expr_source: []const u8,
+    comptime method_name: []const u8,
+    comptime entry_name: []const u8,
+) ?[]const u8 {
+    comptime {
+        @setEvalBranchQuota(2_000_000);
+    }
+
+    const expr_source_sentinel = std.fmt.comptimePrint("{s}\x00", .{expr_source});
+    var tokenizer = std.zig.Tokenizer.init(expr_source_sentinel[0..expr_source.len :0]);
+    var brace_depth: usize = 0;
+    while (true) {
+        const token = tokenizer.next();
+        if (token.tag == .eof) return null;
+        if (isIgnorableCallsiteToken(token.tag)) continue;
+        switch (token.tag) {
+            .l_brace => {
+                brace_depth += 1;
+                continue;
+            },
+            .r_brace => {
+                if (brace_depth == 0) return null;
+                brace_depth -= 1;
+                continue;
+            },
+            else => {},
+        }
+        if (token.tag != .keyword_fn or brace_depth != 1) continue;
+
+        var name_token = tokenizer.next();
+        while (isIgnorableCallsiteToken(name_token.tag)) : (name_token = tokenizer.next()) {}
+        if (name_token.tag != .identifier) continue;
+        if (!std.mem.eql(u8, expr_source[name_token.loc.start..name_token.loc.end], method_name)) continue;
+
+        var body_depth: usize = 0;
+        var function_end: ?usize = null;
+        while (function_end == null) {
+            const next = tokenizer.next();
+            if (next.tag == .eof) return null;
+            if (isIgnorableCallsiteToken(next.tag)) continue;
+            switch (next.tag) {
+                .l_brace => body_depth += 1,
+                .r_brace => {
+                    if (body_depth == 0) return null;
+                    body_depth -= 1;
+                    if (body_depth == 0) function_end = next.loc.end;
+                },
+                else => {},
+            }
+        }
+
+        const function_source = expr_source[token.loc.start..function_end.?];
+        const name_offset = name_token.loc.start - token.loc.start;
+        const name_end = name_token.loc.end - token.loc.start;
+        return std.fmt.comptimePrint(
+            "{s}{s}{s}",
+            .{
+                function_source[0..name_offset],
+                entry_name,
+                function_source[name_end..],
+            },
+        );
+    }
+}
+
+fn anonymousBodySyntheticSourceWithEntry(
     comptime caller: std.builtin.SourceLocation,
     comptime Body: type,
     comptime caller_source_override: ?[:0]const u8,
     comptime caller_owned_kind: CallerOwnedCompilationKind,
+    comptime entry_name: []const u8,
 ) ?[:0]const u8 {
-    const method_name = anonymousBodyMethodName(Body) orelse return null;
+    const method_name = comptime anonymousBodyMethodName(Body) orelse return null;
     const expr_bounds = comptime anonymousBodyExprBounds(caller, caller_source_override, caller_owned_kind) orelse return null;
     const caller_source = comptime callerSourceBytes(caller, caller_source_override);
     const expr_len = comptime expr_bounds.end - expr_bounds.start;
@@ -873,25 +950,49 @@ fn anonymousBodySyntheticSource(
         }
         break :blk buffer[0..];
     };
-    const holder_name = anonymousBodyHolderName(caller);
-    const entry_name = anonymousBodyEntryName(caller);
+    const entry_source = comptime extractedAnonymousEntrySource(expr_source, method_name, entry_name) orelse return null;
     return std.fmt.comptimePrint(
-        "{s}\nconst {s} = {s};\npub fn {s}(eff: anytype) @TypeOf({s}.{s}(eff)) {{ return {s}.{s}(eff); }}\n",
-        .{ caller_source, holder_name, expr_source, entry_name, holder_name, method_name, holder_name, method_name },
+        "{s}\n{s}\n",
+        .{ caller_source, entry_source },
+    );
+}
+
+fn anonymousBodySyntheticSource(
+    comptime caller: std.builtin.SourceLocation,
+    comptime Body: type,
+    comptime caller_source_override: ?[:0]const u8,
+    comptime caller_owned_kind: CallerOwnedCompilationKind,
+) ?[:0]const u8 {
+    return anonymousBodySyntheticSourceWithEntry(
+        caller,
+        Body,
+        caller_source_override,
+        caller_owned_kind,
+        anonymousBodyEntryName(caller),
     );
 }
 
 fn witnessSyntheticSource(
     comptime caller_source: [:0]const u8,
-    comptime caller: std.builtin.SourceLocation,
     comptime witness: OwnedSourceWitness,
 ) ?[:0]const u8 {
-    _ = caller;
     const body_source = witness.body_source orelse return null;
     return std.fmt.comptimePrint(
         "{s}\n{s}\n",
         .{ caller_source, body_source },
     );
+}
+
+fn ownedSourceSyntheticSource(
+    comptime Body: type,
+    comptime caller: std.builtin.SourceLocation,
+    comptime caller_source: [:0]const u8,
+    comptime witness: OwnedSourceWitness,
+    comptime entry_symbol: []const u8,
+) ?[:0]const u8 {
+    if (witness.body_source != null) return witnessSyntheticSource(caller_source, witness);
+    if (isNamedBodyDescriptor(Body)) return null;
+    return anonymousBodySyntheticSourceWithEntry(caller, Body, caller_source, .owned_source, entry_symbol);
 }
 
 fn ownedSourceLocation(
@@ -910,13 +1011,6 @@ fn ownedSourceLocation(
 }
 
 test "owned source witness appended body stays visible to the source graph" {
-    const caller = std.builtin.SourceLocation{
-        .module = @src().module,
-        .file = "/tmp/owned_source_visibility_probe.zig",
-        .line = 1,
-        .column = 1,
-        .fn_name = "probe",
-    };
     const synthetic_source = witnessSyntheticSource(
         \\const shift = @import("shift");
         \\const std = @import("std");
@@ -926,7 +1020,6 @@ test "owned source witness appended body stays visible to the source graph" {
         \\    _ = std;
         \\}
     ,
-        caller,
         .{
             .entry_symbol = "__owned_body",
             .body_source =
@@ -992,6 +1085,179 @@ test "caller-owned anonymous body routing stays explicit for withCallerSource" {
         probe_body,
         caller_source,
         .none,
+    ));
+}
+
+test "caller-owned anonymous body routing stays explicit for withOwnedSource" {
+    const caller = std.builtin.SourceLocation{
+        .module = @src().module,
+        .file = "/tmp/owned_source_routing_probe.zig",
+        .line = 7,
+        .column = 6,
+        .fn_name = "probe",
+    };
+    const caller_source =
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn probe() !void {
+        \\    const caller = @src();
+        \\    _ = try shift.withOwnedSource(caller, @embedFile(caller.file), .{}, undefined, .{}, struct {
+        \\        pub fn body(eff: anytype) anyerror!void { _ = eff; }
+        \\    });
+        \\}
+    ;
+    const probe_body = struct {
+        fn body(eff: anytype) anyerror!void {
+            _ = eff;
+        }
+    };
+
+    try std.testing.expect(comptime anonymousBodyCompilable(
+        struct {},
+        caller,
+        probe_body,
+        caller_source,
+        .owned_source,
+    ));
+}
+
+test "caller-owned stateful anonymous lowering stays explicit for withOwnedSource" {
+    const state = @import("effect/state.zig");
+    const caller = std.builtin.SourceLocation{
+        .module = @src().module,
+        .file = "/tmp/owned_source_state_probe.zig",
+        .line = 7,
+        .column = 6,
+        .fn_name = "probe",
+    };
+    const caller_source =
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn probe() !void {
+        \\    const caller = @src();
+        \\    _ = try shift.withOwnedSource(caller, @embedFile(caller.file), .{}, undefined, .{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }, struct {
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            const before = try eff.state.get();
+        \\            try eff.state.set(before + 1);
+        \\            return try eff.state.get();
+        \\        }
+        \\    });
+        \\}
+    ;
+    const probe_body = struct {
+        fn body(eff: anytype) anyerror!i32 {
+            const before = try eff.state.get();
+            try eff.state.set(before + 1);
+            return try eff.state.get();
+        }
+    };
+    const Handlers = @TypeOf(.{
+        .state = state.use(@as(i32, 0)),
+    });
+
+    try std.testing.expect(comptime anonymousBodyCompilable(
+        Handlers,
+        caller,
+        probe_body,
+        caller_source,
+        .owned_source,
+    ));
+}
+
+test "relative caller-owned stateful anonymous lowering stays explicit for withOwnedSource" {
+    const state = @import("effect/state.zig");
+    const caller = std.builtin.SourceLocation{
+        .module = @src().module,
+        .file = "main.zig",
+        .line = 5,
+        .column = 34,
+        .fn_name = "probe",
+    };
+    const caller_source =
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn probe() !void {
+        \\    _ = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{}, undefined, .{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }, struct {
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            const before = try eff.state.get();
+        \\            try eff.state.set(before + 1);
+        \\            return try eff.state.get();
+        \\        }
+        \\    });
+        \\}
+    ;
+    const probe_body = struct {
+        fn body(eff: anytype) anyerror!i32 {
+            const before = try eff.state.get();
+            try eff.state.set(before + 1);
+            return try eff.state.get();
+        }
+    };
+    const Handlers = @TypeOf(.{
+        .state = state.use(@as(i32, 0)),
+    });
+
+    try std.testing.expect(comptime anonymousBodyCompilable(
+        Handlers,
+        caller,
+        probe_body,
+        caller_source,
+        .owned_source,
+    ));
+}
+
+test "relative inline @src caller-owned lowering stays explicit for withOwnedSource" {
+    const state = @import("effect/state.zig");
+    const caller = std.builtin.SourceLocation{
+        .module = @src().module,
+        .file = "main.zig",
+        .line = 7,
+        .column = 46,
+        .fn_name = "main",
+    };
+    const caller_source =
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\    const result = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{}, &runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }, struct {
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            const before = try eff.state.get();
+        \\            try eff.state.set(before + 1);
+        \\            return try eff.state.get();
+        \\        }
+        \\    });
+        \\    if (result.value != 1) return error.UnexpectedResult;
+        \\}
+    ;
+    const probe_body = struct {
+        fn body(eff: anytype) anyerror!i32 {
+            const before = try eff.state.get();
+            try eff.state.set(before + 1);
+            return try eff.state.get();
+        }
+    };
+    const Handlers = @TypeOf(.{
+        .state = state.use(@as(i32, 0)),
+    });
+
+    try std.testing.expect(comptime anonymousBodyCompilable(
+        Handlers,
+        caller,
+        probe_body,
+        caller_source,
+        .owned_source,
     ));
 }
 
@@ -1071,6 +1337,72 @@ test "withCallerSource runs anonymous lexical bodies through the public API" {
         .state = state.use(@as(i32, 0)),
     }, struct {
         fn body(eff: anytype) anyerror!i32 {
+            const before = try eff.state.get();
+            try eff.state.set(before + 1);
+            return try eff.state.get();
+        }
+    });
+
+    try std.testing.expectEqual(@as(i32, 1), result.value);
+    try std.testing.expectEqual(@as(i32, 1), result.outputs.state);
+}
+
+test "withOwnedSource runs anonymous lexical bodies through the public API" {
+    const state = @import("effect/state.zig");
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try withOwnedSource(@src(), @embedFile(@src().file), .{}, &runtime, .{
+        .state = state.use(@as(i32, 0)),
+    }, struct {
+        fn body(eff: anytype) anyerror!i32 {
+            const before = try eff.state.get();
+            try eff.state.set(before + 1);
+            return try eff.state.get();
+        }
+    });
+
+    try std.testing.expectEqual(@as(i32, 1), result.value);
+    try std.testing.expectEqual(@as(i32, 1), result.outputs.state);
+}
+
+test "withOwnedSource runs pub anonymous lexical bodies through the public API" {
+    const state = @import("effect/state.zig");
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try withOwnedSource(@src(), @embedFile(@src().file), .{}, &runtime, .{
+        .state = state.use(@as(i32, 0)),
+    }, struct {
+        fn body(eff: anytype) anyerror!i32 {
+            const before = try eff.state.get();
+            try eff.state.set(before + 1);
+            return try eff.state.get();
+        }
+    });
+
+    try std.testing.expectEqual(@as(i32, 1), result.value);
+    try std.testing.expectEqual(@as(i32, 1), result.outputs.state);
+}
+
+test "withOwnedSource chooses the top-level anonymous body over nested same-named helpers" {
+    const state = @import("effect/state.zig");
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try withOwnedSource(@src(), @embedFile(@src().file), .{}, &runtime, .{
+        .state = state.use(@as(i32, 0)),
+    }, struct {
+        const Helper = struct {
+            pub fn body(_: anytype) anyerror!i32 {
+                return 99;
+            }
+        };
+
+        pub fn body(eff: anytype) anyerror!i32 {
             const before = try eff.state.get();
             try eff.state.set(before + 1);
             return try eff.state.get();
@@ -1203,8 +1535,11 @@ fn rejectUnsupportedShippedWith(
     comptime caller_owned_kind: CallerOwnedCompilationKind,
 ) void {
     if (builtin.is_test) return;
+    if (isNamedBodyDescriptor(Body)) {
+        if (namedBodyCompilationSupported(HandlersType, Body)) return;
+        @compileError("shift.NamedBody shipped execution must stay within the retained compiled lexical subset");
+    }
     if (caller_owned_kind == .none) return;
-    if (isNamedBodyDescriptor(Body)) return;
     if (callerOwnedCompilationSupported(HandlersType, Body, caller, caller_source_override, caller_owned_kind)) return;
     @compileError("shift.with shipped execution currently requires either shift.NamedBody(...) or a caller-owned lexical body shape that can be compiled from the callsite");
 }
@@ -1480,15 +1815,17 @@ fn tryCallerOwnedCompiledWith(
     outputs_ptr: *OutputBundleType(HandlersType),
 ) ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
     if (isNamedBodyDescriptor(Body)) return null;
-    const synthetic_source = anonymousBodySyntheticSource(caller, Body, caller_source_override, caller_owned_kind) orelse return null;
-    const source_ref = public_lowering.sourceWithContent(caller.file, caller, synthetic_source);
-    const lowered_program = public_lowering.maybeLower(source_ref, .{
-        .label = "shift.with caller-owned lexical body",
-        .entry_symbol = anonymousBodyEntryName(caller),
-        .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
-        .row = lexical_bundle_schema.rowForHandlers(HandlersType),
-        .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
-    }) orelse return null;
+    const maybe_lowered_program = comptime if (anonymousBodySyntheticSource(caller, Body, caller_source_override, caller_owned_kind)) |synthetic_source| blk: {
+        const source_ref = public_lowering.sourceWithContent(caller.file, caller, synthetic_source);
+        break :blk public_lowering.maybeLower(source_ref, .{
+            .label = "shift.with caller-owned lexical body",
+            .entry_symbol = anonymousBodyEntryName(caller),
+            .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+            .row = lexical_bundle_schema.rowForHandlers(HandlersType),
+            .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
+        });
+    } else null;
+    const lowered_program = maybe_lowered_program orelse return null;
     return try runCompiledLexicalPlan(
         HandlersType,
         Body,
@@ -1510,15 +1847,25 @@ fn callerOwnedCompilationSupported(
     comptime caller_source_override: ?[:0]const u8,
     comptime caller_owned_kind: CallerOwnedCompilationKind,
 ) bool {
-    const synthetic_source = anonymousBodySyntheticSource(caller, Body, caller_source_override, caller_owned_kind) orelse return false;
-    const source_ref = public_lowering.sourceWithContent(caller.file, caller, synthetic_source);
-    return public_lowering.maybeLower(source_ref, .{
-        .label = "shift.with caller-owned lexical body",
-        .entry_symbol = anonymousBodyEntryName(caller),
-        .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
-        .row = lexical_bundle_schema.rowForHandlers(HandlersType),
-        .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
-    }) != null;
+    return comptime if (anonymousBodySyntheticSource(caller, Body, caller_source_override, caller_owned_kind)) |synthetic_source| blk: {
+        const source_ref = public_lowering.sourceWithContent(caller.file, caller, synthetic_source);
+        break :blk public_lowering.maybeLower(source_ref, .{
+            .label = "shift.with caller-owned lexical body",
+            .entry_symbol = anonymousBodyEntryName(caller),
+            .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+            .row = lexical_bundle_schema.rowForHandlers(HandlersType),
+            .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
+        }) != null;
+    } else false;
+}
+
+fn ownedSourceUsesAnonymousCallerCompilation(comptime Body: type, comptime witness: OwnedSourceWitness) bool {
+    if (isNamedBodyDescriptor(Body)) return false;
+    if (witness.source_path != null) return false;
+    if (witness.entry_symbol != null) return false;
+    if (witness.body_source != null) return false;
+    if (witness.imported_sources.len != 0) return false;
+    return !@hasDecl(Body, "entry_symbol");
 }
 
 fn rejectUnsupportedOwnedSourceWith(
@@ -1528,32 +1875,27 @@ fn rejectUnsupportedOwnedSourceWith(
     comptime caller_source: [:0]const u8,
     comptime witness: OwnedSourceWitness,
 ) void {
+    if (ownedSourceUsesAnonymousCallerCompilation(Body, witness)) {
+        if (callerOwnedCompilationSupported(HandlersType, Body, caller, caller_source, .owned_source)) return;
+    }
     const source_path = witness.source_path orelse if (@hasDecl(Body, "source_path"))
         Body.source_path
     else
         caller.file;
     const source_owner = comptime ownedSourceLocation(caller, source_path);
-    const entry_symbol = witness.entry_symbol orelse if (witness.body_source != null)
+    const entry_symbol = comptime witness.entry_symbol orelse if (witness.body_source != null)
         witness.body_method_name
     else if (@hasDecl(Body, "entry_symbol"))
         Body.entry_symbol
     else
         anonymousBodyEntryName(caller);
-    const source_ref = comptime if (witness.body_source != null) blk: {
-        break :blk public_lowering.sourceWithContentAndImports(
-            source_path,
-            source_owner,
-            witnessSyntheticSource(caller_source, source_owner, witness).?,
-            witness.imported_sources,
-        );
-    } else blk: {
-        break :blk public_lowering.sourceWithContentAndImports(
-            source_path,
-            source_owner,
-            caller_source,
-            witness.imported_sources,
-        );
-    };
+    const synthetic_source = comptime ownedSourceSyntheticSource(Body, caller, caller_source, witness, entry_symbol);
+    const source_ref = comptime public_lowering.sourceWithContentAndImports(
+        source_path,
+        source_owner,
+        synthetic_source orelse caller_source,
+        witness.imported_sources,
+    );
     if (public_lowering.maybeLower(source_ref, .{
         .label = "shift.with owned lexical body",
         .entry_symbol = entry_symbol,
@@ -1575,32 +1917,36 @@ fn tryOwnedSourceCompiledWith(
     handlers_ptr: *HandlersType,
     outputs_ptr: *OutputBundleType(HandlersType),
 ) ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
+    if (ownedSourceUsesAnonymousCallerCompilation(Body, witness)) {
+        return tryCallerOwnedCompiledWith(
+            HandlersType,
+            Body,
+            caller,
+            caller_source,
+            .owned_source,
+            runtime,
+            handlers_ptr,
+            outputs_ptr,
+        );
+    }
     const source_path = witness.source_path orelse if (@hasDecl(Body, "source_path"))
         Body.source_path
     else
         caller.file;
     const source_owner = comptime ownedSourceLocation(caller, source_path);
-    const entry_symbol = witness.entry_symbol orelse if (witness.body_source != null)
+    const entry_symbol = comptime witness.entry_symbol orelse if (witness.body_source != null)
         witness.body_method_name
     else if (@hasDecl(Body, "entry_symbol"))
         Body.entry_symbol
     else
         anonymousBodyEntryName(caller);
-    const source_ref = comptime if (witness.body_source != null) blk: {
-        break :blk public_lowering.sourceWithContentAndImports(
-            source_path,
-            source_owner,
-            witnessSyntheticSource(caller_source, source_owner, witness).?,
-            witness.imported_sources,
-        );
-    } else blk: {
-        break :blk public_lowering.sourceWithContentAndImports(
-            source_path,
-            source_owner,
-            caller_source,
-            witness.imported_sources,
-        );
-    };
+    const synthetic_source = comptime ownedSourceSyntheticSource(Body, caller, caller_source, witness, entry_symbol);
+    const source_ref = comptime public_lowering.sourceWithContentAndImports(
+        source_path,
+        source_owner,
+        synthetic_source orelse caller_source,
+        witness.imported_sources,
+    );
     const lowered_program = public_lowering.maybeLower(source_ref, .{
         .label = "shift.with owned lexical body",
         .entry_symbol = entry_symbol,

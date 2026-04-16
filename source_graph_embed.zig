@@ -314,35 +314,9 @@ pub fn ownedRepoPath(comptime source_path: []const u8) ?[]const u8 {
     return ownedRepoSourcePath(source_path);
 }
 
-fn uniqueRepoPathForBasename(comptime source_path: []const u8) ?[]const u8 {
-    const basename = std.fs.path.basename(source_path);
-    comptime {
-        @setEvalBranchQuota(20_000_000);
-    }
-
-    var match: ?[]const u8 = null;
-    var start: usize = 0;
-    while (start < build_options.repo_zig_paths.len) {
-        var end = start;
-        while (end < build_options.repo_zig_paths.len and build_options.repo_zig_paths[end] != '\n') : (end += 1) {}
-        const candidate = build_options.repo_zig_paths[start..end];
-        start = end + 1;
-        if (candidate.len == 0) continue;
-        if (!std.mem.eql(u8, std.fs.path.basename(candidate), basename)) continue;
-        if (match != null and !std.mem.eql(u8, match.?, candidate)) return null;
-        match = candidate;
-    }
-    return match;
-}
-
 /// Canonicalize one caller source location onto a repo-relative file path when the repo registry can resolve it.
 pub fn canonicalCallerLocation(comptime caller: std.builtin.SourceLocation) std.builtin.SourceLocation {
-    const canonical_file = if (ownedRepoPath(caller.file)) |repo_path|
-        repo_path
-    else if (uniqueRepoPathForBasename(caller.file)) |repo_path|
-        repo_path
-    else
-        return caller;
+    const canonical_file = ownedRepoPath(caller.file) orelse return caller;
     if (std.mem.eql(u8, canonical_file, caller.file)) return caller;
     const canonical_file_sentinel = std.fmt.comptimePrint("{s}\x00", .{canonical_file});
     return .{
@@ -903,6 +877,20 @@ test "windows ownership portability accepts checkout roots that differ only by c
             "c:/repo",
         ).?,
     );
+}
+
+test "canonicalCallerLocation keeps external basename-only matches external" {
+    const caller = std.builtin.SourceLocation{
+        .module = @src().module,
+        .file = "/tmp/helper.zig",
+        .line = 7,
+        .column = 3,
+        .fn_name = "probe",
+    };
+    const canonical = comptime canonicalCallerLocation(caller);
+    try std.testing.expectEqualStrings("/tmp/helper.zig", canonical.file);
+    try std.testing.expectEqual(caller.line, canonical.line);
+    try std.testing.expectEqual(caller.column, canonical.column);
 }
 
 test "resolveImportPathAt preserves parent-directory helpers for absolute caller-owned roots" {
