@@ -975,16 +975,59 @@ test "caller-owned anonymous body routing stays explicit for withCallerSource" {
     };
 
     try std.testing.expect(comptime anonymousBodyCompilable(
+        struct {},
         caller,
         probe_body,
         caller_source,
         .explicit_location,
     ));
     try std.testing.expect(!comptime anonymousBodyCompilable(
+        struct {},
         caller,
         probe_body,
         caller_source,
         .none,
+    ));
+}
+
+test "caller-owned anonymous lowering rejects unsupported retained-body shapes" {
+    const caller = std.builtin.SourceLocation{
+        .module = @src().module,
+        .file = "/tmp/caller_owned_unsupported_probe.zig",
+        .line = 7,
+        .column = 6,
+        .fn_name = "probe",
+    };
+    const caller_source =
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn probe() !void {
+        \\    const caller = @src();
+        \\    _ = try shift.withCallerSource(caller, undefined, .{}, struct {
+        \\        pub fn body(_: anytype) anyerror!i32 {
+        \\            var total: i32 = 0;
+        \\            while (total < 1) : (total += 1) {}
+        \\            return total;
+        \\        }
+        \\    });
+        \\}
+    ;
+    const unsupported_body = struct {
+        /// Keep this body outside the retained lowering subset via a `while` loop.
+        pub fn body(_: anytype) anyerror!i32 {
+            var total: i32 = 0;
+            while (total < 1) : (total += 1) {}
+            return total;
+        }
+    };
+
+    try std.testing.expect(!comptime anonymousBodyCompilable(
+        struct {},
+        caller,
+        unsupported_body,
+        caller_source,
+        .explicit_location,
     ));
 }
 
@@ -1093,6 +1136,7 @@ test "withCallerSource preserves lexical continuation caller provenance through 
 }
 
 fn rejectUnsupportedShippedWith(
+    comptime HandlersType: type,
     comptime Body: type,
     comptime caller: std.builtin.SourceLocation,
     comptime caller_source_override: ?[:0]const u8,
@@ -1101,7 +1145,7 @@ fn rejectUnsupportedShippedWith(
     if (builtin.is_test) return;
     if (caller_owned_kind == .none) return;
     if (isNamedBodyDescriptor(Body)) return;
-    if (anonymousBodySyntheticSource(caller, Body, caller_source_override, caller_owned_kind) != null) return;
+    if (callerOwnedCompilationSupported(HandlersType, Body, caller, caller_source_override, caller_owned_kind)) return;
     @compileError("shift.with shipped execution currently requires either shift.NamedBody(...) or a caller-owned lexical body shape that can be compiled from the callsite");
 }
 
@@ -1395,6 +1439,67 @@ fn tryCallerOwnedCompiledWith(
     );
 }
 
+fn callerOwnedCompilationSupported(
+    comptime HandlersType: type,
+    comptime Body: type,
+    comptime caller: std.builtin.SourceLocation,
+    comptime caller_source_override: ?[:0]const u8,
+    comptime caller_owned_kind: CallerOwnedCompilationKind,
+) bool {
+    const synthetic_source = anonymousBodySyntheticSource(caller, Body, caller_source_override, caller_owned_kind) orelse return false;
+    const source_ref = public_lowering.sourceWithContent(caller.file, caller, synthetic_source);
+    return public_lowering.maybeLower(source_ref, .{
+        .label = "shift.with caller-owned lexical body",
+        .entry_symbol = anonymousBodyEntryName(caller),
+        .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+        .row = lexical_bundle_schema.rowForHandlers(HandlersType),
+        .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
+    }) != null;
+}
+
+fn rejectUnsupportedOwnedSourceWith(
+    comptime HandlersType: type,
+    comptime Body: type,
+    comptime caller: std.builtin.SourceLocation,
+    comptime caller_source: [:0]const u8,
+    comptime witness: OwnedSourceWitness,
+) void {
+    const source_path = witness.source_path orelse if (@hasDecl(Body, "source_path"))
+        Body.source_path
+    else
+        caller.file;
+    const source_owner = comptime ownedSourceLocation(caller, source_path);
+    const entry_symbol = witness.entry_symbol orelse if (witness.body_source != null)
+        witness.body_method_name
+    else if (@hasDecl(Body, "entry_symbol"))
+        Body.entry_symbol
+    else
+        anonymousBodyEntryName(caller);
+    const source_ref = comptime if (witness.body_source != null) blk: {
+        break :blk public_lowering.sourceWithContentAndImports(
+            source_path,
+            source_owner,
+            witnessSyntheticSource(caller_source, source_owner, witness).?,
+            witness.imported_sources,
+        );
+    } else blk: {
+        break :blk public_lowering.sourceWithContentAndImports(
+            source_path,
+            source_owner,
+            caller_source,
+            witness.imported_sources,
+        );
+    };
+    if (public_lowering.maybeLower(source_ref, .{
+        .label = "shift.with owned lexical body",
+        .entry_symbol = entry_symbol,
+        .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+        .row = lexical_bundle_schema.rowForHandlers(HandlersType),
+        .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
+    }) != null) return;
+    @compileError("shift.withOwnedSource explicit source witnesses must stay within the retained compiled lexical subset");
+}
+
 // zlinter-disable max_positional_args - the explicit owned-source seam threads witness, caller bytes, and lexical state directly to keep ownership boundaries obvious.
 fn tryOwnedSourceCompiledWith(
     comptime HandlersType: type,
@@ -1500,12 +1605,13 @@ fn runCompiledLexicalPlan(
 }
 
 fn anonymousBodyCompilable(
+    comptime HandlersType: type,
     comptime caller: std.builtin.SourceLocation,
     comptime Body: type,
     comptime caller_source_override: ?[:0]const u8,
     comptime caller_owned_kind: CallerOwnedCompilationKind,
 ) bool {
-    return anonymousBodySyntheticSource(caller, Body, caller_source_override, caller_owned_kind) != null;
+    return callerOwnedCompilationSupported(HandlersType, Body, caller, caller_source_override, caller_owned_kind);
 }
 
 /// Recover the active lexical rebinding packet from the exact context capability.
@@ -1700,7 +1806,7 @@ fn withAt(
 ) WithFnReturnType(@TypeOf(handlers), Body) {
     const HandlersType = @TypeOf(handlers);
     comptime assertHandlerBundleShape(HandlersType);
-    comptime rejectUnsupportedShippedWith(Body, caller, caller_source_override, caller_owned_kind);
+    comptime rejectUnsupportedShippedWith(HandlersType, Body, caller, caller_source_override, caller_owned_kind);
 
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
@@ -1713,7 +1819,7 @@ fn withAt(
             };
         }
     }
-    if (comptime anonymousBodyCompilable(caller, Body, caller_source_override, caller_owned_kind)) {
+    if (comptime anonymousBodyCompilable(HandlersType, caller, Body, caller_source_override, caller_owned_kind)) {
         if (tryCallerOwnedCompiledWith(HandlersType, Body, caller, caller_source_override, caller_owned_kind, runtime, &handler_state, &outputs)) |compiled| {
             const value = try compiled;
             return .{
@@ -1775,11 +1881,7 @@ pub fn withOwnedSource(
 ) WithFnReturnType(@TypeOf(handlers), Body) {
     const HandlersType = @TypeOf(handlers);
     comptime assertHandlerBundleShape(HandlersType);
-    const source_path = comptime witness.source_path orelse if (@hasDecl(Body, "source_path"))
-        Body.source_path
-    else
-        caller.file;
-    const source_owner = comptime ownedSourceLocation(caller, source_path);
+    comptime rejectUnsupportedOwnedSourceWith(HandlersType, Body, caller, caller_source, witness);
 
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
@@ -1799,16 +1901,7 @@ pub fn withOwnedSource(
             .value = value,
         };
     }
-    const value = try runChainCollected(HandlersType, Body, 0, struct {}, source_owner, .{
-        .runtime = runtime,
-        .handlers_ptr = &handler_state,
-        .eff_value = .{},
-        .outputs_ptr = &outputs,
-    });
-    return .{
-        .outputs = outputs,
-        .value = value,
-    };
+    unreachable;
 }
 
 test "closed output bundle keeps only handlers with Output" {

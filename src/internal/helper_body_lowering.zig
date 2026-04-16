@@ -83,6 +83,15 @@ fn encodeI32LiteralInstruction(value: i32) program_frontend.BodyInstruction {
     };
 }
 
+fn encodeU32LiteralInstruction(value: u32) program_frontend.BodyInstruction {
+    return .{
+        .kind = .const_i32,
+        .dst = 0,
+        .operand = @truncate(value),
+        .aux = @truncate(value >> 16),
+    };
+}
+
 fn appendBoolLiteralValue(state: *BodyBuildState, value: bool) u16 {
     const raw_local = appendAnonymousLocal(&state.local_storage, .i32);
     var raw_instruction = encodeI32LiteralInstruction(if (value) 0 else 1);
@@ -2083,8 +2092,11 @@ fn buildReturnLiteralBodyForFunction(
     switch (return_literal) {
         .bool_value => if (lowered_function.ValueType != bool) return null,
         .number_literal => |literal| {
-            if (lowered_function.ValueType != i32) return null;
-            _ = std.fmt.parseInt(i32, literal, 10) catch return null;
+            switch (lowered_function.ValueType) {
+                i32 => _ = std.fmt.parseInt(i32, literal, 10) catch return null,
+                usize => _ = std.fmt.parseUnsigned(u32, literal, 10) catch return null,
+                else => return null,
+            }
         },
         .string_value => if (lowered_function.ValueType != []const u8) return null,
     }
@@ -2118,8 +2130,17 @@ fn buildReturnLiteralBodyForFunction(
                 break :blk buffer[0..index];
             },
             .number_literal => |literal| {
-                const value = std.fmt.parseInt(i32, literal, 10) catch return null;
-                buffer[index] = encodeI32LiteralInstruction(value);
+                switch (lowered_function.ValueType) {
+                    i32 => {
+                        const value = std.fmt.parseInt(i32, literal, 10) catch return null;
+                        buffer[index] = encodeI32LiteralInstruction(value);
+                    },
+                    usize => {
+                        const value = std.fmt.parseUnsigned(u32, literal, 10) catch return null;
+                        buffer[index] = encodeU32LiteralInstruction(value);
+                    },
+                    else => return null,
+                }
             },
             .string_value => |value| buffer[index] = .{
                 .kind = .const_string,
@@ -2137,7 +2158,11 @@ fn buildReturnLiteralBodyForFunction(
 
     const return_codecs: []const effect_ir.LocalCodec = switch (return_literal) {
         .bool_value => &.{ .i32, .bool },
-        .number_literal => &.{.i32},
+        .number_literal => switch (lowered_function.ValueType) {
+            i32 => &.{.i32},
+            usize => &.{.usize},
+            else => return null,
+        },
         .string_value => &.{.string},
     };
     const blocks = [_]program_frontend.BodyBlock{.{

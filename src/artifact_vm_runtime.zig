@@ -422,7 +422,19 @@ fn executeFunction(
                         },
                     },
                 ),
-                .const_i32 => setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, .{ .value = .{ .i32 = decodeI32InstructionLiteral(instruction) } }),
+                .const_i32 => setLocal(
+                    ctx.allocator,
+                    locals,
+                    local_owns_value,
+                    instruction.dst,
+                    .{
+                        .value = switch (functionLocalCodec(ctx.plan, function, instruction.dst) orelse return error.ProgramContractViolation) {
+                            .i32 => .{ .i32 = decodeI32InstructionLiteral(instruction) },
+                            .usize => .{ .usize = decodeU32InstructionLiteral(instruction) },
+                            else => return error.ProgramContractViolation,
+                        },
+                    },
+                ),
                 .const_string => setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, .{ .value = .{ .string = instruction.string_literal } }),
                 .return_value => return_local = instruction.operand,
                 .sub_one => setLocal(
@@ -957,10 +969,21 @@ fn releaseLocals(allocator: std.mem.Allocator, locals: []lowered_machine.Program
     }
 }
 
+fn functionLocalCodec(plan: program_plan.ProgramPlan, function: program_plan.FunctionPlan, local_id: u16) ?program_plan.ValueCodec {
+    if (local_id >= function.local_count) return null;
+    return plan.locals[function.first_local + local_id].codec;
+}
+
 fn decodeI32InstructionLiteral(instruction: program_plan.Instruction) i32 {
     const low = @as(u32, instruction.operand);
     const high = @as(u32, instruction.aux) << 16;
     return @bitCast(high | low);
+}
+
+fn decodeU32InstructionLiteral(instruction: program_plan.Instruction) u32 {
+    const low = @as(u32, instruction.operand);
+    const high = @as(u32, instruction.aux) << 16;
+    return high | low;
 }
 
 fn deepFreeProgramPlan(allocator: std.mem.Allocator, plan: program_plan.ProgramPlan) void {

@@ -335,7 +335,9 @@ pub const ProgramPlan = struct {
                                 if (!functionLocalHasCodec(self, function, instruction.dst, .bool)) return error.InvalidInstructionLocalIndex;
                             },
                             .const_i32 => {
-                                if (!functionLocalHasCodec(self, function, instruction.dst, .i32)) return error.InvalidInstructionLocalIndex;
+                                const dst_codec = functionLocalCodec(self, function, instruction.dst) orelse
+                                    return error.InvalidInstructionLocalIndex;
+                                if (dst_codec != .i32 and dst_codec != .usize) return error.InvalidInstructionLocalIndex;
                             },
                             .sub_one => {
                                 const operand_codec = functionLocalCodec(self, function, instruction.operand) orelse

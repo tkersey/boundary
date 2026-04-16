@@ -163,7 +163,7 @@ fn runChildExpectFailureContains(
     env_map: ?*const std.process.EnvMap,
     needle: []const u8,
 ) !void {
-    const result = try runChild(cwd_dir, allocator, argv, env_map);
+    const result = try runChildWithFingerprintRepair(cwd_dir, allocator, argv, env_map);
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
@@ -957,6 +957,74 @@ test "downstream consumer can compile caller-owned cross-file NamedBody sources 
 
     const argv = zigBuildArgv();
     try runChildExpectSuccess(tmp.dir, std.testing.allocator, &argv, null);
+}
+
+test "downstream consumer rejects withOwnedSource witness bodies outside the retained compiled subset" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeConsumerBuildFiles(&tmp, repo_root);
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const shift_dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const exe_mod = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    exe_mod.addImport("shift", shift_dep.module("shift"));
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "consumer_probe",
+        \\        .root_module = exe_mod,
+        \\    });
+        \\    b.installArtifact(exe);
+        \\}
+        \\
+    );
+    const main_source =
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\const Body = struct {
+        \\    pub fn body(_: anytype) anyerror!i32 {
+        \\        return 7;
+        \\    }
+        \\};
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\    _ = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{
+        \\        .body_source =
+        \\        \\pub fn body(_: anytype) anyerror!i32 {
+        \\        \\    var total: i32 = 0;
+        \\        \\    while (total < 1) : (total += 1) {}
+        \\        \\    return total;
+        \\        \\}
+        \\        ,
+        \\    }, &runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }, Body);
+        \\}
+        \\
+    ;
+    try writeTmpFile(tmp.dir, "main.zig", main_source);
+
+    const argv = zigBuildArgv();
+    try runChildExpectFailureContains(
+        tmp.dir,
+        std.testing.allocator,
+        &argv,
+        null,
+        "shift.withOwnedSource explicit source witnesses must stay within the retained compiled lexical subset",
+    );
 }
 
 test "runChild accepts apostrophes in non-Windows cwd and argv" {

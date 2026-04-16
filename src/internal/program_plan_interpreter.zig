@@ -17,6 +17,17 @@ fn decodeI32InstructionLiteral(instruction: program_plan.Instruction) i32 {
     return @bitCast(high | low);
 }
 
+fn decodeU32InstructionLiteral(instruction: program_plan.Instruction) u32 {
+    const low = @as(u32, instruction.operand);
+    const high = @as(u32, instruction.aux) << 16;
+    return high | low;
+}
+
+fn functionLocalCodec(compiled_plan: program_plan.ProgramPlan, function: program_plan.FunctionPlan, local_id: u16) ?program_plan.ValueCodec {
+    if (local_id >= function.local_count) return null;
+    return compiled_plan.locals[function.first_local + local_id].codec;
+}
+
 fn entryOutputsForPlan(comptime compiled_plan: program_plan.ProgramPlan) []const program_plan.OutputPlan {
     const entry_function = compiled_plan.functions[compiled_plan.entry_index];
     return compiled_plan.outputs[entry_function.first_output..][0..entry_function.output_count];
@@ -401,7 +412,11 @@ fn continueFunction(
                         else => unreachable,
                     },
                 }),
-                .const_i32 => setLocal(locals, instruction.dst, .{ .i32 = decodeI32InstructionLiteral(instruction) }),
+                .const_i32 => setLocal(locals, instruction.dst, switch (functionLocalCodec(compiled_plan, function, instruction.dst) orelse return error.ProgramContractViolation) {
+                    .i32 => .{ .i32 = decodeI32InstructionLiteral(instruction) },
+                    .usize => .{ .usize = decodeU32InstructionLiteral(instruction) },
+                    else => return error.ProgramContractViolation,
+                }),
                 .const_string => setLocal(locals, instruction.dst, .{ .string = instruction.string_literal }),
                 .return_value => return_local = instruction.operand,
                 .sub_one => setLocal(locals, instruction.dst, switch (getLocal(locals, instruction.operand)) {
