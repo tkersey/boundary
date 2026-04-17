@@ -81,9 +81,10 @@ fn namedBodyModulePathMatchesSourcePath(
 ) bool {
     const full_module_path = namedBodySourceModulePath(source_path_value);
     const module_stem = std.fs.path.stem(source_path_value);
-    return std.mem.eql(u8, module_path, full_module_path) or
-        std.mem.eql(u8, module_path, module_stem) or
-        std.mem.endsWith(u8, module_path, "." ++ full_module_path);
+    if (std.mem.eql(u8, module_path, full_module_path)) return true;
+    if (std.mem.eql(u8, module_path, module_stem)) return true;
+    if (std.mem.indexOfScalar(u8, full_module_path, '.') == null) return false;
+    return std.mem.endsWith(u8, module_path, "." ++ full_module_path);
 }
 
 fn validateNamedBodyRepoIdentity(
@@ -1059,6 +1060,12 @@ fn rejectForgedOwnedSourceSyntheticPath(
     comptime witness: OwnedSourceWitness,
 ) void {
     if (isNamedBodyDescriptor(Body)) return;
+    if (@hasDecl(Body, "source_path")) {
+        @compileError("shift.withOwnedSource anonymous bodies must not declare source_path; use witness.source_path or shift.NamedBody(...)");
+    }
+    if (@hasDecl(Body, "entry_symbol")) {
+        @compileError("shift.withOwnedSource anonymous bodies must not declare entry_symbol; use witness.entry_symbol/body_method_name or shift.NamedBody(...)");
+    }
     const source_path = witness.source_path orelse return;
     if (sourcePathAgreesWithCaller(caller, source_path)) return;
     @compileError("shift.withOwnedSource anonymous and body-source witnesses require witness.source_path to agree with the caller source");
@@ -1435,6 +1442,9 @@ test "NamedBody provenance matching keeps directory segments distinct" {
     try std.testing.expect(namedBodyModulePathMatchesSourcePath("a.entry", "a/entry.zig"));
     try std.testing.expect(!namedBodyModulePathMatchesSourcePath("b.entry", "a/entry.zig"));
     try std.testing.expect(namedBodyModulePathMatchesSourcePath("with_api", "src/with_api.zig"));
+    try std.testing.expect(namedBodyModulePathMatchesSourcePath("pkg.src.with_api", "src/with_api.zig"));
+    try std.testing.expect(namedBodyModulePathMatchesSourcePath("main", "main.zig"));
+    try std.testing.expect(!namedBodyModulePathMatchesSourcePath("nested.main", "main.zig"));
 }
 
 test "withOwnedSource keeps repo-owned NamedBody identity when explicit witness disagrees" {
@@ -2010,10 +2020,7 @@ fn ownedSourceCompilationSourcePath(
     comptime caller: std.builtin.SourceLocation,
 ) []const u8 {
     if (isNamedBodyDescriptor(Body)) return Body.source_path;
-    return witness.source_path orelse if (@hasDecl(Body, "source_path"))
-        Body.source_path
-    else
-        caller.file;
+    return witness.source_path orelse caller.file;
 }
 
 fn ownedSourceCompilationEntrySymbol(
@@ -2024,8 +2031,6 @@ fn ownedSourceCompilationEntrySymbol(
     if (isNamedBodyDescriptor(Body)) return Body.entry_symbol;
     return witness.entry_symbol orelse if (witness.body_source != null)
         witness.body_method_name
-    else if (@hasDecl(Body, "entry_symbol"))
-        Body.entry_symbol
     else
         anonymousBodyEntryName(caller);
 }
@@ -2454,7 +2459,7 @@ pub fn withCallerSourceAndContent(
 }
 
 /// Run one lexical effect bundle through an explicit caller-owned source witness surface.
-/// The `root_source` bytes must match the source file identified by `witness.source_path` / `Body.source_path`.
+/// The `root_source` bytes must match the source file identified by `witness.source_path` or `shift.NamedBody(...).source_path`.
 pub fn withOwnedSource(
     comptime caller: std.builtin.SourceLocation,
     comptime root_source: [:0]const u8,

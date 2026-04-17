@@ -847,3 +847,182 @@ test "downstream consumer smoke rejects forged anonymous withOwnedSource source_
         "shift.withOwnedSource anonymous and body-source witnesses require witness.source_path to agree with the caller source",
     );
 }
+
+test "downstream consumer smoke rejects anonymous withOwnedSource body-declared source_path overrides" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeConsumerBuildFiles(&tmp, repo_root);
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const shift_dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const exe_mod = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    exe_mod.addImport("shift", shift_dep.module("shift"));
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "consumer_probe",
+        \\        .root_module = exe_mod,
+        \\    });
+        \\    b.installArtifact(exe);
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "main.zig",
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\    _ = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{}, &runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }, struct {
+        \\        pub const source_path = "body.zig";
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            const before = try eff.state.get();
+        \\            try eff.state.set(before + 1);
+        \\            return try eff.state.get();
+        \\        }
+        \\    });
+        \\}
+        \\
+    );
+
+    const argv = zigBuildArgv();
+    try runChildExpectFailureContains(
+        tmp.dir,
+        std.testing.allocator,
+        &argv,
+        null,
+        "shift.withOwnedSource anonymous bodies must not declare source_path; use witness.source_path or shift.NamedBody(...)",
+    );
+}
+
+test "downstream consumer smoke rejects anonymous withOwnedSource body-declared entry_symbol overrides" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeConsumerBuildFiles(&tmp, repo_root);
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const shift_dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const exe_mod = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    exe_mod.addImport("shift", shift_dep.module("shift"));
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "consumer_probe",
+        \\        .root_module = exe_mod,
+        \\    });
+        \\    b.installArtifact(exe);
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "main.zig",
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\    _ = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{}, &runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }, struct {
+        \\        pub const entry_symbol = "forged";
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            const before = try eff.state.get();
+        \\            try eff.state.set(before + 1);
+        \\            return try eff.state.get();
+        \\        }
+        \\    });
+        \\}
+        \\
+    );
+
+    const argv = zigBuildArgv();
+    try runChildExpectFailureContains(
+        tmp.dir,
+        std.testing.allocator,
+        &argv,
+        null,
+        "shift.withOwnedSource anonymous bodies must not declare entry_symbol; use witness.entry_symbol/body_method_name or shift.NamedBody(...)",
+    );
+}
+
+test "downstream consumer smoke rejects NamedBody basename collisions across directories" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeConsumerBuildFiles(&tmp, repo_root);
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const shift_dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const exe_mod = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    exe_mod.addImport("shift", shift_dep.module("shift"));
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "consumer_probe",
+        \\        .root_module = exe_mod,
+        \\    });
+        \\    b.installArtifact(exe);
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "nested/main.zig",
+        \\pub fn body(_: anytype) anyerror!i32 {
+        \\    return 2;
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "main.zig",
+        \\const nested = @import("nested/main.zig");
+        \\const shift = @import("shift");
+        \\
+        \\pub fn body(_: anytype) anyerror!i32 {
+        \\    return 1;
+        \\}
+        \\
+        \\pub fn main() void {
+        \\    _ = shift.NamedBody("main.zig", "body", anyerror!i32, &nested.body);
+        \\}
+        \\
+    );
+
+    const argv = zigBuildArgv();
+    try runChildExpectFailureContains(
+        tmp.dir,
+        std.testing.allocator,
+        &argv,
+        null,
+        "shift.NamedBody source_path must match the supplied body function provenance",
+    );
+}
