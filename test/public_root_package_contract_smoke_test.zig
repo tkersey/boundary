@@ -462,6 +462,54 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
     );
     try suite.expectFailureContains(&argv, null, "shift.NamedBody source_path must match the supplied body function provenance");
 
+    try writeConsumerTestBuild(suite.tmp.dir, "shift");
+    try suite.writeFile("main.zig",
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\test "legacy lexical and state wrappers stay source-compatible" {
+        \\    const AnyError = anyerror;
+        \\    var runtime = shift.Runtime.init(std.testing.allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const with_result = try shift.with(&runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }, struct {
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            const before = try eff.state.get();
+        \\            try eff.state.set(before + 1);
+        \\            return try eff.state.get();
+        \\        }
+        \\    });
+        \\    try std.testing.expectEqual(@as(i32, 1), with_result.value);
+        \\    try std.testing.expectEqual(@as(i32, 1), with_result.outputs.state);
+        \\
+        \\    var state_instance = shift.effect.state.Instance(i32, AnyError).init();
+        \\    const handled = try shift.effect.state.handle(i32, &runtime, &state_instance, @as(i32, 0), struct {
+        \\        pub fn body(comptime Cap: type, ctx: anytype) AnyError!i32 {
+        \\            const before = try shift.effect.state.get(Cap, ctx);
+        \\            try shift.effect.state.set(Cap, ctx, before + 2);
+        \\            return try shift.effect.state.get(Cap, ctx);
+        \\        }
+        \\    });
+        \\    try std.testing.expectEqual(@as(i32, 2), handled.value);
+        \\    try std.testing.expectEqual(@as(i32, 2), handled.state);
+        \\
+        \\    var state_instance_with_error = shift.effect.state.Instance(i32, AnyError).init();
+        \\    const handled_with_error = try shift.effect.state.handleWithErrorSet(i32, AnyError, &runtime, &state_instance_with_error, @as(i32, 0), struct {
+        \\        pub fn body(comptime Cap: type, ctx: anytype) AnyError!i32 {
+        \\            const before = try shift.effect.state.get(Cap, ctx);
+        \\            try shift.effect.state.set(Cap, ctx, before + 3);
+        \\            return try shift.effect.state.get(Cap, ctx);
+        \\        }
+        \\    });
+        \\    try std.testing.expectEqual(@as(i32, 3), handled_with_error.value);
+        \\    try std.testing.expectEqual(@as(i32, 3), handled_with_error.state);
+        \\}
+        \\
+    );
+    try suite.expectSuccess(&argv, null);
+
     try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
     try suite.writeFile("main.zig",
         \\const shift = @import("shift");

@@ -169,7 +169,6 @@ pub inline fn computeProgram(
 /// Run a writer effect body and return the accumulated log plus the body answer.
 // zlinter-disable max_positional_args - public caller provenance and writer inputs stay explicit at this compatibility wrapper.
 pub fn handle(
-    comptime caller_source: std.builtin.SourceLocation,
     comptime ItemType: type,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
@@ -177,7 +176,7 @@ pub fn handle(
     allocator: std.mem.Allocator,
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!HandleResult(ItemType, AnswerType) {
-    return try handleAt(caller_source, ItemType, AnswerType, runtime, instance, allocator, Body);
+    return try handleAt(@src(), ItemType, AnswerType, runtime, instance, allocator, Body);
 }
 
 /// Run a writer effect body with explicit caller provenance and return the accumulated log plus the body answer.
@@ -209,14 +208,13 @@ pub fn handleAt(
 
 /// Public `handleWithErrorSet` helper.
 pub fn handleWithErrorSet(
-    comptime caller_source: std.builtin.SourceLocation,
     comptime Types: HandleWithErrorSetTypes,
     runtime: *shift.Runtime,
     instance: anytype,
     allocator: std.mem.Allocator,
     comptime Body: type,
 ) lowered_machine.ResetError(Types.ErrorSet)!HandleResult(Types.Item, Types.Answer) {
-    return try handleWithErrorSetAt(caller_source, Types, runtime, instance, allocator, Body);
+    return try handleWithErrorSetAt(@src(), Types, runtime, instance, allocator, Body);
 }
 
 /// Public `handleWithErrorSetAt` helper.
@@ -276,7 +274,7 @@ test "writer handle accumulates items in order" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = WriterInstance.init();
-    const result = try handle(@src(), []const u8, []const u8, &runtime, &instance, std.testing.allocator, demo);
+    const result = try handleAt(@src(), []const u8, []const u8, &runtime, &instance, std.testing.allocator, demo);
     defer std.testing.allocator.free(result.items);
     try std.testing.expectEqual(@as(usize, 2), result.items.len);
     try std.testing.expectEqualStrings("a", result.items[0]);
@@ -292,7 +290,7 @@ test "public writer handleWithErrorSet preserves caller provenance" {
     defer runtime.deinit();
     var instance = WriterInstance.init();
 
-    const result = try handleWithErrorSet(@src(), .{
+    const result = try handleWithErrorSetAt(@src(), .{
         .Item = []const u8,
         .Answer = []const u8,
         .ErrorSet = NoError,
@@ -318,7 +316,7 @@ test "nested same-shaped writer handles get distinct capability types" {
 
         /// Open an inner writer handle and prove its capability differs from the outer one.
         pub fn outer(comptime OuterCap: type, _: anytype) lowered_machine.ResetError(NoError)![]const u8 {
-            const result = try handle(@src(), []const u8, []const u8, runtime_ptr.?, inner_ptr.?, std.testing.allocator, struct {
+            const result = try handleAt(@src(), []const u8, []const u8, runtime_ptr.?, inner_ptr.?, std.testing.allocator, struct {
                 /// Reject capability-type collapse inside the nested writer handle.
                 pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(family.computeProgram(InnerCap, inner_ctx, struct {
                     /// Return a neutral value from the nested writer body.
@@ -348,7 +346,7 @@ test "nested same-shaped writer handles get distinct capability types" {
     var inner_instance = WriterInstance.init();
     demo.runtime_ptr = &runtime;
     demo.inner_ptr = &inner_instance;
-    const result = try handle(@src(), []const u8, []const u8, &runtime, &outer_instance, std.testing.allocator, struct {
+    const result = try handleAt(@src(), []const u8, []const u8, &runtime, &outer_instance, std.testing.allocator, struct {
         /// Enter the outer writer handle and hand its capability inward.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(family.computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested writer witness through the outer capability.

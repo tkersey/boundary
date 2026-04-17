@@ -33,7 +33,7 @@ test "public provenance wrappers stay caller-owned only with explicit cross-file
     defer runtime.deinit();
 
     {
-        const result = try shift.with(@src(), &runtime, .{
+        const result = try shift.withAt(@src(), &runtime, .{
             .state = shift.effect.state.use(@as(i32, 0)),
         }, struct {
             /// Return the caller-owned source observed through the lexical `shift.with` surface.
@@ -48,7 +48,7 @@ test "public provenance wrappers stay caller-owned only with explicit cross-file
         const NoError = error{};
 
         var reader_instance = shift.effect.reader.Instance(i32, NoError).init();
-        const reader_result = try shift.effect.reader.handleWithErrorSet(@src(), []const u8, NoError, &runtime, &reader_instance, @as(i32, 21), struct {
+        const reader_result = try shift.effect.reader.handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &reader_instance, @as(i32, 21), struct {
             /// Return the caller-owned source observed through the reader wrapper.
             pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
                 _ = Cap;
@@ -58,7 +58,7 @@ test "public provenance wrappers stay caller-owned only with explicit cross-file
         try std.testing.expectEqualStrings(@src().file, reader_result);
 
         var state_instance = shift.effect.state.Instance(i32, NoError).init();
-        const state_result = try shift.effect.state.handleWithErrorSet(@src(), []const u8, NoError, &runtime, &state_instance, @as(i32, 0), struct {
+        const state_result = try shift.effect.state.handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &state_instance, @as(i32, 0), struct {
             /// Return the caller-owned source observed through the state wrapper.
             pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
                 _ = Cap;
@@ -74,7 +74,7 @@ test "public provenance wrappers stay caller-owned only with explicit cross-file
             }
         };
         var exception_instance = shift.effect.exception.Instance([]const u8, NoError).init();
-        const exception_result = try shift.effect.exception.handleWithErrorSet(@src(), []const u8, NoError, &runtime, &exception_instance, catcher, struct {
+        const exception_result = try shift.effect.exception.handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &exception_instance, catcher, struct {
             /// Return the caller-owned source observed through the exception wrapper.
             pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
                 _ = Cap;
@@ -95,7 +95,7 @@ test "public provenance wrappers stay caller-owned only with explicit cross-file
             }
         };
         var resource_instance = shift.effect.resource.Instance([]const u8, NoError).init();
-        const resource_result = try shift.effect.resource.handleWithErrorSet(@src(), []const u8, NoError, &runtime, &resource_instance, manager, struct {
+        const resource_result = try shift.effect.resource.handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &resource_instance, manager, struct {
             /// Return the caller-owned source observed through the resource wrapper.
             pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
                 _ = Cap;
@@ -105,7 +105,7 @@ test "public provenance wrappers stay caller-owned only with explicit cross-file
         try std.testing.expectEqualStrings(@src().file, resource_result);
 
         var writer_instance = shift.effect.writer.Instance([]const u8, NoError).init();
-        const writer_result = try shift.effect.writer.handleWithErrorSet(@src(), .{
+        const writer_result = try shift.effect.writer.handleWithErrorSetAt(@src(), .{
             .Item = []const u8,
             .Answer = []const u8,
             .ErrorSet = NoError,
@@ -126,7 +126,7 @@ test "public provenance wrappers stay caller-owned only with explicit cross-file
             },
         });
         var generated_instance = Audit.Instance.init();
-        const generated_result = try Audit.handleWithErrorSet(@src(), []const u8, NoError, &runtime, &generated_instance, struct {
+        const generated_result = try Audit.handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &generated_instance, struct {
             /// Accept the generated-family probe payload without changing state.
             pub fn note(_: *@This(), _: []const u8) void {
                 // No-op handler for provenance-only coverage.

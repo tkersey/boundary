@@ -1,3 +1,4 @@
+const build_options = @import("authoring_build_options");
 const builtin = @import("builtin");
 const family = @import("effect/family.zig");
 const frontend = @import("frontend_support");
@@ -78,13 +79,50 @@ fn namedBodySourceModulePath(comptime source_path_value: []const u8) []const u8 
 fn namedBodyModulePathMatchesSourcePath(
     comptime module_path: []const u8,
     comptime source_path_value: []const u8,
+    comptime entry_symbol_value: []const u8,
 ) bool {
     const full_module_path = namedBodySourceModulePath(source_path_value);
     const module_stem = std.fs.path.stem(source_path_value);
     if (std.mem.eql(u8, module_path, full_module_path)) return true;
-    if (std.mem.eql(u8, module_path, module_stem)) return true;
-    if (std.mem.indexOfScalar(u8, full_module_path, '.') == null) return false;
-    return std.mem.endsWith(u8, module_path, "." ++ full_module_path);
+    if (std.mem.indexOfScalar(u8, full_module_path, '.')) |_| {
+        if (std.mem.endsWith(u8, module_path, "." ++ full_module_path)) return true;
+    }
+    if (!std.mem.eql(u8, module_path, module_stem)) return false;
+    if (source_graph_embed.ownedRepoPath(source_path_value)) |owned_repo_path| {
+        comptime {
+            @setEvalBranchQuota(20_000_000);
+        }
+
+        var match_count: usize = 0;
+        var source_path_matches = false;
+        var start: usize = 0;
+        while (start < build_options.repo_zig_paths.len) {
+            var end = start;
+            while (end < build_options.repo_zig_paths.len and build_options.repo_zig_paths[end] != '\n') : (end += 1) {}
+            const candidate = build_options.repo_zig_paths[start..end];
+            start = end + 1;
+            if (candidate.len == 0) continue;
+            if (!std.mem.eql(u8, std.fs.path.stem(candidate), module_stem)) continue;
+
+            const candidate_source = source_graph_embed.embeddedSource(candidate);
+            const graph = source_graph_engine.analyzeComptime(candidate_source, .{
+                .entry_symbol = null,
+                .reject_recursive_helpers = false,
+                .reject_indirect_effect_access = false,
+                .reject_malformed_statements = false,
+            }) catch continue;
+
+            inline for (graph.functions) |function| {
+                if (std.mem.eql(u8, function.name, entry_symbol_value)) {
+                    match_count += 1;
+                    if (std.mem.eql(u8, candidate, owned_repo_path)) source_path_matches = true;
+                    break;
+                }
+            }
+        }
+        return source_path_matches and match_count == 1;
+    }
+    return std.mem.indexOfAny(u8, source_path_value, "/\\") == null;
 }
 
 fn validateNamedBodyRepoIdentity(
@@ -97,7 +135,7 @@ fn validateNamedBodyRepoIdentity(
     const last_dot = std.mem.lastIndexOfScalar(u8, provenance, '.') orelse
         @compileError("shift.NamedBody body_fn must be a named function");
     const module_path = provenance[0..last_dot];
-    if (!namedBodyModulePathMatchesSourcePath(module_path, source_path_value)) {
+    if (!namedBodyModulePathMatchesSourcePath(module_path, source_path_value, entry_symbol_value)) {
         @compileError("shift.NamedBody source_path must match the supplied body function provenance");
     }
 
@@ -1439,12 +1477,13 @@ test "NamedBody allows duplicate entry symbols in different repo files" {
 }
 
 test "NamedBody provenance matching keeps directory segments distinct" {
-    try std.testing.expect(namedBodyModulePathMatchesSourcePath("a.entry", "a/entry.zig"));
-    try std.testing.expect(!namedBodyModulePathMatchesSourcePath("b.entry", "a/entry.zig"));
-    try std.testing.expect(namedBodyModulePathMatchesSourcePath("with_api", "src/with_api.zig"));
-    try std.testing.expect(namedBodyModulePathMatchesSourcePath("pkg.src.with_api", "src/with_api.zig"));
-    try std.testing.expect(namedBodyModulePathMatchesSourcePath("main", "main.zig"));
-    try std.testing.expect(!namedBodyModulePathMatchesSourcePath("nested.main", "main.zig"));
+    try std.testing.expect(namedBodyModulePathMatchesSourcePath("a.entry", "a/entry.zig", "entry"));
+    try std.testing.expect(!namedBodyModulePathMatchesSourcePath("b.entry", "a/entry.zig", "entry"));
+    try std.testing.expect(namedBodyModulePathMatchesSourcePath("with_api", "src/with_api.zig", "namedBodyValidationExpected"));
+    try std.testing.expect(namedBodyModulePathMatchesSourcePath("pkg.src.with_api", "src/with_api.zig", "namedBodyValidationExpected"));
+    try std.testing.expect(namedBodyModulePathMatchesSourcePath("main", "main.zig", "body"));
+    try std.testing.expect(!namedBodyModulePathMatchesSourcePath("main", "nested/main.zig", "body"));
+    try std.testing.expect(!namedBodyModulePathMatchesSourcePath("nested.main", "main.zig", "body"));
 }
 
 test "withOwnedSource keeps repo-owned NamedBody identity when explicit witness disagrees" {
@@ -1618,13 +1657,13 @@ test "withCallerSource preserves lexical continuation caller provenance through 
     try std.testing.expectEqualStrings("answer=42", result.value);
 }
 
-test "with preserves caller provenance through the legacy lexical path" {
+test "withAt preserves caller provenance through the explicit lexical path" {
     const state = @import("effect/state.zig");
 
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try with(@src(), &runtime, .{
+    const result = try withAt(@src(), &runtime, .{
         .state = state.use(@as(i32, 0)),
     }, struct {
         fn body(eff: anytype) anyerror![]const u8 {
@@ -2419,13 +2458,12 @@ fn withImpl(
 }
 
 /// Run one lexical effect bundle and return descriptor outputs alongside the body answer.
-pub fn with(
-    comptime caller: std.builtin.SourceLocation,
+pub inline fn with(
     runtime: *lowered_machine.Runtime,
     handlers: anytype,
     comptime Body: type,
 ) WithFnReturnType(@TypeOf(handlers), Body) {
-    return withAt(caller, runtime, handlers, Body);
+    return withAt(@src(), runtime, handlers, Body);
 }
 
 /// Run one lexical effect bundle with explicit caller provenance.
