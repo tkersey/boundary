@@ -1,4 +1,3 @@
-const build_options = @import("authoring_build_options");
 const builtin = @import("builtin");
 const family = @import("effect/family.zig");
 const frontend = @import("frontend_support");
@@ -62,34 +61,6 @@ fn validateNamedBodyRepoIdentity(
         if (std.mem.eql(u8, function.name, entry_symbol_value)) break;
     } else {
         @compileError("shift.NamedBody source_path must export the supplied entry_symbol");
-    }
-
-    const bare_fn_pattern = "fn " ++ entry_symbol_value;
-    const pub_fn_pattern = "pub fn " ++ entry_symbol_value;
-    var start: usize = 0;
-    while (start < build_options.repo_zig_paths.len) {
-        var end = start;
-        while (end < build_options.repo_zig_paths.len and build_options.repo_zig_paths[end] != '\n') : (end += 1) {}
-        const candidate = build_options.repo_zig_paths[start..end];
-        start = end + 1;
-        if (candidate.len == 0 or std.mem.eql(u8, candidate, owned_repo_path)) continue;
-        const candidate_source = source_graph_embed.embeddedOwnedRepoSource(candidate);
-        if (std.mem.indexOf(u8, candidate_source, bare_fn_pattern) == null and
-            std.mem.indexOf(u8, candidate_source, pub_fn_pattern) == null)
-        {
-            continue;
-        }
-        const candidate_graph = source_graph_engine.analyzeComptime(candidate_source, .{
-            .entry_symbol = null,
-            .reject_recursive_helpers = false,
-            .reject_indirect_effect_access = false,
-            .reject_malformed_statements = false,
-        }) catch continue;
-        inline for (candidate_graph.functions) |function| {
-            if (std.mem.eql(u8, function.name, entry_symbol_value)) {
-                @compileError("shift.NamedBody entry_symbol must be unique across owned repo sources");
-            }
-        }
     }
 }
 
@@ -1011,8 +982,8 @@ fn ownedSourceSyntheticSource(
     comptime witness: OwnedSourceWitness,
     comptime entry_symbol: []const u8,
 ) ?[:0]const u8 {
-    if (witness.body_source != null) return witnessSyntheticSource(caller_source, witness);
     if (isNamedBodyDescriptor(Body)) return null;
+    if (witness.body_source != null) return witnessSyntheticSource(caller_source, witness);
     return anonymousBodySyntheticSourceWithEntry(caller, Body, caller_source, .owned_source, entry_symbol);
 }
 
@@ -1032,9 +1003,8 @@ fn rejectForgedOwnedSourceSyntheticPath(
     comptime caller: std.builtin.SourceLocation,
     comptime witness: OwnedSourceWitness,
 ) void {
+    if (isNamedBodyDescriptor(Body)) return;
     const source_path = witness.source_path orelse return;
-    const synthetic_root_source = witness.body_source != null or !isNamedBodyDescriptor(Body);
-    if (!synthetic_root_source) return;
     if (sourcePathAgreesWithCaller(caller, source_path)) return;
     @compileError("shift.withOwnedSource anonymous and body-source witnesses require witness.source_path to agree with the caller source");
 }
@@ -1354,6 +1324,8 @@ fn namedBodyValidationOther(_: anytype) anyerror!i32 {
     return 2;
 }
 
+const named_body_duplicate_support = @import("named_body_duplicate_support.zig");
+
 test "NamedBody extracts and validates the supplied function name" {
     try std.testing.expectEqualStrings(
         "namedBodyValidationExpected",
@@ -1369,6 +1341,41 @@ test "NamedBody extracts and validates the supplied function name" {
         anyerror!i32,
         namedBodyValidationExpected,
     );
+}
+
+test "NamedBody allows duplicate entry symbols in different repo files" {
+    const descriptor = NamedBody(
+        "src/named_body_duplicate_support.zig",
+        "namedBodyValidationExpected",
+        anyerror!i32,
+        named_body_duplicate_support.namedBodyValidationExpected,
+    );
+    try std.testing.expectEqualStrings("src/named_body_duplicate_support.zig", descriptor.source_path);
+    try std.testing.expectEqualStrings("namedBodyValidationExpected", descriptor.entry_symbol);
+}
+
+test "withOwnedSource keeps repo-owned NamedBody identity when explicit witness disagrees" {
+    const named_body_identity_primary = @import("named_body_identity_primary_support.zig");
+    const state = @import("effect/state.zig");
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const named = NamedBody(
+        "src/named_body_identity_primary_support.zig",
+        "namedBodyIdentity",
+        anyerror!i32,
+        named_body_identity_primary.namedBodyIdentity,
+    );
+    const result = try withOwnedSource(@src(), @embedFile("named_body_identity_secondary_support.zig"), .{
+        .source_path = "src/named_body_identity_secondary_support.zig",
+        .entry_symbol = "witnessOverride",
+    }, &runtime, .{
+        .state = state.use(@as(i32, 0)),
+    }, named);
+
+    try std.testing.expectEqual(@as(i32, 1), result.value);
+    try std.testing.expectEqual(@as(i32, 1), result.outputs.state);
 }
 
 test "withCallerSource runs anonymous lexical bodies through the public API" {
@@ -1904,6 +1911,42 @@ fn ownedSourceUsesAnonymousCallerCompilation(comptime Body: type, comptime witne
     return !@hasDecl(Body, "entry_symbol");
 }
 
+fn ownedSourceUsesNamedEmbeddedCompilation(comptime Body: type) bool {
+    if (!isNamedBodyDescriptor(Body)) return false;
+    return source_graph_embed.ownedRepoPath(Body.source_path) != null;
+}
+
+fn ownedSourceNamedEmbeddedPlan(comptime HandlersType: type, comptime Body: type) ?public_lowering.ProgramPlan {
+    if (!ownedSourceUsesNamedEmbeddedCompilation(Body)) return null;
+    return namedCompiledLexicalPlan(HandlersType, Body);
+}
+
+fn ownedSourceCompilationSourcePath(
+    comptime Body: type,
+    comptime witness: OwnedSourceWitness,
+    comptime caller: std.builtin.SourceLocation,
+) []const u8 {
+    if (isNamedBodyDescriptor(Body)) return Body.source_path;
+    return witness.source_path orelse if (@hasDecl(Body, "source_path"))
+        Body.source_path
+    else
+        caller.file;
+}
+
+fn ownedSourceCompilationEntrySymbol(
+    comptime Body: type,
+    comptime witness: OwnedSourceWitness,
+    comptime caller: std.builtin.SourceLocation,
+) []const u8 {
+    if (isNamedBodyDescriptor(Body)) return Body.entry_symbol;
+    return witness.entry_symbol orelse if (witness.body_source != null)
+        witness.body_method_name
+    else if (@hasDecl(Body, "entry_symbol"))
+        Body.entry_symbol
+    else
+        anonymousBodyEntryName(caller);
+}
+
 fn rejectUnsupportedOwnedSourceWith(
     comptime HandlersType: type,
     comptime Body: type,
@@ -1915,17 +1958,13 @@ fn rejectUnsupportedOwnedSourceWith(
     if (ownedSourceUsesAnonymousCallerCompilation(Body, witness)) {
         if (callerOwnedCompilationSupported(HandlersType, Body, caller, root_source, .owned_source)) return;
     }
-    const source_path = witness.source_path orelse if (@hasDecl(Body, "source_path"))
-        Body.source_path
-    else
-        caller.file;
+    if (comptime ownedSourceNamedEmbeddedPlan(HandlersType, Body)) |compiled_plan| {
+        _ = compiled_plan;
+        return;
+    }
+    const source_path = comptime ownedSourceCompilationSourcePath(Body, witness, caller);
     const source_owner = comptime ownedSourceLocation(caller, source_path);
-    const entry_symbol = comptime witness.entry_symbol orelse if (witness.body_source != null)
-        witness.body_method_name
-    else if (@hasDecl(Body, "entry_symbol"))
-        Body.entry_symbol
-    else
-        anonymousBodyEntryName(caller);
+    const entry_symbol = comptime ownedSourceCompilationEntrySymbol(Body, witness, caller);
     const synthetic_source = comptime ownedSourceSyntheticSource(Body, caller, root_source, witness, entry_symbol);
     const source_ref = comptime public_lowering.sourceWithContentAndImports(
         source_path,
@@ -1966,17 +2005,19 @@ fn tryOwnedSourceCompiledWith(
             outputs_ptr,
         );
     }
-    const source_path = witness.source_path orelse if (@hasDecl(Body, "source_path"))
-        Body.source_path
-    else
-        caller.file;
+    if (comptime ownedSourceNamedEmbeddedPlan(HandlersType, Body)) |compiled_plan| {
+        return try runCompiledLexicalPlan(
+            HandlersType,
+            Body,
+            runtime,
+            handlers_ptr,
+            outputs_ptr,
+            compiled_plan,
+        );
+    }
+    const source_path = comptime ownedSourceCompilationSourcePath(Body, witness, caller);
     const source_owner = comptime ownedSourceLocation(caller, source_path);
-    const entry_symbol = comptime witness.entry_symbol orelse if (witness.body_source != null)
-        witness.body_method_name
-    else if (@hasDecl(Body, "entry_symbol"))
-        Body.entry_symbol
-    else
-        anonymousBodyEntryName(caller);
+    const entry_symbol = comptime ownedSourceCompilationEntrySymbol(Body, witness, caller);
     const synthetic_source = comptime ownedSourceSyntheticSource(Body, caller, root_source, witness, entry_symbol);
     const source_ref = comptime public_lowering.sourceWithContentAndImports(
         source_path,

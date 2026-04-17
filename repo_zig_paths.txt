@@ -86,6 +86,9 @@ src/internal/source_graph_engine.zig
 src/interpreter.zig
 src/lexical_runtime_internal.zig
 src/lowered_machine.zig
+src/named_body_duplicate_support.zig
+src/named_body_identity_primary_support.zig
+src/named_body_identity_secondary_support.zig
 src/op_api.zig
 src/op_compat.zig
 src/open_row_runtime_support.zig

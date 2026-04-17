@@ -2221,9 +2221,10 @@ fn collectRepoZigPathsAlloc(
     path_set: *std.StringHashMap(void),
 ) void {
     const have_tracked = collectTrackedRepoZigPathsAlloc(allocator, repo_root, paths, path_set);
-    const have_registry = collectRepoZigPathsFromRegistryFile(allocator, repo_root, paths, path_set);
+    if (have_tracked) return;
 
-    if (!have_tracked and !have_registry) {
+    const have_registry = collectRepoZigPathsFromRegistryFile(allocator, repo_root, paths, path_set);
+    if (!have_registry) {
         collectFilesystemRepoZigPaths(allocator, repo_root, paths, path_set);
     }
 }
@@ -2982,7 +2983,7 @@ test "repo Zig path registry falls back to filesystem when git and committed reg
     , registry);
 }
 
-test "repo Zig path registry ignores deleted tracked files" {
+test "repo Zig path registry ignores deleted tracked files even when repo_zig_paths.txt is stale" {
     const repo_root = try makeExternalTmpDir(std.testing.allocator);
     defer std.testing.allocator.free(repo_root);
     defer runChildExpectSuccess(std.testing.allocator, &.{ "rm", "-rf", repo_root }) catch unreachable;
@@ -3002,6 +3003,12 @@ test "repo Zig path registry ignores deleted tracked files" {
     );
     try writeTmpFile(repo_dir, "stale.zig",
         \\pub fn stale() void {}
+        \\
+    );
+    try writeTmpFile(repo_dir, "repo_zig_paths.txt",
+        \\build.zig
+        \\live.zig
+        \\stale.zig
         \\
     );
 
