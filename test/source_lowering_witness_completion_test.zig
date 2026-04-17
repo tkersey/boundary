@@ -44,6 +44,12 @@ test "admitted source-lowering witness rows stay source-backed and canonical" {
         .scenario_id = .direct_return,
     });
     try expectWitnessCase(.{
+        .case_id = "witness.multi_prompt",
+        .source_path = "src/witness_sources.zig",
+        .entry_symbol = "runMultiPrompt",
+        .scenario_id = .multi_prompt,
+    });
+    try expectWitnessCase(.{
         .case_id = "witness.resume_or_return_return_now",
         .source_path = "src/witness_sources.zig",
         .entry_symbol = "runResumeOrReturnReturnNow",
@@ -54,6 +60,12 @@ test "admitted source-lowering witness rows stay source-backed and canonical" {
         .source_path = "src/witness_sources.zig",
         .entry_symbol = "runResumeOrReturnResume",
         .scenario_id = .resume_or_return_resume,
+    });
+    try expectWitnessCase(.{
+        .case_id = "witness.static_redelim",
+        .source_path = "src/witness_sources.zig",
+        .entry_symbol = "runStaticRedelim",
+        .scenario_id = .static_redelim,
     });
     try expectWitnessCase(.{
         .case_id = "witness.generator",
