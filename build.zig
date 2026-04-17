@@ -3015,6 +3015,26 @@ test "repo Zig path registry ignores deleted tracked files" {
     , registry);
 }
 
+test "checked-in repo Zig path registry stays in parity with tracked Zig files" {
+    var repo_dir = try std.fs.cwd().openDir(".", .{});
+    defer repo_dir.close();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    const tracked_registry = repoZigPathRegistryAlloc(std.testing.allocator, repo_root);
+    defer std.testing.allocator.free(tracked_registry);
+
+    const committed_registry_bytes = try repo_dir.readFileAlloc(std.testing.allocator, "repo_zig_paths.txt", 512 * 1024);
+    defer std.testing.allocator.free(committed_registry_bytes);
+    const committed_registry = std.mem.trimEnd(u8, committed_registry_bytes, "\n\r");
+
+    try std.testing.expectEqualStrings(
+        std.mem.trimEnd(u8, tracked_registry, "\n\r"),
+        committed_registry,
+    );
+}
+
 test "test suite selection accepts trimmed multi-suite lists" {
     const specs = [_]TestSuiteSpec{
         .{ .suite_id = "alpha", .description = "alpha suite" },

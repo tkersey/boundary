@@ -138,6 +138,8 @@ test/direct_style_bridge/resume_or_return_return_now.zig
 test/direct_style_bridge/state_basic.zig
 test/direct_style_bridge/static_redelim.zig
 test/direct_style_bridge/writer_basic.zig
+test/lexical_with_named_body_support.zig
+test/lexical_with_named_body_test.zig
 test/lexical_with_test.zig
 test/lexical_witness_support.zig
 test/lexical_witness_test.zig
@@ -172,7 +174,8 @@ test/source_lowering_corpus/fixtures/loop_resume.zig
 test/source_lowering_corpus/fixtures/nested_prompt_static_redelim.zig
 test/source_lowering_corpus/fixtures/typed_error_try.zig
 test/source_lowering_corpus_test.zig
-test/source_lowering_promoted_cohort_test.zig
+test/source_lowering_promoted_examples_test.zig
+test/source_lowering_promoted_support.zig
 test/source_lowering_rejection_corpus_test.zig
 test/source_lowering_witness_completion_test.zig
 test/source_ownership_probe_helper.zig

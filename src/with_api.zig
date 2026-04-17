@@ -1010,6 +1010,29 @@ fn ownedSourceSyntheticSource(
     return anonymousBodySyntheticSourceWithEntry(caller, Body, caller_source, .owned_source, entry_symbol);
 }
 
+fn sourcePathAgreesWithCaller(
+    comptime caller: std.builtin.SourceLocation,
+    comptime source_path: []const u8,
+) bool {
+    if (std.mem.eql(u8, caller.file, source_path)) return true;
+
+    const caller_repo_path = comptime source_graph_embed.ownedRepoPath(caller.file) orelse return false;
+    const source_repo_path = comptime source_graph_embed.ownedRepoPath(source_path) orelse return false;
+    return std.mem.eql(u8, caller_repo_path, source_repo_path);
+}
+
+fn rejectForgedOwnedSourceSyntheticPath(
+    comptime Body: type,
+    comptime caller: std.builtin.SourceLocation,
+    comptime witness: OwnedSourceWitness,
+) void {
+    const source_path = witness.source_path orelse return;
+    const synthetic_root_source = witness.body_source != null or !isNamedBodyDescriptor(Body);
+    if (!synthetic_root_source) return;
+    if (sourcePathAgreesWithCaller(caller, source_path)) return;
+    @compileError("shift.withOwnedSource anonymous and body-source witnesses require witness.source_path to agree with the caller source");
+}
+
 fn ownedSourceLocation(
     comptime caller: std.builtin.SourceLocation,
     comptime source_path: []const u8,
@@ -1889,6 +1912,7 @@ fn rejectUnsupportedOwnedSourceWith(
     comptime root_source: [:0]const u8,
     comptime witness: OwnedSourceWitness,
 ) void {
+    comptime rejectForgedOwnedSourceSyntheticPath(Body, caller, witness);
     if (ownedSourceUsesAnonymousCallerCompilation(Body, witness)) {
         if (callerOwnedCompilationSupported(HandlersType, Body, caller, root_source, .owned_source)) return;
     }
