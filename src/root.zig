@@ -39,7 +39,7 @@ test "root surface stays scoped to the retained lexical API" {
     try @import("std").testing.expect(!@hasDecl(@This(), "withCallerSourceAndContent"));
 }
 
-test "retained compat program entrypoints stay wired through caller-aware forwarding" {
+test "retained compat program entrypoints keep source-compatible runner arity" {
     const demo_program = shared.compat.Program(.{
         .state = shared.compat.Decl.state(i32),
     }, struct {
@@ -51,20 +51,24 @@ test "retained compat program entrypoints stay wired through caller-aware forwar
     var runtime = Runtime.init(@import("std").testing.allocator);
     defer runtime.deinit();
 
-    const compat_result = try shared.compat.run(@src(), &runtime, demo_program, .{ .state = 7 });
+    const compat_result = try shared.compat.run(&runtime, demo_program, .{ .state = 7 });
     try @import("std").testing.expectEqual(@as(i32, 7), compat_result.outputs.state);
     try @import("std").testing.expectEqual(@as(i32, 7), compat_result.value);
 
-    const run_result = try demo_program.run(@src(), &runtime, .{ .state = 9 });
+    const run_result = try demo_program.run(&runtime, .{ .state = 9 });
     try @import("std").testing.expectEqual(@as(i32, 9), run_result.outputs.state);
     try @import("std").testing.expectEqual(@as(i32, 9), run_result.value);
+
+    const free_result = try shared.run(&runtime, demo_program, .{ .state = 11 });
+    try @import("std").testing.expectEqual(@as(i32, 11), free_result.outputs.state);
+    try @import("std").testing.expectEqual(@as(i32, 11), free_result.value);
 
     const run_at_result = try demo_program.runAt(@src(), &runtime, .{ .state = 11 });
     try @import("std").testing.expectEqual(@as(i32, 11), run_at_result.outputs.state);
     try @import("std").testing.expectEqual(@as(i32, 11), run_at_result.value);
 }
 
-test "retained compat program entrypoints preserve caller provenance across the root surface" {
+test "retained explicit-caller program entrypoints preserve caller provenance across the root surface" {
     const caller_program = shared.Program(.{
         .state = shared.Decl.state(i32),
     }, struct {
@@ -82,12 +86,9 @@ test "retained compat program entrypoints preserve caller provenance across the 
     var runtime = Runtime.init(@import("std").testing.allocator);
     defer runtime.deinit();
 
-    const compat_result = try shared.compat.run(@src(), &runtime, caller_program, .{ .state = 0 });
+    const compat_result = try shared.compat.runAt(@src(), &runtime, caller_program, .{ .state = 0 });
     try @import("std").testing.expectEqualStrings(@src().file, compat_result.value);
 
-    const run_result = try caller_program.run(@src(), &runtime, .{ .state = 0 });
+    const run_result = try caller_program.runAt(@src(), &runtime, .{ .state = 0 });
     try @import("std").testing.expectEqualStrings(@src().file, run_result.value);
-
-    const free_result = try shared.run(@src(), &runtime, caller_program, .{ .state = 0 });
-    try @import("std").testing.expectEqualStrings(@src().file, free_result.value);
 }

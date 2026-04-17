@@ -343,10 +343,10 @@ pub fn Program(comptime declaration_values: anytype, comptime BodyType: type) ty
         /// Public `declarations` declaration.
         pub const declarations = declaration_values;
 
-        /// Run this public entrypoint with explicit caller provenance.
-        /// Wrapper-local `@src()` would be callee-owned here, so the caller threads provenance directly.
-        pub fn run(comptime caller: std.builtin.SourceLocation, runtime: *lowered_machine.Runtime, bindings: Bindings) RunReturnType(@This()) {
-            return programRun(caller, runtime, @This(), bindings);
+        /// Run this public entrypoint with source-compatible arity.
+        /// Use `runAt(...)` when the caller must preserve explicit provenance across module boundaries.
+        pub inline fn run(runtime: *lowered_machine.Runtime, bindings: Bindings) RunReturnType(@This()) {
+            return @This().runAt(@src(), runtime, bindings);
         }
 
         /// Run this public entrypoint with explicit caller provenance.
@@ -366,10 +366,10 @@ fn programRun(comptime caller: std.builtin.SourceLocation, runtime: *lowered_mac
     return program_runtime.run(caller, runtime, handlers, ProgramType.Body);
 }
 
-/// Run this public entrypoint with explicit caller provenance.
-/// Wrapper-local `@src()` would be callee-owned here, so the caller threads provenance directly.
-pub fn run(comptime caller: std.builtin.SourceLocation, runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) RunReturnType(ProgramType) {
-    return programRun(caller, runtime, ProgramType, bindings);
+/// Run this public entrypoint with source-compatible arity.
+/// Use `runAt(...)` when the caller must preserve explicit provenance across module boundaries.
+pub inline fn run(runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) RunReturnType(ProgramType) {
+    return runAt(@src(), runtime, ProgramType, bindings);
 }
 
 /// Run this public entrypoint with explicit caller provenance.
@@ -532,7 +532,7 @@ test "program run executes through the new front door" {
     try std.testing.expectEqual(@as(i32, 11), result.value);
 }
 
-test "program type run preserves explicit caller arity" {
+test "program type run preserves source-compatible arity" {
     const demo_program = Program(.{
         .state = decl.state(i32),
     }, struct {
@@ -545,9 +545,27 @@ test "program type run preserves explicit caller arity" {
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try demo_program.run(@src(), &runtime, .{ .state = 9 });
+    const result = try demo_program.run(&runtime, .{ .state = 9 });
     try std.testing.expectEqual(@as(i32, 9), result.outputs.state);
     try std.testing.expectEqual(@as(i32, 9), result.value);
+}
+
+test "program type runAt preserves explicit caller arity" {
+    const demo_program = Program(.{
+        .state = decl.state(i32),
+    }, struct {
+        /// Read one state value through the explicit-caller program type front door.
+        pub fn body(eff: anytype) anyerror!i32 {
+            return try eff.state.get();
+        }
+    });
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try demo_program.runAt(@src(), &runtime, .{ .state = 13 });
+    try std.testing.expectEqual(@as(i32, 13), result.outputs.state);
+    try std.testing.expectEqual(@as(i32, 13), result.value);
 }
 
 test "program runAt preserves caller provenance" {
@@ -567,36 +585,38 @@ test "program runAt preserves caller provenance" {
     try std.testing.expectEqualStrings(@src().file, result.value);
 }
 
-test "program run preserves caller provenance" {
+test "program free run preserves source-compatible arity" {
     const demo_program = Program(.{
         .state = decl.state(i32),
     }, struct {
-        /// Observe the caller provenance threaded through the explicit compatibility entrypoint.
-        pub fn body(eff: anytype) anyerror![]const u8 {
-            return @TypeOf(eff.state.ctx.?.*).caller_source.?.file;
+        /// Read one state value through the default program entrypoint.
+        pub fn body(eff: anytype) anyerror!i32 {
+            return try eff.state.get();
         }
     });
 
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try run(@src(), &runtime, demo_program, .{ .state = 0 });
-    try std.testing.expectEqualStrings(@src().file, result.value);
+    const result = try run(&runtime, demo_program, .{ .state = 17 });
+    try std.testing.expectEqual(@as(i32, 17), result.outputs.state);
+    try std.testing.expectEqual(@as(i32, 17), result.value);
 }
 
-test "program type run preserves caller provenance" {
+test "program type run returns through source-compatible arity" {
     const demo_program = Program(.{
         .state = decl.state(i32),
     }, struct {
-        /// Observe the caller provenance threaded through the explicit program-type entrypoint.
-        pub fn body(eff: anytype) anyerror![]const u8 {
-            return @TypeOf(eff.state.ctx.?.*).caller_source.?.file;
+        /// Read one state value through the default program-type entrypoint.
+        pub fn body(eff: anytype) anyerror!i32 {
+            return try eff.state.get();
         }
     });
 
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try demo_program.run(@src(), &runtime, .{ .state = 0 });
-    try std.testing.expectEqualStrings(@src().file, result.value);
+    const result = try demo_program.run(&runtime, .{ .state = 19 });
+    try std.testing.expectEqual(@as(i32, 19), result.outputs.state);
+    try std.testing.expectEqual(@as(i32, 19), result.value);
 }

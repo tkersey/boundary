@@ -19,9 +19,14 @@ pub const Decision = program_api.Decision;
 /// Public program builder.
 pub const Program = program_api.Program;
 
-/// Run one program with explicit runtime ownership and bindings.
-/// Wrapper-local `@src()` would be callee-owned in this module, so callers must pass their own provenance.
-pub fn run(comptime caller: @import("std").builtin.SourceLocation, runtime: *Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) program_api.RunReturnType(ProgramType) {
+/// Run one program with source-compatible arity.
+/// Use `runAt(...)` when the caller must preserve explicit provenance across module boundaries.
+pub inline fn run(runtime: *Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) program_api.RunReturnType(ProgramType) {
+    return runAt(@src(), runtime, ProgramType, bindings);
+}
+
+/// Run one program with explicit caller provenance.
+pub fn runAt(comptime caller: @import("std").builtin.SourceLocation, runtime: *Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) program_api.RunReturnType(ProgramType) {
     return program_api.runAt(caller, runtime, ProgramType, bindings);
 }
 
@@ -36,7 +41,7 @@ test {
     _ = run;
 }
 
-test "compat run preserves explicit caller program runner arity" {
+test "compat run preserves source-compatible arity" {
     const demo_program = Program(.{
         .state = Decl.state(i32),
     }, struct {
@@ -52,4 +57,22 @@ test "compat run preserves explicit caller program runner arity" {
     const result = try run(&runtime, demo_program, .{ .state = 7 });
     try @import("std").testing.expectEqual(@as(i32, 7), result.outputs.state);
     try @import("std").testing.expectEqual(@as(i32, 7), result.value);
+}
+
+test "compat runAt preserves explicit caller arity" {
+    const demo_program = Program(.{
+        .state = Decl.state(i32),
+    }, struct {
+        /// Read one state value through the explicit-caller compatibility front door.
+        pub fn body(eff: anytype) anyerror!i32 {
+            return try eff.state.get();
+        }
+    });
+
+    var runtime = Runtime.init(@import("std").testing.allocator);
+    defer runtime.deinit();
+
+    const result = try runAt(@src(), &runtime, demo_program, .{ .state = 11 });
+    try @import("std").testing.expectEqual(@as(i32, 11), result.outputs.state);
+    try @import("std").testing.expectEqual(@as(i32, 11), result.value);
 }
