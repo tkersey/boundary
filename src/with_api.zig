@@ -30,13 +30,60 @@ fn NamedBodyFunctionType(comptime body_fn: anytype) type {
     };
 }
 
-fn namedBodyFunctionName(comptime body_fn: anytype) ?[]const u8 {
-    const wrapped_name = @typeName(@TypeOf(.{body_fn}));
-    const prefix = "(function '";
+fn namedBodyFunctionProvenance(comptime body_fn: anytype) ?[]const u8 {
+    comptime {
+        @setEvalBranchQuota(4_000);
+    }
+    const normalized_body_fn = switch (@typeInfo(@TypeOf(body_fn))) {
+        .pointer => body_fn.*,
+        else => body_fn,
+    };
+    const wrapped_name = @typeName(@TypeOf(.{&normalized_body_fn}));
+    const prefix = " = &";
     const start = std.mem.indexOf(u8, wrapped_name, prefix) orelse return null;
     const name_start = start + prefix.len;
-    const end = std.mem.indexOfPos(u8, wrapped_name, name_start, "')") orelse return null;
+    const end = std.mem.indexOfPos(u8, wrapped_name, name_start, " }") orelse return null;
     return wrapped_name[name_start..end];
+}
+
+fn namedBodyFunctionName(comptime body_fn: anytype) ?[]const u8 {
+    const provenance = namedBodyFunctionProvenance(body_fn) orelse return null;
+    const name_start = (std.mem.lastIndexOfScalar(u8, provenance, '.') orelse return null) + 1;
+    return provenance[name_start..];
+}
+
+fn namedBodySourceModulePath(comptime source_path_value: []const u8) []const u8 {
+    const without_ext = if (std.mem.endsWith(u8, source_path_value, ".zig"))
+        source_path_value[0 .. source_path_value.len - ".zig".len]
+    else
+        source_path_value;
+    const normalized = if (std.mem.startsWith(u8, without_ext, "./") or std.mem.startsWith(u8, without_ext, ".\\"))
+        without_ext[2..]
+    else
+        without_ext;
+
+    const dotted = comptime blk: {
+        var buffer: [normalized.len]u8 = undefined;
+        for (normalized, 0..) |char, idx| {
+            buffer[idx] = switch (char) {
+                '/', '\\' => '.',
+                else => char,
+            };
+        }
+        break :blk buffer;
+    };
+    return dotted[0..];
+}
+
+fn namedBodyModulePathMatchesSourcePath(
+    comptime module_path: []const u8,
+    comptime source_path_value: []const u8,
+) bool {
+    const full_module_path = namedBodySourceModulePath(source_path_value);
+    const module_stem = std.fs.path.stem(source_path_value);
+    return std.mem.eql(u8, module_path, full_module_path) or
+        std.mem.eql(u8, module_path, module_stem) or
+        std.mem.endsWith(u8, module_path, "." ++ full_module_path);
 }
 
 fn validateNamedBodyRepoIdentity(
@@ -44,7 +91,15 @@ fn validateNamedBodyRepoIdentity(
     comptime entry_symbol_value: []const u8,
     comptime body_fn: anytype,
 ) void {
-    _ = body_fn;
+    const provenance = namedBodyFunctionProvenance(body_fn) orelse
+        @compileError("shift.NamedBody body_fn must be a named function");
+    const last_dot = std.mem.lastIndexOfScalar(u8, provenance, '.') orelse
+        @compileError("shift.NamedBody body_fn must be a named function");
+    const module_path = provenance[0..last_dot];
+    if (!namedBodyModulePathMatchesSourcePath(module_path, source_path_value)) {
+        @compileError("shift.NamedBody source_path must match the supplied body function provenance");
+    }
+
     const owned_repo_path = source_graph_embed.ownedRepoPath(source_path_value) orelse return;
     comptime {
         @setEvalBranchQuota(2_000_000);
@@ -1328,8 +1383,20 @@ const named_body_duplicate_support = @import("named_body_duplicate_support.zig")
 
 test "NamedBody extracts and validates the supplied function name" {
     try std.testing.expectEqualStrings(
+        "with_api.namedBodyValidationExpected",
+        namedBodyFunctionProvenance(namedBodyValidationExpected).?,
+    );
+    try std.testing.expectEqualStrings(
         "namedBodyValidationExpected",
         namedBodyFunctionName(namedBodyValidationExpected).?,
+    );
+    try std.testing.expectEqualStrings(
+        "with_api.namedBodyValidationExpected",
+        namedBodyFunctionProvenance(&namedBodyValidationExpected).?,
+    );
+    try std.testing.expectEqualStrings(
+        "namedBodyValidationExpected",
+        namedBodyFunctionName(&namedBodyValidationExpected).?,
     );
     try std.testing.expectEqualStrings(
         "namedBodyValidationOther",
@@ -1341,6 +1408,12 @@ test "NamedBody extracts and validates the supplied function name" {
         anyerror!i32,
         namedBodyValidationExpected,
     );
+    _ = NamedBody(
+        "src/with_api.zig",
+        "namedBodyValidationExpected",
+        anyerror!i32,
+        &namedBodyValidationExpected,
+    );
 }
 
 test "NamedBody allows duplicate entry symbols in different repo files" {
@@ -1350,8 +1423,18 @@ test "NamedBody allows duplicate entry symbols in different repo files" {
         anyerror!i32,
         named_body_duplicate_support.namedBodyValidationExpected,
     );
+    try std.testing.expectEqualStrings(
+        "named_body_duplicate_support.namedBodyValidationExpected",
+        namedBodyFunctionProvenance(named_body_duplicate_support.namedBodyValidationExpected).?,
+    );
     try std.testing.expectEqualStrings("src/named_body_duplicate_support.zig", descriptor.source_path);
     try std.testing.expectEqualStrings("namedBodyValidationExpected", descriptor.entry_symbol);
+}
+
+test "NamedBody provenance matching keeps directory segments distinct" {
+    try std.testing.expect(namedBodyModulePathMatchesSourcePath("a.entry", "a/entry.zig"));
+    try std.testing.expect(!namedBodyModulePathMatchesSourcePath("b.entry", "a/entry.zig"));
+    try std.testing.expect(namedBodyModulePathMatchesSourcePath("with_api", "src/with_api.zig"));
 }
 
 test "withOwnedSource keeps repo-owned NamedBody identity when explicit witness disagrees" {

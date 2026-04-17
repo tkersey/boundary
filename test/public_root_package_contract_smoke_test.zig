@@ -492,7 +492,7 @@ test "downstream consumer smoke test builds fail closed instead of running repo-
         std.testing.allocator,
         &argv,
         null,
-        "shift.NamedBody execution must stay within the retained compiled lexical subset",
+        "shift.NamedBody source_path must match the supplied body function provenance",
     );
 }
 
@@ -603,6 +603,117 @@ test "downstream consumer smoke can compile caller-owned NamedBody sources throu
 
     const argv = zigBuildArgv();
     try runChildExpectSuccess(tmp.dir, std.testing.allocator, &argv, null);
+}
+
+test "downstream consumer smoke rejects mismatched NamedBody entry symbols for function pointers" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeConsumerBuildFiles(&tmp, repo_root);
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const shift_dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const exe_mod = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    exe_mod.addImport("shift", shift_dep.module("shift"));
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "consumer_probe",
+        \\        .root_module = exe_mod,
+        \\    });
+        \\    b.installArtifact(exe);
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "main.zig",
+        \\const shift = @import("shift");
+        \\
+        \\pub fn body(_: anytype) anyerror!i32 {
+        \\    return 1;
+        \\}
+        \\
+        \\pub fn main() void {
+        \\    _ = shift.NamedBody(@src().file, "wrongBody", anyerror!i32, &body);
+        \\}
+        \\
+    );
+
+    const argv = zigBuildArgv();
+    try runChildExpectFailureContains(
+        tmp.dir,
+        std.testing.allocator,
+        &argv,
+        null,
+        "shift.NamedBody entry_symbol must match the supplied body function name",
+    );
+}
+
+test "downstream consumer smoke rejects forged NamedBody function pointers with duplicate names" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeConsumerBuildFiles(&tmp, repo_root);
+    try writeTmpFile(tmp.dir, "build.zig",
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const shift_dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const exe_mod = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    exe_mod.addImport("shift", shift_dep.module("shift"));
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "consumer_probe",
+        \\        .root_module = exe_mod,
+        \\    });
+        \\    b.installArtifact(exe);
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "helpers.zig",
+        \\pub fn body(_: anytype) anyerror!i32 {
+        \\    return 2;
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "main.zig",
+        \\const helpers = @import("helpers.zig");
+        \\const shift = @import("shift");
+        \\
+        \\pub fn body(_: anytype) anyerror!i32 {
+        \\    return 1;
+        \\}
+        \\
+        \\pub fn main() void {
+        \\    _ = shift.NamedBody(@src().file, "body", anyerror!i32, &helpers.body);
+        \\}
+        \\
+    );
+
+    const argv = zigBuildArgv();
+    try runChildExpectFailureContains(
+        tmp.dir,
+        std.testing.allocator,
+        &argv,
+        null,
+        "shift.NamedBody source_path must match the supplied body function provenance",
+    );
 }
 
 test "downstream consumer smoke keeps caller-owned NamedBody identity when explicit witness disagrees" {

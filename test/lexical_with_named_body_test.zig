@@ -18,6 +18,18 @@ test "shift.with accepts NamedBody for state handlers" {
     try std.testing.expectEqual(@as(i32, 10), result.outputs.state);
 }
 
+test "shift.with accepts NamedBody function pointers for state handlers" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try shift.withAt(@src(), &runtime, .{
+        .state = shift.effect.state.use(@as(i32, 9)),
+    }, shift.NamedBody("test/lexical_with_named_body_basic_support.zig", "namedStateBody", ExecResult(i32), &named_body.namedStateBody));
+
+    try std.testing.expectEqual(@as(i32, 19), result.value);
+    try std.testing.expectEqual(@as(i32, 10), result.outputs.state);
+}
+
 test "shift.with accepts NamedBody helpers when the effect parameter is renamed" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
