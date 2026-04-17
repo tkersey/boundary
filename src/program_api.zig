@@ -343,7 +343,8 @@ pub fn Program(comptime declaration_values: anytype, comptime BodyType: type) ty
         /// Public `declarations` declaration.
         pub const declarations = declaration_values;
 
-        /// Run this public entrypoint through the retained compatibility surface.
+        /// Run this public entrypoint with explicit caller provenance.
+        /// Wrapper-local `@src()` would be callee-owned here, so the caller threads provenance directly.
         pub fn run(comptime caller: std.builtin.SourceLocation, runtime: *lowered_machine.Runtime, bindings: Bindings) RunReturnType(@This()) {
             return programRun(caller, runtime, @This(), bindings);
         }
@@ -365,7 +366,8 @@ fn programRun(comptime caller: std.builtin.SourceLocation, runtime: *lowered_mac
     return program_runtime.run(caller, runtime, handlers, ProgramType.Body);
 }
 
-/// Run this public entrypoint through the retained compatibility surface.
+/// Run this public entrypoint with explicit caller provenance.
+/// Wrapper-local `@src()` would be callee-owned here, so the caller threads provenance directly.
 pub fn run(comptime caller: std.builtin.SourceLocation, runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) RunReturnType(ProgramType) {
     return programRun(caller, runtime, ProgramType, bindings);
 }
