@@ -126,15 +126,14 @@ pub inline fn computeProgram(
 }
 
 /// Run an exception effect body and return the final caught or normal answer.
-pub fn handle(
-    comptime caller_source: std.builtin.SourceLocation,
+pub inline fn handle(
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
     comptime Catch: type,
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try handleAt(caller_source, AnswerType, runtime, instance, Catch, Body);
+    return try handleAt(@src(), AnswerType, runtime, instance, Catch, Body);
 }
 
 /// Run an exception effect body with explicit caller provenance and return the final caught or normal answer.
@@ -151,8 +150,7 @@ pub fn handleAt(
 
 /// Public `handleWithErrorSet` helper.
 // zlinter-disable max_positional_args - public caller provenance and catch inputs stay explicit at this compatibility wrapper.
-pub fn handleWithErrorSet(
-    comptime caller_source: std.builtin.SourceLocation,
+pub inline fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -160,7 +158,7 @@ pub fn handleWithErrorSet(
     comptime Catch: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleWithErrorSetAt(caller_source, AnswerType, RunErrorSetType, runtime, instance, Catch, Body);
+    return try handleWithErrorSetAt(@src(), AnswerType, RunErrorSetType, runtime, instance, Catch, Body);
 }
 
 /// Public `handleWithErrorSetAt` helper.
@@ -203,7 +201,7 @@ test "exception handle can throw directly to the catch policy" {
     defer runtime.deinit();
     var instance = ExceptionInstance.init();
     demo.after_throw = false;
-    const result = try handle(@src(), []const u8, &runtime, &instance, catcher, demo);
+    const result = try handle([]const u8, &runtime, &instance, catcher, demo);
     try std.testing.expectEqualStrings("result=early", result);
     try std.testing.expect(!demo.after_throw);
 }
@@ -237,7 +235,7 @@ test "exception throwProgram stays on the explicit frontend.Program surface" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ExceptionInstance.init();
-    const result = try handle(@src(), []const u8, &runtime, &instance, catcher, demo);
+    const result = try handle([]const u8, &runtime, &instance, catcher, demo);
     try std.testing.expectEqualStrings("result=early", result);
 }
 
@@ -282,7 +280,7 @@ test "exception throwProgram keeps direct explicit-program state thread-local ac
             var runtime = shift.Runtime.init(std.testing.allocator);
             defer runtime.deinit();
             var instance = ExceptionInstance.init();
-            state.first_result = handle(@src(), []const u8, &runtime, &instance, catcher, demo) catch unreachable;
+            state.first_result = handle([]const u8, &runtime, &instance, catcher, demo) catch unreachable;
         }
     }.run, .{&shared});
 
@@ -305,7 +303,7 @@ test "exception throwProgram keeps direct explicit-program state thread-local ac
             var runtime = shift.Runtime.init(std.testing.allocator);
             defer runtime.deinit();
             var instance = ExceptionInstance.init();
-            state.second_result = handle(@src(), []const u8, &runtime, &instance, catcher, demo) catch unreachable;
+            state.second_result = handle([]const u8, &runtime, &instance, catcher, demo) catch unreachable;
         }
     }.run, .{&shared});
 
@@ -330,7 +328,7 @@ test "public exception handleWithErrorSet preserves caller provenance" {
     defer runtime.deinit();
     var instance = ExceptionInstance.init();
 
-    const result = try handleWithErrorSet(@src(), []const u8, NoError, &runtime, &instance, catcher, struct {
+    const result = try handleWithErrorSet([]const u8, NoError, &runtime, &instance, catcher, struct {
         /// Return the exact caller-owned source file observed through the public exception wrapper.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             _ = Cap;
@@ -356,7 +354,7 @@ test "nested same-shaped exception handles get distinct capability types" {
 
         /// Open an inner exception handle and prove its capability differs from the outer one.
         pub fn outer(comptime OuterCap: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
-            return try handle(@src(), i32, runtime_ptr.?, inner_ptr.?, catcher, struct {
+            return try handle(i32, runtime_ptr.?, inner_ptr.?, catcher, struct {
                 /// Reject capability-type collapse inside the nested exception handle.
                 pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(computeProgram(InnerCap, inner_ctx, struct {
                     /// Return a neutral value from the nested exception body.
@@ -384,7 +382,7 @@ test "nested same-shaped exception handles get distinct capability types" {
     var inner_instance = ExceptionInstance.init();
     demo.runtime_ptr = &runtime;
     demo.inner_ptr = &inner_instance;
-    const result = try handle(@src(), i32, &runtime, &outer_instance, catcher, struct {
+    const result = try handle(i32, &runtime, &outer_instance, catcher, struct {
         /// Enter the outer exception handle and hand its capability inward.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested exception witness through the outer capability.

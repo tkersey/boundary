@@ -343,9 +343,9 @@ pub fn Program(comptime declaration_values: anytype, comptime BodyType: type) ty
         /// Public `declarations` declaration.
         pub const declarations = declaration_values;
 
-        /// Run this public entrypoint through the retained compatibility surface with explicit caller provenance.
-        pub fn run(comptime caller: std.builtin.SourceLocation, runtime: *lowered_machine.Runtime, bindings: Bindings) RunReturnType(@This()) {
-            return programRun(caller, runtime, @This(), bindings);
+        /// Run this public entrypoint through the retained compatibility surface.
+        pub inline fn run(runtime: *lowered_machine.Runtime, bindings: Bindings) RunReturnType(@This()) {
+            return programRun(@src(), runtime, @This(), bindings);
         }
 
         /// Run this public entrypoint with explicit caller provenance.
@@ -365,9 +365,9 @@ fn programRun(comptime caller: std.builtin.SourceLocation, runtime: *lowered_mac
     return program_runtime.run(caller, runtime, handlers, ProgramType.Body);
 }
 
-/// Run this public entrypoint through the retained compatibility surface with explicit caller provenance.
-pub fn run(comptime caller: std.builtin.SourceLocation, runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) RunReturnType(ProgramType) {
-    return programRun(caller, runtime, ProgramType, bindings);
+/// Run this public entrypoint through the retained compatibility surface.
+pub inline fn run(runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) RunReturnType(ProgramType) {
+    return programRun(@src(), runtime, ProgramType, bindings);
 }
 
 /// Run this public entrypoint with explicit caller provenance.
@@ -503,7 +503,7 @@ test "program run omits outputs for void-state transform handlers" {
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try run(@src(), &runtime, demo_program, .{
+    const result = try run(&runtime, demo_program, .{
         .audit = .{},
     });
 
@@ -525,7 +525,7 @@ test "program run executes through the new front door" {
 
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
-    const result = try run(@src(), &runtime, demo_program, .{ .state = 5 });
+    const result = try run(&runtime, demo_program, .{ .state = 5 });
     try std.testing.expectEqual(@as(i32, 6), result.outputs.state);
     try std.testing.expectEqual(@as(i32, 11), result.value);
 }
@@ -543,7 +543,7 @@ test "program type run preserves explicit caller arity" {
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try demo_program.run(@src(), &runtime, .{ .state = 9 });
+    const result = try demo_program.run(&runtime, .{ .state = 9 });
     try std.testing.expectEqual(@as(i32, 9), result.outputs.state);
     try std.testing.expectEqual(@as(i32, 9), result.value);
 }
@@ -578,7 +578,7 @@ test "program run preserves caller provenance" {
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try run(@src(), &runtime, demo_program, .{ .state = 0 });
+    const result = try run(&runtime, demo_program, .{ .state = 0 });
     try std.testing.expectEqualStrings(@src().file, result.value);
 }
 
@@ -595,6 +595,6 @@ test "program type run preserves caller provenance" {
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try demo_program.run(@src(), &runtime, .{ .state = 0 });
+    const result = try demo_program.run(&runtime, .{ .state = 0 });
     try std.testing.expectEqualStrings(@src().file, result.value);
 }

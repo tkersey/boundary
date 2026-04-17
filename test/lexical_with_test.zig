@@ -576,7 +576,7 @@ test "generated lexical handlers infer after-hook errors when error_set_type is 
     try std.testing.expect(hasErrorName(ErrorSet, "AfterOops"));
 }
 
-test "generated family handleWithErrorSet preserves caller provenance" {
+test "generated family handleWithErrorSetAt preserves caller provenance" {
     const NoError = error{};
     const Audit = shift.effect.Define(.{
         .state_type = void,
@@ -589,7 +589,7 @@ test "generated family handleWithErrorSet preserves caller provenance" {
     defer runtime.deinit();
     var instance = Audit.Instance.init();
 
-    const result = try Audit.handleWithErrorSet(@src(), []const u8, NoError, &runtime, &instance, struct {
+    const result = try Audit.handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &instance, struct {
         /// Accept the generated payload while leaving the handler stateless.
         pub fn note(_: *@This(), _: []const u8) void {
             // Keep the generated handler stateless for the caller-provenance witness.
