@@ -93,14 +93,20 @@ fn validateNamedBodyRepoIdentity(
     }
 }
 
-fn namedBodyCompilationSupported(comptime HandlersType: type, comptime Body: type) bool {
-    return public_lowering.maybeLowerAt(Body.source_path, .{
+fn namedCompiledLexicalPlan(comptime HandlersType: type, comptime Body: type) ?public_lowering.ProgramPlan {
+    if (!isNamedBodyDescriptor(Body)) return null;
+    const lowered_program = public_lowering.maybeLowerAt(Body.source_path, .{
         .label = "shift.with named lexical body",
         .entry_symbol = Body.entry_symbol,
         .ValueType = NamedBodyAnswerType(Body),
         .row = lexical_bundle_schema.rowForHandlers(HandlersType),
         .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
-    }) != null;
+    }) orelse return null;
+    return comptime public_lowering.enrichOpenRowPlan(
+        "shift.with named lexical body",
+        lowered_program,
+        lexicalBindingSchemasValue(HandlersType),
+    );
 }
 
 fn namedBodyAllowsTestFallback(comptime Body: type) bool {
@@ -1567,15 +1573,17 @@ test "with preserves caller provenance through optional continuation resume" {
     try std.testing.expectEqualStrings(@src().file, result.value);
 }
 
+// zlinter-disable max_positional_args - this rejection seam keeps caller provenance, compiled plan state, and ownership policy explicit at the fail-closed guard.
 fn rejectUnsupportedShippedWith(
     comptime HandlersType: type,
     comptime Body: type,
+    comptime named_compiled_plan: ?public_lowering.ProgramPlan,
     comptime caller: std.builtin.SourceLocation,
     comptime caller_source_override: ?[:0]const u8,
     comptime caller_owned_kind: CallerOwnedCompilationKind,
 ) void {
     if (isNamedBodyDescriptor(Body)) {
-        if (namedBodyCompilationSupported(HandlersType, Body)) return;
+        if (named_compiled_plan != null) return;
         if (builtin.is_test and namedBodyAllowsTestFallback(Body)) return;
         @compileError("shift.NamedBody execution must stay within the retained compiled lexical subset");
     }
@@ -1811,32 +1819,23 @@ fn descriptorRunContext(
     };
 }
 
+// zlinter-disable max_positional_args - this compiled NamedBody seam keeps runtime, handler bundle, outputs, and the precomputed ProgramPlan explicit.
 fn tryNamedCompiledWith(
     comptime HandlersType: type,
     comptime Body: type,
     runtime: *lowered_machine.Runtime,
     handlers_ptr: *HandlersType,
     outputs_ptr: *OutputBundleType(HandlersType),
+    comptime compiled_plan: ?public_lowering.ProgramPlan,
 ) ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
-    if (!isNamedBodyDescriptor(Body)) return null;
-    const lowered_program = public_lowering.maybeLowerAt(Body.source_path, .{
-        .label = "shift.with named lexical body",
-        .entry_symbol = Body.entry_symbol,
-        .ValueType = NamedBodyAnswerType(Body),
-        .row = lexical_bundle_schema.rowForHandlers(HandlersType),
-        .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
-    }) orelse return null;
+    const resolved_plan = compiled_plan orelse return null;
     return try runCompiledLexicalPlan(
         HandlersType,
         Body,
         runtime,
         handlers_ptr,
         outputs_ptr,
-        comptime public_lowering.enrichOpenRowPlan(
-            "shift.with named lexical body",
-            lowered_program,
-            lexicalBindingSchemasValue(HandlersType),
-        ),
+        resolved_plan,
     );
 }
 
@@ -2255,12 +2254,13 @@ fn withImpl(
     const HandlersType = @TypeOf(handlers);
     const canonical_caller = comptime source_graph_embed.canonicalCallerLocation(caller);
     comptime assertHandlerBundleShape(HandlersType);
-    comptime rejectUnsupportedShippedWith(HandlersType, Body, canonical_caller, caller_source_override, caller_owned_kind);
+    const named_compiled_plan = comptime namedCompiledLexicalPlan(HandlersType, Body);
+    comptime rejectUnsupportedShippedWith(HandlersType, Body, named_compiled_plan, canonical_caller, caller_source_override, caller_owned_kind);
 
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
     if (comptime isNamedBodyDescriptor(Body)) {
-        if (tryNamedCompiledWith(HandlersType, Body, runtime, &handler_state, &outputs)) |compiled| {
+        if (tryNamedCompiledWith(HandlersType, Body, runtime, &handler_state, &outputs, named_compiled_plan)) |compiled| {
             const value = try compiled;
             return .{
                 .outputs = outputs,

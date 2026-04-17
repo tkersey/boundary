@@ -24,3 +24,42 @@ test {
     _ = withAt;
     _ = withOwnedSource;
 }
+
+test "root surface stays scoped to the retained lexical API" {
+    try @import("std").testing.expect(!@hasDecl(@This(), "Program"));
+    try @import("std").testing.expect(!@hasDecl(@This(), "run"));
+    try @import("std").testing.expect(!@hasDecl(@This(), "Decl"));
+    try @import("std").testing.expect(!@hasDecl(@This(), "Op"));
+    try @import("std").testing.expect(!@hasDecl(@This(), "Decision"));
+    try @import("std").testing.expect(!@hasDecl(@This(), "compat"));
+    try @import("std").testing.expect(!@hasDecl(@This(), "artifact"));
+    try @import("std").testing.expect(!@hasDecl(@This(), "durable"));
+    try @import("std").testing.expect(!@hasDecl(@This(), "interpreter"));
+    try @import("std").testing.expect(!@hasDecl(@This(), "withCallerSource"));
+    try @import("std").testing.expect(!@hasDecl(@This(), "withCallerSourceAndContent"));
+}
+
+test "retained compat program entrypoints stay wired through caller-aware forwarding" {
+    const demo_program = shared.compat.Program(.{
+        .state = shared.compat.Decl.state(i32),
+    }, struct {
+        pub fn body(eff: anytype) anyerror!i32 {
+            return try eff.state.get();
+        }
+    });
+
+    var runtime = Runtime.init(@import("std").testing.allocator);
+    defer runtime.deinit();
+
+    const compat_result = try shared.compat.run(&runtime, demo_program, .{ .state = 7 });
+    try @import("std").testing.expectEqual(@as(i32, 7), compat_result.outputs.state);
+    try @import("std").testing.expectEqual(@as(i32, 7), compat_result.value);
+
+    const run_result = try demo_program.run(&runtime, .{ .state = 9 });
+    try @import("std").testing.expectEqual(@as(i32, 9), run_result.outputs.state);
+    try @import("std").testing.expectEqual(@as(i32, 9), run_result.value);
+
+    const run_at_result = try demo_program.runAt(@src(), &runtime, .{ .state = 11 });
+    try @import("std").testing.expectEqual(@as(i32, 11), run_at_result.outputs.state);
+    try @import("std").testing.expectEqual(@as(i32, 11), run_at_result.value);
+}

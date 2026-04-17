@@ -13,6 +13,7 @@ const ShiftConsumerDeps = struct {
 const TestSuiteSpec = struct {
     suite_id: []const u8,
     description: []const u8,
+    default_enabled: bool = true,
     run_step: ?*std.Build.Step = null,
 };
 
@@ -287,7 +288,9 @@ fn parseTestSuiteSelectionAlloc(
     errdefer allocator.free(enabled);
 
     if (raw == null) {
-        @memset(enabled, true);
+        for (specs, 0..) |spec, index| {
+            enabled[index] = spec.default_enabled;
+        }
         return .{ .selection = .{
             .allocator = allocator,
             .enabled = enabled,
@@ -2217,10 +2220,11 @@ fn collectRepoZigPathsAlloc(
     paths: *std.ArrayList([]const u8),
     path_set: *std.StringHashMap(void),
 ) void {
-    if (!collectTrackedRepoZigPathsAlloc(allocator, repo_root, paths, path_set)) {
-        if (!collectRepoZigPathsFromRegistryFile(allocator, repo_root, paths, path_set)) {
-            collectFilesystemRepoZigPaths(allocator, repo_root, paths, path_set);
-        }
+    const have_tracked = collectTrackedRepoZigPathsAlloc(allocator, repo_root, paths, path_set);
+    const have_registry = collectRepoZigPathsFromRegistryFile(allocator, repo_root, paths, path_set);
+
+    if (!have_tracked and !have_registry) {
+        collectFilesystemRepoZigPaths(allocator, repo_root, paths, path_set);
     }
 }
 
@@ -3064,6 +3068,24 @@ test "test suite selection defaults to all suites when unspecified" {
             defer selection.deinit();
             try std.testing.expect(selection.isEnabled(0));
             try std.testing.expect(selection.isEnabled(1));
+        },
+        else => return error.UnexpectedSelectionParseResult,
+    }
+}
+
+test "test suite selection respects default_enabled when unspecified" {
+    const specs = [_]TestSuiteSpec{
+        .{ .suite_id = "alpha", .description = "alpha suite" },
+        .{ .suite_id = "beta", .description = "beta suite", .default_enabled = false },
+        .{ .suite_id = "gamma", .description = "gamma suite" },
+    };
+    const result = try parseTestSuiteSelectionAlloc(std.testing.allocator, null, &specs);
+    switch (result) {
+        .selection => |selection| {
+            defer selection.deinit();
+            try std.testing.expect(selection.isEnabled(0));
+            try std.testing.expect(!selection.isEnabled(1));
+            try std.testing.expect(selection.isEnabled(2));
         },
         else => return error.UnexpectedSelectionParseResult,
     }
@@ -4304,6 +4326,15 @@ pub fn build(b: *std.Build) void {
     public_root_pkg_contract_mod.addOptions("build_options", root_pkg_opts);
     const public_root_pkg_contract_tests = addFilteredTest(b, public_root_pkg_contract_mod, test_runner_args.filters.items);
     const run_root_pkg_contract_tests = addRunArtifactWithArgs(b, public_root_pkg_contract_tests, test_runner_args.passthrough.items);
+
+    const root_pkg_smoke_mod = b.createModule(.{
+        .root_source_file = b.path("test/public_root_package_contract_smoke_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    root_pkg_smoke_mod.addOptions("build_options", root_pkg_opts);
+    const root_pkg_smoke_tests = addFilteredTest(b, root_pkg_smoke_mod, test_runner_args.filters.items);
+    const run_root_pkg_smoke = addRunArtifactWithArgs(b, root_pkg_smoke_tests, test_runner_args.passthrough.items);
     const boundary_mod = b.createModule(.{
         .root_source_file = b.path("test/program_frontend_boundary_test.zig"),
         .target = target,
@@ -4386,6 +4417,16 @@ pub fn build(b: *std.Build) void {
     const src_lower_completion_tests = addFilteredTest(b, source_lowering_completion_mod, test_runner_args.filters.items);
     const run_src_lower_completion_tests = addRunArtifactWithArgs(b, src_lower_completion_tests, test_runner_args.passthrough.items);
 
+    const src_lower_smoke_mod = b.createModule(.{
+        .root_source_file = b.path("test/source_lowering_completion_smoke_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    src_lower_smoke_mod.addImport("source_lowering", source_lowering_mod);
+    src_lower_smoke_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    const src_lower_smoke_tests = addFilteredTest(b, src_lower_smoke_mod, test_runner_args.filters.items);
+    const run_src_lower_smoke = addRunArtifactWithArgs(b, src_lower_smoke_tests, test_runner_args.passthrough.items);
+
     const open_row_lowering_mod = b.createModule(.{
         .root_source_file = b.path("test/open_row_lowering_test.zig"),
         .target = target,
@@ -4409,6 +4450,19 @@ pub fn build(b: *std.Build) void {
     open_row_lowering_mod.addImport("example_open_row_recursive_cross_writer", createShiftConsumerModule(b, "examples/open_row_recursive_cross_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     const open_row_lowering_tests = addFilteredTest(b, open_row_lowering_mod, test_runner_args.filters.items);
     const run_open_row_lowering_tests = addRunArtifactWithArgs(b, open_row_lowering_tests, test_runner_args.passthrough.items);
+
+    const open_row_lowering_smoke_mod = b.createModule(.{
+        .root_source_file = b.path("test/open_row_lowering_smoke_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    open_row_lowering_smoke_mod.addImport("shift_compile", shift_compile_mod);
+    open_row_lowering_smoke_mod.addImport("shift_vm", shift_vm_mod);
+    open_row_lowering_smoke_mod.addImport("example_open_row_cross_file_writer", createShiftConsumerModule(b, "examples/open_row_cross_file_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    open_row_lowering_smoke_mod.addImport("example_open_row_recursive_cross_writer", createShiftConsumerModule(b, "examples/open_row_recursive_cross_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    open_row_lowering_smoke_mod.addImport("example_open_row_state_writer", createShiftConsumerModule(b, "examples/open_row_state_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    const open_row_lowering_smoke_tests = addFilteredTest(b, open_row_lowering_smoke_mod, test_runner_args.filters.items);
+    const run_open_row_smoke = addRunArtifactWithArgs(b, open_row_lowering_smoke_tests, test_runner_args.passthrough.items);
 
     const source_ownership_probe_mod = b.createModule(.{
         .root_source_file = b.path("test/source_ownership_probe_test.zig"),
@@ -4477,14 +4531,77 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     lexical_with_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
-    const lex_with_named_support_mod = b.createModule(.{
-        .root_source_file = b.path("test/lexical_with_named_body_support.zig"),
+    const named_basic_support_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_named_body_basic_support.zig"),
         .target = target,
         .optimize = optimize,
     });
-    lexical_with_mod.addImport("lexical_with_named_body_support", lex_with_named_support_mod);
+    const named_optional_support_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_named_body_optional_support.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const named_generated_support_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_named_body_generated_support.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const lexical_with_tests = addFilteredTest(b, lexical_with_mod, test_runner_args.filters.items);
     const run_lexical_with_tests_core = addRunArtifactWithArgs(b, lexical_with_tests, test_runner_args.passthrough.items);
+
+    const lexical_with_preview_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_preview_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_with_preview_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    const lexical_with_preview_tests = addFilteredTest(b, lexical_with_preview_mod, test_runner_args.filters.items);
+    const run_lexical_with_preview_tests = addRunArtifactWithArgs(b, lexical_with_preview_tests, test_runner_args.passthrough.items);
+
+    const lexical_with_fixture_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_fixture_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_with_fixture_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    const lexical_with_fixture_tests = addFilteredTest(b, lexical_with_fixture_mod, test_runner_args.filters.items);
+    const run_lexical_with_fixture_tests = addRunArtifactWithArgs(b, lexical_with_fixture_tests, test_runner_args.passthrough.items);
+
+    const lex_fix_ctl_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_fixture_control_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lex_fix_ctl_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    const lex_fix_ctl_tests = addFilteredTest(b, lex_fix_ctl_mod, test_runner_args.filters.items);
+    const run_lex_fix_ctl = addRunArtifactWithArgs(b, lex_fix_ctl_tests, test_runner_args.passthrough.items);
+
+    const lex_fix_res_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_fixture_resource_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lex_fix_res_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    const lex_fix_res_tests = addFilteredTest(b, lex_fix_res_mod, test_runner_args.filters.items);
+    const run_lex_fix_res = addRunArtifactWithArgs(b, lex_fix_res_tests, test_runner_args.passthrough.items);
+
+    const lex_fix_opt_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_fixture_optional_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lex_fix_opt_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    const lex_fix_opt_tests = addFilteredTest(b, lex_fix_opt_mod, test_runner_args.filters.items);
+    const run_lex_fix_opt = addRunArtifactWithArgs(b, lex_fix_opt_tests, test_runner_args.passthrough.items);
+
+    const lexical_with_runtime_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_runtime_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_with_runtime_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    const lexical_with_runtime_tests = addFilteredTest(b, lexical_with_runtime_mod, test_runner_args.filters.items);
+    const run_lexical_with_runtime_tests = addRunArtifactWithArgs(b, lexical_with_runtime_tests, test_runner_args.passthrough.items);
 
     const lexical_with_named_body_mod = b.createModule(.{
         .root_source_file = b.path("test/lexical_with_named_body_test.zig"),
@@ -4492,13 +4609,69 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     lexical_with_named_body_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
-    lexical_with_named_body_mod.addImport("lexical_with_named_body_support", lex_with_named_support_mod);
+    lexical_with_named_body_mod.addImport("lexical_with_named_body_basic_support", named_basic_support_mod);
     const lexical_with_named_body_tests = addFilteredTest(b, lexical_with_named_body_mod, test_runner_args.filters.items);
     const run_lexical_with_named_tests = addRunArtifactWithArgs(b, lexical_with_named_body_tests, test_runner_args.passthrough.items);
 
-    const run_lexical_with_tests = b.step("lexical-with-all", "Run the lexical-with suite.");
-    run_lexical_with_tests.dependOn(&run_lexical_with_tests_core.step);
-    run_lexical_with_tests.dependOn(&run_lexical_with_named_tests.step);
+    const lex_named_opt_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_named_body_optional_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lex_named_opt_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    lex_named_opt_mod.addImport("lexical_with_named_body_optional_support", named_optional_support_mod);
+    const lex_named_opt_tests = addFilteredTest(b, lex_named_opt_mod, test_runner_args.filters.items);
+    const run_lex_named_opt = addRunArtifactWithArgs(b, lex_named_opt_tests, test_runner_args.passthrough.items);
+
+    const lex_named_gen_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_named_body_generated_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lex_named_gen_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    lex_named_gen_mod.addImport("lexical_with_named_body_generated_support", named_generated_support_mod);
+    const lex_named_gen_tests = addFilteredTest(b, lex_named_gen_mod, test_runner_args.filters.items);
+    _ = addRunArtifactWithArgs(b, lex_named_gen_tests, test_runner_args.passthrough.items);
+
+    const namedbody_conformance_mod = b.createModule(.{
+        .root_source_file = b.path("test/namedbody_conformance_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    namedbody_conformance_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    const namedbody_tests = addFilteredTest(b, namedbody_conformance_mod, test_runner_args.filters.items);
+    const run_namedbody = addRunArtifactWithArgs(b, namedbody_tests, test_runner_args.passthrough.items);
+
+    const namedbody_conformance_full_mod = b.createModule(.{
+        .root_source_file = b.path("test/namedbody_conformance_full_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    namedbody_conformance_full_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    const namedbody_full_tests = addFilteredTest(b, namedbody_conformance_full_mod, test_runner_args.filters.items);
+    const run_namedbody_full = addRunArtifactWithArgs(b, namedbody_full_tests, test_runner_args.passthrough.items);
+
+    lexical_with_preview_tests.step.dependOn(&run_lexical_with_tests_core.step);
+    lexical_with_fixture_tests.step.dependOn(&run_lexical_with_preview_tests.step);
+    lex_fix_opt_tests.step.dependOn(&run_lexical_with_fixture_tests.step);
+    lex_fix_ctl_tests.step.dependOn(&run_lex_fix_opt.step);
+    lex_fix_res_tests.step.dependOn(&run_lex_fix_ctl.step);
+    lexical_with_runtime_tests.step.dependOn(&run_lex_fix_res.step);
+    lex_named_opt_tests.step.dependOn(&run_lexical_with_named_tests.step);
+    lex_named_gen_tests.step.dependOn(&run_lex_named_opt.step);
+
+    const run_lexical_with_tests = b.step("lexical-with-core", "Run the core lexical-with suite.");
+    run_lexical_with_tests.dependOn(&run_lexical_with_runtime_tests.step);
+
+    const run_namedbody_step = b.step("lexical-with-namedbody", "Run the NamedBody lexical-with conformance suite.");
+    run_namedbody_step.dependOn(&run_namedbody.step);
+
+    const run_namedbody_conformance_full = b.step("namedbody-conformance-full", "Run the full NamedBody conformance registry.");
+    run_namedbody_conformance_full.dependOn(&run_namedbody_full.step);
+
+    const run_lexical_with_all = b.step("lexical-with-all", "Run the full lexical-with suite.");
+    run_lexical_with_all.dependOn(run_lexical_with_tests);
+    run_lexical_with_all.dependOn(run_namedbody_step);
 
     const program_bridge_test_mod = b.createModule(.{
         .root_source_file = b.path("test/program_bridge_test.zig"),
@@ -4520,18 +4693,23 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "runtime-contract", .description = "Runtime contract suite", .run_step = &run_runtime_contract_tests.step },
         .{ .suite_id = "prompt-token", .description = "Prompt token contract suite", .run_step = &run_prompt_token_tests.step },
         .{ .suite_id = "portability-contract", .description = "Portability contract suite", .run_step = &run_portability_contract_tests.step },
-        .{ .suite_id = "public-root-package-contract", .description = "Public root package contract suite", .run_step = &run_root_pkg_contract_tests.step },
+        .{ .suite_id = "public-root-package-contract", .description = "Public root package contract smoke suite", .default_enabled = false, .run_step = &run_root_pkg_smoke.step },
+        .{ .suite_id = "public-root-package-contract-full", .description = "Public root package contract suite", .default_enabled = false, .run_step = &run_root_pkg_contract_tests.step },
         .{ .suite_id = "program-frontend-boundary", .description = "Program frontend boundary suite", .run_step = &run_boundary_tests.step },
         .{ .suite_id = "source-lowering-corpus", .description = "Source lowering corpus suite", .run_step = &run_src_lower_corpus_tests.step },
         .{ .suite_id = "source-lowering-boundary", .description = "Source lowering boundary suite", .run_step = &run_src_lower_boundary_tests.step },
         .{ .suite_id = "source-lowering-promoted", .description = "Promoted source lowering cohort", .run_step = &run_src_lower_promoted_tests.step },
-        .{ .suite_id = "source-lowering-completion", .description = "Source lowering completion suite", .run_step = &run_src_lower_completion_tests.step },
-        .{ .suite_id = "open-row-lowering", .description = "Open-row lowering suite", .run_step = &run_open_row_lowering_tests.step },
+        .{ .suite_id = "source-lowering-completion", .description = "Source lowering completion smoke suite", .run_step = &run_src_lower_smoke.step },
+        .{ .suite_id = "source-lowering-completion-full", .description = "Source lowering completion suite", .default_enabled = false, .run_step = &run_src_lower_completion_tests.step },
+        .{ .suite_id = "open-row-lowering", .description = "Open-row lowering smoke suite", .run_step = &run_open_row_smoke.step },
+        .{ .suite_id = "open-row-lowering-full", .description = "Open-row lowering full suite", .default_enabled = false, .run_step = &run_open_row_lowering_tests.step },
         .{ .suite_id = "source-ownership-probe", .description = "Source ownership probe suite", .run_step = &run_src_ownership_probe_tests.step },
         .{ .suite_id = "source-lowering-witness", .description = "Source lowering witness completion suite", .run_step = &run_src_lower_witness_tests.step },
         .{ .suite_id = "source-lowering-reject", .description = "Source lowering rejection corpus suite", .run_step = &run_src_lower_reject_tests.step },
         .{ .suite_id = "lexical-witness", .description = "Lexical witness suite", .run_step = &run_lexical_witness_tests.step },
-        .{ .suite_id = "lexical-with", .description = "Lexical with suite", .run_step = run_lexical_with_tests },
+        .{ .suite_id = "lexical-with", .description = "Core lexical with suite", .run_step = run_lexical_with_tests },
+        .{ .suite_id = "lexical-with-namedbody", .description = "NamedBody lexical conformance suite", .default_enabled = false, .run_step = run_namedbody_step },
+        .{ .suite_id = "namedbody-conformance-full", .description = "Full NamedBody conformance registry", .default_enabled = false, .run_step = run_namedbody_conformance_full },
     };
     const test_suite_selection = resolveTestSuiteSelection(b, test_suites_raw, &test_suites, test_requested) orelse return;
     defer test_suite_selection.deinit();
