@@ -140,8 +140,6 @@ test/direct_style_bridge/static_redelim.zig
 test/direct_style_bridge/writer_basic.zig
 test/lexical_with_named_body_generated_test.zig
 test/lexical_with_named_body_generated_support.zig
-test/lexical_with_named_body_optional_test.zig
-test/lexical_with_named_body_optional_support.zig
 test/lexical_with_named_body_basic_support.zig
 test/lexical_with_named_body_test.zig
 test/lexical_with_fixture_control_test.zig
@@ -153,9 +151,6 @@ test/lexical_with_runtime_test.zig
 test/lexical_with_test.zig
 test/lexical_witness_support.zig
 test/lexical_witness_test.zig
-test/namedbody_conformance_full_runner.zig
-test/namedbody_conformance_registry.zig
-test/namedbody_conformance_runner.zig
 test/named_body_repo_source_collision_a.zig
 test/named_body_repo_source_collision_b.zig
 test/open_row_entry_symbol_alias/entry.zig
@@ -174,12 +169,10 @@ test/program_frontend_boundary_test.zig
 test/program_plan_review_regression_test.zig
 test/prompt_token_contract_test.zig
 test/public_root_package_contract_smoke_test.zig
-test/public_root_package_contract_test.zig
 test/runtime_contract_suite.zig
 test/semantic_manifest.zig
 test/source_lowering_boundary_test.zig
 test/source_lowering_completion_test.zig
-test/source_lowering_completion_smoke_test.zig
 test/source_lowering_corpus/fixtures/branch_resume.zig
 test/source_lowering_corpus/fixtures/defer_resume.zig
 test/source_lowering_corpus/fixtures/errdefer_error.zig
