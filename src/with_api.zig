@@ -1624,7 +1624,7 @@ test "with preserves caller provenance through the legacy lexical path" {
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try with(&runtime, .{
+    const result = try with(@src(), &runtime, .{
         .state = state.use(@as(i32, 0)),
     }, struct {
         fn body(eff: anytype) anyerror![]const u8 {
@@ -2419,12 +2419,13 @@ fn withImpl(
 }
 
 /// Run one lexical effect bundle and return descriptor outputs alongside the body answer.
-pub inline fn with(
+pub fn with(
+    comptime caller: std.builtin.SourceLocation,
     runtime: *lowered_machine.Runtime,
     handlers: anytype,
     comptime Body: type,
 ) WithFnReturnType(@TypeOf(handlers), Body) {
-    return withAt(@src(), runtime, handlers, Body);
+    return withAt(caller, runtime, handlers, Body);
 }
 
 /// Run one lexical effect bundle with explicit caller provenance.

@@ -36,12 +36,13 @@ pub fn With(comptime HandlersType: type, comptime Body: type) type {
 }
 
 /// Run the public lexical handler entrypoint.
-pub inline fn with(
+pub fn with(
+    comptime caller: std.builtin.SourceLocation,
     runtime: *Runtime,
     handlers: anytype,
     comptime Body: type,
 ) with_api.WithFnReturnType(@TypeOf(handlers), Body) {
-    return withAt(@src(), runtime, handlers, Body);
+    return withAt(caller, runtime, handlers, Body);
 }
 
 /// Run the public lexical handler entrypoint with explicit caller provenance.

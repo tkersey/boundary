@@ -3,6 +3,7 @@ const lowered_machine = @import("lowered_machine");
 const op_compat = @import("op_compat.zig");
 const program_api = @import("program_api.zig");
 const root_decl_api = @import("root_decl_api.zig");
+const std = @import("std");
 
 /// Explicit compatibility namespace for the prior root-kernel front door.
 pub const Runtime = lowered_machine.Runtime;
@@ -20,8 +21,8 @@ pub const Decision = program_api.Decision;
 pub const Program = program_api.Program;
 
 /// Run one program with explicit runtime ownership and bindings.
-pub inline fn run(runtime: *Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) program_api.RunReturnType(ProgramType) {
-    return program_api.runAt(@src(), runtime, ProgramType, bindings);
+pub fn run(comptime caller: std.builtin.SourceLocation, runtime: *Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) program_api.RunReturnType(ProgramType) {
+    return program_api.runAt(caller, runtime, ProgramType, bindings);
 }
 
 test {

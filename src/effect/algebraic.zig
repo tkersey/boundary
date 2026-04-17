@@ -496,6 +496,13 @@ pub fn handleWriter(
     return .{ .items = items, .value = value };
 }
 
+fn WriterHandleResult(comptime WriterContract: type) type {
+    return struct {
+        items: []WriterContract.Item,
+        value: WriterContract.Answer,
+    };
+}
+
 /// Handle the public writer capability with an explicit error set.
 // zlinter-disable max_positional_args - public caller provenance and writer inputs stay explicit at this compatibility wrapper.
 pub fn handleWriterWithErrorSet(
@@ -506,10 +513,7 @@ pub fn handleWriterWithErrorSet(
     instance: anytype,
     allocator: std.mem.Allocator,
     comptime Body: type,
-) lowered_machine.ResetError(RunErrorSetType)!struct {
-    items: []WriterContract.Item,
-    value: WriterContract.Answer,
-} {
+) lowered_machine.ResetError(RunErrorSetType)!WriterHandleResult(WriterContract) {
     return try handleWriterWithErrorSetLexical(caller_source, WriterContract, RunErrorSetType, .{
         .runtime = runtime,
         .instance = instance,
@@ -525,10 +529,7 @@ pub fn handleWriterWithErrorSetLexical(
     comptime RunErrorSetType: type,
     config: anytype,
     comptime Body: type,
-) lowered_machine.ResetError(RunErrorSetType)!struct {
-    items: []WriterContract.Item,
-    value: WriterContract.Answer,
-} {
+) lowered_machine.ResetError(RunErrorSetType)!WriterHandleResult(WriterContract) {
     return try handleWriterWithErrorSetLexicalAt(WriterContract, RunErrorSetType, caller_source, config, Body);
 }
 
@@ -539,10 +540,7 @@ pub fn handleWriterWithErrorSetLexicalAt(
     comptime caller_source: std.builtin.SourceLocation,
     config: anytype,
     comptime Body: type,
-) lowered_machine.ResetError(RunErrorSetType)!struct {
-    items: []WriterContract.Item,
-    value: WriterContract.Answer,
-} {
+) lowered_machine.ResetError(RunErrorSetType)!WriterHandleResult(WriterContract) {
     const ItemType = WriterContract.Item;
     const AnswerType = WriterContract.Answer;
     const WriterStateType = WriterContract.WriterStateType;
