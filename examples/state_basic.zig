@@ -13,7 +13,7 @@ pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 5)),
     }, shift.NamedBody("examples/state_basic.zig", "stateBody", anyerror!i32, stateBody));
 

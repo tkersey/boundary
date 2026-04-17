@@ -25,7 +25,7 @@ pub fn Instance(comptime ResumeType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.resume_or_return, ResumeType, ErrorSetType);
 }
 
-/// Lexical optional handle used by `shift.with(@src(), ...)`.
+/// Lexical optional handle used by `shift.withAt(@src(), ...)`.
 pub fn LexicalHandle(
     comptime Cap: type,
     comptime ContextPtrType: type,
@@ -93,7 +93,7 @@ pub fn LexicalHandle(
     };
 }
 
-/// Descriptor value used by `shift.with(@src(), ...)` for the built-in optional family.
+/// Descriptor value used by `shift.withAt(@src(), ...)` for the built-in optional family.
 pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type, comptime Policy: type) type {
     return struct {
         /// Shared error set carried by the lexical optional descriptor.
@@ -162,7 +162,7 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
     };
 }
 
-/// Create one lexical optional descriptor for `shift.with(@src(), ...)`.
+/// Create one lexical optional descriptor for `shift.withAt(@src(), ...)`.
 pub fn use(comptime ResumeType: type, comptime Policy: type) LexicalDescriptor(ResumeType, PolicyErrorSet(Policy), Policy) {
     return .{};
 }

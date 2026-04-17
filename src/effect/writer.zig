@@ -67,7 +67,7 @@ pub fn HandleResult(comptime ItemType: type, comptime ValueType: type) type {
     };
 }
 
-/// Lexical writer handle used by `shift.with(@src(), ...)`.
+/// Lexical writer handle used by `shift.withAt(@src(), ...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type, comptime ItemType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -79,7 +79,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type, comptime
     };
 }
 
-/// Descriptor value used by `shift.with(@src(), ...)` for the built-in writer family.
+/// Descriptor value used by `shift.withAt(@src(), ...)` for the built-in writer family.
 pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) type {
     return struct {
         /// Shared error set carried by the lexical writer descriptor.
@@ -132,7 +132,7 @@ pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) t
     };
 }
 
-/// Create one lexical writer descriptor for `shift.with(@src(), ...)`.
+/// Create one lexical writer descriptor for `shift.withAt(@src(), ...)`.
 pub fn use(comptime ItemType: type, allocator: std.mem.Allocator) LexicalDescriptor(ItemType, error{}) {
     return .{ .allocator = allocator };
 }

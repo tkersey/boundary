@@ -46,7 +46,7 @@ pub fn run(writer: anytype) anyerror!void {
     resource_manager.next_index = 0;
     transcript.len = 0;
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .resource = shift.effect.resource.use([]const u8, resource_manager),
     }, shift.NamedBody("examples/resource_basic.zig", "resourceBody", anyerror![]const u8, resourceBody));
 

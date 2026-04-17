@@ -22,6 +22,8 @@ pub const With = with_api.With;
 pub const NamedBody = with_api.NamedBody;
 /// Public `with(...)` helper retained at the root surface.
 pub const with = with_api.with;
+/// Public `withAt(...)` helper retained for explicit caller provenance.
+pub const withAt = with_api.withAt;
 /// Public `withOwnedSource(...)` helper retained for explicit caller-owned lexical compilation witnesses.
 pub const withOwnedSource = with_api.withOwnedSource;
 

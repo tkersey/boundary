@@ -35,7 +35,7 @@ test "shift.with retains explicit body errors in ExecutionError" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const CallType = @TypeOf(shift.with(@src(), &runtime, .{
+    const CallType = @TypeOf(shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 7)),
     }, struct {
         /// Execute this public body hook.
@@ -48,7 +48,7 @@ test "shift.with retains explicit body errors in ExecutionError" {
 
     try std.testing.expect(hasErrorName(ErrorSet, "BodyOops"));
 
-    _ = shift.with(@src(), &runtime, .{
+    _ = shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 7)),
     }, struct {
         /// Execute this public body hook.
@@ -312,7 +312,7 @@ test "lexical optional request retains explicit continuation errors" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const CallType = @TypeOf(shift.with(@src(), &runtime, .{
+    const CallType = @TypeOf(shift.withAt(@src(), &runtime, .{
         .optional = shift.effect.optional.use(i32, policy),
     }, struct {
         /// Execute this public body hook.
@@ -330,7 +330,7 @@ test "lexical optional request retains explicit continuation errors" {
 
     try std.testing.expect(hasErrorName(ErrorSet, "ContinueOops"));
 
-    _ = shift.with(@src(), &runtime, .{
+    _ = shift.withAt(@src(), &runtime, .{
         .optional = shift.effect.optional.use(i32, policy),
     }, struct {
         /// Execute this public body hook.
@@ -372,7 +372,7 @@ test "lexical optional request accepts generic callable continuations" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .optional = shift.effect.optional.use(i32, policy),
     }, struct {
         /// Execute this public body hook.
@@ -400,7 +400,7 @@ test "lexical optional request keeps continuation inference value-agnostic for s
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .optional = shift.effect.optional.use([]const u8, policy),
     }, struct {
         /// Execute this public body hook.
@@ -440,7 +440,7 @@ test "generated lexical choice retains explicit continuation errors" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const CallType = @TypeOf(shift.with(@src(), &runtime, .{
+    const CallType = @TypeOf(shift.withAt(@src(), &runtime, .{
         .picker = Picker.use(.{ .handler = handler{} }),
     }, struct {
         /// Execute this public body hook.
@@ -458,7 +458,7 @@ test "generated lexical choice retains explicit continuation errors" {
 
     try std.testing.expect(hasErrorName(ErrorSet, "ContinueOops"));
 
-    _ = shift.with(@src(), &runtime, .{
+    _ = shift.withAt(@src(), &runtime, .{
         .picker = Picker.use(.{ .handler = handler{} }),
     }, struct {
         /// Execute this public body hook.
@@ -502,7 +502,7 @@ test "generated family infers handler errors when error_set_type is omitted" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const CallType = @TypeOf(shift.with(@src(), &runtime, .{
+    const CallType = @TypeOf(shift.withAt(@src(), &runtime, .{
         .picker = Picker.use(.{ .handler = handler{} }),
     }, struct {
         /// Execute this public body hook.
@@ -519,7 +519,7 @@ test "generated family infers handler errors when error_set_type is omitted" {
 
     try std.testing.expect(hasErrorName(ErrorSet, "HandlerOops"));
 
-    _ = shift.with(@src(), &runtime, .{
+    _ = shift.withAt(@src(), &runtime, .{
         .picker = Picker.use(.{ .handler = handler{} }),
     }, struct {
         /// Execute this public body hook.
@@ -563,7 +563,7 @@ test "generated lexical handlers infer after-hook errors when error_set_type is 
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const CallType = @TypeOf(shift.with(@src(), &runtime, .{
+    const CallType = @TypeOf(shift.withAt(@src(), &runtime, .{
         .counter = Counter.use(.{ .handler = Handler{} }),
     }, struct {
         /// Execute this public body hook.
@@ -623,7 +623,7 @@ test "generated lexical transform handlers accept void state without a state fie
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .search = Search.use(.{ .handler = handler{} }),
     }, struct {
         /// Execute one stateless generated transform through the lexical surface.
@@ -639,7 +639,7 @@ test "shift.with composes state and reader through lexical handles" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 5)),
         .reader = shift.effect.reader.use(@as(i32, 21)),
     }, struct {
@@ -662,7 +662,7 @@ test "shift.with matches the state fixture transcript through lexical handles" {
             var runtime = shift.Runtime.init(std.testing.allocator);
             defer runtime.deinit();
 
-            const result = try shift.with(@src(), &runtime, .{
+            const result = try shift.withAt(@src(), &runtime, .{
                 .state = shift.effect.state.use(@as(i32, 5)),
             }, struct {
                 /// Match the public state example transcript through lexical handles.
@@ -684,7 +684,7 @@ test "shift.with matches the reader fixture transcript through lexical handles" 
             var runtime = shift.Runtime.init(std.testing.allocator);
             defer runtime.deinit();
 
-            const result = try shift.with(@src(), &runtime, .{
+            const result = try shift.withAt(@src(), &runtime, .{
                 .reader = shift.effect.reader.use(@as(i32, 21)),
             }, struct {
                 /// Match the public reader example transcript through lexical handles.
@@ -745,7 +745,7 @@ test "shift.with matches the optional fixture transcript through lexical handles
             defer transcript.active_writer = previous_writer;
 
             try writer.writeAll("branch=return_now\n");
-            const early = try shift.with(@src(), &runtime, .{
+            const early = try shift.withAt(@src(), &runtime, .{
                 .optional = shift.effect.optional.use(i32, return_now_policy),
             }, struct {
                 /// Trigger the lexical optional choice point and prove the resume continuation is skipped.
@@ -761,7 +761,7 @@ test "shift.with matches the optional fixture transcript through lexical handles
             try writer.print("final={s}\n", .{early.value});
 
             try writer.writeAll("branch=resume_with\n");
-            const resumed = try shift.with(@src(), &runtime, .{
+            const resumed = try shift.withAt(@src(), &runtime, .{
                 .optional = shift.effect.optional.use(i32, resume_policy),
             }, struct {
                 /// Trigger the lexical optional choice point and complete the resumed continuation explicitly.
@@ -808,7 +808,7 @@ test "shift.with matches the exception fixture transcript through lexical handle
             defer transcript.active_writer = previous_writer;
 
             try writer.writeAll("branch=pass\n");
-            const ok = try shift.with(@src(), &runtime, .{
+            const ok = try shift.withAt(@src(), &runtime, .{
                 .exception = shift.effect.exception.use([]const u8, catch_policy),
             }, shift.NamedBody("test/lexical_with_test.zig", "namedExceptionPassBody", ExecResult([]const u8), namedExceptionPassBody));
             try writer.writeAll("body-pass\n");
@@ -816,7 +816,7 @@ test "shift.with matches the exception fixture transcript through lexical handle
 
             try writer.writeAll("branch=throw\n");
             try writer.writeAll("body-before-throw\n");
-            const thrown = try shift.with(@src(), &runtime, .{
+            const thrown = try shift.withAt(@src(), &runtime, .{
                 .exception = shift.effect.exception.use([]const u8, catch_policy),
             }, shift.NamedBody("test/lexical_with_test.zig", "namedExceptionThrowBody", ExecResult([]const u8), namedExceptionThrowBody));
             try writer.print("final={s}\n", .{thrown.value});
@@ -861,7 +861,7 @@ test "shift.with matches the resource fixture transcript through lexical handles
             defer transcript.active_writer = previous_writer;
             resource_manager.next_index = 0;
 
-            const result = try shift.with(@src(), &runtime, .{
+            const result = try shift.withAt(@src(), &runtime, .{
                 .resource = shift.effect.resource.use([]const u8, resource_manager),
             }, struct {
                 /// Acquire and use two resources through the lexical scope.
@@ -891,7 +891,7 @@ test "shift.with matches the writer fixture transcript through lexical handles" 
             var runtime = shift.Runtime.init(std.testing.allocator);
             defer runtime.deinit();
 
-            const result = try shift.with(@src(), &runtime, .{
+            const result = try shift.withAt(@src(), &runtime, .{
                 .writer = shift.effect.writer.use([]const u8, std.testing.allocator),
             }, struct {
                 /// Append two items and return the canonical writer answer.
@@ -964,7 +964,7 @@ test "generated choice families use the lexical choice form" {
             defer transcript.active_writer = previous_writer;
 
             try writer.writeAll("branch=return_now\n");
-            const early = try shift.with(@src(), &runtime, .{
+            const early = try shift.withAt(@src(), &runtime, .{
                 .picker = Picker.use(.{ .handler = return_now_handler{} }),
             }, struct {
                 /// Trigger the generated lexical choice point and prove the continuation is skipped.
@@ -980,7 +980,7 @@ test "generated choice families use the lexical choice form" {
             try writer.print("final={s}\n", .{early.value});
 
             try writer.writeAll("branch=resume_with\n");
-            const resumed = try shift.with(@src(), &runtime, .{
+            const resumed = try shift.withAt(@src(), &runtime, .{
                 .picker = Picker.use(.{ .handler = resume_handler{} }),
             }, struct {
                 /// Trigger the generated lexical choice point and complete the explicit continuation.
@@ -1034,7 +1034,7 @@ test "generated abort families use the lexical abort form" {
             defer transcript.active_writer = previous_writer;
 
             try writer.writeAll("validate=name\n");
-            const result = try shift.with(@src(), &runtime, .{
+            const result = try shift.withAt(@src(), &runtime, .{
                 .guard = Guard.use(.{ .handler = guard_handler{} }),
             }, shift.NamedBody("test/lexical_with_test.zig", "namedGeneratedAbortBody", ExecResult([]const u8), namedGeneratedAbortBody));
             try writer.print("final={s}\n", .{result.value});
@@ -1053,7 +1053,7 @@ test "generated zero-payload choice fields stay ergonomic" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .asker = Ask.use(.{ .handler = struct {
             /// Resume a zero-payload generated choice with a fixed value.
             pub fn ask(_: *@This()) shift.effect.choice.Decision(i32, []const u8) {

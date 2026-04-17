@@ -42,7 +42,7 @@ pub fn run(writer: anytype) anyerror!void {
     defer runtime.deinit();
     transcript.len = 0;
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .optional = shift.effect.optional.use([]const u8, approval_policy),
     }, shift.NamedBody("examples/nested_workflow.zig", "nestedWorkflowBody", anyerror![]const u8, nestedWorkflowBody));
     transcript.note("workflow=done");

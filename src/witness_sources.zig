@@ -71,7 +71,7 @@ fn witnessStaticRedelimInnerBody(inner_eff: anytype) anyerror!i32 {
 fn witnessStaticRedelimOuterBody(outer_eff: anytype) anyerror!i32 {
     transcript_static_redelim.outer_value = try outer_eff.outer.step.perform();
     transcript_static_redelim.note("after-outer-shift");
-    const nested = try lexical_runtime.with(@src(), transcript_static_redelim.runtime_ptr.?, .{
+    const nested = try lexical_runtime.withAt(@src(), transcript_static_redelim.runtime_ptr.?, .{
         .inner = ResumeWitness.use(.{ .handler = transcript_static_redelim.InnerHandler{} }),
     }, struct {
         /// Execute the nested inner witness through the legacy runtime path.
@@ -163,7 +163,7 @@ pub fn runDirectReturn(writer: anytype) anyerror!void {
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.handler_line = "";
-    const result = try lexical_runtime.with(@src(), &runtime, .{
+    const result = try lexical_runtime.withAt(@src(), &runtime, .{
         .exception = lexical_runtime.effect.exception.use([]const u8, catch_policy),
     }, lexical_runtime.NamedBody("src/witness_sources.zig", "witnessDirectReturnBody", anyerror![]const u8, witnessDirectReturnBody));
     try writer.print("{s}\n", .{transcript.handler_line});
@@ -197,7 +197,7 @@ pub fn runResumeOrReturnReturnNow(writer: anytype) anyerror!void {
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.len = 0;
-    const result = try lexical_runtime.with(@src(), &runtime, .{
+    const result = try lexical_runtime.withAt(@src(), &runtime, .{
         .optional = lexical_runtime.effect.optional.use(i32, policy),
     }, lexical_runtime.NamedBody("src/witness_sources.zig", "witnessResumeOrReturnReturnNowBody", anyerror![]const u8, witnessResumeOrReturnReturnNowBody));
     try printTranscript(writer, transcript.items[0..transcript.len]);
@@ -233,7 +233,7 @@ pub fn runResumeOrReturnResume(writer: anytype) anyerror!void {
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.len = 0;
-    const result = try lexical_runtime.with(@src(), &runtime, .{
+    const result = try lexical_runtime.withAt(@src(), &runtime, .{
         .optional = lexical_runtime.effect.optional.use(i32, policy),
     }, lexical_runtime.NamedBody("src/witness_sources.zig", "witnessResumeOrReturnResumeBody", anyerror![]const u8, witnessResumeOrReturnResumeBody));
     try printTranscript(writer, transcript.items[0..transcript.len]);
@@ -246,7 +246,7 @@ pub fn runGenerator(writer: anytype) anyerror!void {
     defer runtime.deinit();
     var output_buffer: [256]u8 = undefined;
     var output_fba = std.heap.FixedBufferAllocator.init(&output_buffer);
-    const result = try lexical_runtime.with(@src(), &runtime, .{
+    const result = try lexical_runtime.withAt(@src(), &runtime, .{
         .writer = lexical_runtime.effect.writer.use([]const u8, output_fba.allocator()),
         .state = lexical_runtime.effect.state.use(@as(i32, 0)),
     }, lexical_runtime.NamedBody("src/witness_sources.zig", "witnessGeneratorBody", anyerror!i32, witnessGeneratorBody));
@@ -286,7 +286,7 @@ pub fn runAtmResumeTransform(writer: anytype) anyerror!void {
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.len = 0;
-    const result = try lexical_runtime.with(@src(), &runtime, .{
+    const result = try lexical_runtime.withAt(@src(), &runtime, .{
         .atm = ResumeWitness.use(.{ .handler = Handler{} }),
     }, lexical_runtime.NamedBody("src/witness_sources.zig", "witnessAtmBody", anyerror![]const u8, witnessAtmBody));
     try printTranscript(writer, transcript.items[0..transcript.len]);
@@ -299,7 +299,7 @@ pub fn runStaticRedelim(writer: anytype) anyerror!void {
     defer runtime.deinit();
     transcript_static_redelim.len = 0;
     transcript_static_redelim.runtime_ptr = &runtime;
-    const result = try lexical_runtime.with(@src(), &runtime, .{
+    const result = try lexical_runtime.withAt(@src(), &runtime, .{
         .outer = ResumeWitness.use(.{ .handler = transcript_static_redelim.OuterHandler{} }),
     }, struct {
         /// Keep the nested-prompt semantic witness on the test-only legacy path until public lowering admits it.
@@ -344,7 +344,7 @@ pub fn runMultiPrompt(writer: anytype) anyerror!void {
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript_multi_prompt.len = 0;
-    const result = try lexical_runtime.with(@src(), &runtime, .{
+    const result = try lexical_runtime.withAt(@src(), &runtime, .{
         .outer = ResumeWitness.use(.{ .handler = OuterHandler{} }),
         .inner = ResumeWitness.use(.{ .handler = InnerHandler{} }),
     }, struct {

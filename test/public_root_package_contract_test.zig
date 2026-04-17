@@ -617,7 +617,7 @@ test "downstream consumer cannot compile caller-owned NamedBody sources through 
         \\pub fn main() !void {
         \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
         \\    defer runtime.deinit();
-        \\    _ = try shift.with(@src(), &runtime, .{
+        \\    _ = try shift.withAt(@src(), &runtime, .{
         \\        .state = shift.effect.state.use(@as(i32, 0)),
         \\    }, shift.NamedBody("main.zig", "body", anyerror!i32, body));
         \\}
@@ -773,7 +773,7 @@ test "downstream consumer cannot ship NamedBody paths outside the retained compi
         \\pub fn main() !void {
         \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
         \\    defer runtime.deinit();
-        \\    _ = try shift.with(@src(), &runtime, .{
+        \\    _ = try shift.withAt(@src(), &runtime, .{
         \\        .state = shift.effect.state.use(@as(i32, 0)),
         \\    }, shift.NamedBody(
         \\        "src/witness_sources.zig",
@@ -832,7 +832,7 @@ test "downstream consumer test builds fail closed instead of running repo-owned 
         \\test "repo-owned NamedBody does not use a local fallback in test builds" {
         \\    var runtime = shift.Runtime.init(std.testing.allocator);
         \\    defer runtime.deinit();
-        \\    _ = try shift.with(@src(), &runtime, .{
+        \\    _ = try shift.withAt(@src(), &runtime, .{
         \\        .state = shift.effect.state.use(@as(i32, 0)),
         \\    }, shift.NamedBody(
         \\        "src/witness_sources.zig",
@@ -891,7 +891,7 @@ test "downstream consumer can compile an anonymous same-file lexical body throug
         \\pub fn main() !void {
         \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
         \\    defer runtime.deinit();
-        \\    const result = try shift.with(@src(), &runtime, .{
+        \\    const result = try shift.withAt(@src(), &runtime, .{
         \\        .state = shift.effect.state.use(@as(i32, 0)),
         \\    }, struct {
         \\        pub fn body(eff: anytype) anyerror!i32 {

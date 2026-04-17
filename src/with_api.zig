@@ -145,7 +145,7 @@ fn isNamedBodyDescriptor(comptime Body: type) bool {
     };
 }
 
-/// Named lexical body reference used as the canonical compiled `shift.with(@src(), ...)` surface.
+/// Named lexical body reference used as the canonical compiled `shift.withAt(@src(), ...)` surface.
 pub fn NamedBody(
     comptime source_path_value: []const u8,
     comptime entry_symbol_value: []const u8,
@@ -210,7 +210,7 @@ pub fn OutputBundleType(comptime HandlersType: type) type {
     });
 }
 
-/// Canonical lexical outputs plus body answer returned from `shift.with(@src(), ...)`.
+/// Canonical lexical outputs plus body answer returned from `shift.withAt(@src(), ...)`.
 pub fn WithResult(comptime HandlersType: type, comptime Answer: type) type {
     return struct {
         outputs: OutputBundleType(HandlersType),
@@ -218,7 +218,7 @@ pub fn WithResult(comptime HandlersType: type, comptime Answer: type) type {
     };
 }
 
-/// Explicit lexical rebinding packet threaded through `shift.with(@src(), ...)` continuations.
+/// Explicit lexical rebinding packet threaded through `shift.withAt(@src(), ...)` continuations.
 pub fn LexicalState(comptime HandlersType: type, comptime EffType: type, comptime caller_source_value: std.builtin.SourceLocation) type {
     return struct {
         /// Original caller source location threaded through this lexical rebinding packet.
@@ -1518,7 +1518,7 @@ test "with preserves caller provenance through the legacy lexical path" {
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try with(@src(), &runtime, .{
+    const result = try with(&runtime, .{
         .state = state.use(@as(i32, 0)),
     }, struct {
         fn body(eff: anytype) anyerror![]const u8 {
@@ -1549,7 +1549,7 @@ test "with preserves caller provenance through optional continuation resume" {
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try with(@src(), &runtime, .{
+    const result = try withAt(@src(), &runtime, .{
         .optional = optional.use(i32, resume_policy),
         .state = state.use(@as(i32, 0)),
     }, struct {
@@ -2209,7 +2209,7 @@ pub fn continueChoice(
     }, Continuation, resume_value);
 }
 
-/// Return type for one lexical `shift.with(@src(), ...)` instantiation.
+/// Return type for one lexical `shift.withAt(@src(), ...)` instantiation.
 pub fn WithFnReturnType(comptime HandlersType: type, comptime Body: type) type {
     const HandlerSet = HandlerErrorSet(HandlersType);
     const PreviewEff = PreviewBodyEffType(HandlersType);
@@ -2244,7 +2244,7 @@ pub fn With(comptime HandlersType: type, comptime Body: type) type {
 }
 
 /// Run one lexical effect bundle and return descriptor outputs alongside the body answer.
-fn withAt(
+fn withImpl(
     runtime: *lowered_machine.Runtime,
     handlers: anytype,
     comptime Body: type,
@@ -2290,13 +2290,22 @@ fn withAt(
 }
 
 /// Run one lexical effect bundle and return descriptor outputs alongside the body answer.
-pub fn with(
+pub inline fn with(
+    runtime: *lowered_machine.Runtime,
+    handlers: anytype,
+    comptime Body: type,
+) WithFnReturnType(@TypeOf(handlers), Body) {
+    return withAt(@src(), runtime, handlers, Body);
+}
+
+/// Run one lexical effect bundle with explicit caller provenance.
+pub fn withAt(
     comptime caller: std.builtin.SourceLocation,
     runtime: *lowered_machine.Runtime,
     handlers: anytype,
     comptime Body: type,
 ) WithFnReturnType(@TypeOf(handlers), Body) {
-    return withAt(runtime, handlers, Body, caller, null, .none);
+    return withImpl(runtime, handlers, Body, caller, null, .none);
 }
 
 /// Run one lexical effect bundle while the caller explicitly supplies the source location used for caller-owned compilation.
@@ -2306,7 +2315,7 @@ pub fn withCallerSource(
     handlers: anytype,
     comptime Body: type,
 ) WithFnReturnType(@TypeOf(handlers), Body) {
-    return withAt(runtime, handlers, Body, caller, null, .explicit_location);
+    return withImpl(runtime, handlers, Body, caller, null, .explicit_location);
 }
 
 /// Run one lexical effect bundle while the caller explicitly supplies both source location and source bytes for caller-owned compilation.
@@ -2317,7 +2326,7 @@ pub fn withCallerSourceAndContent(
     handlers: anytype,
     comptime Body: type,
 ) WithFnReturnType(@TypeOf(handlers), Body) {
-    return withAt(runtime, handlers, Body, caller, caller_source, .explicit_location_and_content);
+    return withImpl(runtime, handlers, Body, caller, caller_source, .explicit_location_and_content);
 }
 
 /// Run one lexical effect bundle through an explicit caller-owned source witness surface.

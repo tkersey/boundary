@@ -6,7 +6,7 @@ const with_api = @import("with_api.zig");
 pub const Runtime = lowered_machine.Runtime;
 /// Public `RuntimeError` declaration.
 pub const RuntimeError = lowered_machine.RuntimeError;
-/// Canonical named lexical body helper for compiled witness-only `with(...)` calls.
+/// Canonical named lexical body helper for compiled witness-only `withAt(...)` calls.
 pub const NamedBody = with_api.NamedBody;
 /// Public lexical effect namespace for internal witness-only helpers.
 pub const effect = struct {
@@ -36,11 +36,20 @@ pub fn With(comptime HandlersType: type, comptime Body: type) type {
 }
 
 /// Run the public lexical handler entrypoint.
-pub fn with(
+pub inline fn with(
+    runtime: *Runtime,
+    handlers: anytype,
+    comptime Body: type,
+) with_api.WithFnReturnType(@TypeOf(handlers), Body) {
+    return withAt(@src(), runtime, handlers, Body);
+}
+
+/// Run the public lexical handler entrypoint with explicit caller provenance.
+pub fn withAt(
     comptime caller: std.builtin.SourceLocation,
     runtime: *Runtime,
     handlers: anytype,
     comptime Body: type,
 ) with_api.WithFnReturnType(@TypeOf(handlers), Body) {
-    return with_api.with(caller, runtime, handlers, Body);
+    return with_api.withAt(caller, runtime, handlers, Body);
 }

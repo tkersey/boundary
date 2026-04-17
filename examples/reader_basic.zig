@@ -11,7 +11,7 @@ pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .reader = shift.effect.reader.use(@as(i32, 21)),
     }, shift.NamedBody("examples/reader_basic.zig", "readerBody", anyerror!i32, readerBody));
 

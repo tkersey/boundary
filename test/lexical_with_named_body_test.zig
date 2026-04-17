@@ -10,7 +10,7 @@ test "shift.with accepts body run(eff)" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 9)),
     }, struct {
         /// Run the body through the declared one-argument `run` hook.
@@ -26,7 +26,7 @@ test "shift.with accepts body run(self, eff)" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 11)),
     }, struct {
         /// Run the body through the declared self-plus-eff `run` hook.
@@ -43,7 +43,7 @@ test "shift.with accepts NamedBody for state handlers" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 9)),
     }, shift.NamedBody("test/lexical_with_named_body_support.zig", "namedStateBody", ExecResult(i32), named_body.namedStateBody));
 
@@ -55,7 +55,7 @@ test "shift.with accepts NamedBody helpers when the effect parameter is renamed"
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 9)),
     }, shift.NamedBody("test/lexical_with_named_body_support.zig", "namedStateBodyWithRenamedEffectParam", ExecResult(i32), named_body.namedStateBodyWithRenamedEffectParam));
 
@@ -67,7 +67,7 @@ test "shift.with accepts NamedBody for reader handlers" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .reader = shift.effect.reader.use(@as(i32, 21)),
     }, shift.NamedBody("test/lexical_with_named_body_support.zig", "namedReaderBody", ExecResult(i32), named_body.namedReaderBody));
 
@@ -78,7 +78,7 @@ test "shift.with accepts NamedBody for writer handlers" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .writer = shift.effect.writer.use([]const u8, std.testing.allocator),
     }, shift.NamedBody("test/lexical_with_named_body_support.zig", "namedWriterBody", ExecResult([]const u8), named_body.namedWriterBody));
     defer std.testing.allocator.free(result.outputs.writer);
@@ -93,7 +93,7 @@ test "shift.with accepts NamedBody bool literal returns" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 0)),
     }, shift.NamedBody("test/lexical_with_named_body_support.zig", "namedBoolLiteralBody", ExecResult(bool), named_body.namedBoolLiteralBody));
 
@@ -104,7 +104,7 @@ test "shift.with accepts NamedBody usize literal returns" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 0)),
     }, shift.NamedBody("test/lexical_with_named_body_support.zig", "namedUsizeLiteralBody", ExecResult(usize), named_body.namedUsizeLiteralBody));
 
@@ -115,7 +115,7 @@ test "shift.with accepts NamedBody large usize literal returns" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 0)),
     }, shift.NamedBody("test/lexical_with_named_body_support.zig", "namedLargeUsizeLiteralBody", ExecResult(usize), named_body.namedLargeUsizeLiteralBody));
 
@@ -126,7 +126,7 @@ test "shift.with accepts NamedBody bool payload literals for state handlers" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(false),
     }, shift.NamedBody("test/lexical_with_named_body_support.zig", "namedBoolStateBody", ExecResult(bool), named_body.namedBoolStateBody));
 
@@ -149,7 +149,7 @@ test "shift.with accepts NamedBody for optional return-now continuations" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .optional = shift.effect.optional.use(i32, return_now_policy),
     }, shift.NamedBody("test/lexical_with_named_body_support.zig", "namedOptionalReturnNowBody", ExecResult([]const u8), named_body.namedOptionalReturnNowBody));
 
@@ -171,7 +171,7 @@ test "shift.with accepts NamedBody for optional resumed continuations" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .optional = shift.effect.optional.use(i32, resume_policy),
     }, shift.NamedBody("test/lexical_with_named_body_support.zig", "namedOptionalResumeBody", ExecResult([]const u8), named_body.namedOptionalResumeBody));
 
@@ -193,7 +193,7 @@ test "shift.with accepts NamedBody bool literal continuation answers" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .optional = shift.effect.optional.use(i32, resume_policy),
     }, shift.NamedBody("test/lexical_with_named_body_support.zig", "namedOptionalResumeBoolBody", ExecResult(bool), named_body.namedOptionalResumeBoolBody));
 
@@ -215,7 +215,7 @@ test "shift.with accepts NamedBody usize literal continuation answers" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .optional = shift.effect.optional.use(i32, resume_policy),
     }, shift.NamedBody("test/lexical_with_named_body_support.zig", "namedOptionalResumeUsizeBody", ExecResult(usize), named_body.namedOptionalResumeUsizeBody));
 
@@ -237,7 +237,7 @@ test "shift.with accepts NamedBody hexadecimal usize literal continuation answer
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .optional = shift.effect.optional.use(i32, resume_policy),
     }, shift.NamedBody("test/lexical_with_named_body_support.zig", "namedOptionalResumeHexUsizeBody", ExecResult(usize), named_body.namedOptionalResumeHexUsizeBody));
 
@@ -259,7 +259,7 @@ test "shift.with accepts NamedBody large usize literal continuation answers" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .optional = shift.effect.optional.use(i32, resume_policy),
     }, shift.NamedBody("test/lexical_with_named_body_support.zig", "namedOptionalResumeLargeUsizeBody", ExecResult(usize), named_body.namedOptionalResumeLargeUsizeBody));
 
@@ -288,7 +288,7 @@ test "shift.with accepts NamedBody for generated choice continuations" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .picker = Picker.use(.{ .handler = handler{} }),
     }, shift.NamedBody("test/lexical_with_named_body_support.zig", "namedGeneratedChoiceBody", ExecResult([]const u8), named_body.namedGeneratedChoiceBody));
 
@@ -324,7 +324,7 @@ test "shift.with accepts NamedBody for underscored generated choice after hooks"
     defer runtime.deinit();
     transcript.after_called = false;
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .picker = Picker.use(.{ .handler = handler{} }),
     }, shift.NamedBody("test/lexical_with_named_body_support.zig", "namedGeneratedChoiceUnderscoreBody", ExecResult([]const u8), named_body.namedGeneratedChoiceUnderscoreBody));
 

@@ -12,7 +12,7 @@ pub const Instance = family.Instance;
 /// Final state plus body answer returned from a handled state program.
 pub const HandleResult = family.HandleResult;
 
-/// Lexical state handle used by `shift.with(@src(), ...)`.
+/// Lexical state handle used by `shift.withAt(@src(), ...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -29,7 +29,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     };
 }
 
-/// Descriptor value used by `shift.with(@src(), ...)` for the built-in state family.
+/// Descriptor value used by `shift.withAt(@src(), ...)` for the built-in state family.
 pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) type {
     return struct {
         /// Shared error set carried by the lexical state descriptor.
@@ -74,7 +74,7 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
     };
 }
 
-/// Create one lexical state descriptor for `shift.with(@src(), ...)`.
+/// Create one lexical state descriptor for `shift.withAt(@src(), ...)`.
 pub fn use(initial_state: anytype) LexicalDescriptor(@TypeOf(initial_state), error{}) {
     return .{ .initial_state = initial_state };
 }

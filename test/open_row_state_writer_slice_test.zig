@@ -5,7 +5,7 @@ test "open-row state plus writer workflow yields the canonical result shape" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 5)),
         .writer = shift.effect.writer.use([]const u8, std.testing.allocator),
     }, struct {
@@ -29,7 +29,7 @@ test "README minimal example yields the canonical result shape" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 5)),
         .writer = shift.effect.writer.use([]const u8, std.testing.allocator),
     }, struct {
@@ -66,7 +66,7 @@ test "shift.run omits outputs for stateless transform handlers" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(@src(), &runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .search = Search.use(.{ .handler = search_handler{} }),
     }, struct {
         /// Trigger the stateless search op once through the public root surface.

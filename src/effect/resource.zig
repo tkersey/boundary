@@ -24,7 +24,7 @@ pub fn Instance(comptime ResourceType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.resume_then_transform, ResourceType, ErrorSetType);
 }
 
-/// Lexical resource handle used by `shift.with(@src(), ...)`.
+/// Lexical resource handle used by `shift.withAt(@src(), ...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -36,7 +36,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     };
 }
 
-/// Descriptor value used by `shift.with(@src(), ...)` for the built-in resource family.
+/// Descriptor value used by `shift.withAt(@src(), ...)` for the built-in resource family.
 pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: type, comptime Manager: type) type {
     return struct {
         /// Shared error set carried by the lexical resource descriptor.
@@ -79,7 +79,7 @@ pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: typ
     };
 }
 
-/// Create one lexical resource descriptor for `shift.with(@src(), ...)`.
+/// Create one lexical resource descriptor for `shift.withAt(@src(), ...)`.
 pub fn use(comptime ResourceType: type, comptime Manager: type) LexicalDescriptor(ResourceType, ManagerErrorSet(Manager), Manager) {
     return .{};
 }

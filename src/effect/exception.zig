@@ -24,7 +24,7 @@ pub fn Instance(comptime PayloadType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.direct_return, PayloadType, ErrorSetType);
 }
 
-/// Lexical exception handle used by `shift.with(@src(), ...)`.
+/// Lexical exception handle used by `shift.withAt(@src(), ...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -36,7 +36,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     };
 }
 
-/// Descriptor value used by `shift.with(@src(), ...)` for the built-in exception family.
+/// Descriptor value used by `shift.withAt(@src(), ...)` for the built-in exception family.
 pub fn LexicalDescriptor(comptime PayloadType: type, comptime ErrorSetType: type, comptime Catch: type) type {
     return struct {
         /// Shared error set carried by the lexical exception descriptor.
@@ -79,7 +79,7 @@ pub fn LexicalDescriptor(comptime PayloadType: type, comptime ErrorSetType: type
     };
 }
 
-/// Create one lexical exception descriptor for `shift.with(@src(), ...)`.
+/// Create one lexical exception descriptor for `shift.withAt(@src(), ...)`.
 pub fn use(comptime PayloadType: type, comptime Catch: type) LexicalDescriptor(PayloadType, CatchErrorSet(Catch), Catch) {
     return .{};
 }

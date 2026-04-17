@@ -9,7 +9,7 @@ const std = @import("std");
 /// Prompt-backed effect instance for a reader family.
 pub const Instance = family.Instance;
 
-/// Lexical reader handle used by `shift.with(@src(), ...)`.
+/// Lexical reader handle used by `shift.withAt(@src(), ...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -21,7 +21,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     };
 }
 
-/// Descriptor value used by `shift.with(@src(), ...)` for the built-in reader family.
+/// Descriptor value used by `shift.withAt(@src(), ...)` for the built-in reader family.
 pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) type {
     return struct {
         /// Shared error set carried by the lexical reader descriptor.
@@ -66,7 +66,7 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
     };
 }
 
-/// Create one lexical reader descriptor for `shift.with(@src(), ...)`.
+/// Create one lexical reader descriptor for `shift.withAt(@src(), ...)`.
 pub fn use(environment: anytype) LexicalDescriptor(@TypeOf(environment), error{}) {
     return .{ .environment = environment };
 }
