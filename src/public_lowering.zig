@@ -2845,6 +2845,65 @@ test "absolute caller-owned helper regression: lowering accepts shared helper su
     try ProgramType.validate(std.testing.allocator);
 }
 
+test "caller-owned lowering binds explicit continuation params to resumed locals even when they shadow earlier locals" {
+    const current_src = @src();
+    const caller: std.builtin.SourceLocation = .{
+        .module = current_src.module,
+        .file = "/tmp/shift-owned-open-row/value_resume.zig",
+        .line = 1,
+        .column = 1,
+        .fn_name = "resumeLocalLoweringCaller",
+    };
+    const ProgramType = lower(sourceWithContent("/tmp/shift-owned-open-row/value_resume.zig", caller,
+        \\pub fn runBody(eff: anytype) !i32 {
+        \\    const value = 7;
+        \\    return try eff.picker.pick.perform(41, struct {
+        \\        pub fn apply(value: i32, _: anytype) !i32 {
+        \\            return value;
+        \\        }
+        \\    });
+        \\}
+    ), .{
+        .label = "public_lowering.explicit_continuation_resume_local",
+        .entry_symbol = "runBody",
+        .row = effect_ir.rowFromSpec(.{
+            .picker = .{
+                .pick = effect_ir.Choice(i32, i32),
+            },
+        }),
+        .ValueType = i32,
+    });
+
+    const Handlers = struct {
+        picker: struct {
+            const Decision = union(enum) {
+                resume_with: i32,
+                return_now: i32,
+
+                fn resumeWith(value: i32) @This() {
+                    return .{ .resume_with = value };
+                }
+            };
+
+            pub fn pick(_: *@This(), payload: i32) anyerror!Decision {
+                return Decision.resumeWith(payload);
+            }
+
+            pub fn afterPick(_: *@This(), answer: i32) anyerror!i32 {
+                return answer;
+            }
+        } = .{},
+    };
+
+    try ProgramType.validate(std.testing.allocator);
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var handlers: Handlers = .{};
+    const result = try ProgramType.run(&runtime, &handlers);
+    try std.testing.expectEqual(@as(i32, 41), result.value);
+}
+
 test "owned repo alias callers preserve absolute helper witness paths during lowering" {
     if (!build_options.package_root_alias_available) return error.SkipZigTest;
 

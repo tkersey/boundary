@@ -177,9 +177,105 @@ fn writeFakeZigOnPath(tmp: *std.testing.TmpDir) ![]const u8 {
     return "shadow-bin";
 }
 
+const published_package_paths = [_][]const u8{
+    "README.md",
+    "bench",
+    "build.zig",
+    "build.zig.zon",
+    "examples",
+    "repo_zig_paths.txt",
+    "source_graph_embed.zig",
+    "src",
+    "test",
+    "tools",
+};
+
+fn assertPublishedPackagePathsMatchManifest(repo_dir: std.fs.Dir) !void {
+    const manifest = try repo_dir.readFileAlloc(std.testing.allocator, "build.zig.zon", std.math.maxInt(usize));
+    defer std.testing.allocator.free(manifest);
+
+    const paths_start = std.mem.indexOf(u8, manifest, ".paths = .{") orelse return error.InvalidPublishedPackageManifest;
+    const block_tail = manifest[paths_start..];
+    const paths_end = std.mem.indexOf(u8, block_tail, "    },") orelse return error.InvalidPublishedPackageManifest;
+    const paths_block = block_tail[0..paths_end];
+
+    inline for (published_package_paths) |path| {
+        const quoted = comptime std.fmt.comptimePrint("\"{s}\"", .{path});
+        if (std.mem.indexOf(u8, paths_block, quoted) == null) return error.PublishedPackagePathDrift;
+    }
+
+    var line_iter = std.mem.splitScalar(u8, paths_block, '\n');
+    var actual_count: usize = 0;
+    while (line_iter.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \t\r");
+        if (trimmed.len == 0 or trimmed[0] != '"') continue;
+        actual_count += 1;
+    }
+    if (actual_count != published_package_paths.len) return error.PublishedPackagePathDrift;
+}
+
+fn copyRepoFileIntoFixture(
+    repo_dir: std.fs.Dir,
+    fixture_dir: std.fs.Dir,
+    source_path: []const u8,
+    dest_path: []const u8,
+) !void {
+    const contents = try repo_dir.readFileAlloc(std.testing.allocator, source_path, std.math.maxInt(usize));
+    defer std.testing.allocator.free(contents);
+    try writeTmpFile(fixture_dir, dest_path, contents);
+}
+
+fn copyRepoDirectoryIntoFixture(
+    repo_dir: std.fs.Dir,
+    fixture_dir: std.fs.Dir,
+    source_dir_path: []const u8,
+    dest_dir_path: []const u8,
+) !void {
+    try fixture_dir.makePath(dest_dir_path);
+
+    var source_dir = try repo_dir.openDir(source_dir_path, .{ .iterate = true });
+    defer source_dir.close();
+
+    var walker = try source_dir.walk(std.testing.allocator);
+    defer walker.deinit();
+
+    while (try walker.next()) |entry| {
+        const fixture_entry_path = try std.fs.path.join(std.testing.allocator, &.{ dest_dir_path, entry.path });
+        defer std.testing.allocator.free(fixture_entry_path);
+
+        switch (entry.kind) {
+            .directory => try fixture_dir.makePath(fixture_entry_path),
+            .file, .sym_link => try copyRepoFileIntoFixture(source_dir, fixture_dir, entry.path, fixture_entry_path),
+            else => return error.UnsupportedPublishedPackageEntry,
+        }
+    }
+}
+
+fn mirrorPublishedPackageIntoFixture(tmp: *std.testing.TmpDir, repo_root: []const u8) !void {
+    try tmp.dir.makePath("deps/shift");
+
+    var repo_dir = try std.fs.openDirAbsolute(repo_root, .{});
+    defer repo_dir.close();
+    try assertPublishedPackagePathsMatchManifest(repo_dir);
+
+    for (published_package_paths) |path| {
+        const fixture_path = try std.fs.path.join(std.testing.allocator, &.{ "deps/shift", path });
+        defer std.testing.allocator.free(fixture_path);
+
+        if (repo_dir.openDir(path, .{ .iterate = true })) |dir| {
+            var opened_dir = dir;
+            opened_dir.close();
+            try copyRepoDirectoryIntoFixture(repo_dir, tmp.dir, path, fixture_path);
+            continue;
+        } else |err| switch (err) {
+            error.NotDir => try copyRepoFileIntoFixture(repo_dir, tmp.dir, path, fixture_path),
+            else => return err,
+        }
+    }
+}
+
 fn writeConsumerBuildFiles(tmp: *std.testing.TmpDir, repo_root: []const u8) !void {
-    try tmp.dir.makePath("deps");
-    try tmp.dir.symLink(repo_root, "deps/shift", .{});
+    try mirrorPublishedPackageIntoFixture(tmp, repo_root);
 
     const build_zon = try std.fmt.allocPrint(std.testing.allocator,
         \\.{{

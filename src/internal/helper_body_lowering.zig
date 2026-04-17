@@ -316,7 +316,10 @@ fn findBoundLocal(
     comptime locals: []const BoundLocal,
     comptime name: []const u8,
 ) ?BoundLocal {
-    for (locals) |local| {
+    var index: usize = locals.len;
+    while (index > 0) {
+        index -= 1;
+        const local = locals[index];
         if (std.mem.eql(u8, local.name, name)) return local;
     }
     return null;
@@ -761,8 +764,13 @@ fn lowerContinuationApplyBody(
     if (apply_body.len == 0) return null;
 
     if (apply_param_name) |param_name| {
-        _ = appendBoundLocal(local_storage, param_name, resume_codec);
-        if (local_storage.bindings[local_storage.binding_count.* - 1].local_id != resume_local_id) return null;
+        if (resume_codec == .unit or resume_local_id == noLocalId()) return null;
+        local_storage.bindings[local_storage.binding_count.*] = .{
+            .name = param_name,
+            .codec = resume_codec,
+            .local_id = resume_local_id,
+        };
+        local_storage.binding_count.* += 1;
     }
 
     const expected_codec: effect_ir.LocalCodec = switch (function.ValueType) {
