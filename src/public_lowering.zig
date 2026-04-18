@@ -5134,6 +5134,100 @@ test "executeLoweredDispatch stores helper values using helper result codecs" {
     }
 }
 
+test "executeLoweredDispatch rejects non-diagonal returns without after frames" {
+    const plan: ProgramPlan = .{
+        .label = "execute.non_diagonal_without_after",
+        .ir_hash = 0x703,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .unit,
+            .result_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const Handlers = struct {};
+    var handlers: Handlers = .{};
+
+    try std.testing.expectError(error.ProgramContractViolation, executeLoweredDispatch(plan, &handlers, 0, &.{}));
+}
+
+test "executeLoweredDispatch rejects multiple non-diagonal after frames" {
+    const plan: ProgramPlan = .{
+        .label = "execute.multiple_non_diagonal_after_frames",
+        .ir_hash = 0x704,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .unit,
+            .result_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 2 }},
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "first", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit, .has_after = true },
+            .{ .requirement_index = 0, .op_name = "second", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit, .has_after = true },
+        },
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{
+            .{ .kind = .call_op, .operand = 0, .aux = std.math.maxInt(u16) },
+            .{ .kind = .call_op, .operand = 1, .aux = std.math.maxInt(u16) },
+        },
+    };
+    const Handlers = struct {
+        tooling: struct {
+            pub fn first(_: *@This()) anyerror!void {}
+
+            pub fn second(_: *@This()) anyerror!void {}
+
+            pub fn afterFirst(_: *@This(), _: void) anyerror![]const u8 {
+                return "first";
+            }
+
+            pub fn afterSecond(_: *@This(), _: void) anyerror![]const u8 {
+                return "second";
+            }
+        } = .{},
+    };
+    var handlers: Handlers = .{};
+
+    try std.testing.expectError(error.ProgramContractViolation, executeLoweredDispatch(plan, &handlers, 0, &.{}));
+}
+
 test "runtimeValueMatchesCodec rejects mismatched program-value tags" {
     try std.testing.expect(runtimeValueMatchesCodec(.i32, .{ .i32 = 42 }));
     try std.testing.expect(!runtimeValueMatchesCodec(.i32, .{ .string = "result=early" }));

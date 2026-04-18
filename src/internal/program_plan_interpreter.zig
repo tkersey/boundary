@@ -324,6 +324,10 @@ fn unwindAfterStack(
     after_stack: *std.ArrayList(u16),
     result: FunctionResult,
 ) anyerror!FunctionResult {
+    if (function_value_codec != function_result_codec) switch (result) {
+        .value => if (after_stack.items.len != 1) return error.ProgramContractViolation,
+        .terminal => {},
+    };
     var final_result = result;
     while (after_stack.items.len != 0) {
         const op_index = after_stack.pop().?;
