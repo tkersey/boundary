@@ -600,8 +600,7 @@ test "ProgramPlan.validate accepts helper terminal escapes when result codecs ma
             },
             .{
                 .symbol_name = "helper",
-                .value_codec = .unit,
-                .result_codec = .string,
+                .value_codec = .string,
                 .first_requirement = 0,
                 .requirement_count = 1,
                 .first_output = 0,
@@ -649,6 +648,116 @@ test "ProgramPlan.validate accepts helper terminal escapes when result codecs ma
             .{
                 .kind = .call_helper,
                 .operand = 1,
+                .aux = std.math.maxInt(u16),
+            },
+            .{
+                .kind = .call_op,
+                .operand = 0,
+                .aux = std.math.maxInt(u16),
+            },
+        },
+    };
+
+    try plan.validate();
+}
+
+test "ProgramPlan.validate accepts value-returning helpers that abort through a helper call" {
+    const plan = internal_program_plan.ProgramPlan{
+        .label = "valid.helper_terminal_abort_only_helper",
+        .ir_hash = 5,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "root",
+                .value_codec = .unit,
+                .result_codec = .string,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 0,
+                .first_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 1,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .string,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 0,
+                .first_block = 1,
+                .block_count = 1,
+                .first_instruction = 1,
+                .instruction_count = 1,
+            },
+            .{
+                .symbol_name = "leaf",
+                .value_codec = .unit,
+                .result_codec = .string,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 0,
+                .first_block = 2,
+                .block_count = 1,
+                .first_instruction = 2,
+                .instruction_count = 1,
+            },
+        },
+        .requirements = &.{.{
+            .label = "guard",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "fail",
+            .mode = .abort,
+            .payload_codec = .unit,
+            .resume_codec = .unit,
+        }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{
+            .{
+                .first_instruction = 0,
+                .instruction_count = 1,
+                .terminator_index = 0,
+            },
+            .{
+                .first_instruction = 1,
+                .instruction_count = 1,
+                .terminator_index = 1,
+            },
+            .{
+                .first_instruction = 2,
+                .instruction_count = 1,
+                .terminator_index = 2,
+            },
+        },
+        .terminators = &.{
+            .{ .kind = .return_unit },
+            .{ .kind = .return_unit },
+            .{ .kind = .return_unit },
+        },
+        .instructions = &.{
+            .{
+                .kind = .call_helper,
+                .operand = 1,
+                .aux = std.math.maxInt(u16),
+            },
+            .{
+                .kind = .call_helper,
+                .operand = 2,
                 .aux = std.math.maxInt(u16),
             },
             .{
@@ -837,6 +946,101 @@ test "ProgramPlan.validate ignores unreachable helper terminal-only paths when c
             .{
                 .kind = .return_value,
                 .operand = 0,
+            },
+            .{
+                .kind = .call_op,
+                .operand = 0,
+                .aux = std.math.maxInt(u16),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+        },
+    };
+
+    try plan.validate();
+}
+
+test "ProgramPlan.validate ignores structurally reachable dead return blocks after abort-only helpers" {
+    const plan = internal_program_plan.ProgramPlan{
+        .label = "valid.helper_abort_only_dead_return_block",
+        .ir_hash = 4,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "root",
+                .value_codec = .unit,
+                .result_codec = .string,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 0,
+                .first_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 1,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .string,
+                .first_requirement = 0,
+                .requirement_count = 1,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 1,
+                .entry_block = 0,
+                .block_count = 2,
+                .first_instruction = 1,
+                .instruction_count = 2,
+            },
+        },
+        .requirements = &.{.{
+            .label = "guard",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "fail",
+            .mode = .abort,
+            .payload_codec = .unit,
+            .resume_codec = .unit,
+        }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .call_args = &.{},
+        .blocks = &.{
+            .{
+                .first_instruction = 0,
+                .instruction_count = 1,
+                .terminator_index = 0,
+            },
+            .{
+                .first_instruction = 1,
+                .instruction_count = 1,
+                .terminator_index = 1,
+            },
+            .{
+                .first_instruction = 2,
+                .instruction_count = 1,
+                .terminator_index = 2,
+            },
+        },
+        .terminators = &.{
+            .{ .kind = .return_unit },
+            .{ .kind = .jump, .primary = 2 },
+            .{ .kind = .return_value },
+        },
+        .instructions = &.{
+            .{
+                .kind = .call_helper,
+                .operand = 1,
+                .aux = std.math.maxInt(u16),
             },
             .{
                 .kind = .call_op,

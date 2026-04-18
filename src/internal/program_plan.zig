@@ -219,76 +219,19 @@ pub const ProgramPlan = struct {
         }
 
         var changed = true;
-        while (changed) {
-            changed = false;
-            for (self.functions, 0..) |function, function_index| {
-                if (terminal_reachability[function_index]) continue;
-                const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
-                for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
-                    const block_index = @as(usize, function.first_block) + relative_block_index;
-                    if (!reachable_blocks[block_index]) continue;
-                    const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
-                    for (self.instructions[block.first_instruction..instruction_end]) |instruction| {
-                        switch (instruction.kind) {
-                            .call_helper => {
-                                if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
-                                if (terminal_reachability[instruction.operand]) {
-                                    terminal_reachability[function_index] = true;
-                                    changed = true;
-                                    break;
-                                }
-                            },
-                            .call_op => {
-                                if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
-                                    return error.InvalidCallOpTarget;
-                                }
-                                if (self.ops[instruction.operand].mode != .transform) {
-                                    terminal_reachability[function_index] = true;
-                                    changed = true;
-                                    break;
-                                }
-                            },
-                            else => {},
-                        }
-                    }
-                    if (terminal_reachability[function_index]) break;
-                }
-            }
-        }
-
-        changed = true;
+        var executable_blocks = [_]bool{false} ** (std.math.maxInt(u16) + 1);
         while (changed) {
             changed = false;
             for (self.functions, 0..) |function, function_index| {
                 if (completion_reachability[function_index]) continue;
+                @memset(executable_blocks[0..], false);
+                try markFunctionExecutableBlocks(self, function, &completion_reachability, &executable_blocks);
                 const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
                 for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
                     const block_index = @as(usize, function.first_block) + relative_block_index;
-                    if (!reachable_blocks[block_index]) continue;
+                    if (!executable_blocks[block_index]) continue;
                     const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
-                    var block_can_complete = true;
-                    for (self.instructions[block.first_instruction..instruction_end]) |instruction| {
-                        switch (instruction.kind) {
-                            .call_helper => {
-                                if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
-                                if (!completion_reachability[instruction.operand]) {
-                                    block_can_complete = false;
-                                    break;
-                                }
-                            },
-                            .call_op => {
-                                if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
-                                    return error.InvalidCallOpTarget;
-                                }
-                                if (self.ops[instruction.operand].mode == .abort) {
-                                    block_can_complete = false;
-                                    break;
-                                }
-                            },
-                            else => {},
-                        }
-                    }
-                    if (!block_can_complete) continue;
+                    if (!try blockCanResumeToTerminator(self, function, block.first_instruction, instruction_end, &completion_reachability)) continue;
                     const terminator = self.terminators[block.terminator_index];
                     const block_completes = switch (terminator.kind) {
                         .return_unit, .return_value => true,
@@ -297,6 +240,36 @@ pub const ProgramPlan = struct {
                     };
                     if (block_completes) {
                         completion_reachability[function_index] = true;
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        changed = true;
+        while (changed) {
+            changed = false;
+            for (self.functions, 0..) |function, function_index| {
+                if (terminal_reachability[function_index]) continue;
+                @memset(executable_blocks[0..], false);
+                try markFunctionExecutableBlocks(self, function, &completion_reachability, &executable_blocks);
+                const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
+                for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
+                    const block_index = @as(usize, function.first_block) + relative_block_index;
+                    if (!executable_blocks[block_index]) continue;
+                    const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
+                    if (try blockCanEscapeTerminally(
+                        self,
+                        function,
+                        block.first_instruction,
+                        instruction_end,
+                        .{
+                            .completion = &completion_reachability,
+                            .terminal = &terminal_reachability,
+                        },
+                    )) {
+                        terminal_reachability[function_index] = true;
                         changed = true;
                         break;
                     }
@@ -438,7 +411,15 @@ pub const ProgramPlan = struct {
                     .return_unit => {
                         if (function_returns_value) {
                             if (instruction_end == block.first_instruction) return error.InvalidTerminatorInstruction;
-                            if (!terminalAbortInstruction(self, function, instruction_end - 1)) return error.InvalidTerminatorInstruction;
+                            if (!terminalAbortInstruction(
+                                self,
+                                function,
+                                instruction_end - 1,
+                                .{
+                                    .completion = &completion_reachability,
+                                    .terminal = &terminal_reachability,
+                                },
+                            )) return error.InvalidTerminatorInstruction;
                         }
                     },
                     .return_value => {
@@ -722,14 +703,24 @@ fn terminalAbortInstruction(
     self: ProgramPlan,
     function: FunctionPlan,
     instruction_index: usize,
+    reachability: FunctionControlReachability,
 ) bool {
     const instruction_span_end = @as(usize, function.first_instruction) + function.instruction_count;
     if (instruction_index < function.first_instruction or instruction_index >= instruction_span_end) return false;
     const instruction = self.instructions[instruction_index];
-    if (instruction.kind != .call_op) return false;
-    if (instruction.operand >= self.ops.len) return false;
-    return self.ops[instruction.operand].mode == .abort;
+    return switch (instruction.kind) {
+        .call_helper => instruction.operand < self.functions.len and
+            reachability.terminal[instruction.operand] and
+            !reachability.completion[instruction.operand],
+        .call_op => instruction.operand < self.ops.len and self.ops[instruction.operand].mode == .abort,
+        else => false,
+    };
 }
+
+const FunctionControlReachability = struct {
+    completion: *const [std.math.maxInt(u16) + 1]bool,
+    terminal: *const [std.math.maxInt(u16) + 1]bool,
+};
 
 fn isOwnedBlockTarget(first_block: u16, block_end: usize, target: u16) bool {
     const target_index: usize = target;
@@ -772,6 +763,105 @@ fn markFunctionReachableBlocks(
                         !reachable_blocks[terminator.primary])
                     {
                         reachable_blocks[terminator.primary] = true;
+                        changed = true;
+                    }
+                },
+                .return_unit, .return_value => {},
+            }
+        }
+    }
+}
+
+fn blockCanResumeToTerminator(
+    self: ProgramPlan,
+    function: FunctionPlan,
+    first_instruction: u16,
+    instruction_end: usize,
+    completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
+) ValidationError!bool {
+    for (self.instructions[first_instruction..instruction_end]) |instruction| {
+        switch (instruction.kind) {
+            .call_helper => {
+                if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
+                if (!completion_reachability[instruction.operand]) return false;
+            },
+            .call_op => {
+                if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
+                    return error.InvalidCallOpTarget;
+                }
+                if (self.ops[instruction.operand].mode == .abort) return false;
+            },
+            else => {},
+        }
+    }
+    return true;
+}
+
+fn blockCanEscapeTerminally(
+    self: ProgramPlan,
+    function: FunctionPlan,
+    first_instruction: u16,
+    instruction_end: usize,
+    reachability: FunctionControlReachability,
+) ValidationError!bool {
+    for (self.instructions[first_instruction..instruction_end]) |instruction| {
+        switch (instruction.kind) {
+            .call_helper => {
+                if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
+                if (reachability.terminal[instruction.operand]) return true;
+                if (!reachability.completion[instruction.operand]) return false;
+            },
+            .call_op => {
+                if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
+                    return error.InvalidCallOpTarget;
+                }
+                if (self.ops[instruction.operand].mode != .transform) return true;
+            },
+            else => {},
+        }
+    }
+    return false;
+}
+
+fn markFunctionExecutableBlocks(
+    self: ProgramPlan,
+    function: FunctionPlan,
+    completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
+    executable_blocks: *[std.math.maxInt(u16) + 1]bool,
+) ValidationError!void {
+    const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
+    const entry_block_index = @as(usize, function.first_block) + function.entry_block;
+    executable_blocks[entry_block_index] = true;
+
+    var changed = true;
+    while (changed) {
+        changed = false;
+        for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
+            const block_index = @as(usize, function.first_block) + relative_block_index;
+            if (!executable_blocks[block_index]) continue;
+            const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
+            if (!try blockCanResumeToTerminator(self, function, block.first_instruction, instruction_end, completion_reachability)) continue;
+            const terminator = self.terminators[block.terminator_index];
+            switch (terminator.kind) {
+                .branch_if => {
+                    if (isOwnedBlockTarget(function.first_block, block_end, terminator.primary) and
+                        !executable_blocks[terminator.primary])
+                    {
+                        executable_blocks[terminator.primary] = true;
+                        changed = true;
+                    }
+                    if (isOwnedBlockTarget(function.first_block, block_end, terminator.secondary) and
+                        !executable_blocks[terminator.secondary])
+                    {
+                        executable_blocks[terminator.secondary] = true;
+                        changed = true;
+                    }
+                },
+                .jump => {
+                    if (isOwnedBlockTarget(function.first_block, block_end, terminator.primary) and
+                        !executable_blocks[terminator.primary])
+                    {
+                        executable_blocks[terminator.primary] = true;
                         changed = true;
                     }
                 },
