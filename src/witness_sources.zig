@@ -24,15 +24,6 @@ fn witnessResumeOrReturnReturnNowBody(eff: anytype) anyerror![]const u8 {
     });
 }
 
-fn witnessResumeOrReturnResumeBody(eff: anytype) anyerror![]const u8 {
-    return try eff.optional.request(struct {
-        /// Resume the witness continuation with the canonical answer.
-        pub fn apply(_: i32, _: anytype) anyerror![]const u8 {
-            return "answer=42";
-        }
-    });
-}
-
 fn witnessEmitThird(eff: anytype) anyerror!void {
     try eff.state.set(3);
     try eff.writer.tell("yield=3");
@@ -235,7 +226,18 @@ pub fn runResumeOrReturnResume(writer: anytype) anyerror!void {
     transcript.len = 0;
     const result = try lexical_runtime.withAt(@src(), &runtime, .{
         .optional = lexical_runtime.effect.optional.use(i32, policy),
-    }, lexical_runtime.NamedBody("src/witness_sources.zig", "witnessResumeOrReturnResumeBody", anyerror![]const u8, witnessResumeOrReturnResumeBody));
+    }, struct {
+        /// Keep the witness payload-sensitive so wrong resume values change the result.
+        pub fn body(eff: anytype) anyerror![]const u8 {
+            return try eff.optional.request(struct {
+                /// Resume only with the canonical payload for this witness transcript.
+                pub fn apply(value: i32, _: anytype) anyerror![]const u8 {
+                    if (value != 41) unreachable;
+                    return "answer=42";
+                }
+            });
+        }
+    });
     try printTranscript(writer, transcript.items[0..transcript.len]);
     try writer.print("final={s}\n", .{result.value});
 }

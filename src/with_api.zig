@@ -146,15 +146,37 @@ fn validateNamedBodyRepoIdentity(
     }) catch @compileError("shift.NamedBody source_path must export the supplied entry_symbol");
 }
 
-fn namedCompiledLexicalPlan(comptime HandlersType: type, comptime Body: type) ?public_lowering.ProgramPlan {
+fn namedCompiledLexicalPlan(
+    comptime HandlersType: type,
+    comptime caller: ?std.builtin.SourceLocation,
+    comptime Body: type,
+) ?public_lowering.ProgramPlan {
     if (!isNamedBodyDescriptor(Body)) return null;
-    const lowered_program = public_lowering.maybeLowerAt(Body.source_path, .{
-        .label = "shift.with named lexical body",
-        .entry_symbol = Body.entry_symbol,
-        .ValueType = NamedBodyAnswerType(Body),
-        .row = lexical_bundle_schema.rowForHandlers(HandlersType),
-        .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
-    }) orelse return null;
+    const lowered_program = comptime blk: {
+        if (source_graph_embed.ownedRepoPath(Body.source_path) != null) {
+            break :blk public_lowering.maybeLowerAt(Body.source_path, .{
+                .label = "shift.with named lexical body",
+                .entry_symbol = Body.entry_symbol,
+                .ValueType = NamedBodyAnswerType(Body),
+                .row = lexical_bundle_schema.rowForHandlers(HandlersType),
+                .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
+            });
+        }
+        const explicit_caller = caller orelse break :blk null;
+        if (!sourcePathAgreesWithCaller(explicit_caller, Body.source_path)) break :blk null;
+        const source_ref = public_lowering.sourceWithContent(
+            Body.source_path,
+            explicit_caller,
+            @embedFile(explicit_caller.file),
+        );
+        break :blk public_lowering.maybeLower(source_ref, .{
+            .label = "shift.with named lexical body",
+            .entry_symbol = Body.entry_symbol,
+            .ValueType = NamedBodyAnswerType(Body),
+            .row = lexical_bundle_schema.rowForHandlers(HandlersType),
+            .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
+        });
+    } orelse return null;
     return comptime public_lowering.enrichOpenRowPlan(
         "shift.with named lexical body",
         lowered_program,
@@ -2040,7 +2062,7 @@ fn ownedSourceUsesNamedEmbeddedCompilation(comptime Body: type) bool {
 
 fn ownedSourceNamedEmbeddedPlan(comptime HandlersType: type, comptime Body: type) ?public_lowering.ProgramPlan {
     if (!ownedSourceUsesNamedEmbeddedCompilation(Body)) return null;
-    return namedCompiledLexicalPlan(HandlersType, Body);
+    return namedCompiledLexicalPlan(HandlersType, null, Body);
 }
 
 fn ownedSourceCompilationSourcePath(
@@ -2415,7 +2437,7 @@ fn withImpl(
     else
         null;
     comptime assertHandlerBundleShape(HandlersType);
-    const named_compiled_plan = comptime namedCompiledLexicalPlan(HandlersType, Body);
+    const named_compiled_plan = comptime namedCompiledLexicalPlan(HandlersType, canonical_caller, Body);
     comptime rejectUnsupportedShippedWith(HandlersType, Body, named_compiled_plan, canonical_caller, caller_source_override, caller_owned_kind);
 
     var handler_state = handlers;

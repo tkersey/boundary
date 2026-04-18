@@ -626,6 +626,66 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
     try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
     try suite.writeFile("main.zig",
         \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn body(eff: anytype) anyerror!i32 {
+        \\    const before = try eff.state.get();
+        \\    try eff.state.set(before + 1);
+        \\    return try eff.state.get();
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\    const result = try shift.withAt(@src(), &runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }, shift.NamedBody(@src().file, "body", anyerror!i32, body));
+        \\    if (result.value != 1) return error.UnexpectedResult;
+        \\    if (result.outputs.state != 1) return error.UnexpectedState;
+        \\}
+        \\
+    );
+    try suite.expectSuccess("downstream NamedBody stays usable with withAt", &argv, null);
+
+    try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
+    try suite.writeFile("main.zig",
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn body(eff: anytype) anyerror![]const u8 {
+        \\    return try eff.optional.request(struct {
+        \\        pub fn apply(value: i32, _: anytype) anyerror![]const u8 {
+        \\            if (value != 41) unreachable;
+        \\            return "answer=42";
+        \\        }
+        \\    });
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    const policy = struct {
+        \\        pub fn resumeOrReturn() shift.effect.choice.Decision(i32, []const u8) {
+        \\            return shift.effect.choice.Decision(i32, []const u8).resumeWith(41);
+        \\        }
+        \\
+        \\        pub fn afterResume(answer: []const u8) []const u8 {
+        \\            return answer;
+        \\        }
+        \\    };
+        \\
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\    const result = try shift.withAt(@src(), &runtime, .{
+        \\        .optional = shift.effect.optional.use(i32, policy),
+        \\    }, shift.NamedBody(@src().file, "body", anyerror![]const u8, body));
+        \\    if (!std.mem.eql(u8, result.value, "answer=42")) return error.UnexpectedResult;
+        \\}
+        \\
+    );
+    try suite.expectSuccess("downstream NamedBody keeps resumed payload semantics with withAt", &argv, null);
+
+    try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
+    try suite.writeFile("main.zig",
+        \\const shift = @import("shift");
         \\
         \\pub fn body(_: anytype) anyerror!i32 {
         \\    return 1;
