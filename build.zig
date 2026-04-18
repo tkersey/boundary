@@ -4664,7 +4664,7 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "runtime-contract", .description = "Runtime contract suite", .run_step = &run_runtime_contract_tests.step },
         .{ .suite_id = "prompt-token", .description = "Prompt token contract suite", .run_step = &run_prompt_token_tests.step },
         .{ .suite_id = "portability-contract", .description = "Portability contract suite", .run_step = &run_portability_contract_tests.step },
-        .{ .suite_id = "public-root-package-contract", .description = "Public root package contract suite", .default_enabled = false, .run_step = &run_root_pkg_smoke.step },
+        .{ .suite_id = "public-root-package-contract", .description = "Public root package contract suite", .run_step = &run_root_pkg_smoke.step },
         .{ .suite_id = "program-frontend-boundary", .description = "Program frontend boundary suite", .run_step = &run_boundary_tests.step },
         .{ .suite_id = "source-lowering-corpus", .description = "Source lowering corpus suite", .run_step = &run_src_lower_corpus_tests.step },
         .{ .suite_id = "source-lowering-boundary", .description = "Source lowering boundary suite", .run_step = &run_src_lower_boundary_tests.step },
@@ -4673,7 +4673,7 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "open-row-lowering", .description = "Open-row lowering suite", .run_step = &run_open_row_lowering_tests.step },
         .{ .suite_id = "source-ownership-probe", .description = "Source ownership probe suite", .run_step = &run_src_ownership_probe_tests.step },
         .{ .suite_id = "source-lowering-witness", .description = "Source lowering witness completion suite", .run_step = &run_src_lower_witness_tests.step },
-        .{ .suite_id = "source-lowering-reject", .description = "Source lowering rejection corpus suite", .default_enabled = false, .run_step = &run_src_lower_reject_tests.step },
+        .{ .suite_id = "source-lowering-reject", .description = "Source lowering rejection corpus suite", .run_step = &run_src_lower_reject_tests.step },
         .{ .suite_id = "lexical-witness", .description = "Lexical witness suite", .run_step = &run_lexical_witness_tests.step },
         .{ .suite_id = "lexical-with", .description = "Lexical with suite", .run_step = run_lexical_with_tests },
     };

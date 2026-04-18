@@ -2065,8 +2065,10 @@ fn ownedSourceNamedPlan(comptime HandlersType: type, comptime Body: type) ?publi
 }
 
 fn ownedSourceUsesExternalNamedDirectExecution(comptime Body: type) bool {
-    if (!isNamedBodyDescriptor(Body)) return false;
-    return !public_lowering.repoOwnedSourcePathSupported(Body.source_path);
+    if (comptime isNamedBodyDescriptor(Body)) {
+        return !public_lowering.repoOwnedSourcePathSupported(Body.source_path);
+    }
+    return false;
 }
 
 fn ownedSourceCompilationSourcePath(
