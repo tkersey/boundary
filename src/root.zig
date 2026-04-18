@@ -28,20 +28,6 @@ test {
     _ = withOwnedSource;
 }
 
-test "root surface stays scoped to the retained lexical API" {
-    try @import("std").testing.expect(!@hasDecl(@This(), "Program"));
-    try @import("std").testing.expect(!@hasDecl(@This(), "run"));
-    try @import("std").testing.expect(!@hasDecl(@This(), "Decl"));
-    try @import("std").testing.expect(!@hasDecl(@This(), "Op"));
-    try @import("std").testing.expect(!@hasDecl(@This(), "Decision"));
-    try @import("std").testing.expect(!@hasDecl(@This(), "compat"));
-    try @import("std").testing.expect(!@hasDecl(@This(), "artifact"));
-    try @import("std").testing.expect(!@hasDecl(@This(), "durable"));
-    try @import("std").testing.expect(!@hasDecl(@This(), "interpreter"));
-    try @import("std").testing.expect(!@hasDecl(@This(), "withCallerSource"));
-    try @import("std").testing.expect(!@hasDecl(@This(), "withCallerSourceAndContent"));
-}
-
 test "retained compat program entrypoints keep source-compatible runner arity" {
     const demo_program = shared.compat.Program(.{
         .state = shared.compat.Decl.state(i32),

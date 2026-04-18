@@ -491,6 +491,28 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
     try env_map.put("PATH", shadow_path);
     try suite.expectSuccess("public root imports only shipped APIs", &argv, &env_map);
 
+    try writeConsumerTestBuild(suite.tmp.dir, "shift");
+    try suite.writeFile("main.zig",
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\test "public root omits retired exports" {
+        \\    try std.testing.expect(!@hasDecl(shift, "Program"));
+        \\    try std.testing.expect(!@hasDecl(shift, "run"));
+        \\    try std.testing.expect(!@hasDecl(shift, "Decl"));
+        \\    try std.testing.expect(!@hasDecl(shift, "Op"));
+        \\    try std.testing.expect(!@hasDecl(shift, "Decision"));
+        \\    try std.testing.expect(!@hasDecl(shift, "compat"));
+        \\    try std.testing.expect(!@hasDecl(shift, "artifact"));
+        \\    try std.testing.expect(!@hasDecl(shift, "durable"));
+        \\    try std.testing.expect(!@hasDecl(shift, "interpreter"));
+        \\    try std.testing.expect(!@hasDecl(shift, "withCallerSource"));
+        \\    try std.testing.expect(!@hasDecl(shift, "withCallerSourceAndContent"));
+        \\}
+        \\
+    );
+    try suite.expectSuccess("public root omits retired exports downstream", &argv, null);
+
     try writeConsumerExecutableBuild(suite.tmp.dir, "shift_compile");
     try suite.writeFile("main.zig",
         \\const shift_compile = @import("shift_compile");
