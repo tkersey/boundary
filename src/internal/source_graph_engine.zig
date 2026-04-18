@@ -809,8 +809,6 @@ fn statementArgsSupported(args: []const TokenItem) bool {
     for (args) |item| switch (item.tag) {
         .comma,
         .identifier,
-        .keyword_try,
-        .minus,
         .string_literal,
         .number_literal,
         .plus,
@@ -2006,6 +2004,50 @@ test "shared engine keeps bool literal continuation request bodies in the loweri
     try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
     try std.testing.expectEqualStrings("optional", graph.direct_op_uses[0].requirement_label);
     try std.testing.expectEqualStrings("request", graph.direct_op_uses[0].op_name);
+}
+
+test "shared engine rejects negative payload literals from the lowering subset" {
+    const graph = try analyzeComptime(
+        \\pub fn runBody(eff: anytype) anyerror!i32 {
+        \\    try eff.state.set(-1);
+        \\    return try eff.state.get();
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 2), graph.direct_op_uses.len);
+    try std.testing.expect(!graph.functions[graph.entry_index.?].body_lowering_supported);
+    try std.testing.expectEqualStrings("state", graph.direct_op_uses[0].requirement_label);
+    try std.testing.expectEqualStrings("set", graph.direct_op_uses[0].op_name);
+}
+
+test "shared engine rejects try payload helper calls from the lowering subset" {
+    const graph = try analyzeComptime(
+        \\fn helper(value: i32, eff: anytype) anyerror!void {
+        \\    _ = value;
+        \\    try eff.writer.tell("queued");
+        \\}
+        \\pub fn runBody(eff: anytype) anyerror!void {
+        \\    const value: anyerror!i32 = 41;
+        \\    try helper(try value, eff);
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), graph.direct_op_uses.len);
+    try std.testing.expectEqual(@as(usize, 1), graph.helper_uses.len);
+    try std.testing.expect(!graph.functions[graph.entry_index.?].body_lowering_supported);
+    try std.testing.expectEqualStrings("helper", graph.helper_uses[0].callee_name);
 }
 
 test "shared engine keeps explicit continuation perform bodies in the lowering subset" {

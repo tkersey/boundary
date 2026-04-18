@@ -256,8 +256,6 @@ fn statementArgsSupported(args: []const BodyToken) bool {
     for (args) |item| switch (item.tag) {
         .comma,
         .identifier,
-        .keyword_try,
-        .minus,
         .string_literal,
         .number_literal,
         .plus,
