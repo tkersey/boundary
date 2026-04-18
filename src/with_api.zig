@@ -99,6 +99,9 @@ fn namedBodyModulePathMatchesSourcePath(
     comptime source_path_value: []const u8,
     comptime entry_symbol_value: []const u8,
 ) bool {
+    if (source_graph_embed.ownedRepoPath(source_path_value) == null) {
+        return namedBodyModulePathMatchesExternalSourcePath(module_path, source_path_value);
+    }
     const full_module_path = namedBodySourceModulePath(source_path_value);
     const module_stem = std.fs.path.stem(source_path_value);
     if (namedBodyModulePathMatchesCandidate(module_path, full_module_path)) return true;
@@ -1498,6 +1501,7 @@ test "NamedBody provenance matching keeps directory segments distinct" {
     try std.testing.expect(!namedBodyModulePathMatchesSourcePath("nested.main", "main.zig", "body"));
     try std.testing.expect(namedBodyModulePathMatchesExternalSourcePath("helpers", "helpers.zig"));
     try std.testing.expect(!namedBodyModulePathMatchesExternalSourcePath("x.a.helpers", "a/helpers.zig"));
+    try std.testing.expect(!namedBodyModulePathMatchesSourcePath("x.a.helpers", "a/helpers.zig", "body"));
 }
 
 test "withOwnedSource keeps repo-owned NamedBody identity when explicit witness disagrees" {

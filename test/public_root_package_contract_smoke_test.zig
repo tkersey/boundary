@@ -250,6 +250,10 @@ const published_package_paths = [_][]const u8{
     "tools",
 };
 
+const mirrored_dep_names = [_][]const u8{
+    "zlinter",
+};
+
 fn assertPublishedPackagePathsMatchManifest(repo_dir: std.fs.Dir) !void {
     const manifest = try repo_dir.readFileAlloc(std.testing.allocator, "build.zig.zon", std.math.maxInt(usize));
     defer std.testing.allocator.free(manifest);
@@ -272,6 +276,106 @@ fn assertPublishedPackagePathsMatchManifest(repo_dir: std.fs.Dir) !void {
         actual_count += 1;
     }
     if (actual_count != published_package_paths.len) return error.PublishedPackagePathDrift;
+}
+
+fn dependencyBlockRange(manifest: []const u8, dep_name: []const u8) !struct { start: usize, end: usize } {
+    var marker_buffer: [128]u8 = undefined;
+    const marker = try std.fmt.bufPrint(&marker_buffer, "        .{s} = .{{", .{dep_name});
+    const start = std.mem.indexOf(u8, manifest, marker) orelse return error.MissingPublishedPackageDependency;
+    const tail = manifest[start..];
+    const end_rel = std.mem.indexOf(u8, tail, "        },") orelse return error.InvalidPublishedPackageManifest;
+    return .{
+        .start = start,
+        .end = start + end_rel + "        },".len,
+    };
+}
+
+fn dependencyHashFromManifest(manifest: []const u8, dep_name: []const u8) ![]const u8 {
+    const block = try dependencyBlockRange(manifest, dep_name);
+    const dependency_block = manifest[block.start..block.end];
+    const hash_marker = ".hash = \"";
+    const hash_start = std.mem.indexOf(u8, dependency_block, hash_marker) orelse return error.MissingPublishedPackageDependencyHash;
+    const hash_tail = dependency_block[hash_start + hash_marker.len ..];
+    const hash_end = std.mem.indexOfScalar(u8, hash_tail, '"') orelse return error.InvalidPublishedPackageManifest;
+    return hash_tail[0..hash_end];
+}
+
+fn replaceDependencyWithPathAlloc(
+    allocator: std.mem.Allocator,
+    manifest: []const u8,
+    dep_name: []const u8,
+    dependency_path: []const u8,
+) ![]u8 {
+    const block = try dependencyBlockRange(manifest, dep_name);
+    const replacement = try std.fmt.allocPrint(
+        allocator,
+        "        .{s} = .{{ .path = \"{s}\" }},",
+        .{ dep_name, dependency_path },
+    );
+    defer allocator.free(replacement);
+    return try std.fmt.allocPrint(
+        allocator,
+        "{s}{s}{s}",
+        .{ manifest[0..block.start], replacement, manifest[block.end..] },
+    );
+}
+
+fn pathExistsAbsolute(path: []const u8) bool {
+    var dir = std.fs.openDirAbsolute(path, .{}) catch return false;
+    defer dir.close();
+    return true;
+}
+
+fn appendCacheRootCandidate(
+    allocator: std.mem.Allocator,
+    candidates: *std.ArrayList([]const u8),
+    cache_root: []const u8,
+) !void {
+    const package_root = try std.fs.path.join(allocator, &.{ cache_root, "p" });
+    errdefer allocator.free(package_root);
+    if (!pathExistsAbsolute(package_root)) return;
+    try candidates.append(allocator, package_root);
+}
+
+fn findCachedDependencyDirAlloc(
+    allocator: std.mem.Allocator,
+    repo_root: []const u8,
+    dependency_hash: []const u8,
+) ![]u8 {
+    var candidates = std.ArrayList([]const u8).empty;
+    defer {
+        for (candidates.items) |candidate| allocator.free(candidate);
+        candidates.deinit(allocator);
+    }
+
+    const repo_cache_root = try std.fs.path.join(allocator, &.{ repo_root, ".zig-global-cache" });
+    defer allocator.free(repo_cache_root);
+    try appendCacheRootCandidate(allocator, &candidates, repo_cache_root);
+
+    if (std.process.getEnvVarOwned(allocator, "XDG_CACHE_HOME")) |xdg_cache_home| {
+        defer allocator.free(xdg_cache_home);
+        const zig_cache_root = try std.fs.path.join(allocator, &.{ xdg_cache_home, "zig" });
+        defer allocator.free(zig_cache_root);
+        try appendCacheRootCandidate(allocator, &candidates, zig_cache_root);
+    } else |_| {
+        if (std.process.getEnvVarOwned(allocator, "HOME")) |home| {
+            defer allocator.free(home);
+            const zig_cache_root = try std.fs.path.join(allocator, &.{ home, ".cache", "zig" });
+            defer allocator.free(zig_cache_root);
+            try appendCacheRootCandidate(allocator, &candidates, zig_cache_root);
+        } else |_| {
+            // No HOME fallback is available in this environment.
+        }
+    }
+
+    for (candidates.items) |candidate| {
+        const dependency_dir = try std.fs.path.join(allocator, &.{ candidate, dependency_hash });
+        errdefer allocator.free(dependency_dir);
+        if (pathExistsAbsolute(dependency_dir)) return dependency_dir;
+        allocator.free(dependency_dir);
+    }
+
+    return error.MissingPublishedPackageDependencyCache;
 }
 
 fn copyRepoFileIntoFixture(
@@ -311,6 +415,63 @@ fn copyRepoDirectoryIntoFixture(
     }
 }
 
+fn copyAbsoluteDirectoryIntoFixture(
+    source_dir_path: []const u8,
+    fixture_dir: std.fs.Dir,
+    dest_dir_path: []const u8,
+) !void {
+    try fixture_dir.makePath(dest_dir_path);
+
+    var source_dir = try std.fs.openDirAbsolute(source_dir_path, .{ .iterate = true });
+    defer source_dir.close();
+
+    var walker = try source_dir.walk(std.testing.allocator);
+    defer walker.deinit();
+
+    while (try walker.next()) |entry| {
+        const fixture_entry_path = try std.fs.path.join(std.testing.allocator, &.{ dest_dir_path, entry.path });
+        defer std.testing.allocator.free(fixture_entry_path);
+
+        switch (entry.kind) {
+            .directory => try fixture_dir.makePath(fixture_entry_path),
+            .file, .sym_link => try copyRepoFileIntoFixture(source_dir, fixture_dir, entry.path, fixture_entry_path),
+            else => return error.UnsupportedPublishedPackageEntry,
+        }
+    }
+}
+
+fn mirrorPublishedPackageDependenciesIntoFixture(tmp: *std.testing.TmpDir, repo_root: []const u8) !void {
+    const mirrored_manifest_path = "deps/shift/build.zig.zon";
+    const mirrored_manifest = try tmp.dir.readFileAlloc(std.testing.allocator, mirrored_manifest_path, std.math.maxInt(usize));
+    defer std.testing.allocator.free(mirrored_manifest);
+
+    var rewritten_manifest = try std.testing.allocator.dupe(u8, mirrored_manifest);
+    defer std.testing.allocator.free(rewritten_manifest);
+
+    inline for (mirrored_dep_names) |dep_name| {
+        const dependency_hash = try dependencyHashFromManifest(rewritten_manifest, dep_name);
+        const dependency_dir = try findCachedDependencyDirAlloc(std.testing.allocator, repo_root, dependency_hash);
+        defer std.testing.allocator.free(dependency_dir);
+
+        const fixture_dependency_path = try std.fs.path.join(std.testing.allocator, &.{ "deps", dep_name });
+        defer std.testing.allocator.free(fixture_dependency_path);
+        try copyAbsoluteDirectoryIntoFixture(dependency_dir, tmp.dir, fixture_dependency_path);
+
+        const relative_dependency_path = try std.fs.path.join(std.testing.allocator, &.{ "..", dep_name });
+        defer std.testing.allocator.free(relative_dependency_path);
+        const updated_manifest = try replaceDependencyWithPathAlloc(
+            std.testing.allocator,
+            rewritten_manifest,
+            dep_name,
+            relative_dependency_path,
+        );
+        std.testing.allocator.free(rewritten_manifest);
+        rewritten_manifest = updated_manifest;
+    }
+
+    try writeTmpFile(tmp.dir, mirrored_manifest_path, rewritten_manifest);
+}
+
 fn mirrorPublishedPackageIntoFixture(tmp: *std.testing.TmpDir, repo_root: []const u8) !void {
     try tmp.dir.makePath("deps/shift");
 
@@ -332,6 +493,8 @@ fn mirrorPublishedPackageIntoFixture(tmp: *std.testing.TmpDir, repo_root: []cons
             else => return err,
         }
     }
+
+    try mirrorPublishedPackageDependenciesIntoFixture(tmp, repo_root);
 }
 
 fn writeConsumerBuildFiles(tmp: *std.testing.TmpDir, repo_root: []const u8) !void {
@@ -888,11 +1051,23 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\const shift = @import("shift");
         \\
         \\pub fn main() void {
-        \\    _ = shift.NamedBody("totally/fake/a/helpers.zig", "body", anyerror!i32, &helpers.body);
+        \\    _ = shift.NamedBody("a/helpers.zig", "body", anyerror!i32, &helpers.body);
         \\}
         \\
     );
     try suite.expectFailureContains("NamedBody rejects suffix-only external source_path matches", &argv, null, "shift.NamedBody source_path must match the supplied body function provenance");
+
+    try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
+    try suite.writeFile("main.zig",
+        \\const helpers = @import("x/a/helpers.zig");
+        \\const shift = @import("shift");
+        \\
+        \\pub fn main() void {
+        \\    _ = shift.NamedBody("totally/fake/a/helpers.zig", "body", anyerror!i32, &helpers.body);
+        \\}
+        \\
+    );
+    try suite.expectFailureContains("NamedBody rejects unrelated external source_path matches", &argv, null, "shift.NamedBody source_path must match the supplied body function provenance");
 
     try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
     try suite.writeFile("body.zig",
