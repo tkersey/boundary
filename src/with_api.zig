@@ -148,28 +148,11 @@ fn validateNamedBodyRepoIdentity(
 
 fn namedCompiledLexicalPlan(
     comptime HandlersType: type,
-    comptime caller: ?std.builtin.SourceLocation,
     comptime Body: type,
 ) ?public_lowering.ProgramPlan {
     if (!isNamedBodyDescriptor(Body)) return null;
     const lowered_program = comptime blk: {
-        if (source_graph_embed.ownedRepoPath(Body.source_path) != null) {
-            break :blk public_lowering.maybeLowerAt(Body.source_path, .{
-                .label = "shift.with named lexical body",
-                .entry_symbol = Body.entry_symbol,
-                .ValueType = NamedBodyAnswerType(Body),
-                .row = lexical_bundle_schema.rowForHandlers(HandlersType),
-                .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
-            });
-        }
-        const explicit_caller = caller orelse break :blk null;
-        if (!sourcePathAgreesWithCaller(explicit_caller, Body.source_path)) break :blk null;
-        const source_ref = public_lowering.sourceWithContent(
-            Body.source_path,
-            explicit_caller,
-            @embedFile(explicit_caller.file),
-        );
-        break :blk public_lowering.maybeLower(source_ref, .{
+        break :blk public_lowering.maybeLowerAt(Body.source_path, .{
             .label = "shift.with named lexical body",
             .entry_symbol = Body.entry_symbol,
             .ValueType = NamedBodyAnswerType(Body),
@@ -2055,14 +2038,9 @@ fn ownedSourceUsesAnonymousCallerCompilation(comptime Body: type, comptime witne
     return !@hasDecl(Body, "entry_symbol");
 }
 
-fn ownedSourceUsesNamedEmbeddedCompilation(comptime Body: type) bool {
-    if (!isNamedBodyDescriptor(Body)) return false;
-    return source_graph_embed.ownedRepoPath(Body.source_path) != null;
-}
-
-fn ownedSourceNamedEmbeddedPlan(comptime HandlersType: type, comptime Body: type) ?public_lowering.ProgramPlan {
-    if (!ownedSourceUsesNamedEmbeddedCompilation(Body)) return null;
-    return namedCompiledLexicalPlan(HandlersType, null, Body);
+fn ownedSourceNamedPlan(comptime HandlersType: type, comptime Body: type) ?public_lowering.ProgramPlan {
+    if (!isNamedBodyDescriptor(Body)) return null;
+    return namedCompiledLexicalPlan(HandlersType, Body);
 }
 
 fn ownedSourceCompilationSourcePath(
@@ -2097,7 +2075,7 @@ fn rejectUnsupportedOwnedSourceWith(
     if (ownedSourceUsesAnonymousCallerCompilation(Body, witness)) {
         if (callerOwnedCompilationSupported(HandlersType, Body, caller, root_source, .owned_source)) return;
     }
-    if (comptime ownedSourceNamedEmbeddedPlan(HandlersType, Body)) |compiled_plan| {
+    if (comptime ownedSourceNamedPlan(HandlersType, Body)) |compiled_plan| {
         _ = compiled_plan;
         return;
     }
@@ -2144,7 +2122,7 @@ fn tryOwnedSourceCompiledWith(
             outputs_ptr,
         );
     }
-    if (comptime ownedSourceNamedEmbeddedPlan(HandlersType, Body)) |compiled_plan| {
+    if (comptime ownedSourceNamedPlan(HandlersType, Body)) |compiled_plan| {
         return try runCompiledLexicalPlan(
             HandlersType,
             Body,
@@ -2437,7 +2415,7 @@ fn withImpl(
     else
         null;
     comptime assertHandlerBundleShape(HandlersType);
-    const named_compiled_plan = comptime namedCompiledLexicalPlan(HandlersType, canonical_caller, Body);
+    const named_compiled_plan = comptime namedCompiledLexicalPlan(HandlersType, Body);
     comptime rejectUnsupportedShippedWith(HandlersType, Body, named_compiled_plan, canonical_caller, caller_source_override, caller_owned_kind);
 
     var handler_state = handlers;
@@ -2513,7 +2491,7 @@ pub fn withCallerSourceAndContent(
 }
 
 /// Run one lexical effect bundle through an explicit caller-owned source witness surface.
-/// The `root_source` bytes must match the source file identified by `witness.source_path` or `shift.NamedBody(...).source_path`.
+/// `shift.NamedBody(...)` stays descriptor-authoritative; `root_source` and witness imports only steer anonymous or witness-specified bodies.
 pub fn withOwnedSource(
     comptime caller: std.builtin.SourceLocation,
     comptime root_source: [:0]const u8,
