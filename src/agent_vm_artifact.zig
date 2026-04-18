@@ -80,6 +80,12 @@ pub const CapabilityManifestV1 = struct {
 
 const capability_global_tool_call = "tool.call";
 const capability_global_tool_after = "tool.after";
+const artifact_magic = "SFTARTV1";
+const artifact_header_len: usize = 72;
+const artifact_directory_entry_len: usize = 32;
+const artifact_format_version_v1: u16 = 1;
+const artifact_format_version_v2: u16 = 2;
+const artifact_version_current: u16 = artifact_format_version_v2;
 
 const section_optional_flag: u16 = 0x1;
 const capability_required_flag: u8 = 0x1;
@@ -203,6 +209,13 @@ pub const DecodeError = error{
 fn isReservedOptionalSectionId(raw_section_id: u16) bool {
     return switch (raw_section_id) {
         0x1000...0x10ff, 0x1100...0x11ff, 0x1200...0x12ff => true,
+        else => false,
+    };
+}
+
+fn supportedArtifactVersion(version: u16) bool {
+    return switch (version) {
+        artifact_format_version_v1, artifact_format_version_v2 => true,
         else => false,
     };
 }
@@ -410,10 +423,8 @@ pub fn encodeProgramPlan(
         .{ .section_id = .instruction_table, .bytes = instruction_table, .entry_count = @intCast(plan.instructions.len) },
     };
 
-    const header_len: usize = 72;
-    const directory_entry_len: usize = 32;
-    const directory_offset = header_len;
-    const payload_offset_base = directory_offset + directory_entry_len * payloads.len;
+    const directory_offset = artifact_header_len;
+    const payload_offset_base = directory_offset + artifact_directory_entry_len * payloads.len;
 
     var directories = [_]SectionDirectoryEntryV1{.{
         .section_id = .capability_manifest,
@@ -436,9 +447,9 @@ pub fn encodeProgramPlan(
     errdefer out.deinit(allocator);
     try out.ensureTotalCapacity(allocator, payload_offset);
 
-    try out.appendSlice(allocator, "SFTARTV1");
-    try appendU16(&out, allocator, @intCast(header_len));
-    try appendU16(&out, allocator, 1);
+    try out.appendSlice(allocator, artifact_magic);
+    try appendU16(&out, allocator, artifact_header_len);
+    try appendU16(&out, allocator, artifact_version_current);
     try appendU64(&out, allocator, @intCast(directory_offset));
     try appendU16(&out, allocator, @intCast(payloads.len));
     try appendU16(&out, allocator, plan.entry_index);
@@ -464,10 +475,11 @@ pub fn encodeProgramPlan(
 
 /// Decode canonical ArtifactV1 bytes into the in-memory artifact surface.
 pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!ArtifactV1 {
-    if (bytes.len < 72) return error.InvalidDirectoryBounds;
-    if (!std.mem.eql(u8, bytes[0..8], "SFTARTV1")) return error.BadMagic;
-    if (readU16(bytes, 8) != 72) return error.UnsupportedVersion;
-    if (readU16(bytes, 10) != 1) return error.UnsupportedVersion;
+    if (bytes.len < artifact_header_len) return error.InvalidDirectoryBounds;
+    if (!std.mem.eql(u8, bytes[0..8], artifact_magic)) return error.BadMagic;
+    if (readU16(bytes, 8) != artifact_header_len) return error.UnsupportedVersion;
+    const artifact_version = readU16(bytes, 10);
+    if (!supportedArtifactVersion(artifact_version)) return error.UnsupportedVersion;
     const directory_offset = readU64(bytes, 12);
     const directory_count = readU16(bytes, 20);
     const entry_index = readU16(bytes, 22);
@@ -477,8 +489,8 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
     for (bytes[34..40]) |byte| if (byte != 0) return error.NonZeroReserved;
     const expected_hash = bytes[40..72];
 
-    if (directory_offset != 72) return error.InvalidDirectoryBounds;
-    const directory_bytes_len = @as(usize, directory_count) * 32;
+    if (directory_offset != artifact_header_len) return error.InvalidDirectoryBounds;
+    const directory_bytes_len = @as(usize, directory_count) * artifact_directory_entry_len;
     const bytes_len_u64: u64 = @intCast(bytes.len);
     const directory_end = checkedSectionEnd(directory_offset, directory_bytes_len) orelse return error.InvalidDirectoryBounds;
     if (directory_end > bytes_len_u64) return error.InvalidDirectoryBounds;
@@ -502,7 +514,7 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
 
     var cursor: usize = @intCast(directory_offset);
     var previous_section_id: ?u16 = null;
-    while (@as(u64, @intCast(cursor)) < directory_end) : (cursor += 32) {
+    while (@as(u64, @intCast(cursor)) < directory_end) : (cursor += artifact_directory_entry_len) {
         const raw_section_id = readU16(bytes, cursor);
         if (previous_section_id) |previous| {
             if (raw_section_id < previous) return error.UnsortedDirectorySection;
@@ -559,7 +571,7 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
         if (decoded_requirements.items.len != 0) deepFreeRequirementPlans(allocator, decoded_requirements.items);
     }
 
-    var functions = try decodeFunctionTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .function_table));
+    var functions = try decodeFunctionTable(allocator, artifact_version, string_bytes, sectionBytes(bytes, directories.items, .function_table));
     errdefer if (functions.len != 0) deepFreeFunctionPlans(allocator, functions);
 
     var ops = try decodeOpTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .op_table));
@@ -580,7 +592,7 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
     var terminators = try decodeTerminatorTable(allocator, sectionBytes(bytes, directories.items, .terminator_table));
     errdefer if (terminators.len != 0) allocator.free(terminators);
 
-    var instructions = try decodeInstructionTable(allocator, string_bytes, sectionBytes(bytes, directories.items, .instruction_table));
+    var instructions = try decodeInstructionTable(allocator, artifact_version, string_bytes, sectionBytes(bytes, directories.items, .instruction_table));
     errdefer if (instructions.len != 0) deepFreeInstructions(allocator, instructions);
 
     var artifact = ArtifactV1{
@@ -1004,7 +1016,7 @@ fn encodeInstructionTable(allocator: std.mem.Allocator, strings: *StringTable, p
     for (plan.instructions) |instruction| {
         const canonical = canonicalInstruction(plan, instruction);
         const string_ref = try strings.add(canonical.string_literal);
-        try out.append(allocator, @intFromEnum(canonical.kind));
+        try out.append(allocator, encodeInstructionKind(canonical.kind, artifact_version_current));
         try out.append(allocator, 0);
         try appendU16(&out, allocator, canonical.dst);
         try appendU16(&out, allocator, canonical.operand);
@@ -1406,7 +1418,12 @@ fn decodeCallArgTable(allocator: std.mem.Allocator, bytes: []const u8) ![]u16 {
     return items;
 }
 
-fn decodeFunctionTable(allocator: std.mem.Allocator, string_bytes: []const u8, bytes: []const u8) ![]program_plan.FunctionPlan {
+fn decodeFunctionTable(
+    allocator: std.mem.Allocator,
+    artifact_version: u16,
+    string_bytes: []const u8,
+    bytes: []const u8,
+) ![]program_plan.FunctionPlan {
     if (bytes.len % 36 != 0) return error.InvalidDirectoryBounds;
     const items = try allocator.alloc(program_plan.FunctionPlan, bytes.len / 36);
     var initialized: usize = 0;
@@ -1414,16 +1431,26 @@ fn decodeFunctionTable(allocator: std.mem.Allocator, string_bytes: []const u8, b
     var cursor: usize = 0;
     for (items) |*item| {
         const value_codec = std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 8]) orelse return error.UnsupportedVersion;
-        const has_result_codec = switch (bytes[cursor + 9]) {
-            0 => false,
-            1 => true,
-            else => return error.NonZeroReserved,
+        const result_codec = switch (artifact_version) {
+            artifact_format_version_v1 => blk: {
+                for (bytes[cursor + 9 .. cursor + 12]) |byte| if (byte != 0) return error.NonZeroReserved;
+                break :blk null;
+            },
+            artifact_format_version_v2 => blk: {
+                const has_result_codec = switch (bytes[cursor + 9]) {
+                    0 => false,
+                    1 => true,
+                    else => return error.NonZeroReserved,
+                };
+                const decoded_result_codec = if (has_result_codec)
+                    std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 10]) orelse return error.UnsupportedVersion
+                else
+                    null;
+                if (bytes[cursor + 11] != 0) return error.NonZeroReserved;
+                break :blk decoded_result_codec;
+            },
+            else => return error.UnsupportedVersion,
         };
-        const result_codec = if (has_result_codec)
-            std.enums.fromInt(program_plan.ValueCodec, bytes[cursor + 10]) orelse return error.UnsupportedVersion
-        else
-            null;
-        if (bytes[cursor + 11] != 0) return error.NonZeroReserved;
         item.* = .{
             .symbol_name = try readStringRefDup(allocator, string_bytes, bytes[cursor .. cursor + 8]),
             .value_codec = value_codec,
@@ -1482,14 +1509,66 @@ fn decodeTerminatorTable(allocator: std.mem.Allocator, bytes: []const u8) ![]pro
     return items;
 }
 
-fn decodeInstructionTable(allocator: std.mem.Allocator, string_bytes: []const u8, bytes: []const u8) ![]program_plan.Instruction {
+fn decodeInstructionKind(raw_kind: u8, artifact_version: u16) !program_plan.InstructionKind {
+    return switch (artifact_version) {
+        artifact_format_version_v1 => switch (raw_kind) {
+            0 => .add_const_i32,
+            1 => .call_helper,
+            2 => .call_op,
+            3 => .compare_eq_zero,
+            4 => .const_i32,
+            5 => .const_string,
+            6 => .return_value,
+            7 => .sub_one,
+            else => error.UnsupportedVersion,
+        },
+        artifact_format_version_v2 => std.enums.fromInt(program_plan.InstructionKind, raw_kind) orelse error.UnsupportedVersion,
+        else => error.UnsupportedVersion,
+    };
+}
+
+fn encodeInstructionKind(kind: program_plan.InstructionKind, artifact_version: u16) u8 {
+    return switch (artifact_version) {
+        artifact_format_version_v2 => switch (kind) {
+            .add_const_i32 => 0,
+            .add_i32 => 1,
+            .call_helper => 2,
+            .call_op => 3,
+            .compare_eq_zero => 4,
+            .const_i32 => 5,
+            .const_string => 6,
+            .const_usize => 7,
+            .return_value => 8,
+            .sub_one => 9,
+        },
+        artifact_format_version_v1 => switch (kind) {
+            .add_const_i32 => 0,
+            .call_helper => 1,
+            .call_op => 2,
+            .compare_eq_zero => 3,
+            .const_i32 => 4,
+            .const_string => 5,
+            .return_value => 6,
+            .sub_one => 7,
+            .add_i32, .const_usize => unreachable,
+        },
+        else => unreachable,
+    };
+}
+
+fn decodeInstructionTable(
+    allocator: std.mem.Allocator,
+    artifact_version: u16,
+    string_bytes: []const u8,
+    bytes: []const u8,
+) ![]program_plan.Instruction {
     if (bytes.len % 16 != 0) return error.InvalidDirectoryBounds;
     const items = try allocator.alloc(program_plan.Instruction, bytes.len / 16);
     var initialized: usize = 0;
     errdefer deepFreeInstructionsPrefix(allocator, items, initialized);
     var cursor: usize = 0;
     for (items) |*item| {
-        const kind = std.enums.fromInt(program_plan.InstructionKind, bytes[cursor]) orelse return error.UnsupportedVersion;
+        const kind = try decodeInstructionKind(bytes[cursor], artifact_version);
         if (bytes[cursor + 1] != 0) return error.NonZeroReserved;
         item.* = .{
             .kind = kind,
@@ -1888,6 +1967,18 @@ fn patchCapabilityFlags(bytes: []u8, capability_index: usize, flags: u8) void {
     recomputeEncodedArtifactHash(bytes);
 }
 
+fn patchArtifactVersion(bytes: []u8, version: u16) void {
+    std.mem.writeInt(u16, bytes[10..][0..2], version, .little);
+    recomputeEncodedArtifactHash(bytes);
+}
+
+fn patchInstructionKind(bytes: []u8, instruction_index: usize, raw_kind: u8) void {
+    const instruction_table_offset = sectionPayloadOffset(bytes, .instruction_table);
+    const row_offset = instruction_table_offset + instruction_index * 16;
+    bytes[row_offset] = raw_kind;
+    recomputeEncodedArtifactHash(bytes);
+}
+
 fn patchSectionReservedByte(bytes: []u8, section_id: SectionId, row_index: usize, byte_offset: usize, value: u8) void {
     const entry_len: usize = switch (section_id) {
         .requirement_table, .op_table, .output_table, .instruction_table => 16,
@@ -2000,6 +2091,7 @@ test "ArtifactV1 encode/decode preserves plan structure and capability manifest"
         .capabilities = &capabilities,
     });
     defer std.testing.allocator.free(encoded);
+    try std.testing.expectEqual(artifact_version_current, readU16(encoded, 10));
 
     var decoded = try decode(std.testing.allocator, encoded);
     defer decoded.deinit(std.testing.allocator);
@@ -2013,6 +2105,184 @@ test "ArtifactV1 encode/decode preserves plan structure and capability manifest"
     try std.testing.expectEqualStrings("entry", decoded.functions[0].symbol_name);
     try std.testing.expectEqual(program_plan.ValueCodec.string, decoded.functions[0].result_codec.?);
     try std.testing.expectEqual(@as(usize, 1), decoded.instructions.len);
+}
+
+test "ArtifactV1 decode maps legacy v1 instruction tags into current instruction kinds" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.legacy_v1_instruction_tags",
+        .ir_hash = 0x45,
+        .entry_index = 0,
+        .functions = &.{
+            .{
+                .symbol_name = "entry",
+                .value_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 0,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 2,
+            },
+            .{
+                .symbol_name = "helper",
+                .value_codec = .string,
+                .parameter_count = 0,
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_local = 0,
+                .local_count = 1,
+                .first_block = 1,
+                .entry_block = 1,
+                .block_count = 1,
+                .first_instruction = 2,
+                .instruction_count = 2,
+            },
+        },
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{
+            .{ .codec = .string },
+            .{ .codec = .string },
+        },
+        .call_args = &.{},
+        .blocks = &.{
+            .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+            .{ .first_instruction = 2, .instruction_count = 2, .terminator_index = 1 },
+        },
+        .terminators = &.{
+            .{ .kind = .return_value },
+            .{ .kind = .return_value },
+        },
+        .instructions = &.{
+            .{ .kind = .call_helper, .dst = 0, .operand = 1 },
+            .{ .kind = .return_value, .operand = 0 },
+            .{ .kind = .const_string, .dst = 1, .string_literal = "legacy" },
+            .{ .kind = .return_value, .operand = 1 },
+        },
+    };
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = buildFingerprintFromSeed("artifact-legacy-v1-instruction-tags"),
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(encoded);
+
+    patchArtifactVersion(encoded, artifact_format_version_v1);
+    patchInstructionKind(encoded, 0, 1);
+    patchInstructionKind(encoded, 1, 6);
+    patchInstructionKind(encoded, 2, 5);
+    patchInstructionKind(encoded, 3, 6);
+
+    var decoded = try decode(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 4), decoded.instructions.len);
+    try std.testing.expectEqual(program_plan.InstructionKind.call_helper, decoded.instructions[0].kind);
+    try std.testing.expectEqual(program_plan.InstructionKind.return_value, decoded.instructions[1].kind);
+    try std.testing.expectEqual(program_plan.InstructionKind.const_string, decoded.instructions[2].kind);
+    try std.testing.expectEqualStrings("legacy", decoded.instructions[2].string_literal);
+    try std.testing.expectEqual(@as(?program_plan.ValueCodec, null), decoded.functions[0].result_codec);
+    try std.testing.expectEqual(@as(?program_plan.ValueCodec, null), decoded.functions[1].result_codec);
+}
+
+test "ArtifactV1 decode rejects legacy v1 function rows with repurposed result_codec bytes" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.legacy_v1_function_reserved_bytes",
+        .ir_hash = 0x46,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = buildFingerprintFromSeed("artifact-legacy-v1-function-reserved-bytes"),
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(encoded);
+
+    patchArtifactVersion(encoded, artifact_format_version_v1);
+    patchSectionReservedByte(encoded, .function_table, 0, 9, 1);
+
+    try std.testing.expectError(error.NonZeroReserved, decode(std.testing.allocator, encoded));
+}
+
+test "ArtifactV1 decode accepts v2 function rows with explicit result_codec bytes" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.v2_function_result_codec_bytes",
+        .ir_hash = 0x47,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = buildFingerprintFromSeed("artifact-v2-function-result-codec-bytes"),
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(encoded);
+
+    patchSectionReservedByte(encoded, .function_table, 0, 9, 1);
+    patchSectionReservedByte(encoded, .function_table, 0, 10, @intFromEnum(program_plan.ValueCodec.string));
+
+    var decoded = try decode(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), decoded.functions.len);
+    try std.testing.expectEqual(program_plan.ValueCodec.unit, decoded.functions[0].value_codec);
+    try std.testing.expectEqual(program_plan.ValueCodec.string, decoded.functions[0].result_codec.?);
 }
 
 test "ArtifactV1 rejects custom capabilities whose op codecs do not match the compiled plan" {
