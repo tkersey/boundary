@@ -2064,6 +2064,11 @@ fn ownedSourceNamedPlan(comptime HandlersType: type, comptime Body: type) ?publi
     return namedCompiledLexicalPlan(HandlersType, Body);
 }
 
+fn ownedSourceUsesExternalNamedDirectExecution(comptime Body: type) bool {
+    if (!isNamedBodyDescriptor(Body)) return false;
+    return !public_lowering.repoOwnedSourcePathSupported(Body.source_path);
+}
+
 fn ownedSourceCompilationSourcePath(
     comptime Body: type,
     comptime witness: OwnedSourceWitness,
@@ -2100,6 +2105,7 @@ fn rejectUnsupportedOwnedSourceWith(
         _ = compiled_plan;
         return;
     }
+    if (ownedSourceUsesExternalNamedDirectExecution(Body)) return;
     const source_path = comptime ownedSourceCompilationSourcePath(Body, witness, caller);
     const source_owner = comptime ownedSourceLocation(caller, source_path);
     const entry_symbol = comptime ownedSourceCompilationEntrySymbol(Body, witness, caller);
@@ -2152,6 +2158,14 @@ fn tryOwnedSourceCompiledWith(
             outputs_ptr,
             compiled_plan,
         );
+    }
+    if (ownedSourceUsesExternalNamedDirectExecution(Body)) {
+        return try runChainCollected(HandlersType, Body, 0, struct {}, caller, .{
+            .runtime = runtime,
+            .handlers_ptr = handlers_ptr,
+            .eff_value = .{},
+            .outputs_ptr = outputs_ptr,
+        });
     }
     const source_path = comptime ownedSourceCompilationSourcePath(Body, witness, caller);
     const source_owner = comptime ownedSourceLocation(caller, source_path);
@@ -2522,7 +2536,10 @@ pub fn withOwnedSource(
     comptime Body: type,
 ) WithFnReturnType(@TypeOf(handlers), Body) {
     const HandlersType = @TypeOf(handlers);
-    const canonical_caller = comptime source_graph_embed.canonicalCallerLocation(caller);
+    const canonical_caller = comptime if (ownedSourceUsesExternalNamedDirectExecution(Body))
+        caller
+    else
+        source_graph_embed.canonicalCallerLocation(caller);
     comptime assertHandlerBundleShape(HandlersType);
     comptime rejectUnsupportedOwnedSourceWith(HandlersType, Body, canonical_caller, root_source, witness);
 

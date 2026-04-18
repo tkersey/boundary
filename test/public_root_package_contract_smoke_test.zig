@@ -908,7 +908,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
     );
     try suite.expectSuccess("explicit witness disagreement cannot override repo-owned NamedBody", &argv, null);
 
-    try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
+    try writeConsumerTestBuild(suite.tmp.dir, "shift");
     try suite.writeFile("forged.zig",
         \\pub fn body(eff: anytype) anyerror!i32 {
         \\    const before = try eff.state.get();
@@ -930,15 +930,15 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\const shift = @import("shift");
         \\const std = @import("std");
         \\
-        \\pub fn main() !void {
-        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\test "withOwnedSource keeps downstream NamedBody identity" {
+        \\    var runtime = shift.Runtime.init(std.testing.allocator);
         \\    defer runtime.deinit();
         \\    const named = shift.NamedBody("body.zig", "body", anyerror!i32, body_file.body);
         \\    const result = try shift.withOwnedSource(@src(), @embedFile("forged.zig"), .{}, &runtime, .{
         \\        .state = shift.effect.state.use(@as(i32, 0)),
         \\    }, named);
-        \\    if (result.value != 1) return error.UnexpectedResult;
-        \\    if (result.outputs.state != 1) return error.UnexpectedState;
+        \\    try std.testing.expectEqual(@as(i32, 1), result.value);
+        \\    try std.testing.expectEqual(@as(i32, 1), result.outputs.state);
         \\}
         \\
     );
