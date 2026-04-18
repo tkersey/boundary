@@ -686,6 +686,10 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
 
     try writeConsumerExecutableBuildWithRoot(suite.tmp.dir, "shift", "src/main.zig");
     try suite.writeFile("src/helpers.zig",
+        \\pub fn sourcePath() []const u8 {
+        \\    return @src().file;
+        \\}
+        \\
         \\pub fn body(eff: anytype) anyerror!i32 {
         \\    const before = try eff.state.get();
         \\    try eff.state.set(before + 1);
@@ -703,7 +707,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\    defer runtime.deinit();
         \\    const result = try shift.withAt(@src(), &runtime, .{
         \\        .state = shift.effect.state.use(@as(i32, 0)),
-        \\    }, shift.NamedBody("src/helpers.zig", "body", anyerror!i32, helpers.body));
+        \\    }, shift.NamedBody(helpers.sourcePath(), "body", anyerror!i32, helpers.body));
         \\    if (result.value != 1) return error.UnexpectedResult;
         \\    if (result.outputs.state != 1) return error.UnexpectedState;
         \\}
@@ -803,7 +807,11 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\        ,
         \\    }, &runtime, .{
         \\        .optional = shift.effect.optional.use(i32, policy),
-        \\    }, struct {});
+        \\    }, struct {
+        \\        pub fn body(_: anytype) anyerror![]const u8 {
+        \\            return "placeholder";
+        \\        }
+        \\    });
         \\}
         \\
     );
