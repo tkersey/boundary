@@ -2071,8 +2071,12 @@ fn pathIsIgnoredBuildInput(path: []const u8) bool {
         std.mem.startsWith(u8, path, ".git/") or
         std.mem.eql(u8, path, ".zig-cache") or
         std.mem.startsWith(u8, path, ".zig-cache/") or
+        std.mem.eql(u8, path, "zig-cache") or
+        std.mem.startsWith(u8, path, "zig-cache/") or
         std.mem.eql(u8, path, ".zig-global-cache") or
         std.mem.startsWith(u8, path, ".zig-global-cache/") or
+        std.mem.eql(u8, path, "zig-global-cache") or
+        std.mem.startsWith(u8, path, "zig-global-cache/") or
         std.mem.eql(u8, path, "zig-out") or
         std.mem.startsWith(u8, path, "zig-out/");
 }
@@ -2654,6 +2658,37 @@ test "artifact build fingerprint includes embedded non-Zig inputs and excludes u
     );
     const after_untracked_zig = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
     try std.testing.expectEqualSlices(u8, &before_untracked_zig, &after_untracked_zig);
+}
+
+test "artifact build fingerprint excludes non-dotted Zig cache roots" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(repo_root);
+
+    try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
+    try writeTmpFile(tmp.dir, "probe.zig",
+        \\pub fn main() void {
+        \\    const self = @embedFile(@src().file);
+        \\    _ = self;
+        \\}
+        \\
+    );
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "init", "-q" });
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "add", "probe.zig", "build.zig.zon" });
+
+    const before = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try writeTmpFile(tmp.dir, "zig-cache/generated.zig",
+        \\pub fn ignored() void {}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "zig-global-cache/generated.zig",
+        \\pub fn ignored() void {}
+        \\
+    );
+    const after = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try std.testing.expectEqualSlices(u8, &before, &after);
 }
 
 test "artifact build fingerprint includes imported untracked Zig inputs" {
