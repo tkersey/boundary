@@ -91,12 +91,7 @@ fn namedBodyModulePathMatchesExternalSourcePath(
     comptime module_path: []const u8,
     comptime source_path_value: []const u8,
 ) bool {
-    var candidate = namedBodySourceModulePath(source_path_value);
-    while (true) {
-        if (namedBodyModulePathMatchesCandidate(module_path, candidate)) return true;
-        const dot_index = std.mem.indexOfScalar(u8, candidate, '.') orelse return false;
-        candidate = candidate[dot_index + 1 ..];
-    }
+    return namedBodyModulePathMatchesCandidate(module_path, namedBodySourceModulePath(source_path_value));
 }
 
 fn namedBodyModulePathMatchesSourcePath(

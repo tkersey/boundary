@@ -540,6 +540,42 @@ fn continuationStructStart(args: []const BodyToken) ?struct {
     return null;
 }
 
+fn continuationStructTokens(args: []const BodyToken, struct_start: usize) ?[]const BodyToken {
+    var paren_depth: usize = 0;
+    var bracket_depth: usize = 0;
+    var brace_depth: usize = 0;
+    var index: usize = struct_start;
+    while (index < args.len) : (index += 1) {
+        switch (args[index].tag) {
+            .l_paren => paren_depth += 1,
+            .r_paren => {
+                if (paren_depth == 0) return null;
+                paren_depth -= 1;
+            },
+            .l_bracket => bracket_depth += 1,
+            .r_bracket => {
+                if (bracket_depth == 0) return null;
+                bracket_depth -= 1;
+            },
+            .l_brace => brace_depth += 1,
+            .r_brace => {
+                if (brace_depth == 0) return null;
+                brace_depth -= 1;
+            },
+            else => {},
+        }
+
+        if (index == struct_start or paren_depth != 0 or bracket_depth != 0 or brace_depth != 0) continue;
+
+        const struct_end = index + 1;
+        const tail = args[struct_end..];
+        if (tail.len == 0) return args[struct_start..struct_end];
+        if (tail.len == 1 and tail[0].tag == .comma) return args[struct_start..struct_end];
+        return null;
+    }
+    return null;
+}
+
 fn parseContinuationApplyBody(struct_tokens: []const BodyToken) ?struct {
     param_name: ?[]const u8,
     body: []const BodyToken,
@@ -713,7 +749,8 @@ fn parseReturnContinuationDirectCall(
     const args = tokens[args_bounds.start .. tokens.len - 1];
     const struct_arg = continuationStructStart(args) orelse return null;
     if (!statementArgsSupported(args[0..struct_arg.payload_end])) return null;
-    const apply = parseContinuationApplyBody(args[struct_arg.struct_start..]) orelse return null;
+    const struct_tokens = continuationStructTokens(args, struct_arg.struct_start) orelse return null;
+    const apply = parseContinuationApplyBody(struct_tokens) orelse return null;
 
     return .{
         .direct_call = .{

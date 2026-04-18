@@ -774,6 +774,44 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
     try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
     try suite.writeFile("main.zig",
         \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn main() !void {
+        \\    const policy = struct {
+        \\        pub fn resumeOrReturn() shift.effect.choice.Decision(i32, []const u8) {
+        \\            return shift.effect.choice.Decision(i32, []const u8).resumeWith(41);
+        \\        }
+        \\
+        \\        pub fn afterResume(answer: []const u8) []const u8 {
+        \\            return answer;
+        \\        }
+        \\    };
+        \\
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\    _ = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{
+        \\        .entry_symbol = "ownedBody",
+        \\        .body_source =
+        \\        \\pub fn ownedBody(eff: anytype) anyerror![]const u8 {
+        \\        \\    return try eff.optional.request(struct {
+        \\        \\        pub fn apply(value: i32, _: anytype) anyerror![]const u8 {
+        \\        \\            if (value != 41) unreachable;
+        \\        \\            return "answer=42";
+        \\        \\        }
+        \\        \\    }, "extra");
+        \\        \\}
+        \\        ,
+        \\    }, &runtime, .{
+        \\        .optional = shift.effect.optional.use(i32, policy),
+        \\    }, struct {});
+        \\}
+        \\
+    );
+    try suite.expectFailureContains("withOwnedSource rejects explicit continuations with trailing arguments", &argv, null, "shift.withOwnedSource explicit source witnesses must stay within the retained compiled lexical subset");
+
+    try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
+    try suite.writeFile("main.zig",
+        \\const shift = @import("shift");
         \\
         \\pub fn body(_: anytype) anyerror!i32 {
         \\    return 1;
@@ -807,6 +845,24 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\
     );
     try suite.expectFailureContains("NamedBody rejects helper function provenance drift", &argv, null, "shift.NamedBody source_path must match the supplied body function provenance");
+
+    try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
+    try suite.writeFile("x/a/helpers.zig",
+        \\pub fn body(_: anytype) anyerror!i32 {
+        \\    return 2;
+        \\}
+        \\
+    );
+    try suite.writeFile("main.zig",
+        \\const helpers = @import("x/a/helpers.zig");
+        \\const shift = @import("shift");
+        \\
+        \\pub fn main() void {
+        \\    _ = shift.NamedBody("totally/fake/a/helpers.zig", "body", anyerror!i32, &helpers.body);
+        \\}
+        \\
+    );
+    try suite.expectFailureContains("NamedBody rejects suffix-only external source_path matches", &argv, null, "shift.NamedBody source_path must match the supplied body function provenance");
 
     try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
     try suite.writeFile("body.zig",
