@@ -363,8 +363,11 @@ fn findCachedDependencyDirAlloc(
             const zig_cache_root = try std.fs.path.join(allocator, &.{ home, ".cache", "zig" });
             defer allocator.free(zig_cache_root);
             try appendCacheRootCandidate(allocator, &candidates, zig_cache_root);
-        } else |_| {
-            // No HOME fallback is available in this environment.
+        } else |err| switch (err) {
+            error.EnvironmentVariableNotFound => {
+                // No HOME fallback is available in this environment.
+            },
+            else => return err,
         }
     }
 

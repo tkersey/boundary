@@ -17,11 +17,6 @@ fn decodeI32InstructionLiteral(instruction: program_plan.Instruction) i32 {
     return @bitCast(high | low);
 }
 
-fn decodeU32InstructionLiteral(instruction: program_plan.Instruction) u32 {
-    const low = @as(u32, instruction.operand);
-    const high = @as(u32, instruction.aux) << 16;
-    return high | low;
-}
 
 fn functionLocalCodec(compiled_plan: program_plan.ProgramPlan, function: program_plan.FunctionPlan, local_id: u16) ?program_plan.ValueCodec {
     if (local_id >= function.local_count) return null;
@@ -446,7 +441,6 @@ fn continueFunction(
                 }),
                 .const_i32 => setLocal(locals, instruction.dst, switch (functionLocalCodec(compiled_plan, function, instruction.dst) orelse return error.ProgramContractViolation) {
                     .i32 => .{ .i32 = decodeI32InstructionLiteral(instruction) },
-                    .usize => .{ .usize = decodeU32InstructionLiteral(instruction) },
                     else => return error.ProgramContractViolation,
                 }),
                 .const_usize => setLocal(locals, instruction.dst, .{
@@ -669,4 +663,47 @@ pub fn runEntryWithArgs(
         .outputs = try collectOutputsForPlan(compiled_plan, handlers),
         .value = decodeRuntimeValue(program_plan.functionResultCodec(compiled_plan.functions[compiled_plan.entry_index]), value),
     };
+}
+
+test "program plan interpreter rejects const_i32 instructions targeting usize locals" {
+    const compiled_plan: program_plan.ProgramPlan = .{
+        .label = "interpreter.invalid.const_i32_into_usize",
+        .ir_hash = 0x305,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .usize,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .usize }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{
+                .kind = .const_i32,
+                .dst = 0,
+                .operand = @as(u16, @bitCast(@as(i16, -1))),
+                .aux = @as(u16, @bitCast(@as(i16, -1))),
+            },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+
+    var handlers = struct {}{};
+    try std.testing.expectError(error.ProgramContractViolation, executeDispatch(compiled_plan, &handlers, 0, &.{}));
 }

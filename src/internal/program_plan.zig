@@ -370,7 +370,7 @@ pub const ProgramPlan = struct {
                             .const_i32 => {
                                 const dst_codec = functionLocalCodec(self, function, instruction.dst) orelse
                                     return error.InvalidInstructionLocalIndex;
-                                if (dst_codec != .i32 and dst_codec != .usize) return error.InvalidInstructionLocalIndex;
+                                if (dst_codec != .i32) return error.InvalidInstructionLocalIndex;
                             },
                             .const_usize => unreachable,
                             .sub_one => {
@@ -2822,6 +2822,54 @@ test "ProgramPlan.validate accepts hexadecimal const_usize literals" {
     };
 
     try plan.validate();
+}
+
+test "ProgramPlan.validate rejects const_i32 instructions targeting usize locals" {
+    const plan = ProgramPlan{
+        .label = "invalid.const_i32_into_usize",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .usize,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .usize }},
+        .call_args = &.{},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 2,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{
+                .kind = .const_i32,
+                .dst = 0,
+                .operand = @as(u16, @bitCast(@as(i16, -1))),
+                .aux = @as(u16, @bitCast(@as(i16, -1))),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+        },
+    };
+
+    try std.testing.expectError(error.InvalidInstructionLocalIndex, plan.validate());
 }
 
 test "ProgramPlan hash survives JSON roundtrip" {

@@ -435,7 +435,6 @@ fn executeFunction(
                     .{
                         .value = switch (functionLocalCodec(ctx.plan, function, instruction.dst) orelse return error.ProgramContractViolation) {
                             .i32 => .{ .i32 = decodeI32InstructionLiteral(instruction) },
-                            .usize => .{ .usize = decodeU32InstructionLiteral(instruction) },
                             else => return error.ProgramContractViolation,
                         },
                     },
@@ -989,11 +988,6 @@ fn decodeI32InstructionLiteral(instruction: program_plan.Instruction) i32 {
     return @bitCast(high | low);
 }
 
-fn decodeU32InstructionLiteral(instruction: program_plan.Instruction) u32 {
-    const low = @as(u32, instruction.operand);
-    const high = @as(u32, instruction.aux) << 16;
-    return high | low;
-}
 
 fn deepFreeProgramPlan(allocator: std.mem.Allocator, plan: program_plan.ProgramPlan) void {
     allocator.free(plan.label);
@@ -2131,6 +2125,83 @@ test "artifact runtime decodes hexadecimal const_usize literals" {
         },
         else => return error.TestUnexpectedResult,
     }
+}
+
+test "artifact runtime rejects const_i32 instructions targeting usize locals" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.invalid.const_i32_into_usize",
+        .ir_hash = 0x306,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "badConst",
+            .value_codec = .usize,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .usize }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{
+                .kind = .const_i32,
+                .dst = 0,
+                .operand = @as(u16, @bitCast(@as(i16, -1))),
+                .aux = @as(u16, @bitCast(@as(i16, -1))),
+            },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+
+    var logs = std.ArrayList(host.HostLogEntryV1).empty;
+    defer logs.deinit(std.testing.allocator);
+    var next_request_id: u64 = 1;
+    const decoded = artifact.ArtifactV1{
+        .semantic_ir_hash64 = plan.ir_hash,
+        .manifest_build_fingerprint = std.mem.zeroes([32]u8),
+        .build_fingerprint_blake3_256 = std.mem.zeroes([32]u8),
+        .capabilities = &.{},
+        .requirement_capability_ids = &.{},
+        .functions = plan.functions,
+        .requirements = plan.requirements,
+        .ops = plan.ops,
+        .outputs = plan.outputs,
+        .locals = plan.locals,
+        .call_args = plan.call_args,
+        .blocks = plan.blocks,
+        .terminators = plan.terminators,
+        .instructions = plan.instructions,
+    };
+    var ctx = ExecutionContext{
+        .allocator = std.testing.allocator,
+        .decoded = &decoded,
+        .plan = plan,
+        .adapter = .{
+            .ctx = null,
+            .dispatchFn = struct {
+                fn dispatch(_: ?*anyopaque, _: std.mem.Allocator, _: host.HostEffectRequestV1) anyerror!host.HostEffectResultV1 {
+                    return error.UnexpectedHostDispatch;
+                }
+            }.dispatch,
+        },
+        .logs = &logs,
+        .next_request_id = &next_request_id,
+    };
+
+    try std.testing.expectError(error.ProgramContractViolation, executeFunction(&ctx, 0, &.{}));
 }
 
 test "artifact runtime returns ProgramContractViolation on add_const_i32 overflow" {
