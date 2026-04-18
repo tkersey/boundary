@@ -48,7 +48,16 @@ test "public provenance wrappers stay caller-owned only with explicit cross-file
         const NoError = error{};
 
         var reader_instance = shift.effect.reader.Instance(i32, NoError).init();
-        const reader_result = try shift.effect.reader.handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &reader_instance, @as(i32, 21), struct {
+        const reader_handle_result = try shift.effect.reader.handle(@src(), []const u8, &runtime, &reader_instance, @as(i32, 21), struct {
+            /// Return the caller-owned source observed through the reader compatibility wrapper.
+            pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
+                _ = Cap;
+                return callerSourceFile(@TypeOf(ctx.*));
+            }
+        });
+        try std.testing.expectEqualStrings(@src().file, reader_handle_result);
+
+        const reader_result = try shift.effect.reader.handleWithErrorSet(@src(), []const u8, NoError, &runtime, &reader_instance, @as(i32, 21), struct {
             /// Return the caller-owned source observed through the reader wrapper.
             pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
                 _ = Cap;
@@ -58,7 +67,16 @@ test "public provenance wrappers stay caller-owned only with explicit cross-file
         try std.testing.expectEqualStrings(@src().file, reader_result);
 
         var state_instance = shift.effect.state.Instance(i32, NoError).init();
-        const state_result = try shift.effect.state.handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &state_instance, @as(i32, 0), struct {
+        const state_handle_result = try shift.effect.state.handle(@src(), []const u8, &runtime, &state_instance, @as(i32, 0), struct {
+            /// Return the caller-owned source observed through the state compatibility wrapper.
+            pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
+                _ = Cap;
+                return callerSourceFile(@TypeOf(ctx.*));
+            }
+        });
+        try std.testing.expectEqualStrings(@src().file, state_handle_result.value);
+
+        const state_result = try shift.effect.state.handleWithErrorSet(@src(), []const u8, NoError, &runtime, &state_instance, @as(i32, 0), struct {
             /// Return the caller-owned source observed through the state wrapper.
             pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
                 _ = Cap;
@@ -74,7 +92,16 @@ test "public provenance wrappers stay caller-owned only with explicit cross-file
             }
         };
         var exception_instance = shift.effect.exception.Instance([]const u8, NoError).init();
-        const exception_result = try shift.effect.exception.handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &exception_instance, catcher, struct {
+        const exception_handle_result = try shift.effect.exception.handle(@src(), []const u8, &runtime, &exception_instance, catcher, struct {
+            /// Return the caller-owned source observed through the exception compatibility wrapper.
+            pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
+                _ = Cap;
+                return callerSourceFile(@TypeOf(ctx.*));
+            }
+        });
+        try std.testing.expectEqualStrings(@src().file, exception_handle_result);
+
+        const exception_result = try shift.effect.exception.handleWithErrorSet(@src(), []const u8, NoError, &runtime, &exception_instance, catcher, struct {
             /// Return the caller-owned source observed through the exception wrapper.
             pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
                 _ = Cap;
@@ -95,7 +122,16 @@ test "public provenance wrappers stay caller-owned only with explicit cross-file
             }
         };
         var resource_instance = shift.effect.resource.Instance([]const u8, NoError).init();
-        const resource_result = try shift.effect.resource.handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &resource_instance, manager, struct {
+        const resource_handle_result = try shift.effect.resource.handle(@src(), []const u8, &runtime, &resource_instance, manager, struct {
+            /// Return the caller-owned source observed through the resource compatibility wrapper.
+            pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
+                _ = Cap;
+                return callerSourceFile(@TypeOf(ctx.*));
+            }
+        });
+        try std.testing.expectEqualStrings(@src().file, resource_handle_result);
+
+        const resource_result = try shift.effect.resource.handleWithErrorSet(@src(), []const u8, NoError, &runtime, &resource_instance, manager, struct {
             /// Return the caller-owned source observed through the resource wrapper.
             pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
                 _ = Cap;
@@ -105,7 +141,7 @@ test "public provenance wrappers stay caller-owned only with explicit cross-file
         try std.testing.expectEqualStrings(@src().file, resource_result);
 
         var writer_instance = shift.effect.writer.Instance([]const u8, NoError).init();
-        const writer_result = try shift.effect.writer.handleWithErrorSetAt(@src(), .{
+        const writer_result = try shift.effect.writer.handleWithErrorSet(@src(), .{
             .Item = []const u8,
             .Answer = []const u8,
             .ErrorSet = NoError,
@@ -119,6 +155,16 @@ test "public provenance wrappers stay caller-owned only with explicit cross-file
         defer std.testing.allocator.free(writer_result.items);
         try std.testing.expectEqualStrings(@src().file, writer_result.value);
 
+        const writer_handle_result = try shift.effect.writer.handle(@src(), []const u8, []const u8, &runtime, &writer_instance, std.testing.allocator, struct {
+            /// Return the caller-owned source observed through the writer compatibility wrapper.
+            pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
+                _ = Cap;
+                return callerSourceFile(@TypeOf(ctx.*));
+            }
+        });
+        defer std.testing.allocator.free(writer_handle_result.items);
+        try std.testing.expectEqualStrings(@src().file, writer_handle_result.value);
+
         const Audit = shift.effect.Define(.{
             .state_type = void,
             .ops = .{
@@ -126,7 +172,7 @@ test "public provenance wrappers stay caller-owned only with explicit cross-file
             },
         });
         var generated_instance = Audit.Instance.init();
-        const generated_result = try Audit.handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &generated_instance, struct {
+        const generated_result = try Audit.handleWithErrorSet(@src(), []const u8, NoError, &runtime, &generated_instance, struct {
             /// Accept the generated-family probe payload without changing state.
             pub fn note(_: *@This(), _: []const u8) void {
                 // No-op handler for provenance-only coverage.
@@ -139,6 +185,20 @@ test "public provenance wrappers stay caller-owned only with explicit cross-file
             }
         });
         try std.testing.expectEqualStrings(@src().file, generated_result.value);
+
+        const generated_handle_result = try Audit.handle(@src(), []const u8, &runtime, &generated_instance, struct {
+            /// Accept the generated-family probe payload without changing state.
+            pub fn note(_: *@This(), _: []const u8) void {
+                // No-op handler for provenance-only coverage.
+            }
+        }{}, struct {
+            /// Return the caller-owned source observed through the generated-family compatibility wrapper.
+            pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
+                _ = Cap;
+                return callerSourceFile(@TypeOf(ctx.*));
+            }
+        });
+        try std.testing.expectEqualStrings(@src().file, generated_handle_result.value);
     }
 }
 

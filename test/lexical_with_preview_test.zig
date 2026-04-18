@@ -506,7 +506,7 @@ test "generated lexical handlers infer after-hook errors when error_set_type is 
     try std.testing.expect(hasErrorName(ErrorSet, "AfterOops"));
 }
 
-test "generated family handleWithErrorSetAt preserves caller provenance" {
+test "generated family handleWithErrorSet preserves caller provenance" {
     const NoError = error{};
     const Audit = shift.effect.Define(.{
         .state_type = void,
@@ -519,14 +519,47 @@ test "generated family handleWithErrorSetAt preserves caller provenance" {
     defer runtime.deinit();
     var instance = Audit.Instance.init();
 
-    const result = try Audit.handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &instance, struct {
+    const result = try Audit.handleWithErrorSet(@src(), []const u8, NoError, &runtime, &instance, struct {
         pub fn note(_: *@This(), _: []const u8) void {
             // Intentionally empty witness hook.
         }
     }{}, struct {
         pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
             _ = Cap;
-            return @TypeOf(ctx.*).caller_source.?.file;
+            return switch (@typeInfo(@TypeOf(@TypeOf(ctx.*).caller_source))) {
+                .optional => @TypeOf(ctx.*).caller_source.?.file,
+                else => @TypeOf(ctx.*).caller_source.file,
+            };
+        }
+    });
+
+    try std.testing.expectEqualStrings(@src().file, result.value);
+}
+
+test "generated family handle preserves caller provenance" {
+    const NoError = error{};
+    const Audit = shift.effect.Define(.{
+        .state_type = void,
+        .ops = .{
+            shift.effect.ops.Transform("note", []const u8, void),
+        },
+    });
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = Audit.Instance.init();
+
+    const result = try Audit.handle(@src(), []const u8, &runtime, &instance, struct {
+        pub fn note(_: *@This(), _: []const u8) void {
+            // Intentionally empty witness hook.
+        }
+    }{}, struct {
+        pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
+            _ = Cap;
+            return switch (@typeInfo(@TypeOf(@TypeOf(ctx.*).caller_source))) {
+                .optional => @TypeOf(ctx.*).caller_source.?.file,
+                else => @TypeOf(ctx.*).caller_source.file,
+            };
         }
     });
 

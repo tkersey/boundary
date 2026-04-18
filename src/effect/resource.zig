@@ -107,14 +107,15 @@ pub inline fn computeProgram(
 }
 
 /// Run a resource effect body and guarantee LIFO cleanup of acquired resources.
-pub inline fn handle(
+pub fn handle(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
     comptime Manager: type,
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try handleAt(@src(), AnswerType, runtime, instance, Manager, Body);
+    return try handleAt(caller_source, AnswerType, runtime, instance, Manager, Body);
 }
 
 /// Run a resource effect body with explicit caller provenance and guarantee LIFO cleanup of acquired resources.
@@ -132,6 +133,7 @@ pub fn handleAt(
 /// Public `handleWithErrorSet` helper.
 // zlinter-disable max_positional_args - public caller provenance and manager inputs stay explicit at this compatibility wrapper.
 pub fn handleWithErrorSet(
+    comptime caller_source: std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -139,7 +141,7 @@ pub fn handleWithErrorSet(
     comptime Manager: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleWithErrorSetAt(@src(), AnswerType, RunErrorSetType, runtime, instance, Manager, Body);
+    return try handleWithErrorSetAt(caller_source, AnswerType, RunErrorSetType, runtime, instance, Manager, Body);
 }
 
 /// Public `handleWithErrorSetAt` helper.
@@ -360,7 +362,7 @@ test "public resource handleWithErrorSet preserves caller provenance" {
     defer runtime.deinit();
     var instance = ResourceInstance.init();
 
-    const result = try handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &instance, manager, struct {
+    const result = try handleWithErrorSet(@src(), []const u8, NoError, &runtime, &instance, manager, struct {
         /// Return the exact caller-owned source file observed through the public resource wrapper.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             _ = try acquire(Cap, ctx);

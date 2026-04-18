@@ -1347,11 +1347,33 @@ test "file-backed validation rejects repo-relative symlink helper imports that c
 }
 
 test "generated validate rejects file-backed helper-body drift against its compile-time snapshot" {
-    const fixture_path = "examples/open_row_cross_file_helpers.zig";
-    const snapshot_source = comptime example_open_row_cross_file_writer.loweringSource().imported_sources[0].content;
+    const fixture_path = "examples/open_row_validation_snapshot_helper.zig";
+    const entry_path = "examples/open_row_validation_snapshot_entry.zig";
+    const spec: shift.lowering.LowerSpec = .{
+        .label = "example.open_row_validation_snapshot",
+        .entry_symbol = "runBody",
+        .row = shift.ir.mergeRows(.{
+            shift.ir.rowFromSpec(.{
+                .state = .{
+                    .get = shift.ir.Transform(void, i32),
+                    .set = shift.ir.Transform(i32, void),
+                },
+            }),
+            shift.ir.rowFromSpec(.{
+                .writer = .{
+                    .tell = shift.ir.Transform([]const u8, void),
+                },
+            }),
+        }),
+        .ValueType = []const u8,
+        .outputs = &.{
+            .{ .label = "state", .OutputType = i32 },
+            .{ .label = "writer", .OutputType = [][]const u8 },
+        },
+    };
     const ProgramType = shift.lowering.lowerAt(
-        "examples/open_row_cross_file_writer.zig",
-        example_open_row_cross_file_writer.loweringSpec(),
+        entry_path,
+        spec,
     );
     const original = try std.fs.cwd().readFileAlloc(std.testing.allocator, fixture_path, std.math.maxInt(usize));
     defer std.testing.allocator.free(original);
@@ -1359,10 +1381,6 @@ test "generated validate rejects file-backed helper-body drift against its compi
         .sub_path = fixture_path,
         .data = original,
     }) catch unreachable;
-    try std.fs.cwd().writeFile(.{
-        .sub_path = fixture_path,
-        .data = snapshot_source,
-    });
 
     var initial_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer initial_arena.deinit();

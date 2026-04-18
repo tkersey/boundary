@@ -485,7 +485,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\    try std.testing.expectEqual(@as(i32, 1), with_result.outputs.state);
         \\
         \\    var state_instance = shift.effect.state.Instance(i32, AnyError).init();
-        \\    const handled = try shift.effect.state.handle(i32, &runtime, &state_instance, @as(i32, 0), struct {
+        \\    const handled = try shift.effect.state.handle(@src(), i32, &runtime, &state_instance, @as(i32, 0), struct {
         \\        pub fn body(comptime Cap: type, ctx: anytype) AnyError!i32 {
         \\            const before = try shift.effect.state.get(Cap, ctx);
         \\            try shift.effect.state.set(Cap, ctx, before + 2);
@@ -496,7 +496,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\    try std.testing.expectEqual(@as(i32, 2), handled.state);
         \\
         \\    var state_instance_with_error = shift.effect.state.Instance(i32, AnyError).init();
-        \\    const handled_with_error = try shift.effect.state.handleWithErrorSet(i32, AnyError, &runtime, &state_instance_with_error, @as(i32, 0), struct {
+        \\    const handled_with_error = try shift.effect.state.handleWithErrorSet(@src(), i32, AnyError, &runtime, &state_instance_with_error, @as(i32, 0), struct {
         \\        pub fn body(comptime Cap: type, ctx: anytype) AnyError!i32 {
         \\            const before = try shift.effect.state.get(Cap, ctx);
         \\            try shift.effect.state.set(Cap, ctx, before + 3);
