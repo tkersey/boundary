@@ -168,7 +168,7 @@ pub inline fn computeProgram(
 
 /// Run a writer effect body and return the accumulated log plus the body answer.
 // zlinter-disable max_positional_args - public caller provenance and writer inputs stay explicit at this compatibility wrapper.
-pub inline fn handle(
+pub fn handle(
     comptime ItemType: type,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
@@ -176,7 +176,11 @@ pub inline fn handle(
     allocator: std.mem.Allocator,
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!HandleResult(ItemType, AnswerType) {
-    return try handleAt(@src(), ItemType, AnswerType, runtime, instance, allocator, Body);
+    return try algebraic.handleWriter(null, struct {
+        const Item = ItemType;
+        const Answer = AnswerType;
+        const WriterStateType = WriterState(ItemType);
+    }, runtime, instance, allocator, Body);
 }
 
 /// Run a writer effect body with explicit caller provenance and return the accumulated log plus the body answer.
@@ -207,14 +211,14 @@ pub fn handleAt(
 }
 
 /// Public `handleWithErrorSet` helper.
-pub inline fn handleWithErrorSet(
+pub fn handleWithErrorSet(
     comptime Types: HandleWithErrorSetTypes,
     runtime: *shift.Runtime,
     instance: anytype,
     allocator: std.mem.Allocator,
     comptime Body: type,
 ) lowered_machine.ResetError(Types.ErrorSet)!HandleResult(Types.Item, Types.Answer) {
-    return try handleWithErrorSetAt(@src(), Types, runtime, instance, allocator, Body);
+    return try algebraic.handleWriterWithErrorSet(null, Types, runtime, instance, allocator, Body);
 }
 
 /// Public `handleWithErrorSetAt` helper.

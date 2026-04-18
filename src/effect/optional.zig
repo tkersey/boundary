@@ -218,14 +218,14 @@ pub inline fn computeProgram(
 }
 
 /// Run an optional-resumption effect body and return the final handler answer.
-pub inline fn handle(
+pub fn handle(
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
     comptime Policy: type,
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try handleAt(@src(), AnswerType, runtime, instance, Policy, Body);
+    return try algebraic.handleOptional(null, AnswerType, runtime, instance, Policy, Body);
 }
 
 /// Run an optional-resumption effect body with explicit caller provenance and return the final handler answer.
@@ -242,7 +242,7 @@ pub fn handleAt(
 
 /// Public `handleWithErrorSet` helper.
 // zlinter-disable max_positional_args - public caller provenance and optional policy inputs stay explicit at this compatibility wrapper.
-pub inline fn handleWithErrorSet(
+pub fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -250,7 +250,7 @@ pub inline fn handleWithErrorSet(
     comptime Policy: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleWithErrorSetAt(@src(), AnswerType, RunErrorSetType, runtime, instance, Policy, Body);
+    return try algebraic.handleOptionalWithErrorSet(null, AnswerType, RunErrorSetType, runtime, instance, Policy, Body);
 }
 
 /// Public `handleWithErrorSetAt` helper.

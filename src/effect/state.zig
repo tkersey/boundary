@@ -111,7 +111,7 @@ pub inline fn computeProgram(
 }
 
 /// Run a state effect body and return the final state plus the body answer.
-pub inline fn handle(
+pub fn handle(
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
@@ -121,7 +121,7 @@ pub inline fn handle(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
-    return try handleAt(@src(), AnswerType, runtime, instance, initial_state, Body);
+    return try algebraic.handleState(null, AnswerType, runtime, instance, initial_state, Body);
 }
 
 /// Run a state effect body with explicit caller provenance and return the final state plus the body answer.
@@ -141,7 +141,7 @@ pub fn handleAt(
 
 /// Public `handleWithErrorSet` helper.
 // zlinter-disable max_positional_args - public caller provenance and state inputs stay explicit at this compatibility wrapper.
-pub inline fn handleWithErrorSet(
+pub fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -152,7 +152,7 @@ pub inline fn handleWithErrorSet(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
-    return try handleWithErrorSetAt(@src(), AnswerType, RunErrorSetType, runtime, instance, initial_state, Body);
+    return try algebraic.handleStateWithErrorSet(null, AnswerType, RunErrorSetType, runtime, instance, initial_state, Body);
 }
 
 /// Public `handleWithErrorSetAt` helper.

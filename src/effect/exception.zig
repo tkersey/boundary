@@ -126,14 +126,14 @@ pub inline fn computeProgram(
 }
 
 /// Run an exception effect body and return the final caught or normal answer.
-pub inline fn handle(
+pub fn handle(
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
     comptime Catch: type,
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try handleAt(@src(), AnswerType, runtime, instance, Catch, Body);
+    return try algebraic.handleException(null, AnswerType, runtime, instance, Catch, Body);
 }
 
 /// Run an exception effect body with explicit caller provenance and return the final caught or normal answer.
@@ -150,7 +150,7 @@ pub fn handleAt(
 
 /// Public `handleWithErrorSet` helper.
 // zlinter-disable max_positional_args - public caller provenance and catch inputs stay explicit at this compatibility wrapper.
-pub inline fn handleWithErrorSet(
+pub fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -158,7 +158,7 @@ pub inline fn handleWithErrorSet(
     comptime Catch: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleWithErrorSetAt(@src(), AnswerType, RunErrorSetType, runtime, instance, Catch, Body);
+    return try algebraic.handleExceptionWithErrorSet(null, AnswerType, RunErrorSetType, runtime, instance, Catch, Body);
 }
 
 /// Public `handleWithErrorSetAt` helper.

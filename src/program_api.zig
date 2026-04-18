@@ -345,8 +345,8 @@ pub fn Program(comptime declaration_values: anytype, comptime BodyType: type) ty
 
         /// Run this public entrypoint with source-compatible arity.
         /// Use `runAt(...)` when the caller must preserve explicit provenance across module boundaries.
-        pub inline fn run(runtime: *lowered_machine.Runtime, bindings: Bindings) RunReturnType(@This()) {
-            return @This().runAt(@src(), runtime, bindings);
+        pub fn run(runtime: *lowered_machine.Runtime, bindings: Bindings) RunReturnType(@This()) {
+            return programRun(null, runtime, @This(), bindings);
         }
 
         /// Run this public entrypoint with explicit caller provenance.
@@ -361,15 +361,15 @@ pub fn RunReturnType(comptime ProgramType: type) type {
     return program_runtime.RunReturnType(HandlerBundleType(@TypeOf(ProgramType.declarations)), ProgramType.Body);
 }
 
-fn programRun(comptime caller: std.builtin.SourceLocation, runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) RunReturnType(ProgramType) {
+fn programRun(comptime caller: ?std.builtin.SourceLocation, runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) RunReturnType(ProgramType) {
     const handlers = buildHandlers(ProgramType, runtime, bindings);
     return program_runtime.run(caller, runtime, handlers, ProgramType.Body);
 }
 
 /// Run this public entrypoint with source-compatible arity.
 /// Use `runAt(...)` when the caller must preserve explicit provenance across module boundaries.
-pub inline fn run(runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) RunReturnType(ProgramType) {
-    return runAt(@src(), runtime, ProgramType, bindings);
+pub fn run(runtime: *lowered_machine.Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) RunReturnType(ProgramType) {
+    return programRun(null, runtime, ProgramType, bindings);
 }
 
 /// Run this public entrypoint with explicit caller provenance.
@@ -583,6 +583,30 @@ test "program runAt preserves caller provenance" {
 
     const result = try runAt(@src(), &runtime, demo_program, .{ .state = 0 });
     try std.testing.expectEqualStrings(@src().file, result.value);
+}
+
+test "program run leaves caller provenance absent on source-compatible arity" {
+    const demo_program = Program(.{
+        .state = decl.state(i32),
+    }, struct {
+        pub fn body(eff: anytype) anyerror!bool {
+            const caller_source = @TypeOf(eff.state.ctx.?.*).caller_source;
+            return switch (@typeInfo(@TypeOf(caller_source))) {
+                .optional => caller_source == null,
+                .null => true,
+                else => false,
+            };
+        }
+    });
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const type_result = try demo_program.run(&runtime, .{ .state = 0 });
+    try std.testing.expect(type_result.value);
+
+    const free_result = try run(&runtime, demo_program, .{ .state = 0 });
+    try std.testing.expect(free_result.value);
 }
 
 test "program free run preserves source-compatible arity" {

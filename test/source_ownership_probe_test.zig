@@ -11,6 +11,15 @@ fn callerSourceFile(comptime ContextType: type) []const u8 {
     };
 }
 
+fn callerSourceIsAbsent(comptime ContextType: type) bool {
+    const caller_source = ContextType.caller_source;
+    return switch (@typeInfo(@TypeOf(caller_source))) {
+        .optional => caller_source == null,
+        .null => true,
+        else => false,
+    };
+}
+
 test "wrapper-local source capture stays callee-owned across realistic zero-argument wrapper forms" {
     const caller_source = @src().file;
     const helper_source = probe.helperSourceFile();
@@ -139,6 +148,58 @@ test "public provenance wrappers stay caller-owned only with explicit cross-file
             }
         });
         try std.testing.expectEqualStrings(@src().file, generated_explicit_result.value);
+    }
+}
+
+test "source-compatible wrappers leave caller provenance absent by default" {
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    {
+        const result = try shift.with(&runtime, .{
+            .state = shift.effect.state.use(@as(i32, 0)),
+        }, struct {
+            /// Report whether the default lexical wrapper leaves caller provenance absent.
+            pub fn body(eff: anytype) anyerror!bool {
+                return callerSourceIsAbsent(@TypeOf(eff.state.ctx.?.*));
+            }
+        });
+        try std.testing.expect(result.value);
+    }
+
+    {
+        const NoError = error{};
+
+        var reader_instance = shift.effect.reader.Instance(i32, NoError).init();
+        const reader_result = try shift.effect.reader.handleWithErrorSet([]const u8, NoError, &runtime, &reader_instance, @as(i32, 21), struct {
+            /// Report whether the default reader wrapper leaves caller provenance absent.
+            pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
+                _ = Cap;
+                return if (callerSourceIsAbsent(@TypeOf(ctx.*))) "absent" else "present";
+            }
+        });
+        try std.testing.expectEqualStrings("absent", reader_result);
+
+        const Audit = shift.effect.Define(.{
+            .state_type = void,
+            .ops = .{
+                shift.effect.ops.Transform("note", []const u8, void),
+            },
+        });
+        var generated_instance = Audit.Instance.init();
+        const generated_result = try Audit.handleWithErrorSet([]const u8, NoError, &runtime, &generated_instance, struct {
+            /// Accept the generated probe payload without mutating any state.
+            pub fn note(_: *@This(), _: []const u8) void {
+                // No-op probe handler.
+            }
+        }{}, struct {
+            /// Report whether the default generated wrapper leaves caller provenance absent.
+            pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
+                _ = Cap;
+                return if (callerSourceIsAbsent(@TypeOf(ctx.*))) "absent" else "present";
+            }
+        });
+        try std.testing.expectEqualStrings("absent", generated_result.value);
     }
 }
 

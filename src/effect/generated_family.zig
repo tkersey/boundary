@@ -96,6 +96,36 @@ fn afterMethodName(comptime op_name: []const u8) []const u8 {
     return buffer[0..len];
 }
 
+fn legacyAfterMethodName(comptime op_name: []const u8) []const u8 {
+    var buffer: [128]u8 = undefined;
+    var len: usize = 0;
+    buffer[len..][0..5].* = "after".*;
+    len += 5;
+    var upper_next = true;
+    inline for (op_name) |byte| {
+        if (byte == '_') {
+            upper_next = true;
+            continue;
+        }
+        buffer[len] = if (upper_next and byte >= 'a' and byte <= 'z') byte - 32 else byte;
+        len += 1;
+        upper_next = false;
+    }
+    return buffer[0..len];
+}
+
+fn resolvedAfterMethodName(comptime HandlerType: type, comptime op_name: []const u8) ?[]const u8 {
+    const underscored_name = comptime afterMethodName(op_name);
+    if (@hasDecl(HandlerType, underscored_name)) return underscored_name;
+    const legacy_name = comptime legacyAfterMethodName(op_name);
+    if (!std.mem.eql(u8, legacy_name, underscored_name) and @hasDecl(HandlerType, legacy_name)) return legacy_name;
+    return null;
+}
+
+fn hasAfterMethod(comptime HandlerType: type, comptime op_name: []const u8) bool {
+    return resolvedAfterMethodName(HandlerType, op_name) != null;
+}
+
 fn opName(comptime Op: type) [:0]const u8 {
     return Op.op_name;
 }
@@ -359,8 +389,7 @@ fn assertTransformHandlerBundle(comptime HandlerType: type, comptime StateType: 
         }
     }
 
-    const after_name = comptime afterMethodName(opName(Op));
-    if (!@hasDecl(HandlerType, after_name)) return;
+    const after_name = comptime resolvedAfterMethodName(HandlerType, opName(Op)) orelse return;
     const AfterFn = @TypeOf(@field(HandlerType, after_name));
     if (!fnParamsMatch(AfterFn, &.{ *HandlerType, AnswerType }) or !returnTypeMatches(AfterHandlerReturnType(HandlerType, Op), AnswerType)) {
         @compileError("generated transform handler after_<op> must have type fn (*Handler, Answer) Answer or fn (*Handler, Answer) ResetError(ErrorSet)!Answer");
@@ -382,8 +411,7 @@ fn assertChoiceHandlerBundle(comptime HandlerType: type, comptime AnswerType: ty
         }
     }
 
-    const after_name = comptime afterMethodName(opName(Op));
-    if (!@hasDecl(HandlerType, after_name)) return;
+    const after_name = comptime resolvedAfterMethodName(HandlerType, opName(Op)) orelse return;
     const AfterFn = @TypeOf(@field(HandlerType, after_name));
     if (!fnParamsMatch(AfterFn, &.{ *HandlerType, AnswerType }) or !returnTypeMatches(AfterHandlerReturnType(HandlerType, Op), AnswerType)) {
         @compileError("generated choice handler after_<op> must have type fn (*Handler, Answer) Answer or fn (*Handler, Answer) ResetError(ErrorSet)!Answer");
@@ -424,12 +452,16 @@ fn HandlerReturnType(comptime HandlerType: type, comptime Op: type) type {
 }
 
 fn AfterHandlerAnswerType(comptime HandlerType: type, comptime Op: type) type {
-    const AfterFn = @TypeOf(@field(HandlerType, afterMethodName(opName(Op))));
+    const after_name = comptime resolvedAfterMethodName(HandlerType, opName(Op)) orelse
+        @compileError("generated handler after_<op> lookup resolved no compatible handler method");
+    const AfterFn = @TypeOf(@field(HandlerType, after_name));
     return @typeInfo(AfterFn).@"fn".params[1].type.?;
 }
 
 fn AfterHandlerReturnType(comptime HandlerType: type, comptime Op: type) type {
-    return @TypeOf(@field(HandlerType, afterMethodName(opName(Op)))(
+    const after_name = comptime resolvedAfterMethodName(HandlerType, opName(Op)) orelse
+        @compileError("generated handler after_<op> lookup resolved no compatible handler method");
+    return @TypeOf(@field(HandlerType, after_name)(
         dummyPointer(*HandlerType),
         dummyValue(AfterHandlerAnswerType(HandlerType, Op)),
     ));
@@ -448,7 +480,7 @@ fn InferHandlerErrorSet(
                 const ResumeReturnType = HandlerReturnType(HandlerType, Op);
                 ErrorSet = ErrorSet ||
                     ReturnTypeErrorSet(ResumeReturnType);
-                if (@hasDecl(HandlerType, afterMethodName(opName(Op)))) {
+                if (hasAfterMethod(HandlerType, opName(Op))) {
                     const AfterReturnType = AfterHandlerReturnType(HandlerType, Op);
                     ErrorSet = ErrorSet || ReturnTypeErrorSet(AfterReturnType);
                 }
@@ -457,7 +489,7 @@ fn InferHandlerErrorSet(
                 const DecideReturnType = HandlerReturnType(HandlerType, Op);
                 ErrorSet = ErrorSet ||
                     ReturnTypeErrorSet(DecideReturnType);
-                if (@hasDecl(HandlerType, afterMethodName(opName(Op)))) {
+                if (hasAfterMethod(HandlerType, opName(Op))) {
                     const AfterReturnType = AfterHandlerReturnType(HandlerType, Op);
                     ErrorSet = ErrorSet || ReturnTypeErrorSet(AfterReturnType);
                 }
@@ -485,7 +517,7 @@ fn InferHandlerOperationErrorSet(
         ErrorSet = ErrorSet || ReturnTypeErrorSet(OperationReturnType);
         switch (mode) {
             .resume_then_transform, .resume_or_return => {
-                if (@hasDecl(HandlerType, afterMethodName(opName(Op)))) {
+                if (hasAfterMethod(HandlerType, opName(Op))) {
                     const AfterReturnType = AfterHandlerReturnType(HandlerType, Op);
                     ErrorSet = ErrorSet || ReturnTypeErrorSet(AfterReturnType);
                 }
@@ -646,8 +678,7 @@ pub fn Build(comptime spec: anytype) type {
 
                     /// Convert one resumed answer into the enclosing generated answer.
                     pub fn afterResume(self: HandlerPtrType, answer: AnswerType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-                        const after_name = comptime afterMethodName(opName(op_type));
-                        if (!@hasDecl(HandlerType, after_name)) return answer;
+                        const after_name = comptime resolvedAfterMethodName(HandlerType, opName(op_type)) orelse return answer;
                         const AfterReturnType = AfterHandlerReturnType(HandlerType, op_type);
                         if (comptime ReturnTypeErrorSet(AfterReturnType) == error{}) return @field(HandlerType, after_name)(self, answer);
                         return try @field(HandlerType, after_name)(self, answer);
@@ -667,8 +698,7 @@ pub fn Build(comptime spec: anytype) type {
 
                     /// Convert one resumed choice answer into the enclosing generated answer.
                     pub fn afterResume(self: HandlerPtrType, answer: AnswerType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-                        const after_name = comptime afterMethodName(opName(op_type));
-                        if (!@hasDecl(HandlerType, after_name)) return answer;
+                        const after_name = comptime resolvedAfterMethodName(HandlerType, opName(op_type)) orelse return answer;
                         const AfterReturnType = AfterHandlerReturnType(HandlerType, op_type);
                         if (comptime ReturnTypeErrorSet(AfterReturnType) == error{}) return @field(HandlerType, after_name)(self, answer);
                         return try @field(HandlerType, after_name)(self, answer);
@@ -1064,10 +1094,10 @@ pub fn Build(comptime spec: anytype) type {
         }
 
         /// Run one generated family body under a fresh exact context and hidden engine bindings.
-        pub inline fn handle(comptime AnswerType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler), Body))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+        pub fn handle(comptime AnswerType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler), Body))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
             const HandlerType = @TypeOf(handler);
             const RunErrorSetType = HandleErrorSet(AnswerType, HandlerType, Body);
-            return self_type.handleWithErrorSetAt(@src(), AnswerType, RunErrorSetType, runtime, instance, handler, Body);
+            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body, null);
         }
 
         /// Run one generated family body with explicit caller provenance.
@@ -1078,8 +1108,8 @@ pub fn Build(comptime spec: anytype) type {
         }
 
         /// Public `handleWithErrorSet` helper.
-        pub inline fn handleWithErrorSet(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
-            return self_type.handleWithErrorSetAt(@src(), AnswerType, RunErrorSetType, runtime, instance, handler, Body);
+        pub fn handleWithErrorSet(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body, null);
         }
 
         /// Public `handleWithErrorSetAt` helper.

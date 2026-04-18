@@ -22,12 +22,13 @@ pub fn finalizeClosedResult(handlers_ptr: anytype, value: anytype) with_api.Clos
 
 /// Run this public entrypoint.
 pub fn run(
-    comptime caller: std.builtin.SourceLocation,
+    comptime caller: ?std.builtin.SourceLocation,
     runtime: *lowered_machine.Runtime,
     handlers: anytype,
     comptime Body: type,
 ) with_api.WithFnReturnType(@TypeOf(handlers), Body) {
-    return with_api.withAt(caller, runtime, handlers, Body);
+    if (caller) |caller_source| return with_api.withAt(caller_source, runtime, handlers, Body);
+    return with_api.with(runtime, handlers, Body);
 }
 
 test "finalizeClosedResult mirrors explicit handler outputs" {

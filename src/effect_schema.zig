@@ -270,7 +270,7 @@ fn generatedSchemaOp(comptime GeneratedOp: type) type {
 fn bindingHasAfter(comptime OpSchema: type, comptime HandlerType: type) bool {
     return switch (OpSchema.after) {
         .none => false,
-        .binding_optional => @hasDecl(HandlerType, afterMethodName(OpSchema.name)),
+        .binding_optional => hasAfterMethod(HandlerType, OpSchema.name),
     };
 }
 
@@ -292,6 +292,31 @@ fn afterMethodName(comptime op_name: []const u8) []const u8 {
         upper_next = false;
     }
     return buffer[0..len];
+}
+
+fn legacyAfterMethodName(comptime op_name: []const u8) []const u8 {
+    var buffer: [128]u8 = undefined;
+    var len: usize = 0;
+    buffer[len..][0..5].* = "after".*;
+    len += 5;
+    var upper_next = true;
+    inline for (op_name) |byte| {
+        if (byte == '_') {
+            upper_next = true;
+            continue;
+        }
+        buffer[len] = if (upper_next and byte >= 'a' and byte <= 'z') byte - 32 else byte;
+        len += 1;
+        upper_next = false;
+    }
+    return buffer[0..len];
+}
+
+fn hasAfterMethod(comptime HandlerType: type, comptime op_name: []const u8) bool {
+    const underscored_name = comptime afterMethodName(op_name);
+    if (@hasDecl(HandlerType, underscored_name)) return true;
+    const legacy_name = comptime legacyAfterMethodName(op_name);
+    return !std.mem.eql(u8, legacy_name, underscored_name) and @hasDecl(HandlerType, legacy_name);
 }
 
 pub fn generated_family(comptime spec: anytype) type {

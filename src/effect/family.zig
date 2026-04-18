@@ -1,7 +1,6 @@
 const frontend = @import("frontend_support");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
-const std = @import("std");
 
 /// Resolve an effect instance type from a pointer passed into a family handler.
 pub fn InstanceTypeFromPtr(comptime InstancePtrType: type) type {
@@ -118,14 +117,9 @@ pub fn ContextErrorSetType(comptime ContextPtrType: type) type {
     return ContextTypeFromPtr(ContextPtrType).ErrorSetType;
 }
 
-/// Normalize the caller provenance carried by one checked context pointer.
-pub fn contextCallerSource(comptime ContextPtrType: type) std.builtin.SourceLocation {
-    const caller_source = ContextTypeFromPtr(ContextPtrType).caller_source;
-    return switch (@typeInfo(@TypeOf(caller_source))) {
-        .optional => caller_source orelse @src(),
-        .null => @src(),
-        else => caller_source,
-    };
+/// Return the caller provenance carried by one checked context pointer.
+pub fn contextCallerSource(comptime ContextPtrType: type) @TypeOf(ContextTypeFromPtr(ContextPtrType).caller_source) {
+    return ContextTypeFromPtr(ContextPtrType).caller_source;
 }
 
 /// Package the three family types used to build an exact private context.

@@ -289,8 +289,8 @@ pub fn WithResult(comptime HandlersType: type, comptime Answer: type) type {
     };
 }
 
-/// Explicit lexical rebinding packet threaded through `shift.withAt(@src(), ...)` continuations.
-pub fn LexicalState(comptime HandlersType: type, comptime EffType: type, comptime caller_source_value: std.builtin.SourceLocation) type {
+/// Explicit lexical rebinding packet threaded through lexical continuations.
+pub fn LexicalState(comptime HandlersType: type, comptime EffType: type, comptime caller_source_value: anytype) type {
     return struct {
         /// Original caller source location threaded through this lexical rebinding packet.
         pub const caller_source = caller_source_value;
@@ -1717,7 +1717,7 @@ fn rejectUnsupportedShippedWith(
     comptime HandlersType: type,
     comptime Body: type,
     comptime named_compiled_plan: ?public_lowering.ProgramPlan,
-    comptime caller: std.builtin.SourceLocation,
+    comptime caller: ?std.builtin.SourceLocation,
     comptime caller_source_override: ?[:0]const u8,
     comptime caller_owned_kind: CallerOwnedCompilationKind,
 ) void {
@@ -1930,20 +1930,20 @@ fn callChoiceContinuation(
     return Continuation(resume_value, eff);
 }
 
-fn exactContextCallerSource(comptime ContextPtrType: type) std.builtin.SourceLocation {
+fn exactContextCallerSource(comptime ContextPtrType: type) @TypeOf(family.contextCallerSource(ContextPtrType)) {
     return family.contextCallerSource(ContextPtrType);
 }
 
-fn CollectedRunState(comptime HandlersType: type, comptime EffType: type, comptime caller: std.builtin.SourceLocation) type {
+fn CollectedRunState(comptime HandlersType: type, comptime EffType: type, comptime caller: anytype) type {
     return LexicalState(HandlersType, EffType, caller);
 }
 
-fn ChoiceRunState(comptime HandlersType: type, comptime EffType: type, comptime caller: std.builtin.SourceLocation) type {
+fn ChoiceRunState(comptime HandlersType: type, comptime EffType: type, comptime caller: anytype) type {
     return LexicalState(HandlersType, EffType, caller);
 }
 
 fn descriptorRunContext(
-    comptime caller: std.builtin.SourceLocation,
+    comptime caller: anytype,
     runtime: *lowered_machine.Runtime,
     lexical_state: anytype,
 ) struct {
@@ -1982,7 +1982,7 @@ fn tryNamedCompiledWith(
 fn tryCallerOwnedCompiledWith(
     comptime HandlersType: type,
     comptime Body: type,
-    comptime caller: std.builtin.SourceLocation,
+    comptime caller: ?std.builtin.SourceLocation,
     comptime caller_source_override: ?[:0]const u8,
     comptime caller_owned_kind: CallerOwnedCompilationKind,
     runtime: *lowered_machine.Runtime,
@@ -1990,11 +1990,12 @@ fn tryCallerOwnedCompiledWith(
     outputs_ptr: *OutputBundleType(HandlersType),
 ) ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
     if (isNamedBodyDescriptor(Body)) return null;
-    const maybe_lowered_program = comptime if (anonymousBodySyntheticSource(caller, Body, caller_source_override, caller_owned_kind)) |synthetic_source| blk: {
-        const source_ref = public_lowering.sourceWithContent(caller.file, caller, synthetic_source);
+    const explicit_caller = caller orelse return null;
+    const maybe_lowered_program = comptime if (anonymousBodySyntheticSource(explicit_caller, Body, caller_source_override, caller_owned_kind)) |synthetic_source| blk: {
+        const source_ref = public_lowering.sourceWithContent(explicit_caller.file, explicit_caller, synthetic_source);
         break :blk public_lowering.maybeLower(source_ref, .{
             .label = "shift.with caller-owned lexical body",
-            .entry_symbol = anonymousBodyEntryName(caller),
+            .entry_symbol = anonymousBodyEntryName(explicit_caller),
             .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
             .row = lexical_bundle_schema.rowForHandlers(HandlersType),
             .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
@@ -2018,15 +2019,16 @@ fn tryCallerOwnedCompiledWith(
 fn callerOwnedCompilationSupported(
     comptime HandlersType: type,
     comptime Body: type,
-    comptime caller: std.builtin.SourceLocation,
+    comptime caller: ?std.builtin.SourceLocation,
     comptime caller_source_override: ?[:0]const u8,
     comptime caller_owned_kind: CallerOwnedCompilationKind,
 ) bool {
-    return comptime if (anonymousBodySyntheticSource(caller, Body, caller_source_override, caller_owned_kind)) |synthetic_source| blk: {
-        const source_ref = public_lowering.sourceWithContent(caller.file, caller, synthetic_source);
+    const explicit_caller = caller orelse return false;
+    return comptime if (anonymousBodySyntheticSource(explicit_caller, Body, caller_source_override, caller_owned_kind)) |synthetic_source| blk: {
+        const source_ref = public_lowering.sourceWithContent(explicit_caller.file, explicit_caller, synthetic_source);
         break :blk public_lowering.maybeLower(source_ref, .{
             .label = "shift.with caller-owned lexical body",
-            .entry_symbol = anonymousBodyEntryName(caller),
+            .entry_symbol = anonymousBodyEntryName(explicit_caller),
             .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
             .row = lexical_bundle_schema.rowForHandlers(HandlersType),
             .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
@@ -2221,7 +2223,7 @@ fn runCompiledLexicalPlan(
 
 fn anonymousBodyCompilable(
     comptime HandlersType: type,
-    comptime caller: std.builtin.SourceLocation,
+    comptime caller: ?std.builtin.SourceLocation,
     comptime Body: type,
     comptime caller_source_override: ?[:0]const u8,
     comptime caller_owned_kind: CallerOwnedCompilationKind,
@@ -2244,7 +2246,7 @@ fn runChainCollected(
     comptime Body: type,
     comptime index: usize,
     comptime EffType: type,
-    comptime caller: std.builtin.SourceLocation,
+    comptime caller: anytype,
     state: CollectedRunState(HandlersType, EffType, caller),
 ) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
     const ErrorSet = HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType));
@@ -2302,7 +2304,7 @@ fn runChoiceChain(
     comptime HandlersType: type,
     comptime index: usize,
     comptime EffType: type,
-    comptime caller: std.builtin.SourceLocation,
+    comptime caller: anytype,
     state: ChoiceRunState(HandlersType, EffType, caller),
     comptime Continuation: anytype,
     resume_value: anytype,
@@ -2415,12 +2417,15 @@ fn withImpl(
     runtime: *lowered_machine.Runtime,
     handlers: anytype,
     comptime Body: type,
-    comptime caller: std.builtin.SourceLocation,
+    comptime caller: ?std.builtin.SourceLocation,
     comptime caller_source_override: ?[:0]const u8,
     comptime caller_owned_kind: CallerOwnedCompilationKind,
 ) WithFnReturnType(@TypeOf(handlers), Body) {
     const HandlersType = @TypeOf(handlers);
-    const canonical_caller = comptime source_graph_embed.canonicalCallerLocation(caller);
+    const canonical_caller = comptime if (caller) |explicit_caller|
+        source_graph_embed.canonicalCallerLocation(explicit_caller)
+    else
+        null;
     comptime assertHandlerBundleShape(HandlersType);
     const named_compiled_plan = comptime namedCompiledLexicalPlan(HandlersType, Body);
     comptime rejectUnsupportedShippedWith(HandlersType, Body, named_compiled_plan, canonical_caller, caller_source_override, caller_owned_kind);
@@ -2458,12 +2463,12 @@ fn withImpl(
 }
 
 /// Run one lexical effect bundle and return descriptor outputs alongside the body answer.
-pub inline fn with(
+pub fn with(
     runtime: *lowered_machine.Runtime,
     handlers: anytype,
     comptime Body: type,
 ) WithFnReturnType(@TypeOf(handlers), Body) {
-    return withAt(@src(), runtime, handlers, Body);
+    return withImpl(runtime, handlers, Body, null, null, .none);
 }
 
 /// Run one lexical effect bundle with explicit caller provenance.

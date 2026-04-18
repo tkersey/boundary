@@ -21,8 +21,8 @@ pub const Program = program_api.Program;
 
 /// Run one program with source-compatible arity.
 /// Use `runAt(...)` when the caller must preserve explicit provenance across module boundaries.
-pub inline fn run(runtime: *Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) program_api.RunReturnType(ProgramType) {
-    return runAt(@src(), runtime, ProgramType, bindings);
+pub fn run(runtime: *Runtime, comptime ProgramType: type, bindings: ProgramType.Bindings) program_api.RunReturnType(ProgramType) {
+    return program_api.run(runtime, ProgramType, bindings);
 }
 
 /// Run one program with explicit caller provenance.
@@ -75,4 +75,26 @@ test "compat runAt preserves explicit caller arity" {
     const result = try runAt(@src(), &runtime, demo_program, .{ .state = 11 });
     try @import("std").testing.expectEqual(@as(i32, 11), result.outputs.state);
     try @import("std").testing.expectEqual(@as(i32, 11), result.value);
+}
+
+test "compat run leaves caller provenance absent on source-compatible arity" {
+    const demo_program = Program(.{
+        .state = Decl.state(i32),
+    }, struct {
+        /// Report whether the default compat runner leaves caller provenance absent.
+        pub fn body(eff: anytype) anyerror!bool {
+            const caller_source = @TypeOf(eff.state.ctx.?.*).caller_source;
+            return switch (@typeInfo(@TypeOf(caller_source))) {
+                .optional => caller_source == null,
+                .null => true,
+                else => false,
+            };
+        }
+    });
+
+    var runtime = Runtime.init(@import("std").testing.allocator);
+    defer runtime.deinit();
+
+    const result = try run(&runtime, demo_program, .{ .state = 0 });
+    try @import("std").testing.expect(result.value);
 }

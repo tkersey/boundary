@@ -166,6 +166,32 @@ fn afterMethodName(comptime op_name: []const u8) []const u8 {
     return buffer[0..len];
 }
 
+fn legacyAfterMethodName(comptime op_name: []const u8) []const u8 {
+    var buffer: [5 + op_name.len]u8 = undefined;
+    var len: usize = 0;
+    buffer[len..][0..5].* = "after".*;
+    len += 5;
+    var upper_next = true;
+    inline for (op_name) |byte| {
+        if (byte == '_') {
+            upper_next = true;
+            continue;
+        }
+        buffer[len] = if (upper_next and byte >= 'a' and byte <= 'z') byte - 32 else byte;
+        len += 1;
+        upper_next = false;
+    }
+    return buffer[0..len];
+}
+
+fn resolvedAfterMethodName(comptime HandlerType: type, comptime op_name: []const u8) ?[]const u8 {
+    const underscored_name = comptime afterMethodName(op_name);
+    if (@hasDecl(HandlerType, underscored_name)) return underscored_name;
+    const legacy_name = comptime legacyAfterMethodName(op_name);
+    if (!std.mem.eql(u8, legacy_name, underscored_name) and @hasDecl(HandlerType, legacy_name)) return legacy_name;
+    return null;
+}
+
 const OpResume = struct {
     value: lowered_machine.ProgramValue,
     apply_after: bool,
@@ -199,8 +225,8 @@ fn callOp(
             const method = @field(HandlerType, op.op_name);
             const ResumeType = runtimeValueType(op.resume_codec);
             const ResultType = runtimeValueType(function_result_codec);
-            const after_name = comptime afterMethodName(op.op_name);
-            const has_after = @hasDecl(HandlerType, after_name);
+            const after_name = comptime resolvedAfterMethodName(HandlerType, op.op_name);
+            const has_after = after_name != null;
 
             switch (op.mode) {
                 .transform => {
@@ -276,8 +302,8 @@ fn applyAfter(
             const requirement = compiled_plan.requirements[op.requirement_index];
             const handler_ptr = &@field(handlers_ptr.*, requirement.label);
             const HandlerType = @TypeOf(handler_ptr.*);
-            const after_name = comptime afterMethodName(op.op_name);
-            if (!@hasDecl(HandlerType, after_name)) break :blk answer;
+            const maybe_after_name = comptime resolvedAfterMethodName(HandlerType, op.op_name);
+            const after_name = maybe_after_name orelse break :blk answer;
 
             const InputType = runtimeValueType(function_value_codec);
             const ResultType = runtimeValueType(function_result_codec);

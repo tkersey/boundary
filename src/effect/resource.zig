@@ -107,14 +107,14 @@ pub inline fn computeProgram(
 }
 
 /// Run a resource effect body and guarantee LIFO cleanup of acquired resources.
-pub inline fn handle(
+pub fn handle(
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
     comptime Manager: type,
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try handleAt(@src(), AnswerType, runtime, instance, Manager, Body);
+    return try algebraic.handleResource(null, AnswerType, runtime, instance, Manager, Body);
 }
 
 /// Run a resource effect body with explicit caller provenance and guarantee LIFO cleanup of acquired resources.
@@ -131,7 +131,7 @@ pub fn handleAt(
 
 /// Public `handleWithErrorSet` helper.
 // zlinter-disable max_positional_args - public caller provenance and manager inputs stay explicit at this compatibility wrapper.
-pub inline fn handleWithErrorSet(
+pub fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -139,7 +139,7 @@ pub inline fn handleWithErrorSet(
     comptime Manager: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleWithErrorSetAt(@src(), AnswerType, RunErrorSetType, runtime, instance, Manager, Body);
+    return try algebraic.handleResourceWithErrorSet(null, AnswerType, RunErrorSetType, runtime, instance, Manager, Body);
 }
 
 /// Public `handleWithErrorSetAt` helper.

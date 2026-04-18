@@ -94,14 +94,14 @@ pub inline fn computeProgram(
 }
 
 /// Run a reader effect body and return the body answer.
-pub inline fn handle(
+pub fn handle(
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
     environment: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try handleAt(@src(), AnswerType, runtime, instance, environment, Body);
+    return try algebraic.handleReader(null, AnswerType, runtime, instance, environment, Body);
 }
 
 /// Run a reader effect body with explicit caller provenance and return the body answer.
@@ -118,7 +118,7 @@ pub fn handleAt(
 
 /// Public `handleWithErrorSet` helper.
 // zlinter-disable max_positional_args - public caller provenance and reader inputs stay explicit at this compatibility wrapper.
-pub inline fn handleWithErrorSet(
+pub fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -126,7 +126,7 @@ pub inline fn handleWithErrorSet(
     environment: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleWithErrorSetAt(@src(), AnswerType, RunErrorSetType, runtime, instance, environment, Body);
+    return try algebraic.handleReaderWithErrorSet(null, AnswerType, RunErrorSetType, runtime, instance, environment, Body);
 }
 
 /// Public `handleWithErrorSetAt` helper.
