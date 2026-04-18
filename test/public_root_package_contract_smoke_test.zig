@@ -2,6 +2,18 @@ const build_options = @import("build_options");
 const builtin = @import("builtin");
 const std = @import("std");
 
+fn smokeCaseStart(label: []const u8) i128 {
+    const start_ns = std.time.nanoTimestamp();
+    std.debug.print("[public-root-package-contract] start {s}\n", .{label});
+    return start_ns;
+}
+
+fn smokeCaseDone(label: []const u8, start_ns: i128) void {
+    const elapsed_ns = std.time.nanoTimestamp() - start_ns;
+    const elapsed_ms = @divTrunc(elapsed_ns, std.time.ns_per_ms);
+    std.debug.print("[public-root-package-contract] done {s} ({d} ms)\n", .{ label, elapsed_ms });
+}
+
 fn writeTmpFile(dir: std.fs.Dir, path: []const u8, contents: []const u8) !void {
     if (std.fs.path.dirname(path)) |dir_name| try dir.makePath(dir_name);
     var file = try dir.createFile(path, .{ .truncate = true });
@@ -419,19 +431,25 @@ const ConsumerSmokeSuite = struct {
 
     fn expectSuccess(
         self: *ConsumerSmokeSuite,
+        label: []const u8,
         argv: []const []const u8,
         env_map: ?*const std.process.EnvMap,
     ) !void {
+        const start_ns = smokeCaseStart(label);
         try runChildExpectSuccess(self.tmp.dir, std.testing.allocator, argv, env_map);
+        smokeCaseDone(label, start_ns);
     }
 
     fn expectFailureContains(
         self: *ConsumerSmokeSuite,
+        label: []const u8,
         argv: []const []const u8,
         env_map: ?*const std.process.EnvMap,
         needle: []const u8,
     ) !void {
+        const start_ns = smokeCaseStart(label);
         try runChildExpectFailureContains(self.tmp.dir, std.testing.allocator, argv, env_map, needle);
+        smokeCaseDone(label, start_ns);
     }
 };
 
@@ -461,7 +479,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
     var env_map = try std.process.getEnvMap(std.testing.allocator);
     defer env_map.deinit();
     try env_map.put("PATH", shadow_path);
-    try suite.expectSuccess(&argv, &env_map);
+    try suite.expectSuccess("public root imports only shipped APIs", &argv, &env_map);
 
     try writeConsumerExecutableBuild(suite.tmp.dir, "shift_compile");
     try suite.writeFile("main.zig",
@@ -472,7 +490,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\}
         \\
     );
-    try suite.expectFailureContains(&argv, null, "shift_compile");
+    try suite.expectFailureContains("shift_compile stays hidden from downstream packages", &argv, null, "shift_compile");
 
     try writeConsumerExecutableBuild(suite.tmp.dir, "shift_vm");
     try suite.writeFile("main.zig",
@@ -483,7 +501,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\}
         \\
     );
-    try suite.expectFailureContains(&argv, null, "shift_vm");
+    try suite.expectFailureContains("shift_vm stays hidden from downstream packages", &argv, null, "shift_vm");
 
     try writeConsumerTestBuild(suite.tmp.dir, "shift");
     try suite.writeFile("main.zig",
@@ -508,7 +526,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\}
         \\
     );
-    try suite.expectFailureContains(&argv, null, "shift.NamedBody source_path must match the supplied body function provenance");
+    try suite.expectFailureContains("repo-owned NamedBody does not fall back to local test bodies", &argv, null, "shift.NamedBody source_path must match the supplied body function provenance");
 
     try writeConsumerTestBuild(suite.tmp.dir, "shift");
     try suite.writeFile("main.zig",
@@ -556,7 +574,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\}
         \\
     );
-    try suite.expectSuccess(&argv, null);
+    try suite.expectSuccess("legacy lexical and state wrappers stay source-compatible", &argv, null);
 
     try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
     try suite.writeFile("main.zig",
@@ -579,7 +597,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\}
         \\
     );
-    try suite.expectSuccess(&argv, null);
+    try suite.expectSuccess("withOwnedSource anonymous bodies stay usable downstream", &argv, null);
 
     try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
     try suite.writeFile("main.zig",
@@ -603,7 +621,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\}
         \\
     );
-    try suite.expectSuccess(&argv, null);
+    try suite.expectSuccess("withOwnedSource keeps repo-owned NamedBody identity", &argv, null);
 
     try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
     try suite.writeFile("main.zig",
@@ -618,7 +636,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\}
         \\
     );
-    try suite.expectFailureContains(&argv, null, "shift.NamedBody entry_symbol must match the supplied body function name");
+    try suite.expectFailureContains("NamedBody rejects mismatched entry_symbol", &argv, null, "shift.NamedBody entry_symbol must match the supplied body function name");
 
     try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
     try suite.writeFile("helpers.zig",
@@ -640,7 +658,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\}
         \\
     );
-    try suite.expectFailureContains(&argv, null, "shift.NamedBody source_path must match the supplied body function provenance");
+    try suite.expectFailureContains("NamedBody rejects helper function provenance drift", &argv, null, "shift.NamedBody source_path must match the supplied body function provenance");
 
     try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
     try suite.writeFile("body.zig",
@@ -676,7 +694,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\}
         \\
     );
-    try suite.expectSuccess(&argv, null);
+    try suite.expectSuccess("explicit witness disagreement cannot override repo-owned NamedBody", &argv, null);
 
     try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
     try suite.writeFile("body.zig",
@@ -704,7 +722,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\}
         \\
     );
-    try suite.expectFailureContains(&argv, null, "shift.withOwnedSource anonymous and body-source witnesses require witness.source_path to agree with the caller source");
+    try suite.expectFailureContains("withOwnedSource rejects mismatched explicit body-source witnesses", &argv, null, "shift.withOwnedSource anonymous and body-source witnesses require witness.source_path to agree with the caller source");
 
     try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
     try suite.writeFile("main.zig",
@@ -727,7 +745,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\}
         \\
     );
-    try suite.expectFailureContains(&argv, null, "shift.withOwnedSource anonymous bodies must not declare source_path; use witness.source_path or shift.NamedBody(...)");
+    try suite.expectFailureContains("withOwnedSource anonymous bodies reject source_path declarations", &argv, null, "shift.withOwnedSource anonymous bodies must not declare source_path; use witness.source_path or shift.NamedBody(...)");
 
     try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
     try suite.writeFile("main.zig",
@@ -750,7 +768,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\}
         \\
     );
-    try suite.expectFailureContains(&argv, null, "shift.withOwnedSource anonymous bodies must not declare entry_symbol; use witness.entry_symbol/body_method_name or shift.NamedBody(...)");
+    try suite.expectFailureContains("withOwnedSource anonymous bodies reject entry_symbol declarations", &argv, null, "shift.withOwnedSource anonymous bodies must not declare entry_symbol; use witness.entry_symbol/body_method_name or shift.NamedBody(...)");
 
     try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
     try suite.writeFile("nested/main.zig",
@@ -772,5 +790,5 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\}
         \\
     );
-    try suite.expectFailureContains(&argv, null, "shift.NamedBody source_path must match the supplied body function provenance");
+    try suite.expectFailureContains("NamedBody keeps nested module provenance distinct", &argv, null, "shift.NamedBody source_path must match the supplied body function provenance");
 }
