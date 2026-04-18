@@ -8,6 +8,8 @@ pub const Runtime = shared.Runtime;
 pub const RuntimeError = shared.RuntimeError;
 /// Canonical named lexical body helper for compiled `shift.withAt(@src(), ...)`.
 pub const NamedBody = shared.NamedBody;
+/// Explicit caller-owned source witness for `shift.withOwnedSource(...)`.
+pub const OwnedSourceWitness = shared.OwnedSourceWitness;
 /// Run the public lexical handler entrypoint.
 pub const with = shared.with;
 /// Run the public lexical handler entrypoint with explicit caller provenance.
@@ -20,6 +22,7 @@ test {
     _ = RuntimeError;
     _ = effect;
     _ = NamedBody;
+    _ = OwnedSourceWitness;
     _ = with;
     _ = withAt;
     _ = withOwnedSource;

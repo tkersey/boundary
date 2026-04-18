@@ -360,6 +360,14 @@ fn writeConsumerBuildFiles(tmp: *std.testing.TmpDir, repo_root: []const u8) !voi
 }
 
 fn writeConsumerExecutableBuild(dir: std.fs.Dir, import_name: []const u8) !void {
+    return writeConsumerExecutableBuildWithRoot(dir, import_name, "main.zig");
+}
+
+fn writeConsumerExecutableBuildWithRoot(
+    dir: std.fs.Dir,
+    import_name: []const u8,
+    root_source_path: []const u8,
+) !void {
     const build_zig = try std.fmt.allocPrint(std.testing.allocator,
         \\const std = @import("std");
         \\
@@ -368,7 +376,7 @@ fn writeConsumerExecutableBuild(dir: std.fs.Dir, import_name: []const u8) !void 
         \\    const optimize = b.standardOptimizeOption(.{{}});
         \\    const shift_dep = b.dependency("shift", .{{ .target = target, .optimize = optimize }});
         \\    const exe_mod = b.createModule(.{{
-        \\        .root_source_file = b.path("main.zig"),
+        \\        .root_source_file = b.path("{s}"),
         \\        .target = target,
         \\        .optimize = optimize,
         \\    }});
@@ -380,7 +388,7 @@ fn writeConsumerExecutableBuild(dir: std.fs.Dir, import_name: []const u8) !void 
         \\    b.installArtifact(exe);
         \\}}
         \\
-    , .{ import_name, import_name });
+    , .{ root_source_path, import_name, import_name });
     defer std.testing.allocator.free(build_zig);
     try writeTmpFile(dir, "build.zig", build_zig);
 }
@@ -470,6 +478,8 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\    _ = shift.Runtime;
         \\    _ = shift.RuntimeError;
         \\    _ = shift.effect;
+        \\    const witness: shift.OwnedSourceWitness = .{};
+        \\    _ = witness;
         \\    _ = shift.with;
         \\    _ = shift.withOwnedSource;
         \\}
@@ -673,6 +683,33 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\
     );
     try suite.expectSuccess("downstream NamedBody stays usable across helper files with withAt", &argv, null);
+
+    try writeConsumerExecutableBuildWithRoot(suite.tmp.dir, "shift", "src/main.zig");
+    try suite.writeFile("src/helpers.zig",
+        \\pub fn body(eff: anytype) anyerror!i32 {
+        \\    const before = try eff.state.get();
+        \\    try eff.state.set(before + 1);
+        \\    return try eff.state.get();
+        \\}
+        \\
+    );
+    try suite.writeFile("src/main.zig",
+        \\const helpers = @import("helpers.zig");
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\    const result = try shift.withAt(@src(), &runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 0)),
+        \\    }, shift.NamedBody("src/helpers.zig", "body", anyerror!i32, helpers.body));
+        \\    if (result.value != 1) return error.UnexpectedResult;
+        \\    if (result.outputs.state != 1) return error.UnexpectedState;
+        \\}
+        \\
+    );
+    try suite.expectSuccess("downstream NamedBody stays usable for source-rooted helpers with withAt", &argv, null);
 
     try writeConsumerExecutableBuild(suite.tmp.dir, "shift");
     try suite.writeFile("main.zig",

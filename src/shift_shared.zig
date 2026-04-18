@@ -20,6 +20,8 @@ pub const RuntimeError = lowered_machine.RuntimeError;
 pub const With = with_api.With;
 /// Canonical named lexical body helper retained at the root surface.
 pub const NamedBody = with_api.NamedBody;
+/// Explicit caller-owned source witness retained for `withOwnedSource(...)`.
+pub const OwnedSourceWitness = with_api.OwnedSourceWitness;
 /// Public `with(...)` helper retained at the root surface.
 pub const with = with_api.with;
 /// Public `withAt(...)` helper retained for explicit caller provenance.

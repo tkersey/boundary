@@ -76,6 +76,29 @@ fn namedBodySourceModulePath(comptime source_path_value: []const u8) []const u8 
     return dotted[0..];
 }
 
+fn namedBodyModulePathMatchesCandidate(
+    comptime module_path: []const u8,
+    comptime candidate: []const u8,
+) bool {
+    if (std.mem.eql(u8, module_path, candidate)) return true;
+    if (std.mem.indexOfScalar(u8, candidate, '.')) |_| {
+        if (std.mem.endsWith(u8, module_path, "." ++ candidate)) return true;
+    }
+    return false;
+}
+
+fn namedBodyModulePathMatchesExternalSourcePath(
+    comptime module_path: []const u8,
+    comptime source_path_value: []const u8,
+) bool {
+    var candidate = namedBodySourceModulePath(source_path_value);
+    while (true) {
+        if (namedBodyModulePathMatchesCandidate(module_path, candidate)) return true;
+        const dot_index = std.mem.indexOfScalar(u8, candidate, '.') orelse return false;
+        candidate = candidate[dot_index + 1 ..];
+    }
+}
+
 fn namedBodyModulePathMatchesSourcePath(
     comptime module_path: []const u8,
     comptime source_path_value: []const u8,
@@ -83,12 +106,9 @@ fn namedBodyModulePathMatchesSourcePath(
 ) bool {
     const full_module_path = namedBodySourceModulePath(source_path_value);
     const module_stem = std.fs.path.stem(source_path_value);
-    if (std.mem.eql(u8, module_path, full_module_path)) return true;
-    if (std.mem.indexOfScalar(u8, full_module_path, '.')) |_| {
-        if (std.mem.endsWith(u8, module_path, "." ++ full_module_path)) return true;
-    }
-    if (!std.mem.eql(u8, module_path, module_stem)) return false;
+    if (namedBodyModulePathMatchesCandidate(module_path, full_module_path)) return true;
     if (source_graph_embed.ownedRepoPath(source_path_value)) |owned_repo_path| {
+        if (!std.mem.eql(u8, module_path, module_stem)) return false;
         comptime {
             @setEvalBranchQuota(20_000_000);
         }
@@ -116,7 +136,7 @@ fn namedBodyModulePathMatchesSourcePath(
         }
         return source_path_matches and match_count == 1;
     }
-    return std.mem.indexOfAny(u8, source_path_value, "/\\") == null;
+    return namedBodyModulePathMatchesExternalSourcePath(module_path, source_path_value);
 }
 
 fn validateNamedBodyRepoIdentity(
@@ -151,6 +171,7 @@ fn namedCompiledLexicalPlan(
     comptime Body: type,
 ) ?public_lowering.ProgramPlan {
     if (!isNamedBodyDescriptor(Body)) return null;
+    if (source_graph_embed.ownedRepoPath(Body.source_path) == null) return null;
     const lowered_program = comptime blk: {
         break :blk public_lowering.maybeLowerAt(Body.source_path, .{
             .label = "shift.with named lexical body",
@@ -1475,6 +1496,9 @@ test "NamedBody provenance matching keeps directory segments distinct" {
     try std.testing.expect(namedBodyModulePathMatchesSourcePath("with_api", "src/with_api.zig", "namedBodyValidationExpected"));
     try std.testing.expect(namedBodyModulePathMatchesSourcePath("pkg.src.with_api", "src/with_api.zig", "namedBodyValidationExpected"));
     try std.testing.expect(namedBodyModulePathMatchesSourcePath("main", "main.zig", "body"));
+    try std.testing.expect(namedBodyModulePathMatchesSourcePath("helpers", "src/helpers.zig", "body"));
+    try std.testing.expect(namedBodyModulePathMatchesSourcePath("nested.helpers", "src/nested/helpers.zig", "body"));
+    try std.testing.expect(namedBodyModulePathMatchesSourcePath("pkg.nested.helpers", "src/nested/helpers.zig", "body"));
     try std.testing.expect(!namedBodyModulePathMatchesSourcePath("main", "nested/main.zig", "body"));
     try std.testing.expect(!namedBodyModulePathMatchesSourcePath("nested.main", "main.zig", "body"));
 }
@@ -1716,6 +1740,7 @@ fn rejectUnsupportedShippedWith(
 ) void {
     if (isNamedBodyDescriptor(Body)) {
         if (named_compiled_plan != null) return;
+        if (source_graph_embed.ownedRepoPath(Body.source_path) == null) return;
         if (builtin.is_test and namedBodyAllowsTestFallback(Body)) return;
         @compileError("shift.NamedBody execution must stay within the retained compiled lexical subset");
     }
@@ -2040,6 +2065,7 @@ fn ownedSourceUsesAnonymousCallerCompilation(comptime Body: type, comptime witne
 
 fn ownedSourceNamedPlan(comptime HandlersType: type, comptime Body: type) ?public_lowering.ProgramPlan {
     if (!isNamedBodyDescriptor(Body)) return null;
+    if (source_graph_embed.ownedRepoPath(Body.source_path) == null) return null;
     return namedCompiledLexicalPlan(HandlersType, Body);
 }
 
