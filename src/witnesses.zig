@@ -1,4 +1,4 @@
-const sources = @import("lexical_witness_support");
+const sources = @import("witness_sources");
 const std = @import("std");
 
 /// Stable witness metadata for the tests-only corpus.

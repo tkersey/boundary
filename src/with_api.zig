@@ -105,20 +105,14 @@ fn namedBodyModulePathMatchesSourcePath(
             if (!std.mem.eql(u8, std.fs.path.stem(candidate), module_stem)) continue;
 
             const candidate_source = source_graph_embed.embeddedSource(candidate);
-            const graph = source_graph_engine.analyzeComptime(candidate_source, .{
-                .entry_symbol = null,
+            _ = source_graph_engine.analyzeComptime(candidate_source, .{
+                .entry_symbol = entry_symbol_value,
                 .reject_recursive_helpers = false,
                 .reject_indirect_effect_access = false,
                 .reject_malformed_statements = false,
             }) catch continue;
-
-            inline for (graph.functions) |function| {
-                if (std.mem.eql(u8, function.name, entry_symbol_value)) {
-                    match_count += 1;
-                    if (std.mem.eql(u8, candidate, owned_repo_path)) source_path_matches = true;
-                    break;
-                }
-            }
+            match_count += 1;
+            if (std.mem.eql(u8, candidate, owned_repo_path)) source_path_matches = true;
         }
         return source_path_matches and match_count == 1;
     }
@@ -144,18 +138,12 @@ fn validateNamedBodyRepoIdentity(
         @setEvalBranchQuota(2_000_000);
     }
     const source = source_graph_embed.embeddedSource(owned_repo_path);
-    const graph = source_graph_engine.analyzeComptime(source, .{
-        .entry_symbol = null,
+    _ = source_graph_engine.analyzeComptime(source, .{
+        .entry_symbol = entry_symbol_value,
         .reject_recursive_helpers = false,
         .reject_indirect_effect_access = false,
         .reject_malformed_statements = false,
     }) catch @compileError("shift.NamedBody source_path must export the supplied entry_symbol");
-
-    inline for (graph.functions) |function| {
-        if (std.mem.eql(u8, function.name, entry_symbol_value)) break;
-    } else {
-        @compileError("shift.NamedBody source_path must export the supplied entry_symbol");
-    }
 }
 
 fn namedCompiledLexicalPlan(comptime HandlersType: type, comptime Body: type) ?public_lowering.ProgramPlan {
