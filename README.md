@@ -23,11 +23,11 @@ second public story.
 
 For shipped execution inside this package, `shift.NamedBody(...)` is the
 canonical source identity for `shift.with(...)`. The retained ordinary examples
-and admitted single-prompt witness subset are driven onto that compiled path
-rather than relying on anonymous inline lexical body execution in shipped
-builds. Downstream caller-owned source files, plus the nested-prompt
-`static_redelim` and `multi_prompt` witnesses, are not yet admitted to the
-compiled NamedBody subset.
+and admitted witness subset, including the nested-prompt `static_redelim` and
+`multi_prompt` witnesses, are driven onto that compiled path rather than
+relying on anonymous inline lexical body execution in shipped builds.
+Downstream caller-owned source files are still not admitted to the compiled
+NamedBody subset.
 
 ## Examples
 

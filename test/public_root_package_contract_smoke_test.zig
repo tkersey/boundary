@@ -44,6 +44,38 @@ fn runChild(
     });
 }
 
+fn runChildNoOutput(
+    cwd_dir: std.fs.Dir,
+    allocator: std.mem.Allocator,
+    argv: []const []const u8,
+    env_map: ?*const std.process.EnvMap,
+) !std.process.Child.Term {
+    const cwd_path = try cwd_dir.realpathAlloc(allocator, ".");
+    defer allocator.free(cwd_path);
+
+    var effective_env = if (env_map) |existing| blk: {
+        var cloned = std.process.EnvMap.init(allocator);
+        var it = existing.iterator();
+        while (it.next()) |entry| {
+            try cloned.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+        break :blk cloned;
+    } else try std.process.getEnvMap(allocator);
+    defer effective_env.deinit();
+
+    if (!effective_env.hash_map.contains("ZIG_GLOBAL_CACHE_DIR")) {
+        try effective_env.put("ZIG_GLOBAL_CACHE_DIR", ".zig-global-cache");
+    }
+
+    var child = std.process.Child.init(argv, allocator);
+    child.cwd = cwd_path;
+    child.env_map = &effective_env;
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Ignore;
+    child.stderr_behavior = .Ignore;
+    return try child.spawnAndWait();
+}
+
 const FingerprintRepair = struct {
     manifest_path: []const u8,
     fingerprint: []const u8,
@@ -121,16 +153,32 @@ fn runChildExpectSuccess(
     argv: []const []const u8,
     env_map: ?*const std.process.EnvMap,
 ) !void {
-    const result = try runChildWithFingerprintRepair(cwd_dir, allocator, argv, env_map);
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
+    while (true) {
+        const term = try runChildNoOutput(cwd_dir, allocator, argv, env_map);
+        switch (term) {
+            .Exited => |code| if (code == 0) return,
+            else => {},
+        }
 
-    switch (result.term) {
-        .Exited => |code| if (code == 0) return,
-        else => {},
+        const result = try runChild(cwd_dir, allocator, argv, env_map);
+        defer allocator.free(result.stdout);
+        defer allocator.free(result.stderr);
+
+        switch (result.term) {
+            .Exited => |code| if (code != 0) {
+                const suggested = extractSuggestedFingerprint(result.stderr) orelse {
+                    std.debug.print("child command failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ argv[0], result.stdout, result.stderr });
+                    return error.UnexpectedChildCommandFailure;
+                };
+                try rewriteBuildZonFingerprint(allocator, suggested.manifest_path, suggested.fingerprint);
+                continue;
+            },
+            else => {},
+        }
+
+        std.debug.print("child command unexpectedly failed without an exit code: {s}\n", .{argv[0]});
+        return error.UnexpectedChildCommandFailure;
     }
-    std.debug.print("child command failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ argv[0], result.stdout, result.stderr });
-    return error.UnexpectedChildCommandFailure;
 }
 
 fn runChildExpectFailureContains(
@@ -485,7 +533,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\    try std.testing.expectEqual(@as(i32, 1), with_result.outputs.state);
         \\
         \\    var state_instance = shift.effect.state.Instance(i32, AnyError).init();
-        \\    const handled = try shift.effect.state.handle(@src(), i32, &runtime, &state_instance, @as(i32, 0), struct {
+        \\    const handled = try shift.effect.state.handle(i32, &runtime, &state_instance, @as(i32, 0), struct {
         \\        pub fn body(comptime Cap: type, ctx: anytype) AnyError!i32 {
         \\            const before = try shift.effect.state.get(Cap, ctx);
         \\            try shift.effect.state.set(Cap, ctx, before + 2);
@@ -496,7 +544,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\    try std.testing.expectEqual(@as(i32, 2), handled.state);
         \\
         \\    var state_instance_with_error = shift.effect.state.Instance(i32, AnyError).init();
-        \\    const handled_with_error = try shift.effect.state.handleWithErrorSet(@src(), i32, AnyError, &runtime, &state_instance_with_error, @as(i32, 0), struct {
+        \\    const handled_with_error = try shift.effect.state.handleWithErrorSet(i32, AnyError, &runtime, &state_instance_with_error, @as(i32, 0), struct {
         \\        pub fn body(comptime Cap: type, ctx: anytype) AnyError!i32 {
         \\            const before = try shift.effect.state.get(Cap, ctx);
         \\            try shift.effect.state.set(Cap, ctx, before + 3);

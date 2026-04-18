@@ -506,7 +506,7 @@ test "generated lexical handlers infer after-hook errors when error_set_type is 
     try std.testing.expect(hasErrorName(ErrorSet, "AfterOops"));
 }
 
-test "generated family handleWithErrorSet preserves caller provenance" {
+test "generated family handleWithErrorSet keeps source-compatible arity" {
     const NoError = error{};
     const Audit = shift.effect.Define(.{
         .state_type = void,
@@ -519,7 +519,63 @@ test "generated family handleWithErrorSet preserves caller provenance" {
     defer runtime.deinit();
     var instance = Audit.Instance.init();
 
-    const result = try Audit.handleWithErrorSet(@src(), []const u8, NoError, &runtime, &instance, struct {
+    const result = try Audit.handleWithErrorSet([]const u8, NoError, &runtime, &instance, struct {
+        pub fn note(_: *@This(), _: []const u8) void {
+            // Intentionally empty witness hook.
+        }
+    }{}, struct {
+        pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
+            _ = Cap;
+            _ = ctx;
+            return "ok";
+        }
+    });
+
+    try std.testing.expectEqualStrings("ok", result.value);
+}
+
+test "generated family handle keeps source-compatible arity" {
+    const NoError = error{};
+    const Audit = shift.effect.Define(.{
+        .state_type = void,
+        .ops = .{
+            shift.effect.ops.Transform("note", []const u8, void),
+        },
+    });
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = Audit.Instance.init();
+
+    const result = try Audit.handle([]const u8, &runtime, &instance, struct {
+        pub fn note(_: *@This(), _: []const u8) void {
+            // Intentionally empty witness hook.
+        }
+    }{}, struct {
+        pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
+            _ = Cap;
+            _ = ctx;
+            return "ok";
+        }
+    });
+
+    try std.testing.expectEqualStrings("ok", result.value);
+}
+
+test "generated family handleWithErrorSetAt preserves caller provenance" {
+    const NoError = error{};
+    const Audit = shift.effect.Define(.{
+        .state_type = void,
+        .ops = .{
+            shift.effect.ops.Transform("note", []const u8, void),
+        },
+    });
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = Audit.Instance.init();
+
+    const result = try Audit.handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &instance, struct {
         pub fn note(_: *@This(), _: []const u8) void {
             // Intentionally empty witness hook.
         }
@@ -536,7 +592,7 @@ test "generated family handleWithErrorSet preserves caller provenance" {
     try std.testing.expectEqualStrings(@src().file, result.value);
 }
 
-test "generated family handle preserves caller provenance" {
+test "generated family handleAt preserves caller provenance" {
     const NoError = error{};
     const Audit = shift.effect.Define(.{
         .state_type = void,
@@ -549,7 +605,7 @@ test "generated family handle preserves caller provenance" {
     defer runtime.deinit();
     var instance = Audit.Instance.init();
 
-    const result = try Audit.handle(@src(), []const u8, &runtime, &instance, struct {
+    const result = try Audit.handleAt(@src(), []const u8, &runtime, &instance, struct {
         pub fn note(_: *@This(), _: []const u8) void {
             // Intentionally empty witness hook.
         }

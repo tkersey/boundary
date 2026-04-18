@@ -126,15 +126,14 @@ pub inline fn computeProgram(
 }
 
 /// Run an exception effect body and return the final caught or normal answer.
-pub fn handle(
-    comptime caller_source: std.builtin.SourceLocation,
+pub inline fn handle(
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
     comptime Catch: type,
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try handleAt(caller_source, AnswerType, runtime, instance, Catch, Body);
+    return try handleAt(@src(), AnswerType, runtime, instance, Catch, Body);
 }
 
 /// Run an exception effect body with explicit caller provenance and return the final caught or normal answer.
@@ -151,8 +150,7 @@ pub fn handleAt(
 
 /// Public `handleWithErrorSet` helper.
 // zlinter-disable max_positional_args - public caller provenance and catch inputs stay explicit at this compatibility wrapper.
-pub fn handleWithErrorSet(
-    comptime caller_source: std.builtin.SourceLocation,
+pub inline fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -160,7 +158,7 @@ pub fn handleWithErrorSet(
     comptime Catch: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleWithErrorSetAt(caller_source, AnswerType, RunErrorSetType, runtime, instance, Catch, Body);
+    return try handleWithErrorSetAt(@src(), AnswerType, RunErrorSetType, runtime, instance, Catch, Body);
 }
 
 /// Public `handleWithErrorSetAt` helper.
@@ -330,7 +328,7 @@ test "public exception handleWithErrorSet preserves caller provenance" {
     defer runtime.deinit();
     var instance = ExceptionInstance.init();
 
-    const result = try handleWithErrorSet(@src(), []const u8, NoError, &runtime, &instance, catcher, struct {
+    const result = try handleWithErrorSet([]const u8, NoError, &runtime, &instance, catcher, struct {
         /// Return the exact caller-owned source file observed through the public exception wrapper.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             _ = Cap;

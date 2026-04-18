@@ -111,8 +111,7 @@ pub inline fn computeProgram(
 }
 
 /// Run a state effect body and return the final state plus the body answer.
-pub fn handle(
-    comptime caller_source: std.builtin.SourceLocation,
+pub inline fn handle(
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
@@ -122,7 +121,7 @@ pub fn handle(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
-    return try handleAt(caller_source, AnswerType, runtime, instance, initial_state, Body);
+    return try handleAt(@src(), AnswerType, runtime, instance, initial_state, Body);
 }
 
 /// Run a state effect body with explicit caller provenance and return the final state plus the body answer.
@@ -142,8 +141,7 @@ pub fn handleAt(
 
 /// Public `handleWithErrorSet` helper.
 // zlinter-disable max_positional_args - public caller provenance and state inputs stay explicit at this compatibility wrapper.
-pub fn handleWithErrorSet(
-    comptime caller_source: std.builtin.SourceLocation,
+pub inline fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -154,7 +152,7 @@ pub fn handleWithErrorSet(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
-    return try handleWithErrorSetAt(caller_source, AnswerType, RunErrorSetType, runtime, instance, initial_state, Body);
+    return try handleWithErrorSetAt(@src(), AnswerType, RunErrorSetType, runtime, instance, initial_state, Body);
 }
 
 /// Public `handleWithErrorSetAt` helper.
@@ -283,7 +281,7 @@ test "public state handleWithErrorSet preserves caller provenance" {
     defer runtime.deinit();
     var instance = StateInstance.init();
 
-    const result = try handleWithErrorSet(@src(), []const u8, NoError, &runtime, &instance, @as(i32, 0), struct {
+    const result = try handleWithErrorSet([]const u8, NoError, &runtime, &instance, @as(i32, 0), struct {
         /// Return the exact caller-owned source file observed through the public state wrapper.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             _ = Cap;

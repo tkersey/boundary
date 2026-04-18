@@ -94,15 +94,14 @@ pub inline fn computeProgram(
 }
 
 /// Run a reader effect body and return the body answer.
-pub fn handle(
-    comptime caller_source: std.builtin.SourceLocation,
+pub inline fn handle(
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
     environment: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try handleAt(caller_source, AnswerType, runtime, instance, environment, Body);
+    return try handleAt(@src(), AnswerType, runtime, instance, environment, Body);
 }
 
 /// Run a reader effect body with explicit caller provenance and return the body answer.
@@ -119,8 +118,7 @@ pub fn handleAt(
 
 /// Public `handleWithErrorSet` helper.
 // zlinter-disable max_positional_args - public caller provenance and reader inputs stay explicit at this compatibility wrapper.
-pub fn handleWithErrorSet(
-    comptime caller_source: std.builtin.SourceLocation,
+pub inline fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -128,7 +126,7 @@ pub fn handleWithErrorSet(
     environment: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleWithErrorSetAt(caller_source, AnswerType, RunErrorSetType, runtime, instance, environment, Body);
+    return try handleWithErrorSetAt(@src(), AnswerType, RunErrorSetType, runtime, instance, environment, Body);
 }
 
 /// Public `handleWithErrorSetAt` helper.
@@ -153,7 +151,7 @@ test "public reader handleWithErrorSet preserves caller provenance" {
     defer runtime.deinit();
     var instance = ReaderInstance.init();
 
-    const result = try handleWithErrorSet(@src(), []const u8, NoError, &runtime, &instance, @as(i32, 21), struct {
+    const result = try handleWithErrorSet([]const u8, NoError, &runtime, &instance, @as(i32, 21), struct {
         /// Return the exact caller-owned source file observed through the public reader wrapper.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             _ = Cap;
