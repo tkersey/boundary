@@ -273,7 +273,7 @@ test "nested same-shaped state handles get distinct capability types" {
     try std.testing.expectEqual(@as(i32, 0), result.value);
 }
 
-test "public state handleWithErrorSet preserves caller provenance" {
+test "public state handleWithErrorSet leaves caller provenance absent by default" {
     const NoError = error{};
     const StateInstance = Instance(i32, NoError);
 
@@ -282,12 +282,12 @@ test "public state handleWithErrorSet preserves caller provenance" {
     var instance = StateInstance.init();
 
     const result = try handleWithErrorSet([]const u8, NoError, &runtime, &instance, @as(i32, 0), struct {
-        /// Return the exact caller-owned source file observed through the public state wrapper.
+        /// Report whether the source-compatible state wrapper leaves caller provenance absent.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             _ = Cap;
-            return @TypeOf(ctx.*).caller_source.?.file;
+            return if (@TypeOf(ctx.*).caller_source == null) "absent" else "present";
         }
     });
 
-    try std.testing.expectEqualStrings(@src().file, result.value);
+    try std.testing.expectEqualStrings("absent", result.value);
 }

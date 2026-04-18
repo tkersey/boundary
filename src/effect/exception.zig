@@ -314,7 +314,7 @@ test "exception throwProgram keeps direct explicit-program state thread-local ac
     try std.testing.expectEqualStrings("second", shared.second_result);
 }
 
-test "public exception handleWithErrorSet preserves caller provenance" {
+test "public exception handleWithErrorSet leaves caller provenance absent by default" {
     const NoError = error{};
     const ExceptionInstance = Instance([]const u8, NoError);
     const catcher = struct {
@@ -329,14 +329,14 @@ test "public exception handleWithErrorSet preserves caller provenance" {
     var instance = ExceptionInstance.init();
 
     const result = try handleWithErrorSet([]const u8, NoError, &runtime, &instance, catcher, struct {
-        /// Return the exact caller-owned source file observed through the public exception wrapper.
+        /// Report whether the source-compatible exception wrapper leaves caller provenance absent.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             _ = Cap;
-            return @TypeOf(ctx.*).caller_source.?.file;
+            return if (@TypeOf(ctx.*).caller_source == null) "absent" else "present";
         }
     });
 
-    try std.testing.expectEqualStrings(@src().file, result);
+    try std.testing.expectEqualStrings("absent", result);
 }
 
 test "nested same-shaped exception handles get distinct capability types" {

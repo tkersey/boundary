@@ -143,7 +143,7 @@ pub fn handleWithErrorSetAt(
     return try algebraic.handleReaderWithErrorSet(caller_source, AnswerType, RunErrorSetType, runtime, instance, environment, Body);
 }
 
-test "public reader handleWithErrorSet preserves caller provenance" {
+test "public reader handleWithErrorSet leaves caller provenance absent by default" {
     const NoError = error{};
     const ReaderInstance = Instance(i32, NoError);
 
@@ -152,14 +152,14 @@ test "public reader handleWithErrorSet preserves caller provenance" {
     var instance = ReaderInstance.init();
 
     const result = try handleWithErrorSet([]const u8, NoError, &runtime, &instance, @as(i32, 21), struct {
-        /// Return the exact caller-owned source file observed through the public reader wrapper.
+        /// Report whether the source-compatible reader wrapper leaves caller provenance absent.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             _ = Cap;
-            return @TypeOf(ctx.*).caller_source.?.file;
+            return if (@TypeOf(ctx.*).caller_source == null) "absent" else "present";
         }
     });
 
-    try std.testing.expectEqualStrings(@src().file, result);
+    try std.testing.expectEqualStrings("absent", result);
 }
 
 test "reader instance shell stays prompt-sized" {

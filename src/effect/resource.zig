@@ -341,7 +341,7 @@ test "resource handle releases before outer exception catch returns" {
     try std.testing.expectEqualStrings("catch=boom", manager.transcript[3]);
 }
 
-test "public resource handleWithErrorSet preserves caller provenance" {
+test "public resource handleWithErrorSet leaves caller provenance absent by default" {
     const NoError = error{};
     const ResourceInstance = Instance([]const u8, NoError);
     const manager = struct {
@@ -361,14 +361,14 @@ test "public resource handleWithErrorSet preserves caller provenance" {
     var instance = ResourceInstance.init();
 
     const result = try handleWithErrorSet([]const u8, NoError, &runtime, &instance, manager, struct {
-        /// Return the exact caller-owned source file observed through the public resource wrapper.
+        /// Report whether the source-compatible resource wrapper leaves caller provenance absent.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             _ = try acquire(Cap, ctx);
-            return @TypeOf(ctx.*).caller_source.?.file;
+            return if (@TypeOf(ctx.*).caller_source == null) "absent" else "present";
         }
     });
 
-    try std.testing.expectEqualStrings(@src().file, result);
+    try std.testing.expectEqualStrings("absent", result);
 }
 
 test "resource handle releases before outer optional return-now completes" {

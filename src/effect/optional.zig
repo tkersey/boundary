@@ -413,7 +413,7 @@ test "optional handle can resume and transform the resumed answer" {
     try std.testing.expectEqualStrings("answer=42", result);
 }
 
-test "public optional handleWithErrorSet preserves caller provenance" {
+test "public optional handleWithErrorSet leaves caller provenance absent by default" {
     const NoError = error{};
     const OptionalInstance = Instance(i32, NoError);
     const policy = struct {
@@ -434,14 +434,14 @@ test "public optional handleWithErrorSet preserves caller provenance" {
     var instance = OptionalInstance.init();
 
     const result = try handleWithErrorSet([]const u8, NoError, &runtime, &instance, policy, struct {
-        /// Return the exact caller-owned source file observed through the public optional wrapper.
+        /// Report whether the source-compatible optional wrapper leaves caller provenance absent.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             _ = Cap;
-            return @TypeOf(ctx.*).caller_source.?.file;
+            return if (@TypeOf(ctx.*).caller_source == null) "absent" else "present";
         }
     });
 
-    try std.testing.expectEqualStrings(@src().file, result);
+    try std.testing.expectEqualStrings("absent", result);
 }
 
 test "nested same-shaped optional handles get distinct capability types" {

@@ -286,7 +286,7 @@ test "writer handle accumulates items in order" {
     try std.testing.expectEqualStrings("done", result.value);
 }
 
-test "public writer handleWithErrorSet preserves caller provenance" {
+test "public writer handleWithErrorSet leaves caller provenance absent by default" {
     const NoError = error{};
     const WriterInstance = Instance([]const u8, NoError);
 
@@ -299,19 +299,19 @@ test "public writer handleWithErrorSet preserves caller provenance" {
         .Answer = []const u8,
         .ErrorSet = NoError,
     }, &runtime, &instance, std.testing.allocator, struct {
-        /// Return the exact caller-owned source file observed through the public writer wrapper.
+        /// Report whether the source-compatible writer wrapper leaves caller provenance absent.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             _ = Cap;
-            return @TypeOf(ctx.*).caller_source.?.file;
+            return if (@TypeOf(ctx.*).caller_source == null) "absent" else "present";
         }
     });
     defer std.testing.allocator.free(result.items);
 
     try std.testing.expectEqual(@as(usize, 0), result.items.len);
-    try std.testing.expectEqualStrings(@src().file, result.value);
+    try std.testing.expectEqualStrings("absent", result.value);
 }
 
-test "public writer handle preserves caller provenance" {
+test "public writer handle leaves caller provenance absent by default" {
     const NoError = error{};
     const WriterInstance = Instance([]const u8, NoError);
 
@@ -320,16 +320,16 @@ test "public writer handle preserves caller provenance" {
     var instance = WriterInstance.init();
 
     const result = try handle([]const u8, []const u8, &runtime, &instance, std.testing.allocator, struct {
-        /// Return the exact caller-owned source file observed through the public writer wrapper.
+        /// Report whether the source-compatible writer wrapper leaves caller provenance absent.
         pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
             _ = Cap;
-            return @TypeOf(ctx.*).caller_source.?.file;
+            return if (@TypeOf(ctx.*).caller_source == null) "absent" else "present";
         }
     });
     defer std.testing.allocator.free(result.items);
 
     try std.testing.expectEqual(@as(usize, 0), result.items.len);
-    try std.testing.expectEqualStrings(@src().file, result.value);
+    try std.testing.expectEqualStrings("absent", result.value);
 }
 
 test "nested same-shaped writer handles get distinct capability types" {
