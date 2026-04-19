@@ -17,7 +17,6 @@ fn decodeI32InstructionLiteral(instruction: program_plan.Instruction) i32 {
     return @bitCast(high | low);
 }
 
-
 fn functionLocalCodec(compiled_plan: program_plan.ProgramPlan, function: program_plan.FunctionPlan, local_id: u16) ?program_plan.ValueCodec {
     if (local_id >= function.local_count) return null;
     return compiled_plan.locals[function.first_local + local_id].codec;

@@ -988,7 +988,6 @@ fn decodeI32InstructionLiteral(instruction: program_plan.Instruction) i32 {
     return @bitCast(high | low);
 }
 
-
 fn deepFreeProgramPlan(allocator: std.mem.Allocator, plan: program_plan.ProgramPlan) void {
     allocator.free(plan.label);
     for (plan.functions) |item| allocator.free(item.symbol_name);
