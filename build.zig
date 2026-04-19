@@ -90,7 +90,94 @@ fn emptyTestRunnerArgs(allocator: std.mem.Allocator) !TestRunnerArgs {
     };
 }
 
-// Keep this in sync with Zig 0.15.2's compiler/build_runner.zig argv handling.
+const BuildInvocationArgs = struct {
+    arena: std.heap.ArenaAllocator,
+    items: []const []const u8,
+
+    fn deinit(self: *@This()) void {
+        self.arena.deinit();
+    }
+};
+
+fn buildInvocationArgsAlloc() !BuildInvocationArgs {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    errdefer arena.deinit();
+
+    const arena_allocator = arena.allocator();
+    const items = try switch (builtin.os.tag) {
+        .macos, .ios, .tvos, .watchos, .visionos => buildInvocationArgsAllocDarwin(arena_allocator),
+        .linux => buildInvocationArgsAllocLinux(arena_allocator),
+        .windows => buildInvocationArgsAllocWindows(arena_allocator),
+        else => error.UnsupportedHostBuildInvocationArgs,
+    };
+
+    return .{
+        .arena = arena,
+        .items = items,
+    };
+}
+
+fn buildInvocationArgsAllocDarwin(allocator: std.mem.Allocator) ![]const []const u8 {
+    const darwin_externs = struct {
+        extern "c" fn _NSGetArgc() *c_int;
+        extern "c" fn _NSGetArgv() *[*:null]?[*:0]u8;
+    };
+
+    const argc_signed = darwin_externs._NSGetArgc().*;
+    if (argc_signed < 0) return error.InvalidBuildInvocationArgCount;
+
+    const argc: usize = @intCast(argc_signed);
+    const argv = darwin_externs._NSGetArgv().*[0..argc];
+    const items = try allocator.alloc([]const u8, argc);
+    for (items, argv) |*dst, maybe_arg| {
+        const arg = maybe_arg orelse return error.InvalidBuildInvocationArgVector;
+        dst.* = std.mem.sliceTo(arg, 0);
+    }
+    return items;
+}
+
+fn buildInvocationArgsAllocLinux(allocator: std.mem.Allocator) ![]const []const u8 {
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(
+        compatIo(),
+        "/proc/self/cmdline",
+        allocator,
+        .limited(std.math.maxInt(usize)),
+    );
+
+    if (bytes.len == 0) return error.InvalidBuildInvocationArgVector;
+
+    var argc: usize = 0;
+    var index: usize = 0;
+    while (index < bytes.len) {
+        const end = std.mem.findScalarPos(u8, bytes, index, 0) orelse
+            return error.InvalidBuildInvocationArgVector;
+        argc += 1;
+        index = end + 1;
+    }
+
+    const items = try allocator.alloc([]const u8, argc);
+    index = 0;
+    for (items) |*item| {
+        const end = std.mem.findScalarPos(u8, bytes, index, 0).?;
+        item.* = bytes[index..end];
+        index = end + 1;
+    }
+    return items;
+}
+
+fn buildInvocationArgsAllocWindows(allocator: std.mem.Allocator) ![]const []const u8 {
+    const raw_items = try std.process.Args.toSlice(
+        .{ .vector = std.os.windows.peb().ProcessParameters.CommandLine.slice() },
+        allocator,
+    );
+    const items = try allocator.alloc([]const u8, raw_items.len);
+    for (items, raw_items) |*dst, src| {
+        dst.* = src;
+    }
+    return items;
+}
+
+// Keep this in sync with Zig 0.16.0's compiler/build_runner.zig argv handling.
 // The generated build helper only sees the tokens that survive the parent
 // process, so flags such as `--system <pkgdir>` must stay out of this table
 // because the helper receives only the bare `--system` token.
@@ -101,6 +188,8 @@ fn buildInvocationArgRequiresNextValue(arg: []const u8) bool {
         std.mem.eql(u8, arg, "--prefix-exe-dir") or
         std.mem.eql(u8, arg, "--prefix-include-dir") or
         std.mem.eql(u8, arg, "--color") or
+        std.mem.eql(u8, arg, "--error-style") or
+        std.mem.eql(u8, arg, "--multiline-errors") or
         std.mem.eql(u8, arg, "--summary") or
         std.mem.eql(u8, arg, "--maxrss") or
         std.mem.eql(u8, arg, "--libc-runtimes") or
@@ -115,6 +204,7 @@ fn buildInvocationArgRequiresNextValue(arg: []const u8) bool {
         std.mem.eql(u8, arg, "--zig-lib-dir") or
         std.mem.eql(u8, arg, "--build-runner") or
         std.mem.eql(u8, arg, "--seed") or
+        std.mem.eql(u8, arg, "--test-timeout") or
         std.mem.eql(u8, arg, "--debug-log");
 }
 
@@ -133,27 +223,6 @@ fn buildInvocationArgOptionallyConsumesNextValue(arg: []const u8, next_arg: []co
             next_arg[0] != '-' and
             (std.mem.findScalar(u8, next_arg, '.') != null or
                 std.mem.findScalar(u8, next_arg, ':') != null);
-    }
-    if (std.mem.eql(u8, arg, "-freference-trace")) {
-        _ = std.fmt.parseUnsigned(usize, next_arg, 10) catch return false;
-        return true;
-    }
-    if (std.mem.eql(u8, arg, "--build-id")) {
-        if (std.mem.eql(u8, next_arg, "fast") or
-            std.mem.eql(u8, next_arg, "sha1") or
-            std.mem.eql(u8, next_arg, "tree") or
-            std.mem.eql(u8, next_arg, "md5") or
-            std.mem.eql(u8, next_arg, "uuid") or
-            std.mem.eql(u8, next_arg, "none"))
-        {
-            return true;
-        }
-        if (!std.mem.startsWith(u8, next_arg, "0x") or next_arg.len == 2) return false;
-        for (next_arg["0x".len..]) |char| {
-            if (std.ascii.isHex(char)) continue;
-            return false;
-        }
-        return true;
     }
     return false;
 }
@@ -251,14 +320,19 @@ fn buildInvocationRequestsRunnableStepInArgs(args: []const []const u8, step_name
 }
 
 fn buildInvocationRequestsRunnableStep(step_name: []const u8) bool {
-    // Zig 0.16.0 removed the old build-script argv helpers used here in 0.15.x.
-    // Keep the documented `zig build test -- ...` surface working while the
-    // underlying build-runner arg plumbing is migrated separately.
-    return std.mem.eql(u8, step_name, "test");
+    var args = buildInvocationArgsAlloc() catch |err|
+        std.process.fatal("unable to inspect build invocation args: {s}", .{@errorName(err)});
+    defer args.deinit();
+
+    return buildInvocationRequestsRunnableStepInArgs(args.items, step_name);
 }
 
 fn buildInvocationRequestsStep(step_name: []const u8) bool {
-    return std.mem.eql(u8, step_name, "test") or std.mem.eql(u8, step_name, "lint");
+    var args = buildInvocationArgsAlloc() catch |err|
+        std.process.fatal("unable to inspect build invocation args: {s}", .{@errorName(err)});
+    defer args.deinit();
+
+    return buildInvocationRequestsStepInArgs(args.items, step_name);
 }
 
 fn compatIo() std.Io {
