@@ -129,10 +129,10 @@ fn joinRelativePathSegments(comptime segments: []const []const u8) []const u8 {
     };
 }
 
-fn pathEquals(comptime lhs: []const u8, comptime rhs: []const u8) bool {
+fn pathEquals(lhs: []const u8, rhs: []const u8) bool {
     if (lhs.len != rhs.len) return false;
-    const case_insensitive = comptime pathsUseCaseInsensitiveComparison(lhs, rhs);
-    inline for (rhs, 0..) |expected, index| {
+    const case_insensitive = pathsUseCaseInsensitiveComparison(lhs, rhs);
+    for (rhs, 0..) |expected, index| {
         const actual = lhs[index];
         if (expected == '/' or expected == '\\') {
             if (actual != '/' and actual != '\\') return false;
@@ -216,7 +216,7 @@ fn repoRelativeAbsolutePath(
 }
 
 fn repoRelativePath(comptime source_path: []const u8) []const u8 {
-    if (std.fs.path.isAbsolute(source_path)) {
+    if (std.Io.Dir.path.isAbsolute(source_path)) {
         if (repoRelativeAbsolutePath(source_path, build_options.package_root)) |repo_source_path| {
             return normalizeRelativePath(repo_source_path) catch |err| switch (err) {
                 error.EmptyPath => @compileError("public lowering source path must point to a file under the package root"),
@@ -264,7 +264,7 @@ fn ownedRepoRelativePath(comptime source_path: []const u8) []const u8 {
 }
 
 fn absoluteSourcePath(comptime source_path: []const u8) []const u8 {
-    if (!std.fs.path.isAbsolute(source_path)) @compileError("public lowering absolute source path must be absolute");
+    if (!std.Io.Dir.path.isAbsolute(source_path)) @compileError("public lowering absolute source path must be absolute");
     return normalizeAbsolutePath(source_path) catch |err| switch (err) {
         error.EmptyPath => @compileError("public lowering source path must point to a file"),
         error.EscapesRoot => @compileError("public lowering source path must stay within the absolute root"),
@@ -273,10 +273,10 @@ fn absoluteSourcePath(comptime source_path: []const u8) []const u8 {
 }
 
 fn normalizeAbsolutePathWithType(
-    comptime path_type: std.fs.path.PathType,
+    comptime path_type: std.Io.Dir.path.PathType,
     comptime source_path: []const u8,
 ) NormalizeRelativePathError![]const u8 {
-    var iterator = std.fs.path.ComponentIterator(path_type, u8).init(source_path) catch return error.EmptyPath;
+    var iterator = std.Io.Dir.path.ComponentIterator(path_type, u8).init(source_path);
     const root = iterator.root() orelse return error.EmptyPath;
     const relative = normalizeRelativePath(source_path[root.len..]) catch |err| switch (err) {
         error.EmptyPath => return error.EmptyPath,
@@ -287,13 +287,13 @@ fn normalizeAbsolutePathWithType(
 }
 
 fn normalizeAbsolutePath(comptime source_path: []const u8) NormalizeRelativePathError![]const u8 {
-    if (!std.fs.path.isAbsolute(source_path)) return error.EmptyPath;
-    const path_type: std.fs.path.PathType = if (builtin.os.tag == .windows) .windows else .posix;
+    if (!std.Io.Dir.path.isAbsolute(source_path)) return error.EmptyPath;
+    const path_type: std.Io.Dir.path.PathType = if (builtin.os.tag == .windows) .windows else .posix;
     return normalizeAbsolutePathWithType(path_type, source_path);
 }
 
 fn ownedRepoSourcePath(comptime source_path: []const u8) ?[]const u8 {
-    const repo_path = if (std.fs.path.isAbsolute(source_path)) blk: {
+    const repo_path = if (std.Io.Dir.path.isAbsolute(source_path)) blk: {
         if (repoRelativeAbsolutePath(source_path, build_options.package_root)) |repo_source_path| {
             break :blk comptime normalizeRelativePath(repo_source_path) catch return null;
         }
@@ -402,7 +402,7 @@ test "sourceBytes requires repo-resolving absolute helper imports to mirror repo
         "{s}/examples/open_row_cross_file_helpers.zig",
         .{build_options.package_root},
     );
-    const repo_parent = comptime std.fs.path.dirname(build_options.package_root) orelse
+    const repo_parent = comptime std.Io.Dir.path.dirname(build_options.package_root) orelse
         @compileError("package_root must have a parent directory");
     const external_root_path = comptime std.fmt.comptimePrint(
         "{s}/shift-external-entry/entry.zig",
@@ -455,10 +455,10 @@ pub fn analyzeModuleAt(comptime source_path: []const u8, comptime entry_symbol: 
 }
 
 fn dirname(comptime path: []const u8) []const u8 {
-    return std.fs.path.dirname(path) orelse "";
+    return std.Io.Dir.path.dirname(path) orelse "";
 }
 
-fn optionalPathEquals(comptime lhs: ?[]const u8, comptime rhs: ?[]const u8) bool {
+fn optionalPathEquals(lhs: ?[]const u8, rhs: ?[]const u8) bool {
     if (lhs == null and rhs == null) return true;
     if (lhs == null or rhs == null) return false;
     return pathEquals(lhs.?, rhs.?);
@@ -510,7 +510,7 @@ pub fn absoluteOwnedImportWithinEntryTree(path: []const u8) bool {
 
 /// Treat POSIX, UNC, and drive-letter forms as absolute so helper-import checks fail closed across hosts.
 pub fn pathIsAbsoluteCrossPlatform(path: []const u8) bool {
-    if (std.fs.path.isAbsolute(path)) return true;
+    if (std.Io.Dir.path.isAbsolute(path)) return true;
     if (path.len == 0) return false;
     if (path[0] == '\\') return true;
     return path.len >= 3 and
@@ -539,7 +539,7 @@ fn resolveImportPath(
     if (pathIsAbsoluteCrossPlatform(import_path)) return error.UnsupportedImportPath;
     if (!std.mem.endsWith(u8, import_path, ".zig")) return error.UnsupportedImportPath;
 
-    const normalized_from_path = if (std.fs.path.isAbsolute(from_path))
+    const normalized_from_path = if (std.Io.Dir.path.isAbsolute(from_path))
         absoluteSourcePath(from_path)
     else
         repoRelativePath(from_path);
@@ -549,7 +549,7 @@ fn resolveImportPath(
     else
         std.fmt.comptimePrint("{s}/{s}", .{ base_dir, import_path });
 
-    if (std.fs.path.isAbsolute(normalized_from_path)) {
+    if (std.Io.Dir.path.isAbsolute(normalized_from_path)) {
         const boundary = absoluteOwnedImportBoundary(import_path) orelse return error.UnsupportedImportPath;
         const resolved_path = normalizeAbsolutePath(joined) catch |err| switch (err) {
             error.EmptyPath, error.EscapesRoot => error.UnsupportedImportPath,
@@ -589,21 +589,21 @@ pub fn resolveImportPathAt(comptime from_path: []const u8, comptime import_path:
     return (try resolveImportPath(from_path, import_path, null)).path;
 }
 
-fn findModule(buffers: *const Buffers, comptime path: []const u8) ?ModuleEntry {
+fn findModule(comptime buffers: *const Buffers, comptime path: []const u8) ?ModuleEntry {
     for (buffers.modules[0..buffers.module_count]) |module| {
         if (std.mem.eql(u8, module.path, path)) return module;
     }
     return null;
 }
 
-fn findImportAlias(imports: []const source_graph_engine.ImportAlias, comptime name: []const u8) ?source_graph_engine.ImportAlias {
+fn findImportAlias(imports: []const source_graph_engine.ImportAlias, name: []const u8) ?source_graph_engine.ImportAlias {
     for (imports) |import_alias| {
         if (std.mem.eql(u8, import_alias.name, name)) return import_alias;
     }
     return null;
 }
 
-fn findModuleForFunctionIndex(buffers: *const Buffers, function_index: usize) ?ModuleEntry {
+fn findModuleForFunctionIndex(comptime buffers: *const Buffers, function_index: usize) ?ModuleEntry {
     for (buffers.modules[0..buffers.module_count]) |module| {
         const start = module.summary.first_function_index;
         const end = start + module.summary.function_count;
@@ -656,7 +656,7 @@ fn analyzeOwnedModule(
 fn collectModule(
     comptime source_path: []const u8,
     comptime context: CollectModuleContext,
-    buffers: *Buffers,
+    comptime buffers: *Buffers,
 ) Error!ModuleSummary {
     if (findModule(buffers, source_path)) |existing| {
         if (!optionalPathEquals(existing.absolute_entry_tree_root, context.absolute_entry_tree_root)) {
@@ -735,7 +735,7 @@ fn expandReachableImports(
     comptime root_source_path: ?[]const u8,
     comptime root_source: ?[:0]const u8,
     comptime imported_sources: []const OwnedSource,
-    buffers: *Buffers,
+    comptime buffers: *Buffers,
     entry_index: usize,
 ) Error!void {
     var reachable = [_]bool{false} ** buffers.functions.len;
@@ -747,8 +747,8 @@ fn expandReachableImports(
         changed = false;
 
         var function_index: usize = 0;
-        while (function_index < buffers.function_count) : (function_index += 1) {
-            if (!reachable[function_index]) continue;
+        function_loop: while (function_index < buffers.function_count) : (function_index += 1) {
+            if (!reachable[function_index]) continue :function_loop;
 
             if (!expanded_imports[function_index]) {
                 expanded_imports[function_index] = true;
@@ -757,10 +757,10 @@ fn expandReachableImports(
                 const local_index = function_index - module.summary.first_function_index;
                 const graph = module.summary.graph;
 
-                for (graph.helper_uses) |helper_use| {
-                    if (helper_use.caller_index != local_index) continue;
-                    const import_alias = helper_use.import_alias orelse continue;
-                    if (graph.functions[helper_use.caller_index].effect_param == null) continue;
+                helper_use_loop: for (graph.helper_uses) |helper_use| {
+                    if (helper_use.caller_index != local_index) continue :helper_use_loop;
+                    const import_alias = helper_use.import_alias orelse continue :helper_use_loop;
+                    if (graph.functions[helper_use.caller_index].effect_param == null) continue :helper_use_loop;
 
                     const import_row = findImportAlias(graph.imports, import_alias) orelse return error.MissingImport;
                     const imported_path = try resolveImportPath(
@@ -794,8 +794,8 @@ fn expandReachableImports(
                 }
             }
 
-            for (buffers.helper_edges[0..buffers.helper_edge_count]) |edge| {
-                if (edge.caller_index != function_index or reachable[edge.callee_index]) continue;
+            helper_edge_loop: for (buffers.helper_edges[0..buffers.helper_edge_count]) |edge| {
+                if (edge.caller_index != function_index or reachable[edge.callee_index]) continue :helper_edge_loop;
                 reachable[edge.callee_index] = true;
                 changed = true;
             }
@@ -815,24 +815,48 @@ pub fn analyzeProgramWithRootSource(
     comptime imported_sources: []const OwnedSource,
     comptime entry_symbol: []const u8,
 ) Error!ProgramGraph {
-    var buffers = Buffers{};
+    comptime var buffers = Buffers{};
     const root_source_path = if (root_source != null) source_path else null;
-    const root = try collectModule(source_path, .{
+    const root = comptime try collectModule(source_path, .{
         .root_source_path = root_source_path,
         .root_source = root_source,
         .imported_sources = imported_sources,
         .absolute_entry_tree_root = null,
     }, &buffers);
-    const root_graph = try analyzeOwnedModule(source_path, root_source_path, root_source, imported_sources, entry_symbol);
+    const root_graph = comptime try analyzeOwnedModule(source_path, root_source_path, root_source, imported_sources, entry_symbol);
     const entry_local_index = root_graph.entry_index orelse return error.EntryMissing;
     const entry_index = root.first_function_index + entry_local_index;
-    try expandReachableImports(root_source_path, root_source, imported_sources, &buffers, entry_index);
+    comptime try expandReachableImports(root_source_path, root_source, imported_sources, &buffers, entry_index);
 
+    const functions = comptime blk: {
+        var buffer: [buffers.function_count]ProgramFunction = undefined;
+        for (0..buffers.function_count) |index| {
+            buffer[index] = buffers.functions[index];
+        }
+        const exact = buffer;
+        break :blk exact[0..];
+    };
+    const helper_edges = comptime blk: {
+        var buffer: [buffers.helper_edge_count]ProgramHelperEdge = undefined;
+        for (0..buffers.helper_edge_count) |index| {
+            buffer[index] = buffers.helper_edges[index];
+        }
+        const exact = buffer;
+        break :blk exact[0..];
+    };
+    const direct_op_uses = comptime blk: {
+        var buffer: [buffers.direct_op_use_count]ProgramDirectOpUse = undefined;
+        for (0..buffers.direct_op_use_count) |index| {
+            buffer[index] = buffers.direct_op_uses[index];
+        }
+        const exact = buffer;
+        break :blk exact[0..];
+    };
     return .{
         .entry_index = entry_index,
-        .functions = buffers.functions[0..buffers.function_count],
-        .helper_edges = buffers.helper_edges[0..buffers.helper_edge_count],
-        .direct_op_uses = buffers.direct_op_uses[0..buffers.direct_op_use_count],
+        .functions = functions,
+        .helper_edges = helper_edges,
+        .direct_op_uses = direct_op_uses,
     };
 }
 

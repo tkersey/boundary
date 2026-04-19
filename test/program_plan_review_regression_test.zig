@@ -3,12 +3,12 @@ const internal_program_plan = @import("internal_program_plan");
 const std = @import("std");
 
 test "planFromProgram emits return_unit for row-only leaf programs" {
-    const row = effect_ir.rowFromSpec(.{
+    const row = comptime effect_ir.rowFromSpec(.{
         .writer = .{
             .tell = effect_ir.Transform([]const u8, void),
         },
     });
-    const program = effect_ir.Program{
+    const program = comptime effect_ir.Program{
         .functions = &.{.{
             .symbol = .{
                 .module_path = "examples/open_row_state_writer.zig",
@@ -32,7 +32,7 @@ test "planFromProgram keeps row-only helper calls self-contained without synthet
     comptime {
         @setEvalBranchQuota(20_000);
     }
-    const shared_row = effect_ir.rowFromSpec(.{
+    const shared_row = comptime effect_ir.rowFromSpec(.{
         .state = .{
             .get = effect_ir.Transform(void, i32),
         },
@@ -45,7 +45,7 @@ test "planFromProgram keeps row-only helper calls self-contained without synthet
         .module_path = "examples/workflow.zig",
         .symbol_name = "root",
     };
-    const program = effect_ir.Program{
+    const program = comptime effect_ir.Program{
         .functions = &.{
             .{
                 .symbol = root_symbol,
@@ -78,7 +78,7 @@ test "planFromProgram keeps row-only helper calls self-contained without synthet
 }
 
 test "planFromProgram forwards row-only helper parameters through synthesized call_arg spans" {
-    const shared_row = effect_ir.rowFromSpec(.{});
+    const shared_row = comptime effect_ir.rowFromSpec(.{});
     const helper_symbol = effect_ir.SymbolRef{
         .module_path = "examples/workflow.zig",
         .symbol_name = "helper",
@@ -87,7 +87,7 @@ test "planFromProgram forwards row-only helper parameters through synthesized ca
         .module_path = "examples/workflow.zig",
         .symbol_name = "root",
     };
-    const program = effect_ir.Program{
+    const program = comptime effect_ir.Program{
         .functions = &.{
             .{
                 .symbol = root_symbol,
@@ -123,7 +123,7 @@ test "planFromProgram forwards row-only helper parameters through synthesized ca
 }
 
 test "planFromProgram preserves row-only parameter returns inside the function local span" {
-    const program = effect_ir.Program{
+    const program = comptime effect_ir.Program{
         .functions = &.{.{
             .symbol = .{
                 .module_path = "examples/identity.zig",
@@ -146,7 +146,7 @@ test "planFromProgram preserves row-only parameter returns inside the function l
 }
 
 test "planFromProgram rejects ambiguous row-only multi-parameter returns without explicit bodies" {
-    const program = effect_ir.Program{
+    const program = comptime effect_ir.Program{
         .functions = &.{.{
             .symbol = .{
                 .module_path = "examples/pick.zig",
@@ -1148,7 +1148,7 @@ test "ProgramPlan.validate rejects mixed terminal and value helpers without a va
 }
 
 test "planFromProgram rejects bodyless helper fan-out without explicit bodies" {
-    const row = effect_ir.rowFromSpec(.{});
+    const row = comptime effect_ir.rowFromSpec(.{});
     const root_symbol = effect_ir.SymbolRef{
         .module_path = "examples/fanout.zig",
         .symbol_name = "root",
@@ -1161,7 +1161,7 @@ test "planFromProgram rejects bodyless helper fan-out without explicit bodies" {
         .module_path = "examples/fanout.zig",
         .symbol_name = "helperB",
     };
-    const program = effect_ir.Program{
+    const program = comptime effect_ir.Program{
         .functions = &.{
             .{ .symbol = root_symbol, .row = row },
             .{ .symbol = helper_a_symbol, .row = row },
@@ -1178,12 +1178,12 @@ test "planFromProgram rejects bodyless helper fan-out without explicit bodies" {
 }
 
 test "planFromProgram rejects bodyless recursive helper graphs without explicit bodies" {
-    const row = effect_ir.rowFromSpec(.{});
+    const row = comptime effect_ir.rowFromSpec(.{});
     const root_symbol = effect_ir.SymbolRef{
         .module_path = "examples/recursive.zig",
         .symbol_name = "root",
     };
-    const program = effect_ir.Program{
+    const program = comptime effect_ir.Program{
         .functions = &.{.{ .symbol = root_symbol, .row = row }},
         .call_edges = &.{.{
             .caller = root_symbol,
@@ -1196,7 +1196,7 @@ test "planFromProgram rejects bodyless recursive helper graphs without explicit 
 }
 
 test "planFromProgram rejects explicit helper bodies whose local prefix disagrees with declared parameters" {
-    const row = effect_ir.rowFromSpec(.{});
+    const row = comptime effect_ir.rowFromSpec(.{});
     const root_symbol = effect_ir.SymbolRef{
         .module_path = "examples/mismatched_helper.zig",
         .symbol_name = "root",
@@ -1205,7 +1205,7 @@ test "planFromProgram rejects explicit helper bodies whose local prefix disagree
         .module_path = "examples/mismatched_helper.zig",
         .symbol_name = "helper",
     };
-    const program = effect_ir.Program{
+    const program = comptime effect_ir.Program{
         .functions = &.{
             .{
                 .symbol = root_symbol,

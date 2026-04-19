@@ -481,8 +481,8 @@ fn mergedRequirementForLabel(comptime label: []const u8, comptime Specs: anytype
         var buffer: [op_total]OpSpec = undefined;
         var index: usize = 0;
         for (Specs) |Spec| {
-            for (@typeInfo(@TypeOf(Spec)).@"struct".fields) |field| {
-                if (!std.mem.eql(u8, field.name, label)) continue;
+            field_scan: for (@typeInfo(@TypeOf(Spec)).@"struct".fields) |field| {
+                if (!std.mem.eql(u8, field.name, label)) continue :field_scan;
                 const requirement = requirementFromSpec(label, @field(Spec, field.name));
                 for (requirement.ops) |op| {
                     for (buffer[0..index]) |existing| {
@@ -520,8 +520,8 @@ fn mergedRequirementForLabelFromRows(comptime label: []const u8, comptime Rows: 
         var buffer: [op_total]OpSpec = undefined;
         var index: usize = 0;
         for (Rows) |row_value| {
-            for (row_value.requirements) |requirement| {
-                if (!std.mem.eql(u8, requirement.label, label)) continue;
+            requirement_scan: for (row_value.requirements) |requirement| {
+                if (!std.mem.eql(u8, requirement.label, label)) continue :requirement_scan;
                 for (requirement.ops) |op| {
                     for (buffer[0..index]) |existing| {
                         if (std.mem.eql(u8, existing.op_name, op.op_name)) {
@@ -565,7 +565,7 @@ pub fn mergeRows(comptime Specs: anytype) Row {
             var buffer: [requirement_count]Requirement = undefined;
             var index: usize = 0;
             for (Specs, 0..) |row_value, row_index| {
-                for (row_value.requirements) |requirement| {
+                requirement_scan: for (row_value.requirements) |requirement| {
                     var seen = false;
                     for (Specs, 0..) |earlier_row, earlier_index| {
                         if (earlier_index >= row_index) break;
@@ -573,7 +573,7 @@ pub fn mergeRows(comptime Specs: anytype) Row {
                             if (std.mem.eql(u8, earlier_requirement.label, requirement.label)) seen = true;
                         }
                     }
-                    if (seen) continue;
+                    if (seen) continue :requirement_scan;
                     buffer[index] = mergedRequirementForLabelFromRows(requirement.label, Specs);
                     index += 1;
                 }
@@ -590,7 +590,7 @@ pub fn mergeRows(comptime Specs: anytype) Row {
         var buffer: [requirement_count]Requirement = undefined;
         var index: usize = 0;
         for (Specs, 0..) |Spec, spec_index| {
-            for (@typeInfo(@TypeOf(Spec)).@"struct".fields) |field| {
+            field_scan: for (@typeInfo(@TypeOf(Spec)).@"struct".fields) |field| {
                 var seen = false;
                 for (Specs, 0..) |EarlierSpec, earlier_index| {
                     if (earlier_index >= spec_index) break;
@@ -598,7 +598,7 @@ pub fn mergeRows(comptime Specs: anytype) Row {
                         if (std.mem.eql(u8, earlier_field.name, field.name)) seen = true;
                     }
                 }
-                if (seen) continue;
+                if (seen) continue :field_scan;
                 buffer[index] = mergedRequirementForLabel(field.name, Specs);
                 index += 1;
             }

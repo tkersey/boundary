@@ -3,16 +3,15 @@
     .version = "0.0.1",
     .dependencies = .{
         .zlinter = .{
-            .url = "git+https://github.com/tkersey/zlinter.git?ref=zig015-fixes#42461509e68f2f947f7594fdf4d63f46db40ab87",
-            .hash = "zlinter-0.0.1-OjQ08dCnCwBINQWXHHWuaDi4eSx9hRXBbJUtySTqfcU3",
+            .path = "tools/vendor/zlinter",
         },
         .zprof = .{
-            .url = "https://github.com/ANDRVV/zprof/archive/v3.0.1.zip",
-            .hash = "zprof-3.0.0-Z3ILTYpyAABVThrMKcGO58SgE-kGtctSugefMGgSPEyy",
+            .url = "https://github.com/ANDRVV/zprof/archive/v4.0.0.tar.gz",
+            .hash = "zprof-4.0.0-Z3ILTVZ3AACiAIXUpC9F65Hr8zsqpqHc6f-Xu4ic4E8E",
             .lazy = true,
         },
     },
-    .minimum_zig_version = "0.15.2",
+    .minimum_zig_version = "0.16.0",
     .paths = .{
         "README.md",
         "bench",

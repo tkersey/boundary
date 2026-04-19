@@ -73,6 +73,57 @@ fn cloneBytes(comptime bytes: []const u8) []const u8 {
     return std.fmt.comptimePrint("{s}", .{bytes});
 }
 
+fn cloneInstructions(comptime instructions: []const program_frontend.BodyInstruction) []const program_frontend.BodyInstruction {
+    return comptime blk: {
+        var buffer: [instructions.len]program_frontend.BodyInstruction = undefined;
+        for (instructions, 0..) |instruction, index| {
+            var cloned = instruction;
+            if (instruction.string_literal.len != 0) {
+                cloned.string_literal = cloneBytes(instruction.string_literal);
+            }
+            buffer[index] = cloned;
+        }
+        const exact = buffer;
+        break :blk exact[0..];
+    };
+}
+
+fn cloneBlocks(comptime blocks: []const program_frontend.BodyBlock) []const program_frontend.BodyBlock {
+    return comptime blk: {
+        var buffer: [blocks.len]program_frontend.BodyBlock = undefined;
+        for (blocks, 0..) |block, index| {
+            buffer[index] = .{
+                .instructions = cloneInstructions(block.instructions),
+                .terminator = block.terminator,
+            };
+        }
+        const exact = buffer;
+        break :blk exact[0..];
+    };
+}
+
+fn cloneLocalCodecs(comptime codecs: []const effect_ir.LocalCodec) []const effect_ir.LocalCodec {
+    return comptime blk: {
+        var buffer: [codecs.len]effect_ir.LocalCodec = undefined;
+        for (codecs, 0..) |codec, index| {
+            buffer[index] = codec;
+        }
+        const exact = buffer;
+        break :blk exact[0..];
+    };
+}
+
+fn cloneLocalIds(comptime local_ids: []const effect_ir.LocalId) []const effect_ir.LocalId {
+    return comptime blk: {
+        var buffer: [local_ids.len]effect_ir.LocalId = undefined;
+        for (local_ids, 0..) |local_id, index| {
+            buffer[index] = local_id;
+        }
+        const exact = buffer;
+        break :blk exact[0..];
+    };
+}
+
 fn encodeI32LiteralInstruction(value: i32) program_frontend.BodyInstruction {
     const bits: u32 = @bitCast(value);
     return .{
@@ -114,12 +165,7 @@ fn failUnsupportedBodyLowering(comptime function: source_graph_embed.ProgramFunc
 }
 
 fn isBodyIgnorable(tag: std.zig.Token.Tag) bool {
-    return switch (tag) {
-        .doc_comment,
-        .container_doc_comment,
-        => true,
-        else => false,
-    };
+    return tag == .doc_comment or tag == .container_doc_comment;
 }
 
 // Linear-body scratch must accommodate the largest single retained statement shape:
@@ -173,7 +219,8 @@ fn bodyTokensForFunction(
             };
             index += 1;
         }
-        break :blk &buffer;
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -185,20 +232,18 @@ fn statementRangesForTokens(comptime tokens: []const BodyToken) []const Statemen
         var bracket_depth: usize = 0;
         var brace_depth: usize = 0;
         for (tokens, 0..) |token, index| {
-            switch (token.tag) {
-                .l_paren => paren_depth += 1,
-                .r_paren => {
-                    if (paren_depth != 0) paren_depth -= 1;
-                },
-                .l_bracket => bracket_depth += 1,
-                .r_bracket => {
-                    if (bracket_depth != 0) bracket_depth -= 1;
-                },
-                .l_brace => brace_depth += 1,
-                .r_brace => {
-                    if (brace_depth != 0) brace_depth -= 1;
-                },
-                else => {},
+            if (token.tag == .l_paren) {
+                paren_depth += 1;
+            } else if (token.tag == .r_paren) {
+                if (paren_depth != 0) paren_depth -= 1;
+            } else if (token.tag == .l_bracket) {
+                bracket_depth += 1;
+            } else if (token.tag == .r_bracket) {
+                if (bracket_depth != 0) bracket_depth -= 1;
+            } else if (token.tag == .l_brace) {
+                brace_depth += 1;
+            } else if (token.tag == .r_brace) {
+                if (brace_depth != 0) brace_depth -= 1;
             }
             if (token.tag != .semicolon or paren_depth != 0 or bracket_depth != 0 or brace_depth != 0) continue;
             if (index + 1 > start) statement_count += 1;
@@ -212,20 +257,18 @@ fn statementRangesForTokens(comptime tokens: []const BodyToken) []const Statemen
         bracket_depth = 0;
         brace_depth = 0;
         for (tokens, 0..) |token, index| {
-            switch (token.tag) {
-                .l_paren => paren_depth += 1,
-                .r_paren => {
-                    if (paren_depth != 0) paren_depth -= 1;
-                },
-                .l_bracket => bracket_depth += 1,
-                .r_bracket => {
-                    if (bracket_depth != 0) bracket_depth -= 1;
-                },
-                .l_brace => brace_depth += 1,
-                .r_brace => {
-                    if (brace_depth != 0) brace_depth -= 1;
-                },
-                else => {},
+            if (token.tag == .l_paren) {
+                paren_depth += 1;
+            } else if (token.tag == .r_paren) {
+                if (paren_depth != 0) paren_depth -= 1;
+            } else if (token.tag == .l_bracket) {
+                bracket_depth += 1;
+            } else if (token.tag == .r_bracket) {
+                if (bracket_depth != 0) bracket_depth -= 1;
+            } else if (token.tag == .l_brace) {
+                brace_depth += 1;
+            } else if (token.tag == .r_brace) {
+                if (brace_depth != 0) brace_depth -= 1;
             }
             if (token.tag != .semicolon or paren_depth != 0 or bracket_depth != 0 or brace_depth != 0) continue;
             if (index + 1 > start) {
@@ -237,7 +280,8 @@ fn statementRangesForTokens(comptime tokens: []const BodyToken) []const Statemen
             }
             start = index + 1;
         }
-        break :blk &buffer;
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -253,15 +297,16 @@ fn tokenIsBoolLiteral(token: BodyToken) bool {
 }
 
 fn statementArgsSupported(args: []const BodyToken) bool {
-    for (args) |item| switch (item.tag) {
-        .comma,
-        .identifier,
-        .string_literal,
-        .number_literal,
-        .plus,
-        => {},
-        else => return false,
-    };
+    for (args) |item| {
+        if (item.tag != .comma and
+            item.tag != .identifier and
+            item.tag != .string_literal and
+            item.tag != .number_literal and
+            item.tag != .plus)
+        {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -509,32 +554,29 @@ fn continuationStructStart(args: []const BodyToken) ?struct {
     var bracket_depth: usize = 0;
     var brace_depth: usize = 0;
     for (args, 0..) |token, index| {
-        switch (token.tag) {
-            .l_paren => paren_depth += 1,
-            .r_paren => {
-                if (paren_depth != 0) paren_depth -= 1;
-            },
-            .l_bracket => bracket_depth += 1,
-            .r_bracket => {
-                if (bracket_depth != 0) bracket_depth -= 1;
-            },
-            .l_brace => brace_depth += 1,
-            .r_brace => {
-                if (brace_depth != 0) brace_depth -= 1;
-            },
-            .comma => if (paren_depth == 0 and bracket_depth == 0 and brace_depth == 0) {
-                const next_index = index + 1;
-                if (next_index + 1 < args.len and
-                    args[next_index].tag == .keyword_struct and
-                    args[next_index + 1].tag == .l_brace)
-                {
-                    return .{
-                        .payload_end = index,
-                        .struct_start = next_index,
-                    };
-                }
-            },
-            else => {},
+        if (token.tag == .l_paren) {
+            paren_depth += 1;
+        } else if (token.tag == .r_paren) {
+            if (paren_depth != 0) paren_depth -= 1;
+        } else if (token.tag == .l_bracket) {
+            bracket_depth += 1;
+        } else if (token.tag == .r_bracket) {
+            if (bracket_depth != 0) bracket_depth -= 1;
+        } else if (token.tag == .l_brace) {
+            brace_depth += 1;
+        } else if (token.tag == .r_brace) {
+            if (brace_depth != 0) brace_depth -= 1;
+        } else if (token.tag == .comma and paren_depth == 0 and bracket_depth == 0 and brace_depth == 0) {
+            const next_index = index + 1;
+            if (next_index + 1 < args.len and
+                args[next_index].tag == .keyword_struct and
+                args[next_index + 1].tag == .l_brace)
+            {
+                return .{
+                    .payload_end = index,
+                    .struct_start = next_index,
+                };
+            }
         }
     }
     return null;
@@ -546,23 +588,21 @@ fn continuationStructTokens(args: []const BodyToken, struct_start: usize) ?[]con
     var brace_depth: usize = 0;
     var index: usize = struct_start;
     while (index < args.len) : (index += 1) {
-        switch (args[index].tag) {
-            .l_paren => paren_depth += 1,
-            .r_paren => {
-                if (paren_depth == 0) return null;
-                paren_depth -= 1;
-            },
-            .l_bracket => bracket_depth += 1,
-            .r_bracket => {
-                if (bracket_depth == 0) return null;
-                bracket_depth -= 1;
-            },
-            .l_brace => brace_depth += 1,
-            .r_brace => {
-                if (brace_depth == 0) return null;
-                brace_depth -= 1;
-            },
-            else => {},
+        if (args[index].tag == .l_paren) {
+            paren_depth += 1;
+        } else if (args[index].tag == .r_paren) {
+            if (paren_depth == 0) return null;
+            paren_depth -= 1;
+        } else if (args[index].tag == .l_bracket) {
+            bracket_depth += 1;
+        } else if (args[index].tag == .r_bracket) {
+            if (bracket_depth == 0) return null;
+            bracket_depth -= 1;
+        } else if (args[index].tag == .l_brace) {
+            brace_depth += 1;
+        } else if (args[index].tag == .r_brace) {
+            if (brace_depth == 0) return null;
+            brace_depth -= 1;
         }
 
         if (index == struct_start or paren_depth != 0 or bracket_depth != 0 or brace_depth != 0) continue;
@@ -607,29 +647,24 @@ fn parseContinuationApplyBody(struct_tokens: []const BodyToken) ?struct {
         var param_depth: usize = 1;
         var cursor = fn_index + 3;
         while (cursor < struct_tokens.len and param_depth != 0) : (cursor += 1) {
-            switch (struct_tokens[cursor].tag) {
-                .l_paren => if (param_depth == 1) {
-                    param_depth += 1;
-                } else {
-                    param_depth += 1;
-                },
-                .r_paren => {
-                    if (param_depth == 0) return null;
-                    param_depth -= 1;
-                },
-                .comma => if (param_depth == 1) {
-                    expect_param_name = true;
-                },
-                .colon => if (param_depth == 1) {
-                    expect_param_name = false;
-                },
-                .identifier => if (param_depth == 1 and expect_param_name and param_name == null) {
-                    if (!std.mem.eql(u8, struct_tokens[cursor].lexeme, "_")) {
-                        param_name = struct_tokens[cursor].lexeme;
-                    }
-                    expect_param_name = false;
-                },
-                else => {},
+            if (struct_tokens[cursor].tag == .l_paren) {
+                param_depth += 1;
+            } else if (struct_tokens[cursor].tag == .r_paren) {
+                if (param_depth == 0) return null;
+                param_depth -= 1;
+            } else if (struct_tokens[cursor].tag == .comma and param_depth == 1) {
+                expect_param_name = true;
+            } else if (struct_tokens[cursor].tag == .colon and param_depth == 1) {
+                expect_param_name = false;
+            } else if (struct_tokens[cursor].tag == .identifier and
+                param_depth == 1 and
+                expect_param_name and
+                param_name == null)
+            {
+                if (!std.mem.eql(u8, struct_tokens[cursor].lexeme, "_")) {
+                    param_name = struct_tokens[cursor].lexeme;
+                }
+                expect_param_name = false;
             }
         }
         if (param_depth != 0 or cursor >= struct_tokens.len) return null;
@@ -641,13 +676,11 @@ fn parseContinuationApplyBody(struct_tokens: []const BodyToken) ?struct {
         var body_depth: usize = 1;
         cursor = body_start;
         while (cursor < struct_tokens.len and body_depth != 0) : (cursor += 1) {
-            switch (struct_tokens[cursor].tag) {
-                .l_brace => body_depth += 1,
-                .r_brace => {
-                    if (body_depth == 0) return null;
-                    body_depth -= 1;
-                },
-                else => {},
+            if (struct_tokens[cursor].tag == .l_brace) {
+                body_depth += 1;
+            } else if (struct_tokens[cursor].tag == .r_brace) {
+                if (body_depth == 0) return null;
+                body_depth -= 1;
             }
         }
         if (body_depth != 0 or cursor == 0) return null;
@@ -1129,19 +1162,19 @@ fn parseReturnLiteralStatement(comptime statement: []const BodyToken) ?union(enu
     if (statement.len != 3) return null;
     if (statement[0].tag != .keyword_return) return null;
     if (statement[2].tag != .semicolon) return null;
-    return switch (statement[1].tag) {
-        .identifier => if (std.mem.eql(u8, statement[1].lexeme, "true"))
-            .{ .bool_value = true }
-        else if (std.mem.eql(u8, statement[1].lexeme, "false"))
-            .{ .bool_value = false }
-        else
-            null,
-        .number_literal => .{ .number_literal = statement[1].lexeme },
-        .string_literal => .{
+    const tag = statement[1].tag;
+    if (tag == .identifier) {
+        if (std.mem.eql(u8, statement[1].lexeme, "true")) return .{ .bool_value = true };
+        if (std.mem.eql(u8, statement[1].lexeme, "false")) return .{ .bool_value = false };
+        return null;
+    }
+    if (tag == .number_literal) return .{ .number_literal = statement[1].lexeme };
+    if (tag == .string_literal) {
+        return .{
             .string_value = stringLiteralContents(statement[1].lexeme) orelse return null,
-        },
-        else => null,
-    };
+        };
+    }
+    return null;
 }
 
 fn parseReturnLocalStatement(comptime statement: []const BodyToken) ?[]const u8 {
@@ -1186,8 +1219,8 @@ fn resumeCodecForFunctionUse(
 ) effect_ir.LocalCodec {
     for (functions[function_index].row.requirements) |requirement| {
         if (!std.mem.eql(u8, requirement.label, requirement_label)) continue;
-        for (requirement.ops) |op| {
-            if (!std.mem.eql(u8, op.op_name, op_name)) continue;
+        op_resume_loop: for (requirement.ops) |op| {
+            if (!std.mem.eql(u8, op.op_name, op_name)) continue :op_resume_loop;
             if (op.ResumeType == void) return .unit;
             if (op.ResumeType == bool) return .bool;
             if (op.ResumeType == i32) return .i32;
@@ -1208,8 +1241,8 @@ fn payloadCodecForFunctionUse(
 ) effect_ir.LocalCodec {
     for (functions[function_index].row.requirements) |requirement| {
         if (!std.mem.eql(u8, requirement.label, requirement_label)) continue;
-        for (requirement.ops) |op| {
-            if (!std.mem.eql(u8, op.op_name, op_name)) continue;
+        op_payload_loop: for (requirement.ops) |op| {
+            if (!std.mem.eql(u8, op.op_name, op_name)) continue :op_payload_loop;
             if (op.PayloadType == void) return .unit;
             if (op.PayloadType == bool) return .bool;
             if (op.PayloadType == i32) return .i32;
@@ -1253,8 +1286,8 @@ fn opModeForFunctionUse(
 ) effect_ir.ControlMode {
     for (functions[function_index].row.requirements) |requirement| {
         if (!std.mem.eql(u8, requirement.label, requirement_label)) continue;
-        for (requirement.ops) |op| {
-            if (!std.mem.eql(u8, op.op_name, op_name)) continue;
+        op_mode_loop: for (requirement.ops) |op| {
+            if (!std.mem.eql(u8, op.op_name, op_name)) continue :op_mode_loop;
             return op.mode;
         }
     }
@@ -1331,8 +1364,8 @@ fn emitSingleTokenForExpectedCodec(
     comptime expected_codec: effect_ir.LocalCodec,
     state: *BodyBuildState,
 ) ?u16 {
-    return switch (token.tag) {
-        .identifier => if (std.mem.eql(u8, token.lexeme, "true")) blk: {
+    if (token.tag == .identifier) {
+        return if (std.mem.eql(u8, token.lexeme, "true")) blk: {
             if (expected_codec != .bool) break :blk null;
             const bool_value = std.mem.eql(u8, token.lexeme, "true");
             break :blk appendBoolLiteralValue(state, bool_value);
@@ -1340,8 +1373,10 @@ fn emitSingleTokenForExpectedCodec(
             if (expected_codec != .bool) break :blk null;
             const bool_value = false;
             break :blk appendBoolLiteralValue(state, bool_value);
-        } else null,
-        .number_literal => switch (expected_codec) {
+        } else null;
+    }
+    if (token.tag == .number_literal) {
+        return switch (expected_codec) {
             .i32 => literal_i32: {
                 const value = std.fmt.parseInt(i32, token.lexeme, 0) catch return null;
                 const dst = appendAnonymousLocal(&state.local_storage, .i32);
@@ -1359,8 +1394,10 @@ fn emitSingleTokenForExpectedCodec(
                 break :literal_usize dst;
             },
             else => null,
-        },
-        .string_literal => if (expected_codec == .string) blk: {
+        };
+    }
+    if (token.tag == .string_literal) {
+        return if (expected_codec == .string) blk: {
             const literal = stringLiteralContents(token.lexeme) orelse return null;
             const dst = appendAnonymousLocal(&state.local_storage, .string);
             appendInstruction(state.instructions, state.instruction_count, .{
@@ -1369,9 +1406,9 @@ fn emitSingleTokenForExpectedCodec(
                 .string_literal = cloneBytes(literal),
             });
             break :blk dst;
-        } else null,
-        else => null,
-    };
+        } else null;
+    }
+    return null;
 }
 
 fn stringLiteralContents(comptime literal: []const u8) ?[]const u8 {
@@ -1437,7 +1474,8 @@ fn stringLiteralContents(comptime literal: []const u8) ?[]const u8 {
                 },
             }
         }
-        break :blk &buffer;
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -1459,16 +1497,14 @@ fn emitPayloadValueForDirectCall(
     if (direct_call.args.len == 0) return noLocalId();
 
     if (direct_call.args.len == 1) {
-        return switch (direct_call.args[0].tag) {
-            .identifier => if (findBoundLocal(local_bindings, direct_call.args[0].lexeme)) |local|
-                local.local_id
-            else
-                emitSingleTokenForExpectedCodec(direct_call.args[0], expected_codec, state),
-            .number_literal,
-            .string_literal,
-            => emitSingleTokenForExpectedCodec(direct_call.args[0], expected_codec, state),
-            else => null,
-        };
+        const tag = direct_call.args[0].tag;
+        return if (tag == .identifier) if (findBoundLocal(local_bindings, direct_call.args[0].lexeme)) |local|
+            local.local_id
+        else
+            emitSingleTokenForExpectedCodec(direct_call.args[0], expected_codec, state) else if (tag == .number_literal or tag == .string_literal)
+            emitSingleTokenForExpectedCodec(direct_call.args[0], expected_codec, state)
+        else
+            null;
     }
 
     if (direct_call.args.len == 3 and
@@ -1499,16 +1535,14 @@ fn emitValueForExpectedCodec(
     state: *BodyBuildState,
 ) ?u16 {
     if (value_tokens.len == 1) {
-        return switch (value_tokens[0].tag) {
-            .identifier => if (findBoundLocal(local_bindings, value_tokens[0].lexeme)) |local| blk: {
-                if (local.codec != expected_codec) return null;
-                break :blk local.local_id;
-            } else emitSingleTokenForExpectedCodec(value_tokens[0], expected_codec, state),
-            .number_literal,
-            .string_literal,
-            => emitSingleTokenForExpectedCodec(value_tokens[0], expected_codec, state),
-            else => null,
-        };
+        const tag = value_tokens[0].tag;
+        return if (tag == .identifier) if (findBoundLocal(local_bindings, value_tokens[0].lexeme)) |local| blk: {
+            if (local.codec != expected_codec) return null;
+            break :blk local.local_id;
+        } else emitSingleTokenForExpectedCodec(value_tokens[0], expected_codec, state) else if (tag == .number_literal or tag == .string_literal)
+            emitSingleTokenForExpectedCodec(value_tokens[0], expected_codec, state)
+        else
+            null;
     }
 
     if (value_tokens.len == 3 and
@@ -1818,7 +1852,6 @@ fn buildLinearBodyForFunction(
                     local_bindings[0..binding_count],
                     &body_state,
                 ) orelse break :blk null;
-                const body_locals = local_codecs[0..local_count];
                 const blocks = [_]program_frontend.BodyBlock{
                     .{
                         .instructions = instructions[0..entry_instruction_end],
@@ -1838,10 +1871,10 @@ fn buildLinearBodyForFunction(
                     },
                 };
                 break :blk .{
-                    .local_codecs = body_locals,
-                    .call_arg_locals = call_args[0..call_arg_count],
+                    .local_codecs = cloneLocalCodecs(local_codecs[0..local_count]),
+                    .call_arg_locals = cloneLocalIds(call_args[0..call_arg_count]),
                     .entry_block = 0,
-                    .blocks = &blocks,
+                    .blocks = cloneBlocks(&blocks),
                 };
             }
             if (parseReturnContinuationDirectCall(function.effect_param, aliases[0..alias_count], statement)) |continuation_call| {
@@ -2134,17 +2167,15 @@ fn buildLinearBodyForFunction(
 
         if (!terminated and context.functions[context.lowered_function_index].ValueType != void) break :blk null;
 
-        const body_instructions = instructions[0..instruction_count];
-        const body_locals = local_codecs[0..local_count];
         const blocks = [_]program_frontend.BodyBlock{.{
-            .instructions = body_instructions,
+            .instructions = instructions[0..instruction_count],
             .terminator = terminator,
         }};
         break :blk .{
-            .local_codecs = body_locals,
-            .call_arg_locals = call_args[0..call_arg_count],
+            .local_codecs = cloneLocalCodecs(local_codecs[0..local_count]),
+            .call_arg_locals = cloneLocalIds(call_args[0..call_arg_count]),
             .entry_block = 0,
-            .blocks = &blocks,
+            .blocks = cloneBlocks(&blocks),
         };
     };
 }
@@ -2244,10 +2275,10 @@ fn buildReturnLiteralBodyForFunction(
         .terminator = .{ .kind = .return_value },
     }};
     return .{
-        .local_codecs = return_codecs,
+        .local_codecs = cloneLocalCodecs(return_codecs),
         .call_arg_locals = &.{},
         .entry_block = 0,
-        .blocks = &blocks,
+        .blocks = cloneBlocks(&blocks),
     };
 }
 
@@ -2355,7 +2386,8 @@ fn buildRecursiveGuardBodyForFunction(
             };
             index += 1;
         }
-        break :blk &buffer;
+        const exact = buffer;
+        break :blk exact[0..];
     };
 
     const entry_instructions = &[_]program_frontend.BodyInstruction{
@@ -2401,10 +2433,10 @@ fn buildRecursiveGuardBodyForFunction(
         },
     };
     return .{
-        .local_codecs = local_codecs,
+        .local_codecs = cloneLocalCodecs(local_codecs),
         .call_arg_locals = &.{},
         .entry_block = 0,
-        .blocks = blocks,
+        .blocks = cloneBlocks(blocks),
     };
 }
 
@@ -2490,7 +2522,8 @@ fn buildBodyInstructionsForFunction(
             instruction_index += 1;
         }
 
-        break :blk &buffer;
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -2551,10 +2584,11 @@ pub fn buildFunctionBodiesForGraph(
                 .local_codecs = &.{},
                 .call_arg_locals = &.{},
                 .entry_block = 0,
-                .blocks = &blocks,
+                .blocks = cloneBlocks(&blocks),
             };
         }
-        break :blk &buffer;
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -2611,9 +2645,10 @@ pub fn maybeBuildFunctionBodiesForGraph(
                 .local_codecs = &.{},
                 .call_arg_locals = &.{},
                 .entry_block = 0,
-                .blocks = &blocks,
+                .blocks = cloneBlocks(&blocks),
             };
         }
-        break :blk &buffer;
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }

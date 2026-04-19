@@ -27,8 +27,8 @@ fn printProfileLine(writer: anytype, label: []const u8, checksum: usize, profile
             profiler.profiler.allocated.get(),
             profiler.profiler.alloc_count.get(),
             profiler.profiler.free_count.get(),
-            profiler.profiler.live_peak.get(),
-            profiler.profiler.live_bytes.get(),
+            profiler.profiler.peak_requested.get(),
+            profiler.profiler.live_requested.get(),
             profiler.profiler.hasLeaks(),
         },
     );
@@ -207,9 +207,9 @@ fn runResourceEffect(runtime: *shift.Runtime, instance: *ResourceInstance, profi
 }
 
 /// Profile allocator traffic for the remaining writer/resource hotspot lanes.
-pub fn main() anyerror!void {
+pub fn main(init: std.process.Init) anyerror!void {
     var stdout_buffer: [2048]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
     const stdout = &stdout_writer.interface;
 
     var raw_writer_profiler: Zprof(.{}) = .init(std.heap.smp_allocator, stdout);

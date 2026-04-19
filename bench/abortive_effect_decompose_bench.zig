@@ -281,7 +281,7 @@ fn printLine(writer: anytype, name: []const u8, raw_samples: *const [samples_per
 }
 
 /// Decompose heavier optional and exception abortive paths for acceptance decisions.
-pub fn main() anyerror!void {
+pub fn main(init: std.process.Init) anyerror!void {
     var optional_return_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer optional_return_runtime.deinit();
     var optional_return_prompt = OptionalReturnPrompt.init();
@@ -358,7 +358,7 @@ pub fn main() anyerror!void {
     }
 
     var stdout_buffer: [2048]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
     const stdout = &stdout_writer.interface;
     try stdout.print(
         "timed_iterations={d} warmup_iterations={d} samples_per_run={d} prelude_items_per_body={d}\n",

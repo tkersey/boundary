@@ -161,10 +161,10 @@ fn fnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
     };
 }
 
-fn fnParamsMatch(comptime FnType: type, comptime ParamTypes: []const type) bool {
+fn fnParamsMatch(comptime FnType: type, comptime param_types: []const type) bool {
     const actual = @typeInfo(FnType).@"fn".params;
-    if (actual.len != ParamTypes.len) return false;
-    inline for (ParamTypes, 0..) |ParamType, index| {
+    if (actual.len != param_types.len) return false;
+    inline for (param_types, 0..) |ParamType, index| {
         if (actual[index].type == null or actual[index].type.? != ParamType) return false;
     }
     return true;
@@ -208,16 +208,16 @@ fn ExplicitContinuationFnType(comptime Continuation: anytype) type {
 fn dummyPointer(comptime PtrType: type) PtrType {
     const pointer = @typeInfo(PtrType).pointer;
     const Child = std.meta.Child(PtrType);
-    return switch (pointer.size) {
-        .slice => blk: {
+    if (pointer.size == .slice) {
+        return blk: {
             const base = std.mem.alignForward(usize, 1, @alignOf(Child));
             const many = @as([*]Child, @ptrFromInt(base));
             const slice = many[0..1];
             if (pointer.is_const) break :blk @as(PtrType, slice);
             break :blk @as(PtrType, @constCast(slice));
-        },
-        else => @as(PtrType, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(Child)))),
-    };
+        };
+    }
+    return @as(PtrType, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(Child))));
 }
 
 fn dummyValue(comptime T: type) T {
@@ -536,7 +536,7 @@ fn Binding(
             };
         }
 
-        fn SupportedAuthoredResultType() ?type {
+        fn supportedAuthoredResultType() ?type {
             return switch (Answer) {
                 void, bool, i32, usize, []const u8 => Answer,
                 else => null,
@@ -556,7 +556,7 @@ fn Binding(
 
         fn authoredCompiledProgram() ?public_lowering.ProgramPlan {
             _ = supportedAuthoredPayloadCodec() orelse return null;
-            _ = SupportedAuthoredResultType() orelse return null;
+            _ = supportedAuthoredResultType() orelse return null;
             return public_lowering.authoredBoundProgramPlan(switch (SpecType.builder_kind) {
                 .abort => "authored.abort.bound_program",
                 .choice => "authored.choice.bound_program",

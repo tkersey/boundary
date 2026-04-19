@@ -122,16 +122,16 @@ pub fn Program(
 fn dummyPointer(comptime PtrType: type) PtrType {
     const pointer = @typeInfo(PtrType).pointer;
     const Child = std.meta.Child(PtrType);
-    return switch (pointer.size) {
-        .slice => blk: {
+    if (pointer.size == .slice) {
+        return blk: {
             const base = std.mem.alignForward(usize, 1, @alignOf(Child));
             const many = @as([*]Child, @ptrFromInt(base));
             const slice = many[0..1];
             if (pointer.is_const) break :blk @as(PtrType, slice);
             break :blk @as(PtrType, @constCast(slice));
-        },
-        else => @as(PtrType, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(Child)))),
-    };
+        };
+    }
+    return @as(PtrType, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(Child))));
 }
 
 fn dummyValue(comptime T: type) T {

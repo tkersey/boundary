@@ -207,14 +207,14 @@ test "source helper captures explicit repo path plus caller-owned participation"
     const src = shift_compile.lowering.sourceWithContent("test/source_ownership_probe_test.zig", @src(), @embedFile(@src().file));
 
     try std.testing.expectEqualStrings("test/source_ownership_probe_test.zig", src.repo_path);
-    try std.testing.expectEqualStrings(std.fs.path.basename(@src().file), std.fs.path.basename(src.caller_file));
+    try std.testing.expectEqualStrings(std.Io.Dir.path.basename(@src().file), std.Io.Dir.path.basename(src.caller_file));
 }
 
 test "source helper stays callable from test modules" {
     const src = shift_compile.lowering.source("test/source_ownership_probe_test.zig", @src());
 
     try std.testing.expectEqualStrings("test/source_ownership_probe_test.zig", src.repo_path);
-    try std.testing.expectEqualStrings(std.fs.path.basename(@src().file), std.fs.path.basename(src.caller_file));
+    try std.testing.expectEqualStrings(std.Io.Dir.path.basename(@src().file), std.Io.Dir.path.basename(src.caller_file));
 }
 
 test "public root drops compile entrypoints while shift_compile keeps provenance-bearing lowering" {

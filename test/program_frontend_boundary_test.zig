@@ -16,7 +16,7 @@ test "program frontend lowers nested workflow publish to the canonical scenario"
 }
 
 test "open-row lowering disambiguates same-named entry symbols by module path" {
-    const lowered = try program_frontend.lowerOpenRow(.{
+    const lowered = comptime try program_frontend.lowerOpenRow(.{
         .label = "example.ambiguous_entry",
         .entry_symbol = "runBody",
         .entry_module_path = "examples/root.zig",
@@ -43,24 +43,28 @@ test "open-row lowering disambiguates same-named entry symbols by module path" {
 }
 
 test "open-row lowering rejects ambiguous entry symbols when the entry module is absent" {
-    try std.testing.expectError(error.DuplicateSymbol, program_frontend.lowerOpenRow(.{
-        .label = "example.ambiguous_entry",
-        .entry_symbol = "runBody",
-        .functions = &.{
-            .{
-                .symbol = .{
-                    .module_path = "examples/root.zig",
-                    .symbol_name = "runBody",
+    const saw_duplicate_symbol = comptime blk: {
+        const result = program_frontend.lowerOpenRow(.{
+            .label = "example.ambiguous_entry",
+            .entry_symbol = "runBody",
+            .functions = &.{
+                .{
+                    .symbol = .{
+                        .module_path = "examples/root.zig",
+                        .symbol_name = "runBody",
+                    },
+                    .row = effect_ir.rowFromSpec(.{}),
                 },
-                .row = effect_ir.rowFromSpec(.{}),
-            },
-            .{
-                .symbol = .{
-                    .module_path = "examples/helper.zig",
-                    .symbol_name = "runBody",
+                .{
+                    .symbol = .{
+                        .module_path = "examples/helper.zig",
+                        .symbol_name = "runBody",
+                    },
+                    .row = effect_ir.rowFromSpec(.{}),
                 },
-                .row = effect_ir.rowFromSpec(.{}),
             },
-        },
-    }));
+        });
+        break :blk if (result) |_| false else |err| err == error.DuplicateSymbol;
+    };
+    try std.testing.expect(saw_duplicate_symbol);
 }

@@ -230,66 +230,37 @@ fn dummyValue(comptime T: type) T {
 
 fn HandlerBundleType(comptime DeclarationsType: type) type {
     const fields = @typeInfo(DeclarationsType).@"struct".fields;
-    var out_fields = [_]std.builtin.Type.StructField{.{
-        .name = "",
-        .type = void,
-        .default_value_ptr = null,
-        .is_comptime = false,
-        .alignment = @alignOf(void),
-    }} ** fields.len;
+    var field_names = [_][:0]const u8{""} ** fields.len;
+    var field_types = [_]type{void} ** fields.len;
+    var field_attrs = [_]std.builtin.Type.StructField.Attributes{.{}} ** fields.len;
 
     inline for (fields, 0..) |field, index| {
-        out_fields[index] = .{
-            .name = field.name,
-            .type = HandlerFieldType(field.type),
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = @alignOf(HandlerFieldType(field.type)),
-        };
+        const FieldType = HandlerFieldType(field.type);
+        field_names[index] = field.name;
+        field_types[index] = FieldType;
+        field_attrs[index] = .{ .@"align" = @alignOf(FieldType) };
     }
 
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .fields = &out_fields,
-            .decls = &.{},
-            .is_tuple = false,
-        },
-    });
+    return @Struct(.auto, null, &field_names, &field_types, &field_attrs);
 }
 
 fn BindingsType(comptime DeclarationsType: type) type {
     const fields = @typeInfo(DeclarationsType).@"struct".fields;
-    var out_fields = [_]std.builtin.Type.StructField{.{
-        .name = "",
-        .type = void,
-        .default_value_ptr = null,
-        .is_comptime = false,
-        .alignment = @alignOf(void),
-    }} ** fields.len;
+    var field_names = [_][:0]const u8{""} ** fields.len;
+    var field_types = [_]type{void} ** fields.len;
+    var field_attrs = [_]std.builtin.Type.StructField.Attributes{.{}} ** fields.len;
     var count: usize = 0;
 
     inline for (fields) |field| {
         if (!hasBinding(field.type)) continue;
         const BindingType = BindingFieldType(field.type);
-        out_fields[count] = .{
-            .name = field.name,
-            .type = BindingType,
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = @alignOf(BindingType),
-        };
+        field_names[count] = field.name;
+        field_types[count] = BindingType;
+        field_attrs[count] = .{ .@"align" = @alignOf(BindingType) };
         count += 1;
     }
 
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .fields = out_fields[0..count],
-            .decls = &.{},
-            .is_tuple = false,
-        },
-    });
+    return @Struct(.auto, null, field_names[0..count], field_types[0..count], field_attrs[0..count]);
 }
 
 fn buildHandlers(

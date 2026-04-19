@@ -15,7 +15,7 @@ fn smokeCaseDone(label: []const u8, start_ns: i128) void {
 }
 
 fn writeTmpFile(dir: std.fs.Dir, path: []const u8, contents: []const u8) !void {
-    if (std.fs.path.dirname(path)) |dir_name| try dir.makePath(dir_name);
+    if (std.Io.Dir.path.dirname(path)) |dir_name| try dir.makePath(dir_name);
     var file = try dir.createFile(path, .{ .truncate = true });
     defer file.close();
     var buffer: [1024]u8 = undefined;
@@ -95,14 +95,14 @@ const FingerprintRepair = struct {
 
 fn extractSuggestedFingerprint(stderr: []const u8) ?FingerprintRepair {
     const marker = "if this is a new or forked package, use this value: ";
-    const start = std.mem.indexOf(u8, stderr, marker) orelse return null;
+    const start = std.mem.find(u8, stderr, marker) orelse return null;
     const fingerprint_tail = stderr[start + marker.len ..];
-    const fingerprint_end = std.mem.indexOfScalar(u8, fingerprint_tail, '\n') orelse fingerprint_tail.len;
+    const fingerprint_end = std.mem.findScalar(u8, fingerprint_tail, '\n') orelse fingerprint_tail.len;
     const fingerprint = fingerprint_tail[0..fingerprint_end];
 
     const path_marker = ":1:2: error: invalid fingerprint:";
-    const path_end = std.mem.indexOf(u8, stderr, path_marker) orelse return null;
-    const line_start = std.mem.lastIndexOfScalar(u8, stderr[0..path_end], '\n') orelse 0;
+    const path_end = std.mem.find(u8, stderr, path_marker) orelse return null;
+    const line_start = std.mem.findScalarLast(u8, stderr[0..path_end], '\n') orelse 0;
     const path_start = if (line_start == 0) 0 else line_start + 1;
     return .{
         .manifest_path = stderr[path_start..path_end],
@@ -111,8 +111,8 @@ fn extractSuggestedFingerprint(stderr: []const u8) ?FingerprintRepair {
 }
 
 fn rewriteBuildZonFingerprint(allocator: std.mem.Allocator, manifest_path: []const u8, fingerprint: []const u8) !void {
-    const manifest_dir_path = std.fs.path.dirname(manifest_path) orelse return error.InvalidConsumerManifest;
-    const manifest_basename = std.fs.path.basename(manifest_path);
+    const manifest_dir_path = std.Io.Dir.path.dirname(manifest_path) orelse return error.InvalidConsumerManifest;
+    const manifest_basename = std.Io.Dir.path.basename(manifest_path);
     var manifest_dir = try std.fs.openDirAbsolute(manifest_dir_path, .{});
     defer manifest_dir.close();
 
@@ -120,10 +120,10 @@ fn rewriteBuildZonFingerprint(allocator: std.mem.Allocator, manifest_path: []con
     defer allocator.free(manifest);
 
     const marker = ".fingerprint = ";
-    const start = std.mem.indexOf(u8, manifest, marker) orelse return error.InvalidConsumerManifest;
+    const start = std.mem.find(u8, manifest, marker) orelse return error.InvalidConsumerManifest;
     const value_start = start + marker.len;
     const after_value = manifest[value_start..];
-    const line_end_rel = std.mem.indexOfScalar(u8, after_value, '\n') orelse after_value.len;
+    const line_end_rel = std.mem.findScalar(u8, after_value, '\n') orelse after_value.len;
     const value_end = value_start + line_end_rel;
 
     const repaired = try std.fmt.allocPrint(
@@ -206,7 +206,7 @@ fn runChildExpectFailureContains(
 
     switch (result.term) {
         .Exited => |code| if (code != 0) {
-            if (std.mem.indexOf(u8, result.stderr, needle) != null or std.mem.indexOf(u8, result.stdout, needle) != null) return;
+            if (std.mem.find(u8, result.stderr, needle) != null or std.mem.find(u8, result.stdout, needle) != null) return;
             std.debug.print("child command failed without expected needle '{s}'\nstdout:\n{s}\nstderr:\n{s}\n", .{ needle, result.stdout, result.stderr });
             return error.UnexpectedChildCommandFailure;
         },
@@ -257,14 +257,14 @@ fn assertPublishedPackagePathsMatchManifest(repo_dir: std.fs.Dir) !void {
     const manifest = try repo_dir.readFileAlloc(std.testing.allocator, "build.zig.zon", std.math.maxInt(usize));
     defer std.testing.allocator.free(manifest);
 
-    const paths_start = std.mem.indexOf(u8, manifest, ".paths = .{") orelse return error.InvalidPublishedPackageManifest;
+    const paths_start = std.mem.find(u8, manifest, ".paths = .{") orelse return error.InvalidPublishedPackageManifest;
     const block_tail = manifest[paths_start..];
-    const paths_end = std.mem.indexOf(u8, block_tail, "    },") orelse return error.InvalidPublishedPackageManifest;
+    const paths_end = std.mem.find(u8, block_tail, "    },") orelse return error.InvalidPublishedPackageManifest;
     const paths_block = block_tail[0..paths_end];
 
     inline for (published_package_paths) |path| {
         const quoted = comptime std.fmt.comptimePrint("\"{s}\"", .{path});
-        if (std.mem.indexOf(u8, paths_block, quoted) == null) return error.PublishedPackagePathDrift;
+        if (std.mem.find(u8, paths_block, quoted) == null) return error.PublishedPackagePathDrift;
     }
 
     var line_iter = std.mem.splitScalar(u8, paths_block, '\n');
@@ -280,9 +280,9 @@ fn assertPublishedPackagePathsMatchManifest(repo_dir: std.fs.Dir) !void {
 fn dependencyBlockRange(manifest: []const u8, dep_name: []const u8) !struct { start: usize, end: usize } {
     var marker_buffer: [128]u8 = undefined;
     const marker = try std.fmt.bufPrint(&marker_buffer, "        .{s} = .{{", .{dep_name});
-    const start = std.mem.indexOf(u8, manifest, marker) orelse return error.MissingPublishedPackageDependency;
+    const start = std.mem.find(u8, manifest, marker) orelse return error.MissingPublishedPackageDependency;
     const tail = manifest[start..];
-    const end_rel = std.mem.indexOf(u8, tail, "        },") orelse return error.InvalidPublishedPackageManifest;
+    const end_rel = std.mem.find(u8, tail, "        },") orelse return error.InvalidPublishedPackageManifest;
     return .{
         .start = start,
         .end = start + end_rel + "        },".len,
@@ -293,9 +293,9 @@ fn dependencyHashFromManifest(manifest: []const u8, dep_name: []const u8) ![]con
     const block = try dependencyBlockRange(manifest, dep_name);
     const dependency_block = manifest[block.start..block.end];
     const hash_marker = ".hash = \"";
-    const hash_start = std.mem.indexOf(u8, dependency_block, hash_marker) orelse return error.MissingPublishedPackageDependencyHash;
+    const hash_start = std.mem.find(u8, dependency_block, hash_marker) orelse return error.MissingPublishedPackageDependencyHash;
     const hash_tail = dependency_block[hash_start + hash_marker.len ..];
-    const hash_end = std.mem.indexOfScalar(u8, hash_tail, '"') orelse return error.InvalidPublishedPackageManifest;
+    const hash_end = std.mem.findScalar(u8, hash_tail, '"') orelse return error.InvalidPublishedPackageManifest;
     return hash_tail[0..hash_end];
 }
 
@@ -330,7 +330,7 @@ fn appendCacheRootCandidate(
     candidates: *std.ArrayList([]const u8),
     cache_root: []const u8,
 ) !void {
-    const package_root = try std.fs.path.join(allocator, &.{ cache_root, "p" });
+    const package_root = try std.Io.Dir.path.join(allocator, &.{ cache_root, "p" });
     errdefer allocator.free(package_root);
     if (!pathExistsAbsolute(package_root)) return;
     try candidates.append(allocator, package_root);
@@ -347,19 +347,19 @@ fn findCachedDependencyDirAlloc(
         candidates.deinit(allocator);
     }
 
-    const repo_cache_root = try std.fs.path.join(allocator, &.{ repo_root, ".zig-global-cache" });
+    const repo_cache_root = try std.Io.Dir.path.join(allocator, &.{ repo_root, ".zig-global-cache" });
     defer allocator.free(repo_cache_root);
     try appendCacheRootCandidate(allocator, &candidates, repo_cache_root);
 
     if (std.process.getEnvVarOwned(allocator, "XDG_CACHE_HOME")) |xdg_cache_home| {
         defer allocator.free(xdg_cache_home);
-        const zig_cache_root = try std.fs.path.join(allocator, &.{ xdg_cache_home, "zig" });
+        const zig_cache_root = try std.Io.Dir.path.join(allocator, &.{ xdg_cache_home, "zig" });
         defer allocator.free(zig_cache_root);
         try appendCacheRootCandidate(allocator, &candidates, zig_cache_root);
     } else |_| {
         if (std.process.getEnvVarOwned(allocator, "HOME")) |home| {
             defer allocator.free(home);
-            const zig_cache_root = try std.fs.path.join(allocator, &.{ home, ".cache", "zig" });
+            const zig_cache_root = try std.Io.Dir.path.join(allocator, &.{ home, ".cache", "zig" });
             defer allocator.free(zig_cache_root);
             try appendCacheRootCandidate(allocator, &candidates, zig_cache_root);
         } else |err| switch (err) {
@@ -371,7 +371,7 @@ fn findCachedDependencyDirAlloc(
     }
 
     for (candidates.items) |candidate| {
-        const dependency_dir = try std.fs.path.join(allocator, &.{ candidate, dependency_hash });
+        const dependency_dir = try std.Io.Dir.path.join(allocator, &.{ candidate, dependency_hash });
         errdefer allocator.free(dependency_dir);
         if (pathExistsAbsolute(dependency_dir)) return dependency_dir;
         allocator.free(dependency_dir);
@@ -406,7 +406,7 @@ fn copyRepoDirectoryIntoFixture(
     defer walker.deinit();
 
     while (try walker.next()) |entry| {
-        const fixture_entry_path = try std.fs.path.join(std.testing.allocator, &.{ dest_dir_path, entry.path });
+        const fixture_entry_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ dest_dir_path, entry.path });
         defer std.testing.allocator.free(fixture_entry_path);
 
         switch (entry.kind) {
@@ -431,7 +431,7 @@ fn copyAbsoluteDirectoryIntoFixture(
     defer walker.deinit();
 
     while (try walker.next()) |entry| {
-        const fixture_entry_path = try std.fs.path.join(std.testing.allocator, &.{ dest_dir_path, entry.path });
+        const fixture_entry_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ dest_dir_path, entry.path });
         defer std.testing.allocator.free(fixture_entry_path);
 
         switch (entry.kind) {
@@ -455,11 +455,11 @@ fn mirrorPublishedPackageDependenciesIntoFixture(tmp: *std.testing.TmpDir, repo_
         const dependency_dir = try findCachedDependencyDirAlloc(std.testing.allocator, repo_root, dependency_hash);
         defer std.testing.allocator.free(dependency_dir);
 
-        const fixture_dependency_path = try std.fs.path.join(std.testing.allocator, &.{ "deps", dep_name });
+        const fixture_dependency_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ "deps", dep_name });
         defer std.testing.allocator.free(fixture_dependency_path);
         try copyAbsoluteDirectoryIntoFixture(dependency_dir, tmp.dir, fixture_dependency_path);
 
-        const relative_dependency_path = try std.fs.path.join(std.testing.allocator, &.{ "..", dep_name });
+        const relative_dependency_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ "..", dep_name });
         defer std.testing.allocator.free(relative_dependency_path);
         const updated_manifest = try replaceDependencyWithPathAlloc(
             std.testing.allocator,
@@ -482,7 +482,7 @@ fn mirrorPublishedPackageIntoFixture(tmp: *std.testing.TmpDir, repo_root: []cons
     try assertPublishedPackagePathsMatchManifest(repo_dir);
 
     for (published_package_paths) |path| {
-        const fixture_path = try std.fs.path.join(std.testing.allocator, &.{ "deps/shift", path });
+        const fixture_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ "deps/shift", path });
         defer std.testing.allocator.free(fixture_path);
 
         if (repo_dir.openDir(path, .{ .iterate = true })) |dir| {

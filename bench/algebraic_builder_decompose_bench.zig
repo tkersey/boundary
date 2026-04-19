@@ -167,7 +167,7 @@ fn medianDelta(later: *const [samples_per_run]u64, earlier: *const [samples_per_
 }
 
 /// Decompose public algebraic builder overhead into raw, configured-shell, and full-path lanes.
-pub fn main() anyerror!void {
+pub fn main(init: std.process.Init) anyerror!void {
     var raw_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer raw_runtime.deinit();
     var raw_prompt = RawTransformPrompt.init();
@@ -213,7 +213,7 @@ pub fn main() anyerror!void {
     }
 
     var stdout_buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
     const stdout = &stdout_writer.interface;
     try stdout.print(
         "timed_iterations={d} warmup_iterations={d} samples_per_run={d}\n",

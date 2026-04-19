@@ -183,6 +183,7 @@ fn ResourceHandler(comptime Manager: type, comptime ResourceType: type) type {
 
 fn ExecutableFieldType(comptime DescriptorType: type, comptime requirement_label: [:0]const u8) type {
     return switch (bindingLifecycle(DescriptorType, requirement_label)) {
+        .plain_transform => DescriptorFieldType(DescriptorType),
         .state_cell => StateHandler(StateFieldType(DescriptorType)),
         .reader_environment => ReaderHandler(StateFieldType(DescriptorType)),
         .writer_accumulator => WriterAccumulator(WriterItemType(DescriptorType, requirement_label)),
@@ -190,7 +191,6 @@ fn ExecutableFieldType(comptime DescriptorType: type, comptime requirement_label
         .abort_catch => ExceptionHandler(CatchType(DescriptorType, requirement_label), StateFieldType(DescriptorType)),
         .resource_bracket => ResourceHandler(ManagerType(DescriptorType, requirement_label), StateFieldType(DescriptorType)),
         .generated_family => DescriptorFieldType(DescriptorType),
-        else => @compileError("unsupported lexical executable bundle lifecycle"),
     };
 }
 
@@ -222,24 +222,16 @@ fn initField(comptime DescriptorType: type, comptime requirement_label: [:0]cons
 
 pub fn BundleType(comptime HandlersType: type) type {
     const fields = @typeInfo(HandlersType).@"struct".fields;
-    var bundle_fields: [fields.len]std.builtin.Type.StructField = undefined;
+    var field_names: [fields.len][:0]const u8 = undefined;
+    var field_types: [fields.len]type = undefined;
+    var field_attrs = [_]std.builtin.Type.StructField.Attributes{.{}} ** fields.len;
     inline for (fields, 0..) |field, index| {
-        bundle_fields[index] = .{
-            .name = field.name,
-            .type = ExecutableFieldType(field.type, field.name),
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = @alignOf(ExecutableFieldType(field.type, field.name)),
-        };
+        const FieldType = ExecutableFieldType(field.type, field.name);
+        field_names[index] = field.name;
+        field_types[index] = FieldType;
+        field_attrs[index] = .{ .@"align" = @alignOf(FieldType) };
     }
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .fields = &bundle_fields,
-            .decls = &.{},
-            .is_tuple = false,
-        },
-    });
+    return @Struct(.auto, null, &field_names, &field_types, &field_attrs);
 }
 
 pub fn fromLexicalState(lexical_state: anytype) BundleType(std.meta.Child(@TypeOf(lexical_state.handlers_ptr))) {

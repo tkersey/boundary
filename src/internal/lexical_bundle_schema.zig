@@ -44,7 +44,7 @@ pub fn BindingSchemas(comptime HandlersType: type) type {
         const DescriptorType = field.type;
         types[index] = DescriptorType.BindingSchema(field.name);
     }
-    return std.meta.Tuple(&types);
+    return @Tuple(&types);
 }
 
 /// Lower one lexical handler bundle into the shared effect_ir row.

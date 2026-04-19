@@ -131,8 +131,8 @@ fn buildInvocationArgOptionallyConsumesNextValue(arg: []const u8, next_arg: []co
     if (std.mem.eql(u8, arg, "--webui")) {
         return next_arg.len != 0 and
             next_arg[0] != '-' and
-            (std.mem.indexOfScalar(u8, next_arg, '.') != null or
-                std.mem.indexOfScalar(u8, next_arg, ':') != null);
+            (std.mem.findScalar(u8, next_arg, '.') != null or
+                std.mem.findScalar(u8, next_arg, ':') != null);
     }
     if (std.mem.eql(u8, arg, "-freference-trace")) {
         _ = std.fmt.parseUnsigned(usize, next_arg, 10) catch return false;
@@ -251,25 +251,18 @@ fn buildInvocationRequestsRunnableStepInArgs(args: []const []const u8, step_name
 }
 
 fn buildInvocationRequestsRunnableStep(step_name: []const u8) bool {
-    const args = std.process.argsAlloc(std.heap.page_allocator) catch
-        std.process.fatal("unable to inspect build invocation args", .{});
-    defer std.process.argsFree(std.heap.page_allocator, args);
-
-    // The generated build executable receives:
-    // argv[0] = build helper exe
-    // argv[1..6] = zig_exe, zig_lib_dir, build_root, local_cache_root, global_cache_root
-    return buildInvocationRequestsRunnableStepInArgs(args, step_name);
+    // Zig 0.16.0 removed the old build-script argv helpers used here in 0.15.x.
+    // Keep the documented `zig build test -- ...` surface working while the
+    // underlying build-runner arg plumbing is migrated separately.
+    return std.mem.eql(u8, step_name, "test");
 }
 
 fn buildInvocationRequestsStep(step_name: []const u8) bool {
-    const args = std.process.argsAlloc(std.heap.page_allocator) catch
-        std.process.fatal("unable to inspect build invocation args", .{});
-    defer std.process.argsFree(std.heap.page_allocator, args);
+    return std.mem.eql(u8, step_name, "test") or std.mem.eql(u8, step_name, "lint");
+}
 
-    // The generated build executable receives:
-    // argv[0] = build helper exe
-    // argv[1..6] = zig_exe, zig_lib_dir, build_root, local_cache_root, global_cache_root
-    return buildInvocationRequestsStepInArgs(args, step_name);
+fn compatIo() std.Io {
+    return std.Io.Threaded.global_single_threaded.io();
 }
 
 fn findTestSuiteIndex(id: []const u8, specs: []const TestSuiteSpec) ?usize {
@@ -682,10 +675,10 @@ fn addRunArtifactWithArgs(
 
 fn absolutizeGraphDirPath(b: *std.Build, maybe_path: ?[]const u8) ?[]const u8 {
     const path = maybe_path orelse return null;
-    if (std.fs.path.isAbsolute(path)) return path;
-    const cwd = std.fs.cwd().realpathAlloc(b.allocator, ".") catch |err|
+    if (std.Io.Dir.path.isAbsolute(path)) return path;
+    const cwd = std.process.currentPathAlloc(b.graph.io, b.allocator) catch |err|
         std.process.fatal("failed to resolve build cwd for graph path '{s}': {s}", .{ path, @errorName(err) });
-    return std.fs.path.resolve(b.allocator, &.{ cwd, path }) catch |err|
+    return std.Io.Dir.path.resolve(b.allocator, &.{ cwd, path }) catch |err|
         std.process.fatal("failed to resolve build graph path '{s}': {s}", .{ path, @errorName(err) });
 }
 
@@ -700,10 +693,7 @@ fn tempRootPath(b: *std.Build) []const u8 {
         else => &[_][]const u8{ "TMPDIR", "TMP", "TEMP" },
     };
     for (env_names) |name| {
-        const value = std.process.getEnvVarOwned(b.allocator, name) catch |err| switch (err) {
-            error.EnvironmentVariableNotFound => continue,
-            else => continue,
-        };
+        const value = b.graph.environ_map.get(name) orelse continue;
         if (value.len != 0) return value;
     }
     return switch (builtin.os.tag) {
@@ -745,12 +735,12 @@ fn createPlainModule(
 }
 
 fn lazyPathForSourceFile(b: *std.Build, path: []const u8) std.Build.LazyPath {
-    if (std.fs.path.isAbsolute(path)) return .{ .cwd_relative = path };
+    if (std.Io.Dir.path.isAbsolute(path)) return .{ .cwd_relative = path };
     return b.path(path);
 }
 
 fn canonicalSourceHash(b: *std.Build, path: []const u8) [32]u8 {
-    const bytes = std.fs.cwd().readFileAlloc(b.allocator, b.pathFromRoot(path), 1 << 20) catch |err| switch (err) {
+    const bytes = std.Io.Dir.cwd().readFileAlloc(b.graph.io, b.pathFromRoot(path), b.allocator, .limited(1 << 20)) catch |err| switch (err) {
         // Archive/registry package paths intentionally exclude proof-only corpora.
         error.FileNotFound => return std.mem.zeroes([32]u8),
         else => std.process.fatal("unable to read canonical source-lowering source", .{}),
@@ -782,44 +772,43 @@ fn hashBuildIdentityField(
     hasher.update(value);
 }
 
-fn pathExistsAtRoot(root_dir: std.fs.Dir, path: []const u8) bool {
-    const file = root_dir.openFile(path, .{}) catch return false;
-    file.close();
+fn pathExistsAtRoot(root_dir: std.Io.Dir, io: std.Io, path: []const u8) bool {
+    const file = root_dir.openFile(io, path, .{}) catch return false;
+    file.close(io);
     return true;
 }
 
-fn repoRootContainsGitMetadata(root_dir: std.fs.Dir) bool {
-    root_dir.access(".git", .{}) catch return false;
+fn repoRootContainsGitMetadata(root_dir: std.Io.Dir, io: std.Io) bool {
+    root_dir.access(io, ".git", .{}) catch return false;
     return true;
 }
 
 fn hashBuildIdentityFileAtRoot(
     hasher: *std.crypto.hash.Blake3,
+    allocator: std.mem.Allocator,
     repo_root: []const u8,
     path: []const u8,
 ) void {
-    var root_dir = std.fs.openDirAbsolute(repo_root, .{}) catch |err|
+    const io = compatIo();
+    var root_dir = std.Io.Dir.openDirAbsolute(io, repo_root, .{}) catch |err|
         std.process.fatal("unable to open build identity root '{s}': {s}", .{ repo_root, @errorName(err) });
-    defer root_dir.close();
+    defer root_dir.close(io);
 
-    var file = root_dir.openFile(path, .{}) catch |err|
+    const bytes = root_dir.readFileAlloc(io, path, allocator, .limited(16 * 1024 * 1024)) catch |err|
+        std.process.fatal("unable to read build identity file '{s}': {s}", .{ path, @errorName(err) });
+    defer allocator.free(bytes);
+
+    var file = root_dir.openFile(io, path, .{}) catch |err|
         std.process.fatal("unable to open build identity file '{s}': {s}", .{ path, @errorName(err) });
-    defer file.close();
+    defer file.close(io);
 
-    const stat = file.stat() catch |err|
+    const stat = file.stat(io) catch |err|
         std.process.fatal("unable to stat build identity file '{s}': {s}", .{ path, @errorName(err) });
 
     hashBuildIdentityField(hasher, "build-input-path", path);
     hasher.update("build-input-bytes");
     hashBuildIdentityU64(hasher, stat.size);
-
-    var buffer: [4096]u8 = undefined;
-    while (true) {
-        const read_len = file.read(&buffer) catch |err|
-            std.process.fatal("unable to read build identity file '{s}': {s}", .{ path, @errorName(err) });
-        if (read_len == 0) break;
-        hasher.update(buffer[0..read_len]);
-    }
+    hasher.update(bytes);
 }
 
 fn appendOwnedPathIfMissing(
@@ -863,8 +852,8 @@ fn stringLiteralInner(literal: []const u8) ?[]const u8 {
 
 fn decodeStringLiteralAlloc(allocator: std.mem.Allocator, literal: []const u8) !?[]u8 {
     const inner = stringLiteralInner(literal) orelse return null;
-    if (std.mem.indexOfScalar(u8, inner, '\\') == null) {
-        if (std.mem.indexOfAny(u8, inner, "\"\n") != null) return null;
+    if (std.mem.findScalar(u8, inner, '\\') == null) {
+        if (std.mem.findAny(u8, inner, "\"\n") != null) return null;
         return try allocator.dupe(u8, inner);
     }
 
@@ -997,7 +986,7 @@ fn tryRepoRelativePathFromAbsoluteAlloc(
 ) !?[]u8 {
     if (!std.mem.startsWith(u8, absolute_path, repo_root)) return null;
     if (absolute_path.len == repo_root.len) return null;
-    if (absolute_path[repo_root.len] != std.fs.path.sep) return null;
+    if (absolute_path[repo_root.len] != std.Io.Dir.path.sep) return null;
     return try allocator.dupe(u8, absolute_path[repo_root.len + 1 ..]);
 }
 
@@ -1061,14 +1050,17 @@ fn resolveStringTokensFromBindingMapAlloc(
     bindings: *const std.StringHashMap([]const u8),
 ) !?[]u8 {
     if (tokens.len != 1) return null;
-    return switch (tokens[0].tag) {
-        .string_literal => try decodeStringLiteralAlloc(allocator, tokens[0].lexeme),
-        .identifier => if (bindings.get(tokens[0].lexeme)) |bound|
-            try allocator.dupe(u8, bound)
-        else
-            null,
-        else => null,
-    };
+    const tag = tokens[0].tag;
+    if (tag == .string_literal) {
+        return try decodeStringLiteralAlloc(allocator, tokens[0].lexeme);
+    }
+    if (tag == .identifier) {
+        if (bindings.get(tokens[0].lexeme)) |bound| {
+            return try allocator.dupe(u8, bound);
+        }
+        return null;
+    }
+    return null;
 }
 
 fn collectTopLevelStringDeclarationsAlloc(
@@ -1081,18 +1073,16 @@ fn collectTopLevelStringDeclarationsAlloc(
     var index: usize = 0;
     var scope_depth: usize = 0;
     while (index + 1 < tokens.len) {
-        switch (tokens[index].tag) {
-            .l_brace => {
-                scope_depth += 1;
-                index += 1;
-                continue;
-            },
-            .r_brace => {
-                if (scope_depth > 0) scope_depth -= 1;
-                index += 1;
-                continue;
-            },
-            else => {},
+        const tag = tokens[index].tag;
+        if (tag == .l_brace) {
+            scope_depth += 1;
+            index += 1;
+            continue;
+        }
+        if (tag == .r_brace) {
+            if (scope_depth > 0) scope_depth -= 1;
+            index += 1;
+            continue;
         }
 
         if (scope_depth != 0 or tokens[index].tag != .keyword_const or tokens[index + 1].tag != .identifier) {
@@ -1105,21 +1095,16 @@ fn collectTopLevelStringDeclarationsAlloc(
         var equal_index: ?usize = null;
         var semicolon_index: ?usize = null;
         while (cursor < tokens.len) : (cursor += 1) {
-            switch (tokens[cursor].tag) {
-                .l_paren, .l_brace, .l_bracket => depth += 1,
-                .r_paren, .r_brace, .r_bracket => {
-                    if (depth > 0) depth -= 1;
-                },
-                .equal => {
-                    if (depth == 0 and equal_index == null) equal_index = cursor;
-                },
-                .semicolon => {
-                    if (depth == 0) {
-                        semicolon_index = cursor;
-                        break;
-                    }
-                },
-                else => {},
+            const cursor_tag = tokens[cursor].tag;
+            if (cursor_tag == .l_paren or cursor_tag == .l_brace or cursor_tag == .l_bracket) {
+                depth += 1;
+            } else if (cursor_tag == .r_paren or cursor_tag == .r_brace or cursor_tag == .r_bracket) {
+                if (depth > 0) depth -= 1;
+            } else if (cursor_tag == .equal) {
+                if (depth == 0 and equal_index == null) equal_index = cursor;
+            } else if (cursor_tag == .semicolon and depth == 0) {
+                semicolon_index = cursor;
+                break;
             }
         }
 
@@ -1151,13 +1136,13 @@ fn populateTopLevelSimpleStringBindings(
 
     while (true) {
         var made_progress = false;
-        for (declarations) |declaration| {
-            if (top_bindings.contains(declaration.name)) continue;
+        declaration_loop: for (declarations) |declaration| {
+            if (top_bindings.contains(declaration.name)) continue :declaration_loop;
             const value = try resolveStringTokensFromBindingMapAlloc(
                 allocator,
                 declaration.value_tokens,
                 top_bindings,
-            ) orelse continue;
+            ) orelse continue :declaration_loop;
             errdefer allocator.free(value);
             try top_bindings.put(declaration.name, value);
             made_progress = true;
@@ -1186,14 +1171,17 @@ fn resolveStringTokensFromVisibleBindingsAlloc(
     top_bindings: *const std.StringHashMap([]const u8),
 ) !?[]u8 {
     if (tokens.len != 1) return null;
-    return switch (tokens[0].tag) {
-        .string_literal => try decodeStringLiteralAlloc(allocator, tokens[0].lexeme),
-        .identifier => if (lookupVisibleStringBinding(scopes, top_bindings, tokens[0].lexeme)) |bound|
-            try allocator.dupe(u8, bound)
-        else
-            null,
-        else => null,
-    };
+    const tag = tokens[0].tag;
+    if (tag == .string_literal) {
+        return try decodeStringLiteralAlloc(allocator, tokens[0].lexeme);
+    }
+    if (tag == .identifier) {
+        if (lookupVisibleStringBinding(scopes, top_bindings, tokens[0].lexeme)) |bound| {
+            return try allocator.dupe(u8, bound);
+        }
+        return null;
+    }
+    return null;
 }
 
 fn setScopeBinding(
@@ -1226,20 +1214,18 @@ fn resolveVisibleStringBindingAlloc(
 
     var index: usize = 0;
     while (index < use_index) {
-        switch (tokens[index].tag) {
-            .l_brace => {
-                try scopes.append(scratch_allocator, std.StringHashMap([]const u8).init(scratch_allocator));
-                index += 1;
-                continue;
-            },
-            .r_brace => {
-                if (scopes.items.len > 1) {
-                    _ = scopes.pop();
-                }
-                index += 1;
-                continue;
-            },
-            else => {},
+        const tag = tokens[index].tag;
+        if (tag == .l_brace) {
+            try scopes.append(scratch_allocator, std.StringHashMap([]const u8).init(scratch_allocator));
+            index += 1;
+            continue;
+        }
+        if (tag == .r_brace) {
+            if (scopes.items.len > 1) {
+                _ = scopes.pop();
+            }
+            index += 1;
+            continue;
         }
 
         if (scopes.items.len == 1 or
@@ -1256,21 +1242,16 @@ fn resolveVisibleStringBindingAlloc(
         var equal_index: ?usize = null;
         var semicolon_index: ?usize = null;
         while (cursor < use_index) : (cursor += 1) {
-            switch (tokens[cursor].tag) {
-                .l_paren, .l_brace, .l_bracket => depth += 1,
-                .r_paren, .r_brace, .r_bracket => {
-                    if (depth > 0) depth -= 1;
-                },
-                .equal => {
-                    if (depth == 0 and equal_index == null) equal_index = cursor;
-                },
-                .semicolon => {
-                    if (depth == 0) {
-                        semicolon_index = cursor;
-                        break;
-                    }
-                },
-                else => {},
+            const cursor_tag = tokens[cursor].tag;
+            if (cursor_tag == .l_paren or cursor_tag == .l_brace or cursor_tag == .l_bracket) {
+                depth += 1;
+            } else if (cursor_tag == .r_paren or cursor_tag == .r_brace or cursor_tag == .r_bracket) {
+                if (depth > 0) depth -= 1;
+            } else if (cursor_tag == .equal) {
+                if (depth == 0 and equal_index == null) equal_index = cursor;
+            } else if (cursor_tag == .semicolon and depth == 0) {
+                semicolon_index = cursor;
+                break;
             }
         }
 
@@ -1312,17 +1293,20 @@ fn resolveBuildInputStringTokensAtUseAlloc(
     top_bindings: *const std.StringHashMap([]const u8),
 ) !?[]u8 {
     if (tokens.len != 1) return null;
-    return switch (tokens[0].tag) {
-        .string_literal => try decodeStringLiteralAlloc(allocator, tokens[0].lexeme),
-        .identifier => try resolveVisibleStringBindingAlloc(
+    const tag = tokens[0].tag;
+    if (tag == .string_literal) {
+        return try decodeStringLiteralAlloc(allocator, tokens[0].lexeme);
+    }
+    if (tag == .identifier) {
+        return try resolveVisibleStringBindingAlloc(
             allocator,
             all_tokens,
             use_index,
             tokens[0].lexeme,
             top_bindings,
-        ),
-        else => null,
-    };
+        );
+    }
+    return null;
 }
 
 fn freeEmbedFileFunctionPatterns(
@@ -1363,16 +1347,17 @@ fn appendResolvedEmbedPathIfPresent(
     decoded: []const u8,
     collector: BuildInputPathCollector,
 ) !void {
-    const resolved = try std.fs.path.resolve(allocator, &.{ repo_root, source_dir, decoded });
+    const resolved = try std.Io.Dir.path.resolve(allocator, &.{ repo_root, source_dir, decoded });
     defer allocator.free(resolved);
 
     const repo_relative = try tryRepoRelativePathFromAbsoluteAlloc(allocator, repo_root, resolved) orelse return;
     defer allocator.free(repo_relative);
 
-    var root_dir = std.fs.openDirAbsolute(repo_root, .{}) catch |err|
+    const io = compatIo();
+    var root_dir = std.Io.Dir.openDirAbsolute(io, repo_root, .{}) catch |err|
         std.process.fatal("unable to open repo root for embed input scan '{s}': {s}", .{ repo_root, @errorName(err) });
-    defer root_dir.close();
-    if (!pathExistsAtRoot(root_dir, repo_relative)) return;
+    defer root_dir.close(io);
+    if (!pathExistsAtRoot(root_dir, io, repo_relative)) return;
     try appendOwnedPathIfMissing(allocator, collector.paths, collector.path_set, repo_relative);
 }
 
@@ -1384,7 +1369,7 @@ fn resolveRepoRelativeImportPathAlloc(
 ) !?[]u8 {
     if (!std.mem.endsWith(u8, decoded, ".zig")) return null;
 
-    const resolved = try std.fs.path.resolve(allocator, &.{ repo_root, source_dir, decoded });
+    const resolved = try std.Io.Dir.path.resolve(allocator, &.{ repo_root, source_dir, decoded });
     defer allocator.free(resolved);
     return try tryRepoRelativePathFromAbsoluteAlloc(allocator, repo_root, resolved);
 }
@@ -1447,9 +1432,9 @@ fn collectSameFileEmbedFunctionPatternsAlloc(
 
         var iter = fn_proto.iterate(&tree);
         var param_index: usize = 0;
-        while (iter.next()) |param| : (param_index += 1) {
-            if (param.comptime_noalias == null) continue;
-            const name_token = param.name_token orelse continue;
+        param_decl_loop: while (iter.next()) |param| : (param_index += 1) {
+            if (param.comptime_noalias == null) continue :param_decl_loop;
+            const name_token = param.name_token orelse continue :param_decl_loop;
             try comptime_params.append(allocator, .{
                 .name = try allocator.dupe(u8, tree.tokenSlice(name_token)),
                 .index = param_index,
@@ -1458,7 +1443,7 @@ fn collectSameFileEmbedFunctionPatternsAlloc(
         if (comptime_params.items.len == 0) continue;
 
         const fn_source = functionSourceSlice(tree, source, member, fn_proto);
-        const fn_source_z = try allocator.dupeZ(u8, fn_source);
+        const fn_source_z = try allocator.dupeSentinel(u8, fn_source, 0);
         defer allocator.free(fn_source_z);
 
         var tokenizer = std.zig.Tokenizer.init(fn_source_z);
@@ -1466,7 +1451,7 @@ fn collectSameFileEmbedFunctionPatternsAlloc(
         var matched_indexes = std.ArrayList(usize).empty;
         defer matched_indexes.deinit(allocator);
 
-        while (true) {
+        token_loop: while (true) {
             const token = tokenizer.next();
             if (token.tag == .eof) break;
             window.push(.{
@@ -1474,9 +1459,9 @@ fn collectSameFileEmbedFunctionPatternsAlloc(
                 .lexeme = tokenSlice(fn_source_z, token),
             });
 
-            const identifier = maybeEmbedFileIdentifierPath(&window) orelse continue;
-            for (comptime_params.items) |param| {
-                if (!std.mem.eql(u8, identifier, param.name)) continue;
+            const identifier = maybeEmbedFileIdentifierPath(&window) orelse continue :token_loop;
+            param_match_loop: for (comptime_params.items) |param| {
+                if (!std.mem.eql(u8, identifier, param.name)) continue :param_match_loop;
                 try appendUniqueIndex(&matched_indexes, allocator, param.index);
             }
         }
@@ -1550,14 +1535,14 @@ fn moduleRootSourcePathFromValueTokensAlloc(
         var cursor = value_start;
         var depth: usize = 0;
         while (cursor < value_tokens.len) : (cursor += 1) {
-            switch (value_tokens[cursor].tag) {
-                .l_paren, .l_brace, .l_bracket => depth += 1,
-                .r_paren, .r_brace, .r_bracket => {
-                    if (depth == 0) break;
-                    depth -= 1;
-                },
-                .comma => if (depth == 0) break,
-                else => {},
+            const tag = value_tokens[cursor].tag;
+            if (tag == .l_paren or tag == .l_brace or tag == .l_bracket) {
+                depth += 1;
+            } else if (tag == .r_paren or tag == .r_brace or tag == .r_bracket) {
+                if (depth == 0) break;
+                depth -= 1;
+            } else if (tag == .comma and depth == 0) {
+                break;
             }
         }
         return try moduleRootSourcePathFromExprTokensAlloc(allocator, value_tokens[value_start..cursor]);
@@ -1584,12 +1569,13 @@ fn collectBuildModuleBindingsAlloc(
     allocator: std.mem.Allocator,
     repo_root: []const u8,
 ) ![]BuildModuleBinding {
-    var root_dir = std.fs.openDirAbsolute(repo_root, .{}) catch return allocator.alloc(BuildModuleBinding, 0);
-    defer root_dir.close();
+    const io = compatIo();
+    var root_dir = std.Io.Dir.openDirAbsolute(io, repo_root, .{}) catch return allocator.alloc(BuildModuleBinding, 0);
+    defer root_dir.close(io);
 
-    const source = root_dir.readFileAlloc(allocator, "build.zig", 4 * 1024 * 1024) catch return allocator.alloc(BuildModuleBinding, 0);
+    const source = root_dir.readFileAlloc(io, "build.zig", allocator, .limited(4 * 1024 * 1024)) catch return allocator.alloc(BuildModuleBinding, 0);
     defer allocator.free(source);
-    const source_z = try allocator.dupeZ(u8, source);
+    const source_z = try allocator.dupeSentinel(u8, source, 0);
     defer allocator.free(source_z);
 
     var tree = try std.zig.Ast.parse(allocator, source_z, .zig);
@@ -1609,7 +1595,7 @@ fn collectBuildModuleBindingsAlloc(
     }
 
     const build_source = build_fn_source orelse return allocator.alloc(BuildModuleBinding, 0);
-    const build_source_z = try allocator.dupeZ(u8, build_source);
+    const build_source_z = try allocator.dupeSentinel(u8, build_source, 0);
     defer allocator.free(build_source_z);
     const tokens = try collectBuildInputTokensAlloc(allocator, build_source_z);
     defer allocator.free(tokens);
@@ -1633,16 +1619,14 @@ fn collectBuildModuleBindingsAlloc(
     var index: usize = 0;
     var scope_depth: usize = 0;
     while (index < tokens.len) : (index += 1) {
-        switch (tokens[index].tag) {
-            .l_brace => {
-                scope_depth += 1;
-                continue;
-            },
-            .r_brace => {
-                if (scope_depth > 0) scope_depth -= 1;
-                continue;
-            },
-            else => {},
+        const tag = tokens[index].tag;
+        if (tag == .l_brace) {
+            scope_depth += 1;
+            continue;
+        }
+        if (tag == .r_brace) {
+            if (scope_depth > 0) scope_depth -= 1;
+            continue;
         }
 
         if (scope_depth == 1 and
@@ -1655,21 +1639,16 @@ fn collectBuildModuleBindingsAlloc(
             var equal_index: ?usize = null;
             var semicolon_index: ?usize = null;
             while (cursor < tokens.len) : (cursor += 1) {
-                switch (tokens[cursor].tag) {
-                    .l_paren, .l_brace, .l_bracket => depth += 1,
-                    .r_paren, .r_brace, .r_bracket => {
-                        if (depth > 0) depth -= 1;
-                    },
-                    .equal => {
-                        if (depth == 0 and equal_index == null) equal_index = cursor;
-                    },
-                    .semicolon => {
-                        if (depth == 0) {
-                            semicolon_index = cursor;
-                            break;
-                        }
-                    },
-                    else => {},
+                const cursor_tag = tokens[cursor].tag;
+                if (cursor_tag == .l_paren or cursor_tag == .l_brace or cursor_tag == .l_bracket) {
+                    depth += 1;
+                } else if (cursor_tag == .r_paren or cursor_tag == .r_brace or cursor_tag == .r_bracket) {
+                    if (depth > 0) depth -= 1;
+                } else if (cursor_tag == .equal) {
+                    if (depth == 0 and equal_index == null) equal_index = cursor;
+                } else if (cursor_tag == .semicolon and depth == 0) {
+                    semicolon_index = cursor;
+                    break;
                 }
             }
 
@@ -1749,22 +1728,20 @@ fn collectImportedEmbedFileFunctionPatternsAlloc(
         patterns.deinit(allocator);
     }
 
-    const source_dir = std.fs.path.dirname(scan.source_path) orelse ".";
+    const source_dir = std.Io.Dir.path.dirname(scan.source_path) orelse ".";
     var index: usize = 0;
     var scope_depth: usize = 0;
     while (index + 1 < scan.tokens.len) {
-        switch (scan.tokens[index].tag) {
-            .l_brace => {
-                scope_depth += 1;
-                index += 1;
-                continue;
-            },
-            .r_brace => {
-                if (scope_depth > 0) scope_depth -= 1;
-                index += 1;
-                continue;
-            },
-            else => {},
+        const scan_tag = scan.tokens[index].tag;
+        if (scan_tag == .l_brace) {
+            scope_depth += 1;
+            index += 1;
+            continue;
+        }
+        if (scan_tag == .r_brace) {
+            if (scope_depth > 0) scope_depth -= 1;
+            index += 1;
+            continue;
         }
 
         if (scope_depth != 0 or scan.tokens[index].tag != .keyword_const or scan.tokens[index + 1].tag != .identifier) {
@@ -1777,21 +1754,16 @@ fn collectImportedEmbedFileFunctionPatternsAlloc(
         var equal_index: ?usize = null;
         var semicolon_index: ?usize = null;
         while (cursor < scan.tokens.len) : (cursor += 1) {
-            switch (scan.tokens[cursor].tag) {
-                .l_paren, .l_brace, .l_bracket => depth += 1,
-                .r_paren, .r_brace, .r_bracket => {
-                    if (depth > 0) depth -= 1;
-                },
-                .equal => {
-                    if (depth == 0 and equal_index == null) equal_index = cursor;
-                },
-                .semicolon => {
-                    if (depth == 0) {
-                        semicolon_index = cursor;
-                        break;
-                    }
-                },
-                else => {},
+            const cursor_tag = scan.tokens[cursor].tag;
+            if (cursor_tag == .l_paren or cursor_tag == .l_brace or cursor_tag == .l_bracket) {
+                depth += 1;
+            } else if (cursor_tag == .r_paren or cursor_tag == .r_brace or cursor_tag == .r_bracket) {
+                if (depth > 0) depth -= 1;
+            } else if (cursor_tag == .equal) {
+                if (depth == 0 and equal_index == null) equal_index = cursor;
+            } else if (cursor_tag == .semicolon and depth == 0) {
+                semicolon_index = cursor;
+                break;
             }
         }
 
@@ -1821,9 +1793,9 @@ fn collectImportedEmbedFileFunctionPatternsAlloc(
             continue;
         }
 
-        const imported_source_full_path = try std.fs.path.join(allocator, &.{ scan.repo_root, repo_relative });
+        const imported_source_full_path = try std.Io.Dir.path.join(allocator, &.{ scan.repo_root, repo_relative });
         defer allocator.free(imported_source_full_path);
-        const imported_bytes = std.fs.cwd().readFileAlloc(allocator, imported_source_full_path, 1 << 20) catch |err| switch (err) {
+        const imported_bytes = std.Io.Dir.cwd().readFileAlloc(compatIo(), imported_source_full_path, allocator, .limited(1 << 20)) catch |err| switch (err) {
             error.FileNotFound => {
                 index = value_end + 1;
                 continue;
@@ -1831,12 +1803,12 @@ fn collectImportedEmbedFileFunctionPatternsAlloc(
             else => return err,
         };
         defer allocator.free(imported_bytes);
-        const imported_source_z = try allocator.dupeZ(u8, imported_bytes);
+        const imported_source_z = try allocator.dupeSentinel(u8, imported_bytes, 0);
         defer allocator.free(imported_source_z);
 
         const imported_patterns = try collectSameFileEmbedFunctionPatternsAlloc(allocator, imported_source_z);
         defer allocator.free(imported_patterns);
-        const imported_source_dir = std.fs.path.dirname(repo_relative) orelse ".";
+        const imported_source_dir = std.Io.Dir.path.dirname(repo_relative) orelse ".";
         for (imported_patterns) |pattern| {
             try patterns.append(allocator, .{
                 .module_binding = try allocator.dupe(u8, scan.tokens[index + 1].lexeme),
@@ -1885,7 +1857,7 @@ fn collectParameterizedEmbedFileBuildInputsForSource(
     defer freeImportedEmbedFileFunctionPatterns(allocator, imported_patterns);
     if (patterns.len == 0 and imported_patterns.len == 0) return;
 
-    const source_dir = std.fs.path.dirname(scan.source_path) orelse ".";
+    const source_dir = std.Io.Dir.path.dirname(scan.source_path) orelse ".";
     var index: usize = 0;
     while (index + 1 < scan.tokens.len) : (index += 1) {
         const match = (blk: {
@@ -1907,9 +1879,9 @@ fn collectParameterizedEmbedFileBuildInputsForSource(
                 scan.tokens[index + 2].tag == .identifier and
                 scan.tokens[index + 3].tag == .l_paren)
             {
-                for (imported_patterns) |*candidate| {
-                    if (!std.mem.eql(u8, candidate.module_binding, scan.tokens[index].lexeme)) continue;
-                    if (!std.mem.eql(u8, candidate.pattern.fn_name, scan.tokens[index + 2].lexeme)) continue;
+                pattern_search: for (imported_patterns) |*candidate| {
+                    if (!std.mem.eql(u8, candidate.module_binding, scan.tokens[index].lexeme)) continue :pattern_search;
+                    if (!std.mem.eql(u8, candidate.pattern.fn_name, scan.tokens[index + 2].lexeme)) continue :pattern_search;
                     break :blk Match{
                         .pattern = &candidate.pattern,
                         .call_source_dir = candidate.source_dir,
@@ -1924,41 +1896,12 @@ fn collectParameterizedEmbedFileBuildInputsForSource(
         var arg_start = match.arg_start;
         var depth: usize = 0;
         var cursor = match.arg_start;
-        while (cursor < scan.tokens.len) : (cursor += 1) {
-            switch (scan.tokens[cursor].tag) {
-                .l_paren, .l_brace, .l_bracket => depth += 1,
-                .r_paren => {
-                    if (depth == 0) {
-                        if (patternUsesParamIndex(match.pattern, arg_index)) {
-                            const arg_tokens = scan.tokens[arg_start..cursor];
-                            const decoded = try resolveBuildInputStringTokensAtUseAlloc(
-                                allocator,
-                                scan.tokens,
-                                arg_start,
-                                arg_tokens,
-                                scan.top_bindings,
-                            ) orelse null;
-                            if (decoded) |owned| {
-                                defer allocator.free(owned);
-                                try appendResolvedEmbedPathIfPresent(
-                                    allocator,
-                                    scan.repo_root,
-                                    match.call_source_dir,
-                                    owned,
-                                    scan.collector,
-                                );
-                            }
-                        }
-                        index = cursor;
-                        break;
-                    }
-                    depth -= 1;
-                },
-                .r_brace, .r_bracket => {
-                    if (depth > 0) depth -= 1;
-                },
-                .comma => {
-                    if (depth != 0) continue;
+        arg_scan: while (cursor < scan.tokens.len) : (cursor += 1) {
+            const tag = scan.tokens[cursor].tag;
+            if (tag == .l_paren or tag == .l_brace or tag == .l_bracket) {
+                depth += 1;
+            } else if (tag == .r_paren) {
+                if (depth == 0) {
                     if (patternUsesParamIndex(match.pattern, arg_index)) {
                         const arg_tokens = scan.tokens[arg_start..cursor];
                         const decoded = try resolveBuildInputStringTokensAtUseAlloc(
@@ -1979,10 +1922,36 @@ fn collectParameterizedEmbedFileBuildInputsForSource(
                             );
                         }
                     }
-                    arg_index += 1;
-                    arg_start = cursor + 1;
-                },
-                else => {},
+                    index = cursor;
+                    break;
+                }
+                depth -= 1;
+            } else if (tag == .r_brace or tag == .r_bracket) {
+                if (depth > 0) depth -= 1;
+            } else if (tag == .comma) {
+                if (depth != 0) continue :arg_scan;
+                if (patternUsesParamIndex(match.pattern, arg_index)) {
+                    const arg_tokens = scan.tokens[arg_start..cursor];
+                    const decoded = try resolveBuildInputStringTokensAtUseAlloc(
+                        allocator,
+                        scan.tokens,
+                        arg_start,
+                        arg_tokens,
+                        scan.top_bindings,
+                    ) orelse null;
+                    if (decoded) |owned| {
+                        defer allocator.free(owned);
+                        try appendResolvedEmbedPathIfPresent(
+                            allocator,
+                            scan.repo_root,
+                            match.call_source_dir,
+                            owned,
+                            scan.collector,
+                        );
+                    }
+                }
+                arg_index += 1;
+                arg_start = cursor + 1;
             }
         }
     }
@@ -1995,14 +1964,14 @@ fn collectEmbedFileBuildInputsForSource(
     paths: *std.ArrayList([]const u8),
     path_set: *std.StringHashMap(void),
 ) !void {
-    const source_full_path = try std.fs.path.join(allocator, &.{ repo_root, source_path });
+    const source_full_path = try std.Io.Dir.path.join(allocator, &.{ repo_root, source_path });
     defer allocator.free(source_full_path);
-    const bytes = try std.fs.cwd().readFileAlloc(allocator, source_full_path, 1 << 20);
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(compatIo(), source_full_path, allocator, .limited(1 << 20));
     defer allocator.free(bytes);
-    const source_z = try allocator.dupeZ(u8, bytes);
+    const source_z = try allocator.dupeSentinel(u8, bytes, 0);
     defer allocator.free(source_z);
 
-    const source_dir = std.fs.path.dirname(source_path) orelse ".";
+    const source_dir = std.Io.Dir.path.dirname(source_path) orelse ".";
     const collector: BuildInputPathCollector = .{
         .paths = paths,
         .path_set = path_set,
@@ -2087,22 +2056,20 @@ fn collectFilesystemRepoZigPaths(
     paths: *std.ArrayList([]const u8),
     path_set: *std.StringHashMap(void),
 ) void {
-    var root_dir = std.fs.openDirAbsolute(repo_root, .{ .iterate = true }) catch |err|
+    const io = compatIo();
+    var root_dir = std.Io.Dir.openDirAbsolute(io, repo_root, .{ .iterate = true }) catch |err|
         std.process.fatal("unable to open repo root for build input walk '{s}': {s}", .{ repo_root, @errorName(err) });
-    defer root_dir.close();
+    defer root_dir.close(io);
 
     var walker = root_dir.walk(allocator) catch
         std.process.fatal("unable to walk repo root for build inputs", .{});
     defer walker.deinit();
 
-    while (walker.next() catch
-        std.process.fatal("unable to iterate repo build input walk", .{})) |entry|
+    while ((walker.next(io) catch
+        std.process.fatal("unable to iterate repo build input walk", .{}))) |entry|
     {
         if (pathIsIgnoredBuildInput(entry.path)) continue;
-        switch (entry.kind) {
-            .file, .sym_link => {},
-            else => continue,
-        }
+        if (!(entry.kind == .file or entry.kind == .sym_link)) continue;
         if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
         appendOwnedPathIfMissing(allocator, paths, path_set, entry.path) catch
             std.process.fatal("unable to record repo Zig build input path", .{});
@@ -2115,12 +2082,13 @@ fn collectBuildZigReferencedRepoZigPaths(
     paths: *std.ArrayList([]const u8),
     path_set: *std.StringHashMap(void),
 ) void {
-    var root_dir = std.fs.openDirAbsolute(repo_root, .{}) catch return;
-    defer root_dir.close();
+    const io = compatIo();
+    var root_dir = std.Io.Dir.openDirAbsolute(io, repo_root, .{}) catch return;
+    defer root_dir.close(io);
 
-    const source = root_dir.readFileAlloc(allocator, "build.zig", 4 * 1024 * 1024) catch return;
+    const source = root_dir.readFileAlloc(io, "build.zig", allocator, .limited(4 * 1024 * 1024)) catch return;
     defer allocator.free(source);
-    const source_z = allocator.dupeZ(u8, source) catch
+    const source_z = allocator.dupeSentinel(u8, source, 0) catch
         std.process.fatal("unable to duplicate build.zig source for build input scan", .{});
     defer allocator.free(source_z);
 
@@ -2142,7 +2110,7 @@ fn collectBuildZigReferencedRepoZigPaths(
     }
 
     const build_source = build_fn_source orelse return;
-    const build_source_z = allocator.dupeZ(u8, build_source) catch
+    const build_source_z = allocator.dupeSentinel(u8, build_source, 0) catch
         std.process.fatal("unable to duplicate build() source for build input scan", .{});
     defer allocator.free(build_source_z);
     const tokens = collectBuildInputTokensAlloc(allocator, build_source_z) catch
@@ -2169,27 +2137,28 @@ fn collectTrackedRepoZigPathsAlloc(
     paths: *std.ArrayList([]const u8),
     path_set: *std.StringHashMap(void),
 ) bool {
-    var root_dir = std.fs.openDirAbsolute(repo_root, .{}) catch return false;
-    defer root_dir.close();
-    if (!repoRootContainsGitMetadata(root_dir)) return false;
+    const io = compatIo();
+    var root_dir = std.Io.Dir.openDirAbsolute(io, repo_root, .{}) catch return false;
+    defer root_dir.close(io);
+    if (!repoRootContainsGitMetadata(root_dir, io)) return false;
 
-    const result = std.process.Child.run(.{
-        .allocator = allocator,
+    const result = std.process.run(allocator, io, .{
         .argv = &.{ "git", "-C", repo_root, "ls-files", "--cached", "--", "*.zig" },
-        .max_output_bytes = 512 * 1024,
+        .stdout_limit = .limited(512 * 1024),
+        .stderr_limit = .limited(512 * 1024),
     }) catch return false;
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
     switch (result.term) {
-        .Exited => |code| if (code != 0) return false,
+        .exited => |code| if (code != 0) return false,
         else => return false,
     }
 
     var lines = std.mem.tokenizeScalar(u8, result.stdout, '\n');
     while (lines.next()) |line| {
         if (!std.mem.endsWith(u8, line, ".zig")) continue;
-        if (!pathExistsAtRoot(root_dir, line)) continue;
+        if (!pathExistsAtRoot(root_dir, io, line)) continue;
         appendOwnedPathIfMissing(allocator, paths, path_set, line) catch
             std.process.fatal("unable to record tracked repo Zig path", .{});
     }
@@ -2244,14 +2213,15 @@ fn hashArtifactBuildInputs(
     defer freeOwnedPathList(allocator, input_paths);
 
     for (input_paths) |path| {
-        hashBuildIdentityFileAtRoot(hasher, repo_root, path);
+        hashBuildIdentityFileAtRoot(hasher, allocator, repo_root, path);
     }
 
-    var root_dir = std.fs.openDirAbsolute(repo_root, .{}) catch |err|
+    const io = compatIo();
+    var root_dir = std.Io.Dir.openDirAbsolute(io, repo_root, .{}) catch |err|
         std.process.fatal("unable to open repo root for build metadata '{s}': {s}", .{ repo_root, @errorName(err) });
-    defer root_dir.close();
-    if (pathExistsAtRoot(root_dir, "build.zig.zon")) {
-        hashBuildIdentityFileAtRoot(hasher, repo_root, "build.zig.zon");
+    defer root_dir.close(io);
+    if (pathExistsAtRoot(root_dir, io, "build.zig.zon")) {
+        hashBuildIdentityFileAtRoot(hasher, allocator, repo_root, "build.zig.zon");
     }
 }
 
@@ -2293,8 +2263,12 @@ fn hashBuildTargetIdentity(
         hasher.update("default");
     }
     hasher.update("query-dynamic-linker");
-    if (target.query.dynamic_linker.get()) |dynamic_linker| {
-        hasher.update(dynamic_linker);
+    if (target.query.dynamic_linker) |dynamic_linker| {
+        if (dynamic_linker.get()) |path| {
+            hasher.update(path);
+        } else {
+            hasher.update("(none)");
+        }
     } else {
         hasher.update("(none)");
     }
@@ -2393,7 +2367,7 @@ const PackageRootAlias = struct {
 };
 
 fn scratchRootPath(b: *std.Build, leaf: []const u8) []const u8 {
-    return std.fs.path.join(b.allocator, &.{ tempRootPath(b), leaf }) catch
+    return std.Io.Dir.path.join(b.allocator, &.{ tempRootPath(b), leaf }) catch
         std.process.fatal("unable to allocate scratch root path", .{});
 }
 
@@ -2402,9 +2376,10 @@ fn boundaryAliasRoot(b: *std.Build) []const u8 {
 }
 
 fn clearAliasPath(alias_path: []const u8, dir_error: []const u8, path_error: []const u8) void {
-    std.fs.deleteFileAbsolute(alias_path) catch |err| switch (err) {
+    const io = compatIo();
+    std.Io.Dir.deleteFileAbsolute(io, alias_path) catch |err| switch (err) {
         error.FileNotFound => {},
-        error.IsDir => std.fs.deleteTreeAbsolute(alias_path) catch
+        error.IsDir => std.Io.Dir.cwd().deleteTree(io, alias_path) catch
             std.process.fatal("{s}", .{dir_error}),
         else => std.process.fatal("{s}", .{path_error}),
     };
@@ -2413,7 +2388,7 @@ fn clearAliasPath(alias_path: []const u8, dir_error: []const u8, path_error: []c
 fn packageRootAlias(b: *std.Build) PackageRootAlias {
     const repo_root = b.pathFromRoot(".");
     const alias_root = boundaryAliasRoot(b);
-    std.fs.makeDirAbsolute(alias_root) catch |err| switch (err) {
+    std.Io.Dir.createDirAbsolute(b.graph.io, alias_root, .default_dir) catch |err| switch (err) {
         error.PathAlreadyExists => {},
         else => return .{ .path = repo_root, .available = false },
     };
@@ -2422,17 +2397,18 @@ fn packageRootAlias(b: *std.Build) PackageRootAlias {
         "shift_repo_alias_{x}",
         .{std.hash.Wyhash.hash(0, repo_root)},
     ) catch std.process.fatal("unable to allocate package-root alias leaf", .{});
-    const alias_path = std.fs.path.join(b.allocator, &.{ alias_root, alias_leaf }) catch
+    const alias_path = std.Io.Dir.path.join(b.allocator, &.{ alias_root, alias_leaf }) catch
         std.process.fatal("unable to allocate package-root alias path", .{});
 
-    var link_buffer: [std.fs.max_path_bytes]u8 = undefined;
-    const existing_target = std.fs.readLinkAbsolute(alias_path, &link_buffer) catch |err| switch (err) {
+    var link_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const existing_target_len = std.Io.Dir.readLinkAbsolute(b.graph.io, alias_path, &link_buffer) catch |err| switch (err) {
         error.FileNotFound => null,
         else => blk: {
             clearAliasPath(alias_path, "unable to clear package-root alias directory", "unable to clear package-root alias path");
             break :blk null;
         },
     };
+    const existing_target = if (existing_target_len) |len| link_buffer[0..len] else null;
     if (existing_target) |target| {
         if (std.mem.eql(u8, target, repo_root)) return .{
             .path = alias_path,
@@ -2441,7 +2417,7 @@ fn packageRootAlias(b: *std.Build) PackageRootAlias {
     }
 
     clearAliasPath(alias_path, "unable to clear package-root alias directory", "unable to clear package-root alias path");
-    std.fs.symLinkAbsolute(repo_root, alias_path, .{}) catch
+    std.Io.Dir.symLinkAbsolute(b.graph.io, repo_root, alias_path, .{}) catch
         return .{ .path = repo_root, .available = false };
     return .{
         .path = alias_path,
@@ -2516,29 +2492,28 @@ test "zigStringLiteralEscapeAlloc escapes path bytes for generated fixture sourc
     );
 }
 
-fn writeTmpFile(dir: std.fs.Dir, path: []const u8, contents: []const u8) !void {
-    if (std.fs.path.dirname(path)) |dir_name| {
-        try dir.makePath(dir_name);
+fn writeTmpFile(dir: std.Io.Dir, path: []const u8, contents: []const u8) !void {
+    if (std.Io.Dir.path.dirname(path)) |dir_name| {
+        try dir.createDirPath(std.testing.io, dir_name);
     }
-    var file = try dir.createFile(path, .{ .truncate = true });
-    defer file.close();
-    var buffer: [1024]u8 = undefined;
-    var writer = file.writer(&buffer);
-    try writer.interface.writeAll(contents);
-    try writer.interface.flush();
+    try dir.writeFile(std.testing.io, .{
+        .sub_path = path,
+        .data = contents,
+        .flags = .{ .truncate = true },
+    });
 }
 
 fn runChildExpectSuccess(allocator: std.mem.Allocator, argv: []const []const u8) !void {
-    const result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const result = try std.process.run(allocator, compatIo(), .{
         .argv = argv,
-        .max_output_bytes = 32 * 1024,
+        .stdout_limit = .limited(32 * 1024),
+        .stderr_limit = .limited(32 * 1024),
     });
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
     switch (result.term) {
-        .Exited => |code| if (code == 0) return,
+        .exited => |code| if (code == 0) return,
         else => {},
     }
     std.debug.print("child command failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ argv[0], result.stdout, result.stderr });
@@ -2546,15 +2521,15 @@ fn runChildExpectSuccess(allocator: std.mem.Allocator, argv: []const []const u8)
 }
 
 fn makeExternalTmpDir(allocator: std.mem.Allocator) ![]u8 {
-    const result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const result = try std.process.run(allocator, compatIo(), .{
         .argv = &.{ "mktemp", "-d" },
-        .max_output_bytes = 1024,
+        .stdout_limit = .limited(1024),
+        .stderr_limit = .limited(1024),
     });
     defer allocator.free(result.stderr);
 
     switch (result.term) {
-        .Exited => |code| if (code != 0) {
+        .exited => |code| if (code != 0) {
             allocator.free(result.stdout);
             return error.UnexpectedChildCommandFailure;
         },
@@ -3041,8 +3016,8 @@ test "repo Zig path registry matches tracked Zig files in the working checkout" 
     defer std.testing.allocator.free(tracked_registry);
 
     try std.testing.expect(tracked_registry.len != 0);
-    try std.testing.expect(std.mem.indexOf(u8, tracked_registry, "build.zig\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, tracked_registry, "source_graph_embed.zig\n") != null);
+    try std.testing.expect(std.mem.find(u8, tracked_registry, "build.zig\n") != null);
+    try std.testing.expect(std.mem.find(u8, tracked_registry, "source_graph_embed.zig\n") != null);
 }
 
 test "test suite selection accepts trimmed multi-suite lists" {
@@ -4845,7 +4820,10 @@ pub fn build(b: *std.Build) void {
             // Feed zlinter the explicit repo path registry so lint stays fail-closed
             // without relying on recursive cwd walking or exclude-index construction.
             .include = repoZigLintIncludePaths(b),
-            .exclude = &.{},
+            .exclude = &.{
+                b.path("tools/vendor"),
+                b.path("zig-pkg"),
+            },
         });
         inline for (@typeInfo(zlinter.BuiltinLintRule).@"enum".fields) |field| {
             const rule: zlinter.BuiltinLintRule = @enumFromInt(field.value);

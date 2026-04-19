@@ -76,7 +76,7 @@ pub const AnalyzeModuleSourceError = ParseSourceError || error{
 
 /// Parse one Zig source buffer into an owned AST payload.
 pub fn parseSource(allocator: std.mem.Allocator, source: []const u8) ParseSourceError!ParsedSource {
-    const source_z = try allocator.dupeZ(u8, source);
+    const source_z = try allocator.dupeSentinel(u8, source, 0);
     errdefer allocator.free(source_z);
     var tree = try std.zig.Ast.parse(allocator, source_z, .zig);
     errdefer tree.deinit(allocator);

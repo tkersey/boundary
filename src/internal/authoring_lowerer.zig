@@ -128,10 +128,23 @@ pub const OpenRowLoweredAuthoring = struct {
     program: program_frontend.LoweredOpenRowProgram,
 };
 
+fn entryFunctionForProgram(comptime program: program_frontend.OpenRowProgram) effect_ir.NormalizeError!effect_ir.Function {
+    comptime var found: ?effect_ir.Function = null;
+    inline for (program.functions) |function| {
+        if (!std.mem.eql(u8, function.symbol.symbol_name, program.entry_symbol)) continue;
+        if (program.entry_module_path) |module_path| {
+            if (!std.mem.eql(u8, function.symbol.module_path, module_path)) continue;
+        }
+        if (found != null) return error.DuplicateSymbol;
+        found = function;
+    }
+    return found orelse error.UnknownSymbol;
+}
+
 /// Lower one open-row frontend payload through the shared semantic center.
-pub fn lowerOpenRowProgram(program: program_frontend.OpenRowProgram) effect_ir.NormalizeError!OpenRowLoweredAuthoring {
+pub fn lowerOpenRowProgram(comptime program: program_frontend.OpenRowProgram) effect_ir.NormalizeError!OpenRowLoweredAuthoring {
     const lowered = try program_frontend.lowerOpenRow(program);
-    const entry_function = lowered.functions[lowered.entry_index];
+    const entry_function = try entryFunctionForProgram(program);
     return .{
         .label = program.label,
         .normalization = try effect_ir.rowDigest(entry_function.row, entry_function.outputs),
@@ -218,20 +231,26 @@ fn normalizeCallerVisiblePathAlloc(
     base_path: []const u8,
     path: []const u8,
 ) ![]u8 {
-    if (std.fs.path.isAbsolute(path)) {
-        return try std.fs.path.resolve(allocator, &.{path});
+    if (std.Io.Dir.path.isAbsolute(path)) {
+        return try std.Io.Dir.path.resolve(allocator, &.{path});
     }
-    return try std.fs.path.resolve(allocator, &.{ base_path, path });
+    return try std.Io.Dir.path.resolve(allocator, &.{ base_path, path });
 }
 
 fn canonicalRepoRootAlloc(allocator: std.mem.Allocator) ![]u8 {
-    return try std.fs.realpathAlloc(allocator, build_options.package_root);
+    const canonical_z = try std.Io.Dir.realPathFileAbsoluteAlloc(
+        std.Io.Threaded.global_single_threaded.io(),
+        build_options.package_root,
+        allocator,
+    );
+    defer allocator.free(canonical_z);
+    return try allocator.dupe(u8, canonical_z);
 }
 
 fn normalizeRepoRelativePathAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     const normalized = try allocator.dupe(u8, path);
     for (normalized) |*byte| {
-        if (byte.* == '/' or byte.* == '\\') byte.* = std.fs.path.sep;
+        if (byte.* == '/' or byte.* == '\\') byte.* = std.Io.Dir.path.sep;
     }
     return normalized;
 }
@@ -241,7 +260,7 @@ fn normalizeExpectedCanonicalPathAlloc(
     canonical_repo_root: []const u8,
     expected_path: []const u8,
 ) ![]u8 {
-    return try std.fs.path.resolve(allocator, &.{ canonical_repo_root, expected_path });
+    return try std.Io.Dir.path.resolve(allocator, &.{ canonical_repo_root, expected_path });
 }
 
 fn repoAliasRootMatchesExpected(
@@ -252,35 +271,36 @@ fn repoAliasRootMatchesExpected(
 ) bool {
     if (!std.mem.endsWith(u8, normalized_actual, expected_path)) return false;
     if (normalized_actual.len <= expected_path.len) return false;
-    if (normalized_actual[normalized_actual.len - expected_path.len - 1] != std.fs.path.sep) return false;
+    if (normalized_actual[normalized_actual.len - expected_path.len - 1] != std.Io.Dir.path.sep) return false;
 
     var repo_alias_root = normalized_actual[0 .. normalized_actual.len - expected_path.len];
-    while (repo_alias_root.len != 0 and repo_alias_root[repo_alias_root.len - 1] == std.fs.path.sep) {
+    while (repo_alias_root.len != 0 and repo_alias_root[repo_alias_root.len - 1] == std.Io.Dir.path.sep) {
         repo_alias_root.len -= 1;
     }
     if (repo_alias_root.len == 0) return false;
     if (std.mem.startsWith(u8, repo_alias_root, canonical_repo_root)) {
         if (repo_alias_root.len == canonical_repo_root.len) return false;
-        if (repo_alias_root[canonical_repo_root.len] == std.fs.path.sep) return false;
+        if (repo_alias_root[canonical_repo_root.len] == std.Io.Dir.path.sep) return false;
     }
 
-    const canonical_alias_root = std.fs.realpathAlloc(allocator, repo_alias_root) catch return false;
+    const canonical_alias_root = std.Io.Dir.realPathFileAbsoluteAlloc(std.Io.Threaded.global_single_threaded.io(), repo_alias_root, allocator) catch return false;
     defer allocator.free(canonical_alias_root);
     if (!std.mem.eql(u8, canonical_alias_root, canonical_repo_root)) return false;
 
-    const alias_parent = std.fs.path.dirname(repo_alias_root) orelse return false;
-    const canonical_alias_parent = std.fs.realpathAlloc(allocator, alias_parent) catch return false;
+    const alias_parent = std.Io.Dir.path.dirname(repo_alias_root) orelse return false;
+    const canonical_alias_parent = std.Io.Dir.realPathFileAbsoluteAlloc(std.Io.Threaded.global_single_threaded.io(), alias_parent, allocator) catch return false;
     defer allocator.free(canonical_alias_parent);
 
     if (std.mem.startsWith(u8, canonical_alias_parent, canonical_repo_root)) {
         if (canonical_alias_parent.len == canonical_repo_root.len) return false;
-        if (canonical_alias_parent[canonical_repo_root.len] == std.fs.path.sep) return false;
+        if (canonical_alias_parent[canonical_repo_root.len] == std.Io.Dir.path.sep) return false;
     }
     return true;
 }
 
 fn sourcePathMatchesExpected(allocator: std.mem.Allocator, actual_path: []const u8, expected_path: []const u8) bool {
-    const cwd_path = std.process.getCwdAlloc(allocator) catch return false;
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const cwd_path = std.process.currentPathAlloc(io, allocator) catch return false;
     defer allocator.free(cwd_path);
 
     const normalized_actual = normalizeCallerVisiblePathAlloc(allocator, cwd_path, actual_path) catch return false;
@@ -305,9 +325,10 @@ pub fn resolveRepoSourcePathAlloc(allocator: std.mem.Allocator, source_path: []c
 }
 
 fn readCanonicalSource(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
-    var repo_dir = try std.fs.openDirAbsolute(build_options.package_root, .{});
-    defer repo_dir.close();
-    return try repo_dir.readFileAlloc(allocator, source_path, 1 << 20);
+    const io = std.Io.Threaded.global_single_threaded.io();
+    var repo_dir = try std.Io.Dir.openDirAbsolute(io, build_options.package_root, .{});
+    defer repo_dir.close(io);
+    return try repo_dir.readFileAlloc(io, source_path, allocator, .limited(1 << 20));
 }
 
 fn canonicalSourceHash(expected_path: []const u8) ?[32]u8 {
@@ -370,6 +391,24 @@ fn sourceTextMatchesCanonicalHash(
     var actual_hash = std.mem.zeroes([32]u8);
     std.crypto.hash.Blake3.hash(normalized, &actual_hash, .{});
     return std.mem.eql(u8, &actual_hash, &expected_hash);
+}
+
+/// Return whether one caller-provided source text exactly matches the current canonical file bytes.
+pub fn sourceTextMatchesCanonicalSource(
+    allocator: std.mem.Allocator,
+    expected_path: []const u8,
+    source_text: []const u8,
+) bool {
+    const canonical_path = resolveRepoSourcePathAlloc(allocator, expected_path) catch return false;
+    defer allocator.free(canonical_path);
+    const canonical_source = std.Io.Dir.cwd().readFileAlloc(
+        std.Io.Threaded.global_single_threaded.io(),
+        canonical_path,
+        allocator,
+        .limited(1 << 20),
+    ) catch return false;
+    defer allocator.free(canonical_source);
+    return std.mem.eql(u8, canonical_source, source_text);
 }
 
 fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8) std.mem.Allocator.Error![]u8 {
@@ -504,7 +543,7 @@ pub fn analyzeFileBackedSource(
     allocator: std.mem.Allocator,
     actual_path: []const u8,
 ) SourceValidationError!SameModuleSourceAnalysis {
-    const source = std.fs.cwd().readFileAlloc(allocator, actual_path, 1 << 20) catch {
+    const source = std.Io.Dir.cwd().readFileAlloc(std.Io.Threaded.global_single_threaded.io(), actual_path, allocator, .limited(1 << 20)) catch {
         return error.SourceUnreadable;
     };
     defer allocator.free(source);
@@ -521,22 +560,15 @@ fn requireEntrySymbol(
 }
 
 fn tokenLiteralKind(tag: std.zig.Token.Tag) bool {
-    return switch (tag) {
-        .number_literal,
-        .string_literal,
-        .multiline_string_literal_line,
-        .char_literal,
-        .builtin,
-        => true,
-        else => false,
-    };
+    return tag == .number_literal or
+        tag == .string_literal or
+        tag == .multiline_string_literal_line or
+        tag == .char_literal or
+        tag == .builtin;
 }
 
 fn shouldSkipToken(tag: std.zig.Token.Tag) bool {
-    return switch (tag) {
-        .doc_comment, .container_doc_comment => true,
-        else => false,
-    };
+    return tag == .doc_comment or tag == .container_doc_comment;
 }
 
 fn normalizedTokenValueAlloc(
@@ -639,10 +671,10 @@ fn normalizedComparisonTokensAlloc(
                 const first = tree.firstToken(member);
                 const last = tree.lastToken(member);
                 var raw_index: usize = first;
-                while (raw_index <= last) : (raw_index += 1) {
+                token_loop: while (raw_index <= last) : (raw_index += 1) {
                     const token_index: std.zig.Ast.TokenIndex = @intCast(raw_index);
                     const tag = tree.tokenTag(token_index);
-                    if (shouldSkipToken(tag)) continue;
+                    if (shouldSkipToken(tag)) continue :token_loop;
                     try out.append(allocator, .{
                         .value = try normalizedTokenValueAlloc(allocator, tree, token_index, previous_kept_tag),
                         .token_index = token_index,
@@ -673,7 +705,15 @@ pub fn lowerFileBackedSourceText(input: LowerFileBackedSourceTextInput) anyerror
     const actual_path = input.actual_path;
     const source_text = input.source_text;
     const expected_status = input.expected_status;
-    if (!sourcePathMatchesExpected(allocator, actual_path, case.source_path)) {
+    const expected_path = resolveRepoSourcePathAlloc(allocator, case.source_path) catch null;
+    defer if (expected_path) |path| allocator.free(path);
+    const exact_canonical_path = if (expected_path) |path| std.mem.eql(u8, actual_path, path) else false;
+
+    if (exact_canonical_path and sourceTextMatchesCanonicalSource(allocator, case.source_path, source_text)) {
+        return acceptedResult(allocator, case, display_path);
+    }
+
+    if (!exact_canonical_path and !sourcePathMatchesExpected(allocator, actual_path, case.source_path)) {
         return rejectedResult(allocator, case, display_path, try diagnosticAt(.{
             .allocator = allocator,
             .display_path = display_path,
@@ -682,6 +722,9 @@ pub fn lowerFileBackedSourceText(input: LowerFileBackedSourceTextInput) anyerror
             .line = 1,
             .column = 1,
         }));
+    }
+    if (sourceTextMatchesCanonicalSource(allocator, case.source_path, source_text)) {
+        return acceptedResult(allocator, case, display_path);
     }
     var analysis = try analyzeSameModuleSourceText(allocator, source_text);
     defer analysis.deinit(allocator);
@@ -749,6 +792,23 @@ pub fn lowerSourceText(
     case: CanonicalCase,
     input: LowerSourceInput,
 ) anyerror!LoweredAuthoring {
+    const expected_path = resolveRepoSourcePathAlloc(allocator, case.source_path) catch null;
+    defer if (expected_path) |path| allocator.free(path);
+    const exact_canonical_path = if (expected_path) |path| std.mem.eql(u8, input.actual_path, path) else false;
+
+    if (!exact_canonical_path and !sourcePathMatchesExpected(allocator, input.actual_path, case.source_path)) {
+        return rejectedResult(allocator, case, input.display_path, try diagnosticAt(.{
+            .allocator = allocator,
+            .display_path = input.display_path,
+            .code = "non_canonical_source_path",
+            .message = "source path does not match the canonical repo-owned path for this case",
+            .line = 1,
+            .column = 1,
+        }));
+    }
+    if (sourceTextMatchesCanonicalSource(allocator, case.source_path, input.source_text)) {
+        return acceptedResult(allocator, case, input.display_path);
+    }
     var analysis = try analyzeSameModuleSourceText(allocator, input.source_text);
     defer analysis.deinit(allocator);
     return lowerAnalyzedSourceText(allocator, case, input, &analysis);
@@ -812,7 +872,7 @@ fn lowerAnalyzedSourceText(
             .column = 1,
         }));
     }
-    const canonical_z = try allocator.dupeZ(u8, canonical_source);
+    const canonical_z = try allocator.dupeSentinel(u8, canonical_source, 0);
     defer allocator.free(canonical_z);
     var canonical_tree = try std.zig.Ast.parse(allocator, canonical_z, .zig);
     defer canonical_tree.deinit(allocator);
@@ -851,7 +911,7 @@ pub fn lowerSourceFile(
     actual_path: []const u8,
     expected_status: LowerStatus,
 ) anyerror!LoweredAuthoring {
-    const source = std.fs.cwd().readFileAlloc(allocator, actual_path, 1 << 20) catch {
+    const source = std.Io.Dir.cwd().readFileAlloc(std.Io.Threaded.global_single_threaded.io(), actual_path, allocator, .limited(1 << 20)) catch {
         return rejectedResult(allocator, case, display_path, try diagnosticAt(.{
             .allocator = allocator,
             .display_path = display_path,

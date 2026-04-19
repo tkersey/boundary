@@ -30,30 +30,16 @@ fn entryOutputsForPlan(comptime compiled_plan: program_plan.ProgramPlan) []const
 /// Return the concrete output bundle type for one executable ProgramPlan.
 pub fn ResultOutputsTypeForPlan(comptime compiled_plan: program_plan.ProgramPlan) type {
     const outputs = comptime entryOutputsForPlan(compiled_plan);
-    var fields = [_]std.builtin.Type.StructField{.{
-        .name = "",
-        .type = void,
-        .default_value_ptr = null,
-        .is_comptime = false,
-        .alignment = @alignOf(void),
-    }} ** outputs.len;
+    var field_names = [_][:0]const u8{""} ** outputs.len;
+    var field_types = [_]type{void} ** outputs.len;
+    var field_attrs = [_]std.builtin.Type.StructField.Attributes{.{}} ** outputs.len;
     inline for (outputs, 0..) |output, index| {
-        fields[index] = .{
-            .name = sentinelBytes(output.label),
-            .type = runtimeValueType(output.codec),
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = @alignOf(runtimeValueType(output.codec)),
-        };
+        const FieldType = runtimeValueType(output.codec);
+        field_names[index] = sentinelBytes(output.label);
+        field_types[index] = FieldType;
+        field_attrs[index] = .{ .@"align" = @alignOf(FieldType) };
     }
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .fields = &fields,
-            .decls = &.{},
-            .is_tuple = false,
-        },
-    });
+    return @Struct(.auto, null, &field_names, &field_types, &field_attrs);
 }
 
 /// Return the typed native run result for one executable ProgramPlan.

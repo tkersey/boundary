@@ -106,7 +106,7 @@ fn runLoweredSample(case_id: []const u8, iterations: usize) !Sample {
 
 fn printArray(values: [samples_per_run]u64) !void {
     var stdout_buffer: [2048]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
     const out = &stdout_writer.interface;
     try out.writeAll("[");
     for (values, 0..) |value, idx| {
@@ -118,9 +118,9 @@ fn printArray(values: [samples_per_run]u64) !void {
 }
 
 /// Compare the current stack runtime against the private lowered runtime seam.
-pub fn main() anyerror!void {
+pub fn main(init: std.process.Init) anyerror!void {
     var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
     const out = &stdout_writer.interface;
 
     var lane_count: usize = 0;

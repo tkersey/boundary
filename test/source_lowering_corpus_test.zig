@@ -39,13 +39,34 @@ fn expectCase(comptime Fixture: type) !void {
     }
 }
 
-test "source-lowering corpus stays green across direct source fixtures and lowered scenarios" {
+test "source-lowering corpus local_mutation_resume stays green across direct source fixtures and lowered scenarios" {
     try expectCase(local_mutation_resume);
+}
+
+test "source-lowering corpus branch_resume stays green across direct source fixtures and lowered scenarios" {
     try expectCase(branch_resume);
+}
+
+test "source-lowering corpus loop_resume stays green across direct source fixtures and lowered scenarios" {
     try expectCase(loop_resume);
+}
+
+test "source-lowering corpus helper_call_resume stays green across direct source fixtures and lowered scenarios" {
     try expectCase(helper_call_resume);
+}
+
+test "source-lowering corpus nested_prompt_static_redelim stays green across direct source fixtures and lowered scenarios" {
     try expectCase(nested_prompt_static_redelim);
+}
+
+test "source-lowering corpus typed_error_try stays green across direct source fixtures and lowered scenarios" {
     try expectCase(typed_error_try);
+}
+
+test "source-lowering corpus defer_resume stays green across direct source fixtures and lowered scenarios" {
     try expectCase(defer_resume);
+}
+
+test "source-lowering corpus errdefer_error stays green across direct source fixtures and lowered scenarios" {
     try expectCase(errdefer_error);
 }

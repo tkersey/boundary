@@ -95,7 +95,7 @@ pub const OpenRowGeneratedProgram = struct {
 };
 
 /// Lower one open-row frontend payload into the Effect IR shell and capture its normalization digest.
-pub fn lowerOpenRowProgram(program: program_frontend.OpenRowProgram) effect_ir.NormalizeError!OpenRowGeneratedProgram {
+pub fn lowerOpenRowProgram(comptime program: program_frontend.OpenRowProgram) effect_ir.NormalizeError!OpenRowGeneratedProgram {
     const lowered = try authoring_lowerer.lowerOpenRowProgram(program);
     return .{
         .label = lowered.label,
@@ -599,20 +599,21 @@ fn duplicateSourcePath(allocator: std.mem.Allocator, path: []const u8) std.mem.A
 }
 
 fn resolvedRepoSourcePathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
-    if (std.fs.path.isAbsolute(source_path)) {
-        return try std.fs.path.resolve(allocator, &.{source_path});
+    const io = std.Io.Threaded.global_single_threaded.io();
+    if (std.Io.Dir.path.isAbsolute(source_path)) {
+        return try std.Io.Dir.path.resolve(allocator, &.{source_path});
     }
 
     const repo_relative = try authoring_lowerer.resolveRepoSourcePathAlloc(allocator, source_path);
-    if (std.fs.cwd().access(repo_relative, .{})) {
+    if (std.Io.Dir.cwd().access(io, repo_relative, .{})) {
         return repo_relative;
     } else |_| {
         allocator.free(repo_relative);
     }
 
-    const cwd_path = try std.process.getCwdAlloc(allocator);
+    const cwd_path = try std.process.currentPathAlloc(io, allocator);
     defer allocator.free(cwd_path);
-    return try std.fs.path.resolve(allocator, &.{ cwd_path, source_path });
+    return try std.Io.Dir.path.resolve(allocator, &.{ cwd_path, source_path });
 }
 
 fn stripLineCommentsAlloc(allocator: std.mem.Allocator, source: []const u8) std.mem.Allocator.Error![]u8 {
@@ -703,7 +704,9 @@ fn sourceMatchesCanonicalLayout(
     case: SupportedCase,
     source_text: []const u8,
 ) !bool {
-    const actual_z = try allocator.dupeZ(u8, source_text);
+    if (authoring_lowerer.sourceTextMatchesCanonicalSource(allocator, case.source_path, source_text)) return true;
+
+    const actual_z = try allocator.dupeSentinel(u8, source_text, 0);
     defer allocator.free(actual_z);
     var actual_tree = try std.zig.Ast.parse(allocator, actual_z, .zig);
     defer actual_tree.deinit(allocator);
@@ -711,10 +714,10 @@ fn sourceMatchesCanonicalLayout(
 
     const canonical_path = try authoring_lowerer.resolveRepoSourcePathAlloc(allocator, case.source_path);
     defer allocator.free(canonical_path);
-    const canonical_source = try std.fs.cwd().readFileAlloc(allocator, canonical_path, 1 << 20);
+    const canonical_source = try std.Io.Dir.cwd().readFileAlloc(std.Io.Threaded.global_single_threaded.io(), canonical_path, allocator, .limited(1 << 20));
     defer allocator.free(canonical_source);
 
-    const canonical_z = try allocator.dupeZ(u8, canonical_source);
+    const canonical_z = try allocator.dupeSentinel(u8, canonical_source, 0);
     defer allocator.free(canonical_z);
     var canonical_tree = try std.zig.Ast.parse(allocator, canonical_z, .zig);
     defer canonical_tree.deinit(allocator);
@@ -928,7 +931,7 @@ pub fn inspectSource(allocator: std.mem.Allocator, spec: Spec) LowerError!Genera
     }
     const resolved_source_path = resolvedRepoSourcePathAlloc(allocator, spec.source_path) catch try allocator.dupe(u8, spec.source_path);
     defer allocator.free(resolved_source_path);
-    const source = std.fs.cwd().readFileAlloc(allocator, resolved_source_path, 1 << 20) catch {
+    const source = std.Io.Dir.cwd().readFileAlloc(std.Io.Threaded.global_single_threaded.io(), resolved_source_path, allocator, .limited(1 << 20)) catch {
         return generatedRejectedProgram(allocator, spec, case, "source file could not be read");
     };
     defer allocator.free(source);

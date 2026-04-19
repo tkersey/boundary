@@ -54,7 +54,7 @@ fn sortAscending(values: []u64) void {
 }
 
 /// Run the direct-style first-suspend benchmark.
-pub fn main() anyerror!void {
+pub fn main(init: std.process.Init) anyerror!void {
     _ = try runSample(warmup_iterations);
 
     var sample_ns = [_]u64{0} ** samples_per_run;
@@ -77,7 +77,7 @@ pub fn main() anyerror!void {
     const max_ns = sorted[sorted.len - 1];
 
     var stdout_buffer: [256]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
     const stdout = &stdout_writer.interface;
     try stdout.print(
         "timed_iterations={d} warmup_iterations={d} samples_per_run={d} checksum={d} sample_ns=[{d},{d},{d},{d},{d}] min_ns={d} median_ns={d} max_ns={d}\n",

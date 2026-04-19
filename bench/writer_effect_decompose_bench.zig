@@ -231,7 +231,7 @@ fn runLane(runtime: *shift.Runtime, instance: *const WriterInstance, allocator: 
 }
 
 /// Decompose writer-effect append and finalization costs for representative item counts.
-pub fn main() anyerror!void {
+pub fn main(init: std.process.Init) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer runtime.deinit();
     var instance = WriterInstance.init();
@@ -241,7 +241,7 @@ pub fn main() anyerror!void {
     const lane64 = try runLane(&runtime, &instance, std.heap.smp_allocator, 64);
 
     var stdout_buffer: [2048]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
     const stdout = &stdout_writer.interface;
     try stdout.print(
         "timed_iterations={d} warmup_iterations={d} samples_per_run={d}\n",

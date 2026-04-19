@@ -281,7 +281,8 @@ fn cloneOutputSpecs(comptime outputs: []const effect_ir.OutputSpec) []const effe
                 .OutputType = output.OutputType,
             };
         }
-        break :blk buffer[0..];
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -298,7 +299,8 @@ fn cloneOps(comptime ops: []const effect_ir.OpSpec) []const effect_ir.OpSpec {
                 .has_after = op.has_after,
             };
         }
-        break :blk buffer[0..];
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -311,7 +313,8 @@ fn cloneRequirements(comptime requirements: []const effect_ir.Requirement) []con
                 .ops = cloneOps(requirement.ops),
             };
         }
-        break :blk buffer[0..];
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -330,7 +333,8 @@ fn cloneCallEdges(comptime call_edges: []const effect_ir.CallEdge) []const effec
                 .callee = cloneSymbolRef(edge.callee),
             };
         }
-        break :blk buffer[0..];
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -340,7 +344,8 @@ fn cloneBodyInstructions(comptime instructions: []const helper_body_ir.Instructi
         for (instructions, 0..) |instruction, index| {
             buffer[index] = instruction;
         }
-        break :blk buffer[0..];
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -353,7 +358,8 @@ fn cloneBodyBlocks(comptime blocks: []const helper_body_ir.Block) []const helper
                 .terminator = block.terminator,
             };
         }
-        break :blk buffer[0..];
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -363,7 +369,8 @@ fn cloneLocalCodecs(comptime codecs: []const helper_body_ir.LocalCodec) []const 
         for (codecs, 0..) |codec, index| {
             buffer[index] = codec;
         }
-        break :blk buffer[0..];
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -373,7 +380,8 @@ fn cloneLocalIds(comptime local_ids: []const helper_body_ir.LocalId) []const hel
         for (local_ids, 0..) |local_id, index| {
             buffer[index] = local_id;
         }
-        break :blk buffer[0..];
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -388,7 +396,8 @@ fn cloneFunctionBodies(comptime function_bodies: []const helper_body_ir.Function
                 .blocks = cloneBodyBlocks(body.blocks),
             };
         }
-        break :blk buffer[0..];
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -408,7 +417,8 @@ fn cloneFunctions(comptime functions: []const effect_ir.Function) []const effect
         for (functions, 0..) |function, index| {
             buffer[index] = cloneFunction(function);
         }
-        break :blk buffer[0..];
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -434,20 +444,23 @@ fn entryIndex(
     comptime entry_symbol: []const u8,
     comptime entry_module_path: ?[]const u8,
 ) effect_ir.NormalizeError!usize {
-    var found_index: ?usize = null;
-    for (functions, 0..) |function, index| {
-        if (!std.mem.eql(u8, function.symbol.symbol_name, entry_symbol)) continue;
-        if (entry_module_path) |module_path| {
-            if (!std.mem.eql(u8, function.symbol.module_path, module_path)) continue;
+    comptime var found_index: ?usize = null;
+    inline for (functions, 0..) |function, index| {
+        const symbol_matches = comptime std.mem.eql(u8, function.symbol.symbol_name, entry_symbol);
+        const module_matches = if (entry_module_path) |module_path|
+            comptime std.mem.eql(u8, function.symbol.module_path, module_path)
+        else
+            true;
+        if (symbol_matches and module_matches) {
+            if (found_index != null) return error.DuplicateSymbol;
+            found_index = index;
         }
-        if (found_index != null) return error.DuplicateSymbol;
-        found_index = index;
     }
     return found_index orelse error.UnknownSymbol;
 }
 
 /// Lower one open-row frontend payload into stable function storage.
-pub fn lowerOpenRow(program: OpenRowProgram) effect_ir.NormalizeError!LoweredOpenRowProgram {
+pub fn lowerOpenRow(comptime program: OpenRowProgram) effect_ir.NormalizeError!LoweredOpenRowProgram {
     try validateOpenRowGraph(program.functions, program.call_edges);
     if (program.function_bodies.len != 0 and program.function_bodies.len != program.functions.len) {
         return error.UnsupportedHelperCallEdge;

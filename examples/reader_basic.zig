@@ -19,9 +19,9 @@ pub fn run(writer: anytype) anyerror!void {
 }
 
 /// Run the reader-effect example.
-pub fn main() anyerror!void {
+pub fn main(init: std.process.Init) anyerror!void {
     var stdout_buffer: [256]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
     const stdout = &stdout_writer.interface;
     try run(stdout);
     try stdout.flush();
