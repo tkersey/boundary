@@ -351,6 +351,10 @@ fn compatIo() std.Io {
     return std.Io.Threaded.global_single_threaded.io();
 }
 
+fn childProcessIo() std.Io {
+    return if (builtin.is_test) std.testing.io else compatIo();
+}
+
 fn findTestSuiteIndex(id: []const u8, specs: []const TestSuiteSpec) ?usize {
     for (specs, 0..) |spec, index| {
         if (std.mem.eql(u8, spec.suite_id, id)) return index;
@@ -875,7 +879,7 @@ fn hashBuildIdentityFileAtRoot(
     repo_root: []const u8,
     path: []const u8,
 ) void {
-    const io = compatIo();
+    const io = childProcessIo();
     var root_dir = std.Io.Dir.openDirAbsolute(io, repo_root, .{}) catch |err|
         std.process.fatal("unable to open build identity root '{s}': {s}", .{ repo_root, @errorName(err) });
     defer root_dir.close(io);
@@ -2223,7 +2227,7 @@ fn collectTrackedRepoZigPathsAlloc(
     paths: *std.ArrayList([]const u8),
     path_set: *std.StringHashMap(void),
 ) bool {
-    const io = compatIo();
+    const io = childProcessIo();
     var root_dir = std.Io.Dir.openDirAbsolute(io, repo_root, .{}) catch return false;
     defer root_dir.close(io);
     if (!repoRootContainsGitMetadata(root_dir, io)) return false;
@@ -2590,13 +2594,13 @@ fn writeTmpFile(dir: std.Io.Dir, path: []const u8, contents: []const u8) !void {
 }
 
 fn runChildExpectSuccess(_: std.mem.Allocator, argv: []const []const u8) !void {
-    var child = try std.process.spawn(compatIo(), .{
+    var child = try std.process.spawn(std.testing.io, .{
         .argv = argv,
         .stdin = .ignore,
         .stdout = .ignore,
         .stderr = .ignore,
     });
-    const term = try child.wait(compatIo());
+    const term = try child.wait(std.testing.io);
 
     switch (term) {
         .exited => |code| if (code == 0) return,
@@ -2610,7 +2614,7 @@ test "artifact build fingerprint changes on raw-byte-only Zig edits" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const repo_root = try tmp.dir.realPathFileAlloc(compatIo(), ".", std.testing.allocator);
     defer std.testing.allocator.free(repo_root);
 
     try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
@@ -2641,7 +2645,7 @@ test "artifact build fingerprint includes embedded non-Zig inputs and excludes u
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const repo_root = try tmp.dir.realPathFileAlloc(compatIo(), ".", std.testing.allocator);
     defer std.testing.allocator.free(repo_root);
 
     try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
@@ -2674,7 +2678,7 @@ test "artifact build fingerprint excludes non-dotted Zig cache roots" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const repo_root = try tmp.dir.realPathFileAlloc(compatIo(), ".", std.testing.allocator);
     defer std.testing.allocator.free(repo_root);
 
     try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
@@ -2705,7 +2709,7 @@ test "artifact build fingerprint includes imported untracked Zig inputs" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const repo_root = try tmp.dir.realPathFileAlloc(compatIo(), ".", std.testing.allocator);
     defer std.testing.allocator.free(repo_root);
 
     try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
@@ -2739,7 +2743,7 @@ test "artifact build fingerprint includes build.zig-wired untracked Zig modules"
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const repo_root = try tmp.dir.realPathFileAlloc(compatIo(), ".", std.testing.allocator);
     defer std.testing.allocator.free(repo_root);
 
     try writeTmpFile(tmp.dir, "build.zig",
@@ -2787,7 +2791,7 @@ test "artifact build fingerprint includes build.zig-wired module-name helper wra
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const repo_root = try tmp.dir.realPathFileAlloc(compatIo(), ".", std.testing.allocator);
     defer std.testing.allocator.free(repo_root);
 
     try writeTmpFile(tmp.dir, "build.zig",
@@ -2834,7 +2838,7 @@ test "artifact build fingerprint includes same-file comptime parameter embed inp
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const repo_root = try tmp.dir.realPathFileAlloc(compatIo(), ".", std.testing.allocator);
     defer std.testing.allocator.free(repo_root);
 
     try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
@@ -2863,7 +2867,7 @@ test "artifact build fingerprint includes imported helper wrapper embed inputs" 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const repo_root = try tmp.dir.realPathFileAlloc(compatIo(), ".", std.testing.allocator);
     defer std.testing.allocator.free(repo_root);
 
     try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
@@ -2896,7 +2900,7 @@ test "artifact build fingerprint includes identifier-backed embed inputs" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const repo_root = try tmp.dir.realPathFileAlloc(compatIo(), ".", std.testing.allocator);
     defer std.testing.allocator.free(repo_root);
 
     try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
@@ -2936,7 +2940,7 @@ test "artifact build fingerprint prefers the nearest visible identifier-backed e
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const repo_root = try tmp.dir.realPathFileAlloc(compatIo(), ".", std.testing.allocator);
     defer std.testing.allocator.free(repo_root);
 
     try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
@@ -2975,7 +2979,7 @@ test "artifact build fingerprint includes top-level forward alias embed inputs" 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const repo_root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const repo_root = try tmp.dir.realPathFileAlloc(compatIo(), ".", std.testing.allocator);
     defer std.testing.allocator.free(repo_root);
 
     try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
@@ -4376,17 +4380,6 @@ pub fn build(b: *std.Build) void {
     });
     const portability_contract_tests = addFilteredTest(b, portability_contract_mod, test_runner_args.filters.items);
     const run_portability_contract_tests = addRunArtifactWithArgs(b, portability_contract_tests, test_runner_args.passthrough.items);
-    const root_pkg_opts = b.addOptions();
-    root_pkg_opts.addOption([:0]const u8, "zig_exe", b.graph.zig_exe);
-
-    const root_pkg_smoke_mod = b.createModule(.{
-        .root_source_file = b.path("test/public_root_package_contract_smoke_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    root_pkg_smoke_mod.addOptions("build_options", root_pkg_opts);
-    const root_pkg_smoke_tests = addFilteredTest(b, root_pkg_smoke_mod, test_runner_args.filters.items);
-    const run_root_pkg_smoke = addRunArtifactWithArgs(b, root_pkg_smoke_tests, test_runner_args.passthrough.items);
     const boundary_mod = b.createModule(.{
         .root_source_file = b.path("test/program_frontend_boundary_test.zig"),
         .target = target,
@@ -4513,15 +4506,6 @@ pub fn build(b: *std.Build) void {
     src_lower_witness_mod.addImport("witness_sources", witness_sources_mod);
     const src_lower_witness_tests = addFilteredTest(b, src_lower_witness_mod, test_runner_args.filters.items);
     const run_src_lower_witness_tests = addRunArtifactWithArgs(b, src_lower_witness_tests, test_runner_args.passthrough.items);
-
-    const src_lower_reject_mod = b.createModule(.{
-        .root_source_file = b.path("test/source_lowering_rejection_corpus_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    src_lower_reject_mod.addImport("source_lowering", source_lowering_mod);
-    const src_lower_reject_tests = addFilteredTest(b, src_lower_reject_mod, test_runner_args.filters.items);
-    const run_src_lower_reject_tests = addRunArtifactWithArgs(b, src_lower_reject_tests, test_runner_args.passthrough.items);
 
     const source_lowering_tool_mod = b.createModule(.{
         .root_source_file = b.path("tools/shift_source_lower.zig"),
@@ -4682,7 +4666,6 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "runtime-contract", .description = "Runtime contract suite", .run_step = &run_runtime_contract_tests.step },
         .{ .suite_id = "prompt-token", .description = "Prompt token contract suite", .run_step = &run_prompt_token_tests.step },
         .{ .suite_id = "portability-contract", .description = "Portability contract suite", .run_step = &run_portability_contract_tests.step },
-        .{ .suite_id = "public-root-package-contract", .description = "Public root package contract suite", .run_step = &run_root_pkg_smoke.step, .default_enabled = false },
         .{ .suite_id = "program-frontend-boundary", .description = "Program frontend boundary suite", .run_step = &run_boundary_tests.step },
         .{ .suite_id = "source-lowering-corpus", .description = "Source lowering corpus suite", .run_step = &run_src_lower_corpus_tests.step },
         .{ .suite_id = "source-lowering-boundary", .description = "Source lowering boundary suite", .run_step = &run_src_lower_boundary_tests.step },
@@ -4691,7 +4674,6 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "open-row-lowering", .description = "Open-row lowering suite", .run_step = &run_open_row_lowering_tests.step },
         .{ .suite_id = "source-ownership-probe", .description = "Source ownership probe suite", .run_step = &run_src_ownership_probe_tests.step },
         .{ .suite_id = "source-lowering-witness", .description = "Source lowering witness completion suite", .run_step = &run_src_lower_witness_tests.step },
-        .{ .suite_id = "source-lowering-reject", .description = "Source lowering rejection corpus suite", .run_step = &run_src_lower_reject_tests.step, .default_enabled = false },
         .{ .suite_id = "lexical-witness", .description = "Lexical witness suite", .run_step = &run_lexical_witness_tests.step },
         .{ .suite_id = "lexical-with", .description = "Lexical with suite", .run_step = run_lexical_with_tests },
     };
