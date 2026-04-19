@@ -186,11 +186,6 @@ fn namedCompiledLexicalPlan(
     );
 }
 
-fn namedBodyAllowsTestFallback(comptime Body: type) bool {
-    const owned_repo_path = source_graph_embed.ownedRepoPath(Body.source_path) orelse return false;
-    return std.mem.startsWith(u8, owned_repo_path, "test/");
-}
-
 fn validateNamedBodyDeclaration(
     comptime source_path_value: []const u8,
     comptime entry_symbol_value: []const u8,
@@ -1681,7 +1676,6 @@ fn rejectUnsupportedShippedWith(
     if (isNamedBodyDescriptor(Body)) {
         if (named_compiled_plan != null) return;
         if (source_graph_embed.ownedRepoPath(Body.source_path) == null) return;
-        if (builtin.is_test and namedBodyAllowsTestFallback(Body)) return;
         @compileError("shift.NamedBody execution must stay within the retained compiled lexical subset");
     }
     if (builtin.is_test) return;
