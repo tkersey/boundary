@@ -2525,6 +2525,8 @@ fn zigLintPathExcluded(path: []const u8) bool {
     if (std.mem.startsWith(u8, path, "zig-global-cache/")) return true;
     if (std.mem.eql(u8, path, "src/error_witness.zig")) return true;
     if (std.mem.eql(u8, path, "src/op_compat.zig")) return true;
+    if (std.mem.eql(u8, path, "src/public_ir.zig")) return true;
+    if (std.mem.eql(u8, path, "src/public_lowering.zig")) return true;
     if (std.mem.eql(u8, path, "src/ir_api.zig")) return true;
     if (std.mem.eql(u8, path, "src/lowering_api.zig")) return true;
     if (std.mem.eql(u8, path, "src/program_api_compat.zig")) return true;
@@ -4031,6 +4033,16 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const public_ir_mod = b.addModule("public_ir", .{
+        .root_source_file = b.path("src/public_ir.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const public_lowering_mod = b.addModule("public_lowering", .{
+        .root_source_file = b.path("src/public_lowering.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const ir_api_mod = b.createModule(.{
         .root_source_file = b.path("src/ir_api.zig"),
         .target = target,
@@ -4388,6 +4400,9 @@ pub fn build(b: *std.Build) void {
     lowering_api_mod.addImport("source_graph_comptime", source_graph_comptime_mod);
     lowering_api_mod.addImport("source_graph_engine", source_graph_engine_mod);
     lowering_api_mod.addImport("source_lowering", source_lowering_mod);
+    public_lowering_mod.addImport("lowering_api", lowering_api_mod);
+    public_ir_mod.addImport("effect_ir", effect_ir_mod);
+    public_ir_mod.addImport("public_lowering", public_lowering_mod);
     ir_api_mod.addImport("effect_ir", effect_ir_mod);
     ir_api_mod.addImport("lowering_api", lowering_api_mod);
     shift_compile_api_mod.addImport("lowering_api", lowering_api_mod);
@@ -4410,6 +4425,8 @@ pub fn build(b: *std.Build) void {
     shift_shared_mod.addImport("source_graph_embed", source_graph_embed_mod);
     shift_shared_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
     shift_shared_mod.addImport("source_lowering", source_lowering_mod);
+    shift_shared_mod.addImport("public_ir", public_ir_mod);
+    shift_shared_mod.addImport("public_lowering", public_lowering_mod);
     shift_shared_mod.addImport("ir_api", ir_api_mod);
     shift_shared_mod.addImport("lowering_api", lowering_api_mod);
     witnesses_mod.addImport("private_lowered_runtime", private_lowered_runtime_mod);
@@ -4491,8 +4508,33 @@ pub fn build(b: *std.Build) void {
     root_tests.root_module.addImport("error_witness", error_witness_mod);
     root_tests.root_module.addImport("prompt_contract_support", prompt_contract_support_mod);
     root_tests.root_module.addImport("frontend_support", frontend_support_mod);
+    root_tests.root_module.addImport("public_ir", public_ir_mod);
+    root_tests.root_module.addImport("public_lowering", public_lowering_mod);
     const run_root_tests = addRunArtifactWithArgs(b, root_tests, test_runner_args.passthrough.items);
     const test_step = b.step("test", "Run the default shift proof surface.");
+
+    const pub_ir_path_mod = b.createModule(.{
+        .root_source_file = b.path("src/public_ir_path_compatibility_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    pub_ir_path_mod.addImport("effect_ir", effect_ir_mod);
+    pub_ir_path_mod.addImport("public_lowering", public_lowering_mod);
+    const pub_ir_path_tests = addFilteredTest(b, pub_ir_path_mod, test_runner_args.filters.items);
+    const run_pub_ir_path = addRunArtifactWithArgs(b, pub_ir_path_tests, test_runner_args.passthrough.items);
+
+    const pub_lowering_path_mod = b.createModule(.{
+        .root_source_file = b.path("src/public_lowering_path_compatibility_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    pub_lowering_path_mod.addImport("lowering_api", lowering_api_mod);
+    const pub_lowering_path_tests = addFilteredTest(b, pub_lowering_path_mod, test_runner_args.filters.items);
+    const run_pub_lowering_path = addRunArtifactWithArgs(b, pub_lowering_path_tests, test_runner_args.passthrough.items);
+
+    const public_api_compat_step = b.step("public-api-compat", "Run the retained public import compatibility suite.");
+    public_api_compat_step.dependOn(&run_pub_ir_path.step);
+    public_api_compat_step.dependOn(&run_pub_lowering_path.step);
 
     const frontend_internal_tests = addFilteredTest(
         b,
@@ -4868,6 +4910,7 @@ pub fn build(b: *std.Build) void {
     const run_program_bridge_tests = addRunArtifactWithArgs(b, program_bridge_tests, test_runner_args.passthrough.items);
     const test_suites = [_]TestSuiteSpec{
         .{ .suite_id = "root", .description = "Root lexical surface", .run_step = &run_root_tests.step },
+        .{ .suite_id = "public-api-compat", .description = "Retained public import compatibility suite", .run_step = public_api_compat_step },
         .{ .suite_id = "frontend", .description = "Frontend internal module", .run_step = &run_frontend_internal_tests.step },
         .{ .suite_id = "program-plan-review", .description = "ProgramPlan regression suite", .run_step = &run_plan_review_tests.step },
         .{ .suite_id = "program-bridge", .description = "Program bridge suite", .run_step = &run_program_bridge_tests.step },

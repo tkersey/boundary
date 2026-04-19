@@ -28,6 +28,17 @@ test {
     _ = withOwnedSource;
 }
 
+test "retained public_ir/public_lowering imports stay source-compatible" {
+    const public_ir = @import("public_ir");
+    const public_lowering = @import("public_lowering");
+    const std = @import("std");
+
+    try std.testing.expect(public_ir.Program == shared.ir.Program);
+    try std.testing.expect(public_lowering.ProgramPlan == shared.lowering.ProgramPlan);
+    try std.testing.expect(@hasDecl(public_ir, "compile"));
+    try std.testing.expect(@hasDecl(public_lowering, "lowerAt"));
+}
+
 test "retained compat program entrypoints keep source-compatible runner arity" {
     const demo_program = shared.compat.Program(.{
         .state = shared.compat.Decl.state(i32),
