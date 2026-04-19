@@ -38,6 +38,10 @@ fn DescriptorFieldType(comptime DescriptorType: type) type {
     return if (@hasField(DescriptorType, "handler")) @FieldType(DescriptorType, "handler") else DescriptorType;
 }
 
+fn descriptorFieldValue(comptime DescriptorType: type, descriptor: DescriptorType) DescriptorFieldType(DescriptorType) {
+    return if (@hasField(DescriptorType, "handler")) descriptor.handler else descriptor;
+}
+
 fn StateHandler(comptime StateType: type) type {
     return struct {
         value: StateType,
@@ -214,8 +218,8 @@ fn initField(comptime DescriptorType: type, comptime requirement_label: [:0]cons
     if (lifecycle == .resource_bracket) {
         return ExecutableFieldType(DescriptorType, requirement_label).init(runtime_allocator);
     }
-    if (lifecycle == .generated_family) {
-        return descriptor.handler;
+    if (lifecycle == .plain_transform or lifecycle == .generated_family) {
+        return descriptorFieldValue(DescriptorType, descriptor);
     }
     unreachable;
 }
@@ -271,4 +275,40 @@ test "state executable bundle wrapper mutates and finishes" {
     try std.testing.expectEqual(@as(i32, 4), bundle.state.get());
     bundle.state.set(9);
     try std.testing.expectEqual(@as(i32, 9), bundle.state.finish());
+}
+
+test "plain transform executable bundle forwards descriptor handler" {
+    const PlainTransformHandler = struct {
+        value: i32,
+    };
+    const plain_transform_family = struct {
+        pub const lifecycle_tag = effect_schema.LifecycleTag.plain_transform;
+    };
+    const PlainTransformDescriptor = struct {
+        pub const State = void;
+        pub const Output = void;
+
+        handler: PlainTransformHandler,
+
+        pub fn BindingSchema(comptime requirement_label: [:0]const u8) type {
+            return effect_schema.Binding(requirement_label, plain_transform_family, PlainTransformHandler);
+        }
+    };
+    const Handlers = struct {
+        plain: PlainTransformDescriptor,
+    };
+    var runtime = @import("lowered_machine").Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var handlers: Handlers = .{
+        .plain = .{
+            .handler = .{ .value = 7 },
+        },
+    };
+    const lexical_state = struct {
+        runtime: *@import("lowered_machine").Runtime,
+        handlers_ptr: *Handlers,
+    }{ .runtime = &runtime, .handlers_ptr = &handlers };
+
+    const bundle = fromLexicalState(lexical_state);
+    try std.testing.expectEqual(@as(i32, 7), bundle.plain.value);
 }

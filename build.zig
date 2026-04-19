@@ -552,7 +552,16 @@ fn testRunnerArgCanPassThrough(arg: []const u8) bool {
 }
 
 fn testRunnerArgRequiresValue(arg: []const u8) bool {
-    return std.mem.eql(u8, arg, "--seed") or std.mem.eql(u8, arg, "--cache-dir");
+    return std.mem.eql(u8, arg, "--seed") or
+        std.mem.eql(u8, arg, "--cache-dir");
+}
+
+fn testRunnerBuildOnlyArgCanPassThrough(arg: []const u8) bool {
+    return std.mem.startsWith(u8, arg, "--test-timeout=");
+}
+
+fn testRunnerBuildOnlyArgRequiresValue(arg: []const u8) bool {
+    return std.mem.eql(u8, arg, "--test-timeout");
 }
 
 fn testRunnerAttachedSeedValue(arg: []const u8) ?[]const u8 {
@@ -570,6 +579,8 @@ fn testRunnerValueStartsNewArg(arg: []const u8) bool {
         std.mem.startsWith(u8, arg, "--test-filter=") or
         std.mem.eql(u8, arg, "--seed") or
         std.mem.startsWith(u8, arg, "--seed=") or
+        std.mem.eql(u8, arg, "--test-timeout") or
+        std.mem.startsWith(u8, arg, "--test-timeout=") or
         std.mem.eql(u8, arg, "--cache-dir") or
         std.mem.startsWith(u8, arg, "--cache-dir=") or
         std.mem.startsWith(u8, arg, "--");
@@ -607,9 +618,20 @@ fn parseTestRunnerArgsAlloc(
             index += 1;
             continue;
         }
+        if (testRunnerBuildOnlyArgCanPassThrough(arg)) {
+            index += 1;
+            continue;
+        }
         if (testRunnerArgCanPassThrough(arg)) {
             passthrough_count += 1;
             index += 1;
+            continue;
+        }
+        if (testRunnerBuildOnlyArgRequiresValue(arg)) {
+            if (index + 1 >= raw_args.len or testRunnerValueStartsNewArg(raw_args[index + 1])) {
+                return .{ .missing_passthrough_value = arg };
+            }
+            index += 2;
             continue;
         }
         if (testRunnerArgRequiresValue(arg)) {
@@ -665,10 +687,18 @@ fn parseTestRunnerArgsAlloc(
             index += 1;
             continue;
         }
+        if (testRunnerBuildOnlyArgCanPassThrough(arg)) {
+            index += 1;
+            continue;
+        }
         if (testRunnerArgCanPassThrough(arg)) {
             passthrough[passthrough_index] = arg;
             passthrough_index += 1;
             index += 1;
+            continue;
+        }
+        if (testRunnerBuildOnlyArgRequiresValue(arg) and index + 1 < raw_args.len and !testRunnerValueStartsNewArg(raw_args[index + 1])) {
+            index += 2;
             continue;
         }
         if (testRunnerArgRequiresValue(arg) and index + 1 < raw_args.len and !testRunnerValueStartsNewArg(raw_args[index + 1])) {
@@ -716,7 +746,12 @@ fn recognizedTestRunnerArgSpan(args: []const []const u8, index: usize) ?usize {
         if (!testRunnerSeedValueIsValid(seed_value)) return null;
         return 1;
     }
+    if (testRunnerBuildOnlyArgCanPassThrough(arg)) return 1;
     if (testRunnerArgCanPassThrough(arg)) return 1;
+    if (testRunnerBuildOnlyArgRequiresValue(arg)) {
+        if (index + 1 >= args.len or testRunnerValueStartsNewArg(args[index + 1])) return null;
+        return 2;
+    }
     if (testRunnerArgRequiresValue(arg)) {
         if (index + 1 >= args.len or testRunnerValueStartsNewArg(args[index + 1])) return null;
         if (std.mem.eql(u8, arg, "--seed") and !testRunnerSeedValueIsValid(args[index + 1])) return null;
@@ -791,7 +826,7 @@ fn requireTestRunnerArgs(
             .{arg},
         ),
         .unknown_arg => |arg| std.log.err(
-            "Unsupported `zig build test --` argument: '{s}'. Supported forms are '--test-filter[=pattern]', '--listen=-', '--seed[=value]', and '--cache-dir[=path]'.",
+            "Unsupported `zig build test --` argument: '{s}'. Supported forms are '--test-filter[=pattern]', '--listen=-', '--seed[=value]', '--cache-dir[=path]', and the build-only '--test-timeout[=value]'.",
             .{arg},
         ),
     }
@@ -3315,8 +3350,12 @@ test "test runner args accept split and equals filter forms" {
     }
 }
 
-test "test runner args normalize supported runner passthrough args" {
-    const result = try parseTestRunnerArgsAlloc(std.testing.allocator, &.{ "--seed", "123", "--cache-dir", "zig-cache" }, .strict);
+test "test runner args normalize supported runner passthrough args while consuming build-only timeout args" {
+    const result = try parseTestRunnerArgsAlloc(
+        std.testing.allocator,
+        &.{ "--seed", "123", "--cache-dir", "zig-cache", "--test-timeout", "10", "--test-timeout=500ms" },
+        .strict,
+    );
     switch (result) {
         .args => |test_runner_args| {
             defer test_runner_args.deinit();
@@ -3481,7 +3520,7 @@ test "test runner args still reject malformed recognized args when foreign share
 test "lint shared-tail args keep lint-owned flags while stripping recognized test args" {
     const filtered_args = try lintSharedTailArgsAlloc(
         std.testing.allocator,
-        &.{ "--max-warnings", "0", "--test-filter=alpha", "--seed", "123", "--listen=-", "--cache-dir", "zig-cache" },
+        &.{ "--max-warnings", "0", "--test-filter=alpha", "--seed", "123", "--listen=-", "--cache-dir", "zig-cache", "--test-timeout", "10", "--test-timeout=500ms" },
         true,
     );
     defer std.testing.allocator.free(filtered_args);
@@ -3834,6 +3873,12 @@ test "shared-tail invocation inference recovers documented test args without arg
     try std.testing.expectEqual(@as(?bool, false), inference.lint_requested);
 }
 
+test "shared-tail invocation inference recovers test timeout without argv inspection" {
+    const inference = inferBuildInvocationFromSharedTail(&.{ "--test-timeout", "10" });
+    try std.testing.expectEqual(@as(?bool, true), inference.test_requested);
+    try std.testing.expectEqual(@as(?bool, false), inference.lint_requested);
+}
+
 test "shared-tail invocation inference recovers documented lint args without argv inspection" {
     const inference = inferBuildInvocationFromSharedTail(&.{ "--max-warnings", "0" });
     try std.testing.expectEqual(@as(?bool, false), inference.test_requested);
@@ -3928,9 +3973,11 @@ pub fn build(b: *std.Build) void {
         "test-suites",
         "Restrict `zig build test` to a comma-separated list of exact suite ids.",
     );
+    const test_requested_from_argv = buildInvocationRequestsRunnableStep("test");
+    const lint_requested_from_argv = buildInvocationRequestsStep("lint");
     const inferred_shared_tail = inferBuildInvocationFromSharedTail(b.args);
-    const test_requested_opt = buildInvocationRequestsRunnableStep("test") orelse inferred_shared_tail.test_requested;
-    const lint_requested_opt = buildInvocationRequestsStep("lint") orelse inferred_shared_tail.lint_requested;
+    const test_requested_opt = test_requested_from_argv orelse inferred_shared_tail.test_requested;
+    const lint_requested_opt = lint_requested_from_argv orelse inferred_shared_tail.lint_requested;
     const invocation_args_unknown = test_requested_opt == null or lint_requested_opt == null;
     if (invocation_args_unknown and b.args != null) {
         std.process.fatal(
@@ -3941,8 +3988,11 @@ pub fn build(b: *std.Build) void {
     const test_requested = test_requested_opt orelse (test_suites_raw != null);
     // `lint` currently owns the only documented non-test shared-tail CLI surface (`--max-warnings`),
     // so mixed `lint test -- ...` invocations must ignore unknown args while still honoring test flags.
+    const strip_test_args_from_lint = test_requested and
+        ((lint_requested_opt orelse false) or
+            (lint_requested_from_argv == null and inferred_shared_tail.test_requested == true));
     const allow_foreign_shared_tail_args = test_requested and (lint_requested_opt orelse false);
-    const lint_shared_tail_args = lintSharedTailArgsAlloc(b.allocator, b.args, allow_foreign_shared_tail_args) catch |err|
+    const lint_shared_tail_args = lintSharedTailArgsAlloc(b.allocator, b.args, strip_test_args_from_lint) catch |err|
         std.process.fatal("unable to prepare lint shared-tail args: {s}", .{@errorName(err)});
     defer b.allocator.free(lint_shared_tail_args);
     const test_runner_args = requireTestRunnerArgs(
