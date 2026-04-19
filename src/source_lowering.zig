@@ -931,11 +931,31 @@ pub fn inspectSource(allocator: std.mem.Allocator, spec: Spec) LowerError!Genera
     }
     const resolved_source_path = resolvedRepoSourcePathAlloc(allocator, spec.source_path) catch try allocator.dupe(u8, spec.source_path);
     defer allocator.free(resolved_source_path);
-    const source = std.Io.Dir.cwd().readFileAlloc(std.Io.Threaded.global_single_threaded.io(), resolved_source_path, allocator, .limited(1 << 20)) catch {
-        return generatedRejectedProgram(allocator, spec, case, "source file could not be read");
-    };
-    defer allocator.free(source);
-    return inspectFileBackedSourceText(allocator, spec, case, resolved_source_path, source);
+    var lowered = try authoring_lowerer.lowerSourceFile(
+        allocator,
+        loweringCase(spec, case),
+        spec.source_path,
+        resolved_source_path,
+        spec.expected_status,
+    );
+    var lowered_owned = true;
+    errdefer if (lowered_owned) lowered.deinit(allocator);
+    if (lowered.status != .rejected) {
+        const source = std.Io.Dir.cwd().readFileAlloc(std.Io.Threaded.global_single_threaded.io(), resolved_source_path, allocator, .limited(1 << 20)) catch {
+            lowered.deinit(allocator);
+            lowered_owned = false;
+            return generatedRejectedProgram(allocator, spec, case, "source file could not be read");
+        };
+        defer allocator.free(source);
+        if (!(try sourceMatchesCanonicalLayout(allocator, case, source))) {
+            lowered.deinit(allocator);
+            lowered_owned = false;
+            return generatedRejectedProgram(allocator, spec, case, "source does not match the supported kernel program artifact layout for this case");
+        }
+    }
+    const program = try generatedProgramFromLowered(allocator, spec, case, lowered);
+    lowered_owned = false;
+    return program;
 }
 
 /// Inspect and lower one inline source body against a supported source-lowering case.

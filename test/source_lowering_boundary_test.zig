@@ -63,6 +63,19 @@ test "source-lowering rejects non-canonical source paths for known cases" {
     try std.testing.expectEqualStrings("non_canonical_source_path", lowered.diagnostics[0].code);
 }
 
+test "source-lowering rejects unreadable non-canonical paths before reading" {
+    var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
+        .case_id = "source.branch_resume",
+        .source_path = "/tmp/shift_missing_noncanonical_branch_resume.zig",
+        .entry_symbol = "run",
+        .surface_kind = .source_case,
+    });
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(!lowered.isAccepted());
+    try std.testing.expectEqualStrings("non_canonical_source_path", lowered.diagnostics[0].code);
+}
+
 test "source-lowering rejects external symlink aliases for canonical files" {
     const canonical_path = try cwdRealPathAlloc(std.testing.allocator, "test/source_lowering_corpus/fixtures/branch_resume.zig");
     defer std.testing.allocator.free(canonical_path);

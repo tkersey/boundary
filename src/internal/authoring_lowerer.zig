@@ -169,6 +169,80 @@ test "analyzeSameModuleSourceText exposes generic helper metadata" {
     try std.testing.expectEqualStrings("helper", analysis.helper_call_edges[0].callee_name);
 }
 
+fn testCanonicalSourceCase() CanonicalCase {
+    return .{
+        .case_id = "source.branch_resume",
+        .label = "source.branch_resume",
+        .source_path = "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        .entry_symbol = "run",
+        .surface_kind = .source_case,
+        .status = .canonical,
+        .scenario_id = .source_branch_resume,
+        .feature_flags = &.{ "if_else", "locals", "resume_value" },
+    };
+}
+
+test "lowerSourceText rejects mismatched expected_status before canonical fast-path acceptance" {
+    const case = testCanonicalSourceCase();
+    const source_text = try readCanonicalSource(std.testing.allocator, case.source_path);
+    defer std.testing.allocator.free(source_text);
+    const actual_path = try resolveRepoSourcePathAlloc(std.testing.allocator, case.source_path);
+    defer std.testing.allocator.free(actual_path);
+
+    var lowered = try lowerSourceText(std.testing.allocator, case, .{
+        .display_path = case.source_path,
+        .actual_path = actual_path,
+        .source_text = source_text,
+        .expected_status = .candidate_green,
+    });
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(LowerStatus.rejected, lowered.status);
+    try std.testing.expectEqual(@as(usize, 1), lowered.diagnostics.len);
+    try std.testing.expectEqualStrings("expected_status_mismatch", lowered.diagnostics[0].code);
+}
+
+test "lowerFileBackedSourceText rejects mismatched expected_status before canonical fast-path acceptance" {
+    const case = testCanonicalSourceCase();
+    const source_text = try readCanonicalSource(std.testing.allocator, case.source_path);
+    defer std.testing.allocator.free(source_text);
+    const actual_path = try resolveRepoSourcePathAlloc(std.testing.allocator, case.source_path);
+    defer std.testing.allocator.free(actual_path);
+
+    var lowered = try lowerFileBackedSourceText(.{
+        .allocator = std.testing.allocator,
+        .case = case,
+        .display_path = case.source_path,
+        .actual_path = actual_path,
+        .source_text = source_text,
+        .expected_status = .candidate_green,
+    });
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(LowerStatus.rejected, lowered.status);
+    try std.testing.expectEqual(@as(usize, 1), lowered.diagnostics.len);
+    try std.testing.expectEqualStrings("expected_status_mismatch", lowered.diagnostics[0].code);
+}
+
+test "canonical fast-path requires the frozen admitted baseline" {
+    const case = testCanonicalSourceCase();
+    const canonical_source = try readCanonicalSource(std.testing.allocator, case.source_path);
+    defer std.testing.allocator.free(canonical_source);
+
+    try std.testing.expect(sourceTextMatchesFrozenCanonical(std.testing.allocator, case.source_path, canonical_source, canonical_source));
+
+    const drifted = try std.mem.replaceOwned(
+        u8,
+        std.testing.allocator,
+        canonical_source,
+        "answer = resumed + 1;",
+        "answer = resumed + 2;",
+    );
+    defer std.testing.allocator.free(drifted);
+
+    try std.testing.expect(!sourceTextMatchesFrozenCanonical(std.testing.allocator, case.source_path, drifted, drifted));
+}
+
 /// One machine-readable accepted-row equivalence record.
 pub const EquivalenceRecord = struct {
     case_id: []const u8,
@@ -409,6 +483,26 @@ pub fn sourceTextMatchesCanonicalSource(
     ) catch return false;
     defer allocator.free(canonical_source);
     return std.mem.eql(u8, canonical_source, source_text);
+}
+
+fn sourceTextMatchesFrozenCanonical(
+    allocator: std.mem.Allocator,
+    expected_path: []const u8,
+    canonical_source: []const u8,
+    source_text: []const u8,
+) bool {
+    return std.mem.eql(u8, canonical_source, source_text) and
+        sourceTextMatchesCanonicalHash(allocator, expected_path, canonical_source);
+}
+
+fn sourceTextMatchesAcceptedCanonicalSource(
+    allocator: std.mem.Allocator,
+    expected_path: []const u8,
+    source_text: []const u8,
+) bool {
+    const canonical_source = readCanonicalSource(allocator, expected_path) catch return false;
+    defer allocator.free(canonical_source);
+    return sourceTextMatchesFrozenCanonical(allocator, expected_path, canonical_source, source_text);
 }
 
 fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8) std.mem.Allocator.Error![]u8 {
@@ -709,10 +803,6 @@ pub fn lowerFileBackedSourceText(input: LowerFileBackedSourceTextInput) anyerror
     defer if (expected_path) |path| allocator.free(path);
     const exact_canonical_path = if (expected_path) |path| std.mem.eql(u8, actual_path, path) else false;
 
-    if (exact_canonical_path and sourceTextMatchesCanonicalSource(allocator, case.source_path, source_text)) {
-        return acceptedResult(allocator, case, display_path);
-    }
-
     if (!exact_canonical_path and !sourcePathMatchesExpected(allocator, actual_path, case.source_path)) {
         return rejectedResult(allocator, case, display_path, try diagnosticAt(.{
             .allocator = allocator,
@@ -723,7 +813,10 @@ pub fn lowerFileBackedSourceText(input: LowerFileBackedSourceTextInput) anyerror
             .column = 1,
         }));
     }
-    if (sourceTextMatchesCanonicalSource(allocator, case.source_path, source_text)) {
+    if (expected_status != case.status) {
+        return rejectedExpectedStatusMismatch(allocator, case, display_path);
+    }
+    if (sourceTextMatchesAcceptedCanonicalSource(allocator, case.source_path, source_text)) {
         return acceptedResult(allocator, case, display_path);
     }
     var analysis = try analyzeSameModuleSourceText(allocator, source_text);
@@ -786,6 +879,21 @@ fn acceptedResult(
     };
 }
 
+fn rejectedExpectedStatusMismatch(
+    allocator: std.mem.Allocator,
+    case: CanonicalCase,
+    display_path: []const u8,
+) !LoweredAuthoring {
+    return rejectedResult(allocator, case, display_path, try diagnosticAt(.{
+        .allocator = allocator,
+        .display_path = display_path,
+        .code = "expected_status_mismatch",
+        .message = "requested expected_status does not match the supported status for this case",
+        .line = 1,
+        .column = 1,
+    }));
+}
+
 /// Lower one inline source text against one canonical covered case.
 pub fn lowerSourceText(
     allocator: std.mem.Allocator,
@@ -806,7 +914,10 @@ pub fn lowerSourceText(
             .column = 1,
         }));
     }
-    if (sourceTextMatchesCanonicalSource(allocator, case.source_path, input.source_text)) {
+    if (input.expected_status != case.status) {
+        return rejectedExpectedStatusMismatch(allocator, case, input.display_path);
+    }
+    if (sourceTextMatchesAcceptedCanonicalSource(allocator, case.source_path, input.source_text)) {
         return acceptedResult(allocator, case, input.display_path);
     }
     var analysis = try analyzeSameModuleSourceText(allocator, input.source_text);
@@ -911,6 +1022,20 @@ pub fn lowerSourceFile(
     actual_path: []const u8,
     expected_status: LowerStatus,
 ) anyerror!LoweredAuthoring {
+    const expected_path = resolveRepoSourcePathAlloc(allocator, case.source_path) catch null;
+    defer if (expected_path) |path| allocator.free(path);
+    const exact_canonical_path = if (expected_path) |path| std.mem.eql(u8, actual_path, path) else false;
+
+    if (!exact_canonical_path and !sourcePathMatchesExpected(allocator, actual_path, case.source_path)) {
+        return rejectedResult(allocator, case, display_path, try diagnosticAt(.{
+            .allocator = allocator,
+            .display_path = display_path,
+            .code = "non_canonical_source_path",
+            .message = "source path does not match the canonical repo-owned path for this case",
+            .line = 1,
+            .column = 1,
+        }));
+    }
     const source = std.Io.Dir.cwd().readFileAlloc(std.Io.Threaded.global_single_threaded.io(), actual_path, allocator, .limited(1 << 20)) catch {
         return rejectedResult(allocator, case, display_path, try diagnosticAt(.{
             .allocator = allocator,
