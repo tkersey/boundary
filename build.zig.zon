@@ -3,7 +3,8 @@
     .version = "0.0.1",
     .dependencies = .{
         .zlinter = .{
-            .path = "tools/vendor/zlinter",
+            .url = "git+https://github.com/KurtWagner/zlinter?ref=0.16.x#9b4d67b9725e7137ac876cc628fe5dd2ca5a2681",
+            .hash = "zlinter-0.0.1-OjQ08c7oCwDIwhlde7eDKMACNTsqAhGXy5vB7GdfGobG",
         },
         .zprof = .{
             .url = "https://github.com/ANDRVV/zprof/archive/v4.0.0.tar.gz",

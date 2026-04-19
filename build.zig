@@ -4120,6 +4120,7 @@ pub fn build(b: *std.Build) void {
     lexical_runtime_internal_mod.addImport("source_graph_embed", source_graph_embed_mod);
     lexical_runtime_internal_mod.addImport("source_graph_engine", source_graph_engine_mod);
     lexical_runtime_internal_mod.addImport("authoring_build_options", authoring_build_options_mod);
+    lexical_runtime_internal_mod.addImport("shift_shared", shift_shared_mod);
     const witness_sources_mod = b.createModule(.{
         .root_source_file = b.path("src/witness_sources.zig"),
         .target = target,
@@ -4882,7 +4883,6 @@ pub fn build(b: *std.Build) void {
             // without relying on recursive cwd walking or exclude-index construction.
             .include = repoZigLintIncludePaths(b),
             .exclude = &.{
-                b.path("tools/vendor"),
                 b.path("zig-pkg"),
             },
         });
