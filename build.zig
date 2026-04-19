@@ -4738,6 +4738,12 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const named_boundary_support_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_named_body_boundary_support.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    named_boundary_support_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     const lexical_with_tests = addFilteredTest(b, lexical_with_mod, test_runner_args.filters.items);
     const run_lexical_with_tests_core = addRunArtifactWithArgs(b, lexical_with_tests, test_runner_args.passthrough.items);
 
@@ -4815,6 +4821,24 @@ pub fn build(b: *std.Build) void {
     const lex_named_gen_tests = addFilteredTest(b, lex_named_gen_mod, test_runner_args.filters.items);
     const run_lex_named_gen = addRunArtifactWithArgs(b, lex_named_gen_tests, test_runner_args.passthrough.items);
 
+    const lex_named_boundary_mod = createShiftConsumerModule(
+        b,
+        "test/lexical_with_named_body_boundary_fail.zig",
+        target,
+        optimize,
+        .{
+            .shift_mod = shift_mod,
+            .lowered_runtime_mod = private_lowered_runtime_mod,
+            .shift_compile_mod = shift_compile_mod,
+            .shift_vm_mod = shift_vm_mod,
+        },
+    );
+    lex_named_boundary_mod.addImport("lexical_with_named_body_boundary_support", named_boundary_support_mod);
+    const lex_named_boundary_tests = addFilteredTest(b, lex_named_boundary_mod, test_runner_args.filters.items);
+    lex_named_boundary_tests.expect_errors = .{
+        .contains = "shift.NamedBody execution must stay within the retained compiled lexical subset",
+    };
+
     lexical_with_preview_tests.step.dependOn(&run_lexical_with_tests_core.step);
     lexical_with_fixture_tests.step.dependOn(&run_lexical_with_preview_tests.step);
     lex_fix_opt_tests.step.dependOn(&run_lexical_with_fixture_tests.step);
@@ -4823,9 +4847,10 @@ pub fn build(b: *std.Build) void {
     lexical_with_runtime_tests.step.dependOn(&run_lex_fix_res.step);
     lexical_with_named_body_tests.step.dependOn(&run_lexical_with_runtime_tests.step);
     lex_named_gen_tests.step.dependOn(&run_lexical_with_named_tests.step);
+    lex_named_boundary_tests.step.dependOn(&run_lex_named_gen.step);
 
     const run_lexical_with_tests = b.step("lexical-with", "Run the lexical-with suite.");
-    run_lexical_with_tests.dependOn(&run_lex_named_gen.step);
+    run_lexical_with_tests.dependOn(&lex_named_boundary_tests.step);
 
     const run_lexical_with_all = b.step("lexical-with-all", "Run the full lexical-with suite.");
     run_lexical_with_all.dependOn(run_lexical_with_tests);
