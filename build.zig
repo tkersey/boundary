@@ -4834,11 +4834,8 @@ pub fn build(b: *std.Build) void {
         },
     );
     lex_named_boundary_mod.addImport("lexical_with_named_body_boundary_support", named_boundary_support_mod);
-    const lex_named_boundary_exe = b.addExecutable(.{
-        .name = "lexical_with_named_body_boundary_fail",
-        .root_module = lex_named_boundary_mod,
-    });
-    lex_named_boundary_exe.expect_errors = .{
+    const lex_named_boundary_tests = addFilteredTest(b, lex_named_boundary_mod, test_runner_args.filters.items);
+    lex_named_boundary_tests.expect_errors = .{
         .contains = "shift.NamedBody execution must stay within the retained compiled lexical subset",
     };
 
@@ -4850,10 +4847,10 @@ pub fn build(b: *std.Build) void {
     lexical_with_runtime_tests.step.dependOn(&run_lex_fix_res.step);
     lexical_with_named_body_tests.step.dependOn(&run_lexical_with_runtime_tests.step);
     lex_named_gen_tests.step.dependOn(&run_lexical_with_named_tests.step);
-    lex_named_boundary_exe.step.dependOn(&run_lex_named_gen.step);
+    lex_named_boundary_tests.step.dependOn(&run_lex_named_gen.step);
 
     const run_lexical_with_tests = b.step("lexical-with", "Run the lexical-with suite.");
-    run_lexical_with_tests.dependOn(&lex_named_boundary_exe.step);
+    run_lexical_with_tests.dependOn(&lex_named_boundary_tests.step);
 
     const run_lexical_with_all = b.step("lexical-with-all", "Run the full lexical-with suite.");
     run_lexical_with_all.dependOn(run_lexical_with_tests);

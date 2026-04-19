@@ -20,7 +20,7 @@ fn FailureProbeType() type {
 
 const FailureProbe = FailureProbeType();
 
-/// Force the repo-owned NamedBody boundary fixture to instantiate at compile time.
-pub fn main() void {
+// Force the repo-owned NamedBody boundary fixture to instantiate in test-mode builds.
+comptime {
     _ = FailureProbe;
 }
