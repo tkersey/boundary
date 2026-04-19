@@ -875,7 +875,6 @@ fn repoRootContainsGitMetadata(root_dir: std.Io.Dir, io: std.Io) bool {
 
 fn hashBuildIdentityFileAtRoot(
     hasher: *std.crypto.hash.Blake3,
-    allocator: std.mem.Allocator,
     repo_root: []const u8,
     path: []const u8,
 ) void {
@@ -883,10 +882,6 @@ fn hashBuildIdentityFileAtRoot(
     var root_dir = std.Io.Dir.openDirAbsolute(io, repo_root, .{}) catch |err|
         std.process.fatal("unable to open build identity root '{s}': {s}", .{ repo_root, @errorName(err) });
     defer root_dir.close(io);
-
-    const bytes = root_dir.readFileAlloc(io, path, allocator, .limited(16 * 1024 * 1024)) catch |err|
-        std.process.fatal("unable to read build identity file '{s}': {s}", .{ path, @errorName(err) });
-    defer allocator.free(bytes);
 
     var file = root_dir.openFile(io, path, .{}) catch |err|
         std.process.fatal("unable to open build identity file '{s}': {s}", .{ path, @errorName(err) });
@@ -898,7 +893,16 @@ fn hashBuildIdentityFileAtRoot(
     hashBuildIdentityField(hasher, "build-input-path", path);
     hasher.update("build-input-bytes");
     hashBuildIdentityU64(hasher, stat.size);
-    hasher.update(bytes);
+
+    var chunk = std.mem.zeroes([16 * 1024]u8);
+    var reader = file.reader(io, &.{});
+    while (true) {
+        const read_len = reader.interface.readSliceShort(&chunk) catch |err| switch (err) {
+            error.ReadFailed => std.process.fatal("unable to read build identity file '{s}': {s}", .{ path, @errorName(reader.err.?) }),
+        };
+        if (read_len == 0) break;
+        hasher.update(chunk[0..read_len]);
+    }
 }
 
 fn appendOwnedPathIfMissing(
@@ -2303,7 +2307,7 @@ fn hashArtifactBuildInputs(
     defer freeOwnedPathList(allocator, input_paths);
 
     for (input_paths) |path| {
-        hashBuildIdentityFileAtRoot(hasher, allocator, repo_root, path);
+        hashBuildIdentityFileAtRoot(hasher, repo_root, path);
     }
 
     const io = compatIo();
@@ -2311,7 +2315,7 @@ fn hashArtifactBuildInputs(
         std.process.fatal("unable to open repo root for build metadata '{s}': {s}", .{ repo_root, @errorName(err) });
     defer root_dir.close(io);
     if (pathExistsAtRoot(root_dir, io, "build.zig.zon")) {
-        hashBuildIdentityFileAtRoot(hasher, allocator, repo_root, "build.zig.zon");
+        hashBuildIdentityFileAtRoot(hasher, repo_root, "build.zig.zon");
     }
 }
 
@@ -2593,6 +2597,28 @@ fn writeTmpFile(dir: std.Io.Dir, path: []const u8, contents: []const u8) !void {
     });
 }
 
+fn writeTmpFileRepeatedByte(dir: std.Io.Dir, path: []const u8, byte: u8, len: usize) !void {
+    if (std.Io.Dir.path.dirname(path)) |dir_name| {
+        try dir.createDirPath(std.testing.io, dir_name);
+    }
+
+    var file = try dir.createFile(std.testing.io, path, .{});
+    defer file.close(std.testing.io);
+
+    var writer_buffer = std.mem.zeroes([1024]u8);
+    var writer = file.writer(std.testing.io, &writer_buffer);
+    var chunk = std.mem.zeroes([4096]u8);
+    @memset(&chunk, byte);
+
+    var remaining = len;
+    while (remaining > 0) {
+        const write_len = @min(remaining, chunk.len);
+        try writer.interface.writeAll(chunk[0..write_len]);
+        remaining -= write_len;
+    }
+    try writer.interface.flush();
+}
+
 fn runChildExpectSuccess(_: std.mem.Allocator, argv: []const []const u8) !void {
     var child = try std.process.spawn(std.testing.io, .{
         .argv = argv,
@@ -2672,6 +2698,31 @@ test "artifact build fingerprint includes embedded non-Zig inputs and excludes u
     );
     const after_untracked_zig = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
     try std.testing.expectEqualSlices(u8, &before_untracked_zig, &after_untracked_zig);
+}
+
+test "artifact build fingerprint includes embedded inputs larger than 16 MiB" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try tmp.dir.realPathFileAlloc(compatIo(), ".", std.testing.allocator);
+    defer std.testing.allocator.free(repo_root);
+
+    try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
+    try writeTmpFile(tmp.dir, "probe.zig",
+        \\pub fn main() void {
+        \\    const blob = @embedFile("large.bin");
+        \\    _ = blob;
+        \\}
+        \\
+    );
+    try writeTmpFileRepeatedByte(tmp.dir, "large.bin", 'a', 16 * 1024 * 1024 + 1);
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "init", "-q" });
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "add", "probe.zig", "build.zig.zon" });
+
+    const before = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try writeTmpFileRepeatedByte(tmp.dir, "large.bin", 'b', 16 * 1024 * 1024 + 1);
+    const after = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try std.testing.expect(!std.mem.eql(u8, &before, &after));
 }
 
 test "artifact build fingerprint excludes non-dotted Zig cache roots" {
