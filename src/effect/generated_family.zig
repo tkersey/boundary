@@ -201,10 +201,10 @@ fn ExplicitContinuationErrorSet(comptime Continuation: anytype, comptime ResumeT
     return ReturnTypeErrorSet(ExplicitContinuationReturnType(Continuation, ResumeType));
 }
 
-fn fnParamsMatch(comptime FnType: type, comptime ParamTypes: []const type) bool {
+fn fnParamsMatch(comptime FnType: type, comptime param_types: []const type) bool {
     const actual = @typeInfo(FnType).@"fn".params;
-    if (actual.len != ParamTypes.len) return false;
-    inline for (ParamTypes, 0..) |ParamType, index| {
+    if (actual.len != param_types.len) return false;
+    inline for (param_types, 0..) |ParamType, index| {
         if (actual[index].type == null or actual[index].type.? != ParamType) return false;
     }
     return true;
@@ -271,8 +271,8 @@ fn assertDescriptor(comptime mode: prompt_contract.PromptMode, comptime Op: type
 
 fn assertUniqueNames(comptime op_specs: anytype) void {
     inline for (op_specs, 0..) |Op, index| {
-        inline for (op_specs, 0..) |Other, other_index| {
-            if (other_index <= index) continue;
+        other_loop: inline for (op_specs, 0..) |Other, other_index| {
+            if (other_index <= index) continue :other_loop;
             if (comptime std.mem.eql(u8, opName(Op), opName(Other))) {
                 @compileError("generated effect op names must be unique");
             }
@@ -281,21 +281,14 @@ fn assertUniqueNames(comptime op_specs: anytype) void {
 }
 
 fn BuildTagType(comptime op_specs: anytype) type {
-    var fields = [_]std.builtin.Type.EnumField{.{ .name = "", .value = 0 }} ** op_specs.len;
+    const TagType = std.math.IntFittingRange(0, op_specs.len - 1);
+    var field_names = [_][:0]const u8{""} ** op_specs.len;
+    var field_values = [_]TagType{0} ** op_specs.len;
     inline for (op_specs, 0..) |Op, index| {
-        fields[index] = .{
-            .name = opName(Op),
-            .value = index,
-        };
+        field_names[index] = opName(Op);
+        field_values[index] = @intCast(index);
     }
-    return @Type(.{
-        .@"enum" = .{
-            .tag_type = std.math.IntFittingRange(0, op_specs.len - 1),
-            .fields = &fields,
-            .decls = &.{},
-            .is_exhaustive = true,
-        },
-    });
+    return @Enum(TagType, .exhaustive, &field_names, &field_values);
 }
 
 fn buildDefinition(comptime OpTag: type, comptime StateType: type, comptime ErrorSetType: type, comptime mode: prompt_contract.PromptMode, comptime op_specs: anytype) Definition(OpTag) {
@@ -322,16 +315,16 @@ fn OpType(comptime op_specs: anytype, comptime tag: anytype) type {
 fn dummyPointer(comptime PtrType: type) PtrType {
     const pointer = @typeInfo(PtrType).pointer;
     const Child = std.meta.Child(PtrType);
-    return switch (pointer.size) {
-        .slice => blk: {
+    if (pointer.size == .slice) {
+        return blk: {
             const base = std.mem.alignForward(usize, 1, @alignOf(Child));
             const many = @as([*]Child, @ptrFromInt(base));
             const slice = many[0..1];
             if (pointer.is_const) break :blk @as(PtrType, slice);
             break :blk @as(PtrType, @constCast(slice));
-        },
-        else => @as(PtrType, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(Child)))),
-    };
+        };
+    }
+    return @as(PtrType, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(Child))));
 }
 
 fn dummyValue(comptime T: type) T {
@@ -748,14 +741,14 @@ pub fn Build(comptime spec: anytype) type {
             const HandlerType = std.meta.Child(HandlerPtrType);
             comptime assertHandlerBundle(mode, StateType, AnswerType, ErrorSetType, op_specs, HandlerType);
             return switch (op_specs.len) {
-                1 => std.meta.Tuple(&.{GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0)}),
-                2 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1) }),
-                3 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 2) }),
-                4 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 3) }),
-                5 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 3), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 4) }),
-                6 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 3), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 4), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 5) }),
-                7 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 3), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 4), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 5), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 6) }),
-                8 => std.meta.Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 3), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 4), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 5), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 6), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 7) }),
+                1 => @Tuple(&.{GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0)}),
+                2 => @Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1) }),
+                3 => @Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 2) }),
+                4 => @Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 3) }),
+                5 => @Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 3), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 4) }),
+                6 => @Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 3), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 4), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 5) }),
+                7 => @Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 3), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 4), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 5), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 6) }),
+                8 => @Tuple(&.{ GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 0), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 1), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 2), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 3), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 4), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 5), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 6), GeneratedSpecType(AnswerType, RunErrorSetType, HandlerPtrType, 7) }),
                 else => unreachable,
             };
         }
@@ -959,34 +952,19 @@ pub fn Build(comptime spec: anytype) type {
             comptime PreviousEffType: type,
             comptime index: usize,
         ) type {
-            var fields = [_]std.builtin.Type.StructField{.{
-                .name = "",
-                .type = void,
-                .default_value_ptr = null,
-                .is_comptime = false,
-                .alignment = @alignOf(void),
-            }} ** op_specs.len;
+            var field_names = [_][:0]const u8{""} ** op_specs.len;
+            var field_types = [_]type{void} ** op_specs.len;
+            var field_attrs = [_]std.builtin.Type.StructField.Attributes{.{}} ** op_specs.len;
 
             inline for (op_specs, 0..) |SpecOp, field_index| {
                 const tag = @field(OpTag, opName(SpecOp));
                 const FieldType = LexicalOpFieldHandle(tag, LexicalFieldConfig(Cap, ContextPtrType, HandlersType, PreviousEffType, index));
-                fields[field_index] = .{
-                    .name = opName(SpecOp),
-                    .type = FieldType,
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = @alignOf(FieldType),
-                };
+                field_names[field_index] = opName(SpecOp);
+                field_types[field_index] = FieldType;
+                field_attrs[field_index] = .{ .@"align" = @alignOf(FieldType) };
             }
 
-            return @Type(.{
-                .@"struct" = .{
-                    .layout = .auto,
-                    .fields = &fields,
-                    .decls = &.{},
-                    .is_tuple = false,
-                },
-            });
+            return @Struct(.auto, null, &field_names, &field_types, &field_attrs);
         }
 
         /// Lexical handle used by `shift.withAt(@src(), ...)` for generated families.

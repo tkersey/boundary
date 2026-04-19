@@ -299,8 +299,8 @@ pub fn deriveToolCapabilitiesFromPlan(
         const op_start = requirement.first_op;
         const op_end = op_start + requirement.op_count;
         var extra_after_ops: usize = 0;
-        for (plan.ops[op_start..op_end], 0..) |op, op_index| {
-            if (!op.has_after) continue;
+        after_count_loop: for (plan.ops[op_start..op_end], 0..) |op, op_index| {
+            if (!op.has_after) continue :after_count_loop;
             if (op.mode == .abort) return error.InvalidRequiredSection;
             _ = afterCapabilityPayloadCodecForOp(plan, @intCast(op_start + op_index)) orelse return error.InvalidRequiredSection;
             _ = afterCapabilityResultCodecForOp(plan, @intCast(op_start + op_index)) orelse return error.InvalidRequiredSection;
@@ -321,8 +321,8 @@ pub fn deriveToolCapabilitiesFromPlan(
             initialized_ops = op_index + 1;
         }
         var next_after_op_id: usize = requirement.op_count;
-        for (plan.ops[op_start..op_end], 0..) |op, op_index| {
-            if (!op.has_after) continue;
+        after_emit_loop: for (plan.ops[op_start..op_end], 0..) |op, op_index| {
+            if (!op.has_after) continue :after_emit_loop;
             if (op.mode == .abort) return error.InvalidRequiredSection;
             const after_payload_codec = afterCapabilityPayloadCodecForOp(plan, @intCast(op_start + op_index)) orelse return error.InvalidRequiredSection;
             const after_result_codec = afterCapabilityResultCodecForOp(plan, @intCast(op_start + op_index)) orelse return error.InvalidRequiredSection;
@@ -502,7 +502,7 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
     std.crypto.hash.Blake3.hash(hash_input, &actual_hash, .{});
     if (!std.mem.eql(u8, expected_hash, &actual_hash)) return error.ArtifactHashMismatch;
 
-    var required_seen = std.EnumSet(SectionId).initEmpty();
+    var required_seen = std.EnumSet(SectionId).empty;
     var directories = std.ArrayList(SectionDirectoryEntryV1).empty;
     defer directories.deinit(allocator);
     const SectionRange = struct {
@@ -730,11 +730,11 @@ fn executableCodecSupported(codec: program_plan.ValueCodec) bool {
 }
 
 fn validateToolIdV1(tool_id: []const u8) !void {
-    const slash_index = std.mem.indexOfScalar(u8, tool_id, '/') orelse return error.InvalidToolId;
+    const slash_index = std.mem.findScalar(u8, tool_id, '/') orelse return error.InvalidToolId;
     if (slash_index == 0) return error.InvalidToolId;
-    if (std.mem.indexOfScalarPos(u8, tool_id, slash_index + 1, '/') != null) return error.InvalidToolId;
+    if (std.mem.findScalarPos(u8, tool_id, slash_index + 1, '/') != null) return error.InvalidToolId;
 
-    const version_index = std.mem.lastIndexOf(u8, tool_id, "@v") orelse return error.InvalidToolId;
+    const version_index = std.mem.findLast(u8, tool_id, "@v") orelse return error.InvalidToolId;
     if (version_index <= slash_index + 1) return error.InvalidToolId;
     if (version_index + 2 >= tool_id.len) return error.InvalidToolId;
 
@@ -1186,8 +1186,8 @@ fn validateRequirementCapabilityOpNameDisambiguation(
     capabilities: []const CapabilityV1,
 ) !void {
     for (plan.requirements, 0..) |_, requirement_index| {
-        for (plan.requirements[requirement_index + 1 ..], requirement_index + 1..) |_, other_requirement_index| {
-            if (requirementOpNamesMatch(plan, requirement_index, other_requirement_index)) continue;
+        other_requirement_loop: for (plan.requirements[requirement_index + 1 ..], requirement_index + 1..) |_, other_requirement_index| {
+            if (requirementOpNamesMatch(plan, requirement_index, other_requirement_index)) continue :other_requirement_loop;
             for (capabilities) |capability| {
                 if (toolCapabilityMatchesRequirement(plan, requirement_index, capability) and
                     toolCapabilityMatchesRequirement(plan, other_requirement_index, capability))
@@ -1262,9 +1262,9 @@ fn validateRequirementCapabilityMappings(
     for (capability_ids, 0..) |capability_id, requirement_index| {
         const capability = findCapabilityById(capabilities, capability_id) orelse return error.InvalidRequiredSection;
         if (!toolCapabilityMatchesRequirement(plan, requirement_index, capability)) return error.InvalidRequiredSection;
-        for (capability_ids[requirement_index + 1 ..], requirement_index + 1..) |other_capability_id, other_requirement_index| {
-            if (capability_id != other_capability_id) continue;
-            if (requirementOpNamesMatch(plan, requirement_index, other_requirement_index)) continue;
+        other_capability_loop: for (capability_ids[requirement_index + 1 ..], requirement_index + 1..) |other_capability_id, other_requirement_index| {
+            if (capability_id != other_capability_id) continue :other_capability_loop;
+            if (requirementOpNamesMatch(plan, requirement_index, other_requirement_index)) continue :other_capability_loop;
             return error.InvalidRequiredSection;
         }
     }
@@ -1290,10 +1290,10 @@ pub fn afterCapabilityResultCodecForOp(plan: program_plan.ProgramPlan, op_index:
     for (plan.functions) |function| {
         const req_start: usize = function.first_requirement;
         const req_end = req_start + function.requirement_count;
-        for (plan.requirements[req_start..req_end]) |requirement| {
+        requirement_codec_loop: for (plan.requirements[req_start..req_end]) |requirement| {
             const op_start = requirement.first_op;
             const op_end = op_start + requirement.op_count;
-            if (op_index < op_start or op_index >= op_end) continue;
+            if (op_index < op_start or op_index >= op_end) continue :requirement_codec_loop;
             if (resolved) |codec| {
                 if (codec != program_plan.functionResultCodec(function)) return null;
             } else {
@@ -1311,10 +1311,10 @@ pub fn afterCapabilityPayloadCodecForOp(plan: program_plan.ProgramPlan, op_index
     for (plan.functions) |function| {
         const req_start: usize = function.first_requirement;
         const req_end = req_start + function.requirement_count;
-        for (plan.requirements[req_start..req_end]) |requirement| {
+        requirement_payload_loop: for (plan.requirements[req_start..req_end]) |requirement| {
             const op_start = requirement.first_op;
             const op_end = op_start + requirement.op_count;
-            if (op_index < op_start or op_index >= op_end) continue;
+            if (op_index < op_start or op_index >= op_end) continue :requirement_payload_loop;
             if (resolved) |codec| {
                 if (codec != function.value_codec) return null;
             } else {
@@ -1331,10 +1331,10 @@ pub fn terminalResultCodecForOp(plan: program_plan.ProgramPlan, op_index: u16) !
     for (plan.functions) |function| {
         const req_start: usize = function.first_requirement;
         const req_end = req_start + function.requirement_count;
-        for (plan.requirements[req_start..req_end]) |requirement| {
+        requirement_result_loop: for (plan.requirements[req_start..req_end]) |requirement| {
             const op_start = requirement.first_op;
             const op_end = op_start + requirement.op_count;
-            if (op_index < op_start or op_index >= op_end) continue;
+            if (op_index < op_start or op_index >= op_end) continue :requirement_result_loop;
             if (resolved) |codec| {
                 if (codec != program_plan.functionResultCodec(function)) return error.InvalidRequiredSection;
             } else {
@@ -1980,10 +1980,16 @@ fn patchInstructionKind(bytes: []u8, instruction_index: usize, raw_kind: u8) voi
 }
 
 fn patchSectionReservedByte(bytes: []u8, section_id: SectionId, row_index: usize, byte_offset: usize, value: u8) void {
-    const entry_len: usize = switch (section_id) {
-        .requirement_table, .op_table, .output_table, .instruction_table => 16,
-        .function_table => 36,
-        else => unreachable,
+    const entry_len: usize = blk: {
+        if (section_id == .function_table) break :blk 36;
+        if (section_id == .requirement_table or
+            section_id == .op_table or
+            section_id == .output_table or
+            section_id == .instruction_table)
+        {
+            break :blk 16;
+        }
+        unreachable;
     };
     const section_offset = sectionPayloadOffset(bytes, section_id);
     const row_offset = section_offset + row_index * entry_len;
@@ -3543,8 +3549,8 @@ test "ArtifactV1 encoding is deterministic and disasm is readable" {
 
     const disasm = try disasmAlloc(std.testing.allocator, encoded_a);
     defer std.testing.allocator.free(disasm);
-    try std.testing.expect(std.mem.indexOf(u8, disasm, "ArtifactV1 ir_hash=145") != null);
-    try std.testing.expect(std.mem.indexOf(u8, disasm, "functions=1") != null);
+    try std.testing.expect(std.mem.find(u8, disasm, "ArtifactV1 ir_hash=145") != null);
+    try std.testing.expect(std.mem.find(u8, disasm, "functions=1") != null);
 }
 
 test "ArtifactV1 rejects entry functions with parameters during encode" {
@@ -3719,7 +3725,7 @@ test "ArtifactV1 rejects malformed capability tool ids during encode and decode"
     });
     defer std.testing.allocator.free(encoded);
 
-    const label_offset = std.mem.indexOf(u8, encoded, "generated/tooling@v1").?;
+    const label_offset = std.mem.find(u8, encoded, "generated/tooling@v1").?;
     encoded[label_offset] = 'G';
     recomputeEncodedArtifactHash(encoded);
     try std.testing.expectError(error.InvalidToolId, decode(std.testing.allocator, encoded));

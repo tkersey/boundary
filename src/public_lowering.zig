@@ -558,7 +558,8 @@ fn cloneOutputSpecs(comptime outputs: []const effect_ir.OutputSpec) []const effe
                 .OutputType = output.OutputType,
             };
         }
-        break :blk &buffer;
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -577,14 +578,16 @@ fn cloneRow(comptime row: effect_ir.Row) effect_ir.Row {
                     .has_after = op.has_after,
                 };
             }
+            const exact_ops = op_buffer;
             requirement_buffer[requirement_index] = .{
                 .label = cloneBytes(requirement.label),
-                .ops = &op_buffer,
+                .ops = exact_ops[0..],
             };
         }
-        break :blk requirement_buffer;
+        const exact_requirements = requirement_buffer;
+        break :blk exact_requirements;
     };
-    return .{ .requirements = &requirements };
+    return .{ .requirements = requirements[0..] };
 }
 
 fn cloneFunction(comptime function: effect_ir.Function) effect_ir.Function {
@@ -631,7 +634,8 @@ fn cloneCallEdges(comptime call_edges: []const effect_ir.CallEdge) []const effec
                 },
             };
         }
-        break :blk &buffer;
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -640,12 +644,13 @@ fn explicitEntryIndex(
     comptime entry_symbol: []const u8,
     comptime entry_module_path: ?[]const u8,
 ) u16 {
-    for (functions, 0..) |function, index| {
-        if (!std.mem.eql(u8, function.symbol.symbol_name, entry_symbol)) continue;
-        if (entry_module_path) |module_path| {
-            if (!std.mem.eql(u8, function.symbol.module_path, module_path)) continue;
-        }
-        return @intCast(index);
+    inline for (functions, 0..) |function, index| {
+        const symbol_matches = comptime std.mem.eql(u8, function.symbol.symbol_name, entry_symbol);
+        const module_matches = if (entry_module_path) |module_path|
+            comptime std.mem.eql(u8, function.symbol.module_path, module_path)
+        else
+            true;
+        if (symbol_matches and module_matches) return @intCast(index);
     }
     @compileError("public lowering could not find the requested entry symbol in the explicit effect-ir program");
 }
@@ -654,7 +659,8 @@ fn cloneBodyInstructions(comptime instructions: []const effect_ir.Instruction) [
     return comptime blk: {
         var buffer: [instructions.len]effect_ir.Instruction = undefined;
         for (instructions, 0..) |instruction, index| buffer[index] = instruction;
-        break :blk &buffer;
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -667,7 +673,8 @@ fn cloneBodyBlocks(comptime blocks: []const effect_ir.Block) []const effect_ir.B
                 .terminator = block.terminator,
             };
         }
-        break :blk &buffer;
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -862,7 +869,7 @@ fn helperRowFromUsage(
                 };
                 requirement_buffer[requirement_count] = .{
                     .label = cloneBytes(requirement.label),
-                    .ops = &exact_ops,
+                    .ops = exact_ops[0..],
                 };
                 requirement_count += 1;
             }
@@ -873,7 +880,7 @@ fn helperRowFromUsage(
             for (0..requirement_count) |index| exact_buffer[index] = requirement_buffer[index];
             break :exact exact_buffer;
         };
-        break :blk .{ .requirements = &exact_requirements };
+        break :blk .{ .requirements = exact_requirements[0..] };
     };
 }
 
@@ -923,7 +930,8 @@ fn buildFunctionsForGraph(comptime graph: source_graph_embed.ProgramGraph, compt
                         .usize => .usize,
                     };
                 }
-                break :parameter_codecs &codec_buffer;
+                const exact_codec_buffer = codec_buffer;
+                break :parameter_codecs exact_codec_buffer[0..];
             };
             const value_type = if (function.return_shape) |shape|
                 switch (shape) {
@@ -947,7 +955,8 @@ fn buildFunctionsForGraph(comptime graph: source_graph_embed.ProgramGraph, compt
             index += 1;
         }
 
-        break :blk &buffer;
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -982,7 +991,8 @@ fn buildCallEdgesForGraph(comptime graph: source_graph_embed.ProgramGraph) []con
             };
             index += 1;
         }
-        break :blk &buffer;
+        const exact = buffer;
+        break :blk exact[0..];
     };
 }
 
@@ -1083,7 +1093,7 @@ fn buildValidationSnapshotImportedSources(
             }
             break :exact imported_sources;
         };
-        break :blk &exact_imported_sources;
+        break :blk exact_imported_sources[0..];
     };
 }
 
@@ -1098,8 +1108,8 @@ fn openRowWithRootSource(
     comptime imported_sources: []const ImportedSource,
     comptime spec: LowerSpec,
 ) program_frontend.OpenRowProgram {
-    const graph = analyzeProgramGraphWithRootSource(source_path, root_source, imported_sources, spec.entry_symbol);
-    const functions = buildFunctionsForGraph(graph, spec);
+    const graph = comptime analyzeProgramGraphWithRootSource(source_path, root_source, imported_sources, spec.entry_symbol);
+    const functions = comptime buildFunctionsForGraph(graph, spec);
     return .{
         .label = spec.label,
         .entry_symbol = spec.entry_symbol,
@@ -1299,7 +1309,7 @@ pub fn enrichOpenRowPlan(
 
 /// Rebuild the public effect-ir program view for one additive lowering request.
 pub fn irProgramAt(comptime source_path: []const u8, comptime spec: LowerSpec) effect_ir.Program {
-    const payload = openRowAt(source_path, spec);
+    const payload = comptime openRowAt(source_path, spec);
     return .{
         .entry_index = explicitEntryIndex(payload.functions, spec.entry_symbol, payload.entry_module_path),
         .functions = payload.functions,
@@ -1717,15 +1727,10 @@ fn validationOwnedSourceContent(
     else
         return source_content;
 
-    const repo_file = std.fs.openFileAbsolute(disk_path, .{}) catch return error.SourceUnreadable;
-    defer repo_file.close();
-    const repo_source = repo_file.readToEndAllocOptions(
-        allocator,
-        std.math.maxInt(usize),
-        null,
-        .of(u8),
-        0,
-    ) catch return error.SourceUnreadable;
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const repo_file = std.Io.Dir.openFileAbsolute(io, disk_path, .{}) catch return error.SourceUnreadable;
+    defer repo_file.close(std.Io.Threaded.global_single_threaded.io());
+    const repo_source = std.Io.Dir.cwd().readFileAlloc(io, disk_path, allocator, .limited(std.math.maxInt(usize))) catch return error.SourceUnreadable;
     defer allocator.free(repo_source);
     if (!std.mem.eql(u8, repo_source, source_content)) {
         return error.SourceDrifted;
@@ -1769,7 +1774,7 @@ fn canonicalPackageRootRelativePathAlloc(allocator: std.mem.Allocator, repo_path
     };
     defer allocator.free(package_root_candidate);
 
-    const canonical_path = std.fs.realpathAlloc(allocator, package_root_candidate) catch return error.UnsupportedHelperGraph;
+    const canonical_path = std.Io.Dir.realPathFileAbsoluteAlloc(std.Io.Threaded.global_single_threaded.io(), package_root_candidate, allocator) catch return error.UnsupportedHelperGraph;
     errdefer allocator.free(canonical_path);
     if (!pathStartsWithRootRuntime(canonical_path, build_options.package_root)) {
         return error.UnsupportedHelperGraph;
@@ -1815,7 +1820,7 @@ fn canonicalValidationSourcePathAlloc(allocator: std.mem.Allocator, source_path:
             };
         }
 
-        owned_canonical_path = std.fs.cwd().realpathAlloc(allocator, source_path) catch return error.UnsupportedHelperGraph;
+        owned_canonical_path = std.Io.Dir.cwd().realPathFileAlloc(std.Io.Threaded.global_single_threaded.io(), source_path, allocator) catch return error.UnsupportedHelperGraph;
         if (!pathStartsWithRootRuntime(owned_canonical_path.?, build_options.package_root)) {
             return error.UnsupportedHelperGraph;
         }
@@ -1824,7 +1829,7 @@ fn canonicalValidationSourcePathAlloc(allocator: std.mem.Allocator, source_path:
         };
     }
 
-    owned_canonical_path = std.fs.realpathAlloc(allocator, source_path) catch return error.UnsupportedHelperGraph;
+    owned_canonical_path = std.Io.Dir.realPathFileAbsoluteAlloc(std.Io.Threaded.global_single_threaded.io(), source_path, allocator) catch return error.UnsupportedHelperGraph;
     if (!pathStartsWithRootRuntime(owned_canonical_path.?, build_options.package_root)) {
         return error.UnsupportedHelperGraph;
     }
@@ -4026,7 +4031,7 @@ test "executeLoweredDispatch runs choice ops across resume and return-now branch
     const resumed = try executeLoweredDispatch(plan, &resumed_handlers, 0, &.{});
     switch (resumed) {
         .value => |answer| try std.testing.expectEqualStrings("after=42", decodeRuntimeValue(.string, answer)),
-        .terminal => |_| return error.TestUnexpectedResult,
+        .terminal => return error.TestUnexpectedResult,
     }
     try std.testing.expectEqual(@as(usize, 1), resumed_handlers.picker.after_calls);
 
@@ -4036,7 +4041,7 @@ test "executeLoweredDispatch runs choice ops across resume and return-now branch
     const early = try executeLoweredDispatch(plan, &early_handlers, 0, &.{});
     switch (early) {
         .terminal => |answer| try std.testing.expectEqualStrings("result=early", decodeRuntimeValue(.string, answer)),
-        .value => |_| return error.TestUnexpectedResult,
+        .value => return error.TestUnexpectedResult,
     }
     try std.testing.expectEqual(@as(usize, 0), early_handlers.picker.after_calls);
 }
@@ -4140,7 +4145,7 @@ test "executeLoweredDispatch applies after handlers for repeated loop resumes" {
     const result = try executeLoweredDispatch(plan, &handlers, 0, &.{.{ .i32 = 5 }});
     switch (result) {
         .value => |answer| try std.testing.expectEqual(@as(i32, 507), decodeRuntimeValue(.i32, answer)),
-        .terminal => |_| return error.TestUnexpectedResult,
+        .terminal => return error.TestUnexpectedResult,
     }
     try std.testing.expectEqual(@as(usize, 5), handlers.counter.step_calls);
     try std.testing.expectEqual(@as(usize, 5), handlers.counter.after_calls);
@@ -4246,7 +4251,7 @@ test "executeLoweredDispatch unwinds after handlers iteratively across large loo
     const result = try executeLoweredDispatch(plan, &handlers, 0, &.{.{ .i32 = loop_count }});
     switch (result) {
         .value => |answer| try std.testing.expectEqual(@as(i32, 10_000_007), decodeRuntimeValue(.i32, answer)),
-        .terminal => |_| return error.TestUnexpectedResult,
+        .terminal => return error.TestUnexpectedResult,
     }
     try std.testing.expectEqual(@as(usize, loop_count), handlers.counter.step_calls);
     try std.testing.expectEqual(@as(usize, loop_count), handlers.counter.after_calls);
@@ -4374,13 +4379,13 @@ test "executeLoweredDispatch decodes full-width const_i32 literals" {
     const negative = try executeLoweredDispatch(negative_plan, &handlers, 0, &.{});
     switch (negative) {
         .value => |answer| try std.testing.expectEqual(@as(i32, -1), decodeRuntimeValue(.i32, answer)),
-        .terminal => |_| return error.TestUnexpectedResult,
+        .terminal => return error.TestUnexpectedResult,
     }
 
     const large = try executeLoweredDispatch(large_plan, &handlers, 0, &.{});
     switch (large) {
         .value => |answer| try std.testing.expectEqual(@as(i32, 70_000), decodeRuntimeValue(.i32, answer)),
-        .terminal => |_| return error.TestUnexpectedResult,
+        .terminal => return error.TestUnexpectedResult,
     }
 }
 
@@ -4680,7 +4685,7 @@ test "authoredBoundProgramPlan validates transform plans with void resumptions" 
     const result = try executeLoweredDispatch(plan, &handlers, 0, &.{.{ .string = "payload" }});
     switch (result) {
         .value => |answer| try std.testing.expectEqualStrings("wrapped-transform", decodeRuntimeValue(.string, answer)),
-        .terminal => |_| return error.TestUnexpectedResult,
+        .terminal => return error.TestUnexpectedResult,
     }
     try std.testing.expectEqualStrings("payload", handlers.authored.seen_payload.?);
     try std.testing.expectEqual(@as(usize, 1), handlers.authored.after_calls);
@@ -4724,7 +4729,7 @@ test "authoredBoundProgramPlan validates choice plans with void resumptions" {
     const result = try executeLoweredDispatch(plan, &handlers, 0, &.{.{ .string = "select" }});
     switch (result) {
         .value => |answer| try std.testing.expectEqualStrings("wrapped-choice", decodeRuntimeValue(.string, answer)),
-        .terminal => |_| return error.TestUnexpectedResult,
+        .terminal => return error.TestUnexpectedResult,
     }
     try std.testing.expectEqualStrings("select", handlers.authored.seen_payload.?);
     try std.testing.expectEqual(@as(usize, 1), handlers.authored.after_calls);
@@ -4767,7 +4772,7 @@ test "authoredBoundProgramPlan preserves terminal choice answers when resumption
 
     const result = try executeLoweredDispatch(plan, &handlers, 0, &.{.{ .string = "select" }});
     switch (result) {
-        .value => |_| return error.TestUnexpectedResult,
+        .value => return error.TestUnexpectedResult,
         .terminal => |answer| try std.testing.expectEqualStrings("result=early", decodeRuntimeValue(.string, answer)),
     }
     try std.testing.expectEqualStrings("select", handlers.authored.seen_payload.?);
@@ -4851,7 +4856,7 @@ test "executeLoweredDispatch returns abort answers through terminal control" {
     const result = try executeLoweredDispatch(plan, &handlers, 0, &.{payload});
     switch (result) {
         .terminal => |answer| try std.testing.expectEqualStrings("error=missing-name", decodeRuntimeValue(.string, answer)),
-        .value => |_| return error.TestUnexpectedResult,
+        .value => return error.TestUnexpectedResult,
     }
     try std.testing.expectEqualStrings("missing-name", handlers.guard.payload);
 }
@@ -4996,7 +5001,7 @@ test "executeLoweredDispatch preserves terminal helper returns while unwinding a
     const result = try executeLoweredDispatch(plan, &handlers, 0, &.{});
     switch (result) {
         .terminal => |answer| try std.testing.expectEqualStrings("result=early", decodeRuntimeValue(.string, answer)),
-        .value => |_| return error.TestUnexpectedResult,
+        .value => return error.TestUnexpectedResult,
     }
     try std.testing.expectEqual(@as(usize, 0), handlers.picker.after_calls);
 }

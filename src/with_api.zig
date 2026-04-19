@@ -41,15 +41,15 @@ fn namedBodyFunctionProvenance(comptime body_fn: anytype) ?[]const u8 {
     };
     const wrapped_name = @typeName(@TypeOf(.{&normalized_body_fn}));
     const prefix = " = &";
-    const start = std.mem.indexOf(u8, wrapped_name, prefix) orelse return null;
+    const start = std.mem.find(u8, wrapped_name, prefix) orelse return null;
     const name_start = start + prefix.len;
-    const end = std.mem.indexOfPos(u8, wrapped_name, name_start, " }") orelse return null;
+    const end = std.mem.findPos(u8, wrapped_name, name_start, " }") orelse return null;
     return wrapped_name[name_start..end];
 }
 
 fn namedBodyFunctionName(comptime body_fn: anytype) ?[]const u8 {
     const provenance = namedBodyFunctionProvenance(body_fn) orelse return null;
-    const name_start = (std.mem.lastIndexOfScalar(u8, provenance, '.') orelse return null) + 1;
+    const name_start = (std.mem.findScalarLast(u8, provenance, '.') orelse return null) + 1;
     return provenance[name_start..];
 }
 
@@ -81,7 +81,7 @@ fn namedBodyModulePathMatchesCandidate(
     comptime candidate: []const u8,
 ) bool {
     if (std.mem.eql(u8, module_path, candidate)) return true;
-    if (std.mem.indexOfScalar(u8, candidate, '.')) |_| {
+    if (std.mem.findScalar(u8, candidate, '.')) |_| {
         if (std.mem.endsWith(u8, module_path, "." ++ candidate)) return true;
     }
     return false;
@@ -103,7 +103,7 @@ fn namedBodyModulePathMatchesSourcePath(
         return namedBodyModulePathMatchesExternalSourcePath(module_path, source_path_value);
     }
     const full_module_path = namedBodySourceModulePath(source_path_value);
-    const module_stem = std.fs.path.stem(source_path_value);
+    const module_stem = std.Io.Dir.path.stem(source_path_value);
     if (namedBodyModulePathMatchesCandidate(module_path, full_module_path)) return true;
     if (source_graph_embed.ownedRepoPath(source_path_value)) |owned_repo_path| {
         if (!std.mem.eql(u8, module_path, module_stem)) return false;
@@ -120,7 +120,7 @@ fn namedBodyModulePathMatchesSourcePath(
             const candidate = build_options.repo_zig_paths[start..end];
             start = end + 1;
             if (candidate.len == 0) continue;
-            if (!std.mem.eql(u8, std.fs.path.stem(candidate), module_stem)) continue;
+            if (!std.mem.eql(u8, std.Io.Dir.path.stem(candidate), module_stem)) continue;
 
             const candidate_source = source_graph_embed.embeddedSource(candidate);
             _ = source_graph_engine.analyzeComptime(candidate_source, .{
@@ -144,7 +144,7 @@ fn validateNamedBodyRepoIdentity(
 ) void {
     const provenance = namedBodyFunctionProvenance(body_fn) orelse
         @compileError("shift.NamedBody body_fn must be a named function");
-    const last_dot = std.mem.lastIndexOfScalar(u8, provenance, '.') orelse
+    const last_dot = std.mem.findScalarLast(u8, provenance, '.') orelse
         @compileError("shift.NamedBody body_fn must be a named function");
     const module_path = provenance[0..last_dot];
     if (!namedBodyModulePathMatchesSourcePath(module_path, source_path_value, entry_symbol_value)) {
@@ -263,34 +263,19 @@ pub const OwnedSourceWitness = struct {
 pub fn OutputBundleType(comptime HandlersType: type) type {
     comptime assertHandlerBundleShape(HandlersType);
     const handler_fields = @typeInfo(HandlersType).@"struct".fields;
-    var fields = [_]std.builtin.Type.StructField{.{
-        .name = "",
-        .type = void,
-        .default_value_ptr = null,
-        .is_comptime = false,
-        .alignment = @alignOf(void),
-    }} ** handler_fields.len;
+    var field_names = [_][:0]const u8{""} ** handler_fields.len;
+    var field_types = [_]type{void} ** handler_fields.len;
+    var field_attrs = [_]std.builtin.Type.StructField.Attributes{.{}} ** handler_fields.len;
     var field_count: usize = 0;
     inline for (handler_fields) |field| {
         const OutputType = field.type.Output;
         if (OutputType == void) continue;
-        fields[field_count] = .{
-            .name = field.name,
-            .type = OutputType,
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = @alignOf(OutputType),
-        };
+        field_names[field_count] = field.name;
+        field_types[field_count] = OutputType;
+        field_attrs[field_count] = .{ .@"align" = @alignOf(OutputType) };
         field_count += 1;
     }
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .fields = fields[0..field_count],
-            .decls = &.{},
-            .is_tuple = false,
-        },
-    });
+    return @Struct(.auto, null, field_names[0..field_count], field_types[0..field_count], field_attrs[0..field_count]);
 }
 
 /// Canonical lexical outputs plus body answer returned from `shift.withAt(@src(), ...)`.
@@ -352,35 +337,20 @@ pub fn ClosedOutputBundleType(comptime HandlersType: type) type {
     const info = @typeInfo(HandlersType);
     if (info != .@"struct") @compileError("closed-root handlers must be a struct literal or struct value");
     const handler_fields = info.@"struct".fields;
-    var fields = [_]std.builtin.Type.StructField{.{
-        .name = "",
-        .type = void,
-        .default_value_ptr = null,
-        .is_comptime = false,
-        .alignment = @alignOf(void),
-    }} ** handler_fields.len;
+    var field_names = [_][:0]const u8{""} ** handler_fields.len;
+    var field_types = [_]type{void} ** handler_fields.len;
+    var field_attrs = [_]std.builtin.Type.StructField.Attributes{.{}} ** handler_fields.len;
     var field_count: usize = 0;
     inline for (handler_fields) |field| {
         comptime assertClosedFinishShape(field.type);
         const OutputType = ClosedOutputType(field.type);
         if (OutputType == void) continue;
-        fields[field_count] = .{
-            .name = field.name,
-            .type = OutputType,
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = @alignOf(OutputType),
-        };
+        field_names[field_count] = field.name;
+        field_types[field_count] = OutputType;
+        field_attrs[field_count] = .{ .@"align" = @alignOf(OutputType) };
         field_count += 1;
     }
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .fields = fields[0..field_count],
-            .decls = &.{},
-            .is_tuple = false,
-        },
-    });
+    return @Struct(.auto, null, field_names[0..field_count], field_types[0..field_count], field_attrs[0..field_count]);
 }
 
 /// Canonical closed-root result: final outputs plus answer.
@@ -453,37 +423,18 @@ fn HandlerErrorSet(comptime HandlersType: type) type {
 
 fn ExtendBundleType(comptime Base: type, comptime field_name: [:0]const u8, comptime FieldType: type) type {
     const base_fields = @typeInfo(Base).@"struct".fields;
-    var fields = [_]std.builtin.Type.StructField{.{
-        .name = "",
-        .type = void,
-        .default_value_ptr = null,
-        .is_comptime = false,
-        .alignment = @alignOf(void),
-    }} ** (base_fields.len + 1);
+    var field_names = [_][:0]const u8{""} ** (base_fields.len + 1);
+    var field_types = [_]type{void} ** (base_fields.len + 1);
+    var field_attrs = [_]std.builtin.Type.StructField.Attributes{.{}} ** (base_fields.len + 1);
     inline for (base_fields, 0..) |field, index| {
-        fields[index] = .{
-            .name = field.name,
-            .type = field.type,
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = field.alignment,
-        };
+        field_names[index] = field.name;
+        field_types[index] = field.type;
+        field_attrs[index] = .{ .@"align" = field.alignment };
     }
-    fields[base_fields.len] = .{
-        .name = field_name,
-        .type = FieldType,
-        .default_value_ptr = null,
-        .is_comptime = false,
-        .alignment = @alignOf(FieldType),
-    };
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .fields = &fields,
-            .decls = &.{},
-            .is_tuple = false,
-        },
-    });
+    field_names[base_fields.len] = field_name;
+    field_types[base_fields.len] = FieldType;
+    field_attrs[base_fields.len] = .{ .@"align" = @alignOf(FieldType) };
+    return @Struct(.auto, null, &field_names, &field_types, &field_attrs);
 }
 
 fn extendBundle(comptime Base: type, base: Base, comptime field_name: [:0]const u8, value: anytype) ExtendBundleType(Base, field_name, @TypeOf(value)) {
@@ -730,7 +681,7 @@ fn PreviewBodyEffType(comptime HandlersType: type) type {
     return PreviewEffType(HandlersType, 0, struct {}, ErrorSet);
 }
 
-fn BodyDeclSemanticErrorSet(comptime Body: type) ?type {
+fn bodyDeclSemanticErrorSet(comptime Body: type) ?type {
     if (hasDeclSafe(Body, "SemanticErrorSet")) return Body.SemanticErrorSet;
     return null;
 }
@@ -865,12 +816,7 @@ fn offsetForLineColumn(
 }
 
 fn isIgnorableCallsiteToken(tag: std.zig.Token.Tag) bool {
-    return switch (tag) {
-        .doc_comment,
-        .container_doc_comment,
-        => true,
-        else => false,
-    };
+    return tag == .doc_comment or tag == .container_doc_comment;
 }
 
 fn anonymousBodyExprBounds(
@@ -885,7 +831,7 @@ fn anonymousBodyExprBounds(
     const body_arg_index = comptime callerOwnedBodyArgIndex(caller_owned_kind).?;
     const source = comptime callerSourceBytes(caller, caller_source_override);
     const target_offset = comptime offsetForLineColumn(source, caller.line, caller.column) orelse return null;
-    const call_offset = std.mem.lastIndexOf(u8, source[0..target_offset], call_name) orelse return null;
+    const call_offset = std.mem.findLast(u8, source[0..target_offset], call_name) orelse return null;
     var tokenizer = std.zig.Tokenizer.init(source);
     var seen_with_name = false;
 
@@ -908,10 +854,10 @@ fn anonymousBodyExprBounds(
         var arg_index: usize = 0;
         var arg_start: ?usize = null;
 
-        while (true) {
+        arg_scan: while (true) {
             const arg_token = tokenizer.next();
             if (arg_token.tag == .eof) return null;
-            if (isIgnorableCallsiteToken(arg_token.tag)) continue;
+            if (isIgnorableCallsiteToken(arg_token.tag)) continue :arg_scan;
             if (arg_start == null) arg_start = arg_token.loc.start;
 
             const is_delimiter = (arg_token.tag == .comma or arg_token.tag == .r_paren) and
@@ -925,26 +871,24 @@ fn anonymousBodyExprBounds(
                 arg_index += 1;
                 arg_start = null;
                 if (arg_token.tag == .r_paren) return null;
-                continue;
+                continue :arg_scan;
             }
 
-            switch (arg_token.tag) {
-                .l_paren => paren_depth += 1,
-                .r_paren => {
-                    if (paren_depth == 0) return null;
-                    paren_depth -= 1;
-                },
-                .l_brace => brace_depth += 1,
-                .r_brace => {
-                    if (brace_depth == 0) return null;
-                    brace_depth -= 1;
-                },
-                .l_bracket => bracket_depth += 1,
-                .r_bracket => {
-                    if (bracket_depth == 0) return null;
-                    bracket_depth -= 1;
-                },
-                else => {},
+            if (arg_token.tag == .l_paren) {
+                paren_depth += 1;
+            } else if (arg_token.tag == .r_paren) {
+                if (paren_depth == 0) return null;
+                paren_depth -= 1;
+            } else if (arg_token.tag == .l_brace) {
+                brace_depth += 1;
+            } else if (arg_token.tag == .r_brace) {
+                if (brace_depth == 0) return null;
+                brace_depth -= 1;
+            } else if (arg_token.tag == .l_bracket) {
+                bracket_depth += 1;
+            } else if (arg_token.tag == .r_bracket) {
+                if (bracket_depth == 0) return null;
+                bracket_depth -= 1;
             }
         }
     }
@@ -980,17 +924,14 @@ fn extractedAnonymousEntrySource(
         const token = tokenizer.next();
         if (token.tag == .eof) return null;
         if (isIgnorableCallsiteToken(token.tag)) continue;
-        switch (token.tag) {
-            .l_brace => {
-                brace_depth += 1;
-                continue;
-            },
-            .r_brace => {
-                if (brace_depth == 0) return null;
-                brace_depth -= 1;
-                continue;
-            },
-            else => {},
+        if (token.tag == .l_brace) {
+            brace_depth += 1;
+            continue;
+        }
+        if (token.tag == .r_brace) {
+            if (brace_depth == 0) return null;
+            brace_depth -= 1;
+            continue;
         }
         if (token.tag != .keyword_fn or brace_depth != 1) continue;
 
@@ -1001,18 +942,16 @@ fn extractedAnonymousEntrySource(
 
         var body_depth: usize = 0;
         var function_end: ?usize = null;
-        while (function_end == null) {
+        body_scan: while (function_end == null) {
             const next = tokenizer.next();
             if (next.tag == .eof) return null;
-            if (isIgnorableCallsiteToken(next.tag)) continue;
-            switch (next.tag) {
-                .l_brace => body_depth += 1,
-                .r_brace => {
-                    if (body_depth == 0) return null;
-                    body_depth -= 1;
-                    if (body_depth == 0) function_end = next.loc.end;
-                },
-                else => {},
+            if (isIgnorableCallsiteToken(next.tag)) continue :body_scan;
+            if (next.tag == .l_brace) {
+                body_depth += 1;
+            } else if (next.tag == .r_brace) {
+                if (body_depth == 0) return null;
+                body_depth -= 1;
+                if (body_depth == 0) function_end = next.loc.end;
             }
         }
 
@@ -1850,8 +1789,8 @@ fn ContinuationReturnType(
 fn dummyPointer(comptime PtrType: type) PtrType {
     const pointer = @typeInfo(PtrType).pointer;
     const Child = std.meta.Child(PtrType);
-    return switch (pointer.size) {
-        .slice => blk: {
+    if (pointer.size == .slice) {
+        return blk: {
             const base = std.mem.alignForward(usize, 1, @alignOf(Child));
             if (pointer.sentinel_ptr) |sentinel_ptr| {
                 const sentinel = @as(*const Child, @ptrCast(@alignCast(sentinel_ptr))).*;
@@ -1864,9 +1803,9 @@ fn dummyPointer(comptime PtrType: type) PtrType {
             const slice = many[0..1];
             if (pointer.is_const) break :blk @as(PtrType, slice);
             break :blk @as(PtrType, @constCast(slice));
-        },
-        else => @as(PtrType, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(Child)))),
-    };
+        };
+    }
+    return @as(PtrType, @ptrFromInt(std.mem.alignForward(usize, 1, @alignOf(Child))));
 }
 
 fn dummyValue(comptime T: type) T {
@@ -2185,24 +2124,28 @@ fn tryOwnedSourceCompiledWith(
         synthetic_source orelse root_source,
         witness.imported_sources,
     );
-    const lowered_program = public_lowering.maybeLower(source_ref, .{
-        .label = "shift.with owned lexical body",
-        .entry_symbol = entry_symbol,
-        .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
-        .row = lexical_bundle_schema.rowForHandlers(HandlersType),
-        .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
-    }) orelse return null;
+    const maybe_compiled_plan: ?public_lowering.ProgramPlan = comptime blk: {
+        const lowered_program = public_lowering.maybeLower(source_ref, .{
+            .label = "shift.with owned lexical body",
+            .entry_symbol = entry_symbol,
+            .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+            .row = lexical_bundle_schema.rowForHandlers(HandlersType),
+            .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
+        }) orelse break :blk null;
+        break :blk public_lowering.enrichOpenRowPlan(
+            "shift.with owned lexical body",
+            lowered_program,
+            lexicalBindingSchemasValue(HandlersType),
+        );
+    };
+    const compiled_plan = maybe_compiled_plan orelse return null;
     return try runCompiledLexicalPlan(
         HandlersType,
         Body,
         runtime,
         handlers_ptr,
         outputs_ptr,
-        comptime public_lowering.enrichOpenRowPlan(
-            "shift.with owned lexical body",
-            lowered_program,
-            lexicalBindingSchemasValue(HandlersType),
-        ),
+        compiled_plan,
     );
 }
 
@@ -2418,7 +2361,7 @@ pub fn WithFnReturnType(comptime HandlersType: type, comptime Body: type) type {
 
 fn WithSemanticErrorSet(comptime HandlersType: type, comptime Body: type) type {
     const HandlerSet = HandlerErrorSet(HandlersType);
-    if (BodyDeclSemanticErrorSet(Body)) |BodySet| return HandlerSet || BodySet;
+    if (bodyDeclSemanticErrorSet(Body)) |BodySet| return HandlerSet || BodySet;
     const PreviewEff = PreviewBodyEffType(HandlersType);
     const BodySet = BodyErrorSet(Body, PreviewEff);
     return HandlerSet || BodySet;

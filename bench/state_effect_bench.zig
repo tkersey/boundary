@@ -169,7 +169,7 @@ fn summarizeSamples(values: *const [samples_per_run]u64) struct { min: u64, medi
 }
 
 /// Compare raw prompt-based state handling against the additive effect wrapper.
-pub fn main() anyerror!void {
+pub fn main(init: std.process.Init) anyerror!void {
     var raw_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer raw_runtime.deinit();
     var raw_prompt = RawPrompt.init();
@@ -238,7 +238,7 @@ pub fn main() anyerror!void {
     const effect_passthrough_stats = summarizeSamples(&effect_passthrough_samples);
 
     var stdout_buffer: [512]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
     const stdout = &stdout_writer.interface;
     try stdout.print(
         "timed_iterations={d} warmup_iterations={d} samples_per_run={d} raw_checksum={d} raw_reset_only_checksum={d} effect_checksum={d} effect_passthrough_checksum={d}\n",

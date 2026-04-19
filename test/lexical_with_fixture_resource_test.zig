@@ -7,7 +7,7 @@ fn ExecResult(comptime T: type) type {
 }
 
 fn expectFixtureTranscript(comptime fixture_path: []const u8, writer_fn: anytype) anyerror!void {
-    var buffer: std.io.Writer.Allocating = .init(std.testing.allocator);
+    var buffer: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer buffer.deinit();
     try writer_fn(&buffer.writer);
     try std.testing.expectEqualStrings(@embedFile(fixture_path), buffer.written());

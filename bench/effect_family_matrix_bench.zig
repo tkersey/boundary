@@ -1063,7 +1063,7 @@ fn printLane(writer: anytype, report: LaneReport) !void {
 }
 
 /// Benchmark every shipped effect family against its chosen comparator lanes.
-pub fn main() anyerror!void {
+pub fn main(init: std.process.Init) anyerror!void {
     var state_raw_runtime = shift.Runtime.init(std.heap.smp_allocator);
     defer state_raw_runtime.deinit();
     var state_raw_prompt = RawStatePrompt.init();
@@ -1432,7 +1432,7 @@ pub fn main() anyerror!void {
     }
 
     var stdout_buffer: [8192]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
     const stdout = &stdout_writer.interface;
     try stdout.print(
         "timed_iterations={d} warmup_iterations={d} samples_per_run={d} lanes=17 schema_version=2\n",

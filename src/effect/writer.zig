@@ -176,11 +176,18 @@ pub fn handle(
     allocator: std.mem.Allocator,
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!HandleResult(ItemType, AnswerType) {
-    return try algebraic.handleWriter(null, struct {
-        const Item = ItemType;
-        const Answer = AnswerType;
-        const WriterStateType = WriterState(ItemType);
+    const result = try algebraic.handleWriter(null, struct {
+        /// Item type threaded through the shared writer engine adapter.
+        pub const Item = ItemType;
+        /// Final answer type threaded through the shared writer engine adapter.
+        pub const Answer = AnswerType;
+        /// Exact writer state type used by the shared writer engine adapter.
+        pub const WriterStateType = WriterState(ItemType);
     }, runtime, instance, allocator, Body);
+    return .{
+        .items = result.items,
+        .value = result.value,
+    };
 }
 
 /// Run a writer effect body with explicit caller provenance and return the accumulated log plus the body answer.

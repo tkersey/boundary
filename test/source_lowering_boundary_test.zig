@@ -2,16 +2,36 @@ const source_lowering = @import("source_lowering");
 const source_lowering_registry = @import("source_lowering_registry");
 const std = @import("std");
 
+fn compatIo() std.Io {
+    return std.Io.Threaded.global_single_threaded.io();
+}
+
+fn cwdReadFileAlloc(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    limit: usize,
+) ![]u8 {
+    return try std.Io.Dir.cwd().readFileAlloc(compatIo(), path, allocator, .limited(limit));
+}
+
+fn cwdRealPathAlloc(allocator: std.mem.Allocator, path: []const u8) ![:0]u8 {
+    return try std.Io.Dir.cwd().realPathFileAlloc(compatIo(), path, allocator);
+}
+
+fn currentPathAlloc(allocator: std.mem.Allocator) ![:0]u8 {
+    return try std.process.currentPathAlloc(compatIo(), allocator);
+}
+
 fn symlinkAliasPath(
     allocator: std.mem.Allocator,
     tmp: *std.testing.TmpDir,
     target_path: []const u8,
     alias_name: []const u8,
 ) ![]u8 {
-    try tmp.dir.symLink(target_path, alias_name, .{});
-    const tmp_path = try tmp.dir.realpathAlloc(allocator, ".");
+    try tmp.dir.symLink(compatIo(), target_path, alias_name, .{});
+    const tmp_path = try tmp.dir.realPathFileAlloc(compatIo(), ".", allocator);
     defer allocator.free(tmp_path);
-    return try std.fmt.allocPrint(allocator, "{s}{c}{s}", .{ tmp_path, std.fs.path.sep, alias_name });
+    return try std.fmt.allocPrint(allocator, "{s}{c}{s}", .{ tmp_path, std.Io.Dir.path.sep, alias_name });
 }
 
 test "source-lowering registry keeps the exact wave-one case count" {
@@ -43,11 +63,21 @@ test "source-lowering rejects non-canonical source paths for known cases" {
     try std.testing.expectEqualStrings("non_canonical_source_path", lowered.diagnostics[0].code);
 }
 
+test "source-lowering rejects unreadable non-canonical paths before reading" {
+    var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
+        .case_id = "source.branch_resume",
+        .source_path = "/tmp/shift_missing_noncanonical_branch_resume.zig",
+        .entry_symbol = "run",
+        .surface_kind = .source_case,
+    });
+    defer lowered.deinit(std.testing.allocator);
+
+    try std.testing.expect(!lowered.isAccepted());
+    try std.testing.expectEqualStrings("non_canonical_source_path", lowered.diagnostics[0].code);
+}
+
 test "source-lowering rejects external symlink aliases for canonical files" {
-    const canonical_path = try std.fs.cwd().realpathAlloc(
-        std.testing.allocator,
-        "test/source_lowering_corpus/fixtures/branch_resume.zig",
-    );
+    const canonical_path = try cwdRealPathAlloc(std.testing.allocator, "test/source_lowering_corpus/fixtures/branch_resume.zig");
     defer std.testing.allocator.free(canonical_path);
 
     var tmp = std.testing.tmpDir(.{});
@@ -189,11 +219,7 @@ test "source-lowering accepts comment-only edits to canonical fixtures" {
 }
 
 test "inline source lowering rejects non-canonical source paths even for canonical text" {
-    const canonical_text = try std.fs.cwd().readFileAlloc(
-        std.testing.allocator,
-        "test/source_lowering_corpus/fixtures/branch_resume.zig",
-        1 << 20,
-    );
+    const canonical_text = try cwdReadFileAlloc(std.testing.allocator, "test/source_lowering_corpus/fixtures/branch_resume.zig", 1 << 20);
     defer std.testing.allocator.free(canonical_text);
 
     var lowered = try source_lowering.inspectInlineSource(std.testing.allocator, .{
@@ -209,17 +235,10 @@ test "inline source lowering rejects non-canonical source paths even for canonic
 }
 
 test "inline source lowering rejects external symlink aliases for canonical text" {
-    const canonical_text = try std.fs.cwd().readFileAlloc(
-        std.testing.allocator,
-        "test/source_lowering_corpus/fixtures/branch_resume.zig",
-        1 << 20,
-    );
+    const canonical_text = try cwdReadFileAlloc(std.testing.allocator, "test/source_lowering_corpus/fixtures/branch_resume.zig", 1 << 20);
     defer std.testing.allocator.free(canonical_text);
 
-    const canonical_path = try std.fs.cwd().realpathAlloc(
-        std.testing.allocator,
-        "test/source_lowering_corpus/fixtures/branch_resume.zig",
-    );
+    const canonical_path = try cwdRealPathAlloc(std.testing.allocator, "test/source_lowering_corpus/fixtures/branch_resume.zig");
     defer std.testing.allocator.free(canonical_path);
 
     var tmp = std.testing.tmpDir(.{});
@@ -240,17 +259,13 @@ test "inline source lowering rejects external symlink aliases for canonical text
 }
 
 test "inline source lowering accepts canonical repo-relative paths from subdirectories" {
-    const canonical_text = try std.fs.cwd().readFileAlloc(
-        std.testing.allocator,
-        "test/source_lowering_corpus/fixtures/branch_resume.zig",
-        1 << 20,
-    );
+    const canonical_text = try cwdReadFileAlloc(std.testing.allocator, "test/source_lowering_corpus/fixtures/branch_resume.zig", 1 << 20);
     defer std.testing.allocator.free(canonical_text);
 
-    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const original_cwd = try currentPathAlloc(std.testing.allocator);
     defer std.testing.allocator.free(original_cwd);
-    try std.posix.chdir("examples");
-    defer std.posix.chdir(original_cwd) catch unreachable;
+    try std.process.setCurrentPath(compatIo(), "examples");
+    defer std.process.setCurrentPath(compatIo(), original_cwd) catch unreachable;
 
     var lowered = try source_lowering.inspectInlineSource(std.testing.allocator, .{
         .case_id = "source.branch_resume",
@@ -265,7 +280,7 @@ test "inline source lowering accepts canonical repo-relative paths from subdirec
 }
 
 test "source-lowering accepts canonical repo-relative paths from symlinked checkouts" {
-    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const original_cwd = try currentPathAlloc(std.testing.allocator);
     defer std.testing.allocator.free(original_cwd);
 
     var tmp = std.testing.tmpDir(.{});
@@ -273,8 +288,8 @@ test "source-lowering accepts canonical repo-relative paths from symlinked check
     const checkout_alias = try symlinkAliasPath(std.testing.allocator, &tmp, original_cwd, "shift_repo_alias");
     defer std.testing.allocator.free(checkout_alias);
 
-    try std.posix.chdir(checkout_alias);
-    defer std.posix.chdir(original_cwd) catch unreachable;
+    try std.process.setCurrentPath(compatIo(), checkout_alias);
+    defer std.process.setCurrentPath(compatIo(), original_cwd) catch unreachable;
 
     var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
         .case_id = "source.branch_resume",
@@ -289,14 +304,10 @@ test "source-lowering accepts canonical repo-relative paths from symlinked check
 }
 
 test "inline source lowering rejects alias-root prefix matches without a path boundary" {
-    const canonical_text = try std.fs.cwd().readFileAlloc(
-        std.testing.allocator,
-        "test/source_lowering_corpus/fixtures/branch_resume.zig",
-        1 << 20,
-    );
+    const canonical_text = try cwdReadFileAlloc(std.testing.allocator, "test/source_lowering_corpus/fixtures/branch_resume.zig", 1 << 20);
     defer std.testing.allocator.free(canonical_text);
 
-    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const original_cwd = try currentPathAlloc(std.testing.allocator);
     defer std.testing.allocator.free(original_cwd);
 
     var tmp = std.testing.tmpDir(.{});
@@ -324,25 +335,21 @@ test "inline source lowering rejects alias-root prefix matches without a path bo
 }
 
 test "inline source lowering rejects repo-internal checkout aliases" {
-    const canonical_text = try std.fs.cwd().readFileAlloc(
-        std.testing.allocator,
-        "test/source_lowering_corpus/fixtures/branch_resume.zig",
-        1 << 20,
-    );
+    const canonical_text = try cwdReadFileAlloc(std.testing.allocator, "test/source_lowering_corpus/fixtures/branch_resume.zig", 1 << 20);
     defer std.testing.allocator.free(canonical_text);
 
-    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const original_cwd = try currentPathAlloc(std.testing.allocator);
     defer std.testing.allocator.free(original_cwd);
 
     const internal_alias_name = ".tmp_shift_repo_alias_internal";
-    std.fs.cwd().deleteFile(internal_alias_name) catch {};
-    try std.fs.cwd().symLink(original_cwd, internal_alias_name, .{});
-    defer std.fs.cwd().deleteFile(internal_alias_name) catch unreachable;
+    std.Io.Dir.cwd().deleteFile(compatIo(), internal_alias_name) catch {};
+    try std.Io.Dir.cwd().symLink(compatIo(), original_cwd, internal_alias_name, .{});
+    defer std.Io.Dir.cwd().deleteFile(compatIo(), internal_alias_name) catch unreachable;
 
     const alias_source_path = try std.fmt.allocPrint(
         std.testing.allocator,
         "{s}{c}{s}",
-        .{ internal_alias_name, std.fs.path.sep, "test/source_lowering_corpus/fixtures/branch_resume.zig" },
+        .{ internal_alias_name, std.Io.Dir.path.sep, "test/source_lowering_corpus/fixtures/branch_resume.zig" },
     );
     defer std.testing.allocator.free(alias_source_path);
 
@@ -359,14 +366,10 @@ test "inline source lowering rejects repo-internal checkout aliases" {
 }
 
 test "inline source lowering rejects repo-internal aliases nested inside symlinked checkouts" {
-    const canonical_text = try std.fs.cwd().readFileAlloc(
-        std.testing.allocator,
-        "test/source_lowering_corpus/fixtures/branch_resume.zig",
-        1 << 20,
-    );
+    const canonical_text = try cwdReadFileAlloc(std.testing.allocator, "test/source_lowering_corpus/fixtures/branch_resume.zig", 1 << 20);
     defer std.testing.allocator.free(canonical_text);
 
-    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const original_cwd = try currentPathAlloc(std.testing.allocator);
     defer std.testing.allocator.free(original_cwd);
 
     var tmp = std.testing.tmpDir(.{});
@@ -374,21 +377,21 @@ test "inline source lowering rejects repo-internal aliases nested inside symlink
     const checkout_alias = try symlinkAliasPath(std.testing.allocator, &tmp, original_cwd, "shift_repo_alias_nested");
     defer std.testing.allocator.free(checkout_alias);
 
-    var checkout_dir = try std.fs.openDirAbsolute(checkout_alias, .{});
-    defer checkout_dir.close();
+    var checkout_dir = try std.Io.Dir.openDirAbsolute(compatIo(), checkout_alias, .{});
+    defer checkout_dir.close(compatIo());
     const nested_alias_name = ".tmp_shift_repo_alias_nested_internal";
-    checkout_dir.deleteFile(nested_alias_name) catch {};
-    try checkout_dir.symLink(original_cwd, nested_alias_name, .{});
-    defer checkout_dir.deleteFile(nested_alias_name) catch unreachable;
+    checkout_dir.deleteFile(compatIo(), nested_alias_name) catch {};
+    try checkout_dir.symLink(compatIo(), original_cwd, nested_alias_name, .{});
+    defer checkout_dir.deleteFile(compatIo(), nested_alias_name) catch unreachable;
 
     const alias_source_path = try std.fmt.allocPrint(
         std.testing.allocator,
         "{s}{c}{s}{c}{s}",
         .{
             checkout_alias,
-            std.fs.path.sep,
+            std.Io.Dir.path.sep,
             nested_alias_name,
-            std.fs.path.sep,
+            std.Io.Dir.path.sep,
             "test/source_lowering_corpus/fixtures/branch_resume.zig",
         },
     );
@@ -407,11 +410,7 @@ test "inline source lowering rejects repo-internal aliases nested inside symlink
 }
 
 test "inline source lowering rejects drifted canonical text even on the canonical path" {
-    const canonical_text = try std.fs.cwd().readFileAlloc(
-        std.testing.allocator,
-        "test/source_lowering_corpus/fixtures/branch_resume.zig",
-        1 << 20,
-    );
+    const canonical_text = try cwdReadFileAlloc(std.testing.allocator, "test/source_lowering_corpus/fixtures/branch_resume.zig", 1 << 20);
     defer std.testing.allocator.free(canonical_text);
 
     const drifted = try std.mem.replaceOwned(
@@ -436,11 +435,7 @@ test "inline source lowering rejects drifted canonical text even on the canonica
 }
 
 test "inline source lowering rejects whitespace drift after accepted authoring admission" {
-    const canonical_text = try std.fs.cwd().readFileAlloc(
-        std.testing.allocator,
-        "test/source_lowering_corpus/fixtures/branch_resume.zig",
-        1 << 20,
-    );
+    const canonical_text = try cwdReadFileAlloc(std.testing.allocator, "test/source_lowering_corpus/fixtures/branch_resume.zig", 1 << 20);
     defer std.testing.allocator.free(canonical_text);
 
     const drifted = try std.mem.replaceOwned(
@@ -465,17 +460,13 @@ test "inline source lowering rejects whitespace drift after accepted authoring a
 }
 
 test "file-backed inline source lowering accepts canonical repo-relative paths from subdirectories" {
-    const canonical_text = try std.fs.cwd().readFileAlloc(
-        std.testing.allocator,
-        "test/source_lowering_corpus/fixtures/branch_resume.zig",
-        1 << 20,
-    );
+    const canonical_text = try cwdReadFileAlloc(std.testing.allocator, "test/source_lowering_corpus/fixtures/branch_resume.zig", 1 << 20);
     defer std.testing.allocator.free(canonical_text);
 
-    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const original_cwd = try currentPathAlloc(std.testing.allocator);
     defer std.testing.allocator.free(original_cwd);
-    try std.posix.chdir("examples");
-    defer std.posix.chdir(original_cwd) catch unreachable;
+    try std.process.setCurrentPath(compatIo(), "examples");
+    defer std.process.setCurrentPath(compatIo(), original_cwd) catch unreachable;
 
     var lowered = try source_lowering.inspectFileBackedInlineSource(std.testing.allocator, .{
         .case_id = "source.branch_resume",
@@ -526,11 +517,7 @@ test "source-lowering rejects drifted canonical files even when the path stays c
 }
 
 test "file-backed inline source lowering rejects whitespace drift after accepted authoring admission" {
-    const canonical_text = try std.fs.cwd().readFileAlloc(
-        std.testing.allocator,
-        "test/source_lowering_corpus/fixtures/branch_resume.zig",
-        1 << 20,
-    );
+    const canonical_text = try cwdReadFileAlloc(std.testing.allocator, "test/source_lowering_corpus/fixtures/branch_resume.zig", 1 << 20);
     defer std.testing.allocator.free(canonical_text);
 
     const drifted = try std.mem.replaceOwned(
@@ -576,7 +563,7 @@ test "file-backed inline source lowering preserves parse-error locations" {
 }
 
 test "shared witness rows ignore unrelated sibling edits in the same source file" {
-    const witness_source_text = try std.fs.cwd().readFileAlloc(std.testing.allocator, "src/witness_sources.zig", 1 << 20);
+    const witness_source_text = try cwdReadFileAlloc(std.testing.allocator, "src/witness_sources.zig", 1 << 20);
     defer std.testing.allocator.free(witness_source_text);
 
     const mutated = try std.mem.replaceOwned(
@@ -600,25 +587,27 @@ test "shared witness rows ignore unrelated sibling edits in the same source file
 }
 
 test "shared witness rows reject shared helper edits in the same source file" {
-    const witness_source_text = try std.fs.cwd().readFileAlloc(std.testing.allocator, "src/witness_sources.zig", 1 << 20);
-    defer std.testing.allocator.free(witness_source_text);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const witness_source_text = try cwdReadFileAlloc(allocator, "src/witness_sources.zig", 1 << 20);
 
     const mutated = try std.mem.replaceOwned(
         u8,
-        std.testing.allocator,
+        allocator,
         witness_source_text,
         "writer.print(\"{s}\\n\", .{line})",
         "writer.print(\"[{s}]\\n\", .{line})",
     );
-    defer std.testing.allocator.free(mutated);
 
-    var lowered = try source_lowering.inspectInlineSource(std.testing.allocator, .{
+    var lowered = try source_lowering.inspectInlineSource(allocator, .{
         .case_id = "witness.atm_resume_transform",
         .source_path = "src/witness_sources.zig",
         .entry_symbol = "runAtmResumeTransform",
         .surface_kind = .witness,
     }, mutated);
-    defer lowered.deinit(std.testing.allocator);
+    defer lowered.deinit(allocator);
 
     try std.testing.expect(!lowered.isAccepted());
     try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
@@ -645,10 +634,10 @@ test "source-lowering owns rejected source paths" {
 }
 
 test "accepted source-lowering rows canonicalize source paths" {
-    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const original_cwd = try currentPathAlloc(std.testing.allocator);
     defer std.testing.allocator.free(original_cwd);
-    try std.posix.chdir("examples");
-    defer std.posix.chdir(original_cwd) catch unreachable;
+    try std.process.setCurrentPath(compatIo(), "examples");
+    defer std.process.setCurrentPath(compatIo(), original_cwd) catch unreachable;
 
     var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
         .case_id = "example.open_row_transform_basic",
@@ -663,10 +652,10 @@ test "accepted source-lowering rows canonicalize source paths" {
 }
 
 test "source-lowering accepts canonical repo-relative paths from subdirectories" {
-    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const original_cwd = try currentPathAlloc(std.testing.allocator);
     defer std.testing.allocator.free(original_cwd);
-    try std.posix.chdir("examples");
-    defer std.posix.chdir(original_cwd) catch unreachable;
+    try std.process.setCurrentPath(compatIo(), "examples");
+    defer std.process.setCurrentPath(compatIo(), original_cwd) catch unreachable;
 
     var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
         .case_id = "example.open_row_transform_basic",

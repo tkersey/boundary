@@ -75,10 +75,10 @@ fn fnReturnMatches(comptime FnType: type, comptime ExpectedType: type) bool {
     };
 }
 
-fn fnParamsMatch(comptime FnType: type, comptime ParamTypes: []const type) bool {
+fn fnParamsMatch(comptime FnType: type, comptime param_types: []const type) bool {
     const actual = @typeInfo(FnType).@"fn".params;
-    if (actual.len != ParamTypes.len) return false;
-    inline for (ParamTypes, 0..) |ParamType, index| {
+    if (actual.len != param_types.len) return false;
+    inline for (param_types, 0..) |ParamType, index| {
         if (actual[index].type == null or actual[index].type.? != ParamType) return false;
     }
     return true;
@@ -827,18 +827,18 @@ fn cloneReplayValue(state: *ReplayCloneState, comptime T: type, value: T) lowere
         .vector,
         => value,
         .pointer => |pointer| switch (pointer.size) {
-            .one => {
+            .one => blk: {
                 switch (@typeInfo(pointer.child)) {
                     .@"fn", .@"opaque" => return value,
                     else => {},
                 }
                 if (state.pointer_clones.get(@intFromPtr(value))) |existing| {
-                    return @ptrCast(@alignCast(existing));
+                    break :blk @ptrCast(@alignCast(existing));
                 }
                 const cloned = state.allocator.create(pointer.child) catch return error.ProgramContractViolation;
                 state.pointer_clones.put(@intFromPtr(value), @ptrCast(cloned)) catch return error.ProgramContractViolation;
                 cloned.* = try cloneReplayValue(state, pointer.child, value.*);
-                return cloned;
+                break :blk cloned;
             },
             .slice => {
                 if (value.len != 0 and @sizeOf(pointer.child) != 0) {
@@ -869,7 +869,7 @@ fn cloneReplayValue(state: *ReplayCloneState, comptime T: type, value: T) lowere
                 }
                 return cloned;
             },
-            else => @compileError("frontend contextual replay does not support many-pointer or C-pointer handler context fields"),
+            .many, .c => @compileError("frontend contextual replay does not support many-pointer or C-pointer handler context fields"),
         },
         .array => |array| {
             var cloned = value;

@@ -43,7 +43,7 @@ fn expectPublicCompletionCase(comptime public_example: PublicCompletionCase) !vo
     try std.testing.expectEqualStrings(scenario.expected_transcript, lowered_writer.buffered());
 }
 
-test "public example completion rows stay source-backed and canonical" {
+test "public example completion row resource_basic stays source-backed and canonical" {
     try expectPublicCompletionCase(.{
         .case_id = "example.resource_basic",
         .source_path = "examples/resource_basic.zig",
@@ -51,6 +51,9 @@ test "public example completion rows stay source-backed and canonical" {
         .scenario_id = .resource_basic,
         .Runner = example_resource_basic,
     });
+}
+
+test "public example completion row writer_basic stays source-backed and canonical" {
     try expectPublicCompletionCase(.{
         .case_id = "example.writer_basic",
         .source_path = "examples/writer_basic.zig",

@@ -1,39 +1,17 @@
-const lowered_machine = @import("lowered_machine");
+const shared = @import("shift_shared");
 const std = @import("std");
-const with_api = @import("with_api.zig");
 
 /// Public `Runtime` declaration.
-pub const Runtime = lowered_machine.Runtime;
+pub const Runtime = shared.Runtime;
 /// Public `RuntimeError` declaration.
-pub const RuntimeError = lowered_machine.RuntimeError;
+pub const RuntimeError = shared.RuntimeError;
 /// Canonical named lexical body helper for compiled witness-only `withAt(...)` calls.
-pub const NamedBody = with_api.NamedBody;
+pub const NamedBody = shared.NamedBody;
 /// Public lexical effect namespace for internal witness-only helpers.
-pub const effect = struct {
-    /// Public lexical choice-decision helper namespace.
-    pub const choice = @import("effect/choice.zig");
-    /// Public sealed custom-effect generator.
-    pub const Define = @import("effect/define.zig").Define;
-    /// Public op-descriptor namespace for witness-local effect definitions.
-    pub const ops = @import("effect/define.zig").ops;
-    /// Exception effect family built on top of the core shift/reset runtime.
-    pub const exception = @import("effect/exception.zig");
-    /// Optional-resumption effect family built on top of the core shift/reset runtime.
-    pub const optional = @import("effect/optional.zig");
-    /// Additive reader-effect family built on top of the core shift/reset runtime.
-    pub const reader = @import("effect/reader.zig");
-    /// Bracketed resource effect family built on top of the core shift/reset runtime.
-    pub const resource = @import("effect/resource.zig");
-    /// Additive state-effect family built on top of the core shift/reset runtime.
-    pub const state = @import("effect/state.zig");
-    /// Append-only writer effect family built on top of the core shift/reset runtime.
-    pub const writer = @import("effect/writer.zig");
-};
+pub const effect = shared.effect;
 
 /// Build the public With metadata type.
-pub fn With(comptime HandlersType: type, comptime Body: type) type {
-    return with_api.With(HandlersType, Body);
-}
+pub const With = shared.With;
 
 /// Run the public lexical handler entrypoint.
 pub fn with(
@@ -41,7 +19,7 @@ pub fn with(
     runtime: *Runtime,
     handlers: anytype,
     comptime Body: type,
-) with_api.WithFnReturnType(@TypeOf(handlers), Body) {
+) @TypeOf(withAt(caller, runtime, handlers, Body)) {
     return withAt(caller, runtime, handlers, Body);
 }
 
@@ -51,6 +29,6 @@ pub fn withAt(
     runtime: *Runtime,
     handlers: anytype,
     comptime Body: type,
-) with_api.WithFnReturnType(@TypeOf(handlers), Body) {
-    return with_api.withAt(caller, runtime, handlers, Body);
+) @TypeOf(shared.withAt(caller, runtime, handlers, Body)) {
+    return shared.withAt(caller, runtime, handlers, Body);
 }

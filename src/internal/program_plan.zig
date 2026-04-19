@@ -222,16 +222,16 @@ pub const ProgramPlan = struct {
         var executable_blocks = [_]bool{false} ** (std.math.maxInt(u16) + 1);
         while (changed) {
             changed = false;
-            for (self.functions, 0..) |function, function_index| {
-                if (completion_reachability[function_index]) continue;
+            function_completion_scan: for (self.functions, 0..) |function, function_index| {
+                if (completion_reachability[function_index]) continue :function_completion_scan;
                 @memset(executable_blocks[0..], false);
                 try markFunctionExecutableBlocks(self, function, &completion_reachability, &executable_blocks);
                 const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
-                for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
+                executable_block_completion_scan: for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
                     const block_index = @as(usize, function.first_block) + relative_block_index;
-                    if (!executable_blocks[block_index]) continue;
+                    if (!executable_blocks[block_index]) continue :executable_block_completion_scan;
                     const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
-                    if (!try blockCanResumeToTerminator(self, function, block.first_instruction, instruction_end, &completion_reachability)) continue;
+                    if (!try blockCanResumeToTerminator(self, function, block.first_instruction, instruction_end, &completion_reachability)) continue :executable_block_completion_scan;
                     const terminator = self.terminators[block.terminator_index];
                     const block_completes = switch (terminator.kind) {
                         .return_unit, .return_value => true,
@@ -250,14 +250,14 @@ pub const ProgramPlan = struct {
         changed = true;
         while (changed) {
             changed = false;
-            for (self.functions, 0..) |function, function_index| {
-                if (terminal_reachability[function_index]) continue;
+            function_terminal_scan: for (self.functions, 0..) |function, function_index| {
+                if (terminal_reachability[function_index]) continue :function_terminal_scan;
                 @memset(executable_blocks[0..], false);
                 try markFunctionExecutableBlocks(self, function, &completion_reachability, &executable_blocks);
                 const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
-                for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
+                executable_block_terminal_scan: for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
                     const block_index = @as(usize, function.first_block) + relative_block_index;
-                    if (!executable_blocks[block_index]) continue;
+                    if (!executable_blocks[block_index]) continue :executable_block_terminal_scan;
                     const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
                     if (try blockCanEscapeTerminally(
                         self,
@@ -345,43 +345,37 @@ pub const ProgramPlan = struct {
                             return error.InvalidInstructionLocalIndex;
                     },
                     .add_i32, .add_const_i32, .compare_eq_zero, .const_i32, .sub_one => {
-                        switch (instruction.kind) {
-                            .add_i32 => {
-                                if (!functionLocalHasCodec(self, function, instruction.dst, .i32) or
-                                    !functionLocalHasCodec(self, function, instruction.operand, .i32) or
-                                    !functionLocalHasCodec(self, function, instruction.aux, .i32))
-                                {
-                                    return error.InvalidInstructionLocalIndex;
-                                }
-                            },
-                            .add_const_i32 => {
-                                if (!functionLocalHasCodec(self, function, instruction.dst, .i32) or
-                                    !functionLocalHasCodec(self, function, instruction.operand, .i32))
-                                {
-                                    return error.InvalidInstructionLocalIndex;
-                                }
-                            },
-                            .compare_eq_zero => {
-                                const operand_codec = functionLocalCodec(self, function, instruction.operand) orelse
-                                    return error.InvalidInstructionLocalIndex;
-                                if (operand_codec != .i32 and operand_codec != .usize) return error.InvalidInstructionLocalIndex;
-                                if (!functionLocalHasCodec(self, function, instruction.dst, .bool)) return error.InvalidInstructionLocalIndex;
-                            },
-                            .const_i32 => {
-                                const dst_codec = functionLocalCodec(self, function, instruction.dst) orelse
-                                    return error.InvalidInstructionLocalIndex;
-                                if (dst_codec != .i32) return error.InvalidInstructionLocalIndex;
-                            },
-                            .const_usize => unreachable,
-                            .sub_one => {
-                                const operand_codec = functionLocalCodec(self, function, instruction.operand) orelse
-                                    return error.InvalidInstructionLocalIndex;
-                                if (operand_codec != .i32 and operand_codec != .usize) return error.InvalidInstructionLocalIndex;
-                                if (!functionLocalHasCodec(self, function, instruction.dst, operand_codec)) {
-                                    return error.InvalidInstructionLocalIndex;
-                                }
-                            },
-                            else => unreachable,
+                        if (instruction.kind == .add_i32) {
+                            if (!functionLocalHasCodec(self, function, instruction.dst, .i32) or
+                                !functionLocalHasCodec(self, function, instruction.operand, .i32) or
+                                !functionLocalHasCodec(self, function, instruction.aux, .i32))
+                            {
+                                return error.InvalidInstructionLocalIndex;
+                            }
+                        } else if (instruction.kind == .add_const_i32) {
+                            if (!functionLocalHasCodec(self, function, instruction.dst, .i32) or
+                                !functionLocalHasCodec(self, function, instruction.operand, .i32))
+                            {
+                                return error.InvalidInstructionLocalIndex;
+                            }
+                        } else if (instruction.kind == .compare_eq_zero) {
+                            const operand_codec = functionLocalCodec(self, function, instruction.operand) orelse
+                                return error.InvalidInstructionLocalIndex;
+                            if (operand_codec != .i32 and operand_codec != .usize) return error.InvalidInstructionLocalIndex;
+                            if (!functionLocalHasCodec(self, function, instruction.dst, .bool)) return error.InvalidInstructionLocalIndex;
+                        } else if (instruction.kind == .const_i32) {
+                            const dst_codec = functionLocalCodec(self, function, instruction.dst) orelse
+                                return error.InvalidInstructionLocalIndex;
+                            if (dst_codec != .i32) return error.InvalidInstructionLocalIndex;
+                        } else if (instruction.kind == .sub_one) {
+                            const operand_codec = functionLocalCodec(self, function, instruction.operand) orelse
+                                return error.InvalidInstructionLocalIndex;
+                            if (operand_codec != .i32 and operand_codec != .usize) return error.InvalidInstructionLocalIndex;
+                            if (!functionLocalHasCodec(self, function, instruction.dst, operand_codec)) {
+                                return error.InvalidInstructionLocalIndex;
+                            }
+                        } else {
+                            return error.InvalidInstructionLocalIndex;
                         }
                     },
                     .return_value => {
@@ -708,13 +702,15 @@ fn terminalAbortInstruction(
     const instruction_span_end = @as(usize, function.first_instruction) + function.instruction_count;
     if (instruction_index < function.first_instruction or instruction_index >= instruction_span_end) return false;
     const instruction = self.instructions[instruction_index];
-    return switch (instruction.kind) {
-        .call_helper => instruction.operand < self.functions.len and
+    if (instruction.kind == .call_helper) {
+        return instruction.operand < self.functions.len and
             reachability.terminal[instruction.operand] and
-            !reachability.completion[instruction.operand],
-        .call_op => instruction.operand < self.ops.len and self.ops[instruction.operand].mode == .abort,
-        else => false,
-    };
+            !reachability.completion[instruction.operand];
+    }
+    if (instruction.kind == .call_op) {
+        return instruction.operand < self.ops.len and self.ops[instruction.operand].mode == .abort;
+    }
+    return false;
 }
 
 const FunctionControlReachability = struct {
@@ -739,9 +735,9 @@ fn markFunctionReachableBlocks(
     var changed = true;
     while (changed) {
         changed = false;
-        for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
+        reachable_block_scan: for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
             const block_index = @as(usize, function.first_block) + relative_block_index;
-            if (!reachable_blocks[block_index]) continue;
+            if (!reachable_blocks[block_index]) continue :reachable_block_scan;
             const terminator = self.terminators[block.terminator_index];
             switch (terminator.kind) {
                 .branch_if => {
@@ -780,18 +776,14 @@ fn blockCanResumeToTerminator(
     completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
 ) ValidationError!bool {
     for (self.instructions[first_instruction..instruction_end]) |instruction| {
-        switch (instruction.kind) {
-            .call_helper => {
-                if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
-                if (!completion_reachability[instruction.operand]) return false;
-            },
-            .call_op => {
-                if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
-                    return error.InvalidCallOpTarget;
-                }
-                if (self.ops[instruction.operand].mode == .abort) return false;
-            },
-            else => {},
+        if (instruction.kind == .call_helper) {
+            if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
+            if (!completion_reachability[instruction.operand]) return false;
+        } else if (instruction.kind == .call_op) {
+            if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
+                return error.InvalidCallOpTarget;
+            }
+            if (self.ops[instruction.operand].mode == .abort) return false;
         }
     }
     return true;
@@ -805,19 +797,15 @@ fn blockCanEscapeTerminally(
     reachability: FunctionControlReachability,
 ) ValidationError!bool {
     for (self.instructions[first_instruction..instruction_end]) |instruction| {
-        switch (instruction.kind) {
-            .call_helper => {
-                if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
-                if (reachability.terminal[instruction.operand]) return true;
-                if (!reachability.completion[instruction.operand]) return false;
-            },
-            .call_op => {
-                if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
-                    return error.InvalidCallOpTarget;
-                }
-                if (self.ops[instruction.operand].mode != .transform) return true;
-            },
-            else => {},
+        if (instruction.kind == .call_helper) {
+            if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
+            if (reachability.terminal[instruction.operand]) return true;
+            if (!reachability.completion[instruction.operand]) return false;
+        } else if (instruction.kind == .call_op) {
+            if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
+                return error.InvalidCallOpTarget;
+            }
+            if (self.ops[instruction.operand].mode != .transform) return true;
         }
     }
     return false;
@@ -836,11 +824,11 @@ fn markFunctionExecutableBlocks(
     var changed = true;
     while (changed) {
         changed = false;
-        for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
+        executable_block_scan: for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
             const block_index = @as(usize, function.first_block) + relative_block_index;
-            if (!executable_blocks[block_index]) continue;
+            if (!executable_blocks[block_index]) continue :executable_block_scan;
             const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
-            if (!try blockCanResumeToTerminator(self, function, block.first_instruction, instruction_end, completion_reachability)) continue;
+            if (!try blockCanResumeToTerminator(self, function, block.first_instruction, instruction_end, completion_reachability)) continue :executable_block_scan;
             const terminator = self.terminators[block.terminator_index];
             switch (terminator.kind) {
                 .branch_if => {
@@ -1011,8 +999,8 @@ fn rowOnlyFunctionSynthesis(
     var forwarded_arg_count: usize = 0;
     var value_returning_helper_count: usize = 0;
     var value_result_codec: ?ValueCodec = null;
-    for (program.call_edges) |edge| {
-        if (!edge.caller.eql(function.symbol)) continue;
+    call_edge_scan: for (program.call_edges) |edge| {
+        if (!edge.caller.eql(function.symbol)) continue :call_edge_scan;
         helper_call_count += 1;
 
         const callee_index = symbolIndex(program, edge.callee) orelse return error.UnknownSymbol;
@@ -1023,7 +1011,7 @@ fn rowOnlyFunctionSynthesis(
         }
         forwarded_arg_count += callee.parameter_codecs.len;
 
-        if (callee.ValueType == void) continue;
+        if (callee.ValueType == void) continue :call_edge_scan;
         value_returning_helper_count += 1;
         const callee_value_codec = try valueCodecFromEffectType(callee.ValueType);
         if (value_result_codec == null) {
@@ -1296,8 +1284,8 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         var buf: [call_arg_total]u16 = undefined;
         var call_arg_index: usize = 0;
         for (program.functions) |function| {
-            for (program.call_edges) |edge| {
-                if (!edge.caller.eql(function.symbol)) continue;
+            call_arg_edge_scan: for (program.call_edges) |edge| {
+                if (!edge.caller.eql(function.symbol)) continue :call_arg_edge_scan;
                 const callee_index = symbolIndex(program, edge.callee) orelse return error.UnknownSymbol;
                 const callee = program.functions[callee_index];
                 for (callee.parameter_codecs, 0..) |_, parameter_index| {
@@ -1339,8 +1327,8 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         var call_arg_base: u16 = 0;
         for (program.functions, 0..) |function, function_index| {
             const synthesis = try rowOnlyFunctionSynthesis(program, function_index);
-            for (program.call_edges) |edge| {
-                if (!edge.caller.eql(function.symbol)) continue;
+            instruction_edge_scan: for (program.call_edges) |edge| {
+                if (!edge.caller.eql(function.symbol)) continue :instruction_edge_scan;
                 const callee_index = symbolIndex(program, edge.callee) orelse return error.UnknownSymbol;
                 const callee = program.functions[callee_index];
                 buf[instruction_index] = .{
@@ -1390,10 +1378,10 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
     return plan;
 }
 
-fn BindingFamilyForLabel(comptime binding_schemas: anytype, comptime label: []const u8) ?type {
-    inline for (binding_schemas) |BindingSchema| {
-        const BindingSchemaType = if (@TypeOf(BindingSchema) == type) BindingSchema else @TypeOf(BindingSchema);
-        if (std.mem.eql(u8, BindingSchemaType.requirement_label, label)) return BindingSchemaType.family;
+fn bindingFamilyForLabel(comptime binding_schemas: anytype, comptime label: []const u8) ?type {
+    inline for (binding_schemas) |binding_schema| {
+        const binding_schema_type = if (@TypeOf(binding_schema) == type) binding_schema else @TypeOf(binding_schema);
+        if (std.mem.eql(u8, binding_schema_type.requirement_label, label)) return binding_schema_type.family;
     }
     return null;
 }
@@ -1416,13 +1404,13 @@ pub fn enrichPlanWithBindingSchemas(
     const enriched_requirements = comptime blk: {
         var buffer: [base_plan.requirements.len]RequirementPlan = undefined;
         for (base_plan.requirements, 0..) |requirement, index| {
-            const FamilySchema = BindingFamilyForLabel(binding_schemas, requirement.label);
+            const family_schema = bindingFamilyForLabel(binding_schemas, requirement.label);
             buffer[index] = .{
                 .label = requirement.label,
                 .first_op = requirement.first_op,
                 .op_count = requirement.op_count,
-                .lifecycle_tag = if (FamilySchema) |Schema| requirementLifecycleFromBindingSchema(Schema) else .plain_transform,
-                .output_tag = if (FamilySchema) |Schema| requirementOutputFromBindingSchema(Schema) else .none,
+                .lifecycle_tag = if (family_schema) |schema| requirementLifecycleFromBindingSchema(schema) else .plain_transform,
+                .output_tag = if (family_schema) |schema| requirementOutputFromBindingSchema(schema) else .none,
             };
         }
         break :blk buffer;

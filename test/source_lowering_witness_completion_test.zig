@@ -30,43 +30,61 @@ fn expectWitnessCase(comptime completion: CompletionCase) !void {
     try std.testing.expectEqualStrings(scenario.expected_transcript, lowered_writer.buffered());
 }
 
-test "admitted source-lowering witness rows stay source-backed and canonical" {
+test "admitted source-lowering witness row atm_resume_transform stays source-backed and canonical" {
     try expectWitnessCase(.{
         .case_id = "witness.atm_resume_transform",
         .source_path = "src/witness_sources.zig",
         .entry_symbol = "runAtmResumeTransform",
         .scenario_id = .atm_resume_transform,
     });
+}
+
+test "admitted source-lowering witness row direct_return stays source-backed and canonical" {
     try expectWitnessCase(.{
         .case_id = "witness.direct_return",
         .source_path = "src/witness_sources.zig",
         .entry_symbol = "runDirectReturn",
         .scenario_id = .direct_return,
     });
+}
+
+test "admitted source-lowering witness row multi_prompt stays source-backed and canonical" {
     try expectWitnessCase(.{
         .case_id = "witness.multi_prompt",
         .source_path = "src/witness_sources.zig",
         .entry_symbol = "runMultiPrompt",
         .scenario_id = .multi_prompt,
     });
+}
+
+test "admitted source-lowering witness row resume_or_return_return_now stays source-backed and canonical" {
     try expectWitnessCase(.{
         .case_id = "witness.resume_or_return_return_now",
         .source_path = "src/witness_sources.zig",
         .entry_symbol = "runResumeOrReturnReturnNow",
         .scenario_id = .resume_or_return_return_now,
     });
+}
+
+test "admitted source-lowering witness row resume_or_return_resume stays source-backed and canonical" {
     try expectWitnessCase(.{
         .case_id = "witness.resume_or_return_resume",
         .source_path = "src/witness_sources.zig",
         .entry_symbol = "runResumeOrReturnResume",
         .scenario_id = .resume_or_return_resume,
     });
+}
+
+test "admitted source-lowering witness row static_redelim stays source-backed and canonical" {
     try expectWitnessCase(.{
         .case_id = "witness.static_redelim",
         .source_path = "src/witness_sources.zig",
         .entry_symbol = "runStaticRedelim",
         .scenario_id = .static_redelim,
     });
+}
+
+test "admitted source-lowering witness row generator stays source-backed and canonical" {
     try expectWitnessCase(.{
         .case_id = "witness.generator",
         .source_path = "src/witness_sources.zig",

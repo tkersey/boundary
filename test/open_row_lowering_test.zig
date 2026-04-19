@@ -14,16 +14,88 @@ const shift = @import("shift_compile");
 const shift_vm = @import("shift_vm");
 const std = @import("std");
 
+fn compatIo() std.Io {
+    return std.Io.Threaded.global_single_threaded.io();
+}
+
+fn tmpRealPathAlloc(
+    tmp: *std.testing.TmpDir,
+    allocator: std.mem.Allocator,
+    path: []const u8,
+) ![:0]u8 {
+    return try tmp.dir.realPathFileAlloc(compatIo(), path, allocator);
+}
+
+fn cwdRealPathAlloc(allocator: std.mem.Allocator, path: []const u8) ![:0]u8 {
+    return try std.Io.Dir.cwd().realPathFileAlloc(compatIo(), path, allocator);
+}
+
+fn cwdReadFileAlloc(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    limit: usize,
+) ![]u8 {
+    return try std.Io.Dir.cwd().readFileAlloc(compatIo(), path, allocator, .limited(limit));
+}
+
+fn cwdWriteFile(path: []const u8, data: []const u8) !void {
+    try std.Io.Dir.cwd().writeFile(compatIo(), .{
+        .sub_path = path,
+        .data = data,
+        .flags = .{ .truncate = true },
+    });
+}
+
+fn openDirAbsolute(path: []const u8, options: std.Io.Dir.OpenOptions) !std.Io.Dir {
+    return try std.Io.Dir.openDirAbsolute(compatIo(), path, options);
+}
+
+fn dirWriteFile(dir: std.Io.Dir, sub_path: []const u8, data: []const u8) !void {
+    try dir.writeFile(compatIo(), .{
+        .sub_path = sub_path,
+        .data = data,
+        .flags = .{ .truncate = true },
+    });
+}
+
+fn dirMakePath(dir: std.Io.Dir, sub_path: []const u8) !void {
+    var opened = try dir.createDirPathOpen(compatIo(), sub_path, .{});
+    opened.close(compatIo());
+}
+
+fn deleteTreeAbsolute(path: []const u8) !void {
+    try std.Io.Dir.cwd().deleteTree(compatIo(), path);
+}
+
+fn deleteFileAbsolute(path: []const u8) !void {
+    try std.Io.Dir.deleteFileAbsolute(compatIo(), path);
+}
+
+fn makeDirAbsolute(path: []const u8) !void {
+    try std.Io.Dir.createDirAbsolute(compatIo(), path, .default_dir);
+}
+
+fn symLinkAbsolute(target_path: []const u8, sym_link_path: []const u8) !void {
+    try std.Io.Dir.symLinkAbsolute(compatIo(), target_path, sym_link_path, .{});
+}
+
+var unique_suffix_counter: u64 = 0;
+
+fn uniqueSuffix() u64 {
+    unique_suffix_counter += 1;
+    return unique_suffix_counter;
+}
+
 fn symlinkAliasPath(
     allocator: std.mem.Allocator,
     tmp: *std.testing.TmpDir,
     target_path: []const u8,
     alias_name: []const u8,
 ) ![]u8 {
-    try tmp.dir.symLink(target_path, alias_name, .{});
-    const tmp_path = try tmp.dir.realpathAlloc(allocator, ".");
+    try tmp.dir.symLink(compatIo(), target_path, alias_name, .{});
+    const tmp_path = try tmpRealPathAlloc(tmp, allocator, ".");
     defer allocator.free(tmp_path);
-    return try std.fmt.allocPrint(allocator, "{s}{c}{s}", .{ tmp_path, std.fs.path.sep, alias_name });
+    return try std.fmt.allocPrint(allocator, "{s}{c}{s}", .{ tmp_path, std.Io.Dir.path.sep, alias_name });
 }
 
 const LoweredStateHandler = struct {
@@ -162,7 +234,7 @@ test "public lowered runner executes cross-file lowered program" {
 }
 
 test "straight-line helper bodies lower real source-owned call_op and call_helper instructions" {
-    const lowered = try example_open_row_linear_helper_body.loweredProgram();
+    const lowered = comptime try example_open_row_linear_helper_body.loweredProgram();
 
     const helper_index = comptime blk: {
         for (lowered.program.functions, 0..) |function, function_index| {
@@ -194,7 +266,7 @@ test "straight-line helper bodies lower real source-owned call_op and call_helpe
 }
 
 test "escaped helper string literals decode before const_string emission" {
-    const lowered = try example_open_row_escaped_string_helper_body.loweredProgram();
+    const lowered = comptime try example_open_row_escaped_string_helper_body.loweredProgram();
 
     const helper_index = comptime blk: {
         for (lowered.program.functions, 0..) |function, function_index| {
@@ -315,7 +387,7 @@ test "recursive helper lowering honors renamed effect params" {
     });
 
     const runtime_plan = RecursiveCtx.runtime_plan;
-    const countdown_index = comptime blk: {
+    const countdown_index = blk: {
         for (runtime_plan.functions, 0..) |function, function_index| {
             if (std.mem.eql(u8, function.symbol_name, "countdown")) break :blk function_index;
         }
@@ -330,7 +402,7 @@ test "recursive helper lowering honors renamed effect params" {
 }
 
 test "branching helper body lowers a real if-else control-flow body" {
-    const lowered = try example_open_row_branching_helper_body.loweredProgram();
+    const lowered = comptime try example_open_row_branching_helper_body.loweredProgram();
 
     const helper_index = comptime blk: {
         for (lowered.program.functions, 0..) |function, function_index| {
@@ -376,7 +448,7 @@ test "public lowered runner executes both branches of the branching helper body"
 }
 
 test "helper value-flow lowering exposes a multi-parameter helper ABI and local return" {
-    const lowered = try example_open_row_helper_value_flow.loweredProgram();
+    const lowered = comptime try example_open_row_helper_value_flow.loweredProgram();
 
     const helper_index = comptime blk: {
         for (lowered.program.functions, 0..) |function, function_index| {
@@ -417,7 +489,7 @@ test "public lowered runner executes helper value flow through one helper parame
 }
 
 test "cross-file helper value-flow lowering carries the same helper ABI through imported modules" {
-    const lowered = try example_open_row_helper_value_flow_cross.loweredProgram();
+    const lowered = comptime try example_open_row_helper_value_flow_cross.loweredProgram();
 
     const helper_index = comptime blk: {
         for (lowered.program.functions, 0..) |function, function_index| {
@@ -456,7 +528,7 @@ test "public lowered runner executes cross-file helper value flow through the mu
 }
 
 test "bool helper lowering preserves helper parameter and return codecs" {
-    const lowered = try example_open_row_helper_bool_flow.loweredProgram();
+    const lowered = comptime try example_open_row_helper_bool_flow.loweredProgram();
 
     const helper_index = comptime blk: {
         for (lowered.program.functions, 0..) |function, function_index| {
@@ -513,16 +585,16 @@ test "generated cross-file lowered programs validate through imported helper mod
 }
 
 test "generated lowered programs validate repo-relative source paths from outside the repo root" {
-    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const original_cwd = try cwdRealPathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(original_cwd);
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const external_cwd = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const external_cwd = try tmpRealPathAlloc(&tmp, std.testing.allocator, ".");
     defer std.testing.allocator.free(external_cwd);
 
-    try std.posix.chdir(external_cwd);
-    defer std.posix.chdir(original_cwd) catch unreachable;
+    try std.process.setCurrentPath(compatIo(), external_cwd);
+    defer std.process.setCurrentPath(compatIo(), original_cwd) catch unreachable;
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -606,7 +678,7 @@ test "explicit ir compilation accepts row-only helper params and helper return v
 }
 
 test "explicit ir compilation respects an explicit non-zero entry index" {
-    const row = shift.ir.rowFromSpec(.{
+    const row = comptime shift.ir.rowFromSpec(.{
         .writer = .{
             .tell = shift.ir.Transform([]const u8, void),
         },
@@ -619,7 +691,7 @@ test "explicit ir compilation respects an explicit non-zero entry index" {
         .module_path = "examples/hand_authored.zig",
         .symbol_name = "root",
     };
-    const HandAuthoredProgram: shift.ir.Program = .{
+    const HandAuthoredProgram = comptime shift.ir.Program{
         .entry_index = 1,
         .functions = &.{
             .{
@@ -826,7 +898,7 @@ test "explicit IR compilation preserves non-zero helper-body entry blocks in the
         .module_path = "test/open_row_lowering_test.zig",
         .symbol_name = "entryBlockRoot",
     };
-    const HandAuthoredProgram: shift.ir.Program = .{
+    const HandAuthoredProgram = comptime shift.ir.Program{
         .entry_index = 0,
         .functions = &.{.{
             .symbol = entry_symbol,
@@ -874,17 +946,17 @@ test "same-module validation accepts helper graphs for explicit-path lowering" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    try tmp.dir.writeFile(.{
-        .sub_path = "helper_case.zig",
-        .data =
+    try dirWriteFile(
+        tmp.dir,
+        "helper_case.zig",
         \\fn helper() void {}
         \\pub fn runBody() void {
         \\    helper();
         \\}
         ,
-    });
+    );
 
-    const tmp_path = try tmp.dir.realpathAlloc(std.testing.allocator, "helper_case.zig");
+    const tmp_path = try tmpRealPathAlloc(&tmp, std.testing.allocator, "helper_case.zig");
     defer std.testing.allocator.free(tmp_path);
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -896,9 +968,9 @@ test "same-module validation accepts alias-based effect access for explicit-path
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    try tmp.dir.writeFile(.{
-        .sub_path = "alias_effect_access.zig",
-        .data =
+    try dirWriteFile(
+        tmp.dir,
+        "alias_effect_access.zig",
         \\fn helper(eff: anytype) !void {
         \\    const writer = eff.writer;
         \\    try writer.tell("queued");
@@ -910,9 +982,9 @@ test "same-module validation accepts alias-based effect access for explicit-path
         \\    try helper(eff);
         \\}
         ,
-    });
+    );
 
-    const tmp_path = try tmp.dir.realpathAlloc(std.testing.allocator, "alias_effect_access.zig");
+    const tmp_path = try tmpRealPathAlloc(&tmp, std.testing.allocator, "alias_effect_access.zig");
     defer std.testing.allocator.free(tmp_path);
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -924,17 +996,17 @@ test "same-module validation rejects unsupported effect access for explicit-path
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    try tmp.dir.writeFile(.{
-        .sub_path = "unsupported_effect_access.zig",
-        .data =
+    try dirWriteFile(
+        tmp.dir,
+        "unsupported_effect_access.zig",
         \\fn consume(_: anytype) void {}
         \\pub fn runBody(eff: anytype) void {
         \\    consume(eff.state);
         \\}
         ,
-    });
+    );
 
-    const tmp_path = try tmp.dir.realpathAlloc(std.testing.allocator, "unsupported_effect_access.zig");
+    const tmp_path = try tmpRealPathAlloc(&tmp, std.testing.allocator, "unsupported_effect_access.zig");
     defer std.testing.allocator.free(tmp_path);
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -949,9 +1021,9 @@ test "same-module validation accepts recursive helper graphs for explicit-path l
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    try tmp.dir.writeFile(.{
-        .sub_path = "recursive_helpers.zig",
-        .data =
+    try dirWriteFile(
+        tmp.dir,
+        "recursive_helpers.zig",
         \\fn helper() void {
         \\    runBody();
         \\}
@@ -959,9 +1031,9 @@ test "same-module validation accepts recursive helper graphs for explicit-path l
         \\    helper();
         \\}
         ,
-    });
+    );
 
-    const tmp_path = try tmp.dir.realpathAlloc(std.testing.allocator, "recursive_helpers.zig");
+    const tmp_path = try tmpRealPathAlloc(&tmp, std.testing.allocator, "recursive_helpers.zig");
     defer std.testing.allocator.free(tmp_path);
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -973,26 +1045,26 @@ test "file-backed validation resolves cross-file helper imports for explicit-pat
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    try tmp.dir.writeFile(.{
-        .sub_path = "helpers.zig",
-        .data =
+    try dirWriteFile(
+        tmp.dir,
+        "helpers.zig",
         \\pub fn helper(eff: anytype) !void {
         \\    try eff.writer.tell("cross-file");
         \\}
         ,
-    });
-    try tmp.dir.writeFile(.{
-        .sub_path = "entry.zig",
-        .data =
+    );
+    try dirWriteFile(
+        tmp.dir,
+        "entry.zig",
         \\const helpers = @import("helpers.zig");
         \\
         \\pub fn runBody(eff: anytype) !void {
         \\    try helpers.helper(eff);
         \\}
         ,
-    });
+    );
 
-    const tmp_path = try tmp.dir.realpathAlloc(std.testing.allocator, "entry.zig");
+    const tmp_path = try tmpRealPathAlloc(&tmp, std.testing.allocator, "entry.zig");
     defer std.testing.allocator.free(tmp_path);
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -1004,9 +1076,9 @@ test "file-backed validation ignores unreachable imported helper graphs review r
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    try tmp.dir.writeFile(.{
-        .sub_path = "entry.zig",
-        .data =
+    try dirWriteFile(
+        tmp.dir,
+        "entry.zig",
         \\const missing = @import("missing.zig");
         \\
         \\fn unrelated(eff: anytype) !void {
@@ -1017,9 +1089,9 @@ test "file-backed validation ignores unreachable imported helper graphs review r
         \\    try eff.writer.tell("ok");
         \\}
         ,
-    });
+    );
 
-    const tmp_path = try tmp.dir.realpathAlloc(std.testing.allocator, "entry.zig");
+    const tmp_path = try tmpRealPathAlloc(&tmp, std.testing.allocator, "entry.zig");
     defer std.testing.allocator.free(tmp_path);
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -1031,27 +1103,27 @@ test "file-backed validation resolves escaped helper import strings for explicit
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    try tmp.dir.makePath("helpers");
-    try tmp.dir.writeFile(.{
-        .sub_path = "helpers/util.zig",
-        .data =
+    try dirMakePath(tmp.dir, "helpers");
+    try dirWriteFile(
+        tmp.dir,
+        "helpers/util.zig",
         \\pub fn helper(eff: anytype) !void {
         \\    try eff.writer.tell("escaped-path");
         \\}
         ,
-    });
-    try tmp.dir.writeFile(.{
-        .sub_path = "entry.zig",
-        .data =
+    );
+    try dirWriteFile(
+        tmp.dir,
+        "entry.zig",
         \\const helpers = @import("helpers\x2futil\x2ezig");
         \\
         \\pub fn runBody(eff: anytype) !void {
         \\    try helpers.helper(eff);
         \\}
         ,
-    });
+    );
 
-    const tmp_path = try tmp.dir.realpathAlloc(std.testing.allocator, "entry.zig");
+    const tmp_path = try tmpRealPathAlloc(&tmp, std.testing.allocator, "entry.zig");
     defer std.testing.allocator.free(tmp_path);
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -1060,7 +1132,7 @@ test "file-backed validation resolves escaped helper import strings for explicit
 }
 
 test "file-backed validation resolves cross-file helper imports from checkout aliases" {
-    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const original_cwd = try cwdRealPathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(original_cwd);
 
     var tmp = std.testing.tmpDir(.{});
@@ -1068,7 +1140,7 @@ test "file-backed validation resolves cross-file helper imports from checkout al
     const checkout_alias = try symlinkAliasPath(std.testing.allocator, &tmp, original_cwd, "shift_repo_alias");
     defer std.testing.allocator.free(checkout_alias);
 
-    const entry_path = try std.fs.path.join(
+    const entry_path = try std.Io.Dir.path.join(
         std.testing.allocator,
         &.{ checkout_alias, "examples", "open_row_cross_file_writer.zig" },
     );
@@ -1080,7 +1152,7 @@ test "file-backed validation resolves cross-file helper imports from checkout al
 }
 
 test "file-backed validation rejects helper imports that escape the package root" {
-    const entry_path = try std.fs.cwd().realpathAlloc(std.testing.allocator, "test/open_row_validation_boundary/entry_escape_import.zig");
+    const entry_path = try cwdRealPathAlloc(std.testing.allocator, "test/open_row_validation_boundary/entry_escape_import.zig");
     defer std.testing.allocator.free(entry_path);
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -1095,36 +1167,36 @@ test "file-backed validation rejects absolute-path helper imports that escape th
     const external_root = try std.fmt.allocPrint(
         std.testing.allocator,
         "/tmp/shift-open-row-absolute-helper-import-{d}",
-        .{std.time.nanoTimestamp()},
+        .{uniqueSuffix()},
     );
     defer std.testing.allocator.free(external_root);
-    std.fs.deleteTreeAbsolute(external_root) catch {};
-    try std.fs.makeDirAbsolute(external_root);
-    defer std.fs.deleteTreeAbsolute(external_root) catch unreachable;
+    deleteTreeAbsolute(external_root) catch {};
+    try makeDirAbsolute(external_root);
+    defer deleteTreeAbsolute(external_root) catch unreachable;
 
-    var external_dir = try std.fs.openDirAbsolute(external_root, .{});
-    defer external_dir.close();
-    try external_dir.makePath("nested/deeper");
-    try external_dir.writeFile(.{
-        .sub_path = "outside_helper.zig",
-        .data =
+    var external_dir = try openDirAbsolute(external_root, .{});
+    defer external_dir.close(compatIo());
+    try dirMakePath(external_dir, "nested/deeper");
+    try dirWriteFile(
+        external_dir,
+        "outside_helper.zig",
         \\pub fn helper(eff: anytype) !void {
         \\    try eff.writer.tell("escaped");
         \\}
         ,
-    });
-    try external_dir.writeFile(.{
-        .sub_path = "nested/deeper/entry.zig",
-        .data =
+    );
+    try dirWriteFile(
+        external_dir,
+        "nested/deeper/entry.zig",
         \\const helpers = @import("../../outside_helper.zig");
         \\
         \\pub fn runBody(eff: anytype) !void {
         \\    try helpers.helper(eff);
         \\}
         ,
-    });
+    );
 
-    const entry_path = try std.fs.path.join(
+    const entry_path = try std.Io.Dir.path.join(
         std.testing.allocator,
         &.{ external_root, "nested", "deeper", "entry.zig" },
     );
@@ -1139,11 +1211,11 @@ test "file-backed validation rejects absolute-path helper imports that escape th
 }
 
 test "file-backed validation accepts repo-local relative entry paths from subdirectories" {
-    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const original_cwd = try cwdRealPathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(original_cwd);
 
-    try std.posix.chdir("examples");
-    defer std.posix.chdir(original_cwd) catch unreachable;
+    try std.process.setCurrentPath(compatIo(), "examples");
+    defer std.process.setCurrentPath(compatIo(), original_cwd) catch unreachable;
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -1151,34 +1223,35 @@ test "file-backed validation accepts repo-local relative entry paths from subdir
 }
 
 test "file-backed validation rejects relative entry paths that escape the package root" {
-    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const original_cwd = try cwdRealPathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(original_cwd);
 
     const external_root = try std.fmt.allocPrint(
         std.testing.allocator,
         "/tmp/shift-open-row-validation-{d}",
-        .{std.time.nanoTimestamp()},
+        .{uniqueSuffix()},
     );
     defer std.testing.allocator.free(external_root);
-    std.fs.deleteTreeAbsolute(external_root) catch {};
-    try std.fs.makeDirAbsolute(external_root);
-    defer std.fs.deleteTreeAbsolute(external_root) catch unreachable;
+    deleteTreeAbsolute(external_root) catch {};
+    try makeDirAbsolute(external_root);
+    defer deleteTreeAbsolute(external_root) catch unreachable;
 
-    var external_dir = try std.fs.openDirAbsolute(external_root, .{});
-    defer external_dir.close();
-    try external_dir.makeDir("inside");
-    try external_dir.writeFile(.{
-        .sub_path = "outside.zig",
-        .data =
+    var external_dir = try openDirAbsolute(external_root, .{});
+    defer external_dir.close(compatIo());
+    var inside_dir = try external_dir.createDirPathOpen(compatIo(), "inside", .{});
+    inside_dir.close(compatIo());
+    try dirWriteFile(
+        external_dir,
+        "outside.zig",
         \\pub fn runBody() void {}
         ,
-    });
+    );
 
-    const inside_path = try std.fs.path.join(std.testing.allocator, &.{ external_root, "inside" });
+    const inside_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ external_root, "inside" });
     defer std.testing.allocator.free(inside_path);
 
-    try std.posix.chdir(inside_path);
-    defer std.posix.chdir(original_cwd) catch unreachable;
+    try std.process.setCurrentPath(compatIo(), inside_path);
+    defer std.process.setCurrentPath(compatIo(), original_cwd) catch unreachable;
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -1192,23 +1265,23 @@ test "file-backed validation rejects absolute entry paths outside the package ro
     const external_root = try std.fmt.allocPrint(
         std.testing.allocator,
         "/tmp/shift-open-row-absolute-entry-{d}",
-        .{std.time.nanoTimestamp()},
+        .{uniqueSuffix()},
     );
     defer std.testing.allocator.free(external_root);
-    std.fs.deleteTreeAbsolute(external_root) catch {};
-    try std.fs.makeDirAbsolute(external_root);
-    defer std.fs.deleteTreeAbsolute(external_root) catch unreachable;
+    deleteTreeAbsolute(external_root) catch {};
+    try makeDirAbsolute(external_root);
+    defer deleteTreeAbsolute(external_root) catch unreachable;
 
-    var external_dir = try std.fs.openDirAbsolute(external_root, .{});
-    defer external_dir.close();
-    try external_dir.writeFile(.{
-        .sub_path = "entry.zig",
-        .data =
+    var external_dir = try openDirAbsolute(external_root, .{});
+    defer external_dir.close(compatIo());
+    try dirWriteFile(
+        external_dir,
+        "entry.zig",
         \\pub fn runBody() void {}
         ,
-    });
+    );
 
-    const entry_path = try std.fs.path.join(std.testing.allocator, &.{ external_root, "entry.zig" });
+    const entry_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ external_root, "entry.zig" });
     defer std.testing.allocator.free(entry_path);
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -1222,42 +1295,42 @@ test "file-backed validation rejects absolute entry paths outside the package ro
 test "file-backed validation rejects repo-relative symlink entries that canonicalize outside the package root" {
     if (builtin.os.tag == .windows) return error.SkipZigTest;
 
-    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const original_cwd = try cwdRealPathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(original_cwd);
 
     const external_root = try std.fmt.allocPrint(
         std.testing.allocator,
         "/tmp/shift-open-row-symlink-{d}",
-        .{std.time.nanoTimestamp()},
+        .{uniqueSuffix()},
     );
     defer std.testing.allocator.free(external_root);
-    std.fs.deleteTreeAbsolute(external_root) catch {};
-    try std.fs.makeDirAbsolute(external_root);
-    defer std.fs.deleteTreeAbsolute(external_root) catch unreachable;
-    var external_dir = try std.fs.openDirAbsolute(external_root, .{});
-    defer external_dir.close();
-    try external_dir.writeFile(.{
-        .sub_path = "outside.zig",
-        .data =
+    deleteTreeAbsolute(external_root) catch {};
+    try makeDirAbsolute(external_root);
+    defer deleteTreeAbsolute(external_root) catch unreachable;
+    var external_dir = try openDirAbsolute(external_root, .{});
+    defer external_dir.close(compatIo());
+    try dirWriteFile(
+        external_dir,
+        "outside.zig",
         \\pub fn runBody() void {}
         ,
-    });
+    );
 
-    const outside_path = try std.fs.path.join(std.testing.allocator, &.{ external_root, "outside.zig" });
+    const outside_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ external_root, "outside.zig" });
     defer std.testing.allocator.free(outside_path);
 
     const repo_link_path = try std.fmt.allocPrint(
         std.testing.allocator,
         "test/open_row_validation_boundary/runtime_escape_link_{d}.zig",
-        .{std.time.nanoTimestamp()},
+        .{uniqueSuffix()},
     );
     defer std.testing.allocator.free(repo_link_path);
 
-    const absolute_link_path = try std.fs.path.join(std.testing.allocator, &.{ original_cwd, repo_link_path });
+    const absolute_link_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ original_cwd, repo_link_path });
     defer std.testing.allocator.free(absolute_link_path);
-    std.fs.deleteFileAbsolute(absolute_link_path) catch {};
-    try std.fs.symLinkAbsolute(outside_path, absolute_link_path, .{});
-    defer std.fs.deleteFileAbsolute(absolute_link_path) catch unreachable;
+    deleteFileAbsolute(absolute_link_path) catch {};
+    try symLinkAbsolute(outside_path, absolute_link_path);
+    defer deleteFileAbsolute(absolute_link_path) catch unreachable;
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -1270,34 +1343,34 @@ test "file-backed validation rejects repo-relative symlink entries that canonica
 test "file-backed validation rejects repo-relative symlink helper imports that canonicalize outside the package root" {
     if (builtin.os.tag == .windows) return error.SkipZigTest;
 
-    const original_cwd = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const original_cwd = try cwdRealPathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(original_cwd);
 
     const external_root = try std.fmt.allocPrint(
         std.testing.allocator,
         "/tmp/shift-open-row-helper-symlink-{d}",
-        .{std.time.nanoTimestamp()},
+        .{uniqueSuffix()},
     );
     defer std.testing.allocator.free(external_root);
-    std.fs.deleteTreeAbsolute(external_root) catch {};
-    try std.fs.makeDirAbsolute(external_root);
-    defer std.fs.deleteTreeAbsolute(external_root) catch unreachable;
+    deleteTreeAbsolute(external_root) catch {};
+    try makeDirAbsolute(external_root);
+    defer deleteTreeAbsolute(external_root) catch unreachable;
 
-    var external_dir = try std.fs.openDirAbsolute(external_root, .{});
-    defer external_dir.close();
-    try external_dir.writeFile(.{
-        .sub_path = "outside_helper.zig",
-        .data =
+    var external_dir = try openDirAbsolute(external_root, .{});
+    defer external_dir.close(compatIo());
+    try dirWriteFile(
+        external_dir,
+        "outside_helper.zig",
         \\pub fn helper(eff: anytype) !void {
         \\    try eff.writer.tell("outside");
         \\}
         ,
-    });
+    );
 
-    const outside_path = try std.fs.path.join(std.testing.allocator, &.{ external_root, "outside_helper.zig" });
+    const outside_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ external_root, "outside_helper.zig" });
     defer std.testing.allocator.free(outside_path);
 
-    const timestamp = std.time.nanoTimestamp();
+    const timestamp = uniqueSuffix();
     const repo_link_path = try std.fmt.allocPrint(
         std.testing.allocator,
         "test/open_row_validation_boundary/runtime_escape_helper_link_{d}.zig",
@@ -1311,15 +1384,15 @@ test "file-backed validation rejects repo-relative symlink helper imports that c
     );
     defer std.testing.allocator.free(repo_entry_path);
 
-    const absolute_link_path = try std.fs.path.join(std.testing.allocator, &.{ original_cwd, repo_link_path });
+    const absolute_link_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ original_cwd, repo_link_path });
     defer std.testing.allocator.free(absolute_link_path);
-    const absolute_entry_path = try std.fs.path.join(std.testing.allocator, &.{ original_cwd, repo_entry_path });
+    const absolute_entry_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ original_cwd, repo_entry_path });
     defer std.testing.allocator.free(absolute_entry_path);
 
-    std.fs.deleteFileAbsolute(absolute_link_path) catch {};
-    std.fs.deleteFileAbsolute(absolute_entry_path) catch {};
-    try std.fs.symLinkAbsolute(outside_path, absolute_link_path, .{});
-    defer std.fs.deleteFileAbsolute(absolute_link_path) catch unreachable;
+    deleteFileAbsolute(absolute_link_path) catch {};
+    deleteFileAbsolute(absolute_entry_path) catch {};
+    try symLinkAbsolute(outside_path, absolute_link_path);
+    defer deleteFileAbsolute(absolute_link_path) catch unreachable;
 
     const entry_source = try std.fmt.allocPrint(
         std.testing.allocator,
@@ -1329,14 +1402,11 @@ test "file-backed validation rejects repo-relative symlink helper imports that c
         \\    try helpers.helper(eff);
         \\}}
     ,
-        .{std.fs.path.basename(repo_link_path)},
+        .{std.Io.Dir.path.basename(repo_link_path)},
     );
     defer std.testing.allocator.free(entry_source);
-    try std.fs.cwd().writeFile(.{
-        .sub_path = repo_entry_path,
-        .data = entry_source,
-    });
-    defer std.fs.deleteFileAbsolute(absolute_entry_path) catch unreachable;
+    try cwdWriteFile(repo_entry_path, entry_source);
+    defer deleteFileAbsolute(absolute_entry_path) catch unreachable;
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -1349,7 +1419,7 @@ test "file-backed validation rejects repo-relative symlink helper imports that c
 test "generated validate rejects file-backed helper-body drift against its compile-time snapshot" {
     const fixture_path = "examples/open_row_validation_snapshot_helper.zig";
     const entry_path = "examples/open_row_validation_snapshot_entry.zig";
-    const spec: shift.lowering.LowerSpec = .{
+    const spec = comptime shift.lowering.LowerSpec{
         .label = "example.open_row_validation_snapshot",
         .entry_symbol = "runBody",
         .row = shift.ir.mergeRows(.{
@@ -1375,20 +1445,16 @@ test "generated validate rejects file-backed helper-body drift against its compi
         entry_path,
         spec,
     );
-    const original = try std.fs.cwd().readFileAlloc(std.testing.allocator, fixture_path, std.math.maxInt(usize));
+    const original = try cwdReadFileAlloc(std.testing.allocator, fixture_path, std.math.maxInt(usize));
     defer std.testing.allocator.free(original);
-    defer std.fs.cwd().writeFile(.{
-        .sub_path = fixture_path,
-        .data = original,
-    }) catch unreachable;
+    defer cwdWriteFile(fixture_path, original) catch unreachable;
 
     var initial_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer initial_arena.deinit();
     try ProgramType.validate(initial_arena.allocator());
 
-    try std.fs.cwd().writeFile(.{
-        .sub_path = fixture_path,
-        .data =
+    try cwdWriteFile(
+        fixture_path,
         \\pub fn queueQuery(_: anytype) void {}
         \\
         \\pub fn advanceState() void {
@@ -1398,7 +1464,7 @@ test "generated validate rejects file-backed helper-body drift against its compi
         \\    }
         \\}
         ,
-    });
+    );
 
     var drifted_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer drifted_arena.deinit();
@@ -1406,7 +1472,7 @@ test "generated validate rejects file-backed helper-body drift against its compi
 }
 
 test "recursive same-file workflow lowers through the public compile surface" {
-    const lowered = try example_open_row_recursive_writer.loweredProgram();
+    const lowered = comptime try example_open_row_recursive_writer.loweredProgram();
 
     try std.testing.expectEqualStrings("example.open_row_recursive_writer", lowered.label);
     try std.testing.expectEqual(@as(usize, 2), lowered.program.functions.len);
@@ -1418,7 +1484,7 @@ test "recursive same-file workflow lowers through the public compile surface" {
 }
 
 test "recursive same-file helper lowers into a real guarded control-flow body" {
-    const lowered = try example_open_row_recursive_writer.loweredProgram();
+    const lowered = comptime try example_open_row_recursive_writer.loweredProgram();
 
     const countdown_index = comptime blk: {
         for (lowered.program.functions, 0..) |function, function_index| {
@@ -1437,7 +1503,7 @@ test "recursive same-file helper lowers into a real guarded control-flow body" {
 
 test "recursive same-file helper runtime plan preserves full instruction operands" {
     const runtime_plan = example_open_row_recursive_writer.CompiledProgram.runtime_plan;
-    const countdown_index = comptime blk: {
+    const countdown_index = blk: {
         for (runtime_plan.functions, 0..) |function, function_index| {
             if (std.mem.eql(u8, function.symbol_name, "countdown")) break :blk function_index;
         }
@@ -1474,7 +1540,7 @@ test "explicit IR compilation matches recursive same-file lowered runtime plan" 
 }
 
 test "hand-authored explicit IR matches recursive same-file lowered runtime plan" {
-    const row = shift.ir.mergeRows(.{
+    const row = comptime shift.ir.mergeRows(.{
         shift.ir.rowFromSpec(.{
             .state = .{
                 .get = shift.ir.Transform(void, i32),
@@ -1495,7 +1561,7 @@ test "hand-authored explicit IR matches recursive same-file lowered runtime plan
         .module_path = "examples/open_row_recursive_writer.zig",
         .symbol_name = "runBody",
     };
-    const HandAuthoredProgram: shift.ir.Program = .{
+    const HandAuthoredProgram = comptime shift.ir.Program{
         .entry_index = 0,
         .functions = &.{
             .{
@@ -1584,7 +1650,7 @@ test "hand-authored explicit IR matches recursive same-file lowered runtime plan
 }
 
 test "recursive imported-helper workflow lowers through the public compile surface" {
-    const lowered = try example_open_row_recursive_cross_writer.loweredProgram();
+    const lowered = comptime try example_open_row_recursive_cross_writer.loweredProgram();
 
     try std.testing.expectEqualStrings("example.open_row_recursive_cross_writer", lowered.label);
     try std.testing.expectEqual(@as(usize, 2), lowered.program.functions.len);
@@ -1596,7 +1662,7 @@ test "recursive imported-helper workflow lowers through the public compile surfa
 }
 
 test "recursive imported helper lowers into a real guarded control-flow body" {
-    const lowered = try example_open_row_recursive_cross_writer.loweredProgram();
+    const lowered = comptime try example_open_row_recursive_cross_writer.loweredProgram();
 
     const countdown_index = comptime blk: {
         for (lowered.program.functions, 0..) |function, function_index| {
@@ -1615,7 +1681,7 @@ test "recursive imported helper lowers into a real guarded control-flow body" {
 
 test "recursive imported helper runtime plan preserves full instruction operands" {
     const runtime_plan = example_open_row_recursive_cross_writer.CompiledProgram.runtime_plan;
-    const countdown_index = comptime blk: {
+    const countdown_index = blk: {
         for (runtime_plan.functions, 0..) |function, function_index| {
             if (std.mem.eql(u8, function.symbol_name, "countdown")) break :blk function_index;
         }
@@ -1689,7 +1755,7 @@ test "public lowered runner executes recursive imported-helper lowered program" 
 }
 
 test "explicit-path lowering supports cross-file helper modules" {
-    const spec: shift.lowering.LowerSpec = .{
+    const spec = comptime shift.lowering.LowerSpec{
         .label = "example.open_row_cross_file_writer",
         .entry_symbol = "runBody",
         .row = shift.ir.mergeRows(.{
@@ -1724,7 +1790,7 @@ test "explicit-path lowering supports cross-file helper modules" {
 
 test "explicit-path lowering accepts checkout-alias absolute paths" {
     if (!authoring_build_options.package_root_alias_available) return error.SkipZigTest;
-    const spec: shift.lowering.LowerSpec = .{
+    const spec = comptime shift.lowering.LowerSpec{
         .label = "example.open_row_cross_file_writer.alias",
         .entry_symbol = "runBody",
         .row = shift.ir.mergeRows(.{
@@ -1766,7 +1832,7 @@ test "explicit-path lowering accepts checkout-alias absolute paths" {
 }
 
 test "explicit-path lowering disambiguates imported helpers by alias" {
-    const spec: shift.lowering.LowerSpec = .{
+    const spec = comptime shift.lowering.LowerSpec{
         .label = "test.open_row_helper_alias",
         .entry_symbol = "runBody",
         .row = shift.ir.rowFromSpec(.{
@@ -1823,7 +1889,7 @@ test "explicit-path lowering ignores unreachable imported helper failures outsid
         \\    try missing_nested.emit(eff);
         \\}
     ;
-    const spec: shift.lowering.LowerSpec = .{
+    const spec = comptime shift.lowering.LowerSpec{
         .label = "test.open_row_unreachable_imported_helper",
         .entry_symbol = "runBody",
         .row = shift.ir.rowFromSpec(.{
@@ -1868,7 +1934,7 @@ test "explicit-path lowering ignores unreachable imported helper failures outsid
 }
 
 test "explicit-path lowering ignores ordinary line comments inside retained helper bodies" {
-    const spec: shift.lowering.LowerSpec = .{
+    const spec = comptime shift.lowering.LowerSpec{
         .label = "test.open_row_helper_line_comment",
         .entry_symbol = "runBody",
         .row = shift.ir.rowFromSpec(.{
@@ -1901,7 +1967,7 @@ test "explicit-path lowering ignores ordinary line comments inside retained help
 }
 
 test "explicit-path IR lowering supports max-arity helper calls with literal arguments" {
-    const spec: shift.lowering.LowerSpec = .{
+    const spec = comptime shift.lowering.LowerSpec{
         .label = "test.open_row_helper_max_arity",
         .entry_symbol = "runBody",
         .row = shift.ir.rowFromSpec(.{
@@ -1915,7 +1981,7 @@ test "explicit-path IR lowering supports max-arity helper calls with literal arg
         },
     };
 
-    const ir_program = shift.lowering.irProgramAt("test/open_row_helper_max_arity.zig", spec);
+    const ir_program = comptime shift.lowering.irProgramAt("test/open_row_helper_max_arity.zig", spec);
     const helper_index = comptime blk: {
         for (ir_program.functions, 0..) |function, function_index| {
             if (std.mem.eql(u8, function.symbol.symbol_name, "helper")) break :blk function_index;
@@ -1933,7 +1999,7 @@ test "explicit-path IR lowering supports max-arity helper calls with literal arg
 }
 
 test "explicit-path lowering preserves the entry module when helpers share the entry symbol name" {
-    const spec: shift.lowering.LowerSpec = .{
+    const spec = comptime shift.lowering.LowerSpec{
         .label = "test.open_row_entry_symbol_alias",
         .entry_symbol = "runBody",
         .row = shift.ir.rowFromSpec(.{

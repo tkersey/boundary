@@ -66,8 +66,8 @@ fn summarizeSamples(values: *const [samples_per_run]u64) struct { min: u64, medi
     };
 }
 
-fn runStackSample(case_id: []const u8, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runStackSample(io: std.Io, case_id: []const u8, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var rolling_checksum: u64 = 0;
 
     var index: usize = 0;
@@ -81,12 +81,12 @@ fn runStackSample(case_id: []const u8, iterations: usize) !Sample {
 
     return .{
         .checksum = rolling_checksum,
-        .elapsed_ns = timer.read(),
+        .elapsed_ns = @intCast(start.durationTo(std.Io.Timestamp.now(io, .boot)).toNanoseconds()),
     };
 }
 
-fn runLoweredSample(case_id: []const u8, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runLoweredSample(io: std.Io, case_id: []const u8, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var rolling_checksum: u64 = 0;
 
     var index: usize = 0;
@@ -100,13 +100,13 @@ fn runLoweredSample(case_id: []const u8, iterations: usize) !Sample {
 
     return .{
         .checksum = rolling_checksum,
-        .elapsed_ns = timer.read(),
+        .elapsed_ns = @intCast(start.durationTo(std.Io.Timestamp.now(io, .boot)).toNanoseconds()),
     };
 }
 
-fn printArray(values: [samples_per_run]u64) !void {
+fn printArray(io: std.Io, values: [samples_per_run]u64) !void {
     var stdout_buffer: [2048]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
     const out = &stdout_writer.interface;
     try out.writeAll("[");
     for (values, 0..) |value, idx| {
@@ -118,9 +118,10 @@ fn printArray(values: [samples_per_run]u64) !void {
 }
 
 /// Compare the current stack runtime against the private lowered runtime seam.
-pub fn main() anyerror!void {
+pub fn main(init: std.process.Init) anyerror!void {
+    const io = init.io;
     var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
     const out = &stdout_writer.interface;
 
     var lane_count: usize = 0;
@@ -136,8 +137,8 @@ pub fn main() anyerror!void {
     for (bridge_manifest.cases) |case| {
         if (case.status != .supported) continue;
 
-        _ = try runStackSample(case.case_id, warmup_iterations);
-        _ = try runLoweredSample(case.case_id, warmup_iterations);
+        _ = try runStackSample(io, case.case_id, warmup_iterations);
+        _ = try runLoweredSample(io, case.case_id, warmup_iterations);
 
         var stack_samples = [_]u64{0} ** samples_per_run;
         var lowered_samples = [_]u64{0} ** samples_per_run;
@@ -146,8 +147,8 @@ pub fn main() anyerror!void {
 
         var index: usize = 0;
         while (index < samples_per_run) : (index += 1) {
-            const stack_sample = try runStackSample(case.case_id, timed_iterations);
-            const lowered_sample = try runLoweredSample(case.case_id, timed_iterations);
+            const stack_sample = try runStackSample(io, case.case_id, timed_iterations);
+            const lowered_sample = try runLoweredSample(io, case.case_id, timed_iterations);
 
             if (stack_checksum) |value| {
                 if (value != stack_sample.checksum) return error.StackChecksumMismatch;
@@ -182,13 +183,13 @@ pub fn main() anyerror!void {
             },
         );
         try out.flush();
-        try printArray(stack_samples);
+        try printArray(io, stack_samples);
         try out.print(
             " lowered_sample_ns=",
             .{},
         );
         try out.flush();
-        try printArray(lowered_samples);
+        try printArray(io, lowered_samples);
         try out.print(
             " stack_min_ns={d} stack_median_ns={d} stack_max_ns={d} lowered_min_ns={d} lowered_median_ns={d} lowered_max_ns={d} observed_ratio={d:.16}\n",
             .{

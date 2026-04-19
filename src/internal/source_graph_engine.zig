@@ -179,8 +179,8 @@ fn unquoteImportPath(literal: []const u8) ?[]const u8 {
 
 /// Decode one unquoted Zig import path string using Zig string-literal escapes.
 pub fn decodeImportPathLiteral(import_path: []const u8, buffer: []u8) ?[]const u8 {
-    if (std.mem.indexOfScalar(u8, import_path, '\\') == null) {
-        if (std.mem.indexOfAny(u8, import_path, "\"\n") != null) return null;
+    if (std.mem.findScalar(u8, import_path, '\\') == null) {
+        if (std.mem.findAny(u8, import_path, "\"\n") != null) return null;
         return import_path;
     }
 
@@ -222,7 +222,7 @@ pub fn decodeImportPathLiteral(import_path: []const u8, buffer: []u8) ?[]const u
 }
 
 fn importPathEndsWithZig(import_path: []const u8) bool {
-    var decoded_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    var decoded_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const decoded = decodeImportPathLiteral(import_path, &decoded_buffer) orelse return false;
     return std.mem.endsWith(u8, decoded, ".zig");
 }
@@ -452,12 +452,7 @@ const FixedCollector = struct {
 };
 
 fn isIgnorable(tag: std.zig.Token.Tag) bool {
-    return switch (tag) {
-        .doc_comment,
-        .container_doc_comment,
-        => true,
-        else => false,
-    };
+    return tag == .doc_comment or tag == .container_doc_comment;
 }
 
 fn tokenSlice(source: [:0]const u8, token: anytype) []const u8 {
@@ -623,17 +618,11 @@ fn maybeRecordDirectOpUse(
 }
 
 fn isAllowedAccessFollowTag(tag: std.zig.Token.Tag) bool {
-    return switch (tag) {
-        .period, .semicolon => true,
-        else => false,
-    };
+    return tag == .period or tag == .semicolon;
 }
 
 fn isAllowedRequirementAliasFollowTag(tag: std.zig.Token.Tag) bool {
-    return switch (tag) {
-        .period, .semicolon, .equal => true,
-        else => false,
-    };
+    return tag == .period or tag == .semicolon or tag == .equal;
 }
 
 fn isEffectParamName(name: []const u8) bool {
@@ -806,15 +795,16 @@ fn statementTrimSemicolon(statement: []const TokenItem) []const TokenItem {
 }
 
 fn statementArgsSupported(args: []const TokenItem) bool {
-    for (args) |item| switch (item.tag) {
-        .comma,
-        .identifier,
-        .string_literal,
-        .number_literal,
-        .plus,
-        => {},
-        else => return false,
-    };
+    for (args) |item| {
+        if (item.tag != .comma and
+            item.tag != .identifier and
+            item.tag != .string_literal and
+            item.tag != .number_literal and
+            item.tag != .plus)
+        {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -925,32 +915,29 @@ fn continuationStructStart(args: []const TokenItem) ?struct {
     var bracket_depth: usize = 0;
     var brace_depth: usize = 0;
     for (args, 0..) |token, index| {
-        switch (token.tag) {
-            .l_paren => paren_depth += 1,
-            .r_paren => {
-                if (paren_depth != 0) paren_depth -= 1;
-            },
-            .l_bracket => bracket_depth += 1,
-            .r_bracket => {
-                if (bracket_depth != 0) bracket_depth -= 1;
-            },
-            .l_brace => brace_depth += 1,
-            .r_brace => {
-                if (brace_depth != 0) brace_depth -= 1;
-            },
-            .comma => if (paren_depth == 0 and bracket_depth == 0 and brace_depth == 0) {
-                const next_index = index + 1;
-                if (next_index + 1 < args.len and
-                    args[next_index].tag == .keyword_struct and
-                    args[next_index + 1].tag == .l_brace)
-                {
-                    return .{
-                        .payload_end = index,
-                        .struct_start = next_index,
-                    };
-                }
-            },
-            else => {},
+        if (token.tag == .l_paren) {
+            paren_depth += 1;
+        } else if (token.tag == .r_paren) {
+            if (paren_depth != 0) paren_depth -= 1;
+        } else if (token.tag == .l_bracket) {
+            bracket_depth += 1;
+        } else if (token.tag == .r_bracket) {
+            if (bracket_depth != 0) bracket_depth -= 1;
+        } else if (token.tag == .l_brace) {
+            brace_depth += 1;
+        } else if (token.tag == .r_brace) {
+            if (brace_depth != 0) brace_depth -= 1;
+        } else if (token.tag == .comma and paren_depth == 0 and bracket_depth == 0 and brace_depth == 0) {
+            const next_index = index + 1;
+            if (next_index + 1 < args.len and
+                args[next_index].tag == .keyword_struct and
+                args[next_index + 1].tag == .l_brace)
+            {
+                return .{
+                    .payload_end = index,
+                    .struct_start = next_index,
+                };
+            }
         }
     }
     return null;
@@ -982,13 +969,11 @@ fn continuationApplyBodySupported(struct_tokens: []const TokenItem) bool {
         var param_depth: usize = 1;
         var cursor = fn_index + 3;
         while (cursor < struct_tokens.len and param_depth != 0) : (cursor += 1) {
-            switch (struct_tokens[cursor].tag) {
-                .l_paren => param_depth += 1,
-                .r_paren => {
-                    if (param_depth == 0) return false;
-                    param_depth -= 1;
-                },
-                else => {},
+            if (struct_tokens[cursor].tag == .l_paren) {
+                param_depth += 1;
+            } else if (struct_tokens[cursor].tag == .r_paren) {
+                if (param_depth == 0) return false;
+                param_depth -= 1;
             }
         }
         if (param_depth != 0 or cursor >= struct_tokens.len) return false;
@@ -1000,13 +985,11 @@ fn continuationApplyBodySupported(struct_tokens: []const TokenItem) bool {
         var body_depth: usize = 1;
         cursor = body_start;
         while (cursor < struct_tokens.len and body_depth != 0) : (cursor += 1) {
-            switch (struct_tokens[cursor].tag) {
-                .l_brace => body_depth += 1,
-                .r_brace => {
-                    if (body_depth == 0) return false;
-                    body_depth -= 1;
-                },
-                else => {},
+            if (struct_tokens[cursor].tag == .l_brace) {
+                body_depth += 1;
+            } else if (struct_tokens[cursor].tag == .r_brace) {
+                if (body_depth == 0) return false;
+                body_depth -= 1;
             }
         }
         if (body_depth != 0 or cursor == 0) return false;
@@ -1313,30 +1296,27 @@ fn statementLooksMalformed(statement_window: *const StatementWindow) bool {
 
     var paren_depth: usize = 0;
     var bracket_depth: usize = 0;
-    for (statement) |token| switch (token.tag) {
-        .l_paren => paren_depth += 1,
-        .r_paren => {
+    for (statement) |token| {
+        if (token.tag == .l_paren) {
+            paren_depth += 1;
+        } else if (token.tag == .r_paren) {
             if (paren_depth == 0) return true;
             paren_depth -= 1;
-        },
-        .l_bracket => bracket_depth += 1,
-        .r_bracket => {
+        } else if (token.tag == .l_bracket) {
+            bracket_depth += 1;
+        } else if (token.tag == .r_bracket) {
             if (bracket_depth == 0) return true;
             bracket_depth -= 1;
-        },
-        else => {},
-    };
+        }
+    }
     if (paren_depth != 0 or bracket_depth != 0) return true;
 
-    return switch (statement[statement.len - 1].tag) {
-        .equal,
-        .period,
-        .comma,
-        .colon,
-        .keyword_try,
-        => true,
-        else => false,
-    };
+    const last_tag = statement[statement.len - 1].tag;
+    return last_tag == .equal or
+        last_tag == .period or
+        last_tag == .comma or
+        last_tag == .colon or
+        last_tag == .keyword_try;
 }
 
 fn findImportAlias(imports: []const ImportAlias, name: []const u8) ?ImportAlias {
@@ -1479,33 +1459,28 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
 
     while (body_depth != 0) {
         const token = context.tokenizer.next();
-        switch (token.tag) {
-            .eof => {
-                if (context.options.reject_malformed_statements) return error.ParseError;
-                break;
-            },
-            .l_brace => {
-                body_depth += 1;
-            },
-            .r_brace => {
-                body_depth -= 1;
-                if (body_depth == 0) {
-                    if (statement_window.slice().len != 0) body_lowering_supported = false;
-                    return .{
-                        .body_end_offset = token.loc.start,
-                        .body_lowering_supported = body_lowering_supported,
-                    };
-                }
-            },
-            .l_paren => paren_depth += 1,
-            .r_paren => {
-                if (paren_depth != 0) paren_depth -= 1;
-            },
-            .l_bracket => bracket_depth += 1,
-            .r_bracket => {
-                if (bracket_depth != 0) bracket_depth -= 1;
-            },
-            else => {},
+        if (token.tag == .eof) {
+            if (context.options.reject_malformed_statements) return error.ParseError;
+            break;
+        } else if (token.tag == .l_brace) {
+            body_depth += 1;
+        } else if (token.tag == .r_brace) {
+            body_depth -= 1;
+            if (body_depth == 0) {
+                if (statement_window.slice().len != 0) body_lowering_supported = false;
+                return .{
+                    .body_end_offset = token.loc.start,
+                    .body_lowering_supported = body_lowering_supported,
+                };
+            }
+        } else if (token.tag == .l_paren) {
+            paren_depth += 1;
+        } else if (token.tag == .r_paren) {
+            if (paren_depth != 0) paren_depth -= 1;
+        } else if (token.tag == .l_bracket) {
+            bracket_depth += 1;
+        } else if (token.tag == .r_bracket) {
+            if (bracket_depth != 0) bracket_depth -= 1;
         }
         if (isIgnorable(token.tag)) continue;
 
@@ -1598,178 +1573,170 @@ fn scanSource(source: [:0]const u8, collector: anytype, options: AnalyzeOptions)
 
     while (true) {
         const token = tokenizer.next();
-        switch (token.tag) {
-            .eof => break,
-            .l_brace => depth += 1,
-            .r_brace => {
-                if (depth != 0) depth -= 1;
-            },
-            .keyword_fn => {
-                if (depth != 0) continue;
-                top_level_window = .{};
+        if (token.tag == .eof) {
+            break;
+        } else if (token.tag == .l_brace) {
+            depth += 1;
+        } else if (token.tag == .r_brace) {
+            if (depth != 0) depth -= 1;
+        } else if (token.tag == .keyword_fn) {
+            if (depth != 0) continue;
+            top_level_window = .{};
 
-                var name_token = tokenizer.next();
-                while (isIgnorable(name_token.tag)) : (name_token = tokenizer.next()) {}
-                if (name_token.tag != .identifier) continue;
-                const name = tokenSlice(source, name_token);
+            var name_token = tokenizer.next();
+            while (isIgnorable(name_token.tag)) : (name_token = tokenizer.next()) {}
+            if (name_token.tag != .identifier) continue;
+            const name = tokenSlice(source, name_token);
 
-                var effect_param: ?[]const u8 = null;
-                var value_param_names = [_][]const u8{""} ** max_function_params;
-                var value_param_shapes = [_]ValueShape{.i32} ** max_function_params;
-                var value_param_count: u8 = 0;
-                var param_candidate: ?[]const u8 = null;
-                var pending_type_param: ?[]const u8 = null;
-                var pending_type_tokens = [_]TokenItem{.{
-                    .tag = .invalid,
-                    .lexeme = "",
-                    .offset = 0,
-                }} ** 8;
-                var pending_type_token_count: usize = 0;
-                var param_depth: usize = 0;
+            var effect_param: ?[]const u8 = null;
+            var value_param_names = [_][]const u8{""} ** max_function_params;
+            var value_param_shapes = [_]ValueShape{.i32} ** max_function_params;
+            var value_param_count: u8 = 0;
+            var param_candidate: ?[]const u8 = null;
+            var pending_type_param: ?[]const u8 = null;
+            var pending_type_tokens = [_]TokenItem{.{
+                .tag = .invalid,
+                .lexeme = "",
+                .offset = 0,
+            }} ** 8;
+            var pending_type_token_count: usize = 0;
+            var param_depth: usize = 0;
 
-                while (true) {
-                    const next = tokenizer.next();
-                    if (next.tag == .eof) {
-                        if (options.reject_malformed_statements) return error.ParseError;
-                        break;
-                    }
-                    if (isIgnorable(next.tag)) continue;
-                    if (next.tag == .l_paren) {
-                        param_depth = 1;
-                        break;
-                    }
+            seek_param_list: while (true) {
+                const next = tokenizer.next();
+                if (next.tag == .eof) {
+                    if (options.reject_malformed_statements) return error.ParseError;
+                    break;
                 }
-
-                while (param_depth != 0) {
-                    const next = tokenizer.next();
-                    if (next.tag == .eof) {
-                        if (options.reject_malformed_statements) return error.ParseError;
-                        break;
-                    }
-                    if (isIgnorable(next.tag)) continue;
-                    switch (next.tag) {
-                        .l_paren => param_depth += 1,
-                        .r_paren => {
-                            if (param_depth == 1 and pending_type_param != null) {
-                                try finalizeFunctionParam(
-                                    .{
-                                        .effect_param = &effect_param,
-                                        .value_param_names = &value_param_names,
-                                        .value_param_shapes = &value_param_shapes,
-                                        .value_param_count = &value_param_count,
-                                    },
-                                    pending_type_param.?,
-                                    pending_type_tokens[0..pending_type_token_count],
-                                );
-                            }
-                            param_depth -= 1;
-                            param_candidate = null;
-                            pending_type_param = null;
-                            pending_type_token_count = 0;
-                        },
-                        .comma => {
-                            if (param_depth == 1 and pending_type_param != null) {
-                                try finalizeFunctionParam(
-                                    .{
-                                        .effect_param = &effect_param,
-                                        .value_param_names = &value_param_names,
-                                        .value_param_shapes = &value_param_shapes,
-                                        .value_param_count = &value_param_count,
-                                    },
-                                    pending_type_param.?,
-                                    pending_type_tokens[0..pending_type_token_count],
-                                );
-                            }
-                            param_candidate = null;
-                            pending_type_param = null;
-                            pending_type_token_count = 0;
-                        },
-                        .colon => if (param_depth == 1 and param_candidate != null) {
-                            pending_type_param = param_candidate;
-                            pending_type_token_count = 0;
-                        },
-                        .identifier => if (param_depth == 1 and pending_type_param == null and param_candidate == null) {
-                            param_candidate = tokenSlice(source, next);
-                        } else if (param_depth == 1 and pending_type_param != null and pending_type_token_count < pending_type_tokens.len) {
-                            pending_type_tokens[pending_type_token_count] = .{
-                                .tag = next.tag,
-                                .lexeme = tokenSlice(source, next),
-                                .offset = next.loc.start,
-                            };
-                            pending_type_token_count += 1;
-                        },
-                        .keyword_anytype, .l_bracket, .r_bracket, .keyword_const => if (param_depth == 1 and pending_type_param != null and pending_type_token_count < pending_type_tokens.len) {
-                            pending_type_tokens[pending_type_token_count] = .{
-                                .tag = next.tag,
-                                .lexeme = tokenSlice(source, next),
-                                .offset = next.loc.start,
-                            };
-                            pending_type_token_count += 1;
-                        },
-                        else => {},
-                    }
+                if (isIgnorable(next.tag)) continue :seek_param_list;
+                if (next.tag == .l_paren) {
+                    param_depth = 1;
+                    break;
                 }
+            }
 
-                var return_tokens = [_]TokenItem{.{
-                    .tag = .invalid,
-                    .lexeme = "",
-                    .offset = 0,
-                }} ** 8;
-                var return_token_count: usize = 0;
-                var body_start: ?std.zig.Token = null;
-                while (body_start == null) {
-                    const next = tokenizer.next();
-                    if (next.tag == .eof) {
-                        if (options.reject_malformed_statements) return error.ParseError;
-                        break;
-                    }
-                    if (isIgnorable(next.tag)) continue;
-                    if (next.tag == .l_brace or next.tag == .semicolon) {
-                        body_start = next;
-                        break;
-                    }
-                    if (return_token_count < return_tokens.len) {
-                        return_tokens[return_token_count] = .{
-                            .tag = next.tag,
-                            .lexeme = tokenSlice(source, next),
-                            .offset = next.loc.start,
-                        };
-                        return_token_count += 1;
-                    }
+            scan_param_tokens: while (param_depth != 0) {
+                const next = tokenizer.next();
+                if (next.tag == .eof) {
+                    if (options.reject_malformed_statements) return error.ParseError;
+                    break;
                 }
-                const return_shape = parseReturnShape(return_tokens[0..return_token_count]);
+                if (isIgnorable(next.tag)) continue :scan_param_tokens;
+                if (next.tag == .l_paren) {
+                    param_depth += 1;
+                } else if (next.tag == .r_paren) {
+                    if (param_depth == 1 and pending_type_param != null) {
+                        try finalizeFunctionParam(
+                            .{
+                                .effect_param = &effect_param,
+                                .value_param_names = &value_param_names,
+                                .value_param_shapes = &value_param_shapes,
+                                .value_param_count = &value_param_count,
+                            },
+                            pending_type_param.?,
+                            pending_type_tokens[0..pending_type_token_count],
+                        );
+                    }
+                    param_depth -= 1;
+                    param_candidate = null;
+                    pending_type_param = null;
+                    pending_type_token_count = 0;
+                } else if (next.tag == .comma) {
+                    if (param_depth == 1 and pending_type_param != null) {
+                        try finalizeFunctionParam(
+                            .{
+                                .effect_param = &effect_param,
+                                .value_param_names = &value_param_names,
+                                .value_param_shapes = &value_param_shapes,
+                                .value_param_count = &value_param_count,
+                            },
+                            pending_type_param.?,
+                            pending_type_tokens[0..pending_type_token_count],
+                        );
+                    }
+                    param_candidate = null;
+                    pending_type_param = null;
+                    pending_type_token_count = 0;
+                } else if (next.tag == .colon and param_depth == 1 and param_candidate != null) {
+                    pending_type_param = param_candidate;
+                    pending_type_token_count = 0;
+                } else if (next.tag == .identifier and param_depth == 1 and pending_type_param == null and param_candidate == null) {
+                    param_candidate = tokenSlice(source, next);
+                } else if ((next.tag == .identifier or
+                    next.tag == .keyword_anytype or
+                    next.tag == .l_bracket or
+                    next.tag == .r_bracket or
+                    next.tag == .keyword_const) and
+                    param_depth == 1 and
+                    pending_type_param != null and
+                    pending_type_token_count < pending_type_tokens.len)
+                {
+                    pending_type_tokens[pending_type_token_count] = .{
+                        .tag = next.tag,
+                        .lexeme = tokenSlice(source, next),
+                        .offset = next.loc.start,
+                    };
+                    pending_type_token_count += 1;
+                }
+            }
 
-                const function_index = try collector.pushFunction(.{
-                    .name = name,
-                    .effect_param = effect_param,
-                    .value_param_names = value_param_names,
-                    .value_param_shapes = value_param_shapes,
-                    .value_param_count = value_param_count,
-                    .return_shape = return_shape,
-                    .body_lowering_supported = false,
-                    .body_start_offset = 0,
-                    .body_end_offset = 0,
-                });
+            var return_tokens = [_]TokenItem{.{
+                .tag = .invalid,
+                .lexeme = "",
+                .offset = 0,
+            }} ** 8;
+            var return_token_count: usize = 0;
+            var body_start: ?std.zig.Token = null;
+            seek_body_start: while (body_start == null) {
+                const next = tokenizer.next();
+                if (next.tag == .eof) {
+                    if (options.reject_malformed_statements) return error.ParseError;
+                    break;
+                }
+                if (isIgnorable(next.tag)) continue :seek_body_start;
+                if (next.tag == .l_brace or next.tag == .semicolon) {
+                    body_start = next;
+                    break;
+                }
+                if (return_token_count < return_tokens.len) {
+                    return_tokens[return_token_count] = .{
+                        .tag = next.tag,
+                        .lexeme = tokenSlice(source, next),
+                        .offset = next.loc.start,
+                    };
+                    return_token_count += 1;
+                }
+            }
+            const return_shape = parseReturnShape(return_tokens[0..return_token_count]);
 
-                if (body_start) |next| switch (next.tag) {
-                    .l_brace => {
-                        var context: BodyScanContext = .{
-                            .source = source,
-                            .tokenizer = &tokenizer,
-                            .caller_index = function_index,
-                            .caller_name = name,
-                            .effect_param = effect_param,
-                            .imports = collector.importsSlice(),
-                            .options = options,
-                        };
-                        const body_scan = try scanBody(&context, collector);
-                        collector.setFunctionBodyLoweringSupported(function_index, body_scan.body_lowering_supported);
-                        collector.setFunctionBodyOffsets(function_index, next.loc.end, body_scan.body_end_offset);
-                    },
-                    else => {},
-                };
-            },
-            else => {},
+            const function_index = try collector.pushFunction(.{
+                .name = name,
+                .effect_param = effect_param,
+                .value_param_names = value_param_names,
+                .value_param_shapes = value_param_shapes,
+                .value_param_count = value_param_count,
+                .return_shape = return_shape,
+                .body_lowering_supported = false,
+                .body_start_offset = 0,
+                .body_end_offset = 0,
+            });
+
+            if (body_start) |next| {
+                if (next.tag == .l_brace) {
+                    var context: BodyScanContext = .{
+                        .source = source,
+                        .tokenizer = &tokenizer,
+                        .caller_index = function_index,
+                        .caller_name = name,
+                        .effect_param = effect_param,
+                        .imports = collector.importsSlice(),
+                        .options = options,
+                    };
+                    const body_scan = try scanBody(&context, collector);
+                    collector.setFunctionBodyLoweringSupported(function_index, body_scan.body_lowering_supported);
+                    collector.setFunctionBodyOffsets(function_index, next.loc.end, body_scan.body_end_offset);
+                }
+            }
         }
 
         if (depth == 0 and !isIgnorable(token.tag)) {
