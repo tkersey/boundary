@@ -345,12 +345,12 @@ fn writeZig(program: source_lowering.GeneratedProgram, writer: anytype) !void {
 }
 
 /// Build or inspect one internal source-lowering kernel program artifact.
-pub fn main() anyerror!void {
+pub fn main(init: std.process.Init) anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const args = try std.process.argsAlloc(allocator);
+    const args = try init.minimal.args.toSlice(allocator);
     if (args.len != 13) usage();
 
     var program_id: ?[]const u8 = null;
@@ -389,7 +389,7 @@ pub fn main() anyerror!void {
     });
     defer program.deinit(allocator);
 
-    var output: std.io.Writer.Allocating = .init(allocator);
+    var output: std.Io.Writer.Allocating = .init(allocator);
     defer output.deinit();
     switch (emit orelse usage()) {
         .json => try writeJson(program, &output.writer),
@@ -397,7 +397,7 @@ pub fn main() anyerror!void {
     }
     const bytes = try output.toOwnedSlice();
     defer allocator.free(bytes);
-    try std.fs.cwd().writeFile(.{
+    try std.Io.Dir.cwd().writeFile(init.io, .{
         .sub_path = out_path orelse usage(),
         .data = bytes,
     });

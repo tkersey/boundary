@@ -117,6 +117,26 @@ fn buildInvocationArgsAlloc() !BuildInvocationArgs {
     };
 }
 
+fn buildInvocationRequestsRunnableStepFromArgsResult(
+    step_name: []const u8,
+    args_result: anyerror!BuildInvocationArgs,
+) ?bool {
+    var args = args_result catch return null;
+    defer args.deinit();
+
+    return buildInvocationRequestsRunnableStepInArgs(args.items, step_name);
+}
+
+fn buildInvocationRequestsStepFromArgsResult(
+    step_name: []const u8,
+    args_result: anyerror!BuildInvocationArgs,
+) ?bool {
+    var args = args_result catch return null;
+    defer args.deinit();
+
+    return buildInvocationRequestsStepInArgs(args.items, step_name);
+}
+
 fn buildInvocationArgsAllocDarwin(allocator: std.mem.Allocator) ![]const []const u8 {
     const darwin_externs = struct {
         extern "c" fn _NSGetArgc() *c_int;
@@ -319,20 +339,12 @@ fn buildInvocationRequestsRunnableStepInArgs(args: []const []const u8, step_name
         buildInvocationRequestsStepInArgs(args, step_name);
 }
 
-fn buildInvocationRequestsRunnableStep(step_name: []const u8) bool {
-    var args = buildInvocationArgsAlloc() catch |err|
-        std.process.fatal("unable to inspect build invocation args: {s}", .{@errorName(err)});
-    defer args.deinit();
-
-    return buildInvocationRequestsRunnableStepInArgs(args.items, step_name);
+fn buildInvocationRequestsRunnableStep(step_name: []const u8) ?bool {
+    return buildInvocationRequestsRunnableStepFromArgsResult(step_name, buildInvocationArgsAlloc());
 }
 
-fn buildInvocationRequestsStep(step_name: []const u8) bool {
-    var args = buildInvocationArgsAlloc() catch |err|
-        std.process.fatal("unable to inspect build invocation args: {s}", .{@errorName(err)});
-    defer args.deinit();
-
-    return buildInvocationRequestsStepInArgs(args.items, step_name);
+fn buildInvocationRequestsStep(step_name: []const u8) ?bool {
+    return buildInvocationRequestsStepFromArgsResult(step_name, buildInvocationArgsAlloc());
 }
 
 fn compatIo() std.Io {
@@ -2577,46 +2589,21 @@ fn writeTmpFile(dir: std.Io.Dir, path: []const u8, contents: []const u8) !void {
     });
 }
 
-fn runChildExpectSuccess(allocator: std.mem.Allocator, argv: []const []const u8) !void {
-    const result = try std.process.run(allocator, compatIo(), .{
+fn runChildExpectSuccess(_: std.mem.Allocator, argv: []const []const u8) !void {
+    var child = try std.process.spawn(compatIo(), .{
         .argv = argv,
-        .stdout_limit = .limited(32 * 1024),
-        .stderr_limit = .limited(32 * 1024),
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
     });
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
+    const term = try child.wait(compatIo());
 
-    switch (result.term) {
+    switch (term) {
         .exited => |code| if (code == 0) return,
         else => {},
     }
-    std.debug.print("child command failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ argv[0], result.stdout, result.stderr });
+    std.debug.print("child command failed: {s}\n", .{argv[0]});
     return error.UnexpectedChildCommandFailure;
-}
-
-fn makeExternalTmpDir(allocator: std.mem.Allocator) ![]u8 {
-    const result = try std.process.run(allocator, compatIo(), .{
-        .argv = &.{ "mktemp", "-d" },
-        .stdout_limit = .limited(1024),
-        .stderr_limit = .limited(1024),
-    });
-    defer allocator.free(result.stderr);
-
-    switch (result.term) {
-        .exited => |code| if (code != 0) {
-            allocator.free(result.stdout);
-            return error.UnexpectedChildCommandFailure;
-        },
-        else => {
-            allocator.free(result.stdout);
-            return error.UnexpectedChildCommandFailure;
-        },
-    }
-
-    const trimmed = std.mem.trimEnd(u8, result.stdout, "\r\n");
-    const owned = try allocator.dupe(u8, trimmed);
-    allocator.free(result.stdout);
-    return owned;
 }
 
 test "artifact build fingerprint changes on raw-byte-only Zig edits" {
@@ -3013,20 +3000,19 @@ test "artifact build fingerprint includes top-level forward alias embed inputs" 
 }
 
 test "repo Zig path registry falls back to filesystem when git metadata is unavailable" {
-    const repo_root = try makeExternalTmpDir(std.testing.allocator);
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try tmp.dir.realPathFileAlloc(compatIo(), ".", std.testing.allocator);
     defer std.testing.allocator.free(repo_root);
-    defer runChildExpectSuccess(std.testing.allocator, &.{ "rm", "-rf", repo_root }) catch unreachable;
 
-    var repo_dir = try std.fs.openDirAbsolute(repo_root, .{});
-    defer repo_dir.close();
-
-    try writeTmpFile(repo_dir, "build.zig",
+    try writeTmpFile(tmp.dir, "build.zig",
         \\const std = @import("std");
         \\
         \\pub fn build(_: *std.Build) void {}
         \\
     );
-    try writeTmpFile(repo_dir, "src/probe.zig",
+    try writeTmpFile(tmp.dir, "src/probe.zig",
         \\pub fn touch() void {}
         \\
     );
@@ -3042,35 +3028,34 @@ test "repo Zig path registry falls back to filesystem when git metadata is unava
 }
 
 test "repo Zig path registry prefers tracked git paths over filesystem backup" {
-    const repo_root = try makeExternalTmpDir(std.testing.allocator);
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try tmp.dir.realPathFileAlloc(compatIo(), ".", std.testing.allocator);
     defer std.testing.allocator.free(repo_root);
-    defer runChildExpectSuccess(std.testing.allocator, &.{ "rm", "-rf", repo_root }) catch unreachable;
 
-    var repo_dir = try std.fs.openDirAbsolute(repo_root, .{});
-    defer repo_dir.close();
-
-    try writeTmpFile(repo_dir, "build.zig",
+    try writeTmpFile(tmp.dir, "build.zig",
         \\const std = @import("std");
         \\
         \\pub fn build(_: *std.Build) void {}
         \\
     );
-    try writeTmpFile(repo_dir, "live.zig",
+    try writeTmpFile(tmp.dir, "live.zig",
         \\pub fn live() void {}
         \\
     );
-    try writeTmpFile(repo_dir, "deleted.zig",
+    try writeTmpFile(tmp.dir, "deleted.zig",
         \\pub fn deleted() void {}
         \\
     );
-    try writeTmpFile(repo_dir, "scratch.zig",
+    try writeTmpFile(tmp.dir, "scratch.zig",
         \\pub fn scratch() void {}
         \\
     );
 
     try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "init", "-q" });
     try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "add", "build.zig", "live.zig", "deleted.zig" });
-    try repo_dir.deleteFile("deleted.zig");
+    try tmp.dir.deleteFile(compatIo(), "deleted.zig");
 
     const registry = repoZigPathRegistryAlloc(std.testing.allocator, repo_root);
     defer std.testing.allocator.free(registry);
@@ -3083,7 +3068,7 @@ test "repo Zig path registry prefers tracked git paths over filesystem backup" {
 }
 
 test "repo Zig path registry matches tracked Zig files in the working checkout" {
-    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const repo_root = try std.process.currentPathAlloc(compatIo(), std.testing.allocator);
     defer std.testing.allocator.free(repo_root);
 
     const tracked_registry = repoZigPathRegistryAlloc(std.testing.allocator, repo_root);
@@ -3720,6 +3705,17 @@ test "build invocation mixed-step test keeps runnable detection without claiming
     try std.testing.expect(!buildInvocationRequestsOnlyStepInArgs(&args, "test"));
 }
 
+test "build invocation detection reports unavailable when argv inspection is unavailable" {
+    try std.testing.expect(buildInvocationRequestsStepFromArgsResult(
+        "test",
+        error.UnsupportedHostBuildInvocationArgs,
+    ) == null);
+    try std.testing.expect(buildInvocationRequestsRunnableStepFromArgsResult(
+        "test",
+        error.UnsupportedHostBuildInvocationArgs,
+    ) == null);
+}
+
 test "build invocation exclusive test detection accepts pure test invocations" {
     const args = [_][]const u8{
         "build-helper",
@@ -3796,10 +3792,19 @@ pub fn build(b: *std.Build) void {
         "test-suites",
         "Restrict `zig build test` to a comma-separated list of exact suite ids.",
     );
-    const test_requested = buildInvocationRequestsRunnableStep("test");
+    const test_requested_opt = buildInvocationRequestsRunnableStep("test");
+    const lint_requested_opt = buildInvocationRequestsStep("lint");
+    const invocation_args_unknown = test_requested_opt == null or lint_requested_opt == null;
+    if (invocation_args_unknown and b.args != null) {
+        std.process.fatal(
+            "unable to attribute build runner post-`--` args on this host; rerun without shared-tail args or use a supported host",
+            .{},
+        );
+    }
+    const test_requested = test_requested_opt orelse (test_suites_raw != null);
     // `lint` currently owns the only documented non-test shared-tail CLI surface (`--max-warnings`),
     // so mixed `lint test -- ...` invocations must ignore unknown args while still honoring test flags.
-    const allow_foreign_shared_tail_args = test_requested and buildInvocationRequestsStep("lint");
+    const allow_foreign_shared_tail_args = test_requested and (lint_requested_opt orelse false);
     const lint_shared_tail_args = lintSharedTailArgsAlloc(b.allocator, b.args, allow_foreign_shared_tail_args) catch |err|
         std.process.fatal("unable to prepare lint shared-tail args: {s}", .{@errorName(err)});
     defer b.allocator.free(lint_shared_tail_args);

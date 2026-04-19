@@ -2,90 +2,108 @@ const build_options = @import("build_options");
 const builtin = @import("builtin");
 const std = @import("std");
 
-fn smokeCaseStart(label: []const u8) i128 {
-    const start_ns = std.time.nanoTimestamp();
+fn compatIo() std.Io {
+    return std.testing.io;
+}
+
+fn currentEnviron() std.process.Environ {
+    return switch (builtin.os.tag) {
+        .windows, .freestanding, .other => .{ .block = .global },
+        else => environ: {
+            const c_environ = std.c.environ;
+            var env_count: usize = 0;
+            while (c_environ[env_count] != null) : (env_count += 1) {}
+            break :environ .{ .block = .{ .slice = c_environ[0..env_count :null] } };
+        },
+    };
+}
+
+fn smokeCaseStart(label: []const u8) std.Io.Timestamp {
+    const start_ns = std.Io.Clock.now(.awake, compatIo());
     std.debug.print("[public-root-package-contract] start {s}\n", .{label});
     return start_ns;
 }
 
-fn smokeCaseDone(label: []const u8, start_ns: i128) void {
-    const elapsed_ns = std.time.nanoTimestamp() - start_ns;
+fn smokeCaseDone(label: []const u8, start_ns: std.Io.Timestamp) void {
+    const elapsed_ns = start_ns.durationTo(std.Io.Clock.now(.awake, compatIo())).toNanoseconds();
     const elapsed_ms = @divTrunc(elapsed_ns, std.time.ns_per_ms);
     std.debug.print("[public-root-package-contract] done {s} ({d} ms)\n", .{ label, elapsed_ms });
 }
 
-fn writeTmpFile(dir: std.fs.Dir, path: []const u8, contents: []const u8) !void {
-    if (std.Io.Dir.path.dirname(path)) |dir_name| try dir.makePath(dir_name);
-    var file = try dir.createFile(path, .{ .truncate = true });
-    defer file.close();
+fn writeTmpFile(dir: std.Io.Dir, path: []const u8, contents: []const u8) !void {
+    if (std.Io.Dir.path.dirname(path)) |dir_name| try dir.createDirPath(compatIo(), dir_name);
+    var file = try dir.createFile(compatIo(), path, .{ .truncate = true });
+    defer file.close(compatIo());
     var buffer: [1024]u8 = undefined;
-    var writer = file.writer(&buffer);
+    var writer = file.writer(compatIo(), &buffer);
     try writer.interface.writeAll(contents);
     try writer.interface.flush();
 }
 
 fn runChild(
-    cwd_dir: std.fs.Dir,
+    cwd_dir: std.Io.Dir,
     allocator: std.mem.Allocator,
     argv: []const []const u8,
-    env_map: ?*const std.process.EnvMap,
-) !std.process.Child.RunResult {
-    const cwd_path = try cwd_dir.realpathAlloc(allocator, ".");
+    env_map: ?*const std.process.Environ.Map,
+) !std.process.RunResult {
+    const cwd_path = try cwd_dir.realPathFileAlloc(compatIo(), ".", allocator);
     defer allocator.free(cwd_path);
 
     var effective_env = if (env_map) |existing| blk: {
-        var cloned = std.process.EnvMap.init(allocator);
+        var cloned = std.process.Environ.Map.init(allocator);
         var it = existing.iterator();
         while (it.next()) |entry| {
             try cloned.put(entry.key_ptr.*, entry.value_ptr.*);
         }
         break :blk cloned;
-    } else try std.process.getEnvMap(allocator);
+    } else try currentEnviron().createMap(allocator);
     defer effective_env.deinit();
 
-    if (!effective_env.hash_map.contains("ZIG_GLOBAL_CACHE_DIR")) {
+    if (effective_env.get("ZIG_GLOBAL_CACHE_DIR") == null) {
         try effective_env.put("ZIG_GLOBAL_CACHE_DIR", ".zig-global-cache");
     }
 
-    return try std.process.Child.run(.{
-        .allocator = allocator,
+    return try std.process.run(allocator, compatIo(), .{
         .argv = argv,
-        .cwd = cwd_path,
-        .env_map = &effective_env,
-        .max_output_bytes = 32 * 1024,
+        .cwd = .{ .path = cwd_path },
+        .environ_map = &effective_env,
+        .stdout_limit = .limited(32 * 1024),
+        .stderr_limit = .limited(32 * 1024),
     });
 }
 
 fn runChildNoOutput(
-    cwd_dir: std.fs.Dir,
+    cwd_dir: std.Io.Dir,
     allocator: std.mem.Allocator,
     argv: []const []const u8,
-    env_map: ?*const std.process.EnvMap,
+    env_map: ?*const std.process.Environ.Map,
 ) !std.process.Child.Term {
-    const cwd_path = try cwd_dir.realpathAlloc(allocator, ".");
+    const cwd_path = try cwd_dir.realPathFileAlloc(compatIo(), ".", allocator);
     defer allocator.free(cwd_path);
 
     var effective_env = if (env_map) |existing| blk: {
-        var cloned = std.process.EnvMap.init(allocator);
+        var cloned = std.process.Environ.Map.init(allocator);
         var it = existing.iterator();
         while (it.next()) |entry| {
             try cloned.put(entry.key_ptr.*, entry.value_ptr.*);
         }
         break :blk cloned;
-    } else try std.process.getEnvMap(allocator);
+    } else try currentEnviron().createMap(allocator);
     defer effective_env.deinit();
 
-    if (!effective_env.hash_map.contains("ZIG_GLOBAL_CACHE_DIR")) {
+    if (effective_env.get("ZIG_GLOBAL_CACHE_DIR") == null) {
         try effective_env.put("ZIG_GLOBAL_CACHE_DIR", ".zig-global-cache");
     }
 
-    var child = std.process.Child.init(argv, allocator);
-    child.cwd = cwd_path;
-    child.env_map = &effective_env;
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Ignore;
-    child.stderr_behavior = .Ignore;
-    return try child.spawnAndWait();
+    var child = try std.process.spawn(compatIo(), .{
+        .argv = argv,
+        .cwd = .{ .path = cwd_path },
+        .environ_map = &effective_env,
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
+    });
+    return try child.wait(compatIo());
 }
 
 const FingerprintRepair = struct {
@@ -113,10 +131,10 @@ fn extractSuggestedFingerprint(stderr: []const u8) ?FingerprintRepair {
 fn rewriteBuildZonFingerprint(allocator: std.mem.Allocator, manifest_path: []const u8, fingerprint: []const u8) !void {
     const manifest_dir_path = std.Io.Dir.path.dirname(manifest_path) orelse return error.InvalidConsumerManifest;
     const manifest_basename = std.Io.Dir.path.basename(manifest_path);
-    var manifest_dir = try std.fs.openDirAbsolute(manifest_dir_path, .{});
-    defer manifest_dir.close();
+    var manifest_dir = try std.Io.Dir.openDirAbsolute(compatIo(), manifest_dir_path, .{});
+    defer manifest_dir.close(compatIo());
 
-    const manifest = try manifest_dir.readFileAlloc(allocator, manifest_basename, std.math.maxInt(usize));
+    const manifest = try manifest_dir.readFileAlloc(compatIo(), manifest_basename, allocator, .limited(std.math.maxInt(usize)));
     defer allocator.free(manifest);
 
     const marker = ".fingerprint = ";
@@ -136,16 +154,16 @@ fn rewriteBuildZonFingerprint(allocator: std.mem.Allocator, manifest_path: []con
 }
 
 fn runChildWithFingerprintRepair(
-    cwd_dir: std.fs.Dir,
+    cwd_dir: std.Io.Dir,
     allocator: std.mem.Allocator,
     argv: []const []const u8,
-    env_map: ?*const std.process.EnvMap,
-) !std.process.Child.RunResult {
+    env_map: ?*const std.process.Environ.Map,
+) !std.process.RunResult {
     while (true) {
         const result = try runChild(cwd_dir, allocator, argv, env_map);
 
         switch (result.term) {
-            .Exited => |code| if (code != 0) {
+            .exited => |code| if (code != 0) {
                 const suggested = extractSuggestedFingerprint(result.stderr) orelse return result;
                 try rewriteBuildZonFingerprint(allocator, suggested.manifest_path, suggested.fingerprint);
                 allocator.free(result.stdout);
@@ -160,15 +178,15 @@ fn runChildWithFingerprintRepair(
 }
 
 fn runChildExpectSuccess(
-    cwd_dir: std.fs.Dir,
+    cwd_dir: std.Io.Dir,
     allocator: std.mem.Allocator,
     argv: []const []const u8,
-    env_map: ?*const std.process.EnvMap,
+    env_map: ?*const std.process.Environ.Map,
 ) !void {
     while (true) {
         const term = try runChildNoOutput(cwd_dir, allocator, argv, env_map);
         switch (term) {
-            .Exited => |code| if (code == 0) return,
+            .exited => |code| if (code == 0) return,
             else => {},
         }
 
@@ -177,7 +195,7 @@ fn runChildExpectSuccess(
         defer allocator.free(result.stderr);
 
         switch (result.term) {
-            .Exited => |code| if (code != 0) {
+            .exited => |code| if (code != 0) {
                 const suggested = extractSuggestedFingerprint(result.stderr) orelse {
                     std.debug.print("child command failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n", .{ argv[0], result.stdout, result.stderr });
                     return error.UnexpectedChildCommandFailure;
@@ -194,10 +212,10 @@ fn runChildExpectSuccess(
 }
 
 fn runChildExpectFailureContains(
-    cwd_dir: std.fs.Dir,
+    cwd_dir: std.Io.Dir,
     allocator: std.mem.Allocator,
     argv: []const []const u8,
-    env_map: ?*const std.process.EnvMap,
+    env_map: ?*const std.process.Environ.Map,
     needle: []const u8,
 ) !void {
     const result = try runChildWithFingerprintRepair(cwd_dir, allocator, argv, env_map);
@@ -205,7 +223,7 @@ fn runChildExpectFailureContains(
     defer allocator.free(result.stderr);
 
     switch (result.term) {
-        .Exited => |code| if (code != 0) {
+        .exited => |code| if (code != 0) {
             if (std.mem.find(u8, result.stderr, needle) != null or std.mem.find(u8, result.stdout, needle) != null) return;
             std.debug.print("child command failed without expected needle '{s}'\nstdout:\n{s}\nstderr:\n{s}\n", .{ needle, result.stdout, result.stderr });
             return error.UnexpectedChildCommandFailure;
@@ -222,7 +240,7 @@ fn zigBuildArgv() [2][]const u8 {
 }
 
 fn writeFakeZigOnPath(tmp: *std.testing.TmpDir) ![]const u8 {
-    try tmp.dir.makePath("shadow-bin");
+    try tmp.dir.createDirPath(compatIo(), "shadow-bin");
     const fake_name = if (builtin.os.tag == .windows) "shadow-bin/zig.bat" else "shadow-bin/zig";
     const fake_contents = if (builtin.os.tag == .windows)
         "@echo off\r\necho FAKE-ZIG-IN-PATH 1>&2\r\nexit /b 97\r\n"
@@ -230,9 +248,9 @@ fn writeFakeZigOnPath(tmp: *std.testing.TmpDir) ![]const u8 {
         "#!/bin/sh\nprintf 'FAKE-ZIG-IN-PATH\\n' >&2\nexit 97\n";
     try writeTmpFile(tmp.dir, fake_name, fake_contents);
     if (builtin.os.tag != .windows) {
-        var fake_file = try tmp.dir.openFile(fake_name, .{});
-        defer fake_file.close();
-        try fake_file.chmod(0o755);
+        var fake_file = try tmp.dir.openFile(compatIo(), fake_name, .{});
+        defer fake_file.close(compatIo());
+        try fake_file.setPermissions(compatIo(), .fromMode(0o755));
     }
     return "shadow-bin";
 }
@@ -253,8 +271,8 @@ const mirrored_dep_names = [_][]const u8{
     "zlinter",
 };
 
-fn assertPublishedPackagePathsMatchManifest(repo_dir: std.fs.Dir) !void {
-    const manifest = try repo_dir.readFileAlloc(std.testing.allocator, "build.zig.zon", std.math.maxInt(usize));
+fn assertPublishedPackagePathsMatchManifest(repo_dir: std.Io.Dir) !void {
+    const manifest = try repo_dir.readFileAlloc(compatIo(), "build.zig.zon", std.testing.allocator, .limited(std.math.maxInt(usize)));
     defer std.testing.allocator.free(manifest);
 
     const paths_start = std.mem.find(u8, manifest, ".paths = .{") orelse return error.InvalidPublishedPackageManifest;
@@ -320,8 +338,8 @@ fn replaceDependencyWithPathAlloc(
 }
 
 fn pathExistsAbsolute(path: []const u8) bool {
-    var dir = std.fs.openDirAbsolute(path, .{}) catch return false;
-    defer dir.close();
+    var dir = std.Io.Dir.openDirAbsolute(compatIo(), path, .{}) catch return false;
+    defer dir.close(compatIo());
     return true;
 }
 
@@ -351,23 +369,17 @@ fn findCachedDependencyDirAlloc(
     defer allocator.free(repo_cache_root);
     try appendCacheRootCandidate(allocator, &candidates, repo_cache_root);
 
-    if (std.process.getEnvVarOwned(allocator, "XDG_CACHE_HOME")) |xdg_cache_home| {
-        defer allocator.free(xdg_cache_home);
+    var env_map = try currentEnviron().createMap(allocator);
+    defer env_map.deinit();
+
+    if (env_map.get("XDG_CACHE_HOME")) |xdg_cache_home| {
         const zig_cache_root = try std.Io.Dir.path.join(allocator, &.{ xdg_cache_home, "zig" });
         defer allocator.free(zig_cache_root);
         try appendCacheRootCandidate(allocator, &candidates, zig_cache_root);
-    } else |_| {
-        if (std.process.getEnvVarOwned(allocator, "HOME")) |home| {
-            defer allocator.free(home);
-            const zig_cache_root = try std.Io.Dir.path.join(allocator, &.{ home, ".cache", "zig" });
-            defer allocator.free(zig_cache_root);
-            try appendCacheRootCandidate(allocator, &candidates, zig_cache_root);
-        } else |err| switch (err) {
-            error.EnvironmentVariableNotFound => {
-                // No HOME fallback is available in this environment.
-            },
-            else => return err,
-        }
+    } else if (env_map.get("HOME")) |home| {
+        const zig_cache_root = try std.Io.Dir.path.join(allocator, &.{ home, ".cache", "zig" });
+        defer allocator.free(zig_cache_root);
+        try appendCacheRootCandidate(allocator, &candidates, zig_cache_root);
     }
 
     for (candidates.items) |candidate| {
@@ -381,76 +393,96 @@ fn findCachedDependencyDirAlloc(
 }
 
 fn copyRepoFileIntoFixture(
-    repo_dir: std.fs.Dir,
-    fixture_dir: std.fs.Dir,
+    repo_dir: std.Io.Dir,
+    fixture_dir: std.Io.Dir,
     source_path: []const u8,
     dest_path: []const u8,
 ) !void {
-    const contents = try repo_dir.readFileAlloc(std.testing.allocator, source_path, std.math.maxInt(usize));
+    const contents = try repo_dir.readFileAlloc(compatIo(), source_path, std.testing.allocator, .limited(std.math.maxInt(usize)));
     defer std.testing.allocator.free(contents);
     try writeTmpFile(fixture_dir, dest_path, contents);
 }
 
 fn copyRepoDirectoryIntoFixture(
-    repo_dir: std.fs.Dir,
-    fixture_dir: std.fs.Dir,
+    repo_dir: std.Io.Dir,
+    fixture_dir: std.Io.Dir,
     source_dir_path: []const u8,
     dest_dir_path: []const u8,
 ) !void {
-    try fixture_dir.makePath(dest_dir_path);
+    try fixture_dir.createDirPath(compatIo(), dest_dir_path);
 
-    var source_dir = try repo_dir.openDir(source_dir_path, .{ .iterate = true });
-    defer source_dir.close();
+    var source_dir = try repo_dir.openDir(compatIo(), source_dir_path, .{ .iterate = true });
+    defer source_dir.close(compatIo());
 
     var walker = try source_dir.walk(std.testing.allocator);
     defer walker.deinit();
 
-    while (try walker.next()) |entry| {
+    while (try walker.next(compatIo())) |entry| {
         const fixture_entry_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ dest_dir_path, entry.path });
         defer std.testing.allocator.free(fixture_entry_path);
 
         switch (entry.kind) {
-            .directory => try fixture_dir.makePath(fixture_entry_path),
+            .directory => try fixture_dir.createDirPath(compatIo(), fixture_entry_path),
             .file, .sym_link => try copyRepoFileIntoFixture(source_dir, fixture_dir, entry.path, fixture_entry_path),
-            else => return error.UnsupportedPublishedPackageEntry,
+            .block_device,
+            .character_device,
+            .named_pipe,
+            .unix_domain_socket,
+            .whiteout,
+            .door,
+            .event_port,
+            .unknown,
+            => return error.UnsupportedPublishedPackageEntry,
         }
     }
 }
 
 fn copyAbsoluteDirectoryIntoFixture(
     source_dir_path: []const u8,
-    fixture_dir: std.fs.Dir,
+    fixture_dir: std.Io.Dir,
     dest_dir_path: []const u8,
 ) !void {
-    try fixture_dir.makePath(dest_dir_path);
+    try fixture_dir.createDirPath(compatIo(), dest_dir_path);
 
-    var source_dir = try std.fs.openDirAbsolute(source_dir_path, .{ .iterate = true });
-    defer source_dir.close();
+    var source_dir = try std.Io.Dir.openDirAbsolute(compatIo(), source_dir_path, .{ .iterate = true });
+    defer source_dir.close(compatIo());
 
     var walker = try source_dir.walk(std.testing.allocator);
     defer walker.deinit();
 
-    while (try walker.next()) |entry| {
+    while (try walker.next(compatIo())) |entry| {
         const fixture_entry_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ dest_dir_path, entry.path });
         defer std.testing.allocator.free(fixture_entry_path);
 
         switch (entry.kind) {
-            .directory => try fixture_dir.makePath(fixture_entry_path),
+            .directory => try fixture_dir.createDirPath(compatIo(), fixture_entry_path),
             .file, .sym_link => try copyRepoFileIntoFixture(source_dir, fixture_dir, entry.path, fixture_entry_path),
-            else => return error.UnsupportedPublishedPackageEntry,
+            .block_device,
+            .character_device,
+            .named_pipe,
+            .unix_domain_socket,
+            .whiteout,
+            .door,
+            .event_port,
+            .unknown,
+            => return error.UnsupportedPublishedPackageEntry,
         }
     }
 }
 
 fn mirrorPublishedPackageDependenciesIntoFixture(tmp: *std.testing.TmpDir, repo_root: []const u8) !void {
     const mirrored_manifest_path = "deps/shift/build.zig.zon";
-    const mirrored_manifest = try tmp.dir.readFileAlloc(std.testing.allocator, mirrored_manifest_path, std.math.maxInt(usize));
+    const mirrored_manifest = try tmp.dir.readFileAlloc(compatIo(), mirrored_manifest_path, std.testing.allocator, .limited(std.math.maxInt(usize)));
     defer std.testing.allocator.free(mirrored_manifest);
 
     var rewritten_manifest = try std.testing.allocator.dupe(u8, mirrored_manifest);
     defer std.testing.allocator.free(rewritten_manifest);
 
-    inline for (mirrored_dep_names) |dep_name| {
+    for (mirrored_dep_names) |dep_name| {
+        const dep_block = try dependencyBlockRange(rewritten_manifest, dep_name);
+        if (std.mem.find(u8, rewritten_manifest[dep_block.start..dep_block.end], ".path = ") != null) {
+            continue;
+        }
         const dependency_hash = try dependencyHashFromManifest(rewritten_manifest, dep_name);
         const dependency_dir = try findCachedDependencyDirAlloc(std.testing.allocator, repo_root, dependency_hash);
         defer std.testing.allocator.free(dependency_dir);
@@ -475,19 +507,19 @@ fn mirrorPublishedPackageDependenciesIntoFixture(tmp: *std.testing.TmpDir, repo_
 }
 
 fn mirrorPublishedPackageIntoFixture(tmp: *std.testing.TmpDir, repo_root: []const u8) !void {
-    try tmp.dir.makePath("deps/shift");
+    try tmp.dir.createDirPath(compatIo(), "deps/shift");
 
-    var repo_dir = try std.fs.openDirAbsolute(repo_root, .{});
-    defer repo_dir.close();
+    var repo_dir = try std.Io.Dir.openDirAbsolute(compatIo(), repo_root, .{});
+    defer repo_dir.close(compatIo());
     try assertPublishedPackagePathsMatchManifest(repo_dir);
 
     for (published_package_paths) |path| {
         const fixture_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ "deps/shift", path });
         defer std.testing.allocator.free(fixture_path);
 
-        if (repo_dir.openDir(path, .{ .iterate = true })) |dir| {
+        if (repo_dir.openDir(compatIo(), path, .{ .iterate = true })) |dir| {
             var opened_dir = dir;
-            opened_dir.close();
+            opened_dir.close(compatIo());
             try copyRepoDirectoryIntoFixture(repo_dir, tmp.dir, path, fixture_path);
             continue;
         } else |err| switch (err) {
@@ -524,12 +556,12 @@ fn writeConsumerBuildFiles(tmp: *std.testing.TmpDir, repo_root: []const u8) !voi
     try writeTmpFile(tmp.dir, "build.zig.zon", build_zon);
 }
 
-fn writeConsumerExecutableBuild(dir: std.fs.Dir, import_name: []const u8) !void {
+fn writeConsumerExecutableBuild(dir: std.Io.Dir, import_name: []const u8) !void {
     return writeConsumerExecutableBuildWithRoot(dir, import_name, "main.zig");
 }
 
 fn writeConsumerExecutableBuildWithRoot(
-    dir: std.fs.Dir,
+    dir: std.Io.Dir,
     import_name: []const u8,
     root_source_path: []const u8,
 ) !void {
@@ -558,7 +590,7 @@ fn writeConsumerExecutableBuildWithRoot(
     try writeTmpFile(dir, "build.zig", build_zig);
 }
 
-fn writeConsumerTestBuild(dir: std.fs.Dir, import_name: []const u8) !void {
+fn writeConsumerTestBuild(dir: std.Io.Dir, import_name: []const u8) !void {
     const build_zig = try std.fmt.allocPrint(std.testing.allocator,
         \\const std = @import("std");
         \\
@@ -606,7 +638,7 @@ const ConsumerSmokeSuite = struct {
         self: *ConsumerSmokeSuite,
         label: []const u8,
         argv: []const []const u8,
-        env_map: ?*const std.process.EnvMap,
+        env_map: ?*const std.process.Environ.Map,
     ) !void {
         const start_ns = smokeCaseStart(label);
         try runChildExpectSuccess(self.tmp.dir, std.testing.allocator, argv, env_map);
@@ -617,7 +649,7 @@ const ConsumerSmokeSuite = struct {
         self: *ConsumerSmokeSuite,
         label: []const u8,
         argv: []const []const u8,
-        env_map: ?*const std.process.EnvMap,
+        env_map: ?*const std.process.Environ.Map,
         needle: []const u8,
     ) !void {
         const start_ns = smokeCaseStart(label);
@@ -627,7 +659,7 @@ const ConsumerSmokeSuite = struct {
 };
 
 test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
-    const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
+    const repo_root = try std.process.currentPathAlloc(compatIo(), std.testing.allocator);
     defer std.testing.allocator.free(repo_root);
 
     var suite = try ConsumerSmokeSuite.init(repo_root);
@@ -651,7 +683,7 @@ test "downstream consumer smoke suite reuses one mirrored consumer fixture" {
         \\
     );
     const shadow_path = try writeFakeZigOnPath(&suite.tmp);
-    var env_map = try std.process.getEnvMap(std.testing.allocator);
+    var env_map = try currentEnviron().createMap(std.testing.allocator);
     defer env_map.deinit();
     try env_map.put("PATH", shadow_path);
     try suite.expectSuccess("public root imports only shipped APIs", &argv, &env_map);
