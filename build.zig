@@ -185,6 +185,63 @@ fn buildInvocationArgsAllocLinux(allocator: std.mem.Allocator) ![]const []const 
     return items;
 }
 
+const SharedTailInvocationInference = struct {
+    test_requested: ?bool,
+    lint_requested: ?bool,
+};
+
+fn sharedTailHasTestSignal(args: []const []const u8) bool {
+    var index: usize = 0;
+    while (index < args.len) {
+        if (recognizedTestRunnerArgSpan(args, index)) |_| return true;
+
+        const arg = args[index];
+        if (std.mem.eql(u8, arg, "--test-filter") or
+            std.mem.startsWith(u8, arg, "--test-filter=") or
+            std.mem.eql(u8, arg, "--seed") or
+            std.mem.startsWith(u8, arg, "--seed=") or
+            std.mem.eql(u8, arg, "--cache-dir") or
+            std.mem.startsWith(u8, arg, "--cache-dir=") or
+            std.mem.eql(u8, arg, "--listen=-"))
+        {
+            return true;
+        }
+        index += 1;
+    }
+    return false;
+}
+
+fn sharedTailHasLintSignal(args: []const []const u8) bool {
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--max-warnings") or std.mem.startsWith(u8, arg, "--max-warnings=")) {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn inferBuildInvocationFromSharedTail(args: ?[]const []const u8) SharedTailInvocationInference {
+    const raw_args = args orelse
+        return .{
+            .test_requested = false,
+            .lint_requested = false,
+        };
+
+    const test_signal = sharedTailHasTestSignal(raw_args);
+    const lint_signal = sharedTailHasLintSignal(raw_args);
+    if (test_signal == lint_signal) {
+        return .{
+            .test_requested = null,
+            .lint_requested = null,
+        };
+    }
+
+    return .{
+        .test_requested = test_signal,
+        .lint_requested = lint_signal,
+    };
+}
+
 fn buildInvocationArgsAllocWindows(allocator: std.mem.Allocator) ![]const []const u8 {
     const raw_items = try std.process.Args.toSlice(
         .{ .vector = std.os.windows.peb().ProcessParameters.CommandLine.slice() },
@@ -3771,6 +3828,30 @@ test "build invocation detection reports unavailable when argv inspection is una
     ) == null);
 }
 
+test "shared-tail invocation inference recovers documented test args without argv inspection" {
+    const inference = inferBuildInvocationFromSharedTail(&.{ "--seed", "123", "--test-filter=alpha" });
+    try std.testing.expectEqual(@as(?bool, true), inference.test_requested);
+    try std.testing.expectEqual(@as(?bool, false), inference.lint_requested);
+}
+
+test "shared-tail invocation inference recovers documented lint args without argv inspection" {
+    const inference = inferBuildInvocationFromSharedTail(&.{ "--max-warnings", "0" });
+    try std.testing.expectEqual(@as(?bool, false), inference.test_requested);
+    try std.testing.expectEqual(@as(?bool, true), inference.lint_requested);
+}
+
+test "shared-tail invocation inference stays fail-closed on ambiguous unknown tails" {
+    const inference = inferBuildInvocationFromSharedTail(&.{"--bogus"});
+    try std.testing.expectEqual(@as(?bool, null), inference.test_requested);
+    try std.testing.expectEqual(@as(?bool, null), inference.lint_requested);
+}
+
+test "shared-tail invocation inference stays fail-closed on mixed step signals" {
+    const inference = inferBuildInvocationFromSharedTail(&.{ "--max-warnings", "0", "--seed", "123" });
+    try std.testing.expectEqual(@as(?bool, null), inference.test_requested);
+    try std.testing.expectEqual(@as(?bool, null), inference.lint_requested);
+}
+
 test "build invocation exclusive test detection accepts pure test invocations" {
     const args = [_][]const u8{
         "build-helper",
@@ -3847,8 +3928,9 @@ pub fn build(b: *std.Build) void {
         "test-suites",
         "Restrict `zig build test` to a comma-separated list of exact suite ids.",
     );
-    const test_requested_opt = buildInvocationRequestsRunnableStep("test");
-    const lint_requested_opt = buildInvocationRequestsStep("lint");
+    const inferred_shared_tail = inferBuildInvocationFromSharedTail(b.args);
+    const test_requested_opt = buildInvocationRequestsRunnableStep("test") orelse inferred_shared_tail.test_requested;
+    const lint_requested_opt = buildInvocationRequestsStep("lint") orelse inferred_shared_tail.lint_requested;
     const invocation_args_unknown = test_requested_opt == null or lint_requested_opt == null;
     if (invocation_args_unknown and b.args != null) {
         std.process.fatal(
