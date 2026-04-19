@@ -243,7 +243,6 @@ const published_package_paths = [_][]const u8{
     "build.zig",
     "build.zig.zon",
     "examples",
-    "repo_zig_paths.txt",
     "source_graph_embed.zig",
     "src",
     "test",

@@ -2196,28 +2196,6 @@ fn collectTrackedRepoZigPathsAlloc(
     return true;
 }
 
-fn collectRepoZigPathsFromRegistryFile(
-    allocator: std.mem.Allocator,
-    repo_root: []const u8,
-    paths: *std.ArrayList([]const u8),
-    path_set: *std.StringHashMap(void),
-) bool {
-    var root_dir = std.fs.openDirAbsolute(repo_root, .{}) catch return false;
-    defer root_dir.close();
-
-    const registry = root_dir.readFileAlloc(allocator, "repo_zig_paths.txt", 512 * 1024) catch return false;
-    defer allocator.free(registry);
-
-    var lines = std.mem.tokenizeScalar(u8, registry, '\n');
-    while (lines.next()) |line| {
-        if (!std.mem.endsWith(u8, line, ".zig")) continue;
-        if (!pathExistsAtRoot(root_dir, line)) continue;
-        appendOwnedPathIfMissing(allocator, paths, path_set, line) catch
-            std.process.fatal("unable to record committed repo Zig path", .{});
-    }
-    return true;
-}
-
 fn collectRepoZigPathsAlloc(
     allocator: std.mem.Allocator,
     repo_root: []const u8,
@@ -2226,11 +2204,7 @@ fn collectRepoZigPathsAlloc(
 ) void {
     const have_tracked = collectTrackedRepoZigPathsAlloc(allocator, repo_root, paths, path_set);
     if (have_tracked) return;
-
-    const have_registry = collectRepoZigPathsFromRegistryFile(allocator, repo_root, paths, path_set);
-    if (!have_registry) {
-        collectFilesystemRepoZigPaths(allocator, repo_root, paths, path_set);
-    }
+    collectFilesystemRepoZigPaths(allocator, repo_root, paths, path_set);
 }
 
 fn artifactBuildInputPathsAlloc(
@@ -2989,7 +2963,7 @@ test "artifact build fingerprint includes top-level forward alias embed inputs" 
     try std.testing.expect(!std.mem.eql(u8, &before, &after));
 }
 
-test "repo Zig path registry falls back to filesystem when git and committed registry are unavailable" {
+test "repo Zig path registry falls back to filesystem when git metadata is unavailable" {
     const repo_root = try makeExternalTmpDir(std.testing.allocator);
     defer std.testing.allocator.free(repo_root);
     defer runChildExpectSuccess(std.testing.allocator, &.{ "rm", "-rf", repo_root }) catch unreachable;
@@ -3018,7 +2992,7 @@ test "repo Zig path registry falls back to filesystem when git and committed reg
     , registry);
 }
 
-test "repo Zig path registry ignores deleted tracked files even when repo_zig_paths.txt is stale" {
+test "repo Zig path registry prefers tracked git paths over filesystem backup" {
     const repo_root = try makeExternalTmpDir(std.testing.allocator);
     defer std.testing.allocator.free(repo_root);
     defer runChildExpectSuccess(std.testing.allocator, &.{ "rm", "-rf", repo_root }) catch unreachable;
@@ -3036,20 +3010,18 @@ test "repo Zig path registry ignores deleted tracked files even when repo_zig_pa
         \\pub fn live() void {}
         \\
     );
-    try writeTmpFile(repo_dir, "stale.zig",
-        \\pub fn stale() void {}
+    try writeTmpFile(repo_dir, "deleted.zig",
+        \\pub fn deleted() void {}
         \\
     );
-    try writeTmpFile(repo_dir, "repo_zig_paths.txt",
-        \\build.zig
-        \\live.zig
-        \\stale.zig
+    try writeTmpFile(repo_dir, "scratch.zig",
+        \\pub fn scratch() void {}
         \\
     );
 
     try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "init", "-q" });
-    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "add", "build.zig", "live.zig", "stale.zig" });
-    try repo_dir.deleteFile("stale.zig");
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "add", "build.zig", "live.zig", "deleted.zig" });
+    try repo_dir.deleteFile("deleted.zig");
 
     const registry = repoZigPathRegistryAlloc(std.testing.allocator, repo_root);
     defer std.testing.allocator.free(registry);
@@ -3061,24 +3033,16 @@ test "repo Zig path registry ignores deleted tracked files even when repo_zig_pa
     , registry);
 }
 
-test "checked-in repo Zig path registry stays in parity with tracked Zig files" {
-    var repo_dir = try std.fs.cwd().openDir(".", .{});
-    defer repo_dir.close();
-
+test "repo Zig path registry matches tracked Zig files in the working checkout" {
     const repo_root = try std.fs.cwd().realpathAlloc(std.testing.allocator, ".");
     defer std.testing.allocator.free(repo_root);
 
     const tracked_registry = repoZigPathRegistryAlloc(std.testing.allocator, repo_root);
     defer std.testing.allocator.free(tracked_registry);
 
-    const committed_registry_bytes = try repo_dir.readFileAlloc(std.testing.allocator, "repo_zig_paths.txt", 512 * 1024);
-    defer std.testing.allocator.free(committed_registry_bytes);
-    const committed_registry = std.mem.trimEnd(u8, committed_registry_bytes, "\n\r");
-
-    try std.testing.expectEqualStrings(
-        std.mem.trimEnd(u8, tracked_registry, "\n\r"),
-        committed_registry,
-    );
+    try std.testing.expect(tracked_registry.len != 0);
+    try std.testing.expect(std.mem.indexOf(u8, tracked_registry, "build.zig\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, tracked_registry, "source_graph_embed.zig\n") != null);
 }
 
 test "test suite selection accepts trimmed multi-suite lists" {
