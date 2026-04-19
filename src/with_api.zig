@@ -2124,24 +2124,28 @@ fn tryOwnedSourceCompiledWith(
         synthetic_source orelse root_source,
         witness.imported_sources,
     );
-    const lowered_program = public_lowering.maybeLower(source_ref, .{
-        .label = "shift.with owned lexical body",
-        .entry_symbol = entry_symbol,
-        .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
-        .row = lexical_bundle_schema.rowForHandlers(HandlersType),
-        .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
-    }) orelse return null;
+    const maybe_compiled_plan: ?public_lowering.ProgramPlan = comptime blk: {
+        const lowered_program = public_lowering.maybeLower(source_ref, .{
+            .label = "shift.with owned lexical body",
+            .entry_symbol = entry_symbol,
+            .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+            .row = lexical_bundle_schema.rowForHandlers(HandlersType),
+            .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
+        }) orelse break :blk null;
+        break :blk public_lowering.enrichOpenRowPlan(
+            "shift.with owned lexical body",
+            lowered_program,
+            lexicalBindingSchemasValue(HandlersType),
+        );
+    };
+    const compiled_plan = maybe_compiled_plan orelse return null;
     return try runCompiledLexicalPlan(
         HandlersType,
         Body,
         runtime,
         handlers_ptr,
         outputs_ptr,
-        comptime public_lowering.enrichOpenRowPlan(
-            "shift.with owned lexical body",
-            lowered_program,
-            lexicalBindingSchemasValue(HandlersType),
-        ),
+        compiled_plan,
     );
 }
 

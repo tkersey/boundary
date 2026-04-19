@@ -129,10 +129,10 @@ fn joinRelativePathSegments(comptime segments: []const []const u8) []const u8 {
     };
 }
 
-fn pathEquals(lhs: []const u8, rhs: []const u8) bool {
+fn pathEquals(comptime lhs: []const u8, comptime rhs: []const u8) bool {
     if (lhs.len != rhs.len) return false;
-    const case_insensitive = pathsUseCaseInsensitiveComparison(lhs, rhs);
-    for (rhs, 0..) |expected, index| {
+    const case_insensitive = comptime pathsUseCaseInsensitiveComparison(lhs, rhs);
+    inline for (rhs, 0..) |expected, index| {
         const actual = lhs[index];
         if (expected == '/' or expected == '\\') {
             if (actual != '/' and actual != '\\') return false;
@@ -242,7 +242,7 @@ fn repoRelativePath(comptime source_path: []const u8) []const u8 {
 
 fn registryContainsLine(comptime registry: []const u8, comptime candidate: []const u8) bool {
     comptime {
-        @setEvalBranchQuota(50_000);
+        @setEvalBranchQuota(2_000_000);
     }
     var start: usize = 0;
     while (start < registry.len) {
@@ -458,7 +458,7 @@ fn dirname(comptime path: []const u8) []const u8 {
     return std.Io.Dir.path.dirname(path) orelse "";
 }
 
-fn optionalPathEquals(lhs: ?[]const u8, rhs: ?[]const u8) bool {
+fn optionalPathEquals(comptime lhs: ?[]const u8, comptime rhs: ?[]const u8) bool {
     if (lhs == null and rhs == null) return true;
     if (lhs == null or rhs == null) return false;
     return pathEquals(lhs.?, rhs.?);
