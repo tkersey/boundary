@@ -1,8 +1,8 @@
 const effect_ir = @import("effect_ir");
 const frontend = @import("frontend_support");
 const lowered_machine = @import("lowered_machine");
+const lowering_api = @import("lowering_api");
 const prompt_contract = @import("prompt_contract_support");
-const public_lowering = @import("public_lowering");
 const std = @import("std");
 
 const BuilderKind = enum {
@@ -554,10 +554,10 @@ fn Binding(
             };
         }
 
-        fn authoredCompiledProgram() ?public_lowering.ProgramPlan {
+        fn authoredCompiledProgram() ?lowering_api.ProgramPlan {
             _ = supportedAuthoredPayloadCodec() orelse return null;
             _ = supportedAuthoredResultType() orelse return null;
-            return public_lowering.authoredBoundProgramPlan(switch (SpecType.builder_kind) {
+            return lowering_api.authoredBoundProgramPlan(switch (SpecType.builder_kind) {
                 .abort => "authored.abort.bound_program",
                 .choice => "authored.choice.bound_program",
                 .transform => "authored.transform.bound_program",
@@ -768,7 +768,7 @@ fn Binding(
                 }
 
                 /// Return the compiled ProgramPlan when this authored carrier can lower semantically.
-                pub fn compiledPlan() ?public_lowering.ProgramPlan {
+                pub fn compiledPlan() ?lowering_api.ProgramPlan {
                     return authoredCompiledProgram();
                 }
 
@@ -784,7 +784,7 @@ fn Binding(
                         &.{}
                     else
                         &.{encodeAuthoredPayload(payload_codec, self.carrier.payload)};
-                    return (public_lowering.runExecutablePlanWithArgs(runtime, compiled_plan, &handlers, args) catch |err| return @errorCast(err)).value;
+                    return (lowering_api.runExecutablePlanWithArgs(runtime, compiled_plan, &handlers, args) catch |err| return @errorCast(err)).value;
                 }
             };
         }
@@ -826,7 +826,7 @@ fn Binding(
                 }
 
                 /// Return the compiled ProgramPlan when this authored contextual carrier can lower semantically.
-                pub fn compiledPlan() ?public_lowering.ProgramPlan {
+                pub fn compiledPlan() ?lowering_api.ProgramPlan {
                     if (SpecType.builder_kind != .choice) return null;
                     return authoredCompiledProgram();
                 }
@@ -849,7 +849,7 @@ fn Binding(
                         &.{}
                     else
                         &.{encodeAuthoredPayload(payload_codec, self.carrier.payload)};
-                    return (public_lowering.runExecutablePlanWithArgs(runtime, compiled_plan, &handlers, args) catch |err| return @errorCast(err)).value;
+                    return (lowering_api.runExecutablePlanWithArgs(runtime, compiled_plan, &handlers, args) catch |err| return @errorCast(err)).value;
                 }
             };
         }

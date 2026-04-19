@@ -2682,7 +2682,7 @@ pub const CompileIr = CompileIrType;
 
 test "same-module lowerAt preserves caller-provided source ownership" {
     const ProgramType = lowerAt("examples/open_row_state_writer.zig", .{
-        .label = "public_lowering.self",
+        .label = "lowering_api.self",
         .entry_symbol = "runBody",
         .row = effect_ir.mergeRows(.{
             effect_ir.rowFromSpec(.{
@@ -2755,7 +2755,7 @@ test "absolute caller-owned helper regression: lowering accepts normalized sibli
             ,
         )},
     ), .{
-        .label = "public_lowering.normalized_sibling_helper",
+        .label = "lowering_api.normalized_sibling_helper",
         .entry_symbol = "runBody",
         .row = effect_ir.rowFromSpec(.{
             .writer = .{
@@ -2837,7 +2837,7 @@ test "absolute caller-owned helper regression: lowering accepts shared helper su
             ),
         },
     ), .{
-        .label = "public_lowering.shared_helper_subtree",
+        .label = "lowering_api.shared_helper_subtree",
         .entry_symbol = "runBody",
         .row = effect_ir.rowFromSpec(.{
             .writer = .{
@@ -2869,7 +2869,7 @@ test "caller-owned lowering binds explicit continuation params to resumed locals
         \\    });
         \\}
     ), .{
-        .label = "public_lowering.explicit_continuation_resume_local",
+        .label = "lowering_api.explicit_continuation_resume_local",
         .entry_symbol = "runBody",
         .row = effect_ir.rowFromSpec(.{
             .picker = .{
@@ -3219,8 +3219,8 @@ test "source ownership accepts basename-only content witnesses for non-owned roo
     ;
 
     try std.testing.expect(sourceOwnershipMatches(.{
-        .repo_path = "downstream_public_lowering_test.zig",
-        .caller_file = "downstream_public_lowering_test.zig",
+        .repo_path = "downstream_lowering_api_test.zig",
+        .caller_file = "downstream_lowering_api_test.zig",
         .caller_hash = hashSourceBytes(downstream_source),
         .caller_source = downstream_source,
     }));
@@ -3428,7 +3428,7 @@ test "source ownership rejects forged absolute caller-owned content witnesses in
 }
 
 test "source ownership accepts absolute caller-owned content witnesses outside owned roots when the caller proves both path and bytes" {
-    const caller_path = "/tmp/downstream_public_lowering_test.zig";
+    const caller_path = "/tmp/downstream_lowering_api_test.zig";
     const caller_source =
         \\pub fn runBody() void {}
     ;
@@ -3440,7 +3440,7 @@ test "source ownership accepts absolute caller-owned content witnesses outside o
         .caller_source = caller_source,
     }));
     try std.testing.expect(!sourceOwnershipMatches(.{
-        .repo_path = "/tmp/other_downstream_public_lowering_test.zig",
+        .repo_path = "/tmp/other_downstream_lowering_api_test.zig",
         .caller_file = caller_path,
         .caller_hash = hashSourceBytes(caller_source),
         .caller_source = caller_source,
@@ -4496,10 +4496,10 @@ test "CompileIr run decodes full-width const_i32 literals" {
     const large_bits: u32 = @bitCast(@as(i32, 70_000));
 
     const negative_symbol: effect_ir.SymbolRef = .{
-        .module_path = "test/public_ir_full_width_const_i32_negative.zig",
+        .module_path = "test/ir_api_full_width_const_i32_negative.zig",
         .symbol_name = "literalRoot",
     };
-    const NegativeProgram = CompileIr("example.public_ir_full_width_const_i32_negative", .{
+    const NegativeProgram = CompileIr("example.ir_api_full_width_const_i32_negative", .{
         .entry_index = 0,
         .functions = &.{.{
             .symbol = negative_symbol,
@@ -4530,10 +4530,10 @@ test "CompileIr run decodes full-width const_i32 literals" {
     });
 
     const large_symbol: effect_ir.SymbolRef = .{
-        .module_path = "test/public_ir_full_width_const_i32_large.zig",
+        .module_path = "test/ir_api_full_width_const_i32_large.zig",
         .symbol_name = "literalRoot",
     };
-    const LargeProgram = CompileIr("example.public_ir_full_width_const_i32_large", .{
+    const LargeProgram = CompileIr("example.ir_api_full_width_const_i32_large", .{
         .entry_index = 0,
         .functions = &.{.{
             .symbol = large_symbol,
@@ -4582,10 +4582,10 @@ test "CompileIr run decodes full-width const_i32 literals" {
 
 test "CompileIr run applies after handlers for repeated loop resumes" {
     const symbol: effect_ir.SymbolRef = .{
-        .module_path = "test/public_ir_loop_after.zig",
+        .module_path = "test/ir_api_loop_after.zig",
         .symbol_name = "loopAfterRoot",
     };
-    const ProgramType = CompileIr("example.public_ir_loop_after", .{
+    const ProgramType = CompileIr("example.ir_api_loop_after", .{
         .entry_index = 0,
         .functions = &.{.{
             .symbol = symbol,

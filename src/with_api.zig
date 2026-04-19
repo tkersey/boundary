@@ -5,8 +5,8 @@ const frontend = @import("frontend_support");
 const lexical_bundle_schema = @import("internal/lexical_bundle_schema.zig");
 const lexical_executable_bundle = @import("internal/lexical_executable_bundle.zig");
 const lowered_machine = @import("lowered_machine");
+const lowering_api = @import("lowering_api");
 const prompt_contract = @import("prompt_contract_support");
-const public_lowering = @import("public_lowering");
 const source_graph_embed = @import("source_graph_embed");
 const source_graph_engine = @import("source_graph_engine");
 const std = @import("std");
@@ -167,11 +167,11 @@ fn validateNamedBodyRepoIdentity(
 fn namedCompiledLexicalPlan(
     comptime HandlersType: type,
     comptime Body: type,
-) ?public_lowering.ProgramPlan {
+) ?lowering_api.ProgramPlan {
     if (!isNamedBodyDescriptor(Body)) return null;
     if (source_graph_embed.ownedRepoPath(Body.source_path) == null) return null;
     const lowered_program = comptime blk: {
-        break :blk public_lowering.maybeLowerAt(Body.source_path, .{
+        break :blk lowering_api.maybeLowerAt(Body.source_path, .{
             .label = "shift.with named lexical body",
             .entry_symbol = Body.entry_symbol,
             .ValueType = NamedBodyAnswerType(Body),
@@ -179,7 +179,7 @@ fn namedCompiledLexicalPlan(
             .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
         });
     } orelse return null;
-    return comptime public_lowering.enrichOpenRowPlan(
+    return comptime lowering_api.enrichOpenRowPlan(
         "shift.with named lexical body",
         lowered_program,
         lexicalBindingSchemasValue(HandlersType),
@@ -251,7 +251,7 @@ pub const OwnedSourceWitness = struct {
     /// Raw Zig source bytes appended to the caller-owned root source before lowering.
     body_source: ?[]const u8 = null,
     body_method_name: []const u8 = "body",
-    imported_sources: []const public_lowering.ImportedSource = &.{},
+    imported_sources: []const lowering_api.ImportedSource = &.{},
 };
 
 /// Output bundle that mirrors only the non-void lexical handler outputs.
@@ -1668,7 +1668,7 @@ test "with preserves caller provenance through optional continuation resume" {
 fn rejectUnsupportedShippedWith(
     comptime HandlersType: type,
     comptime Body: type,
-    comptime named_compiled_plan: ?public_lowering.ProgramPlan,
+    comptime named_compiled_plan: ?lowering_api.ProgramPlan,
     comptime caller: ?std.builtin.SourceLocation,
     comptime caller_source_override: ?[:0]const u8,
     comptime caller_owned_kind: CallerOwnedCompilationKind,
@@ -1917,7 +1917,7 @@ fn tryNamedCompiledWith(
     runtime: *lowered_machine.Runtime,
     handlers_ptr: *HandlersType,
     outputs_ptr: *OutputBundleType(HandlersType),
-    comptime compiled_plan: ?public_lowering.ProgramPlan,
+    comptime compiled_plan: ?lowering_api.ProgramPlan,
 ) ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
     const resolved_plan = compiled_plan orelse return null;
     return try runCompiledLexicalPlan(
@@ -1944,8 +1944,8 @@ fn tryCallerOwnedCompiledWith(
     if (isNamedBodyDescriptor(Body)) return null;
     const explicit_caller = caller orelse return null;
     const maybe_lowered_program = comptime if (anonymousBodySyntheticSource(explicit_caller, Body, caller_source_override, caller_owned_kind)) |synthetic_source| blk: {
-        const source_ref = public_lowering.sourceWithContent(explicit_caller.file, explicit_caller, synthetic_source);
-        break :blk public_lowering.maybeLower(source_ref, .{
+        const source_ref = lowering_api.sourceWithContent(explicit_caller.file, explicit_caller, synthetic_source);
+        break :blk lowering_api.maybeLower(source_ref, .{
             .label = "shift.with caller-owned lexical body",
             .entry_symbol = anonymousBodyEntryName(explicit_caller),
             .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
@@ -1960,7 +1960,7 @@ fn tryCallerOwnedCompiledWith(
         runtime,
         handlers_ptr,
         outputs_ptr,
-        comptime public_lowering.enrichOpenRowPlan(
+        comptime lowering_api.enrichOpenRowPlan(
             "shift.with caller-owned lexical body",
             lowered_program,
             lexicalBindingSchemasValue(HandlersType),
@@ -1977,8 +1977,8 @@ fn callerOwnedCompilationSupported(
 ) bool {
     const explicit_caller = caller orelse return false;
     return comptime if (anonymousBodySyntheticSource(explicit_caller, Body, caller_source_override, caller_owned_kind)) |synthetic_source| blk: {
-        const source_ref = public_lowering.sourceWithContent(explicit_caller.file, explicit_caller, synthetic_source);
-        break :blk public_lowering.maybeLower(source_ref, .{
+        const source_ref = lowering_api.sourceWithContent(explicit_caller.file, explicit_caller, synthetic_source);
+        break :blk lowering_api.maybeLower(source_ref, .{
             .label = "shift.with caller-owned lexical body",
             .entry_symbol = anonymousBodyEntryName(explicit_caller),
             .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
@@ -1997,7 +1997,7 @@ fn ownedSourceUsesAnonymousCallerCompilation(comptime Body: type, comptime witne
     return !@hasDecl(Body, "entry_symbol");
 }
 
-fn ownedSourceNamedPlan(comptime HandlersType: type, comptime Body: type) ?public_lowering.ProgramPlan {
+fn ownedSourceNamedPlan(comptime HandlersType: type, comptime Body: type) ?lowering_api.ProgramPlan {
     if (!isNamedBodyDescriptor(Body)) return null;
     if (source_graph_embed.ownedRepoPath(Body.source_path) == null) return null;
     return namedCompiledLexicalPlan(HandlersType, Body);
@@ -2005,7 +2005,7 @@ fn ownedSourceNamedPlan(comptime HandlersType: type, comptime Body: type) ?publi
 
 fn ownedSourceUsesExternalNamedDirectExecution(comptime Body: type) bool {
     if (comptime isNamedBodyDescriptor(Body)) {
-        return !public_lowering.repoOwnedSourcePathSupported(Body.source_path);
+        return !lowering_api.repoOwnedSourcePathSupported(Body.source_path);
     }
     return false;
 }
@@ -2051,13 +2051,13 @@ fn rejectUnsupportedOwnedSourceWith(
     const source_owner = comptime ownedSourceLocation(caller, source_path);
     const entry_symbol = comptime ownedSourceCompilationEntrySymbol(Body, witness, caller);
     const synthetic_source = comptime ownedSourceSyntheticSource(Body, caller, root_source, witness, entry_symbol);
-    const source_ref = comptime public_lowering.sourceWithContentAndImports(
+    const source_ref = comptime lowering_api.sourceWithContentAndImports(
         source_path,
         source_owner,
         synthetic_source orelse root_source,
         witness.imported_sources,
     );
-    if (public_lowering.maybeLower(source_ref, .{
+    if (lowering_api.maybeLower(source_ref, .{
         .label = "shift.with owned lexical body",
         .entry_symbol = entry_symbol,
         .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
@@ -2112,21 +2112,21 @@ fn tryOwnedSourceCompiledWith(
     const source_owner = comptime ownedSourceLocation(caller, source_path);
     const entry_symbol = comptime ownedSourceCompilationEntrySymbol(Body, witness, caller);
     const synthetic_source = comptime ownedSourceSyntheticSource(Body, caller, root_source, witness, entry_symbol);
-    const source_ref = comptime public_lowering.sourceWithContentAndImports(
+    const source_ref = comptime lowering_api.sourceWithContentAndImports(
         source_path,
         source_owner,
         synthetic_source orelse root_source,
         witness.imported_sources,
     );
-    const maybe_compiled_plan: ?public_lowering.ProgramPlan = comptime blk: {
-        const lowered_program = public_lowering.maybeLower(source_ref, .{
+    const maybe_compiled_plan: ?lowering_api.ProgramPlan = comptime blk: {
+        const lowered_program = lowering_api.maybeLower(source_ref, .{
             .label = "shift.with owned lexical body",
             .entry_symbol = entry_symbol,
             .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
             .row = lexical_bundle_schema.rowForHandlers(HandlersType),
             .outputs = lexical_bundle_schema.outputsForHandlers(HandlersType),
         }) orelse break :blk null;
-        break :blk public_lowering.enrichOpenRowPlan(
+        break :blk lowering_api.enrichOpenRowPlan(
             "shift.with owned lexical body",
             lowered_program,
             lexicalBindingSchemasValue(HandlersType),
@@ -2156,7 +2156,7 @@ fn runCompiledLexicalPlan(
     outputs_ptr: *OutputBundleType(HandlersType),
     comptime compiled_plan: anytype,
 ) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
-    public_lowering.assertExecutablePlanCodecSupport(compiled_plan);
+    lowering_api.assertExecutablePlanCodecSupport(compiled_plan);
 
     const lexical_state = struct {
         runtime: *lowered_machine.Runtime,
@@ -2168,7 +2168,7 @@ fn runCompiledLexicalPlan(
 
     var executable_bundle = lexical_executable_bundle.fromLexicalState(lexical_state);
     var run_error: ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType))) = null;
-    const result = public_lowering.runExecutablePlan(runtime, compiled_plan, &executable_bundle) catch |err| blk: {
+    const result = lowering_api.runExecutablePlan(runtime, compiled_plan, &executable_bundle) catch |err| blk: {
         run_error = @errorCast(err);
         break :blk null;
     };
@@ -2645,7 +2645,7 @@ test "compiled lexical plans preserve binding-schema lifecycle metadata in Progr
         writer: writer.LexicalDescriptor([]const u8, error{}),
     };
 
-    const lowered_program = try public_lowering.lowerOpenRowAt(
+    const lowered_program = try lowering_api.lowerOpenRowAt(
         "src/with_api.zig",
         .{
             .label = "with_api.compiled_plan_lifecycle_probe",
@@ -2655,7 +2655,7 @@ test "compiled lexical plans preserve binding-schema lifecycle metadata in Progr
             .outputs = lexical_bundle_schema.outputsForHandlers(Handlers),
         },
     );
-    const enriched_plan = public_lowering.enrichOpenRowPlan(
+    const enriched_plan = lowering_api.enrichOpenRowPlan(
         "with_api.compiled_plan_lifecycle_probe",
         lowered_program,
         lexicalBindingSchemasValue(Handlers),

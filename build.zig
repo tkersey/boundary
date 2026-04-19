@@ -2525,8 +2525,8 @@ fn zigLintPathExcluded(path: []const u8) bool {
     if (std.mem.startsWith(u8, path, "zig-global-cache/")) return true;
     if (std.mem.eql(u8, path, "src/error_witness.zig")) return true;
     if (std.mem.eql(u8, path, "src/op_compat.zig")) return true;
-    if (std.mem.eql(u8, path, "src/public_ir.zig")) return true;
-    if (std.mem.eql(u8, path, "src/public_lowering.zig")) return true;
+    if (std.mem.eql(u8, path, "src/ir_api.zig")) return true;
+    if (std.mem.eql(u8, path, "src/lowering_api.zig")) return true;
     if (std.mem.eql(u8, path, "src/program_api_compat.zig")) return true;
     if (std.mem.eql(u8, path, "src/program_api.zig")) return true;
     if (std.mem.eql(u8, path, "src/root.zig")) return true;
@@ -2668,12 +2668,12 @@ fn normalizeSourceForHashAlloc(allocator: std.mem.Allocator, source: []const u8)
 test "zigStringLiteralEscapeAlloc escapes path bytes for generated fixture source" {
     const escaped = try zigStringLiteralEscapeAlloc(
         std.testing.allocator,
-        "C:\\Users\\\"tk\"\\shift\\downstream_public_lowering_test.zig",
+        "C:\\Users\\\"tk\"\\shift\\downstream_lowering_api_test.zig",
     );
     defer std.testing.allocator.free(escaped);
 
     try std.testing.expectEqualStrings(
-        "C:\\\\Users\\\\\\\"tk\\\"\\\\shift\\\\downstream_public_lowering_test.zig",
+        "C:\\\\Users\\\\\\\"tk\\\"\\\\shift\\\\downstream_lowering_api_test.zig",
         escaped,
     );
 }
@@ -4031,13 +4031,13 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const public_ir_mod = b.createModule(.{
-        .root_source_file = b.path("src/public_ir.zig"),
+    const ir_api_mod = b.createModule(.{
+        .root_source_file = b.path("src/ir_api.zig"),
         .target = target,
         .optimize = optimize,
     });
-    const public_lowering_mod = b.createModule(.{
-        .root_source_file = b.path("src/public_lowering.zig"),
+    const lowering_api_mod = b.createModule(.{
+        .root_source_file = b.path("src/lowering_api.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -4299,7 +4299,7 @@ pub fn build(b: *std.Build) void {
     lexical_runtime_internal_mod.addImport("lowered_machine", lowered_machine_mod);
     lexical_runtime_internal_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
     lexical_runtime_internal_mod.addImport("effect_ir", effect_ir_mod);
-    lexical_runtime_internal_mod.addImport("public_lowering", public_lowering_mod);
+    lexical_runtime_internal_mod.addImport("lowering_api", lowering_api_mod);
     lexical_runtime_internal_mod.addImport("source_graph_embed", source_graph_embed_mod);
     lexical_runtime_internal_mod.addImport("source_graph_engine", source_graph_engine_mod);
     lexical_runtime_internal_mod.addImport("authoring_build_options", authoring_build_options_mod);
@@ -4379,18 +4379,18 @@ pub fn build(b: *std.Build) void {
     source_lowering_mod.addImport("error_witness", error_witness_mod);
     source_lowering_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
     source_lowering_mod.addImport("shipped_open_row_corpus_registry", shipped_open_row_corpus_mod);
-    public_lowering_mod.addImport("authoring_build_options", authoring_build_options_mod);
-    public_lowering_mod.addImport("effect_ir", effect_ir_mod);
-    public_lowering_mod.addImport("lowered_machine", lowered_machine_mod);
-    public_lowering_mod.addImport("program_frontend", program_frontend_mod);
-    public_lowering_mod.addImport("internal_program_plan", internal_program_plan_mod);
-    public_lowering_mod.addImport("source_graph_embed", source_graph_embed_mod);
-    public_lowering_mod.addImport("source_graph_comptime", source_graph_comptime_mod);
-    public_lowering_mod.addImport("source_graph_engine", source_graph_engine_mod);
-    public_lowering_mod.addImport("source_lowering", source_lowering_mod);
-    public_ir_mod.addImport("effect_ir", effect_ir_mod);
-    public_ir_mod.addImport("public_lowering", public_lowering_mod);
-    shift_compile_api_mod.addImport("public_lowering", public_lowering_mod);
+    lowering_api_mod.addImport("authoring_build_options", authoring_build_options_mod);
+    lowering_api_mod.addImport("effect_ir", effect_ir_mod);
+    lowering_api_mod.addImport("lowered_machine", lowered_machine_mod);
+    lowering_api_mod.addImport("program_frontend", program_frontend_mod);
+    lowering_api_mod.addImport("internal_program_plan", internal_program_plan_mod);
+    lowering_api_mod.addImport("source_graph_embed", source_graph_embed_mod);
+    lowering_api_mod.addImport("source_graph_comptime", source_graph_comptime_mod);
+    lowering_api_mod.addImport("source_graph_engine", source_graph_engine_mod);
+    lowering_api_mod.addImport("source_lowering", source_lowering_mod);
+    ir_api_mod.addImport("effect_ir", effect_ir_mod);
+    ir_api_mod.addImport("lowering_api", lowering_api_mod);
+    shift_compile_api_mod.addImport("lowering_api", lowering_api_mod);
     shift_mod.addImport("source_lowering", source_lowering_mod);
     shift_shared_mod.addImport("artifact_api", artifact_api_mod);
     shift_shared_mod.addImport("portable_core", portable_core_mod);
@@ -4410,8 +4410,8 @@ pub fn build(b: *std.Build) void {
     shift_shared_mod.addImport("source_graph_embed", source_graph_embed_mod);
     shift_shared_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
     shift_shared_mod.addImport("source_lowering", source_lowering_mod);
-    shift_shared_mod.addImport("public_ir", public_ir_mod);
-    shift_shared_mod.addImport("public_lowering", public_lowering_mod);
+    shift_shared_mod.addImport("ir_api", ir_api_mod);
+    shift_shared_mod.addImport("lowering_api", lowering_api_mod);
     witnesses_mod.addImport("private_lowered_runtime", private_lowered_runtime_mod);
     const reference_eval_mod = b.createModule(.{
         .root_source_file = b.path("src/reference_eval.zig"),

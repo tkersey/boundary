@@ -1,5 +1,5 @@
 const effect_ir = @import("effect_ir");
-const public_lowering = @import("public_lowering");
+const lowering_api = @import("lowering_api");
 
 /// Preserve the prior effect_ir namespace while layering public compile helpers on top.
 pub const ControlMode = effect_ir.ControlMode;
@@ -44,7 +44,7 @@ pub const rowDigest = effect_ir.rowDigest;
 pub const resolveSccs = effect_ir.resolveSccs;
 
 fn Compile(comptime label: []const u8, comptime program: effect_ir.Program) type {
-    return public_lowering.CompileIr(label, program);
+    return lowering_api.CompileIr(label, program);
 }
 
 /// Compile explicit public Effect IR into the same runtime-owned plan shape as explicit-path lowering.

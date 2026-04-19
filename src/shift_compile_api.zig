@@ -1,5 +1,5 @@
 const artifact = @import("artifact_api");
-const lowering = @import("public_lowering");
+const lowering = @import("lowering_api");
 const std = @import("std");
 
 /// Compile-time options for ArtifactV1 emission and default capability derivation.

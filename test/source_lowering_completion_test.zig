@@ -14,31 +14,31 @@ const PublicCompletionCase = struct {
     Runner: type,
 };
 
-fn expectPublicCompletionCase(comptime public_example: PublicCompletionCase) !void {
+fn expectPublicCompletionCase(comptime completion_case: PublicCompletionCase) !void {
     var direct_buffer: [2048]u8 = undefined;
     var direct_writer = std.Io.Writer.fixed(&direct_buffer);
-    try public_example.Runner.run(&direct_writer);
+    try completion_case.Runner.run(&direct_writer);
 
-    try std.testing.expect(std.mem.startsWith(u8, public_example.source_path, "examples/"));
+    try std.testing.expect(std.mem.startsWith(u8, completion_case.source_path, "examples/"));
 
     var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
-        .case_id = public_example.case_id,
-        .source_path = public_example.source_path,
-        .entry_symbol = public_example.entry_symbol,
-        .surface_kind = public_example.surface_kind,
+        .case_id = completion_case.case_id,
+        .source_path = completion_case.source_path,
+        .entry_symbol = completion_case.entry_symbol,
+        .surface_kind = completion_case.surface_kind,
     });
     defer lowered.deinit(std.testing.allocator);
 
     try std.testing.expect(lowered.isAccepted());
     try std.testing.expect(lowered.status == .canonical);
     try std.testing.expect(lowered.surface_kind == .example);
-    try std.testing.expectEqual(public_example.scenario_id, lowered.canonical_scenario_id.?);
+    try std.testing.expectEqual(completion_case.scenario_id, lowered.canonical_scenario_id.?);
 
     var lowered_buffer: [2048]u8 = undefined;
     var lowered_writer = std.Io.Writer.fixed(&lowered_buffer);
     try source_lowering.runLowered(&lowered_writer, &lowered);
 
-    const scenario = parity_scenarios.byId(public_example.scenario_id);
+    const scenario = parity_scenarios.byId(completion_case.scenario_id);
     try std.testing.expectEqualStrings(scenario.expected_transcript, direct_writer.buffered());
     try std.testing.expectEqualStrings(scenario.expected_transcript, lowered_writer.buffered());
 }
