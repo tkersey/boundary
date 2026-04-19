@@ -83,6 +83,29 @@ fn encodeI32LiteralInstruction(value: i32) program_frontend.BodyInstruction {
     };
 }
 
+fn encodeUsizeLiteralInstruction(comptime literal: []const u8) program_frontend.BodyInstruction {
+    return .{
+        .kind = .const_usize,
+        .dst = 0,
+        .string_literal = cloneBytes(literal),
+    };
+}
+
+fn appendBoolLiteralValue(state: *BodyBuildState, value: bool) u16 {
+    const raw_local = appendAnonymousLocal(&state.local_storage, .i32);
+    var raw_instruction = encodeI32LiteralInstruction(if (value) 0 else 1);
+    raw_instruction.dst = raw_local;
+    appendInstruction(state.instructions, state.instruction_count, raw_instruction);
+
+    const bool_local = appendAnonymousLocal(&state.local_storage, .bool);
+    appendInstruction(state.instructions, state.instruction_count, .{
+        .kind = .compare_eq_zero,
+        .dst = bool_local,
+        .operand = raw_local,
+    });
+    return bool_local;
+}
+
 fn failUnsupportedBodyLowering(comptime function: source_graph_embed.ProgramFunction) noreturn {
     @compileError(std.fmt.comptimePrint(
         "public lowering cannot synthesize unsupported helper or entry bodies; {s}:{s} must stay within the retained lowered-body subset",
@@ -158,8 +181,26 @@ fn statementRangesForTokens(comptime tokens: []const BodyToken) []const Statemen
     return comptime blk: {
         var statement_count: usize = 0;
         var start: usize = 0;
+        var paren_depth: usize = 0;
+        var bracket_depth: usize = 0;
+        var brace_depth: usize = 0;
         for (tokens, 0..) |token, index| {
-            if (token.tag != .semicolon) continue;
+            switch (token.tag) {
+                .l_paren => paren_depth += 1,
+                .r_paren => {
+                    if (paren_depth != 0) paren_depth -= 1;
+                },
+                .l_bracket => bracket_depth += 1,
+                .r_bracket => {
+                    if (bracket_depth != 0) bracket_depth -= 1;
+                },
+                .l_brace => brace_depth += 1,
+                .r_brace => {
+                    if (brace_depth != 0) brace_depth -= 1;
+                },
+                else => {},
+            }
+            if (token.tag != .semicolon or paren_depth != 0 or bracket_depth != 0 or brace_depth != 0) continue;
             if (index + 1 > start) statement_count += 1;
             start = index + 1;
         }
@@ -167,8 +208,26 @@ fn statementRangesForTokens(comptime tokens: []const BodyToken) []const Statemen
         var buffer: [statement_count]StatementRange = undefined;
         var out_index: usize = 0;
         start = 0;
+        paren_depth = 0;
+        bracket_depth = 0;
+        brace_depth = 0;
         for (tokens, 0..) |token, index| {
-            if (token.tag != .semicolon) continue;
+            switch (token.tag) {
+                .l_paren => paren_depth += 1,
+                .r_paren => {
+                    if (paren_depth != 0) paren_depth -= 1;
+                },
+                .l_bracket => bracket_depth += 1,
+                .r_bracket => {
+                    if (bracket_depth != 0) bracket_depth -= 1;
+                },
+                .l_brace => brace_depth += 1,
+                .r_brace => {
+                    if (brace_depth != 0) brace_depth -= 1;
+                },
+                else => {},
+            }
+            if (token.tag != .semicolon or paren_depth != 0 or bracket_depth != 0 or brace_depth != 0) continue;
             if (index + 1 > start) {
                 buffer[out_index] = .{
                     .start = start,
@@ -188,6 +247,24 @@ fn statementTrimSemicolon(comptime statement: []const BodyToken) []const BodyTok
     return statement[0 .. statement.len - 1];
 }
 
+fn tokenIsBoolLiteral(token: BodyToken) bool {
+    return token.tag == .identifier and
+        (std.mem.eql(u8, token.lexeme, "true") or std.mem.eql(u8, token.lexeme, "false"));
+}
+
+fn statementArgsSupported(args: []const BodyToken) bool {
+    for (args) |item| switch (item.tag) {
+        .comma,
+        .identifier,
+        .string_literal,
+        .number_literal,
+        .plus,
+        => {},
+        else => return false,
+    };
+    return true;
+}
+
 fn statementIsSimpleReturn(comptime statement: []const BodyToken) bool {
     return statement.len == 2 and statement[0].tag == .keyword_return and statement[1].tag == .semicolon;
 }
@@ -195,7 +272,9 @@ fn statementIsSimpleReturn(comptime statement: []const BodyToken) bool {
 fn statementIsLiteralReturn(comptime statement: []const BodyToken) bool {
     return statement.len == 3 and
         statement[0].tag == .keyword_return and
-        (statement[1].tag == .string_literal or statement[1].tag == .number_literal) and
+        (statement[1].tag == .string_literal or
+            statement[1].tag == .number_literal or
+            tokenIsBoolLiteral(statement[1])) and
         statement[2].tag == .semicolon;
 }
 
@@ -235,7 +314,10 @@ fn findBoundLocal(
     comptime locals: []const BoundLocal,
     comptime name: []const u8,
 ) ?BoundLocal {
-    for (locals) |local| {
+    var index: usize = locals.len;
+    while (index > 0) {
+        index -= 1;
+        const local = locals[index];
         if (std.mem.eql(u8, local.name, name)) return local;
     }
     return null;
@@ -318,6 +400,12 @@ const DirectCall = struct {
     args: []const BodyToken,
 };
 
+const ContinuationReturnCall = struct {
+    direct_call: DirectCall,
+    apply_param_name: ?[]const u8,
+    apply_body: []const BodyToken,
+};
+
 fn parseDirectCall(
     comptime effect_param: ?[]const u8,
     comptime aliases: []const BodyAlias,
@@ -340,6 +428,23 @@ fn parseDirectCall(
 
     return switch (base_kind) {
         .effect_root => {
+            if (index + 8 <= tokens.len and
+                tokens[index + 1].tag == .period and
+                tokens[index + 2].tag == .identifier and
+                tokens[index + 3].tag == .period and
+                tokens[index + 4].tag == .identifier and
+                tokens[index + 5].tag == .period and
+                tokens[index + 6].tag == .identifier and
+                tokens[index + 7].tag == .l_paren and
+                tokens[tokens.len - 1].tag == .r_paren and
+                (std.mem.eql(u8, tokens[index + 6].lexeme, "perform") or std.mem.eql(u8, tokens[index + 6].lexeme, "abort")))
+            {
+                return .{
+                    .requirement_label = tokens[index + 2].lexeme,
+                    .op_name = tokens[index + 4].lexeme,
+                    .args = tokens[index + 8 .. tokens.len - 1],
+                };
+            }
             if (index + 6 > tokens.len) return null;
             if (tokens[index + 1].tag != .period or
                 tokens[index + 2].tag != .identifier or
@@ -357,6 +462,21 @@ fn parseDirectCall(
             };
         },
         .requirement => |requirement_label| {
+            if (index + 6 <= tokens.len and
+                tokens[index + 1].tag == .period and
+                tokens[index + 2].tag == .identifier and
+                tokens[index + 3].tag == .period and
+                tokens[index + 4].tag == .identifier and
+                tokens[index + 5].tag == .l_paren and
+                tokens[tokens.len - 1].tag == .r_paren and
+                (std.mem.eql(u8, tokens[index + 4].lexeme, "perform") or std.mem.eql(u8, tokens[index + 4].lexeme, "abort")))
+            {
+                return .{
+                    .requirement_label = requirement_label,
+                    .op_name = tokens[index + 2].lexeme,
+                    .args = tokens[index + 6 .. tokens.len - 1],
+                };
+            }
             if (index + 4 > tokens.len) return null;
             if (tokens[index + 1].tag != .period or
                 tokens[index + 2].tag != .identifier or
@@ -374,6 +494,275 @@ fn parseDirectCall(
     };
 }
 
+fn continuationStructStart(args: []const BodyToken) ?struct {
+    payload_end: usize,
+    struct_start: usize,
+} {
+    if (args.len >= 2 and args[0].tag == .keyword_struct and args[1].tag == .l_brace) {
+        return .{
+            .payload_end = 0,
+            .struct_start = 0,
+        };
+    }
+
+    var paren_depth: usize = 0;
+    var bracket_depth: usize = 0;
+    var brace_depth: usize = 0;
+    for (args, 0..) |token, index| {
+        switch (token.tag) {
+            .l_paren => paren_depth += 1,
+            .r_paren => {
+                if (paren_depth != 0) paren_depth -= 1;
+            },
+            .l_bracket => bracket_depth += 1,
+            .r_bracket => {
+                if (bracket_depth != 0) bracket_depth -= 1;
+            },
+            .l_brace => brace_depth += 1,
+            .r_brace => {
+                if (brace_depth != 0) brace_depth -= 1;
+            },
+            .comma => if (paren_depth == 0 and bracket_depth == 0 and brace_depth == 0) {
+                const next_index = index + 1;
+                if (next_index + 1 < args.len and
+                    args[next_index].tag == .keyword_struct and
+                    args[next_index + 1].tag == .l_brace)
+                {
+                    return .{
+                        .payload_end = index,
+                        .struct_start = next_index,
+                    };
+                }
+            },
+            else => {},
+        }
+    }
+    return null;
+}
+
+fn continuationStructTokens(args: []const BodyToken, struct_start: usize) ?[]const BodyToken {
+    var paren_depth: usize = 0;
+    var bracket_depth: usize = 0;
+    var brace_depth: usize = 0;
+    var index: usize = struct_start;
+    while (index < args.len) : (index += 1) {
+        switch (args[index].tag) {
+            .l_paren => paren_depth += 1,
+            .r_paren => {
+                if (paren_depth == 0) return null;
+                paren_depth -= 1;
+            },
+            .l_bracket => bracket_depth += 1,
+            .r_bracket => {
+                if (bracket_depth == 0) return null;
+                bracket_depth -= 1;
+            },
+            .l_brace => brace_depth += 1,
+            .r_brace => {
+                if (brace_depth == 0) return null;
+                brace_depth -= 1;
+            },
+            else => {},
+        }
+
+        if (index == struct_start or paren_depth != 0 or bracket_depth != 0 or brace_depth != 0) continue;
+
+        const struct_end = index + 1;
+        const tail = args[struct_end..];
+        if (tail.len == 0) return args[struct_start..struct_end];
+        if (tail.len == 1 and tail[0].tag == .comma) return args[struct_start..struct_end];
+        return null;
+    }
+    return null;
+}
+
+fn parseContinuationApplyBody(struct_tokens: []const BodyToken) ?struct {
+    param_name: ?[]const u8,
+    body: []const BodyToken,
+} {
+    if (struct_tokens.len < 4) return null;
+    if (struct_tokens[0].tag != .keyword_struct or struct_tokens[1].tag != .l_brace) return null;
+
+    var index: usize = 2;
+    while (index + 1 < struct_tokens.len) : (index += 1) {
+        if (struct_tokens[index].tag != .keyword_fn and
+            !(struct_tokens[index].tag == .keyword_pub and
+                index + 1 < struct_tokens.len and
+                struct_tokens[index + 1].tag == .keyword_fn))
+        {
+            continue;
+        }
+
+        const fn_index = if (struct_tokens[index].tag == .keyword_pub) index + 1 else index;
+        if (fn_index + 1 >= struct_tokens.len or
+            struct_tokens[fn_index + 1].tag != .identifier or
+            !std.mem.eql(u8, struct_tokens[fn_index + 1].lexeme, "apply"))
+        {
+            continue;
+        }
+        if (fn_index + 2 >= struct_tokens.len or struct_tokens[fn_index + 2].tag != .l_paren) return null;
+
+        var param_name: ?[]const u8 = null;
+        var expect_param_name = true;
+        var param_depth: usize = 1;
+        var cursor = fn_index + 3;
+        while (cursor < struct_tokens.len and param_depth != 0) : (cursor += 1) {
+            switch (struct_tokens[cursor].tag) {
+                .l_paren => if (param_depth == 1) {
+                    param_depth += 1;
+                } else {
+                    param_depth += 1;
+                },
+                .r_paren => {
+                    if (param_depth == 0) return null;
+                    param_depth -= 1;
+                },
+                .comma => if (param_depth == 1) {
+                    expect_param_name = true;
+                },
+                .colon => if (param_depth == 1) {
+                    expect_param_name = false;
+                },
+                .identifier => if (param_depth == 1 and expect_param_name and param_name == null) {
+                    if (!std.mem.eql(u8, struct_tokens[cursor].lexeme, "_")) {
+                        param_name = struct_tokens[cursor].lexeme;
+                    }
+                    expect_param_name = false;
+                },
+                else => {},
+            }
+        }
+        if (param_depth != 0 or cursor >= struct_tokens.len) return null;
+
+        while (cursor < struct_tokens.len and struct_tokens[cursor].tag != .l_brace) : (cursor += 1) {}
+        if (cursor >= struct_tokens.len) return null;
+
+        const body_start = cursor + 1;
+        var body_depth: usize = 1;
+        cursor = body_start;
+        while (cursor < struct_tokens.len and body_depth != 0) : (cursor += 1) {
+            switch (struct_tokens[cursor].tag) {
+                .l_brace => body_depth += 1,
+                .r_brace => {
+                    if (body_depth == 0) return null;
+                    body_depth -= 1;
+                },
+                else => {},
+            }
+        }
+        if (body_depth != 0 or cursor == 0) return null;
+
+        return .{
+            .param_name = param_name,
+            .body = struct_tokens[body_start .. cursor - 1],
+        };
+    }
+
+    return null;
+}
+
+fn parseReturnContinuationDirectCall(
+    comptime effect_param: ?[]const u8,
+    comptime aliases: []const BodyAlias,
+    comptime statement: []const BodyToken,
+) ?ContinuationReturnCall {
+    const tokens = statementTrimSemicolon(statement);
+    if (tokens.len == 0 or tokens[0].tag != .keyword_return) return null;
+
+    var index: usize = 1;
+    if (index < tokens.len and tokens[index].tag == .keyword_try) index += 1;
+    if (index >= tokens.len or tokens[index].tag != .identifier) return null;
+    const base_kind = bodyAliasKind(effect_param, aliases, tokens[index].lexeme) orelse return null;
+
+    const ArgsBounds = struct {
+        requirement_label: []const u8,
+        op_name: []const u8,
+        start: usize,
+    };
+    const args_bounds = switch (base_kind) {
+        .effect_root => blk: {
+            if (index + 8 <= tokens.len and
+                tokens[index + 1].tag == .period and
+                tokens[index + 2].tag == .identifier and
+                tokens[index + 3].tag == .period and
+                tokens[index + 4].tag == .identifier and
+                tokens[index + 5].tag == .period and
+                tokens[index + 6].tag == .identifier and
+                tokens[index + 7].tag == .l_paren and
+                tokens[tokens.len - 1].tag == .r_paren and
+                (std.mem.eql(u8, tokens[index + 6].lexeme, "perform") or std.mem.eql(u8, tokens[index + 6].lexeme, "abort")))
+            {
+                break :blk ArgsBounds{
+                    .requirement_label = tokens[index + 2].lexeme,
+                    .op_name = tokens[index + 4].lexeme,
+                    .start = index + 8,
+                };
+            }
+            if (index + 6 <= tokens.len and
+                tokens[index + 1].tag == .period and
+                tokens[index + 2].tag == .identifier and
+                tokens[index + 3].tag == .period and
+                tokens[index + 4].tag == .identifier and
+                tokens[index + 5].tag == .l_paren and
+                tokens[tokens.len - 1].tag == .r_paren)
+            {
+                break :blk ArgsBounds{
+                    .requirement_label = tokens[index + 2].lexeme,
+                    .op_name = tokens[index + 4].lexeme,
+                    .start = index + 6,
+                };
+            }
+            return null;
+        },
+        .requirement => |requirement_label| blk: {
+            if (index + 6 <= tokens.len and
+                tokens[index + 1].tag == .period and
+                tokens[index + 2].tag == .identifier and
+                tokens[index + 3].tag == .period and
+                tokens[index + 4].tag == .identifier and
+                tokens[index + 5].tag == .l_paren and
+                tokens[tokens.len - 1].tag == .r_paren and
+                (std.mem.eql(u8, tokens[index + 4].lexeme, "perform") or std.mem.eql(u8, tokens[index + 4].lexeme, "abort")))
+            {
+                break :blk ArgsBounds{
+                    .requirement_label = requirement_label,
+                    .op_name = tokens[index + 2].lexeme,
+                    .start = index + 6,
+                };
+            }
+            if (index + 4 <= tokens.len and
+                tokens[index + 1].tag == .period and
+                tokens[index + 2].tag == .identifier and
+                tokens[index + 3].tag == .l_paren and
+                tokens[tokens.len - 1].tag == .r_paren)
+            {
+                break :blk ArgsBounds{
+                    .requirement_label = requirement_label,
+                    .op_name = tokens[index + 2].lexeme,
+                    .start = index + 4,
+                };
+            }
+            return null;
+        },
+    };
+
+    const args = tokens[args_bounds.start .. tokens.len - 1];
+    const struct_arg = continuationStructStart(args) orelse return null;
+    if (!statementArgsSupported(args[0..struct_arg.payload_end])) return null;
+    const struct_tokens = continuationStructTokens(args, struct_arg.struct_start) orelse return null;
+    const apply = parseContinuationApplyBody(struct_tokens) orelse return null;
+
+    return .{
+        .direct_call = .{
+            .requirement_label = args_bounds.requirement_label,
+            .op_name = args_bounds.op_name,
+            .args = args[0..struct_arg.payload_end],
+        },
+        .apply_param_name = apply.param_name,
+        .apply_body = apply.body,
+    };
+}
+
 fn parseBoundLocalFromDirectCall(
     comptime effect_param: ?[]const u8,
     comptime aliases: []const BodyAlias,
@@ -388,12 +777,122 @@ fn parseBoundLocalFromDirectCall(
     if (statement[1].tag != .identifier) return null;
     if (statement[2].tag != .equal) return null;
     const direct = parseDirectCall(effect_param, aliases, statement[3..]) orelse return null;
-    if (direct.args.len != 0) return null;
     return .{
         .local_name = statement[1].lexeme,
         .requirement_label = direct.requirement_label,
         .op_name = direct.op_name,
     };
+}
+
+// zlinter-disable max_positional_args - this helper threads the inlined continuation lowering state without introducing an extra transient struct into the comptime-only path.
+fn lowerContinuationApplyBody(
+    comptime function: effect_ir.Function,
+    comptime apply_body: []const BodyToken,
+    comptime apply_param_name: ?[]const u8,
+    comptime resume_local_id: u16,
+    comptime resume_codec: effect_ir.LocalCodec,
+    local_storage: *LocalStorage,
+    body_state: *BodyBuildState,
+    terminated: *bool,
+    terminator: *program_frontend.BodyTerminator,
+) ?void {
+    if (apply_body.len == 0) return null;
+
+    if (apply_param_name) |param_name| {
+        if (resume_codec == .unit or resume_local_id == noLocalId()) return null;
+        local_storage.bindings[local_storage.binding_count.*] = .{
+            .name = param_name,
+            .codec = resume_codec,
+            .local_id = resume_local_id,
+        };
+        local_storage.binding_count.* += 1;
+    }
+
+    const expected_codec: effect_ir.LocalCodec = switch (function.ValueType) {
+        void => .unit,
+        bool => .bool,
+        i32 => .i32,
+        []const u8 => .string,
+        usize => .usize,
+        else => return null,
+    };
+
+    if (statementIsLiteralReturn(apply_body)) {
+        const return_literal = parseReturnLiteralStatement(apply_body) orelse return null;
+        switch (return_literal) {
+            .bool_value => |value| {
+                if (expected_codec != .bool) return null;
+                const dst = appendBoolLiteralValue(body_state, value);
+                appendInstruction(body_state.instructions, body_state.instruction_count, .{
+                    .kind = .return_value,
+                    .operand = dst,
+                });
+                terminator.* = .{ .kind = .return_value };
+                terminated.* = true;
+                return;
+            },
+            .number_literal => |literal| {
+                const dst = appendAnonymousLocal(local_storage, expected_codec);
+                var instruction = switch (expected_codec) {
+                    .i32 => literal_i32: {
+                        const value = std.fmt.parseInt(i32, literal, 0) catch return null;
+                        break :literal_i32 encodeI32LiteralInstruction(value);
+                    },
+                    .usize => literal_usize: {
+                        _ = std.fmt.parseUnsigned(usize, literal, 0) catch return null;
+                        break :literal_usize encodeUsizeLiteralInstruction(literal);
+                    },
+                    else => return null,
+                };
+                instruction.dst = dst;
+                appendInstruction(body_state.instructions, body_state.instruction_count, instruction);
+                appendInstruction(body_state.instructions, body_state.instruction_count, .{
+                    .kind = .return_value,
+                    .operand = dst,
+                });
+                terminator.* = .{ .kind = .return_value };
+                terminated.* = true;
+                return;
+            },
+            .string_value => |value| {
+                if (expected_codec != .string) return null;
+                const dst = appendAnonymousLocal(local_storage, .string);
+                appendInstruction(body_state.instructions, body_state.instruction_count, .{
+                    .kind = .const_string,
+                    .dst = dst,
+                    .string_literal = cloneBytes(value),
+                });
+                appendInstruction(body_state.instructions, body_state.instruction_count, .{
+                    .kind = .return_value,
+                    .operand = dst,
+                });
+                terminator.* = .{ .kind = .return_value };
+                terminated.* = true;
+                return;
+            },
+        }
+    }
+
+    if (statementIsSimpleReturn(apply_body)) {
+        if (function.ValueType != void) return null;
+        terminator.* = .{ .kind = .return_unit };
+        terminated.* = true;
+        return;
+    }
+
+    if (parseReturnLocalStatement(apply_body)) |local_name| {
+        const local = findBoundLocal(local_storage.bindings[0..local_storage.binding_count.*], local_name) orelse return null;
+        if (local.codec != expected_codec) return null;
+        appendInstruction(body_state.instructions, body_state.instruction_count, .{
+            .kind = .return_value,
+            .operand = local.local_id,
+        });
+        terminator.* = .{ .kind = .return_value };
+        terminated.* = true;
+        return;
+    }
+
+    return null;
 }
 
 const HelperCall = struct {
@@ -403,6 +902,7 @@ const HelperCall = struct {
 };
 
 fn parseHelperCall(
+    comptime effect_param: ?[]const u8,
     comptime statement: []const BodyToken,
 ) ?HelperCall {
     const tokens = statementTrimSemicolon(statement);
@@ -416,7 +916,7 @@ fn parseHelperCall(
         tokens[tokens.len - 1].tag == .r_paren)
     {
         const args = tokens[index + 2 .. tokens.len - 1];
-        const value_args = helperCallValueArgs(args) orelse return null;
+        const value_args = helperCallValueArgs(effect_param, args) orelse return null;
         return .{
             .callee_name = tokens[index].lexeme,
             .import_alias = null,
@@ -431,7 +931,7 @@ fn parseHelperCall(
         tokens[tokens.len - 1].tag == .r_paren)
     {
         const args = tokens[index + 4 .. tokens.len - 1];
-        const value_args = helperCallValueArgs(args) orelse return null;
+        const value_args = helperCallValueArgs(effect_param, args) orelse return null;
         return .{
             .callee_name = tokens[index + 2].lexeme,
             .import_alias = tokens[index].lexeme,
@@ -442,17 +942,26 @@ fn parseHelperCall(
     return null;
 }
 
-fn helperCallValueArgs(comptime args: []const BodyToken) ?[]const BodyToken {
-    if (args.len == 1 and args[0].tag == .identifier and std.mem.eql(u8, args[0].lexeme, "eff")) {
+fn helperCallValueArgs(comptime effect_param: ?[]const u8, comptime args: []const BodyToken) ?[]const BodyToken {
+    if (effect_param) |param| {
+        if (args.len == 1 and args[0].tag == .identifier and std.mem.eql(u8, args[0].lexeme, param)) {
+            return &.{};
+        }
+    } else if (args.len == 1 and args[0].tag == .identifier and std.mem.eql(u8, args[0].lexeme, "eff")) {
         return &.{};
     }
     if (args.len < 3) return null;
-    if (args[args.len - 1].tag != .identifier or !std.mem.eql(u8, args[args.len - 1].lexeme, "eff")) return null;
+    if (args[args.len - 1].tag != .identifier) return null;
+    const trailing_identifier = args[args.len - 1].lexeme;
+    if (effect_param) |param| {
+        if (!std.mem.eql(u8, trailing_identifier, param)) return null;
+    } else if (!std.mem.eql(u8, trailing_identifier, "eff")) return null;
     if (args[args.len - 2].tag != .comma) return null;
     return args[0 .. args.len - 2];
 }
 
 fn parseBoundLocalFromHelperCall(
+    comptime effect_param: ?[]const u8,
     comptime statement: []const BodyToken,
 ) ?struct {
     local_name: []const u8,
@@ -462,7 +971,7 @@ fn parseBoundLocalFromHelperCall(
     if (statement[0].tag != .keyword_const) return null;
     if (statement[1].tag != .identifier) return null;
     if (statement[2].tag != .equal) return null;
-    const helper_call = parseHelperCall(statement[3..]) orelse return null;
+    const helper_call = parseHelperCall(effect_param, statement[3..]) orelse return null;
     return .{
         .local_name = statement[1].lexeme,
         .helper_call = helper_call,
@@ -470,6 +979,7 @@ fn parseBoundLocalFromHelperCall(
 }
 
 fn parseLocalFromOpStatement(
+    comptime effect_param: ?[]const u8,
     comptime statement: []const BodyToken,
 ) ?struct {
     local_name: []const u8,
@@ -481,7 +991,10 @@ fn parseLocalFromOpStatement(
     if (statement[1].tag != .identifier) return null;
     if (statement[2].tag != .equal) return null;
     if (statement[3].tag != .keyword_try) return null;
-    if (statement[4].tag != .identifier or !std.mem.eql(u8, statement[4].lexeme, "eff")) return null;
+    if (statement[4].tag != .identifier) return null;
+    if (effect_param) |param| {
+        if (!std.mem.eql(u8, statement[4].lexeme, param)) return null;
+    } else if (!std.mem.eql(u8, statement[4].lexeme, "eff")) return null;
     if (statement[5].tag != .period) return null;
     if (statement[6].tag != .identifier) return null;
     if (statement[7].tag != .period) return null;
@@ -527,7 +1040,7 @@ fn parseBranchAction(
     if (parseDirectCall(effect_param, aliases, statement)) |direct_call| {
         return .{ .direct_call = direct_call };
     }
-    if (parseHelperCall(statement)) |helper_call| {
+    if (parseHelperCall(effect_param, statement)) |helper_call| {
         return .{ .helper_call = helper_call };
     }
     if (statementIsSimpleReturn(statement)) {
@@ -573,6 +1086,7 @@ fn parseIfLocalEqZeroBranchStatement(
 }
 
 fn parseLocalDecrementOpStatement(
+    comptime effect_param: ?[]const u8,
     comptime statement: []const BodyToken,
     comptime local_name: []const u8,
 ) ?struct {
@@ -581,7 +1095,10 @@ fn parseLocalDecrementOpStatement(
 } {
     if (statement.len != 12) return null;
     if (statement[0].tag != .keyword_try) return null;
-    if (statement[1].tag != .identifier or !std.mem.eql(u8, statement[1].lexeme, "eff")) return null;
+    if (statement[1].tag != .identifier) return null;
+    if (effect_param) |param| {
+        if (!std.mem.eql(u8, statement[1].lexeme, param)) return null;
+    } else if (!std.mem.eql(u8, statement[1].lexeme, "eff")) return null;
     if (statement[2].tag != .period) return null;
     if (statement[3].tag != .identifier) return null;
     if (statement[4].tag != .period) return null;
@@ -598,21 +1115,28 @@ fn parseLocalDecrementOpStatement(
     };
 }
 
-fn parseHelperCallStatement(comptime statement: []const BodyToken) ?HelperCall {
-    const helper_call = parseHelperCall(statement) orelse return null;
+fn parseHelperCallStatement(comptime effect_param: ?[]const u8, comptime statement: []const BodyToken) ?HelperCall {
+    const helper_call = parseHelperCall(effect_param, statement) orelse return null;
     if (helper_call.value_args.len != 0) return null;
     return helper_call;
 }
 
 fn parseReturnLiteralStatement(comptime statement: []const BodyToken) ?union(enum) {
-    i32_value: i32,
+    bool_value: bool,
+    number_literal: []const u8,
     string_value: []const u8,
 } {
     if (statement.len != 3) return null;
     if (statement[0].tag != .keyword_return) return null;
     if (statement[2].tag != .semicolon) return null;
     return switch (statement[1].tag) {
-        .number_literal => .{ .i32_value = std.fmt.parseInt(i32, statement[1].lexeme, 10) catch return null },
+        .identifier => if (std.mem.eql(u8, statement[1].lexeme, "true"))
+            .{ .bool_value = true }
+        else if (std.mem.eql(u8, statement[1].lexeme, "false"))
+            .{ .bool_value = false }
+        else
+            null,
+        .number_literal => .{ .number_literal = statement[1].lexeme },
         .string_literal => .{
             .string_value = stringLiteralContents(statement[1].lexeme) orelse return null,
         },
@@ -626,6 +1150,32 @@ fn parseReturnLocalStatement(comptime statement: []const BodyToken) ?[]const u8 
     if (statement[1].tag != .identifier) return null;
     if (statement[2].tag != .semicolon) return null;
     return statement[1].lexeme;
+}
+
+fn parseReturnDirectCall(
+    comptime effect_param: ?[]const u8,
+    comptime aliases: []const BodyAlias,
+    comptime statement: []const BodyToken,
+) ?DirectCall {
+    const tokens = statementTrimSemicolon(statement);
+    if (tokens.len == 0 or tokens[0].tag != .keyword_return) return null;
+    return parseDirectCall(effect_param, aliases, tokens[1..]);
+}
+
+fn parseReturnAddLocalsStatement(comptime statement: []const BodyToken) ?struct {
+    left_name: []const u8,
+    right_name: []const u8,
+} {
+    if (statement.len != 5) return null;
+    if (statement[0].tag != .keyword_return) return null;
+    if (statement[1].tag != .identifier) return null;
+    if (statement[2].tag != .plus) return null;
+    if (statement[3].tag != .identifier) return null;
+    if (statement[4].tag != .semicolon) return null;
+    return .{
+        .left_name = statement[1].lexeme,
+        .right_name = statement[3].lexeme,
+    };
 }
 
 fn resumeCodecForFunctionUse(
@@ -650,6 +1200,28 @@ fn resumeCodecForFunctionUse(
     @compileError("public lowering recursive helper subset could not map one bound local to an op resume codec");
 }
 
+fn payloadCodecForFunctionUse(
+    comptime functions: []const effect_ir.Function,
+    comptime function_index: usize,
+    comptime requirement_label: []const u8,
+    comptime op_name: []const u8,
+) effect_ir.LocalCodec {
+    for (functions[function_index].row.requirements) |requirement| {
+        if (!std.mem.eql(u8, requirement.label, requirement_label)) continue;
+        for (requirement.ops) |op| {
+            if (!std.mem.eql(u8, op.op_name, op_name)) continue;
+            if (op.PayloadType == void) return .unit;
+            if (op.PayloadType == bool) return .bool;
+            if (op.PayloadType == i32) return .i32;
+            if (op.PayloadType == usize) return .usize;
+            if (op.PayloadType == []const u8) return .string;
+            if (op.PayloadType == [][]const u8) return .string_list;
+            @compileError("public lowering recursive helper subset produced an unsupported payload codec");
+        }
+    }
+    @compileError("public lowering recursive helper subset could not map one bound local to an op payload codec");
+}
+
 fn opIndexForFunctionUse(
     comptime functions: []const effect_ir.Function,
     comptime function_index: usize,
@@ -671,6 +1243,22 @@ fn opIndexForFunctionUse(
         }
     }
     @compileError("public lowering could not map one direct effect-op use into the lowered function row");
+}
+
+fn opModeForFunctionUse(
+    comptime functions: []const effect_ir.Function,
+    comptime function_index: usize,
+    comptime requirement_label: []const u8,
+    comptime op_name: []const u8,
+) effect_ir.ControlMode {
+    for (functions[function_index].row.requirements) |requirement| {
+        if (!std.mem.eql(u8, requirement.label, requirement_label)) continue;
+        for (requirement.ops) |op| {
+            if (!std.mem.eql(u8, op.op_name, op_name)) continue;
+            return op.mode;
+        }
+    }
+    @compileError("public lowering could not map one direct effect-op mode into the lowered function row");
 }
 
 fn helperImportModulePath(
@@ -736,6 +1324,54 @@ fn instructionLocationLess(
 
 fn noLocalId() u16 {
     return std.math.maxInt(u16);
+}
+
+fn emitSingleTokenForExpectedCodec(
+    comptime token: BodyToken,
+    comptime expected_codec: effect_ir.LocalCodec,
+    state: *BodyBuildState,
+) ?u16 {
+    return switch (token.tag) {
+        .identifier => if (std.mem.eql(u8, token.lexeme, "true")) blk: {
+            if (expected_codec != .bool) break :blk null;
+            const bool_value = std.mem.eql(u8, token.lexeme, "true");
+            break :blk appendBoolLiteralValue(state, bool_value);
+        } else if (std.mem.eql(u8, token.lexeme, "false")) blk: {
+            if (expected_codec != .bool) break :blk null;
+            const bool_value = false;
+            break :blk appendBoolLiteralValue(state, bool_value);
+        } else null,
+        .number_literal => switch (expected_codec) {
+            .i32 => literal_i32: {
+                const value = std.fmt.parseInt(i32, token.lexeme, 0) catch return null;
+                const dst = appendAnonymousLocal(&state.local_storage, .i32);
+                var instruction = encodeI32LiteralInstruction(value);
+                instruction.dst = dst;
+                appendInstruction(state.instructions, state.instruction_count, instruction);
+                break :literal_i32 dst;
+            },
+            .usize => literal_usize: {
+                _ = std.fmt.parseUnsigned(usize, token.lexeme, 0) catch return null;
+                const dst = appendAnonymousLocal(&state.local_storage, .usize);
+                var instruction = encodeUsizeLiteralInstruction(token.lexeme);
+                instruction.dst = dst;
+                appendInstruction(state.instructions, state.instruction_count, instruction);
+                break :literal_usize dst;
+            },
+            else => null,
+        },
+        .string_literal => if (expected_codec == .string) blk: {
+            const literal = stringLiteralContents(token.lexeme) orelse return null;
+            const dst = appendAnonymousLocal(&state.local_storage, .string);
+            appendInstruction(state.instructions, state.instruction_count, .{
+                .kind = .const_string,
+                .dst = dst,
+                .string_literal = cloneBytes(literal),
+            });
+            break :blk dst;
+        } else null,
+        else => null,
+    };
 }
 
 fn stringLiteralContents(comptime literal: []const u8) ?[]const u8 {
@@ -816,6 +1452,7 @@ fn appendInstruction(
 
 fn emitPayloadValueForDirectCall(
     comptime direct_call: DirectCall,
+    comptime expected_codec: effect_ir.LocalCodec,
     comptime local_bindings: []const BoundLocal,
     state: *BodyBuildState,
 ) ?u16 {
@@ -826,25 +1463,10 @@ fn emitPayloadValueForDirectCall(
             .identifier => if (findBoundLocal(local_bindings, direct_call.args[0].lexeme)) |local|
                 local.local_id
             else
-                null,
-            .number_literal => blk: {
-                const value = std.fmt.parseInt(i32, direct_call.args[0].lexeme, 10) catch return null;
-                const dst = appendAnonymousLocal(&state.local_storage, .i32);
-                var instruction = encodeI32LiteralInstruction(value);
-                instruction.dst = dst;
-                appendInstruction(state.instructions, state.instruction_count, instruction);
-                break :blk dst;
-            },
-            .string_literal => blk: {
-                const literal = stringLiteralContents(direct_call.args[0].lexeme) orelse return null;
-                const dst = appendAnonymousLocal(&state.local_storage, .string);
-                appendInstruction(state.instructions, state.instruction_count, .{
-                    .kind = .const_string,
-                    .dst = dst,
-                    .string_literal = cloneBytes(literal),
-                });
-                break :blk dst;
-            },
+                emitSingleTokenForExpectedCodec(direct_call.args[0], expected_codec, state),
+            .number_literal,
+            .string_literal,
+            => emitSingleTokenForExpectedCodec(direct_call.args[0], expected_codec, state),
             else => null,
         };
     }
@@ -878,31 +1500,13 @@ fn emitValueForExpectedCodec(
 ) ?u16 {
     if (value_tokens.len == 1) {
         return switch (value_tokens[0].tag) {
-            .identifier => blk: {
-                const local = findBoundLocal(local_bindings, value_tokens[0].lexeme) orelse return null;
+            .identifier => if (findBoundLocal(local_bindings, value_tokens[0].lexeme)) |local| blk: {
                 if (local.codec != expected_codec) return null;
                 break :blk local.local_id;
-            },
-            .number_literal => blk: {
-                if (expected_codec != .i32) return null;
-                const value = std.fmt.parseInt(i32, value_tokens[0].lexeme, 10) catch return null;
-                const dst = appendAnonymousLocal(&state.local_storage, .i32);
-                var instruction = encodeI32LiteralInstruction(value);
-                instruction.dst = dst;
-                appendInstruction(state.instructions, state.instruction_count, instruction);
-                break :blk dst;
-            },
-            .string_literal => blk: {
-                if (expected_codec != .string) return null;
-                const literal = stringLiteralContents(value_tokens[0].lexeme) orelse return null;
-                const dst = appendAnonymousLocal(&state.local_storage, .string);
-                appendInstruction(state.instructions, state.instruction_count, .{
-                    .kind = .const_string,
-                    .dst = dst,
-                    .string_literal = cloneBytes(literal),
-                });
-                break :blk dst;
-            },
+            } else emitSingleTokenForExpectedCodec(value_tokens[0], expected_codec, state),
+            .number_literal,
+            .string_literal,
+            => emitSingleTokenForExpectedCodec(value_tokens[0], expected_codec, state),
             else => null,
         };
     }
@@ -1004,7 +1608,17 @@ fn appendBranchActionInstructions(
 ) ?program_frontend.BodyTerminator {
     switch (action) {
         .direct_call => |direct_call| {
-            const payload_local = emitPayloadValueForDirectCall(direct_call, local_bindings, state) orelse return null;
+            const payload_local = emitPayloadValueForDirectCall(
+                direct_call,
+                payloadCodecForFunctionUse(
+                    context.functions,
+                    context.lowered_function_index,
+                    direct_call.requirement_label,
+                    direct_call.op_name,
+                ),
+                local_bindings,
+                state,
+            ) orelse return null;
             appendInstruction(state.instructions, state.instruction_count, .{
                 .kind = .call_op,
                 .operand = opIndexForFunctionUse(
@@ -1107,7 +1721,7 @@ fn buildLinearBodyForFunction(
                 upsertBodyAlias(aliases[0..], &alias_count, alias.name, alias.kind);
                 continue;
             }
-            if (parseBoundLocalFromHelperCall(statement)) |bound_helper| {
+            if (parseBoundLocalFromHelperCall(function.effect_param, statement)) |bound_helper| {
                 const callee_index = helperTargetIndex(
                     context.graph,
                     context.lowered_index_map,
@@ -1148,6 +1762,21 @@ fn buildLinearBodyForFunction(
                     bound_local.op_name,
                 );
                 const dst = appendBoundLocal(&local_storage, bound_local.local_name, codec);
+                const payload_local = emitPayloadValueForDirectCall(
+                    .{
+                        .requirement_label = bound_local.requirement_label,
+                        .op_name = bound_local.op_name,
+                        .args = parseDirectCall(function.effect_param, aliases[0..alias_count], statement[3..]).?.args,
+                    },
+                    payloadCodecForFunctionUse(
+                        context.functions,
+                        context.lowered_function_index,
+                        bound_local.requirement_label,
+                        bound_local.op_name,
+                    ),
+                    local_bindings[0..binding_count],
+                    &body_state,
+                ) orelse break :blk null;
                 appendInstruction(instructions[0..], &instruction_count, .{
                     .kind = .call_op,
                     .dst = dst,
@@ -1157,7 +1786,7 @@ fn buildLinearBodyForFunction(
                         bound_local.requirement_label,
                         bound_local.op_name,
                     ),
-                    .aux = noLocalId(),
+                    .aux = payload_local,
                 });
                 continue;
             }
@@ -1215,14 +1844,88 @@ fn buildLinearBodyForFunction(
                     .blocks = &blocks,
                 };
             }
-            if (parseDirectCall(function.effect_param, aliases[0..alias_count], statement)) |direct_call| {
+            if (parseReturnContinuationDirectCall(function.effect_param, aliases[0..alias_count], statement)) |continuation_call| {
+                if (statement_index + 1 != statement_ranges.len) break :blk null;
+                const resume_codec = resumeCodecForFunctionUse(
+                    context.functions,
+                    context.lowered_function_index,
+                    continuation_call.direct_call.requirement_label,
+                    continuation_call.direct_call.op_name,
+                );
                 const payload_local = emitPayloadValueForDirectCall(
-                    direct_call,
+                    continuation_call.direct_call,
+                    payloadCodecForFunctionUse(
+                        context.functions,
+                        context.lowered_function_index,
+                        continuation_call.direct_call.requirement_label,
+                        continuation_call.direct_call.op_name,
+                    ),
                     local_bindings[0..binding_count],
                     &body_state,
                 ) orelse break :blk null;
+                const resume_local = if (resume_codec == .unit)
+                    noLocalId()
+                else
+                    appendAnonymousLocal(&local_storage, resume_codec);
                 appendInstruction(instructions[0..], &instruction_count, .{
                     .kind = .call_op,
+                    .dst = resume_local,
+                    .operand = opIndexForFunctionUse(
+                        context.functions,
+                        context.lowered_function_index,
+                        continuation_call.direct_call.requirement_label,
+                        continuation_call.direct_call.op_name,
+                    ),
+                    .aux = payload_local,
+                });
+                lowerContinuationApplyBody(
+                    context.functions[context.lowered_function_index],
+                    continuation_call.apply_body,
+                    continuation_call.apply_param_name,
+                    resume_local,
+                    resume_codec,
+                    &local_storage,
+                    &body_state,
+                    &terminated,
+                    &terminator,
+                ) orelse break :blk null;
+                continue;
+            }
+            if (parseDirectCall(function.effect_param, aliases[0..alias_count], statement)) |direct_call| {
+                const payload_local = emitPayloadValueForDirectCall(
+                    direct_call,
+                    payloadCodecForFunctionUse(
+                        context.functions,
+                        context.lowered_function_index,
+                        direct_call.requirement_label,
+                        direct_call.op_name,
+                    ),
+                    local_bindings[0..binding_count],
+                    &body_state,
+                ) orelse break :blk null;
+                const op_mode = opModeForFunctionUse(
+                    context.functions,
+                    context.lowered_function_index,
+                    direct_call.requirement_label,
+                    direct_call.op_name,
+                );
+                const dst = if (op_mode == .abort)
+                    noLocalId()
+                else ignored_resume_dst: {
+                    const resume_codec = resumeCodecForFunctionUse(
+                        context.functions,
+                        context.lowered_function_index,
+                        direct_call.requirement_label,
+                        direct_call.op_name,
+                    );
+                    break :ignored_resume_dst if (resume_codec == .unit)
+                        noLocalId()
+                    else
+                        appendAnonymousLocal(&local_storage, resume_codec);
+                };
+                appendInstruction(instructions[0..], &instruction_count, .{
+                    .kind = .call_op,
+                    .dst = dst,
                     .operand = opIndexForFunctionUse(
                         context.functions,
                         context.lowered_function_index,
@@ -1231,9 +1934,21 @@ fn buildLinearBodyForFunction(
                     ),
                     .aux = payload_local,
                 });
+                if (statement_index + 1 == statement_ranges.len and
+                    context.functions[context.lowered_function_index].ValueType != void and
+                    opModeForFunctionUse(
+                        context.functions,
+                        context.lowered_function_index,
+                        direct_call.requirement_label,
+                        direct_call.op_name,
+                    ) == .abort)
+                {
+                    terminator = .{ .kind = .return_unit };
+                    terminated = true;
+                }
                 continue;
             }
-            if (parseHelperCall(statement)) |helper_call| {
+            if (parseHelperCall(function.effect_param, statement)) |helper_call| {
                 const callee_index = helperTargetIndex(
                     context.graph,
                     context.lowered_index_map,
@@ -1258,10 +1973,34 @@ fn buildLinearBodyForFunction(
                 if (statement_index + 1 != statement_ranges.len) break :blk null;
                 const return_literal = parseReturnLiteralStatement(statement) orelse break :blk null;
                 switch (return_literal) {
-                    .i32_value => |value| {
-                        if (context.functions[context.lowered_function_index].ValueType != i32) break :blk null;
-                        const dst = appendAnonymousLocal(&local_storage, .i32);
-                        var instruction = encodeI32LiteralInstruction(value);
+                    .bool_value => |value| {
+                        if (context.functions[context.lowered_function_index].ValueType != bool) break :blk null;
+                        const dst = appendBoolLiteralValue(&body_state, value);
+                        appendInstruction(instructions[0..], &instruction_count, .{
+                            .kind = .return_value,
+                            .operand = dst,
+                        });
+                        terminator = .{ .kind = .return_value };
+                        terminated = true;
+                    },
+                    .number_literal => |literal| {
+                        const expected_codec: effect_ir.LocalCodec = switch (context.functions[context.lowered_function_index].ValueType) {
+                            i32 => .i32,
+                            usize => .usize,
+                            else => break :blk null,
+                        };
+                        const dst = appendAnonymousLocal(&local_storage, expected_codec);
+                        var instruction = switch (expected_codec) {
+                            .i32 => literal_i32: {
+                                const value = std.fmt.parseInt(i32, literal, 0) catch break :blk null;
+                                break :literal_i32 encodeI32LiteralInstruction(value);
+                            },
+                            .usize => literal_usize: {
+                                _ = std.fmt.parseUnsigned(usize, literal, 0) catch break :blk null;
+                                break :literal_usize encodeUsizeLiteralInstruction(literal);
+                            },
+                            else => unreachable,
+                        };
                         instruction.dst = dst;
                         appendInstruction(instructions[0..], &instruction_count, instruction);
                         appendInstruction(instructions[0..], &instruction_count, .{
@@ -1315,6 +2054,81 @@ fn buildLinearBodyForFunction(
                 terminated = true;
                 continue;
             }
+            if (parseReturnDirectCall(function.effect_param, aliases[0..alias_count], statement)) |direct_call| {
+                if (statement_index + 1 != statement_ranges.len) break :blk null;
+                const expected_codec: effect_ir.LocalCodec = switch (context.functions[context.lowered_function_index].ValueType) {
+                    void => break :blk null,
+                    bool => .bool,
+                    i32 => .i32,
+                    []const u8 => .string,
+                    usize => .usize,
+                    else => break :blk null,
+                };
+                if (opModeForFunctionUse(
+                    context.functions,
+                    context.lowered_function_index,
+                    direct_call.requirement_label,
+                    direct_call.op_name,
+                ) == .abort) break :blk null;
+                const resume_codec = resumeCodecForFunctionUse(
+                    context.functions,
+                    context.lowered_function_index,
+                    direct_call.requirement_label,
+                    direct_call.op_name,
+                );
+                if (resume_codec != expected_codec) break :blk null;
+                const payload_local = emitPayloadValueForDirectCall(
+                    direct_call,
+                    payloadCodecForFunctionUse(
+                        context.functions,
+                        context.lowered_function_index,
+                        direct_call.requirement_label,
+                        direct_call.op_name,
+                    ),
+                    local_bindings[0..binding_count],
+                    &body_state,
+                ) orelse break :blk null;
+                const dst = appendAnonymousLocal(&local_storage, expected_codec);
+                appendInstruction(instructions[0..], &instruction_count, .{
+                    .kind = .call_op,
+                    .dst = dst,
+                    .operand = opIndexForFunctionUse(
+                        context.functions,
+                        context.lowered_function_index,
+                        direct_call.requirement_label,
+                        direct_call.op_name,
+                    ),
+                    .aux = payload_local,
+                });
+                appendInstruction(instructions[0..], &instruction_count, .{
+                    .kind = .return_value,
+                    .operand = dst,
+                });
+                terminator = .{ .kind = .return_value };
+                terminated = true;
+                continue;
+            }
+            if (parseReturnAddLocalsStatement(statement)) |return_add| {
+                if (statement_index + 1 != statement_ranges.len) break :blk null;
+                if (context.functions[context.lowered_function_index].ValueType != i32) break :blk null;
+                const left_local = findBoundLocal(local_bindings[0..binding_count], return_add.left_name) orelse break :blk null;
+                const right_local = findBoundLocal(local_bindings[0..binding_count], return_add.right_name) orelse break :blk null;
+                if (left_local.codec != .i32 or right_local.codec != .i32) break :blk null;
+                const dst = appendAnonymousLocal(&local_storage, .i32);
+                appendInstruction(instructions[0..], &instruction_count, .{
+                    .kind = .add_i32,
+                    .dst = dst,
+                    .operand = left_local.local_id,
+                    .aux = right_local.local_id,
+                });
+                appendInstruction(instructions[0..], &instruction_count, .{
+                    .kind = .return_value,
+                    .operand = dst,
+                });
+                terminator = .{ .kind = .return_value };
+                terminated = true;
+                continue;
+            }
             break :blk null;
         }
 
@@ -1350,13 +2164,20 @@ fn buildReturnLiteralBodyForFunction(
     const tail_statement = tokens[statement_ranges[statement_ranges.len - 1].start..statement_ranges[statement_ranges.len - 1].end];
     const return_literal = parseReturnLiteralStatement(tail_statement) orelse return null;
     switch (return_literal) {
-        .i32_value => if (lowered_function.ValueType != i32) return null,
+        .bool_value => if (lowered_function.ValueType != bool) return null,
+        .number_literal => |literal| {
+            switch (lowered_function.ValueType) {
+                i32 => _ = std.fmt.parseInt(i32, literal, 0) catch return null,
+                usize => _ = std.fmt.parseUnsigned(usize, literal, 0) catch return null,
+                else => return null,
+            }
+        },
         .string_value => if (lowered_function.ValueType != []const u8) return null,
     }
 
     const instructions = comptime blk: {
         const leading_instructions = buildBodyInstructionsForFunction(context);
-        var buffer: [leading_instructions.len + 2]program_frontend.BodyInstruction = undefined;
+        var buffer: [leading_instructions.len + 3]program_frontend.BodyInstruction = undefined;
         var index: usize = 0;
         for (leading_instructions) |instruction| {
             buffer[index] = instruction;
@@ -1364,7 +2185,37 @@ fn buildReturnLiteralBodyForFunction(
         }
 
         switch (return_literal) {
-            .i32_value => |value| buffer[index] = encodeI32LiteralInstruction(value),
+            .bool_value => |value| {
+                var raw_instruction = encodeI32LiteralInstruction(if (value) 0 else 1);
+                raw_instruction.dst = 0;
+                buffer[index] = raw_instruction;
+                index += 1;
+                buffer[index] = .{
+                    .kind = .compare_eq_zero,
+                    .dst = 1,
+                    .operand = 0,
+                };
+                index += 1;
+                buffer[index] = .{
+                    .kind = .return_value,
+                    .operand = 1,
+                };
+                index += 1;
+                break :blk buffer[0..index];
+            },
+            .number_literal => |literal| {
+                switch (lowered_function.ValueType) {
+                    i32 => {
+                        const value = std.fmt.parseInt(i32, literal, 0) catch return null;
+                        buffer[index] = encodeI32LiteralInstruction(value);
+                    },
+                    usize => {
+                        _ = std.fmt.parseUnsigned(usize, literal, 0) catch return null;
+                        buffer[index] = encodeUsizeLiteralInstruction(literal);
+                    },
+                    else => return null,
+                }
+            },
             .string_value => |value| buffer[index] = .{
                 .kind = .const_string,
                 .dst = 0,
@@ -1376,19 +2227,24 @@ fn buildReturnLiteralBodyForFunction(
             .kind = .return_value,
             .operand = 0,
         };
-        break :blk &buffer;
+        break :blk buffer[0 .. index + 1];
     };
 
-    const return_codec: effect_ir.LocalCodec = switch (return_literal) {
-        .i32_value => .i32,
-        .string_value => .string,
+    const return_codecs: []const effect_ir.LocalCodec = switch (return_literal) {
+        .bool_value => &.{ .i32, .bool },
+        .number_literal => switch (lowered_function.ValueType) {
+            i32 => &.{.i32},
+            usize => &.{.usize},
+            else => return null,
+        },
+        .string_value => &.{.string},
     };
     const blocks = [_]program_frontend.BodyBlock{.{
         .instructions = instructions,
         .terminator = .{ .kind = .return_value },
     }};
     return .{
-        .local_codecs = &.{return_codec},
+        .local_codecs = return_codecs,
         .call_arg_locals = &.{},
         .entry_block = 0,
         .blocks = &blocks,
@@ -1405,7 +2261,7 @@ fn buildRecursiveGuardBodyForFunction(
     const statement_ranges = statementRangesForTokens(tokens);
     if (statement_ranges.len < 3) return null;
 
-    const bound = parseLocalFromOpStatement(tokens[statement_ranges[0].start..statement_ranges[0].end]) orelse return null;
+    const bound = parseLocalFromOpStatement(function.effect_param, tokens[statement_ranges[0].start..statement_ranges[0].end]) orelse return null;
     if (!parseIfLocalEqZeroReturnStatement(tokens[statement_ranges[1].start..statement_ranges[1].end], bound.local_name)) return null;
 
     const local_codec = resumeCodecForFunctionUse(
@@ -1419,7 +2275,7 @@ fn buildRecursiveGuardBodyForFunction(
         var total: usize = 0;
         for (statement_ranges[2..]) |range| {
             const statement = tokens[range.start..range.end];
-            if (parseLocalDecrementOpStatement(statement, bound.local_name) != null) {
+            if (parseLocalDecrementOpStatement(function.effect_param, statement, bound.local_name) != null) {
                 total += 2;
                 continue;
             }
@@ -1429,7 +2285,7 @@ fn buildRecursiveGuardBodyForFunction(
                 if (direct_call.args.len != 0 and !(direct_call.args.len == 1 and direct_call.args[0].tag == .string_literal)) return null;
                 continue;
             }
-            if (parseHelperCallStatement(statement) != null) {
+            if (parseHelperCallStatement(function.effect_param, statement) != null) {
                 total += 1;
                 continue;
             }
@@ -1443,7 +2299,7 @@ fn buildRecursiveGuardBodyForFunction(
         var index: usize = 0;
         for (statement_ranges[2..]) |range| {
             const statement = tokens[range.start..range.end];
-            if (parseLocalDecrementOpStatement(statement, bound.local_name)) |decrement_op| {
+            if (parseLocalDecrementOpStatement(function.effect_param, statement, bound.local_name)) |decrement_op| {
                 buffer[index] = .{
                     .kind = .sub_one,
                     .dst = 2,
@@ -1486,7 +2342,7 @@ fn buildRecursiveGuardBodyForFunction(
                 index += 1;
                 continue;
             }
-            const helper_call = parseHelperCallStatement(statement).?;
+            const helper_call = parseHelperCallStatement(function.effect_param, statement).?;
             buffer[index] = .{
                 .kind = .call_helper,
                 .operand = helperTargetIndex(
@@ -1685,6 +2541,66 @@ pub fn buildFunctionBodiesForGraph(
             if (lowered_function.ValueType != void) {
                 @compileError("public lowering currently requires admitted literal return lowering for non-void helper or entry functions");
             }
+
+            const instructions = buildBodyInstructionsForFunction(context);
+            const blocks = [_]program_frontend.BodyBlock{.{
+                .instructions = instructions,
+                .terminator = .{ .kind = .return_unit },
+            }};
+            buffer[lowered_function_index] = .{
+                .local_codecs = &.{},
+                .call_arg_locals = &.{},
+                .entry_block = 0,
+                .blocks = &blocks,
+            };
+        }
+        break :blk &buffer;
+    };
+}
+
+/// Try to lower function bodies for one graph, returning null instead of failing closed on unsupported bodies.
+pub fn maybeBuildFunctionBodiesForGraph(
+    comptime graph: source_graph_embed.ProgramGraph,
+    comptime functions: []const effect_ir.Function,
+    comptime reachable: [graph.functions.len]bool,
+    comptime lowered_index_map: [graph.functions.len]u16,
+    comptime root_source: RootSource,
+) ?[]const program_frontend.FunctionBody {
+    return comptime blk: {
+        var buffer: [functions.len]program_frontend.FunctionBody = undefined;
+
+        for (graph.functions, 0..) |function, graph_function_index| {
+            if (!reachable[graph_function_index]) continue;
+            const lowered_function_index = lowered_index_map[graph_function_index];
+            const lowered_function = functions[lowered_function_index];
+
+            if (!function.body_lowering_supported) break :blk null;
+
+            const context: FunctionBuildContext = .{
+                .graph = graph,
+                .lowered_index_map = lowered_index_map[0..],
+                .functions = functions,
+                .graph_function_index = graph_function_index,
+                .lowered_function_index = lowered_function_index,
+                .root_source = root_source,
+            };
+
+            if (buildRecursiveGuardBodyForFunction(context)) |control_flow_body| {
+                buffer[lowered_function_index] = control_flow_body;
+                continue;
+            }
+
+            if (buildLinearBodyForFunction(context)) |linear_body| {
+                buffer[lowered_function_index] = linear_body;
+                continue;
+            }
+
+            if (buildReturnLiteralBodyForFunction(context)) |return_literal_body| {
+                buffer[lowered_function_index] = return_literal_body;
+                continue;
+            }
+
+            if (lowered_function.ValueType != void) break :blk null;
 
             const instructions = buildBodyInstructionsForFunction(context);
             const blocks = [_]program_frontend.BodyBlock{.{

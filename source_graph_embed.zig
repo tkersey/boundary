@@ -295,16 +295,37 @@ fn normalizeAbsolutePath(comptime source_path: []const u8) NormalizeRelativePath
 fn ownedRepoSourcePath(comptime source_path: []const u8) ?[]const u8 {
     const repo_path = if (std.fs.path.isAbsolute(source_path)) blk: {
         if (repoRelativeAbsolutePath(source_path, build_options.package_root)) |repo_source_path| {
-            break :blk normalizeRelativePath(repo_source_path) catch return null;
+            break :blk comptime normalizeRelativePath(repo_source_path) catch return null;
         }
-        if (repoRelativeAbsolutePath(source_path, build_options.package_root_alias)) |repo_source_path| {
-            break :blk normalizeRelativePath(repo_source_path) catch return null;
+        if (build_options.package_root_alias_available) {
+            if (repoRelativeAbsolutePath(source_path, build_options.package_root_alias)) |repo_source_path| {
+                break :blk comptime normalizeRelativePath(repo_source_path) catch return null;
+            }
         }
         return null;
-    } else normalizeRelativePath(source_path) catch return null;
+    } else comptime normalizeRelativePath(source_path) catch return null;
 
     if (!registryContainsLine(build_options.repo_zig_paths, repo_path)) return null;
     return repo_path;
+}
+
+/// Return the owned repo-relative path for one source file when it resolves under the package root.
+pub fn ownedRepoPath(comptime source_path: []const u8) ?[]const u8 {
+    return ownedRepoSourcePath(source_path);
+}
+
+/// Canonicalize one caller source location onto a repo-relative file path when the repo registry can resolve it.
+pub fn canonicalCallerLocation(comptime caller: std.builtin.SourceLocation) std.builtin.SourceLocation {
+    const canonical_file = ownedRepoPath(caller.file) orelse return caller;
+    if (std.mem.eql(u8, canonical_file, caller.file)) return caller;
+    const canonical_file_sentinel = std.fmt.comptimePrint("{s}\x00", .{canonical_file});
+    return .{
+        .module = caller.module,
+        .file = canonical_file_sentinel[0..canonical_file.len :0],
+        .line = caller.line,
+        .column = caller.column,
+        .fn_name = caller.fn_name,
+    };
 }
 
 /// Return caller-owned source bytes for one exact module path when provided explicitly.
@@ -421,6 +442,11 @@ test "sourceBytes requires repo-resolving absolute helper imports to mirror repo
 /// Embed one repo-relative source file through a repo-root module so examples remain package-visible.
 pub fn embeddedSource(comptime source_path: []const u8) [:0]const u8 {
     return @embedFile(ownedRepoRelativePath(source_path));
+}
+
+/// Embed one already-owned repo-relative source file without re-checking registry membership.
+pub fn embeddedOwnedRepoSource(comptime repo_relative_path: []const u8) [:0]const u8 {
+    return @embedFile(repo_relative_path);
 }
 
 /// Analyze one repo-relative source file through the shared comptime source-graph extractor.
@@ -856,6 +882,20 @@ test "windows ownership portability accepts checkout roots that differ only by c
             "c:/repo",
         ).?,
     );
+}
+
+test "canonicalCallerLocation keeps external basename-only matches external" {
+    const caller = std.builtin.SourceLocation{
+        .module = @src().module,
+        .file = "/tmp/helper.zig",
+        .line = 7,
+        .column = 3,
+        .fn_name = "probe",
+    };
+    const canonical = comptime canonicalCallerLocation(caller);
+    try std.testing.expectEqualStrings("/tmp/helper.zig", canonical.file);
+    try std.testing.expectEqual(caller.line, canonical.line);
+    try std.testing.expectEqual(caller.column, canonical.column);
 }
 
 test "resolveImportPathAt preserves parent-directory helpers for absolute caller-owned roots" {

@@ -1,31 +1,37 @@
 const shift = @import("shift");
 const std = @import("std");
 
+fn emitThird(eff: anytype) anyerror!void {
+    try eff.state.set(3);
+    try eff.writer.tell("yield=3");
+}
+
+fn emitSecond(eff: anytype) anyerror!void {
+    try eff.state.set(2);
+    try eff.writer.tell("yield=2");
+    try emitThird(eff);
+}
+
+fn emitFirst(eff: anytype) anyerror!void {
+    try eff.state.set(1);
+    try eff.writer.tell("yield=1");
+    try emitSecond(eff);
+}
+
+fn generatorBody(eff: anytype) anyerror!i32 {
+    try emitFirst(eff);
+    const final = try eff.state.get();
+    return final;
+}
+
 fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
     var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 0)),
         .writer = shift.effect.writer.use([]const u8, allocator),
-    }, struct {
-        /// Emit three yielded values and return the final counter.
-        pub fn body(eff: anytype) anyerror!i32 {
-            while (true) {
-                const current = try eff.state.get();
-                if (current == 3) return current;
-                const next = current + 1;
-                try eff.state.set(next);
-                const line = switch (next) {
-                    1 => "yield=1",
-                    2 => "yield=2",
-                    3 => "yield=3",
-                    else => unreachable,
-                };
-                try eff.writer.tell(line);
-            }
-        }
-    });
+    }, shift.NamedBody("examples/open_row_generator.zig", "generatorBody", anyerror!i32, generatorBody));
     defer allocator.free(result.outputs.writer);
 
     for (result.outputs.writer) |item| {

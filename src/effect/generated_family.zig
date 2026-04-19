@@ -1,10 +1,12 @@
 const choice = @import("choice.zig");
+const effect_schema = @import("../effect_schema.zig");
 const family = @import("family.zig");
 const frontend = @import("frontend_support");
 const internal = @import("../internal/algebraic_engine.zig");
 const lexical_with = @import("../with_api.zig");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
+const sealed_engine = @import("../internal/sealed_engine.zig");
 const shift = lowered_machine;
 const std = @import("std");
 
@@ -82,6 +84,8 @@ fn afterMethodName(comptime op_name: []const u8) []const u8 {
     var upper_next = true;
     inline for (op_name) |byte| {
         if (byte == '_') {
+            buffer[len] = byte;
+            len += 1;
             upper_next = true;
             continue;
         }
@@ -90,6 +94,36 @@ fn afterMethodName(comptime op_name: []const u8) []const u8 {
         upper_next = false;
     }
     return buffer[0..len];
+}
+
+fn legacyAfterMethodName(comptime op_name: []const u8) []const u8 {
+    var buffer: [128]u8 = undefined;
+    var len: usize = 0;
+    buffer[len..][0..5].* = "after".*;
+    len += 5;
+    var upper_next = true;
+    inline for (op_name) |byte| {
+        if (byte == '_') {
+            upper_next = true;
+            continue;
+        }
+        buffer[len] = if (upper_next and byte >= 'a' and byte <= 'z') byte - 32 else byte;
+        len += 1;
+        upper_next = false;
+    }
+    return buffer[0..len];
+}
+
+fn resolvedAfterMethodName(comptime HandlerType: type, comptime op_name: []const u8) ?[]const u8 {
+    const underscored_name = comptime afterMethodName(op_name);
+    if (@hasDecl(HandlerType, underscored_name)) return underscored_name;
+    const legacy_name = comptime legacyAfterMethodName(op_name);
+    if (!std.mem.eql(u8, legacy_name, underscored_name) and @hasDecl(HandlerType, legacy_name)) return legacy_name;
+    return null;
+}
+
+fn hasAfterMethod(comptime HandlerType: type, comptime op_name: []const u8) bool {
+    return resolvedAfterMethodName(HandlerType, op_name) != null;
 }
 
 fn opName(comptime Op: type) [:0]const u8 {
@@ -125,6 +159,10 @@ fn ReturnTypeErrorSet(comptime ReturnType: type) type {
         .error_union => |err_union| err_union.error_set,
         else => error{},
     };
+}
+
+fn fallbackCallerSource() std.builtin.SourceLocation {
+    return @src();
 }
 
 fn ExplicitContinuationFnType(comptime Continuation: anytype) type {
@@ -351,8 +389,7 @@ fn assertTransformHandlerBundle(comptime HandlerType: type, comptime StateType: 
         }
     }
 
-    const after_name = comptime afterMethodName(opName(Op));
-    if (!@hasDecl(HandlerType, after_name)) return;
+    const after_name = comptime resolvedAfterMethodName(HandlerType, opName(Op)) orelse return;
     const AfterFn = @TypeOf(@field(HandlerType, after_name));
     if (!fnParamsMatch(AfterFn, &.{ *HandlerType, AnswerType }) or !returnTypeMatches(AfterHandlerReturnType(HandlerType, Op), AnswerType)) {
         @compileError("generated transform handler after_<op> must have type fn (*Handler, Answer) Answer or fn (*Handler, Answer) ResetError(ErrorSet)!Answer");
@@ -374,8 +411,7 @@ fn assertChoiceHandlerBundle(comptime HandlerType: type, comptime AnswerType: ty
         }
     }
 
-    const after_name = comptime afterMethodName(opName(Op));
-    if (!@hasDecl(HandlerType, after_name)) return;
+    const after_name = comptime resolvedAfterMethodName(HandlerType, opName(Op)) orelse return;
     const AfterFn = @TypeOf(@field(HandlerType, after_name));
     if (!fnParamsMatch(AfterFn, &.{ *HandlerType, AnswerType }) or !returnTypeMatches(AfterHandlerReturnType(HandlerType, Op), AnswerType)) {
         @compileError("generated choice handler after_<op> must have type fn (*Handler, Answer) Answer or fn (*Handler, Answer) ResetError(ErrorSet)!Answer");
@@ -416,12 +452,16 @@ fn HandlerReturnType(comptime HandlerType: type, comptime Op: type) type {
 }
 
 fn AfterHandlerAnswerType(comptime HandlerType: type, comptime Op: type) type {
-    const AfterFn = @TypeOf(@field(HandlerType, afterMethodName(opName(Op))));
+    const after_name = comptime resolvedAfterMethodName(HandlerType, opName(Op)) orelse
+        @compileError("generated handler after_<op> lookup resolved no compatible handler method");
+    const AfterFn = @TypeOf(@field(HandlerType, after_name));
     return @typeInfo(AfterFn).@"fn".params[1].type.?;
 }
 
 fn AfterHandlerReturnType(comptime HandlerType: type, comptime Op: type) type {
-    return @TypeOf(@field(HandlerType, afterMethodName(opName(Op)))(
+    const after_name = comptime resolvedAfterMethodName(HandlerType, opName(Op)) orelse
+        @compileError("generated handler after_<op> lookup resolved no compatible handler method");
+    return @TypeOf(@field(HandlerType, after_name)(
         dummyPointer(*HandlerType),
         dummyValue(AfterHandlerAnswerType(HandlerType, Op)),
     ));
@@ -440,7 +480,7 @@ fn InferHandlerErrorSet(
                 const ResumeReturnType = HandlerReturnType(HandlerType, Op);
                 ErrorSet = ErrorSet ||
                     ReturnTypeErrorSet(ResumeReturnType);
-                if (@hasDecl(HandlerType, afterMethodName(opName(Op)))) {
+                if (hasAfterMethod(HandlerType, opName(Op))) {
                     const AfterReturnType = AfterHandlerReturnType(HandlerType, Op);
                     ErrorSet = ErrorSet || ReturnTypeErrorSet(AfterReturnType);
                 }
@@ -449,7 +489,7 @@ fn InferHandlerErrorSet(
                 const DecideReturnType = HandlerReturnType(HandlerType, Op);
                 ErrorSet = ErrorSet ||
                     ReturnTypeErrorSet(DecideReturnType);
-                if (@hasDecl(HandlerType, afterMethodName(opName(Op)))) {
+                if (hasAfterMethod(HandlerType, opName(Op))) {
                     const AfterReturnType = AfterHandlerReturnType(HandlerType, Op);
                     ErrorSet = ErrorSet || ReturnTypeErrorSet(AfterReturnType);
                 }
@@ -477,7 +517,7 @@ fn InferHandlerOperationErrorSet(
         ErrorSet = ErrorSet || ReturnTypeErrorSet(OperationReturnType);
         switch (mode) {
             .resume_then_transform, .resume_or_return => {
-                if (@hasDecl(HandlerType, afterMethodName(opName(Op)))) {
+                if (hasAfterMethod(HandlerType, opName(Op))) {
                     const AfterReturnType = AfterHandlerReturnType(HandlerType, Op);
                     ErrorSet = ErrorSet || ReturnTypeErrorSet(AfterReturnType);
                 }
@@ -537,6 +577,9 @@ fn PreviewBodyErrorSet(
     };
 
     const preview_capability = struct {
+        /// Preview caller provenance for generated-family body error-set inference.
+        pub const caller_source = fallbackCallerSource();
+
         /// Return the engine context type for this public helper.
         pub fn EngineContextType() type {
             return preview_engine;
@@ -560,105 +603,6 @@ fn PreviewBodyErrorSet(
     }
     if (!family.hasDeclSafe(Body, "body")) return error{};
     return ReturnTypeErrorSet(@TypeOf(Body.body(preview_capability, dummyValue(PreviewContext))));
-}
-
-fn computeProgramForPrompt(
-    comptime Cap: type,
-    ctx: anytype,
-    comptime PromptType: type,
-    thunk: anytype,
-) frontend.Program(PromptType) {
-    comptime family.assertContextType(Cap, @TypeOf(ctx));
-    const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
-    const ThunkType = @TypeOf(thunk);
-    _ = ctx._cap;
-    return frontend.computeProgramWithContext(PromptType, ctx, struct {
-        fn invoke(program_ctx: @TypeOf(ctx)) lowered_machine.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
-            switch (@typeInfo(ThunkType)) {
-                .@"fn" => {
-                    const params = @typeInfo(ThunkType).@"fn".params;
-                    const ReturnType = @typeInfo(ThunkType).@"fn".return_type.?;
-                    if (params.len == 0) {
-                        if (@typeInfo(ReturnType) != .error_union) return thunk();
-                        return try thunk();
-                    }
-                    if (@typeInfo(ReturnType) != .error_union) return thunk(Cap, program_ctx);
-                    return try thunk(Cap, program_ctx);
-                },
-                .pointer => |pointer| {
-                    if (@typeInfo(pointer.child) == .@"fn") {
-                        const params = @typeInfo(pointer.child).@"fn".params;
-                        const ReturnType = @typeInfo(pointer.child).@"fn".return_type.?;
-                        if (params.len == 0) {
-                            if (@typeInfo(ReturnType) != .error_union) return thunk();
-                            return try thunk();
-                        }
-                        if (@typeInfo(ReturnType) != .error_union) return thunk(Cap, program_ctx);
-                        return try thunk(Cap, program_ctx);
-                    }
-                },
-                else => {},
-            }
-
-            const RunFn = @TypeOf(thunk.run);
-            const params = @typeInfo(RunFn).@"fn".params;
-            const ReturnType = @typeInfo(RunFn).@"fn".return_type.?;
-            if (params.len == 0) {
-                if (@typeInfo(ReturnType) != .error_union) return thunk.run();
-                return try thunk.run();
-            }
-            if (@typeInfo(ReturnType) != .error_union) return thunk.run(Cap, program_ctx);
-            return try thunk.run(Cap, program_ctx);
-        }
-    }.invoke);
-}
-
-fn runWithSealedEngine(comptime Contract: type, config: anytype, comptime Body: type) lowered_machine.ResetError(Contract.ErrorSetTypeG)!Contract.AnswerTypeG {
-    const PromptType = Contract.PromptTypeG;
-    const StateType = Contract.StateTypeG;
-    const AnswerType = Contract.AnswerTypeG;
-    const ErrorSetType = Contract.ErrorSetTypeG;
-    const capability_decls = Contract.capability_decls;
-    const EnginePtrType = @TypeOf(config.engine_ctx);
-    const EngineContextType = switch (@typeInfo(EnginePtrType)) {
-        .pointer => |pointer| pointer.child,
-        else => @compileError("expected engine context pointer"),
-    };
-
-    const RunnerState = struct {
-        runtime: *shift.Runtime,
-        prompt_identity: *const anyopaque,
-        engine_ctx: *EngineContextType,
-        lexical_state: ?*anyopaque = null,
-    };
-    const runner_state = RunnerState{
-        .runtime = config.runtime,
-        .prompt_identity = config.prompt_identity,
-        .engine_ctx = config.engine_ctx,
-        .lexical_state = if (@hasField(@TypeOf(config), "lexical_state")) config.lexical_state else null,
-    };
-
-    const runner = struct {
-        /// Execute one generated-family body under the installed exact context and engine bindings.
-        pub fn run(state: RunnerState, comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSetType)!AnswerType {
-            const prompt: *const PromptType = @ptrCast(@alignCast(state.prompt_identity));
-            if (comptime family.hasDeclSafe(Body, "program")) {
-                const AuthoredType = @TypeOf(Body.program(Cap, ctx));
-                if (@typeInfo(AuthoredType) == .@"struct") {
-                    var authored = Body.program(Cap, ctx);
-                    authored.activate();
-                    defer authored.deactivate();
-                    return try frontend.run(state.runtime, authored.prompt, authored.program);
-                }
-                return try frontend.run(state.runtime, prompt, Body.program(Cap, ctx));
-            }
-            if (comptime family.hasDeclSafe(Body, "body")) {
-                return try frontend.run(state.runtime, prompt, computeProgramForPrompt(Cap, ctx, PromptType, Body.body));
-            }
-            @compileError("generated effect body must declare program or body");
-        }
-    };
-    return try family.withCapability(family.ContextSpec(StateType, AnswerType, ErrorSetType), capability_decls, runner_state, AnswerType, runner);
 }
 
 fn promptIdentity(prompt: anytype) *const anyopaque {
@@ -695,6 +639,10 @@ pub fn Build(comptime spec: anytype) type {
         pub const OpTag = GeneratedOpTag;
         /// Stable compile-time manifest for this generated family.
         pub const definition = family_definition;
+        /// Shared effect schema for this generated family definition.
+        pub fn Schema() type {
+            return effect_schema.generated_family(spec);
+        }
         /// Prompt-sized instance shell for this generated family.
         pub const Instance = family.InstanceWithMode(mode, StateType, ErrorSetType);
 
@@ -709,7 +657,7 @@ pub fn Build(comptime spec: anytype) type {
             comptime family.assertContextType(Cap, @TypeOf(ctx));
             const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
             const FamilyPrompt = prompt_contract.Prompt(mode, ContextType.AnswerType, ContextType.AnswerType, ContextType.ErrorSetType);
-            return computeProgramForPrompt(Cap, ctx, FamilyPrompt, thunk);
+            return sealed_engine.computeProgramForPrompt(Cap, ctx, FamilyPrompt, thunk);
         }
 
         fn GeneratedImplType(comptime AnswerType: type, comptime RunErrorSetType: type, comptime HandlerPtrType: type, comptime index: usize) type {
@@ -730,8 +678,7 @@ pub fn Build(comptime spec: anytype) type {
 
                     /// Convert one resumed answer into the enclosing generated answer.
                     pub fn afterResume(self: HandlerPtrType, answer: AnswerType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-                        const after_name = comptime afterMethodName(opName(op_type));
-                        if (!@hasDecl(HandlerType, after_name)) return answer;
+                        const after_name = comptime resolvedAfterMethodName(HandlerType, opName(op_type)) orelse return answer;
                         const AfterReturnType = AfterHandlerReturnType(HandlerType, op_type);
                         if (comptime ReturnTypeErrorSet(AfterReturnType) == error{}) return @field(HandlerType, after_name)(self, answer);
                         return try @field(HandlerType, after_name)(self, answer);
@@ -751,8 +698,7 @@ pub fn Build(comptime spec: anytype) type {
 
                     /// Convert one resumed choice answer into the enclosing generated answer.
                     pub fn afterResume(self: HandlerPtrType, answer: AnswerType) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-                        const after_name = comptime afterMethodName(opName(op_type));
-                        if (!@hasDecl(HandlerType, after_name)) return answer;
+                        const after_name = comptime resolvedAfterMethodName(HandlerType, opName(op_type)) orelse return answer;
                         const AfterReturnType = AfterHandlerReturnType(HandlerType, op_type);
                         if (comptime ReturnTypeErrorSet(AfterReturnType) == error{}) return @field(HandlerType, after_name)(self, answer);
                         return try @field(HandlerType, after_name)(self, answer);
@@ -884,6 +830,8 @@ pub fn Build(comptime spec: anytype) type {
                 .resume_or_return => if (OpPayloadType(OpTypeValue) == void) struct {
                     const Handle = @This();
                     const ContinuationEff = lexical_with.ContinuationEffType(Config.Handlers, Config.binder_index, Config.PreviousEff, Handle);
+                    /// Caller source location preserved across generated lexical choice continuation re-entry.
+                    pub const caller_source = family.contextCallerSource(Config.ContextPtr);
 
                     ctx: ?Config.ContextPtr,
                     runtime: ?*shift.Runtime,
@@ -894,18 +842,29 @@ pub fn Build(comptime spec: anytype) type {
                     /// Perform one zero-payload generated lexical choice op.
                     pub fn perform(self: Handle, comptime Continuation: anytype) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
                         const request_state = struct {
+                            /// Caller source location preserved for the resumed generated choice continuation frame.
+                            pub const caller_source = Handle.caller_source;
                             /// Re-enter the lexical continuation after one generated choice resume.
                             pub fn apply(current_handle: *Handle, value: OpResumeType(OpTypeValue)) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
+                                const frame = struct {
+                                    /// Caller source location forwarded into the rebuilt generated continuation chain.
+                                    pub const caller_source = Handle.caller_source;
+                                    runtime: *shift.Runtime,
+                                    handlers_ptr: *Config.Handlers,
+                                    previous_eff: Config.PreviousEff,
+                                    current_handle: Handle,
+                                    outputs_ptr: *lexical_with.OutputBundleType(Config.Handlers),
+                                }{
+                                    .runtime = current_handle.runtime.?,
+                                    .handlers_ptr = current_handle.handlers_ptr.?,
+                                    .previous_eff = current_handle.previous_eff,
+                                    .current_handle = current_handle.*,
+                                    .outputs_ptr = current_handle.outputs_ptr.?,
+                                };
                                 return try lexical_with.continueChoice(
                                     Config.Handlers,
                                     Config.binder_index,
-                                    .{
-                                        .runtime = current_handle.runtime.?,
-                                        .handlers_ptr = current_handle.handlers_ptr.?,
-                                        .previous_eff = current_handle.previous_eff,
-                                        .current_handle = current_handle.*,
-                                        .outputs_ptr = current_handle.outputs_ptr.?,
-                                    },
+                                    frame,
                                     Continuation,
                                     value,
                                 );
@@ -914,6 +873,9 @@ pub fn Build(comptime spec: anytype) type {
 
                         var current_handle = self;
                         var authored = activeEngineContext(Config.Capability, self.ctx.?).performProgramWithContext(OpTypeValue, {}, &current_handle, request_state);
+                        if (@hasDecl(@TypeOf(authored), "has_compiled_plan") and @TypeOf(authored).has_compiled_plan) {
+                            return try authored.runCompiled(self.runtime.?);
+                        }
                         authored.activate();
                         defer authored.deactivate();
                         return try frontend.run(self.runtime.?, authored.prompt, authored.program);
@@ -921,6 +883,8 @@ pub fn Build(comptime spec: anytype) type {
                 } else struct {
                     const Handle = @This();
                     const ContinuationEff = lexical_with.ContinuationEffType(Config.Handlers, Config.binder_index, Config.PreviousEff, Handle);
+                    /// Caller source location preserved across payload-carrying generated choice continuation re-entry.
+                    pub const caller_source = family.contextCallerSource(Config.ContextPtr);
 
                     ctx: ?Config.ContextPtr,
                     runtime: ?*shift.Runtime,
@@ -931,18 +895,29 @@ pub fn Build(comptime spec: anytype) type {
                     /// Perform one payload-carrying generated lexical choice op.
                     pub fn perform(self: Handle, payload: OpPayloadType(OpTypeValue), comptime Continuation: anytype) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
                         const request_state = struct {
+                            /// Caller source location preserved for the resumed payload-carrying generated choice frame.
+                            pub const caller_source = Handle.caller_source;
                             /// Re-enter the lexical continuation after one generated choice resume.
                             pub fn apply(current_handle: *Handle, value: OpResumeType(OpTypeValue)) lowered_machine.ResetError(lexical_with.ChoiceExecutionErrorSet(EffectiveErrorSet, Continuation, OpResumeType(OpTypeValue), ContinuationEff))!lexical_with.ChoiceAnswerTypeFor(Continuation, OpResumeType(OpTypeValue), ContinuationEff) {
+                                const frame = struct {
+                                    /// Caller source location forwarded into the rebuilt payload-carrying continuation chain.
+                                    pub const caller_source = Handle.caller_source;
+                                    runtime: *shift.Runtime,
+                                    handlers_ptr: *Config.Handlers,
+                                    previous_eff: Config.PreviousEff,
+                                    current_handle: Handle,
+                                    outputs_ptr: *lexical_with.OutputBundleType(Config.Handlers),
+                                }{
+                                    .runtime = current_handle.runtime.?,
+                                    .handlers_ptr = current_handle.handlers_ptr.?,
+                                    .previous_eff = current_handle.previous_eff,
+                                    .current_handle = current_handle.*,
+                                    .outputs_ptr = current_handle.outputs_ptr.?,
+                                };
                                 return try lexical_with.continueChoice(
                                     Config.Handlers,
                                     Config.binder_index,
-                                    .{
-                                        .runtime = current_handle.runtime.?,
-                                        .handlers_ptr = current_handle.handlers_ptr.?,
-                                        .previous_eff = current_handle.previous_eff,
-                                        .current_handle = current_handle.*,
-                                        .outputs_ptr = current_handle.outputs_ptr.?,
-                                    },
+                                    frame,
                                     Continuation,
                                     value,
                                 );
@@ -951,6 +926,9 @@ pub fn Build(comptime spec: anytype) type {
 
                         var current_handle = self;
                         var authored = activeEngineContext(Config.Capability, self.ctx.?).performProgramWithContext(OpTypeValue, payload, &current_handle, request_state);
+                        if (@hasDecl(@TypeOf(authored), "has_compiled_plan") and @TypeOf(authored).has_compiled_plan) {
+                            return try authored.runCompiled(self.runtime.?);
+                        }
                         authored.activate();
                         defer authored.deactivate();
                         return try frontend.run(self.runtime.?, authored.prompt, authored.program);
@@ -1011,7 +989,7 @@ pub fn Build(comptime spec: anytype) type {
             });
         }
 
-        /// Lexical handle used by `shift.with(...)` for generated families.
+        /// Lexical handle used by `shift.withAt(@src(), ...)` for generated families.
         pub fn LexicalHandle(
             comptime Cap: type,
             comptime ContextPtrType: type,
@@ -1022,7 +1000,7 @@ pub fn Build(comptime spec: anytype) type {
             return LexicalFieldContainerHandle(Cap, ContextPtrType, HandlersType, PreviousEffType, index);
         }
 
-        /// Descriptor value used by `shift.with(...)` for generated families.
+        /// Descriptor value used by `shift.withAt(@src(), ...)` for generated families.
         pub fn LexicalDescriptor(comptime HandlerType: type) type {
             return struct {
                 const produces_output = mode == .resume_then_transform and stateTypeProducesOutput(StateType);
@@ -1080,11 +1058,16 @@ pub fn Build(comptime spec: anytype) type {
                     return field_container;
                 }
 
+                /// Return the shared binding schema for this lexical descriptor under one requirement label.
+                pub fn BindingSchema(comptime requirement_label: [:0]const u8) type {
+                    return effect_schema.Binding(requirement_label, self_type.Schema(), HandlerType);
+                }
+
                 /// Run one generated lexical descriptor through the existing generated-family handler path.
-                pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, lexical_state: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType || InferHandlerOperationErrorSet(mode, op_specs, HandlerType))!lexical_with.DescriptorResult(Output, AnswerType) {
+                pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType || InferHandlerOperationErrorSet(mode, op_specs, HandlerType))!lexical_with.DescriptorResult(Output, AnswerType) {
                     var instance = Instance.init();
                     const ActualRunErrorSet = RunErrorSetType || InferHandlerOperationErrorSet(mode, op_specs, HandlerType);
-                    const result = try self_type.handleWithLexicalState(AnswerType, ActualRunErrorSet, runtime, &instance, self.handler, @constCast(lexical_state), Body);
+                    const result = try self_type.handleWithLexicalState(AnswerType, ActualRunErrorSet, run_ctx.runtime, &instance, self.handler, @constCast(run_ctx.lexical_state), Body, @TypeOf(run_ctx).caller_source);
                     if (produces_output) {
                         return .{
                             .output = result.state,
@@ -1114,15 +1097,28 @@ pub fn Build(comptime spec: anytype) type {
         pub fn handle(comptime AnswerType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler), Body))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
             const HandlerType = @TypeOf(handler);
             const RunErrorSetType = HandleErrorSet(AnswerType, HandlerType, Body);
-            return self_type.handleWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, handler, Body);
+            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body, null);
+        }
+
+        /// Run one generated family body with explicit caller provenance.
+        pub fn handleAt(comptime caller_source: std.builtin.SourceLocation, comptime AnswerType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler), Body))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+            const HandlerType = @TypeOf(handler);
+            const RunErrorSetType = HandleErrorSet(AnswerType, HandlerType, Body);
+            return self_type.handleWithErrorSetAt(caller_source, AnswerType, RunErrorSetType, runtime, instance, handler, Body);
         }
 
         /// Public `handleWithErrorSet` helper.
         pub fn handleWithErrorSet(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
-            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body);
+            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body, null);
         }
 
-        fn handleWithLexicalState(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, lexical_state: ?*anyopaque, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+        /// Public `handleWithErrorSetAt` helper.
+        pub fn handleWithErrorSetAt(comptime caller_source: std.builtin.SourceLocation, comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body, caller_source);
+        }
+
+        // zlinter-disable max_positional_args - this internal seam keeps the lexical caller packet explicit until compiled-body dispatch fully replaces the legacy path.
+        fn handleWithLexicalState(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, lexical_state: ?*anyopaque, comptime Body: type, comptime caller_source: ?std.builtin.SourceLocation) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
             var handler_value = handler;
             const handler_ptr = &handler_value;
             const HandlerType = @TypeOf(handler_value);
@@ -1150,9 +1146,13 @@ pub fn Build(comptime spec: anytype) type {
                 const ErrorSetTypeG = RunErrorSetType;
                 const capability_decls = capability_meta;
             };
-            const value = try runWithSealedEngine(
-                sealed_contract,
-                .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = lexical_state },
+            const value = try sealed_engine.runWithSealedEngine(
+                sealed_contract.PromptTypeG,
+                sealed_contract.StateTypeG,
+                sealed_contract.AnswerTypeG,
+                sealed_contract.ErrorSetTypeG,
+                sealed_contract.capability_decls,
+                .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = lexical_state, .caller_source = caller_source },
                 Body,
             );
             if (mode == .resume_then_transform) {
@@ -1248,7 +1248,7 @@ pub fn Build(comptime spec: anytype) type {
 
             /// Run one generated-family example harness through the public handle surface.
             pub fn exampleHarness(comptime AnswerType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler), Body))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
-                return self_type.handle(AnswerType, runtime, instance, handler, Body);
+                return self_type.handleAt(@src(), AnswerType, runtime, instance, handler, Body);
             }
         };
     };

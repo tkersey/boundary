@@ -1,4 +1,5 @@
 const algebraic = @import("algebraic.zig");
+const effect_schema = @import("../effect_schema.zig");
 const family = @import("family.zig");
 const lexical_with = @import("../with_api.zig");
 const lowered_machine = @import("lowered_machine");
@@ -23,7 +24,7 @@ pub fn Instance(comptime ResourceType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.resume_then_transform, ResourceType, ErrorSetType);
 }
 
-/// Lexical resource handle used by `shift.with(...)`.
+/// Lexical resource handle used by `shift.withAt(@src(), ...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -35,7 +36,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     };
 }
 
-/// Descriptor value used by `shift.with(...)` for the built-in resource family.
+/// Descriptor value used by `shift.withAt(@src(), ...)` for the built-in resource family.
 pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: type, comptime Manager: type) type {
     return struct {
         /// Shared error set carried by the lexical resource descriptor.
@@ -56,14 +57,19 @@ pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: typ
             return .{ .ctx = ctx };
         }
 
+        /// Return the shared binding schema for this lexical descriptor under one requirement label.
+        pub fn BindingSchema(comptime requirement_label: [:0]const u8) type {
+            return effect_schema.Binding(requirement_label, Schema(ResourceType, ErrorSetType, Manager), struct {});
+        }
+
         /// Run one lexical resource descriptor through the existing resource family.
-        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, lexical_state: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
             var instance = family.InstanceWithMode(.resume_then_transform, ResourceType, ErrorSetType).init();
-            const result = try algebraic.handleResourceWithErrorSetLexical(AnswerType, RunErrorSetType, .{
-                .runtime = runtime,
+            const result = try algebraic.handleResourceWithErrorSetLexicalAt(AnswerType, RunErrorSetType, @TypeOf(run_ctx).caller_source, .{
+                .runtime = run_ctx.runtime,
                 .instance = &instance,
-                .lexical_state = @constCast(lexical_state),
+                .lexical_state = @constCast(run_ctx.lexical_state),
             }, Manager, Body);
             return .{
                 .output = {},
@@ -73,9 +79,14 @@ pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: typ
     };
 }
 
-/// Create one lexical resource descriptor for `shift.with(...)`.
+/// Create one lexical resource descriptor for `shift.withAt(@src(), ...)`.
 pub fn use(comptime ResourceType: type, comptime Manager: type) LexicalDescriptor(ResourceType, ManagerErrorSet(Manager), Manager) {
     return .{};
+}
+
+/// Shared effect schema for the built-in resource family.
+pub fn Schema(comptime ResourceType: type, comptime ErrorSetType: type, comptime Manager: type) type {
+    return effect_schema.resource_bracket(ResourceType, ErrorSetType, Manager);
 }
 
 /// Acquire one resource under the supplied capability and handled context.
@@ -103,10 +114,23 @@ pub fn handle(
     comptime Manager: type,
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try algebraic.handleResource(AnswerType, runtime, instance, Manager, Body);
+    return try algebraic.handleResource(null, AnswerType, runtime, instance, Manager, Body);
+}
+
+/// Run a resource effect body with explicit caller provenance and guarantee LIFO cleanup of acquired resources.
+pub fn handleAt(
+    comptime caller_source: std.builtin.SourceLocation,
+    comptime AnswerType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Manager: type,
+    comptime Body: type,
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
+    return try algebraic.handleResource(caller_source, AnswerType, runtime, instance, Manager, Body);
 }
 
 /// Public `handleWithErrorSet` helper.
+// zlinter-disable max_positional_args - public caller provenance and manager inputs stay explicit at this compatibility wrapper.
 pub fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
@@ -115,7 +139,21 @@ pub fn handleWithErrorSet(
     comptime Manager: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try algebraic.handleResourceWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, Manager, Body);
+    return try algebraic.handleResourceWithErrorSet(null, AnswerType, RunErrorSetType, runtime, instance, Manager, Body);
+}
+
+/// Public `handleWithErrorSetAt` helper.
+// zlinter-disable max_positional_args - public caller provenance and manager inputs stay explicit at this compatibility wrapper.
+pub fn handleWithErrorSetAt(
+    comptime caller_source: std.builtin.SourceLocation,
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    comptime Manager: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    return try algebraic.handleResourceWithErrorSet(caller_source, AnswerType, RunErrorSetType, runtime, instance, Manager, Body);
 }
 
 test "resource instance shell stays prompt-sized" {
@@ -180,7 +218,7 @@ test "resource handle releases in LIFO order after normal completion" {
     var instance = ResourceInstance.init();
     manager.next_index = 0;
     manager.transcript_len = 0;
-    const result = try handle([]const u8, &runtime, &instance, manager, demo);
+    const result = try handleAt(@src(), []const u8, &runtime, &instance, manager, demo);
     try std.testing.expectEqualStrings("done", result);
     try std.testing.expectEqualStrings("a", manager.transcript[0]);
     try std.testing.expectEqualStrings("a", manager.transcript[1]);
@@ -262,7 +300,7 @@ test "resource handle releases before outer exception catch returns" {
             const previous_exception_ctx = inner.active_exception_ctx;
             inner.active_exception_ctx = exception_ctx;
             defer inner.active_exception_ctx = previous_exception_ctx;
-            return try handle([]const u8, runtime_ptr.?, resource_ptr.?, manager, inner);
+            return try handleAt(@src(), []const u8, runtime_ptr.?, resource_ptr.?, manager, inner);
         }
     };
 
@@ -273,7 +311,7 @@ test "resource handle releases before outer exception catch returns" {
     scenario.runtime_ptr = &runtime;
     scenario.resource_ptr = &resource_instance;
     manager.transcript_len = 0;
-    const result = try @import("exception.zig").handle([]const u8, &runtime, &exception_instance, catcher, struct {
+    const result = try @import("exception.zig").handleAt(@src(), []const u8, &runtime, &exception_instance, catcher, struct {
         /// Enter the outer exception handle and hand its capability to the inner resource scope.
         pub fn program(comptime ExceptionCap: type, exception_ctx: anytype) @TypeOf(@import("exception.zig").computeProgram(ExceptionCap, exception_ctx, struct {
             /// Re-enter the resource witness through the outer exception capability.
@@ -301,6 +339,36 @@ test "resource handle releases before outer exception catch returns" {
     try std.testing.expectEqualStrings("use=r", manager.transcript[1]);
     try std.testing.expectEqualStrings("release=r", manager.transcript[2]);
     try std.testing.expectEqualStrings("catch=boom", manager.transcript[3]);
+}
+
+test "public resource handleWithErrorSet leaves caller provenance absent by default" {
+    const NoError = error{};
+    const ResourceInstance = Instance([]const u8, NoError);
+    const manager = struct {
+        /// Return one resource for provenance verification.
+        pub fn acquire() []const u8 {
+            return "resource";
+        }
+
+        /// Release the borrowed resource with no extra effect.
+        pub fn release(_: []const u8) void {
+            // This provenance witness only needs the resource bracket shape.
+        }
+    };
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = ResourceInstance.init();
+
+    const result = try handleWithErrorSet([]const u8, NoError, &runtime, &instance, manager, struct {
+        /// Report whether the source-compatible resource wrapper leaves caller provenance absent.
+        pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
+            _ = try acquire(Cap, ctx);
+            return if (@TypeOf(ctx.*).caller_source == null) "absent" else "present";
+        }
+    });
+
+    try std.testing.expectEqualStrings("absent", result);
 }
 
 test "resource handle releases before outer optional return-now completes" {
@@ -381,7 +449,7 @@ test "resource handle releases before outer optional return-now completes" {
             const previous_optional_ctx = inner.active_optional_ctx;
             inner.active_optional_ctx = optional_ctx;
             defer inner.active_optional_ctx = previous_optional_ctx;
-            return try handle([]const u8, runtime_ptr.?, resource_ptr.?, manager, inner);
+            return try handleAt(@src(), []const u8, runtime_ptr.?, resource_ptr.?, manager, inner);
         }
     };
 
@@ -392,7 +460,7 @@ test "resource handle releases before outer optional return-now completes" {
     scenario.runtime_ptr = &runtime;
     scenario.resource_ptr = &resource_instance;
     manager.transcript_len = 0;
-    const result = try @import("optional.zig").handle([]const u8, &runtime, &optional_instance, policy, struct {
+    const result = try @import("optional.zig").handleAt(@src(), []const u8, &runtime, &optional_instance, policy, struct {
         /// Enter the outer optional handle and hand its capability to the inner resource scope.
         pub fn program(comptime OptionalCap: type, optional_ctx: anytype) @TypeOf(@import("optional.zig").computeProgram(OptionalCap, optional_ctx, struct {
             /// Re-enter the resource witness through the outer optional capability.
@@ -460,7 +528,7 @@ test "resource release error wins after a successful body" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ResourceInstance.init();
-    try std.testing.expectError(error.ReleaseFailed, handle([]const u8, &runtime, &instance, manager, demo));
+    try std.testing.expectError(error.ReleaseFailed, handleAt(@src(), []const u8, &runtime, &instance, manager, demo));
 }
 
 test "resource body error wins over release error" {
@@ -501,7 +569,7 @@ test "resource body error wins over release error" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ResourceInstance.init();
-    try std.testing.expectError(error.BodyFailed, handle([]const u8, &runtime, &instance, manager, demo));
+    try std.testing.expectError(error.BodyFailed, handleAt(@src(), []const u8, &runtime, &instance, manager, demo));
 }
 
 test "nested same-shaped resource handles get distinct capability types" {
@@ -524,7 +592,7 @@ test "nested same-shaped resource handles get distinct capability types" {
 
         /// Open an inner resource handle and prove its capability differs from the outer one.
         pub fn outer(comptime OuterCap: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
-            return try handle(i32, runtime_ptr.?, inner_ptr.?, manager, struct {
+            return try handleAt(@src(), i32, runtime_ptr.?, inner_ptr.?, manager, struct {
                 /// Reject capability-type collapse inside the nested resource handle.
                 pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(computeProgram(InnerCap, inner_ctx, struct {
                     /// Return a neutral value from the nested resource body.
@@ -552,7 +620,7 @@ test "nested same-shaped resource handles get distinct capability types" {
     var inner_instance = ResourceInstance.init();
     demo.runtime_ptr = &runtime;
     demo.inner_ptr = &inner_instance;
-    const result = try handle(i32, &runtime, &outer_instance, manager, struct {
+    const result = try handleAt(@src(), i32, &runtime, &outer_instance, manager, struct {
         /// Enter the outer resource handle and hand its capability inward.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested resource witness through the outer capability.

@@ -1,4 +1,5 @@
 const algebraic = @import("algebraic.zig");
+const effect_schema = @import("../effect_schema.zig");
 const family = @import("family.zig");
 const lexical_with = @import("../with_api.zig");
 const lowered_machine = @import("lowered_machine");
@@ -11,7 +12,7 @@ pub const Instance = family.Instance;
 /// Final state plus body answer returned from a handled state program.
 pub const HandleResult = family.HandleResult;
 
-/// Lexical state handle used by `shift.with(...)`.
+/// Lexical state handle used by `shift.withAt(@src(), ...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -28,7 +29,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     };
 }
 
-/// Descriptor value used by `shift.with(...)` for the built-in state family.
+/// Descriptor value used by `shift.withAt(@src(), ...)` for the built-in state family.
 pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) type {
     return struct {
         /// Shared error set carried by the lexical state descriptor.
@@ -51,14 +52,19 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
             return .{ .ctx = ctx };
         }
 
+        /// Return the shared binding schema for this lexical descriptor under one requirement label.
+        pub fn BindingSchema(comptime requirement_label: [:0]const u8) type {
+            return effect_schema.Binding(requirement_label, Schema(StateType, ErrorSetType), struct {});
+        }
+
         /// Run one lexical state descriptor through the existing state family.
-        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, lexical_state: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
+        pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             var instance = family.Instance(StateType, ErrorSetType).init();
-            const result = try algebraic.handleStateWithErrorSetLexical(AnswerType, RunErrorSetType, .{
-                .runtime = runtime,
+            const result = try algebraic.handleStateWithErrorSetLexicalAt(AnswerType, RunErrorSetType, @TypeOf(run_ctx).caller_source, .{
+                .runtime = run_ctx.runtime,
                 .instance = &instance,
                 .initial_state = self.initial_state,
-                .lexical_state = @constCast(lexical_state),
+                .lexical_state = @constCast(run_ctx.lexical_state),
             }, Body);
             return .{
                 .output = result.state,
@@ -68,9 +74,14 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
     };
 }
 
-/// Create one lexical state descriptor for `shift.with(...)`.
+/// Create one lexical state descriptor for `shift.withAt(@src(), ...)`.
 pub fn use(initial_state: anytype) LexicalDescriptor(@TypeOf(initial_state), error{}) {
     return .{ .initial_state = initial_state };
+}
+
+/// Shared effect schema for the built-in state family.
+pub fn Schema(comptime StateType: type, comptime ErrorSetType: type) type {
+    return effect_schema.state_cell(StateType, ErrorSetType);
 }
 
 /// Read the current state value for the supplied capability and handled context.
@@ -110,10 +121,26 @@ pub fn handle(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
-    return try algebraic.handleState(AnswerType, runtime, instance, initial_state, Body);
+    return try algebraic.handleState(null, AnswerType, runtime, instance, initial_state, Body);
+}
+
+/// Run a state effect body with explicit caller provenance and return the final state plus the body answer.
+pub fn handleAt(
+    comptime caller_source: std.builtin.SourceLocation,
+    comptime AnswerType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    initial_state: family.InstanceStateType(@TypeOf(instance)),
+    comptime Body: type,
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!HandleResult(
+    family.InstanceStateType(@TypeOf(instance)),
+    AnswerType,
+) {
+    return try algebraic.handleState(caller_source, AnswerType, runtime, instance, initial_state, Body);
 }
 
 /// Public `handleWithErrorSet` helper.
+// zlinter-disable max_positional_args - public caller provenance and state inputs stay explicit at this compatibility wrapper.
 pub fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
@@ -125,7 +152,24 @@ pub fn handleWithErrorSet(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
-    return try algebraic.handleStateWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, initial_state, Body);
+    return try algebraic.handleStateWithErrorSet(null, AnswerType, RunErrorSetType, runtime, instance, initial_state, Body);
+}
+
+/// Public `handleWithErrorSetAt` helper.
+// zlinter-disable max_positional_args - public caller provenance and state inputs stay explicit at this compatibility wrapper.
+pub fn handleWithErrorSetAt(
+    comptime caller_source: std.builtin.SourceLocation,
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    initial_state: family.InstanceStateType(@TypeOf(instance)),
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!HandleResult(
+    family.InstanceStateType(@TypeOf(instance)),
+    AnswerType,
+) {
+    return try algebraic.handleStateWithErrorSet(caller_source, AnswerType, RunErrorSetType, runtime, instance, initial_state, Body);
 }
 
 test "state instance shell stays prompt-sized" {
@@ -167,7 +211,7 @@ test "state handle threads value and final state" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = StateInstance.init();
-    const result = try handle(i32, &runtime, &instance, 5, demo);
+    const result = try handleAt(@src(), i32, &runtime, &instance, 5, demo);
     try std.testing.expectEqual(@as(i32, 6), result.state);
     try std.testing.expectEqual(@as(i32, 6), result.value);
 }
@@ -181,7 +225,7 @@ test "nested same-shaped state handles get distinct capability types" {
 
         /// Open an inner handle and prove its capability type differs from the outer one.
         pub fn outer(comptime OuterCap: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
-            const result = try handle(i32, runtime_ptr.?, inner_ptr.?, 0, struct {
+            const result = try handleAt(@src(), i32, runtime_ptr.?, inner_ptr.?, 0, struct {
                 /// Reject capability-type collapse inside the nested handle.
                 pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(family.computeProgram(InnerCap, inner_ctx, struct {
                     /// Return a neutral value from the nested state body.
@@ -210,7 +254,7 @@ test "nested same-shaped state handles get distinct capability types" {
     var inner_instance = StateInstance.init();
     demo.runtime_ptr = &runtime;
     demo.inner_ptr = &inner_instance;
-    const result = try handle(i32, &runtime, &outer_instance, 0, struct {
+    const result = try handleAt(@src(), i32, &runtime, &outer_instance, 0, struct {
         /// Enter the outer handle and hand its capability to the nested check.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(family.computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested state witness through the outer capability.
@@ -227,4 +271,23 @@ test "nested same-shaped state handles get distinct capability types" {
         }
     });
     try std.testing.expectEqual(@as(i32, 0), result.value);
+}
+
+test "public state handleWithErrorSet leaves caller provenance absent by default" {
+    const NoError = error{};
+    const StateInstance = Instance(i32, NoError);
+
+    var runtime = shift.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var instance = StateInstance.init();
+
+    const result = try handleWithErrorSet([]const u8, NoError, &runtime, &instance, @as(i32, 0), struct {
+        /// Report whether the source-compatible state wrapper leaves caller provenance absent.
+        pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(NoError)![]const u8 {
+            _ = Cap;
+            return if (@TypeOf(ctx.*).caller_source == null) "absent" else "present";
+        }
+    });
+
+    try std.testing.expectEqualStrings("absent", result.value);
 }

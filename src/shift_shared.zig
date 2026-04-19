@@ -18,8 +18,16 @@ pub const Runtime = lowered_machine.Runtime;
 pub const RuntimeError = lowered_machine.RuntimeError;
 /// Public `With` helper retained at the root surface.
 pub const With = with_api.With;
+/// Canonical named lexical body helper retained at the root surface.
+pub const NamedBody = with_api.NamedBody;
+/// Explicit caller-owned source witness retained for `withOwnedSource(...)`.
+pub const OwnedSourceWitness = with_api.OwnedSourceWitness;
 /// Public `with(...)` helper retained at the root surface.
 pub const with = with_api.with;
+/// Public `withAt(...)` helper retained for explicit caller provenance.
+pub const withAt = with_api.withAt;
+/// Public `withOwnedSource(...)` helper retained for explicit caller-owned lexical compilation witnesses.
+pub const withOwnedSource = with_api.withOwnedSource;
 
 /// Compatibility API namespace retained for existing `shift.compat.*` users.
 pub const compat = compat_api;

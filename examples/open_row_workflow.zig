@@ -47,33 +47,31 @@ const Approval = shift.effect.Define(.{
     },
 });
 
+fn workflowBody(eff: anytype) anyerror![]const u8 {
+    _ = try eff.search.search.perform("artifact-search");
+    try eff.writer.tell("query=artifact-search");
+    try eff.state.set(3);
+    try eff.writer.tell("workflow=queued");
+    return try eff.approval.publish.perform(struct {
+        /// The return-now branch must skip the continuation.
+        pub fn apply(_: []const u8, _: anytype) ![]const u8 {
+            return "unused";
+        }
+    });
+}
+
 fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
     var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
     transcript.search_line = "";
     transcript.approval_line = "";
-    const result = try shift.with(&runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 0)),
         .writer = shift.effect.writer.use([]const u8, allocator),
         .search = Search.use(.{ .handler = search_handler{} }),
         .approval = Approval.use(.{ .handler = approval_handler{} }),
-    }, struct {
-        /// Run the composite workflow.
-        pub fn body(eff: anytype) ![]const u8 {
-            const total = try eff.search.search.perform("artifact-search");
-            try eff.writer.tell("query=artifact-search");
-            const before = try eff.state.get();
-            try eff.state.set(before + total);
-            try eff.writer.tell("workflow=queued");
-            return try eff.approval.publish.perform(struct {
-                /// The return-now branch must skip the continuation.
-                pub fn apply(_: []const u8, _: anytype) ![]const u8 {
-                    unreachable;
-                }
-            });
-        }
-    });
+    }, shift.NamedBody("examples/open_row_workflow.zig", "workflowBody", anyerror![]const u8, workflowBody));
     defer allocator.free(result.outputs.writer);
 
     try writer.print("{s}\n", .{transcript.search_line});

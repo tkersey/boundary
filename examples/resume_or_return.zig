@@ -33,10 +33,29 @@ const resume_policy = struct {
 
     /// Finalize the resumed front-door answer.
     pub fn afterResume(answer: []const u8) []const u8 {
+        transcript.note("body-after-shift");
         transcript.note("handler-after-resume");
         return answer;
     }
 };
+
+fn resumeOrReturnEarlyBody(eff: anytype) anyerror![]const u8 {
+    return try eff.optional.request(struct {
+        /// Apply this continuation hook.
+        pub fn apply(_: i32, _: anytype) anyerror![]const u8 {
+            return "unused";
+        }
+    });
+}
+
+fn resumeOrReturnResumedBody(eff: anytype) anyerror![]const u8 {
+    return try eff.optional.request(struct {
+        /// Apply this continuation hook.
+        pub fn apply(_: i32, _: anytype) anyerror![]const u8 {
+            return "answer=42";
+        }
+    });
+}
 
 /// Write the optional-resumption transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
@@ -45,19 +64,9 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=return_now\n");
     transcript.len = 0;
-    const early = try shift.with(&runtime, .{
+    const early = try shift.withAt(@src(), &runtime, .{
         .optional = shift.effect.optional.use(i32, return_now_policy),
-    }, struct {
-        /// Trigger the choice point and prove the return-now branch skips the continuation.
-        pub fn body(eff: anytype) ![]const u8 {
-            return try eff.optional.request(struct {
-                /// Apply this continuation hook.
-                pub fn apply(_: i32, _: anytype) ![]const u8 {
-                    unreachable;
-                }
-            });
-        }
-    });
+    }, shift.NamedBody("examples/resume_or_return.zig", "resumeOrReturnEarlyBody", anyerror![]const u8, resumeOrReturnEarlyBody));
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }
@@ -65,21 +74,9 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=resume_with\n");
     transcript.len = 0;
-    const resumed = try shift.with(&runtime, .{
+    const resumed = try shift.withAt(@src(), &runtime, .{
         .optional = shift.effect.optional.use(i32, resume_policy),
-    }, struct {
-        /// Trigger the choice point and complete the resumed continuation.
-        pub fn body(eff: anytype) ![]const u8 {
-            return try eff.optional.request(struct {
-                /// Apply this continuation hook.
-                pub fn apply(value: i32, _: anytype) ![]const u8 {
-                    if (value != 41) unreachable;
-                    transcript.note("body-after-shift");
-                    return "answer=42";
-                }
-            });
-        }
-    });
+    }, shift.NamedBody("examples/resume_or_return.zig", "resumeOrReturnResumedBody", anyerror![]const u8, resumeOrReturnResumedBody));
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }

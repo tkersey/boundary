@@ -24,6 +24,26 @@ pub const ControlMode = enum {
     transform,
 };
 
+/// Lifecycle semantics carried by one requirement plan.
+pub const RequirementLifecycleTag = enum {
+    abort_catch,
+    choice_policy,
+    generated_family,
+    plain_transform,
+    reader_environment,
+    resource_bracket,
+    state_cell,
+    writer_accumulator,
+};
+
+/// Output semantics carried by one requirement plan.
+pub const RequirementOutputTag = enum {
+    accumulator,
+    custom_finalizer,
+    final_state,
+    none,
+};
+
 fn controlModeFromIr(mode: effect_ir.ControlMode) ControlMode {
     return switch (mode) {
         .abort => .abort,
@@ -58,12 +78,15 @@ pub const RequirementPlan = struct {
     label: []const u8,
     first_op: u16,
     op_count: u16,
+    lifecycle_tag: RequirementLifecycleTag = .plain_transform,
+    output_tag: RequirementOutputTag = .none,
 };
 
 /// One lowered function descriptor in the runtime-owned executable plan.
 pub const FunctionPlan = struct {
     symbol_name: []const u8,
     value_codec: ValueCodec = .unit,
+    result_codec: ?ValueCodec = null,
     parameter_count: u16 = 0,
     first_requirement: u16,
     requirement_count: u16,
@@ -81,11 +104,13 @@ pub const FunctionPlan = struct {
 /// Serializable instruction tags carried by the runtime-owned plan.
 pub const InstructionKind = enum {
     add_const_i32,
+    add_i32,
     call_helper,
     call_op,
     compare_eq_zero,
     const_i32,
     const_string,
+    const_usize,
     return_value,
     sub_one,
 };
@@ -124,7 +149,7 @@ pub const BlockPlan = struct {
 /// Runtime-owned serializable executable plan for lowered or explicit IR programs.
 pub const ProgramPlan = struct {
     /// Stable schema version for JSON-serialized runtime plans.
-    pub const current_schema_version: u32 = 4;
+    pub const current_schema_version: u32 = 6;
 
     schema_version: u32 = current_schema_version,
     label: []const u8,
@@ -148,6 +173,7 @@ pub const ProgramPlan = struct {
         if (self.entry_index >= self.functions.len) return error.InvalidEntryIndex;
         var reachable_blocks = [_]bool{false} ** (std.math.maxInt(u16) + 1);
         var terminal_reachability = [_]bool{false} ** (std.math.maxInt(u16) + 1);
+        var completion_reachability = [_]bool{false} ** (std.math.maxInt(u16) + 1);
 
         for (self.functions) |function| {
             if (function.symbol_name.len == 0) return error.EmptyFunctionSymbol;
@@ -193,39 +219,60 @@ pub const ProgramPlan = struct {
         }
 
         var changed = true;
+        var executable_blocks = [_]bool{false} ** (std.math.maxInt(u16) + 1);
+        while (changed) {
+            changed = false;
+            for (self.functions, 0..) |function, function_index| {
+                if (completion_reachability[function_index]) continue;
+                @memset(executable_blocks[0..], false);
+                try markFunctionExecutableBlocks(self, function, &completion_reachability, &executable_blocks);
+                const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
+                for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
+                    const block_index = @as(usize, function.first_block) + relative_block_index;
+                    if (!executable_blocks[block_index]) continue;
+                    const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
+                    if (!try blockCanResumeToTerminator(self, function, block.first_instruction, instruction_end, &completion_reachability)) continue;
+                    const terminator = self.terminators[block.terminator_index];
+                    const block_completes = switch (terminator.kind) {
+                        .return_unit, .return_value => true,
+                        .jump => completion_reachability[terminator.primary],
+                        .branch_if => completion_reachability[terminator.primary] or completion_reachability[terminator.secondary],
+                    };
+                    if (block_completes) {
+                        completion_reachability[function_index] = true;
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        changed = true;
         while (changed) {
             changed = false;
             for (self.functions, 0..) |function, function_index| {
                 if (terminal_reachability[function_index]) continue;
+                @memset(executable_blocks[0..], false);
+                try markFunctionExecutableBlocks(self, function, &completion_reachability, &executable_blocks);
                 const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
                 for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
                     const block_index = @as(usize, function.first_block) + relative_block_index;
-                    if (!reachable_blocks[block_index]) continue;
+                    if (!executable_blocks[block_index]) continue;
                     const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
-                    for (self.instructions[block.first_instruction..instruction_end]) |instruction| {
-                        switch (instruction.kind) {
-                            .call_helper => {
-                                if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
-                                if (terminal_reachability[instruction.operand]) {
-                                    terminal_reachability[function_index] = true;
-                                    changed = true;
-                                    break;
-                                }
-                            },
-                            .call_op => {
-                                if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
-                                    return error.InvalidCallOpTarget;
-                                }
-                                if (self.ops[instruction.operand].mode != .transform) {
-                                    terminal_reachability[function_index] = true;
-                                    changed = true;
-                                    break;
-                                }
-                            },
-                            else => {},
-                        }
+                    if (try blockCanEscapeTerminally(
+                        self,
+                        function,
+                        block.first_instruction,
+                        instruction_end,
+                        .{
+                            .completion = &completion_reachability,
+                            .terminal = &terminal_reachability,
+                        },
+                    )) {
+                        terminal_reachability[function_index] = true;
+                        changed = true;
+                        break;
                     }
-                    if (terminal_reachability[function_index]) break;
                 }
             }
         }
@@ -247,11 +294,16 @@ pub const ProgramPlan = struct {
                     .call_helper => {
                         if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
                         const callee = self.functions[instruction.operand];
-                        if (block_is_reachable and callee.value_codec != function.value_codec and terminal_reachability[instruction.operand]) {
+                        const helper_result_codec = functionResultCodec(callee);
+                        if (block_is_reachable and
+                            helper_result_codec != functionResultCodec(function) and
+                            terminal_reachability[instruction.operand])
+                        {
                             return error.InvalidInstructionLocalIndex;
                         }
-                        if (callee.value_codec != .unit and
-                            !functionLocalHasCodec(self, function, instruction.dst, callee.value_codec))
+                        if (helper_result_codec != .unit and
+                            completion_reachability[instruction.operand] and
+                            !functionLocalHasCodec(self, function, instruction.dst, helper_result_codec))
                         {
                             return error.InvalidInstructionLocalIndex;
                         }
@@ -287,8 +339,21 @@ pub const ProgramPlan = struct {
                     .const_string => {
                         if (!functionLocalHasCodec(self, function, instruction.dst, .string)) return error.InvalidInstructionLocalIndex;
                     },
-                    .add_const_i32, .compare_eq_zero, .const_i32, .sub_one => {
+                    .const_usize => {
+                        if (!functionLocalHasCodec(self, function, instruction.dst, .usize)) return error.InvalidInstructionLocalIndex;
+                        _ = std.fmt.parseUnsigned(usize, instruction.string_literal, 0) catch
+                            return error.InvalidInstructionLocalIndex;
+                    },
+                    .add_i32, .add_const_i32, .compare_eq_zero, .const_i32, .sub_one => {
                         switch (instruction.kind) {
+                            .add_i32 => {
+                                if (!functionLocalHasCodec(self, function, instruction.dst, .i32) or
+                                    !functionLocalHasCodec(self, function, instruction.operand, .i32) or
+                                    !functionLocalHasCodec(self, function, instruction.aux, .i32))
+                                {
+                                    return error.InvalidInstructionLocalIndex;
+                                }
+                            },
                             .add_const_i32 => {
                                 if (!functionLocalHasCodec(self, function, instruction.dst, .i32) or
                                     !functionLocalHasCodec(self, function, instruction.operand, .i32))
@@ -303,8 +368,11 @@ pub const ProgramPlan = struct {
                                 if (!functionLocalHasCodec(self, function, instruction.dst, .bool)) return error.InvalidInstructionLocalIndex;
                             },
                             .const_i32 => {
-                                if (!functionLocalHasCodec(self, function, instruction.dst, .i32)) return error.InvalidInstructionLocalIndex;
+                                const dst_codec = functionLocalCodec(self, function, instruction.dst) orelse
+                                    return error.InvalidInstructionLocalIndex;
+                                if (dst_codec != .i32) return error.InvalidInstructionLocalIndex;
                             },
+                            .const_usize => unreachable,
                             .sub_one => {
                                 const operand_codec = functionLocalCodec(self, function, instruction.operand) orelse
                                     return error.InvalidInstructionLocalIndex;
@@ -341,7 +409,18 @@ pub const ProgramPlan = struct {
                         if (!isOwnedBlockTarget(function.first_block, block_end, terminator.primary)) return error.InvalidTerminatorTarget;
                     },
                     .return_unit => {
-                        if (function_returns_value) return error.InvalidTerminatorInstruction;
+                        if (function_returns_value) {
+                            if (instruction_end == block.first_instruction) return error.InvalidTerminatorInstruction;
+                            if (!terminalAbortInstruction(
+                                self,
+                                function,
+                                instruction_end - 1,
+                                .{
+                                    .completion = &completion_reachability,
+                                    .terminal = &terminal_reachability,
+                                },
+                            )) return error.InvalidTerminatorInstruction;
+                        }
                     },
                     .return_value => {
                         if (!function_returns_value or !block_has_return_value) return error.InvalidTerminatorInstruction;
@@ -362,6 +441,8 @@ pub const ProgramPlan = struct {
         for (self.functions) |function| {
             hashBytes(&hasher, function.symbol_name);
             hashBytes(&hasher, @tagName(function.value_codec));
+            hasher.update(&[_]u8{@intFromBool(function.result_codec != null)});
+            if (function.result_codec) |codec| hashBytes(&hasher, @tagName(codec));
             hasher.update(std.mem.asBytes(&function.parameter_count));
             hasher.update(std.mem.asBytes(&function.first_requirement));
             hasher.update(std.mem.asBytes(&function.requirement_count));
@@ -457,12 +538,18 @@ pub const LegacySchemaError = std.mem.Allocator.Error || error{UnsupportedSchema
 /// Return the first-wave runtime codec for one supported Zig type.
 pub fn codecForType(comptime T: type) CodecError!ValueCodec {
     if (T == void) return .unit;
+    if (T == noreturn) return .unit;
     if (T == bool) return .bool;
     if (T == i32) return .i32;
     if (T == usize) return .usize;
     if (T == []const u8) return .string;
     if (T == [][]const u8) return .string_list;
     return error.UnsupportedCodecType;
+}
+
+/// Return the externally observable result codec for one function plan.
+pub fn functionResultCodec(function: FunctionPlan) ValueCodec {
+    return function.result_codec orelse function.value_codec;
 }
 
 fn hashBytes(hasher: *std.hash.Wyhash, value: []const u8) void {
@@ -487,11 +574,13 @@ fn valueCodecFromEffectType(comptime T: type) CodecError!ValueCodec {
 
 fn instructionKindFromEffectIrBody(kind: effect_ir.InstructionKind) InstructionKind {
     return switch (kind) {
+        .add_i32 => .add_i32,
         .add_const_i32 => .add_const_i32,
         .call_helper => .call_helper,
         .call_op => .call_op,
         .compare_eq_zero => .compare_eq_zero,
         .const_i32 => .const_i32,
+        .const_usize => .const_usize,
         .const_string => .const_string,
         .return_value => .return_value,
         .sub_one => .sub_one,
@@ -579,6 +668,15 @@ pub fn upgradeLegacyProgramPlan(allocator: std.mem.Allocator, plan: *ProgramPlan
         return;
     }
 
+    if (plan.schema_version == 4) {
+        plan.schema_version = 5;
+    }
+
+    if (plan.schema_version == 5) {
+        plan.schema_version = ProgramPlan.current_schema_version;
+        return;
+    }
+
     if (plan.schema_version != ProgramPlan.current_schema_version) return error.UnsupportedSchemaVersion;
 }
 
@@ -600,6 +698,29 @@ fn functionLocalCodec(self: ProgramPlan, function: FunctionPlan, local_id: u16) 
 fn functionLocalHasCodec(self: ProgramPlan, function: FunctionPlan, local_id: u16, expected: ValueCodec) bool {
     return functionLocalCodec(self, function, local_id) == expected;
 }
+
+fn terminalAbortInstruction(
+    self: ProgramPlan,
+    function: FunctionPlan,
+    instruction_index: usize,
+    reachability: FunctionControlReachability,
+) bool {
+    const instruction_span_end = @as(usize, function.first_instruction) + function.instruction_count;
+    if (instruction_index < function.first_instruction or instruction_index >= instruction_span_end) return false;
+    const instruction = self.instructions[instruction_index];
+    return switch (instruction.kind) {
+        .call_helper => instruction.operand < self.functions.len and
+            reachability.terminal[instruction.operand] and
+            !reachability.completion[instruction.operand],
+        .call_op => instruction.operand < self.ops.len and self.ops[instruction.operand].mode == .abort,
+        else => false,
+    };
+}
+
+const FunctionControlReachability = struct {
+    completion: *const [std.math.maxInt(u16) + 1]bool,
+    terminal: *const [std.math.maxInt(u16) + 1]bool,
+};
 
 fn isOwnedBlockTarget(first_block: u16, block_end: usize, target: u16) bool {
     const target_index: usize = target;
@@ -642,6 +763,105 @@ fn markFunctionReachableBlocks(
                         !reachable_blocks[terminator.primary])
                     {
                         reachable_blocks[terminator.primary] = true;
+                        changed = true;
+                    }
+                },
+                .return_unit, .return_value => {},
+            }
+        }
+    }
+}
+
+fn blockCanResumeToTerminator(
+    self: ProgramPlan,
+    function: FunctionPlan,
+    first_instruction: u16,
+    instruction_end: usize,
+    completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
+) ValidationError!bool {
+    for (self.instructions[first_instruction..instruction_end]) |instruction| {
+        switch (instruction.kind) {
+            .call_helper => {
+                if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
+                if (!completion_reachability[instruction.operand]) return false;
+            },
+            .call_op => {
+                if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
+                    return error.InvalidCallOpTarget;
+                }
+                if (self.ops[instruction.operand].mode == .abort) return false;
+            },
+            else => {},
+        }
+    }
+    return true;
+}
+
+fn blockCanEscapeTerminally(
+    self: ProgramPlan,
+    function: FunctionPlan,
+    first_instruction: u16,
+    instruction_end: usize,
+    reachability: FunctionControlReachability,
+) ValidationError!bool {
+    for (self.instructions[first_instruction..instruction_end]) |instruction| {
+        switch (instruction.kind) {
+            .call_helper => {
+                if (instruction.operand >= self.functions.len) return error.InvalidCallHelperTarget;
+                if (reachability.terminal[instruction.operand]) return true;
+                if (!reachability.completion[instruction.operand]) return false;
+            },
+            .call_op => {
+                if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
+                    return error.InvalidCallOpTarget;
+                }
+                if (self.ops[instruction.operand].mode != .transform) return true;
+            },
+            else => {},
+        }
+    }
+    return false;
+}
+
+fn markFunctionExecutableBlocks(
+    self: ProgramPlan,
+    function: FunctionPlan,
+    completion_reachability: *const [std.math.maxInt(u16) + 1]bool,
+    executable_blocks: *[std.math.maxInt(u16) + 1]bool,
+) ValidationError!void {
+    const block_end = rangeEnd(function.first_block, function.block_count) orelse return error.InvalidFunctionBlockSpan;
+    const entry_block_index = @as(usize, function.first_block) + function.entry_block;
+    executable_blocks[entry_block_index] = true;
+
+    var changed = true;
+    while (changed) {
+        changed = false;
+        for (self.blocks[function.first_block..block_end], 0..) |block, relative_block_index| {
+            const block_index = @as(usize, function.first_block) + relative_block_index;
+            if (!executable_blocks[block_index]) continue;
+            const instruction_end = rangeEnd(block.first_instruction, block.instruction_count) orelse return error.InvalidBlockInstructionSpan;
+            if (!try blockCanResumeToTerminator(self, function, block.first_instruction, instruction_end, completion_reachability)) continue;
+            const terminator = self.terminators[block.terminator_index];
+            switch (terminator.kind) {
+                .branch_if => {
+                    if (isOwnedBlockTarget(function.first_block, block_end, terminator.primary) and
+                        !executable_blocks[terminator.primary])
+                    {
+                        executable_blocks[terminator.primary] = true;
+                        changed = true;
+                    }
+                    if (isOwnedBlockTarget(function.first_block, block_end, terminator.secondary) and
+                        !executable_blocks[terminator.secondary])
+                    {
+                        executable_blocks[terminator.secondary] = true;
+                        changed = true;
+                    }
+                },
+                .jump => {
+                    if (isOwnedBlockTarget(function.first_block, block_end, terminator.primary) and
+                        !executable_blocks[terminator.primary])
+                    {
+                        executable_blocks[terminator.primary] = true;
                         changed = true;
                     }
                 },
@@ -1168,6 +1388,146 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         // The generated payload is internally consistent.
     } else |err| invalidGeneratedPlan(err);
     return plan;
+}
+
+fn BindingFamilyForLabel(comptime binding_schemas: anytype, comptime label: []const u8) ?type {
+    inline for (binding_schemas) |BindingSchema| {
+        const BindingSchemaType = if (@TypeOf(BindingSchema) == type) BindingSchema else @TypeOf(BindingSchema);
+        if (std.mem.eql(u8, BindingSchemaType.requirement_label, label)) return BindingSchemaType.family;
+    }
+    return null;
+}
+
+fn requirementLifecycleFromBindingSchema(comptime FamilySchema: type) RequirementLifecycleTag {
+    return std.meta.stringToEnum(RequirementLifecycleTag, @tagName(FamilySchema.lifecycle_tag)) orelse
+        @compileError("binding schema lifecycle_tag must map to RequirementLifecycleTag");
+}
+
+fn requirementOutputFromBindingSchema(comptime FamilySchema: type) RequirementOutputTag {
+    return std.meta.stringToEnum(RequirementOutputTag, @tagName(FamilySchema.output)) orelse
+        @compileError("binding schema output tag must map to RequirementOutputTag");
+}
+
+/// Attach binding-derived lifecycle and output metadata to a runtime-owned plan.
+pub fn enrichPlanWithBindingSchemas(
+    comptime base_plan: ProgramPlan,
+    comptime binding_schemas: anytype,
+) ProgramPlan {
+    const enriched_requirements = comptime blk: {
+        var buffer: [base_plan.requirements.len]RequirementPlan = undefined;
+        for (base_plan.requirements, 0..) |requirement, index| {
+            const FamilySchema = BindingFamilyForLabel(binding_schemas, requirement.label);
+            buffer[index] = .{
+                .label = requirement.label,
+                .first_op = requirement.first_op,
+                .op_count = requirement.op_count,
+                .lifecycle_tag = if (FamilySchema) |Schema| requirementLifecycleFromBindingSchema(Schema) else .plain_transform,
+                .output_tag = if (FamilySchema) |Schema| requirementOutputFromBindingSchema(Schema) else .none,
+            };
+        }
+        break :blk buffer;
+    };
+
+    return .{
+        .schema_version = base_plan.schema_version,
+        .label = base_plan.label,
+        .ir_hash = base_plan.ir_hash,
+        .entry_index = base_plan.entry_index,
+        .functions = base_plan.functions,
+        .requirements = &enriched_requirements,
+        .ops = base_plan.ops,
+        .outputs = base_plan.outputs,
+        .locals = base_plan.locals,
+        .call_args = base_plan.call_args,
+        .blocks = base_plan.blocks,
+        .terminators = base_plan.terminators,
+        .instructions = base_plan.instructions,
+    };
+}
+
+test "binding schema enrichment preserves plan shape while attaching lifecycle metadata" {
+    const base_row = effect_ir.mergeRows(.{
+        effect_ir.rowFromSpec(.{
+            .state = .{
+                .get = effect_ir.Transform(void, i32),
+                .set = effect_ir.Transform(i32, void),
+            },
+        }),
+        effect_ir.rowFromSpec(.{
+            .writer = .{
+                .tell = effect_ir.Transform([]const u8, void),
+            },
+        }),
+    });
+    const base_program = effect_ir.Program{
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol = .{
+                .module_path = "test/effect_schema_program_plan_enrichment.zig",
+                .symbol_name = "runBody",
+            },
+            .row = base_row,
+            .ValueType = []const u8,
+            .outputs = &.{
+                .{ .label = "state", .OutputType = i32 },
+                .{ .label = "writer", .OutputType = [][]const u8 },
+            },
+        }},
+        .call_edges = &.{},
+    };
+    const base_plan = try planFromProgram("effect_schema.enrichment", base_program);
+    const state_family = struct {
+        const lifecycle_tag = enum {
+            abort_catch,
+            choice_policy,
+            generated_family,
+            plain_transform,
+            reader_environment,
+            resource_bracket,
+            state_cell,
+            writer_accumulator,
+        }.state_cell;
+        const output = enum {
+            accumulator,
+            custom_finalizer,
+            final_state,
+            none,
+        }.final_state;
+    };
+    const writer_family = struct {
+        const lifecycle_tag = enum {
+            abort_catch,
+            choice_policy,
+            generated_family,
+            plain_transform,
+            reader_environment,
+            resource_bracket,
+            state_cell,
+            writer_accumulator,
+        }.writer_accumulator;
+        const output = enum {
+            accumulator,
+            custom_finalizer,
+            final_state,
+            none,
+        }.accumulator;
+    };
+    const enriched = enrichPlanWithBindingSchemas(base_plan, .{
+        struct {
+            const requirement_label = "state";
+            const family = state_family;
+        },
+        struct {
+            const requirement_label = "writer";
+            const family = writer_family;
+        },
+    });
+
+    try std.testing.expectEqual(base_plan.requirements.len, enriched.requirements.len);
+    try std.testing.expectEqual(RequirementLifecycleTag.state_cell, enriched.requirements[0].lifecycle_tag);
+    try std.testing.expectEqual(RequirementOutputTag.final_state, enriched.requirements[0].output_tag);
+    try std.testing.expectEqual(RequirementLifecycleTag.writer_accumulator, enriched.requirements[1].lifecycle_tag);
+    try std.testing.expectEqual(RequirementOutputTag.accumulator, enriched.requirements[1].output_tag);
 }
 
 /// Lower one body-bearing open-row program into a runtime-owned executable plan shape.
@@ -2415,6 +2775,101 @@ test "ProgramPlan.validate rejects functions whose instruction span is not attac
         .instructions = &.{.{ .kind = .return_value, .operand = 0 }},
     };
     try std.testing.expectError(error.InvalidFunctionInstructionSpan, uncovered_instruction_plan.validate());
+}
+
+test "ProgramPlan.validate accepts hexadecimal const_usize literals" {
+    const plan = ProgramPlan{
+        .label = "valid.const_usize_hex",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .usize,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .usize }},
+        .call_args = &.{},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 2,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{
+                .kind = .const_usize,
+                .dst = 0,
+                .string_literal = "0xff",
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+        },
+    };
+
+    try plan.validate();
+}
+
+test "ProgramPlan.validate rejects const_i32 instructions targeting usize locals" {
+    const plan = ProgramPlan{
+        .label = "invalid.const_i32_into_usize",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .usize,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .usize }},
+        .call_args = &.{},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 2,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{
+                .kind = .const_i32,
+                .dst = 0,
+                .operand = @as(u16, @bitCast(@as(i16, -1))),
+                .aux = @as(u16, @bitCast(@as(i16, -1))),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+        },
+    };
+
+    try std.testing.expectError(error.InvalidInstructionLocalIndex, plan.validate());
 }
 
 test "ProgramPlan hash survives JSON roundtrip" {

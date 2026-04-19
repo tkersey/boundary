@@ -230,11 +230,13 @@ pub const LocalCodec = enum {
 /// Public helper-body instruction tags.
 pub const InstructionKind = enum {
     add_const_i32,
+    add_i32,
     call_helper,
     call_op,
     compare_eq_zero,
     const_i32,
     const_string,
+    const_usize,
     return_value,
     sub_one,
 };

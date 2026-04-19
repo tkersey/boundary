@@ -13,13 +13,21 @@ The ordinary public root is intentionally narrow:
 - `shift.effect.*`
 - `shift.effect.Define(...)`
 - `shift.with(...)`
+- `shift.NamedBody(...)`
 - `shift.Runtime`
 - `shift.RuntimeError`
 
-The repo also contains maintainer-facing specialist surfaces for explicit IR,
-lowering, ArtifactV1, HostAdapterV1, and interpreter stepping.
-Those remain executable and tested, but they are not documented here as a
+The repo also contains maintainer-facing specialist surfaces for lowering and
+interpreter stepping. Those remain implementation detail territory, not a
 second public story.
+
+For shipped execution inside this package, `shift.NamedBody(...)` is the
+canonical source identity for `shift.with(...)`. The retained ordinary examples
+and admitted witness subset, including the nested-prompt `static_redelim` and
+`multi_prompt` witnesses, are driven onto that compiled path rather than
+relying on anonymous inline lexical body execution in shipped builds.
+Downstream caller-owned source files are still not admitted to the compiled
+NamedBody subset.
 
 ## Examples
 
@@ -50,7 +58,7 @@ zig build lint -- --max-warnings 0
 - the public lexical root
 - the core semantic witness set
 - source-lowering validation and execution
-- ArtifactV1, HostAdapterV1, and interpreter behavior
+- interpreter behavior where it still underpins the lexical stack
 
 It no longer proves downstream package-boundary publication, retired/public-root
 export bans, or compile-time misuse fixtures as part of the default contract.
@@ -58,8 +66,6 @@ export bans, or compile-time misuse fixtures as part of the default contract.
 Manual run, tool, and benchmark surfaces still exist for local iteration:
 
 - `zig build run-*` for retained examples
-- `zig build artifact-v1-dump`
-- `zig build artifact-vm-runner`
 - `zig build source-lower`
 - `zig build bench*`
 - `zig build zprof-hotspots`

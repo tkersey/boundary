@@ -5,6 +5,7 @@ const frontend = @import("frontend_support");
 const internal = @import("../internal/algebraic_engine.zig");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
+const sealed_engine = @import("../internal/sealed_engine.zig");
 const shift = struct {
     const Runtime = lowered_machine.Runtime;
     const Decision = @import("../program_api.zig").Decision;
@@ -16,109 +17,6 @@ pub fn activeEngineContext(comptime Cap: type, ctx: anytype) *Cap.EngineContextT
     comptime family.assertContextType(Cap, @TypeOf(ctx));
     _ = ctx._cap;
     return @ptrCast(@alignCast(ctx._cap.engine_ctx.?));
-}
-
-fn computeProgramForPrompt(
-    comptime Cap: type,
-    ctx: anytype,
-    comptime PromptType: type,
-    thunk: anytype,
-) frontend.Program(PromptType) {
-    comptime family.assertContextType(Cap, @TypeOf(ctx));
-    const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
-    const ThunkType = @TypeOf(thunk);
-    _ = ctx._cap;
-    return frontend.computeProgramWithContext(PromptType, ctx, struct {
-        fn invoke(program_ctx: @TypeOf(ctx)) lowered_machine.ResetError(ContextType.ErrorSetType)!ContextType.AnswerType {
-            switch (@typeInfo(ThunkType)) {
-                .@"fn" => {
-                    const params = @typeInfo(ThunkType).@"fn".params;
-                    const ReturnType = @typeInfo(ThunkType).@"fn".return_type.?;
-                    if (params.len == 0) {
-                        if (@typeInfo(ReturnType) != .error_union) return thunk();
-                        return try thunk();
-                    }
-                    if (@typeInfo(ReturnType) != .error_union) return thunk(Cap, program_ctx);
-                    return try thunk(Cap, program_ctx);
-                },
-                .pointer => |pointer| {
-                    if (@typeInfo(pointer.child) == .@"fn") {
-                        const params = @typeInfo(pointer.child).@"fn".params;
-                        const ReturnType = @typeInfo(pointer.child).@"fn".return_type.?;
-                        if (params.len == 0) {
-                            if (@typeInfo(ReturnType) != .error_union) return thunk();
-                            return try thunk();
-                        }
-                        if (@typeInfo(ReturnType) != .error_union) return thunk(Cap, program_ctx);
-                        return try thunk(Cap, program_ctx);
-                    }
-                },
-                else => {},
-            }
-
-            const RunFn = @TypeOf(thunk.run);
-            const params = @typeInfo(RunFn).@"fn".params;
-            const ReturnType = @typeInfo(RunFn).@"fn".return_type.?;
-            if (params.len == 0) {
-                if (@typeInfo(ReturnType) != .error_union) return thunk.run();
-                return try thunk.run();
-            }
-            if (@typeInfo(ReturnType) != .error_union) return thunk.run(Cap, program_ctx);
-            return try thunk.run(Cap, program_ctx);
-        }
-    }.invoke);
-}
-
-fn runWithSealedEngine(
-    comptime EngineContract: type,
-    config: anytype,
-    comptime Body: type,
-) lowered_machine.ResetError(EngineContract.ErrorSetTypeV)!EngineContract.AnswerTypeV {
-    const PromptType = EngineContract.PromptTypeV;
-    const StateType = EngineContract.StateTypeV;
-    const AnswerType = EngineContract.AnswerTypeV;
-    const ErrorSetType = EngineContract.ErrorSetTypeV;
-    const capability_decls = EngineContract.capability_decls;
-    const EnginePtrType = @TypeOf(config.engine_ctx);
-    const EngineContextType = switch (@typeInfo(EnginePtrType)) {
-        .pointer => |pointer| pointer.child,
-        else => @compileError("expected engine context pointer"),
-    };
-
-    const RunnerState = struct {
-        runtime: *shift.Runtime,
-        prompt_identity: *const anyopaque,
-        engine_ctx: *EngineContextType,
-        lexical_state: ?*anyopaque = null,
-    };
-    const runner_state = RunnerState{
-        .runtime = config.runtime,
-        .prompt_identity = config.prompt_identity,
-        .engine_ctx = config.engine_ctx,
-        .lexical_state = if (@hasField(@TypeOf(config), "lexical_state")) config.lexical_state else null,
-    };
-
-    const runner = struct {
-        /// Run one sealed effect body with both exact context and shared engine context installed.
-        pub fn run(state: RunnerState, comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSetType)!AnswerType {
-            const prompt: *const PromptType = @ptrCast(@alignCast(state.prompt_identity));
-            if (comptime family.hasDeclSafe(Body, "program")) {
-                const AuthoredType = @TypeOf(Body.program(Cap, ctx));
-                if (@typeInfo(AuthoredType) == .@"struct") {
-                    var authored = Body.program(Cap, ctx);
-                    authored.activate();
-                    defer authored.deactivate();
-                    return try frontend.run(state.runtime, authored.prompt, authored.program);
-                }
-                return try frontend.run(state.runtime, prompt, Body.program(Cap, ctx));
-            }
-            if (comptime family.hasDeclSafe(Body, "body")) {
-                return try frontend.run(state.runtime, prompt, computeProgramForPrompt(Cap, ctx, PromptType, Body.body));
-            }
-            @compileError("effect body must declare program or body");
-        }
-    };
-    return try family.withCapability(family.ContextSpec(StateType, AnswerType, ErrorSetType), capability_decls, runner_state, AnswerType, runner);
 }
 
 fn promptIdentity(prompt: anytype) *const anyopaque {
@@ -146,6 +44,7 @@ pub inline fn stateSet(
 
 /// Run a state family through the shared algebraic engine.
 pub fn handleState(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
@@ -216,12 +115,22 @@ pub fn handleState(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    const value = try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
+    const value = try sealed_engine.runWithSealedEngine(
+        contract.PromptTypeV,
+        contract.StateTypeV,
+        contract.AnswerTypeV,
+        contract.ErrorSetTypeV,
+        contract.capability_decls,
+        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .caller_source = caller_source },
+        Body,
+    );
     return .{ .state = state_cell, .value = value };
 }
 
 /// Handle the public state capability with an explicit error set.
+// zlinter-disable max_positional_args - public caller provenance and effect inputs stay explicit at this compatibility wrapper.
 pub fn handleStateWithErrorSet(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -232,7 +141,7 @@ pub fn handleStateWithErrorSet(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
-    return try handleStateWithErrorSetLexical(AnswerType, RunErrorSetType, .{
+    return try handleStateWithErrorSetLexical(caller_source, AnswerType, RunErrorSetType, .{
         .runtime = runtime,
         .instance = instance,
         .initial_state = initial_state,
@@ -242,8 +151,23 @@ pub fn handleStateWithErrorSet(
 
 /// Handle the public state capability with an explicit lexical-state carrier.
 pub fn handleStateWithErrorSetLexical(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
+    config: anytype,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!family.HandleResult(
+    family.InstanceStateType(@TypeOf(config.instance)),
+    AnswerType,
+) {
+    return try handleStateWithErrorSetLexicalAt(AnswerType, RunErrorSetType, caller_source, config, Body);
+}
+
+/// Handle the public state capability with an explicit lexical-state carrier and caller source.
+pub fn handleStateWithErrorSetLexicalAt(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    comptime caller_source: ?std.builtin.SourceLocation,
     config: anytype,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!family.HandleResult(
@@ -310,7 +234,15 @@ pub fn handleStateWithErrorSetLexical(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    const value = try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
+    const value = try sealed_engine.runWithSealedEngine(
+        contract.PromptTypeV,
+        contract.StateTypeV,
+        contract.AnswerTypeV,
+        contract.ErrorSetTypeV,
+        contract.capability_decls,
+        .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state, .caller_source = caller_source },
+        Body,
+    );
     return .{ .state = state_cell, .value = value };
 }
 
@@ -325,6 +257,7 @@ pub inline fn readerAsk(
 
 /// Run a reader family through the shared algebraic engine.
 pub fn handleReader(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
@@ -376,11 +309,21 @@ pub fn handleReader(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
+    return try sealed_engine.runWithSealedEngine(
+        contract.PromptTypeV,
+        contract.StateTypeV,
+        contract.AnswerTypeV,
+        contract.ErrorSetTypeV,
+        contract.capability_decls,
+        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .caller_source = caller_source },
+        Body,
+    );
 }
 
 /// Handle the public reader capability with an explicit error set.
+// zlinter-disable max_positional_args - public caller provenance and reader inputs stay explicit at this compatibility wrapper.
 pub fn handleReaderWithErrorSet(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -388,7 +331,7 @@ pub fn handleReaderWithErrorSet(
     environment: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleReaderWithErrorSetLexical(AnswerType, RunErrorSetType, .{
+    return try handleReaderWithErrorSetLexical(caller_source, AnswerType, RunErrorSetType, .{
         .runtime = runtime,
         .instance = instance,
         .environment = environment,
@@ -398,8 +341,20 @@ pub fn handleReaderWithErrorSet(
 
 /// Handle the public reader capability with an explicit lexical-state carrier.
 pub fn handleReaderWithErrorSetLexical(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
+    config: anytype,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    return try handleReaderWithErrorSetLexicalAt(AnswerType, RunErrorSetType, caller_source, config, Body);
+}
+
+/// Handle the public reader capability with an explicit lexical-state carrier and caller source.
+pub fn handleReaderWithErrorSetLexicalAt(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    comptime caller_source: ?std.builtin.SourceLocation,
     config: anytype,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
@@ -447,7 +402,15 @@ pub fn handleReaderWithErrorSetLexical(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
+    return try sealed_engine.runWithSealedEngine(
+        contract.PromptTypeV,
+        contract.StateTypeV,
+        contract.AnswerTypeV,
+        contract.ErrorSetTypeV,
+        contract.capability_decls,
+        .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state, .caller_source = caller_source },
+        Body,
+    );
 }
 
 /// Append one item through the shared algebraic engine.
@@ -462,6 +425,7 @@ pub inline fn writerTell(
 
 /// Run a writer family through the shared algebraic engine.
 pub fn handleWriter(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime WriterContract: type,
     runtime: *shift.Runtime,
     instance: anytype,
@@ -519,24 +483,38 @@ pub fn handleWriter(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    const value = try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
+    const value = try sealed_engine.runWithSealedEngine(
+        contract.PromptTypeV,
+        contract.StateTypeV,
+        contract.AnswerTypeV,
+        contract.ErrorSetTypeV,
+        contract.capability_decls,
+        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .caller_source = caller_source },
+        Body,
+    );
     const items = try writer_state.intoOwnedSlice();
     return .{ .items = items, .value = value };
 }
 
+fn WriterHandleResult(comptime WriterContract: type) type {
+    return struct {
+        items: []WriterContract.Item,
+        value: WriterContract.Answer,
+    };
+}
+
 /// Handle the public writer capability with an explicit error set.
+// zlinter-disable max_positional_args - public caller provenance and writer inputs stay explicit at this compatibility wrapper.
 pub fn handleWriterWithErrorSet(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime WriterContract: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
     instance: anytype,
     allocator: std.mem.Allocator,
     comptime Body: type,
-) lowered_machine.ResetError(RunErrorSetType)!struct {
-    items: []WriterContract.Item,
-    value: WriterContract.Answer,
-} {
-    return try handleWriterWithErrorSetLexical(WriterContract, RunErrorSetType, .{
+) lowered_machine.ResetError(RunErrorSetType)!WriterHandleResult(WriterContract) {
+    return try handleWriterWithErrorSetLexical(caller_source, WriterContract, RunErrorSetType, .{
         .runtime = runtime,
         .instance = instance,
         .allocator = allocator,
@@ -546,14 +524,23 @@ pub fn handleWriterWithErrorSet(
 
 /// Handle the public writer capability with an explicit lexical-state carrier.
 pub fn handleWriterWithErrorSetLexical(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime WriterContract: type,
     comptime RunErrorSetType: type,
     config: anytype,
     comptime Body: type,
-) lowered_machine.ResetError(RunErrorSetType)!struct {
-    items: []WriterContract.Item,
-    value: WriterContract.Answer,
-} {
+) lowered_machine.ResetError(RunErrorSetType)!WriterHandleResult(WriterContract) {
+    return try handleWriterWithErrorSetLexicalAt(WriterContract, RunErrorSetType, caller_source, config, Body);
+}
+
+/// Handle the public writer capability with an explicit lexical-state carrier and caller source.
+pub fn handleWriterWithErrorSetLexicalAt(
+    comptime WriterContract: type,
+    comptime RunErrorSetType: type,
+    comptime caller_source: ?std.builtin.SourceLocation,
+    config: anytype,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!WriterHandleResult(WriterContract) {
     const ItemType = WriterContract.Item;
     const AnswerType = WriterContract.Answer;
     const WriterStateType = WriterContract.WriterStateType;
@@ -601,7 +588,15 @@ pub fn handleWriterWithErrorSetLexical(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    const value = try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
+    const value = try sealed_engine.runWithSealedEngine(
+        contract.PromptTypeV,
+        contract.StateTypeV,
+        contract.AnswerTypeV,
+        contract.ErrorSetTypeV,
+        contract.capability_decls,
+        .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state, .caller_source = caller_source },
+        Body,
+    );
     const items = try writer_state.intoOwnedSlice();
     return .{ .items = items, .value = value };
 }
@@ -706,11 +701,12 @@ pub inline fn optionalComputeProgram(
 )) {
     const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
     const PromptType = prompt_contract.Prompt(.resume_or_return, ContextType.StateType, ContextType.AnswerType, ContextType.ErrorSetType);
-    return computeProgramForPrompt(Cap, ctx, PromptType, thunk);
+    return sealed_engine.computeProgramForPrompt(Cap, ctx, PromptType, thunk);
 }
 
 /// Run an optional family through the shared algebraic engine.
 pub fn handleOptional(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
@@ -780,11 +776,21 @@ pub fn handleOptional(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
+    return try sealed_engine.runWithSealedEngine(
+        contract.PromptTypeV,
+        contract.StateTypeV,
+        contract.AnswerTypeV,
+        contract.ErrorSetTypeV,
+        contract.capability_decls,
+        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .caller_source = caller_source },
+        Body,
+    );
 }
 
 /// Handle the public optional capability with an explicit error set.
+// zlinter-disable max_positional_args - public caller provenance and optional policy inputs stay explicit at this compatibility wrapper.
 pub fn handleOptionalWithErrorSet(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -855,11 +861,20 @@ pub fn handleOptionalWithErrorSet(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
+    return try sealed_engine.runWithSealedEngine(
+        contract.PromptTypeV,
+        contract.StateTypeV,
+        contract.AnswerTypeV,
+        contract.ErrorSetTypeV,
+        contract.capability_decls,
+        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .caller_source = caller_source },
+        Body,
+    );
 }
 
 /// Run a continuation-taking lexical optional family through the shared algebraic engine.
 pub fn handleOptionalLexical(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
@@ -927,13 +942,34 @@ pub fn handleOptionalLexical(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
+    return try sealed_engine.runWithSealedEngine(
+        contract.PromptTypeV,
+        contract.StateTypeV,
+        contract.AnswerTypeV,
+        contract.ErrorSetTypeV,
+        contract.capability_decls,
+        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .caller_source = caller_source },
+        Body,
+    );
 }
 
 /// Handle the public optional lexical capability with an explicit error set.
 pub fn handleOptionalLexicalWithErrorSet(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
+    config: anytype,
+    comptime Policy: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    return try handleOptionalLexicalWithErrorSetAt(AnswerType, RunErrorSetType, caller_source, config, Policy, Body);
+}
+
+/// Handle the public optional lexical capability with an explicit error set and caller source.
+pub fn handleOptionalLexicalWithErrorSetAt(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    comptime caller_source: ?std.builtin.SourceLocation,
     config: anytype,
     comptime Policy: type,
     comptime Body: type,
@@ -1001,7 +1037,15 @@ pub fn handleOptionalLexicalWithErrorSet(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
+    return try sealed_engine.runWithSealedEngine(
+        contract.PromptTypeV,
+        contract.StateTypeV,
+        contract.AnswerTypeV,
+        contract.ErrorSetTypeV,
+        contract.capability_decls,
+        .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state, .caller_source = caller_source },
+        Body,
+    );
 }
 
 /// Assert the catch policy shape required by an exception family.
@@ -1046,6 +1090,26 @@ pub inline fn throwExceptionProgram(
     });
 }
 
+/// Build one bound exception throw program for the supplied capability and payload.
+pub inline fn throwExceptionBoundProgram(
+    comptime Cap: type,
+    ctx: anytype,
+    payload: family.ContextStateType(@TypeOf(ctx)),
+) @TypeOf(activeEngineContext(Cap, ctx).performProgram(Cap.ThrowOp(), payload, struct {
+    /// Unreachable continuation placeholder for direct-return bound programs.
+    pub fn apply(_: noreturn) family.ContextAnswerType(@TypeOf(ctx)) {
+        unreachable;
+    }
+})) {
+    comptime family.assertContextType(Cap, @TypeOf(ctx));
+    return activeEngineContext(Cap, ctx).performProgram(Cap.ThrowOp(), payload, struct {
+        /// Unreachable continuation placeholder for direct-return bound programs.
+        pub fn apply(_: noreturn) family.ContextAnswerType(@TypeOf(ctx)) {
+            unreachable;
+        }
+    });
+}
+
 /// Build one explicit exception body program with no throw operation.
 pub inline fn exceptionComputeProgram(
     comptime Cap: type,
@@ -1059,11 +1123,12 @@ pub inline fn exceptionComputeProgram(
 )) {
     const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
     const PromptType = prompt_contract.Prompt(.direct_return, ContextType.AnswerType, ContextType.AnswerType, ContextType.ErrorSetType);
-    return computeProgramForPrompt(Cap, ctx, PromptType, thunk);
+    return sealed_engine.computeProgramForPrompt(Cap, ctx, PromptType, thunk);
 }
 
 /// Run an exception family through the shared algebraic engine.
 pub fn handleException(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
@@ -1125,11 +1190,21 @@ pub fn handleException(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body);
+    return try sealed_engine.runWithSealedEngine(
+        contract.PromptTypeV,
+        contract.StateTypeV,
+        contract.AnswerTypeV,
+        contract.ErrorSetTypeV,
+        contract.capability_decls,
+        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .caller_source = caller_source },
+        Body,
+    );
 }
 
 /// Handle the public exception capability with an explicit error set.
+// zlinter-disable max_positional_args - public caller provenance and catch inputs stay explicit at this compatibility wrapper.
 pub fn handleExceptionWithErrorSet(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -1137,7 +1212,7 @@ pub fn handleExceptionWithErrorSet(
     comptime Catch: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleExceptionWithErrorSetLexical(AnswerType, RunErrorSetType, .{
+    return try handleExceptionWithErrorSetLexical(caller_source, AnswerType, RunErrorSetType, .{
         .runtime = runtime,
         .instance = instance,
         .lexical_state = null,
@@ -1146,8 +1221,21 @@ pub fn handleExceptionWithErrorSet(
 
 /// Handle the public exception capability with an explicit lexical-state carrier.
 pub fn handleExceptionWithErrorSetLexical(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
+    config: anytype,
+    comptime Catch: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    return try handleExceptionWithErrorSetLexicalAt(AnswerType, RunErrorSetType, caller_source, config, Catch, Body);
+}
+
+/// Handle the public exception capability with an explicit lexical-state carrier and caller source.
+pub fn handleExceptionWithErrorSetLexicalAt(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    comptime caller_source: ?std.builtin.SourceLocation,
     config: anytype,
     comptime Catch: type,
     comptime Body: type,
@@ -1207,7 +1295,15 @@ pub fn handleExceptionWithErrorSetLexical(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    return try runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body);
+    return try sealed_engine.runWithSealedEngine(
+        contract.PromptTypeV,
+        contract.StateTypeV,
+        contract.AnswerTypeV,
+        contract.ErrorSetTypeV,
+        contract.capability_decls,
+        .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state, .caller_source = caller_source },
+        Body,
+    );
 }
 
 /// Assert the manager shape required by a bracketed resource family.
@@ -1252,11 +1348,12 @@ pub inline fn resourceComputeProgram(
 )) {
     const ContextType = family.ContextTypeFromPtr(@TypeOf(ctx));
     const PromptType = prompt_contract.Prompt(.resume_then_transform, ContextType.AnswerType, ContextType.AnswerType, ContextType.ErrorSetType);
-    return computeProgramForPrompt(Cap, ctx, PromptType, Thunk);
+    return sealed_engine.computeProgramForPrompt(Cap, ctx, PromptType, Thunk);
 }
 
 /// Run a resource family through the shared algebraic engine.
 pub fn handleResource(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime AnswerType: type,
     runtime: *shift.Runtime,
     instance: anytype,
@@ -1352,7 +1449,15 @@ pub fn handleResource(
         const ErrorSetTypeV = ErrorSetType;
         const capability_decls = capability_meta;
     };
-    const answer = runWithSealedEngine(contract, .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx }, Body) catch |err| blk: {
+    const answer = sealed_engine.runWithSealedEngine(
+        contract.PromptTypeV,
+        contract.StateTypeV,
+        contract.AnswerTypeV,
+        contract.ErrorSetTypeV,
+        contract.capability_decls,
+        .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .caller_source = caller_source },
+        Body,
+    ) catch |err| blk: {
         body_error = err;
         break :blk null;
     };
@@ -1369,7 +1474,9 @@ pub fn handleResource(
 }
 
 /// Handle the public resource capability with an explicit error set.
+// zlinter-disable max_positional_args - public caller provenance and manager inputs stay explicit at this compatibility wrapper.
 pub fn handleResourceWithErrorSet(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
     runtime: *shift.Runtime,
@@ -1377,7 +1484,7 @@ pub fn handleResourceWithErrorSet(
     comptime Manager: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try handleResourceWithErrorSetLexical(AnswerType, RunErrorSetType, .{
+    return try handleResourceWithErrorSetLexical(caller_source, AnswerType, RunErrorSetType, .{
         .runtime = runtime,
         .instance = instance,
         .lexical_state = null,
@@ -1386,8 +1493,21 @@ pub fn handleResourceWithErrorSet(
 
 /// Handle the public resource capability with an explicit lexical-state carrier.
 pub fn handleResourceWithErrorSetLexical(
+    comptime caller_source: ?std.builtin.SourceLocation,
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
+    config: anytype,
+    comptime Manager: type,
+    comptime Body: type,
+) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
+    return try handleResourceWithErrorSetLexicalAt(AnswerType, RunErrorSetType, caller_source, config, Manager, Body);
+}
+
+/// Handle the public resource capability with an explicit lexical-state carrier and caller source.
+pub fn handleResourceWithErrorSetLexicalAt(
+    comptime AnswerType: type,
+    comptime RunErrorSetType: type,
+    comptime caller_source: ?std.builtin.SourceLocation,
     config: anytype,
     comptime Manager: type,
     comptime Body: type,
@@ -1481,7 +1601,15 @@ pub fn handleResourceWithErrorSetLexical(
         const ErrorSetTypeV = RunErrorSetType;
         const capability_decls = capability_meta;
     };
-    const answer = runWithSealedEngine(contract, .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state }, Body) catch |err| blk: {
+    const answer = sealed_engine.runWithSealedEngine(
+        contract.PromptTypeV,
+        contract.StateTypeV,
+        contract.AnswerTypeV,
+        contract.ErrorSetTypeV,
+        contract.capability_decls,
+        .{ .runtime = config.runtime, .prompt_identity = promptIdentity(&config.instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = config.lexical_state, .caller_source = caller_source },
+        Body,
+    ) catch |err| blk: {
         body_error = err;
         break :blk null;
     };

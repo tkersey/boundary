@@ -13,20 +13,19 @@ const catch_policy = struct {
     }
 };
 
+fn earlyExitBody(eff: anytype) anyerror![]const u8 {
+    try eff.exception.throw("result=early");
+}
+
 /// Write the direct-return transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.handler_line = "";
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .exception = shift.effect.exception.use([]const u8, catch_policy),
-    }, struct {
-        /// Abort immediately through the exception surface.
-        pub fn body(eff: anytype) ![]const u8 {
-            try eff.exception.throw("result=early");
-        }
-    });
+    }, shift.NamedBody("examples/early_exit.zig", "earlyExitBody", anyerror![]const u8, earlyExitBody));
 
     try writer.print("{s}\n", .{transcript.handler_line});
     try writer.print("final={s}\n", .{result.value});

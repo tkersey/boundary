@@ -128,11 +128,11 @@ const TokenWindow = struct {
 };
 
 const StatementWindow = struct {
-    items: [32]TokenItem = [_]TokenItem{.{
+    items: [128]TokenItem = [_]TokenItem{.{
         .tag = .invalid,
         .lexeme = "",
         .offset = 0,
-    }} ** 32,
+    }} ** 128,
     count: usize = 0,
 
     fn push(self: *@This(), item: TokenItem) void {
@@ -555,6 +555,29 @@ fn maybeRecordDirectOpUse(
     aliases: []const Alias,
     token_window: *const TokenWindow,
 ) ?DirectOpUseMatch {
+    if (token_window.count >= 8) {
+        const tail = token_window.items[token_window.count - 8 .. token_window.count];
+        if (tail[0].tag == .identifier and
+            tail[1].tag == .period and
+            tail[2].tag == .identifier and
+            tail[3].tag == .period and
+            tail[4].tag == .identifier and
+            tail[5].tag == .period and
+            tail[6].tag == .identifier and
+            tail[7].tag == .l_paren and
+            (std.mem.eql(u8, tail[6].lexeme, "perform") or std.mem.eql(u8, tail[6].lexeme, "abort")))
+        {
+            const source_kind = aliasKind(effect_param, aliases, tail[0].lexeme) orelse return null;
+            return switch (source_kind) {
+                .effect_root => .{
+                    .requirement_label = tail[2].lexeme,
+                    .op_name = tail[4].lexeme,
+                },
+                .requirement => null,
+            };
+        }
+    }
+
     if (token_window.count >= 6) {
         const tail = token_window.items[token_window.count - 6 .. token_window.count];
         if (tail[0].tag == .identifier and
@@ -570,7 +593,10 @@ fn maybeRecordDirectOpUse(
                     .requirement_label = tail[2].lexeme,
                     .op_name = tail[4].lexeme,
                 },
-                .requirement => null,
+                .requirement => |requirement_label| .{
+                    .requirement_label = requirement_label,
+                    .op_name = tail[2].lexeme,
+                },
             };
         }
     }
@@ -611,7 +637,15 @@ fn isAllowedRequirementAliasFollowTag(tag: std.zig.Token.Tag) bool {
 }
 
 fn isEffectParamName(name: []const u8) bool {
-    return std.mem.eql(u8, name, "eff") or std.mem.eql(u8, name, "_eff");
+    return std.mem.eql(u8, name, "eff") or
+        std.mem.eql(u8, name, "_") or
+        std.mem.eql(u8, name, "_eff") or
+        std.mem.eql(u8, name, "outer_eff") or
+        std.mem.eql(u8, name, "inner_eff") or
+        std.mem.eql(u8, name, "ctx") or
+        std.mem.eql(u8, name, "context") or
+        std.mem.endsWith(u8, name, "_eff") or
+        std.mem.endsWith(u8, name, "_ctx");
 }
 
 fn pushValueParam(
@@ -644,7 +678,6 @@ fn finalizeFunctionParam(
         if (storage.effect_param.* == null and isEffectParamName(param_name)) storage.effect_param.* = param_name;
         return;
     }
-    if (isEffectParamName(param_name)) return;
     const parsed = parseValueShapeFromTypeTokens(type_tokens, 0) orelse return;
     if (parsed.next_index != type_tokens.len) return;
     try pushValueParam(storage.value_param_names, storage.value_param_shapes, storage.value_param_count, param_name, parsed.shape);
@@ -683,7 +716,14 @@ fn parseValueShapeFromTypeTokens(
 
 fn parseReturnShape(tokens: []const TokenItem) ?ValueShape {
     if (tokens.len == 0) return null;
-    const start_index: usize = if (tokens[0].tag == .bang) 1 else 0;
+    var start_index: usize = if (tokens[0].tag == .bang) 1 else 0;
+    if (tokens[0].tag != .bang) {
+        for (tokens, 0..) |token, index| {
+            if (token.tag != .bang) continue;
+            start_index = index + 1;
+            break;
+        }
+    }
     if (start_index >= tokens.len) return null;
     if (tokens[start_index].tag == .identifier and std.mem.eql(u8, tokens[start_index].lexeme, "void")) {
         return null;
@@ -729,10 +769,17 @@ fn statementIsSimpleReturn(statement: []const TokenItem) bool {
     return statement.len == 2 and statement[0].tag == .keyword_return and statement[1].tag == .semicolon;
 }
 
+fn tokenIsBoolLiteral(token: TokenItem) bool {
+    return token.tag == .identifier and
+        (std.mem.eql(u8, token.lexeme, "true") or std.mem.eql(u8, token.lexeme, "false"));
+}
+
 fn statementIsLiteralReturn(statement: []const TokenItem) bool {
     return statement.len == 3 and
         statement[0].tag == .keyword_return and
-        (statement[1].tag == .string_literal or statement[1].tag == .number_literal) and
+        (statement[1].tag == .string_literal or
+            statement[1].tag == .number_literal or
+            tokenIsBoolLiteral(statement[1])) and
         statement[2].tag == .semicolon;
 }
 
@@ -741,6 +788,15 @@ fn statementIsLocalReturn(statement: []const TokenItem) bool {
         statement[0].tag == .keyword_return and
         statement[1].tag == .identifier and
         statement[2].tag == .semicolon;
+}
+
+fn statementIsLocalAddReturn(statement: []const TokenItem) bool {
+    return statement.len == 5 and
+        statement[0].tag == .keyword_return and
+        statement[1].tag == .identifier and
+        statement[2].tag == .plus and
+        statement[3].tag == .identifier and
+        statement[4].tag == .semicolon;
 }
 
 fn statementTrimSemicolon(statement: []const TokenItem) []const TokenItem {
@@ -753,8 +809,6 @@ fn statementArgsSupported(args: []const TokenItem) bool {
     for (args) |item| switch (item.tag) {
         .comma,
         .identifier,
-        .keyword_try,
-        .minus,
         .string_literal,
         .number_literal,
         .plus,
@@ -764,12 +818,17 @@ fn statementArgsSupported(args: []const TokenItem) bool {
     return true;
 }
 
-fn helperCallArgsSupported(args: []const TokenItem) bool {
-    if (args.len == 1 and args[0].tag == .identifier and std.mem.eql(u8, args[0].lexeme, "eff")) {
-        return true;
+fn helperCallArgsSupported(effect_param: ?[]const u8, args: []const TokenItem) bool {
+    if (args.len == 1 and args[0].tag == .identifier) {
+        if (effect_param) |param| return std.mem.eql(u8, args[0].lexeme, param);
+        return std.mem.eql(u8, args[0].lexeme, "eff");
     }
     if (args.len < 3) return false;
-    if (args[args.len - 1].tag != .identifier or !std.mem.eql(u8, args[args.len - 1].lexeme, "eff")) return false;
+    if (args[args.len - 1].tag != .identifier) return false;
+    const trailing_identifier = args[args.len - 1].lexeme;
+    if (effect_param) |param| {
+        if (!std.mem.eql(u8, trailing_identifier, param)) return false;
+    } else if (!std.mem.eql(u8, trailing_identifier, "eff")) return false;
     if (args[args.len - 2].tag != .comma) return false;
     return statementArgsSupported(args[0 .. args.len - 2]);
 }
@@ -797,6 +856,19 @@ fn statementMatchesSupportedDirectOp(
 
     switch (base_kind) {
         .effect_root => {
+            if (index + 8 <= tokens.len and
+                tokens[index + 1].tag == .period and
+                tokens[index + 2].tag == .identifier and
+                tokens[index + 3].tag == .period and
+                tokens[index + 4].tag == .identifier and
+                tokens[index + 5].tag == .period and
+                tokens[index + 6].tag == .identifier and
+                tokens[index + 7].tag == .l_paren and
+                tokens[tokens.len - 1].tag == .r_paren and
+                (std.mem.eql(u8, tokens[index + 6].lexeme, "perform") or std.mem.eql(u8, tokens[index + 6].lexeme, "abort")))
+            {
+                return statementArgsSupported(tokens[index + 8 .. tokens.len - 1]);
+            }
             if (index + 6 > tokens.len) return false;
             if (tokens[index + 1].tag != .period) return false;
             if (tokens[index + 2].tag != .identifier) return false;
@@ -807,6 +879,17 @@ fn statementMatchesSupportedDirectOp(
             return statementArgsSupported(tokens[index + 6 .. tokens.len - 1]);
         },
         .requirement => {
+            if (index + 6 <= tokens.len and
+                tokens[index + 1].tag == .period and
+                tokens[index + 2].tag == .identifier and
+                tokens[index + 3].tag == .period and
+                tokens[index + 4].tag == .identifier and
+                tokens[index + 5].tag == .l_paren and
+                tokens[tokens.len - 1].tag == .r_paren and
+                (std.mem.eql(u8, tokens[index + 4].lexeme, "perform") or std.mem.eql(u8, tokens[index + 4].lexeme, "abort")))
+            {
+                return statementArgsSupported(tokens[index + 6 .. tokens.len - 1]);
+            }
             if (index + 4 > tokens.len) return false;
             if (tokens[index + 1].tag != .period) return false;
             if (tokens[index + 2].tag != .identifier) return false;
@@ -817,38 +900,268 @@ fn statementMatchesSupportedDirectOp(
     }
 }
 
+fn statementMatchesSupportedReturnDirectOp(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    statement: []const TokenItem,
+) bool {
+    const tokens = statementTrimSemicolon(statement);
+    if (tokens.len == 0 or tokens[0].tag != .keyword_return) return false;
+    return statementMatchesSupportedDirectOp(effect_param, aliases, tokens[1..]);
+}
+
+fn continuationStructStart(args: []const TokenItem) ?struct {
+    payload_end: usize,
+    struct_start: usize,
+} {
+    if (args.len >= 2 and args[0].tag == .keyword_struct and args[1].tag == .l_brace) {
+        return .{
+            .payload_end = 0,
+            .struct_start = 0,
+        };
+    }
+
+    var paren_depth: usize = 0;
+    var bracket_depth: usize = 0;
+    var brace_depth: usize = 0;
+    for (args, 0..) |token, index| {
+        switch (token.tag) {
+            .l_paren => paren_depth += 1,
+            .r_paren => {
+                if (paren_depth != 0) paren_depth -= 1;
+            },
+            .l_bracket => bracket_depth += 1,
+            .r_bracket => {
+                if (bracket_depth != 0) bracket_depth -= 1;
+            },
+            .l_brace => brace_depth += 1,
+            .r_brace => {
+                if (brace_depth != 0) brace_depth -= 1;
+            },
+            .comma => if (paren_depth == 0 and bracket_depth == 0 and brace_depth == 0) {
+                const next_index = index + 1;
+                if (next_index + 1 < args.len and
+                    args[next_index].tag == .keyword_struct and
+                    args[next_index + 1].tag == .l_brace)
+                {
+                    return .{
+                        .payload_end = index,
+                        .struct_start = next_index,
+                    };
+                }
+            },
+            else => {},
+        }
+    }
+    return null;
+}
+
+fn continuationApplyBodySupported(struct_tokens: []const TokenItem) bool {
+    if (struct_tokens.len < 4) return false;
+    if (struct_tokens[0].tag != .keyword_struct or struct_tokens[1].tag != .l_brace) return false;
+
+    var index: usize = 2;
+    while (index + 1 < struct_tokens.len) : (index += 1) {
+        if (struct_tokens[index].tag != .keyword_fn and
+            !(struct_tokens[index].tag == .keyword_pub and
+                index + 1 < struct_tokens.len and
+                struct_tokens[index + 1].tag == .keyword_fn))
+        {
+            continue;
+        }
+
+        const fn_index = if (struct_tokens[index].tag == .keyword_pub) index + 1 else index;
+        if (fn_index + 1 >= struct_tokens.len or
+            struct_tokens[fn_index + 1].tag != .identifier or
+            !std.mem.eql(u8, struct_tokens[fn_index + 1].lexeme, "apply"))
+        {
+            continue;
+        }
+        if (fn_index + 2 >= struct_tokens.len or struct_tokens[fn_index + 2].tag != .l_paren) return false;
+
+        var param_depth: usize = 1;
+        var cursor = fn_index + 3;
+        while (cursor < struct_tokens.len and param_depth != 0) : (cursor += 1) {
+            switch (struct_tokens[cursor].tag) {
+                .l_paren => param_depth += 1,
+                .r_paren => {
+                    if (param_depth == 0) return false;
+                    param_depth -= 1;
+                },
+                else => {},
+            }
+        }
+        if (param_depth != 0 or cursor >= struct_tokens.len) return false;
+
+        while (cursor < struct_tokens.len and struct_tokens[cursor].tag != .l_brace) : (cursor += 1) {}
+        if (cursor >= struct_tokens.len) return false;
+
+        const body_start = cursor + 1;
+        var body_depth: usize = 1;
+        cursor = body_start;
+        while (cursor < struct_tokens.len and body_depth != 0) : (cursor += 1) {
+            switch (struct_tokens[cursor].tag) {
+                .l_brace => body_depth += 1,
+                .r_brace => {
+                    if (body_depth == 0) return false;
+                    body_depth -= 1;
+                },
+                else => {},
+            }
+        }
+        if (body_depth != 0 or cursor == 0) return false;
+
+        const body_tokens = struct_tokens[body_start .. cursor - 1];
+        return statementIsSimpleReturn(body_tokens) or
+            statementIsLiteralReturn(body_tokens) or
+            statementIsLocalReturn(body_tokens);
+    }
+
+    return false;
+}
+
+fn statementMatchesSupportedContinuationDirectOp(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    statement: []const TokenItem,
+) bool {
+    const tokens = statementTrimSemicolon(statement);
+    if (tokens.len == 0 or tokens[0].tag != .keyword_return) return false;
+
+    var index: usize = 1;
+    if (index < tokens.len and tokens[index].tag == .keyword_try) index += 1;
+    if (index >= tokens.len or tokens[index].tag != .identifier) return false;
+    const base_kind = aliasKind(effect_param, aliases, tokens[index].lexeme) orelse return false;
+
+    const ArgsBounds = struct {
+        start: usize,
+        end: usize,
+    };
+    const args_bounds = switch (base_kind) {
+        .effect_root => blk: {
+            if (index + 8 <= tokens.len and
+                tokens[index + 1].tag == .period and
+                tokens[index + 2].tag == .identifier and
+                tokens[index + 3].tag == .period and
+                tokens[index + 4].tag == .identifier and
+                tokens[index + 5].tag == .period and
+                tokens[index + 6].tag == .identifier and
+                tokens[index + 7].tag == .l_paren and
+                std.mem.eql(u8, tokens[index + 6].lexeme, "perform") and
+                tokens[tokens.len - 1].tag == .r_paren)
+            {
+                break :blk ArgsBounds{ .start = index + 8, .end = tokens.len - 1 };
+            }
+            if (index + 6 <= tokens.len and
+                tokens[index + 1].tag == .period and
+                tokens[index + 2].tag == .identifier and
+                tokens[index + 3].tag == .period and
+                tokens[index + 4].tag == .identifier and
+                tokens[index + 5].tag == .l_paren and
+                tokens[tokens.len - 1].tag == .r_paren)
+            {
+                break :blk ArgsBounds{ .start = index + 6, .end = tokens.len - 1 };
+            }
+            return false;
+        },
+        .requirement => blk: {
+            if (index + 6 <= tokens.len and
+                tokens[index + 1].tag == .period and
+                tokens[index + 2].tag == .identifier and
+                tokens[index + 3].tag == .period and
+                tokens[index + 4].tag == .identifier and
+                tokens[index + 5].tag == .l_paren and
+                std.mem.eql(u8, tokens[index + 4].lexeme, "perform") and
+                tokens[tokens.len - 1].tag == .r_paren)
+            {
+                break :blk ArgsBounds{ .start = index + 6, .end = tokens.len - 1 };
+            }
+            if (index + 4 <= tokens.len and
+                tokens[index + 1].tag == .period and
+                tokens[index + 2].tag == .identifier and
+                tokens[index + 3].tag == .l_paren and
+                tokens[tokens.len - 1].tag == .r_paren)
+            {
+                break :blk ArgsBounds{ .start = index + 4, .end = tokens.len - 1 };
+            }
+            return false;
+        },
+    };
+
+    const args = tokens[args_bounds.start..args_bounds.end];
+    const struct_arg = continuationStructStart(args) orelse return false;
+    if (!statementArgsSupported(args[0..struct_arg.payload_end])) return false;
+    return continuationApplyBodySupported(args[struct_arg.struct_start..]);
+}
+
 fn statementMatchesSupportedLocalFromDirectOp(
     effect_param: ?[]const u8,
     aliases: []const Alias,
     statement: []const TokenItem,
 ) bool {
-    if (statement.len < 8) return false;
-    if (statement[0].tag != .keyword_const) return false;
-    if (statement[1].tag != .identifier) return false;
-    if (statement[2].tag != .equal) return false;
-    if (statement[3].tag != .keyword_try) return false;
-    if (statement[4].tag != .identifier) return false;
+    const tokens = statementTrimSemicolon(statement);
+    if (tokens.len < 5) return false;
+    if (tokens[0].tag != .keyword_const) return false;
+    if (tokens[1].tag != .identifier) return false;
+    if (tokens[2].tag != .equal) return false;
+    if (tokens[3].tag != .keyword_try) return false;
+    if (tokens[4].tag != .identifier) return false;
 
-    const base_kind = aliasKind(effect_param, aliases, statement[4].lexeme) orelse return false;
+    const base_kind = aliasKind(effect_param, aliases, tokens[4].lexeme) orelse return false;
     return switch (base_kind) {
-        .effect_root => statement.len == 12 and
-            statement[5].tag == .period and
-            statement[6].tag == .identifier and
-            statement[7].tag == .period and
-            statement[8].tag == .identifier and
-            statement[9].tag == .l_paren and
-            statement[10].tag == .r_paren and
-            statement[11].tag == .semicolon,
-        .requirement => statement.len == 10 and
-            statement[5].tag == .period and
-            statement[6].tag == .identifier and
-            statement[7].tag == .l_paren and
-            statement[8].tag == .r_paren and
-            statement[9].tag == .semicolon,
+        .effect_root => {
+            if (tokens.len >= 12 and
+                tokens[5].tag == .period and
+                tokens[6].tag == .identifier and
+                tokens[7].tag == .period and
+                tokens[8].tag == .identifier and
+                tokens[9].tag == .period and
+                tokens[10].tag == .identifier and
+                tokens[11].tag == .l_paren and
+                tokens[tokens.len - 1].tag == .r_paren and
+                (std.mem.eql(u8, tokens[10].lexeme, "perform") or std.mem.eql(u8, tokens[10].lexeme, "abort")))
+            {
+                return statementArgsSupported(tokens[12 .. tokens.len - 1]);
+            }
+            if (tokens.len < 10) return false;
+            if (tokens[5].tag != .period or
+                tokens[6].tag != .identifier or
+                tokens[7].tag != .period or
+                tokens[8].tag != .identifier or
+                tokens[9].tag != .l_paren or
+                tokens[tokens.len - 1].tag != .r_paren)
+            {
+                return false;
+            }
+            return statementArgsSupported(tokens[10 .. tokens.len - 1]);
+        },
+        .requirement => {
+            if (tokens.len >= 10 and
+                tokens[5].tag == .period and
+                tokens[6].tag == .identifier and
+                tokens[7].tag == .period and
+                tokens[8].tag == .identifier and
+                tokens[9].tag == .l_paren and
+                tokens[tokens.len - 1].tag == .r_paren and
+                (std.mem.eql(u8, tokens[8].lexeme, "perform") or std.mem.eql(u8, tokens[8].lexeme, "abort")))
+            {
+                return statementArgsSupported(tokens[10 .. tokens.len - 1]);
+            }
+            if (tokens.len < 8) return false;
+            if (tokens[5].tag != .period or
+                tokens[6].tag != .identifier or
+                tokens[7].tag != .l_paren or
+                tokens[tokens.len - 1].tag != .r_paren)
+            {
+                return false;
+            }
+            return statementArgsSupported(tokens[8 .. tokens.len - 1]);
+        },
     };
 }
 
 fn statementMatchesSupportedLocalFromHelperCall(
+    effect_param: ?[]const u8,
     imports: []const ImportAlias,
     statement: []const TokenItem,
 ) bool {
@@ -856,10 +1169,11 @@ fn statementMatchesSupportedLocalFromHelperCall(
     if (statement[0].tag != .keyword_const) return false;
     if (statement[1].tag != .identifier) return false;
     if (statement[2].tag != .equal) return false;
-    return statementMatchesSupportedHelperCall(imports, statement[3..]);
+    return statementMatchesSupportedHelperCall(effect_param, imports, statement[3..]);
 }
 
 fn statementMatchesSupportedHelperCall(
+    effect_param: ?[]const u8,
     imports: []const ImportAlias,
     statement: []const TokenItem,
 ) bool {
@@ -874,7 +1188,7 @@ fn statementMatchesSupportedHelperCall(
         tokens[index + 1].tag == .l_paren and
         tokens[tokens.len - 1].tag == .r_paren)
     {
-        return helperCallArgsSupported(tokens[index + 2 .. tokens.len - 1]);
+        return helperCallArgsSupported(effect_param, tokens[index + 2 .. tokens.len - 1]);
     }
 
     if (index + 4 > tokens.len) return false;
@@ -884,7 +1198,7 @@ fn statementMatchesSupportedHelperCall(
     if (tokens[tokens.len - 1].tag != .r_paren) return false;
     const import_alias = findImportAlias(imports, tokens[index].lexeme) orelse return false;
     if (!importPathEndsWithZig(import_alias.import_path)) return false;
-    return helperCallArgsSupported(tokens[index + 4 .. tokens.len - 1]);
+    return helperCallArgsSupported(effect_param, tokens[index + 4 .. tokens.len - 1]);
 }
 
 fn statementMatchesSupportedIfLocalEqZeroReturn(statement: []const TokenItem) bool {
@@ -927,10 +1241,10 @@ fn statementMatchesSupportedIfLocalEqZeroBranch(
     const then_branch = statement[6..else_index];
     const else_branch = statement[(else_index + 1)..];
     const then_supported = statementMatchesSupportedDirectOp(effect_param, aliases, then_branch) or
-        statementMatchesSupportedHelperCall(imports, then_branch) or
+        statementMatchesSupportedHelperCall(effect_param, imports, then_branch) or
         statementIsSimpleReturn(then_branch);
     const else_supported = statementMatchesSupportedDirectOp(effect_param, aliases, else_branch) or
-        statementMatchesSupportedHelperCall(imports, else_branch) or
+        statementMatchesSupportedHelperCall(effect_param, imports, else_branch) or
         statementIsSimpleReturn(else_branch);
     return then_supported and else_supported;
 }
@@ -976,17 +1290,20 @@ fn statementSupportsBodyLowering(
     if (statementIsSimpleReturn(statement)) return true;
     if (statementIsLiteralReturn(statement)) return true;
     if (statementIsLocalReturn(statement)) return true;
+    if (statementIsLocalAddReturn(statement)) return true;
 
     var token_window = TokenWindow{};
     for (statement) |item| token_window.push(item);
     if (maybeAliasFromDeclaration(effect_param, aliases, &token_window) != null) return true;
-    if (statementMatchesSupportedLocalFromHelperCall(imports, statement)) return true;
+    if (statementMatchesSupportedLocalFromHelperCall(effect_param, imports, statement)) return true;
     if (statementMatchesSupportedLocalFromDirectOp(effect_param, aliases, statement)) return true;
     if (statementMatchesSupportedIfLocalEqZeroReturn(statement)) return true;
     if (statementMatchesSupportedIfLocalEqZeroBranch(effect_param, aliases, imports, statement)) return true;
+    if (statementMatchesSupportedContinuationDirectOp(effect_param, aliases, statement)) return true;
+    if (statementMatchesSupportedReturnDirectOp(effect_param, aliases, statement)) return true;
     if (statementMatchesSupportedDirectOp(effect_param, aliases, statement)) return true;
     if (statementMatchesSupportedLocalDecrementOp(effect_param, aliases, statement)) return true;
-    if (statementMatchesSupportedHelperCall(imports, statement)) return true;
+    if (statementMatchesSupportedHelperCall(effect_param, imports, statement)) return true;
     return false;
 }
 
@@ -1152,6 +1469,8 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
     }} ** 128;
     var alias_count: usize = 0;
     var body_depth: usize = 1;
+    var paren_depth: usize = 0;
+    var bracket_depth: usize = 0;
     var body_lowering_supported = true;
     var previous_kept_tag: ?std.zig.Token.Tag = null;
     var pending_identifier: ?PendingIdentifier = null;
@@ -1167,18 +1486,36 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
             },
             .l_brace => {
                 body_depth += 1;
-                body_lowering_supported = false;
             },
             .r_brace => {
                 body_depth -= 1;
-                if (body_depth == 0) return .{
-                    .body_end_offset = token.loc.start,
-                    .body_lowering_supported = body_lowering_supported,
-                };
+                if (body_depth == 0) {
+                    if (statement_window.slice().len != 0) body_lowering_supported = false;
+                    return .{
+                        .body_end_offset = token.loc.start,
+                        .body_lowering_supported = body_lowering_supported,
+                    };
+                }
+            },
+            .l_paren => paren_depth += 1,
+            .r_paren => {
+                if (paren_depth != 0) paren_depth -= 1;
+            },
+            .l_bracket => bracket_depth += 1,
+            .r_bracket => {
+                if (bracket_depth != 0) bracket_depth -= 1;
             },
             else => {},
         }
         if (isIgnorable(token.tag)) continue;
+
+        const current = TokenItem{
+            .tag = token.tag,
+            .lexeme = tokenSlice(context.source, token),
+            .offset = token.loc.start,
+        };
+        statement_window.push(current);
+        if (body_depth != 1) continue;
 
         if (pending_identifier) |candidate| {
             if (token.tag == .l_paren) {
@@ -1194,13 +1531,7 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
             pending_identifier = null;
         }
 
-        const current = TokenItem{
-            .tag = token.tag,
-            .lexeme = tokenSlice(context.source, token),
-            .offset = token.loc.start,
-        };
         token_window.push(current);
-        statement_window.push(current);
         if (maybeQualifiedHelperUse(context.imports, &token_window)) |qualified_use| {
             const loc = locationForOffset(context.source, qualified_use.offset);
             try collector.pushHelperUse(.{
@@ -1222,7 +1553,7 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
                 .column = loc.column,
             });
         }
-        if (current.tag == .semicolon) {
+        if (current.tag == .semicolon and body_depth == 1 and paren_depth == 0 and bracket_depth == 0) {
             if (context.options.reject_malformed_statements and
                 statement_window.count < statement_window.items.len and
                 statementLooksMalformed(&statement_window))
@@ -1589,6 +1920,181 @@ test "shared engine supports alias-based effect access" {
     try std.testing.expectEqualStrings("tell", graph.direct_op_uses[0].op_name);
     try std.testing.expectEqualStrings("state", graph.direct_op_uses[1].requirement_label);
     try std.testing.expectEqualStrings("get", graph.direct_op_uses[1].op_name);
+}
+
+test "shared engine recognizes generated perform calls through suffixed effect params" {
+    const graph = try analyzeComptime(
+        \\pub fn runBody(outer_eff: anytype) !i32 {
+        \\    return try outer_eff.search.query.perform("artifact-search");
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), graph.direct_op_uses.len);
+    try std.testing.expectEqualStrings("search", graph.direct_op_uses[0].requirement_label);
+    try std.testing.expectEqualStrings("query", graph.direct_op_uses[0].op_name);
+}
+
+test "shared engine keeps explicit continuation request bodies in the lowering subset" {
+    const graph = try analyzeComptime(
+        \\pub fn runBody(eff: anytype) anyerror![]const u8 {
+        \\    return try eff.optional.request(struct {
+        \\        pub fn apply(_: i32, _: anytype) anyerror![]const u8 {
+        \\            return "answer=42";
+        \\        }
+        \\    });
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), graph.direct_op_uses.len);
+    try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
+    try std.testing.expectEqualStrings("optional", graph.direct_op_uses[0].requirement_label);
+    try std.testing.expectEqualStrings("request", graph.direct_op_uses[0].op_name);
+}
+
+test "shared engine keeps bool payload literals in the lowering subset" {
+    const graph = try analyzeComptime(
+        \\pub fn runBody(eff: anytype) anyerror!bool {
+        \\    try eff.state.set(true);
+        \\    return try eff.state.get();
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 2), graph.direct_op_uses.len);
+    try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
+    try std.testing.expectEqualStrings("state", graph.direct_op_uses[0].requirement_label);
+    try std.testing.expectEqualStrings("set", graph.direct_op_uses[0].op_name);
+}
+
+test "shared engine keeps bool literal continuation request bodies in the lowering subset" {
+    const graph = try analyzeComptime(
+        \\pub fn runBody(eff: anytype) anyerror!bool {
+        \\    return try eff.optional.request(struct {
+        \\        pub fn apply(_: i32, _: anytype) anyerror!bool {
+        \\            return true;
+        \\        }
+        \\    });
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), graph.direct_op_uses.len);
+    try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
+    try std.testing.expectEqualStrings("optional", graph.direct_op_uses[0].requirement_label);
+    try std.testing.expectEqualStrings("request", graph.direct_op_uses[0].op_name);
+}
+
+test "shared engine rejects negative payload literals from the lowering subset" {
+    const graph = try analyzeComptime(
+        \\pub fn runBody(eff: anytype) anyerror!i32 {
+        \\    try eff.state.set(-1);
+        \\    return try eff.state.get();
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 2), graph.direct_op_uses.len);
+    try std.testing.expect(!graph.functions[graph.entry_index.?].body_lowering_supported);
+    try std.testing.expectEqualStrings("state", graph.direct_op_uses[0].requirement_label);
+    try std.testing.expectEqualStrings("set", graph.direct_op_uses[0].op_name);
+}
+
+test "shared engine rejects try payload helper calls from the lowering subset" {
+    const graph = try analyzeComptime(
+        \\fn helper(value: i32, eff: anytype) anyerror!void {
+        \\    _ = value;
+        \\    try eff.writer.tell("queued");
+        \\}
+        \\pub fn runBody(eff: anytype) anyerror!void {
+        \\    const value: anyerror!i32 = 41;
+        \\    try helper(try value, eff);
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), graph.direct_op_uses.len);
+    try std.testing.expectEqual(@as(usize, 1), graph.helper_uses.len);
+    try std.testing.expect(!graph.functions[graph.entry_index.?].body_lowering_supported);
+    try std.testing.expectEqualStrings("helper", graph.helper_uses[0].callee_name);
+}
+
+test "shared engine keeps explicit continuation perform bodies in the lowering subset" {
+    const graph = try analyzeComptime(
+        \\pub fn runBody(eff: anytype) anyerror![]const u8 {
+        \\    return try eff.picker.pick.perform(41, struct {
+        \\        pub fn apply(_: i32, _: anytype) anyerror![]const u8 {
+        \\            return "answer=42";
+        \\        }
+        \\    });
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), graph.direct_op_uses.len);
+    try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
+    try std.testing.expectEqualStrings("picker", graph.direct_op_uses[0].requirement_label);
+    try std.testing.expectEqualStrings("pick", graph.direct_op_uses[0].op_name);
+}
+
+test "shared engine records explicit perform and abort calls through requirement aliases" {
+    const graph = try analyzeComptime(
+        \\pub fn runBody(eff: anytype) anyerror!i32 {
+        \\    const counter = eff.counter;
+        \\    const guard = eff.guard;
+        \\    _ = try counter.get.perform();
+        \\    try guard.fail.abort("missing-name");
+        \\    return 42;
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 2), graph.direct_op_uses.len);
+    try std.testing.expectEqualStrings("counter", graph.direct_op_uses[0].requirement_label);
+    try std.testing.expectEqualStrings("get", graph.direct_op_uses[0].op_name);
+    try std.testing.expectEqualStrings("guard", graph.direct_op_uses[1].requirement_label);
+    try std.testing.expectEqualStrings("fail", graph.direct_op_uses[1].op_name);
 }
 
 test "shared engine rejects unsupported effect access" {

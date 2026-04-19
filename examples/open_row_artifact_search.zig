@@ -21,6 +21,10 @@ const search_handler = struct {
 
     /// Preserve the resumed search answer unchanged.
     pub fn afterSearch(_: *@This(), answer: i32) i32 {
+        transcript.note("messages=1");
+        transcript.note("tool_calls=0");
+        transcript.note("memory_blocks=1");
+        transcript.note("opencode_source=jsonl");
         return answer;
     }
 };
@@ -32,26 +36,20 @@ const Search = shift.effect.Define(.{
     },
 });
 
+fn artifactSearchBody(eff: anytype) anyerror!i32 {
+    const total = try eff.search.search.perform("artifact-search");
+    return total;
+}
+
 /// Render the artifact-search transcript.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
     transcript.len = 0;
-    const result = try shift.with(&runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .search = Search.use(.{ .handler = search_handler{} }),
-    }, struct {
-        /// Trigger the search operation and emit the canonical transcript fields.
-        pub fn body(eff: anytype) anyerror!i32 {
-            const total = try eff.search.search.perform("artifact-search");
-            if (total != 3) unreachable;
-            transcript.note("messages=1");
-            transcript.note("tool_calls=0");
-            transcript.note("memory_blocks=1");
-            transcript.note("opencode_source=jsonl");
-            return total;
-        }
-    });
+    }, shift.NamedBody("examples/open_row_artifact_search.zig", "artifactSearchBody", anyerror!i32, artifactSearchBody));
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }

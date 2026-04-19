@@ -21,6 +21,8 @@ const resource_manager = struct {
         next_index += 1;
         transcript.items[transcript.len] = if (std.mem.eql(u8, resource, "a")) "acquire=a" else "acquire=b";
         transcript.len += 1;
+        transcript.items[transcript.len] = if (std.mem.eql(u8, resource, "a")) "use=a" else "use=b";
+        transcript.len += 1;
         return resource;
     }
 
@@ -31,6 +33,12 @@ const resource_manager = struct {
     }
 };
 
+fn resourceBody(eff: anytype) anyerror![]const u8 {
+    _ = try eff.resource.acquire();
+    _ = try eff.resource.acquire();
+    return "done";
+}
+
 /// Write the resource-effect transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
@@ -38,20 +46,9 @@ pub fn run(writer: anytype) anyerror!void {
     resource_manager.next_index = 0;
     transcript.len = 0;
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .resource = shift.effect.resource.use([]const u8, resource_manager),
-    }, struct {
-        /// Acquire and use two resources through the lexical scope.
-        pub fn body(eff: anytype) ![]const u8 {
-            const first = try eff.resource.acquire();
-            transcript.note(if (std.mem.eql(u8, first, "a")) "use=a" else "use=b");
-
-            const second = try eff.resource.acquire();
-            transcript.note(if (std.mem.eql(u8, second, "a")) "use=a" else "use=b");
-
-            return "done";
-        }
-    });
+    }, shift.NamedBody("examples/resource_basic.zig", "resourceBody", anyerror![]const u8, resourceBody));
 
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
