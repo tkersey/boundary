@@ -3,9 +3,9 @@ const compat_api = @import("compat.zig");
 const effect_root = @import("effect/root.zig");
 const error_witness = @import("error_witness");
 const interpreter_api = @import("interpreter");
+const ir_api = @import("ir_api");
 const lowered_machine = @import("lowered_machine");
-const public_ir = @import("public_ir");
-const public_lowering = @import("public_lowering");
+const lowering_api = @import("lowering_api");
 const with_api = @import("with_api.zig");
 
 /// Shared ArtifactV1 codec and helpers used by the retained public roots.
@@ -48,11 +48,11 @@ pub const run = compat_api.run;
 
 /// Retained explicit IR compatibility surface shared by `shift` and `shift_compile`.
 // zlinter-disable-next-line declaration_naming - retained public API contract is shift.ir
-pub const ir = public_ir;
+pub const ir = ir_api;
 /// Public lowering namespace retained for shared build wiring.
-pub const lowering = public_lowering;
+pub const lowering = lowering_api;
 /// Public lowering entrypoint retained for shared build wiring.
-pub const lower = public_lowering.lower;
+pub const lower = lowering_api.lower;
 /// Internal lowered runtime surface re-exported for sibling wrapper modules.
 pub const lowered_machine_internal = lowered_machine;
 /// Internal program-plan surface re-exported for sibling wrapper modules.
