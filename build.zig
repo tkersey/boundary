@@ -4018,7 +4018,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const shift_agent_vm_mod = b.addModule("shift_agent_vm", .{
+    const shift_agent_vm_mod = b.createModule(.{
         .root_source_file = b.path("src/shift_agent_vm.zig"),
         .target = target,
         .optimize = optimize,
@@ -4567,15 +4567,19 @@ pub fn build(b: *std.Build) void {
     const run_shift_agent_vm_fixture = b.addRunArtifact(shift_agent_vm_fixture_exe);
     const shift_agent_vm_fixture_step = b.step(
         "generate-shift-agent-vm-fixture",
-        "Generate the committed shift_agent_vm artifact fixture.",
+        "Generate the committed shift_agent_vm compatibility artifact fixture.",
     );
     shift_agent_vm_fixture_step.dependOn(&run_shift_agent_vm_fixture.step);
 
     const public_api_compat_step = b.step("public-api-compat", "Run the retained public import compatibility suite.");
     public_api_compat_step.dependOn(&run_pub_ir_path.step);
     public_api_compat_step.dependOn(&run_pub_lowering_path.step);
-    public_api_compat_step.dependOn(&run_shift_agent_vm_path.step);
-    public_api_compat_step.dependOn(&run_shift_agent_vm_smoke.step);
+    const shift_agent_vm_compat_step = b.step(
+        "shift-agent-vm-compat",
+        "Run retained shift_agent_vm source-path and internal module compatibility checks.",
+    );
+    shift_agent_vm_compat_step.dependOn(&run_shift_agent_vm_path.step);
+    shift_agent_vm_compat_step.dependOn(&run_shift_agent_vm_smoke.step);
 
     const frontend_internal_tests = addFilteredTest(
         b,
@@ -4951,6 +4955,7 @@ pub fn build(b: *std.Build) void {
     const test_suites = [_]TestSuiteSpec{
         .{ .suite_id = "root", .description = "Root lexical surface", .run_step = &run_root_tests.step },
         .{ .suite_id = "public-api-compat", .description = "Retained public import compatibility suite", .run_step = public_api_compat_step },
+        .{ .suite_id = "shift-agent-vm-compat", .description = "Retained shift_agent_vm compatibility suite", .run_step = shift_agent_vm_compat_step },
         .{ .suite_id = "frontend", .description = "Frontend internal module", .run_step = &run_frontend_internal_tests.step },
         .{ .suite_id = "program-plan-review", .description = "ProgramPlan regression suite", .run_step = &run_plan_review_tests.step },
         .{ .suite_id = "program-bridge", .description = "Program bridge suite", .run_step = &run_program_bridge_tests.step },
