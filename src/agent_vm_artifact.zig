@@ -84,6 +84,11 @@ pub const CapabilityManifestV1 = struct {
     capabilities: []const CapabilityV1,
 };
 
+const cap_fp_domain_v2 = "shift-artifact-v1-capability-fingerprint-v2";
+const cap_fp_domain_v3 = "shift-artifact-v1-capability-fingerprint-v3";
+const capability_global_tool_after = "tool.after";
+const capability_global_tool_call = "tool.call";
+
 const artifact_magic = "SFTARTV1";
 const artifact_header_len: usize = 72;
 const artifact_directory_entry_len: usize = 32;
@@ -97,6 +102,7 @@ const capability_required_flag: u8 = 0x1;
 
 /// Public in-memory representation of one decoded ArtifactV1 payload.
 pub const ArtifactV1 = struct {
+    artifact_version: u16 = artifact_version_current,
     semantic_ir_hash64: u64,
     artifact_hash_blake3_256: [32]u8,
     manifest_build_fingerprint: [32]u8 = std.mem.zeroes([32]u8),
@@ -117,8 +123,9 @@ pub const ArtifactV1 = struct {
     /// Validate that the artifact manifest and rebuilt program plan are self-consistent.
     pub fn validate(self: @This(), allocator: std.mem.Allocator) anyerror!void {
         try validateManifest(self.manifest_build_fingerprint, self.capabilities);
-        const recomputed_build_fingerprint = try buildFingerprintForCapabilities(
+        const recomputed_build_fingerprint = try buildFingerprintForCapabilitiesVersioned(
             allocator,
+            self.artifact_version,
             self.manifest_build_fingerprint,
             self.capabilities,
         );
@@ -232,6 +239,27 @@ fn hostOpKindName(kind: HostOpKind) []const u8 {
     };
 }
 
+fn capabilityFingerprintDomain(artifact_version: u16) ![]const u8 {
+    return switch (artifact_version) {
+        artifact_format_version_v2 => cap_fp_domain_v2,
+        artifact_format_version_v3 => cap_fp_domain_v3,
+        else => error.UnsupportedVersion,
+    };
+}
+
+fn capabilityGlobalNameForHostOpKind(kind: HostOpKind) []const u8 {
+    return switch (kind) {
+        .call => capability_global_tool_call,
+        .after_call => capability_global_tool_after,
+    };
+}
+
+fn decodeLegacyCapabilityHostOpKind(global_op_name: []const u8) !HostOpKind {
+    if (std.mem.eql(u8, global_op_name, capability_global_tool_call)) return .call;
+    if (std.mem.eql(u8, global_op_name, capability_global_tool_after)) return .after_call;
+    return error.UnsupportedVersion;
+}
+
 /// Build one exact-build fingerprint from an arbitrary seed string.
 pub fn buildFingerprintFromSeed(seed: []const u8) [32]u8 {
     var digest = std.mem.zeroes([32]u8);
@@ -266,12 +294,26 @@ pub fn buildFingerprintForCapabilities(
     base_fingerprint: [32]u8,
     capabilities: []const CapabilityV1,
 ) ![32]u8 {
+    return buildFingerprintForCapabilitiesVersioned(
+        allocator,
+        artifact_version_current,
+        base_fingerprint,
+        capabilities,
+    );
+}
+
+fn buildFingerprintForCapabilitiesVersioned(
+    allocator: std.mem.Allocator,
+    artifact_version: u16,
+    base_fingerprint: [32]u8,
+    capabilities: []const CapabilityV1,
+) ![32]u8 {
     try validateManifest(base_fingerprint, capabilities);
 
     var strings = StringTable.init(allocator);
     defer strings.deinit();
 
-    const encoded_manifest = try encodeCapabilityManifest(allocator, &strings, .{
+    const encoded_manifest = try encodeCapabilityManifestVersioned(allocator, artifact_version, &strings, .{
         .build_fingerprint_blake3_256 = base_fingerprint,
         .capabilities = capabilities,
     });
@@ -279,7 +321,7 @@ pub fn buildFingerprintForCapabilities(
     const string_bytes = try strings.toOwnedBytes(allocator);
     defer allocator.free(string_bytes);
 
-    return hashCapabilityFingerprintSections(encoded_manifest, string_bytes);
+    return try hashCapabilityFingerprintSectionsVersioned(artifact_version, encoded_manifest, string_bytes);
 }
 
 /// Map one ProgramPlan codec into the external capability codec surface.
@@ -385,6 +427,20 @@ pub fn encodeProgramPlan(
     plan: program_plan.ProgramPlan,
     manifest: CapabilityManifestV1,
 ) anyerror![]u8 {
+    return encodeProgramPlanVersioned(
+        allocator,
+        artifact_version_current,
+        plan,
+        manifest,
+    );
+}
+
+fn encodeProgramPlanVersioned(
+    allocator: std.mem.Allocator,
+    artifact_version: u16,
+    plan: program_plan.ProgramPlan,
+    manifest: CapabilityManifestV1,
+) anyerror![]u8 {
     try plan.validate();
     try validateExecutableCodecSupport(plan);
     if (plan.functions[plan.entry_index].parameter_count != 0) return error.UnsupportedEntryParameters;
@@ -394,7 +450,7 @@ pub fn encodeProgramPlan(
     var strings = StringTable.init(allocator);
     defer strings.deinit();
 
-    const capability_manifest = try encodeCapabilityManifest(allocator, &strings, manifest);
+    const capability_manifest = try encodeCapabilityManifestVersioned(allocator, artifact_version, &strings, manifest);
     defer allocator.free(capability_manifest);
     const requirement_table = try encodeRequirementTable(allocator, &strings, plan, manifest.capabilities);
     defer allocator.free(requirement_table);
@@ -461,7 +517,7 @@ pub fn encodeProgramPlan(
 
     try out.appendSlice(allocator, artifact_magic);
     try appendU16(&out, allocator, artifact_header_len);
-    try appendU16(&out, allocator, artifact_version_current);
+    try appendU16(&out, allocator, artifact_version);
     try appendU64(&out, allocator, @intCast(directory_offset));
     try appendU16(&out, allocator, @intCast(payloads.len));
     try appendU16(&out, allocator, plan.entry_index);
@@ -567,12 +623,18 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
     }
 
     const string_bytes = sectionBytes(bytes, directories.items, .string_table);
-    const decoded_manifest = try decodeCapabilityManifest(allocator, string_bytes, sectionBytes(bytes, directories.items, .capability_manifest));
+    const decoded_manifest = try decodeCapabilityManifest(
+        allocator,
+        artifact_version,
+        string_bytes,
+        sectionBytes(bytes, directories.items, .capability_manifest),
+    );
     const manifest_build_fingerprint = decoded_manifest.build_fingerprint_blake3_256;
     var capabilities = decoded_manifest.capabilities;
     errdefer if (capabilities.len != 0) deepFreeCapabilities(allocator, capabilities);
-    const build_fingerprint = try buildFingerprintForCapabilities(
+    const build_fingerprint = try buildFingerprintForCapabilitiesVersioned(
         allocator,
+        artifact_version,
         manifest_build_fingerprint,
         capabilities,
     );
@@ -608,6 +670,7 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
     errdefer if (instructions.len != 0) deepFreeInstructions(allocator, instructions);
 
     var artifact = ArtifactV1{
+        .artifact_version = artifact_version,
         .semantic_ir_hash64 = ir_hash,
         .artifact_hash_blake3_256 = std.mem.zeroes([32]u8),
         .manifest_build_fingerprint = manifest_build_fingerprint,
@@ -774,7 +837,12 @@ const DecodedManifest = struct {
     capabilities: []CapabilityV1,
 };
 
-fn decodeCapabilityManifest(allocator: std.mem.Allocator, string_bytes: []const u8, bytes: []const u8) !DecodedManifest {
+fn decodeCapabilityManifest(
+    allocator: std.mem.Allocator,
+    artifact_version: u16,
+    string_bytes: []const u8,
+    bytes: []const u8,
+) !DecodedManifest {
     if (bytes.len < 52) return error.InvalidDirectoryBounds;
     if (readU16(bytes, 0) != 1) return error.UnsupportedVersion;
     if (readU16(bytes, 2) != 0) return error.NonZeroReserved;
@@ -814,11 +882,26 @@ fn decodeCapabilityManifest(allocator: std.mem.Allocator, string_bytes: []const 
         for (ops) |*op| {
             if (op_cursor + 16 > op_bytes.len) return error.InvalidDirectoryBounds;
             const plan_op_ordinal = readU16(op_bytes, op_cursor + 14);
-            for (op_bytes[op_cursor + 5 .. op_cursor + 12]) |byte| if (byte != 0) return error.NonZeroReserved;
+            const host_op_kind = switch (artifact_version) {
+                artifact_format_version_v2 => blk: {
+                    const global_op_name = try readStringRefDup(
+                        allocator,
+                        string_bytes,
+                        op_bytes[op_cursor + 4 .. op_cursor + 12],
+                    );
+                    defer allocator.free(global_op_name);
+                    break :blk try decodeLegacyCapabilityHostOpKind(global_op_name);
+                },
+                artifact_format_version_v3 => blk: {
+                    for (op_bytes[op_cursor + 5 .. op_cursor + 12]) |byte| if (byte != 0) return error.NonZeroReserved;
+                    break :blk std.enums.fromInt(HostOpKind, op_bytes[op_cursor + 4]) orelse return error.UnsupportedVersion;
+                },
+                else => return error.UnsupportedVersion,
+            };
             op.* = .{
                 .capability_id = readU16(op_bytes, op_cursor),
                 .op_id = readU16(op_bytes, op_cursor + 2),
-                .host_op_kind = std.enums.fromInt(HostOpKind, op_bytes[op_cursor + 4]) orelse return error.UnsupportedVersion,
+                .host_op_kind = host_op_kind,
                 .payload_codec = std.enums.fromInt(CapabilityCodecV1, op_bytes[op_cursor + 12]) orelse return error.UnsupportedVersion,
                 .result_codec = std.enums.fromInt(CapabilityCodecV1, op_bytes[op_cursor + 13]) orelse return error.UnsupportedVersion,
                 .plan_op_ordinal = plan_op_ordinal,
@@ -846,6 +929,15 @@ fn decodeCapabilityManifest(allocator: std.mem.Allocator, string_bytes: []const 
 }
 
 fn encodeCapabilityManifest(allocator: std.mem.Allocator, strings: *StringTable, manifest: CapabilityManifestV1) ![]u8 {
+    return encodeCapabilityManifestVersioned(allocator, artifact_version_current, strings, manifest);
+}
+
+fn encodeCapabilityManifestVersioned(
+    allocator: std.mem.Allocator,
+    artifact_version: u16,
+    strings: *StringTable,
+    manifest: CapabilityManifestV1,
+) ![]u8 {
     var out = std.ArrayList(u8).empty;
     errdefer out.deinit(allocator);
 
@@ -873,8 +965,17 @@ fn encodeCapabilityManifest(allocator: std.mem.Allocator, strings: *StringTable,
         for (capability.ops) |op| {
             try appendU16(&out, allocator, op.capability_id);
             try appendU16(&out, allocator, op.op_id);
-            try out.append(allocator, @intFromEnum(op.host_op_kind));
-            try out.appendNTimes(allocator, 0, 7);
+            switch (artifact_version) {
+                artifact_format_version_v2 => {
+                    const op_name_ref = try strings.add(capabilityGlobalNameForHostOpKind(op.host_op_kind));
+                    try encodeStringRef(&out, allocator, op_name_ref);
+                },
+                artifact_format_version_v3 => {
+                    try out.append(allocator, @intFromEnum(op.host_op_kind));
+                    try out.appendNTimes(allocator, 0, 7);
+                },
+                else => return error.UnsupportedVersion,
+            }
             try out.append(allocator, @intFromEnum(op.payload_codec));
             try out.append(allocator, @intFromEnum(op.result_codec));
             try appendU16(&out, allocator, op.plan_op_ordinal);
@@ -883,11 +984,15 @@ fn encodeCapabilityManifest(allocator: std.mem.Allocator, strings: *StringTable,
     return out.toOwnedSlice(allocator);
 }
 
-fn hashCapabilityFingerprintSections(manifest_bytes: []const u8, string_bytes: []const u8) [32]u8 {
+fn hashCapabilityFingerprintSectionsVersioned(
+    artifact_version: u16,
+    manifest_bytes: []const u8,
+    string_bytes: []const u8,
+) ![32]u8 {
     var hasher = std.crypto.hash.Blake3.init(.{});
     var len_bytes = std.mem.zeroes([8]u8);
 
-    hasher.update("shift-artifact-v1-capability-fingerprint-v3");
+    hasher.update(try capabilityFingerprintDomain(artifact_version));
     std.mem.writeInt(u64, &len_bytes, manifest_bytes.len, .little);
     hasher.update(&len_bytes);
     hasher.update(manifest_bytes);
@@ -2278,6 +2383,73 @@ test "ArtifactV1 decode accepts v2 function rows with explicit result_codec byte
     try std.testing.expectEqual(program_plan.ValueCodec.string, decoded.functions[0].result_codec.?);
 }
 
+test "ArtifactV1 decode preserves v2 capability manifests and fingerprint domain" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-v2-capability-manifest");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.v2_capability_manifest",
+        .ir_hash = 0x48,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "dispatch", .mode = .transform, .payload_codec = .string, .resume_codec = .string, .has_after = true }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+
+    const capabilities = try deriveToolCapabilitiesFromPlan(std.testing.allocator, plan);
+    defer deepFreeCapabilities(std.testing.allocator, capabilities);
+
+    const v2_fingerprint = try buildFingerprintForCapabilitiesVersioned(
+        std.testing.allocator,
+        artifact_format_version_v2,
+        build_fingerprint,
+        capabilities,
+    );
+    const v3_fingerprint = try buildFingerprintForCapabilitiesVersioned(
+        std.testing.allocator,
+        artifact_format_version_v3,
+        build_fingerprint,
+        capabilities,
+    );
+    try std.testing.expect(!std.mem.eql(u8, &v2_fingerprint, &v3_fingerprint));
+
+    const encoded = try encodeProgramPlanVersioned(std.testing.allocator, artifact_format_version_v2, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = capabilities,
+    });
+    defer std.testing.allocator.free(encoded);
+
+    var decoded = try decode(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(artifact_format_version_v2, decoded.artifact_version);
+    try std.testing.expectEqual(@as(usize, 1), decoded.capabilities.len);
+    try std.testing.expectEqual(@as(usize, 2), decoded.capabilities[0].ops.len);
+    try std.testing.expectEqual(.call, decoded.capabilities[0].ops[0].host_op_kind);
+    try std.testing.expectEqual(.after_call, decoded.capabilities[0].ops[1].host_op_kind);
+    try std.testing.expect(std.mem.eql(u8, &v2_fingerprint, &decoded.build_fingerprint_blake3_256));
+    try decoded.validate(std.testing.allocator);
+}
+
 test "ArtifactV1 rejects custom capabilities whose op codecs do not match the compiled plan" {
     const build_fingerprint = buildFingerprintFromSeed("artifact-v1-custom-capability-mismatch");
     const plan: program_plan.ProgramPlan = .{
@@ -2709,7 +2881,7 @@ fn expectMalformedCapabilityManifestDecodeCleanup(allocator: std.mem.Allocator) 
 
     try std.testing.expectError(
         error.UnsupportedVersion,
-        decodeCapabilityManifest(allocator, string_bytes, corrupted_manifest),
+        decodeCapabilityManifest(allocator, artifact_version_current, string_bytes, corrupted_manifest),
     );
 }
 
