@@ -123,7 +123,7 @@ pub const ArtifactV1 = struct {
     /// Validate that the artifact manifest and rebuilt program plan are self-consistent.
     pub fn validate(self: @This(), allocator: std.mem.Allocator) anyerror!void {
         try validateManifest(self.manifest_build_fingerprint, self.capabilities);
-        const recomputed_build_fingerprint = try buildFingerprintForCapabilitiesVersioned(
+        const recomputed_build_fingerprint = try buildFingerprintForCapabilitiesForArtifactVersion(
             allocator,
             self.artifact_version,
             self.manifest_build_fingerprint,
@@ -294,7 +294,7 @@ pub fn buildFingerprintForCapabilities(
     base_fingerprint: [32]u8,
     capabilities: []const CapabilityV1,
 ) ![32]u8 {
-    return buildFingerprintForCapabilitiesVersioned(
+    return buildFingerprintForCapabilitiesForArtifactVersion(
         allocator,
         artifact_version_current,
         base_fingerprint,
@@ -302,7 +302,8 @@ pub fn buildFingerprintForCapabilities(
     );
 }
 
-fn buildFingerprintForCapabilitiesVersioned(
+/// Bind one exact-build fingerprint to one explicit capability manifest using a specific retained ArtifactV1 wire version.
+pub fn buildFingerprintForCapabilitiesForArtifactVersion(
     allocator: std.mem.Allocator,
     artifact_version: u16,
     base_fingerprint: [32]u8,
@@ -632,7 +633,7 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
     const manifest_build_fingerprint = decoded_manifest.build_fingerprint_blake3_256;
     var capabilities = decoded_manifest.capabilities;
     errdefer if (capabilities.len != 0) deepFreeCapabilities(allocator, capabilities);
-    const build_fingerprint = try buildFingerprintForCapabilitiesVersioned(
+    const build_fingerprint = try buildFingerprintForCapabilitiesForArtifactVersion(
         allocator,
         artifact_version,
         manifest_build_fingerprint,
@@ -2430,13 +2431,13 @@ test "ArtifactV1 decode preserves v2 capability manifests and fingerprint domain
     const capabilities = try deriveToolCapabilitiesFromPlan(std.testing.allocator, plan);
     defer deepFreeCapabilities(std.testing.allocator, capabilities);
 
-    const v2_fingerprint = try buildFingerprintForCapabilitiesVersioned(
+    const v2_fingerprint = try buildFingerprintForCapabilitiesForArtifactVersion(
         std.testing.allocator,
         artifact_format_version_v2,
         build_fingerprint,
         capabilities,
     );
-    const v3_fingerprint = try buildFingerprintForCapabilitiesVersioned(
+    const v3_fingerprint = try buildFingerprintForCapabilitiesForArtifactVersion(
         std.testing.allocator,
         artifact_format_version_v3,
         build_fingerprint,
@@ -2497,13 +2498,13 @@ test "ArtifactV1 decode preserves v1 capability manifests on the legacy fingerpr
     const capabilities = try deriveToolCapabilitiesFromPlan(std.testing.allocator, plan);
     defer deepFreeCapabilities(std.testing.allocator, capabilities);
 
-    const v1_fingerprint = try buildFingerprintForCapabilitiesVersioned(
+    const v1_fingerprint = try buildFingerprintForCapabilitiesForArtifactVersion(
         std.testing.allocator,
         artifact_format_version_v1,
         build_fingerprint,
         capabilities,
     );
-    const v2_fingerprint = try buildFingerprintForCapabilitiesVersioned(
+    const v2_fingerprint = try buildFingerprintForCapabilitiesForArtifactVersion(
         std.testing.allocator,
         artifact_format_version_v2,
         build_fingerprint,
@@ -2527,6 +2528,74 @@ test "ArtifactV1 decode preserves v1 capability manifests on the legacy fingerpr
     try std.testing.expectEqual(.after_call, decoded.capabilities[0].ops[1].host_op_kind);
     try std.testing.expect(std.mem.eql(u8, &v1_fingerprint, &decoded.build_fingerprint_blake3_256));
     try decoded.validate(std.testing.allocator);
+}
+
+test "ArtifactV1 public versioned fingerprint helper preserves retained legacy artifact digests" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-legacy-public-fingerprint-helper");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.legacy_public_fingerprint_helper",
+        .ir_hash = 0x4a,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "dispatch", .mode = .transform, .payload_codec = .string, .resume_codec = .string, .has_after = true }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+
+    const capabilities = try deriveToolCapabilitiesFromPlan(std.testing.allocator, plan);
+    defer deepFreeCapabilities(std.testing.allocator, capabilities);
+
+    const encoded_v1 = try encodeProgramPlanVersioned(std.testing.allocator, artifact_format_version_v1, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = capabilities,
+    });
+    defer std.testing.allocator.free(encoded_v1);
+    const encoded_v2 = try encodeProgramPlanVersioned(std.testing.allocator, artifact_format_version_v2, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = capabilities,
+    });
+    defer std.testing.allocator.free(encoded_v2);
+
+    var decoded_v1 = try decode(std.testing.allocator, encoded_v1);
+    defer decoded_v1.deinit(std.testing.allocator);
+    var decoded_v2 = try decode(std.testing.allocator, encoded_v2);
+    defer decoded_v2.deinit(std.testing.allocator);
+
+    const recomputed_v1 = try buildFingerprintForCapabilitiesForArtifactVersion(
+        std.testing.allocator,
+        decoded_v1.artifact_version,
+        decoded_v1.manifest_build_fingerprint,
+        decoded_v1.capabilities,
+    );
+    const recomputed_v2 = try buildFingerprintForCapabilitiesForArtifactVersion(
+        std.testing.allocator,
+        decoded_v2.artifact_version,
+        decoded_v2.manifest_build_fingerprint,
+        decoded_v2.capabilities,
+    );
+
+    try std.testing.expect(std.mem.eql(u8, &recomputed_v1, &decoded_v1.build_fingerprint_blake3_256));
+    try std.testing.expect(std.mem.eql(u8, &recomputed_v2, &decoded_v2.build_fingerprint_blake3_256));
 }
 
 test "ArtifactV1 rejects custom capabilities whose op codecs do not match the compiled plan" {

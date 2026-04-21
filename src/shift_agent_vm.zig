@@ -317,14 +317,20 @@ fn executionOutputsFromInternal(
     outputs: []const runtime_api.ExecutionOutputV1,
 ) ![]runtime.ExecutionOutput {
     const owned_outputs = try allocator.alloc(runtime.ExecutionOutput, outputs.len);
-    errdefer allocator.free(owned_outputs);
     var initialized: usize = 0;
     errdefer deinitExecutionOutputsPrefix(allocator, owned_outputs, initialized);
     for (outputs, 0..) |output, index| {
+        const label = try allocator.dupe(u8, output.label);
+        errdefer allocator.free(label);
+        const value = try output.value.clone(allocator);
+        errdefer {
+            var owned_value = value;
+            owned_value.deinit(allocator);
+        }
         owned_outputs[index] = .{
-            .label = try allocator.dupe(u8, output.label),
+            .label = label,
             .codec = output.codec,
-            .value = try output.value.clone(allocator),
+            .value = value,
         };
         initialized += 1;
     }
@@ -336,7 +342,6 @@ fn hostLogsFromInternal(
     logs: []const host_api.HostLogEntryV1,
 ) ![]host.LogEntry {
     const owned_logs = try allocator.alloc(host.LogEntry, logs.len);
-    errdefer allocator.free(owned_logs);
     var initialized: usize = 0;
     errdefer deinitHostLogsPrefix(allocator, owned_logs, initialized);
     for (logs, 0..) |entry, index| {
@@ -406,33 +411,56 @@ fn responseFromInternal(
 ) !host.Response {
     return switch (response.body) {
         .success => |value| switch (value.control) {
-            .@"resume" => .{ .resumed = .{
-                .request_id = response.request_id,
-                .tool_id = try allocator.dupe(u8, value.tool_id),
-                .call_id = value.call_id,
-                .value = try value.value.clone(allocator),
-                .owns_tool_id = true,
-                .value_ownership = .deep,
-            } },
-            .return_now => .{ .return_now = .{
-                .request_id = response.request_id,
-                .tool_id = try allocator.dupe(u8, value.tool_id),
-                .call_id = value.call_id,
-                .value = try value.value.clone(allocator),
-                .owns_tool_id = true,
-                .value_ownership = .deep,
-            } },
-            .abort => .{ .aborted = .{
-                .request_id = response.request_id,
-                .tool_id = try allocator.dupe(u8, value.tool_id),
-                .call_id = value.call_id,
-                .value = try value.value.clone(allocator),
-                .owns_tool_id = true,
-                .value_ownership = .deep,
-            } },
+            .@"resume" => .{ .resumed = try cloneResumedResponse(allocator, response.request_id, value) },
+            .return_now => .{ .return_now = try cloneTerminalResponse(allocator, response.request_id, value) },
+            .abort => .{ .aborted = try cloneTerminalResponse(allocator, response.request_id, value) },
         },
         .rejected => |value| .{ .rejected = try value.clone(allocator) },
         .failed => |value| .{ .failed = try value.clone(allocator) },
+    };
+}
+
+fn cloneResumedResponse(
+    allocator: std.mem.Allocator,
+    request_id: u64,
+    value: host_api.ToolCallResultV1,
+) !host.Resumed {
+    const tool_id = try allocator.dupe(u8, value.tool_id);
+    errdefer allocator.free(tool_id);
+    const cloned_value = try value.value.clone(allocator);
+    errdefer {
+        var owned_value = cloned_value;
+        owned_value.deinit(allocator);
+    }
+    return .{
+        .request_id = request_id,
+        .tool_id = tool_id,
+        .call_id = value.call_id,
+        .value = cloned_value,
+        .owns_tool_id = true,
+        .value_ownership = .deep,
+    };
+}
+
+fn cloneTerminalResponse(
+    allocator: std.mem.Allocator,
+    request_id: u64,
+    value: host_api.ToolCallResultV1,
+) !host.Terminal {
+    const tool_id = try allocator.dupe(u8, value.tool_id);
+    errdefer allocator.free(tool_id);
+    const cloned_value = try value.value.clone(allocator);
+    errdefer {
+        var owned_value = cloned_value;
+        owned_value.deinit(allocator);
+    }
+    return .{
+        .request_id = request_id,
+        .tool_id = tool_id,
+        .call_id = value.call_id,
+        .value = cloned_value,
+        .owns_tool_id = true,
+        .value_ownership = .deep,
     };
 }
 
@@ -730,6 +758,69 @@ test "response bridge frees duplicated tool ids on allocation failure" {
     try std.testing.checkAllAllocationFailures(
         std.testing.allocator,
         expectResponseBridgeClonesToolIdWithoutLeaksOnAllocationFailure,
+        .{},
+    );
+}
+
+fn expectExecutionOutputsFromInternalCleansUpPartialAllocations(allocator: std.mem.Allocator) !void {
+    const outputs = [_]runtime_api.ExecutionOutputV1{
+        .{
+            .label = @constCast("answer"),
+            .codec = .string,
+            .value = .{ .string = "value" },
+        },
+    };
+
+    const owned_outputs = try executionOutputsFromInternal(allocator, &outputs);
+    defer deinitExecutionOutputs(allocator, owned_outputs);
+
+    try std.testing.expectEqual(@as(usize, 1), owned_outputs.len);
+    try std.testing.expectEqualStrings("answer", owned_outputs[0].label);
+    switch (owned_outputs[0].value) {
+        .string => |value| try std.testing.expectEqualStrings("value", value),
+        else => return error.TestUnexpectedPayload,
+    }
+}
+
+test "execution output bridge frees duplicated labels on allocation failure" {
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        expectExecutionOutputsFromInternalCleansUpPartialAllocations,
+        .{},
+    );
+}
+
+fn expectResponseFromInternalCleansUpDuplicatedToolIds(allocator: std.mem.Allocator) !void {
+    const response: host_api.HostEffectResultV1 = .{
+        .request_id = 41,
+        .body = .{ .success = .{
+            .tool_id = "generated/tooling@v1",
+            .call_id = 7,
+            .control = .@"resume",
+            .value = .{ .string = "value" },
+        } },
+    };
+
+    var bridged = try responseFromInternal(allocator, response);
+    defer bridged.deinit(allocator);
+
+    switch (bridged) {
+        .resumed => |resumed| {
+            try std.testing.expectEqual(@as(u64, 41), resumed.request_id);
+            try std.testing.expectEqualStrings("generated/tooling@v1", resumed.tool_id);
+            switch (resumed.value) {
+                .string => |value| try std.testing.expectEqualStrings("value", value),
+                else => return error.TestUnexpectedPayload,
+            }
+        },
+        else => return error.TestUnexpectedResponseKind,
+    }
+}
+
+test "response bridge frees duplicated tool ids when public response cloning fails" {
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        expectResponseFromInternalCleansUpDuplicatedToolIds,
         .{},
     );
 }
