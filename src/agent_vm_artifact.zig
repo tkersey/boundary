@@ -227,7 +227,7 @@ fn isReservedOptionalSectionId(raw_section_id: u16) bool {
 
 fn supportedArtifactVersion(version: u16) bool {
     return switch (version) {
-        artifact_format_version_v2, artifact_format_version_v3 => true,
+        artifact_format_version_v1, artifact_format_version_v2, artifact_format_version_v3 => true,
         else => false,
     };
 }
@@ -241,7 +241,7 @@ fn hostOpKindName(kind: HostOpKind) []const u8 {
 
 fn capabilityFingerprintDomain(artifact_version: u16) ![]const u8 {
     return switch (artifact_version) {
-        artifact_format_version_v2 => cap_fp_domain_v2,
+        artifact_format_version_v1, artifact_format_version_v2 => cap_fp_domain_v2,
         artifact_format_version_v3 => cap_fp_domain_v3,
         else => error.UnsupportedVersion,
     };
@@ -468,7 +468,7 @@ fn encodeProgramPlanVersioned(
     defer allocator.free(block_table);
     const terminator_table = try encodeTerminatorTable(allocator, plan.terminators);
     defer allocator.free(terminator_table);
-    const instruction_table = try encodeInstructionTable(allocator, &strings, plan);
+    const instruction_table = try encodeInstructionTable(allocator, artifact_version, &strings, plan);
     defer allocator.free(instruction_table);
     const string_table = try strings.toOwnedBytes(allocator);
     defer allocator.free(string_table);
@@ -883,7 +883,7 @@ fn decodeCapabilityManifest(
             if (op_cursor + 16 > op_bytes.len) return error.InvalidDirectoryBounds;
             const plan_op_ordinal = readU16(op_bytes, op_cursor + 14);
             const host_op_kind = switch (artifact_version) {
-                artifact_format_version_v2 => blk: {
+                artifact_format_version_v1, artifact_format_version_v2 => blk: {
                     const global_op_name = try readStringRefDup(
                         allocator,
                         string_bytes,
@@ -966,7 +966,7 @@ fn encodeCapabilityManifestVersioned(
             try appendU16(&out, allocator, op.capability_id);
             try appendU16(&out, allocator, op.op_id);
             switch (artifact_version) {
-                artifact_format_version_v2 => {
+                artifact_format_version_v1, artifact_format_version_v2 => {
                     const op_name_ref = try strings.add(capabilityGlobalNameForHostOpKind(op.host_op_kind));
                     try encodeStringRef(&out, allocator, op_name_ref);
                 },
@@ -1121,13 +1121,18 @@ fn encodeTerminatorTable(allocator: std.mem.Allocator, terminators: []const prog
     return out.toOwnedSlice(allocator);
 }
 
-fn encodeInstructionTable(allocator: std.mem.Allocator, strings: *StringTable, plan: program_plan.ProgramPlan) ![]u8 {
+fn encodeInstructionTable(
+    allocator: std.mem.Allocator,
+    artifact_version: u16,
+    strings: *StringTable,
+    plan: program_plan.ProgramPlan,
+) ![]u8 {
     var out = std.ArrayList(u8).empty;
     errdefer out.deinit(allocator);
     for (plan.instructions) |instruction| {
         const canonical = canonicalInstruction(plan, instruction);
         const string_ref = try strings.add(canonical.string_literal);
-        try out.append(allocator, encodeInstructionKind(canonical.kind, artifact_version_current));
+        try out.append(allocator, encodeInstructionKind(canonical.kind, artifact_version));
         try out.append(allocator, 0);
         try appendU16(&out, allocator, canonical.dst);
         try appendU16(&out, allocator, canonical.operand);
@@ -2218,7 +2223,7 @@ test "ArtifactV1 encode/decode preserves plan structure and capability manifest"
     try std.testing.expectEqual(@as(usize, 1), decoded.instructions.len);
 }
 
-test "ArtifactV1 decode rejects legacy v1 artifact versions" {
+test "ArtifactV1 decode preserves legacy v1 artifact versions" {
     const plan: program_plan.ProgramPlan = .{
         .label = "artifact.legacy_v1_instruction_tags",
         .ir_hash = 0x45,
@@ -2281,14 +2286,21 @@ test "ArtifactV1 decode rejects legacy v1 artifact versions" {
         },
     };
 
-    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+    const encoded = try encodeProgramPlanVersioned(std.testing.allocator, artifact_format_version_v1, plan, .{
         .build_fingerprint_blake3_256 = buildFingerprintFromSeed("artifact-legacy-v1-instruction-tags"),
         .capabilities = &.{},
     });
     defer std.testing.allocator.free(encoded);
 
-    patchArtifactVersion(encoded, artifact_format_version_v1);
-    try std.testing.expectError(error.UnsupportedVersion, decode(std.testing.allocator, encoded));
+    var decoded = try decode(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(artifact_format_version_v1, decoded.artifact_version);
+    try std.testing.expectEqual(@as(usize, 2), decoded.functions.len);
+    try std.testing.expectEqual(.call_helper, decoded.instructions[0].kind);
+    try std.testing.expectEqual(.return_value, decoded.instructions[1].kind);
+    try std.testing.expectEqual(.const_string, decoded.instructions[2].kind);
+    try std.testing.expectEqual(.return_value, decoded.instructions[3].kind);
 }
 
 test "ArtifactV1 decode rejects legacy v1 function rows before row validation" {
@@ -2447,6 +2459,73 @@ test "ArtifactV1 decode preserves v2 capability manifests and fingerprint domain
     try std.testing.expectEqual(.call, decoded.capabilities[0].ops[0].host_op_kind);
     try std.testing.expectEqual(.after_call, decoded.capabilities[0].ops[1].host_op_kind);
     try std.testing.expect(std.mem.eql(u8, &v2_fingerprint, &decoded.build_fingerprint_blake3_256));
+    try decoded.validate(std.testing.allocator);
+}
+
+test "ArtifactV1 decode preserves v1 capability manifests on the legacy fingerprint domain" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-v1-capability-manifest");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.v1_capability_manifest",
+        .ir_hash = 0x49,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "dispatch", .mode = .transform, .payload_codec = .string, .resume_codec = .string, .has_after = true }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+
+    const capabilities = try deriveToolCapabilitiesFromPlan(std.testing.allocator, plan);
+    defer deepFreeCapabilities(std.testing.allocator, capabilities);
+
+    const v1_fingerprint = try buildFingerprintForCapabilitiesVersioned(
+        std.testing.allocator,
+        artifact_format_version_v1,
+        build_fingerprint,
+        capabilities,
+    );
+    const v2_fingerprint = try buildFingerprintForCapabilitiesVersioned(
+        std.testing.allocator,
+        artifact_format_version_v2,
+        build_fingerprint,
+        capabilities,
+    );
+    try std.testing.expect(std.mem.eql(u8, &v1_fingerprint, &v2_fingerprint));
+
+    const encoded = try encodeProgramPlanVersioned(std.testing.allocator, artifact_format_version_v1, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = capabilities,
+    });
+    defer std.testing.allocator.free(encoded);
+
+    var decoded = try decode(std.testing.allocator, encoded);
+    defer decoded.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(artifact_format_version_v1, decoded.artifact_version);
+    try std.testing.expectEqual(@as(usize, 1), decoded.capabilities.len);
+    try std.testing.expectEqual(@as(usize, 2), decoded.capabilities[0].ops.len);
+    try std.testing.expectEqual(.call, decoded.capabilities[0].ops[0].host_op_kind);
+    try std.testing.expectEqual(.after_call, decoded.capabilities[0].ops[1].host_op_kind);
+    try std.testing.expect(std.mem.eql(u8, &v1_fingerprint, &decoded.build_fingerprint_blake3_256));
     try decoded.validate(std.testing.allocator);
 }
 

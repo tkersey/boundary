@@ -68,6 +68,20 @@ test "shift_agent_vm public smoke executes artifact bytes through the supported 
             }
             try std.testing.expectEqual(@as(usize, 0), completed.outputs.len);
             try std.testing.expectEqual(@as(usize, 1), completed.logs.len);
+            switch (completed.logs[0].request) {
+                .call => |request| {
+                    try std.testing.expectEqual(@as(u64, 1), request.request_id);
+                    try std.testing.expectEqualStrings("tell", request.op_name);
+                },
+                else => return error.TestUnexpectedRequestKind,
+            }
+            switch (completed.logs[0].response) {
+                .resumed => |response| {
+                    try std.testing.expectEqual(@as(u64, 1), response.request_id);
+                    try std.testing.expectEqualStrings("generated/writer@v1", response.tool_id);
+                },
+                else => return error.TestUnexpectedResponseKind,
+            }
         },
         else => return error.TestUnexpectedRuntimeResult,
     }

@@ -10,8 +10,6 @@ pub const host = struct {
     pub const DataValueOwnership = host_api.DataValueOwnershipV1;
     /// Typed failure payload surfaced by the supported host boundary.
     pub const Failure = host_api.FailureV1;
-    /// Logged request/result pair captured during runtime execution.
-    pub const LogEntry = host_api.HostLogEntryV1;
     /// One object field nested inside `DataValue.object`.
     pub const ObjectField = host_api.ObjectFieldV1;
     /// Declared runtime output codecs.
@@ -132,6 +130,19 @@ pub const host = struct {
         }
     };
 
+    /// Logged request/response pair captured during runtime execution.
+    pub const LogEntry = struct {
+        request: Request,
+        response: Response,
+
+        /// Release allocator-owned request and response storage.
+        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+            self.request.deinit(allocator);
+            self.response.deinit(allocator);
+            self.* = undefined;
+        }
+    };
+
     /// Supported synchronous adapter surface for artifact execution.
     pub const Adapter = struct {
         ctx: ?*anyopaque,
@@ -159,13 +170,64 @@ pub const host = struct {
 /// Supported synchronous runtime surface for agent-vm execution.
 pub const runtime = struct {
     /// One finalized runtime output value.
-    pub const ExecutionOutput = runtime_api.ExecutionOutputV1;
+    pub const ExecutionOutput = struct {
+        label: []u8,
+        codec: host.OutputCodec,
+        value: host.DataValue,
+
+        /// Release the owned output label and value payload.
+        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+            allocator.free(self.label);
+            self.value.deinit(allocator);
+            self.* = undefined;
+        }
+    };
     /// One successful artifact execution result.
-    pub const ExecutionResult = runtime_api.ExecutionResultV1;
+    pub const ExecutionResult = struct {
+        value: host.DataValue,
+        outputs: []ExecutionOutput,
+        logs: []host.LogEntry,
+
+        /// Release the owned runtime value, captured outputs, and public host logs.
+        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+            self.value.deinit(allocator);
+            deinitExecutionOutputs(allocator, self.outputs);
+            deinitHostLogs(allocator, self.logs);
+            self.* = .{
+                .value = .null,
+                .outputs = &.{},
+                .logs = &.{},
+            };
+        }
+    };
     /// One host failure plus captured logs.
-    pub const HostFailureResult = runtime_api.HostFailureResultV1;
+    pub const HostFailureResult = struct {
+        failure: host.Failure,
+        logs: []host.LogEntry,
+
+        /// Release the owned host failure payload and captured public host logs.
+        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+            self.failure.deinit(allocator);
+            deinitHostLogs(allocator, self.logs);
+            self.* = undefined;
+        }
+    };
     /// Result of executing artifact bytes through the supported runtime surface.
-    pub const RunArtifactResult = runtime_api.RunArtifactResultV1;
+    pub const RunArtifactResult = union(enum) {
+        completed: ExecutionResult,
+        failed: HostFailureResult,
+        rejected: HostFailureResult,
+
+        /// Release the owned execution or host-failure result.
+        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+            switch (self.*) {
+                .completed => |*result| result.deinit(allocator),
+                .failed => |*failure| failure.deinit(allocator),
+                .rejected => |*failure| failure.deinit(allocator),
+            }
+            self.* = undefined;
+        }
+    };
 
     /// Execute artifact bytes through the supported agent-vm runtime surface.
     pub fn runArtifact(
@@ -174,11 +236,13 @@ pub const runtime = struct {
         adapter: host.Adapter,
     ) anyerror!RunArtifactResult {
         var bridge_adapter = adapter;
-        return runtime_api.runArtifact(allocator, bytes, .{
+        var internal_result = try runtime_api.runArtifact(allocator, bytes, .{
             .ctx = &bridge_adapter,
             .dispatchFn = bridgeDispatch,
             .collectOutputsFn = bridgeCollectOutputs,
         });
+        defer internal_result.deinit(allocator);
+        return try runArtifactResultFromInternal(allocator, internal_result);
     }
 };
 
@@ -204,6 +268,96 @@ fn bridgeCollectOutputs(
 ) anyerror![]host_api.DataValueV1 {
     const adapter: *host.Adapter = @ptrCast(@alignCast(ctx_ptr.?));
     return try adapter.collectOutputs(allocator, declared_outputs);
+}
+
+fn runArtifactResultFromInternal(
+    allocator: std.mem.Allocator,
+    result: runtime_api.RunArtifactResultV1,
+) !runtime.RunArtifactResult {
+    return switch (result) {
+        .completed => |completed| .{ .completed = try executionResultFromInternal(allocator, completed) },
+        .failed => |failure| .{ .failed = try hostFailureResultFromInternal(allocator, failure) },
+        .rejected => |failure| .{ .rejected = try hostFailureResultFromInternal(allocator, failure) },
+    };
+}
+
+fn executionResultFromInternal(
+    allocator: std.mem.Allocator,
+    result: runtime_api.ExecutionResultV1,
+) !runtime.ExecutionResult {
+    var value = try dataValueFromProgramValue(allocator, result.value);
+    errdefer value.deinit(allocator);
+    const outputs = try executionOutputsFromInternal(allocator, result.outputs);
+    errdefer deinitExecutionOutputs(allocator, outputs);
+    const logs = try hostLogsFromInternal(allocator, result.logs);
+    errdefer deinitHostLogs(allocator, logs);
+    return .{
+        .value = value,
+        .outputs = outputs,
+        .logs = logs,
+    };
+}
+
+fn hostFailureResultFromInternal(
+    allocator: std.mem.Allocator,
+    result: runtime_api.HostFailureResultV1,
+) !runtime.HostFailureResult {
+    var failure = try result.failure.clone(allocator);
+    errdefer failure.deinit(allocator);
+    const logs = try hostLogsFromInternal(allocator, result.logs);
+    errdefer deinitHostLogs(allocator, logs);
+    return .{
+        .failure = failure,
+        .logs = logs,
+    };
+}
+
+fn executionOutputsFromInternal(
+    allocator: std.mem.Allocator,
+    outputs: []const runtime_api.ExecutionOutputV1,
+) ![]runtime.ExecutionOutput {
+    const owned_outputs = try allocator.alloc(runtime.ExecutionOutput, outputs.len);
+    errdefer allocator.free(owned_outputs);
+    var initialized: usize = 0;
+    errdefer deinitExecutionOutputsPrefix(allocator, owned_outputs, initialized);
+    for (outputs, 0..) |output, index| {
+        owned_outputs[index] = .{
+            .label = try allocator.dupe(u8, output.label),
+            .codec = output.codec,
+            .value = try output.value.clone(allocator),
+        };
+        initialized += 1;
+    }
+    return owned_outputs;
+}
+
+fn hostLogsFromInternal(
+    allocator: std.mem.Allocator,
+    logs: []const host_api.HostLogEntryV1,
+) ![]host.LogEntry {
+    const owned_logs = try allocator.alloc(host.LogEntry, logs.len);
+    errdefer allocator.free(owned_logs);
+    var initialized: usize = 0;
+    errdefer deinitHostLogsPrefix(allocator, owned_logs, initialized);
+    for (logs, 0..) |entry, index| {
+        owned_logs[index] = try hostLogFromInternal(allocator, entry);
+        initialized += 1;
+    }
+    return owned_logs;
+}
+
+fn hostLogFromInternal(
+    allocator: std.mem.Allocator,
+    entry: host_api.HostLogEntryV1,
+) !host.LogEntry {
+    var request = try requestFromInternal(allocator, entry.request);
+    errdefer request.deinit(allocator);
+    var response = try responseFromInternal(allocator, entry.result);
+    errdefer response.deinit(allocator);
+    return .{
+        .request = request,
+        .response = response,
+    };
 }
 
 fn requestFromInternal(allocator: std.mem.Allocator, request: host_api.HostEffectRequestV1) !host.Request {
@@ -244,6 +398,42 @@ fn requestFromInternal(allocator: std.mem.Allocator, request: host_api.HostEffec
         .owns_op_name = true,
         .answer_ownership = .deep,
     } };
+}
+
+fn responseFromInternal(
+    allocator: std.mem.Allocator,
+    response: host_api.HostEffectResultV1,
+) !host.Response {
+    return switch (response.body) {
+        .success => |value| switch (value.control) {
+            .@"resume" => .{ .resumed = .{
+                .request_id = response.request_id,
+                .tool_id = try allocator.dupe(u8, value.tool_id),
+                .call_id = value.call_id,
+                .value = try value.value.clone(allocator),
+                .owns_tool_id = true,
+                .value_ownership = .deep,
+            } },
+            .return_now => .{ .return_now = .{
+                .request_id = response.request_id,
+                .tool_id = try allocator.dupe(u8, value.tool_id),
+                .call_id = value.call_id,
+                .value = try value.value.clone(allocator),
+                .owns_tool_id = true,
+                .value_ownership = .deep,
+            } },
+            .abort => .{ .aborted = .{
+                .request_id = response.request_id,
+                .tool_id = try allocator.dupe(u8, value.tool_id),
+                .call_id = value.call_id,
+                .value = try value.value.clone(allocator),
+                .owns_tool_id = true,
+                .value_ownership = .deep,
+            } },
+        },
+        .rejected => |value| .{ .rejected = try value.clone(allocator) },
+        .failed => |value| .{ .failed = try value.clone(allocator) },
+    };
 }
 
 fn responseToInternal(
@@ -312,6 +502,44 @@ fn invalidHostReplyResult(
             .owns_message = true,
         } },
     };
+}
+
+fn dataValueFromProgramValue(allocator: std.mem.Allocator, value: anytype) !host.DataValue {
+    return switch (value) {
+        .none => .null,
+        .bool => |typed| .{ .bool = typed },
+        .i32 => |typed| .{ .i64 = typed },
+        .usize => |typed| .{ .u64 = typed },
+        .string => |typed| .{ .string = try allocator.dupe(u8, typed) },
+    };
+}
+
+fn deinitExecutionOutputs(allocator: std.mem.Allocator, outputs: []runtime.ExecutionOutput) void {
+    for (outputs) |*output| output.deinit(allocator);
+    allocator.free(outputs);
+}
+
+fn deinitExecutionOutputsPrefix(
+    allocator: std.mem.Allocator,
+    outputs: []runtime.ExecutionOutput,
+    initialized: usize,
+) void {
+    for (outputs[0..initialized]) |*output| output.deinit(allocator);
+    allocator.free(outputs);
+}
+
+fn deinitHostLogs(allocator: std.mem.Allocator, logs: []host.LogEntry) void {
+    for (logs) |*entry| entry.deinit(allocator);
+    allocator.free(logs);
+}
+
+fn deinitHostLogsPrefix(
+    allocator: std.mem.Allocator,
+    logs: []host.LogEntry,
+    initialized: usize,
+) void {
+    for (logs[0..initialized]) |*entry| entry.deinit(allocator);
+    allocator.free(logs);
 }
 
 test {
