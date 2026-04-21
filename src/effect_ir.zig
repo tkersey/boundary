@@ -684,7 +684,8 @@ pub fn computeSccs(allocator: std.mem.Allocator, graph: ResolverGraph) Normalize
 
             if (self.lowlinks[vertex] != self.indexes[vertex]) return;
 
-            var component = std.ArrayList(usize){};
+            var component = std.ArrayList(usize).empty;
+            errdefer component.deinit(self.allocator);
             while (true) {
                 const member = self.stack.pop().?;
                 self.on_stack[member] = false;
@@ -698,8 +699,8 @@ pub fn computeSccs(allocator: std.mem.Allocator, graph: ResolverGraph) Normalize
     }{
         .allocator = allocator,
         .graph = graph,
-        .stack = .{},
-        .groups = .{},
+        .stack = .empty,
+        .groups = .empty,
         .indexes = try allocator.alloc(usize, graph.symbols.len),
         .lowlinks = try allocator.alloc(usize, graph.symbols.len),
         .on_stack = try allocator.alloc(bool, graph.symbols.len),

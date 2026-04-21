@@ -1,14 +1,4 @@
-const source_path_import_mode = @hasDecl(@import("root"), "source_path_compat_mode") or
-    @hasDecl(@import("root"), "source_path_consumer_mode");
-const effect_ir_import = if (source_path_import_mode)
-    struct {
-        const module = @import("../effect_ir.zig");
-    }
-else
-    struct {
-        const module = @import("effect_ir");
-    };
-const effect_ir = effect_ir_import.module;
+const effect_ir = @import("effect_ir");
 
 /// Stable local slot identifier inside one helper body.
 pub const LocalId = effect_ir.LocalId;

@@ -1,15 +1,5 @@
-const source_path_import_mode = @hasDecl(@import("root"), "source_path_compat_mode") or
-    @hasDecl(@import("root"), "source_path_consumer_mode");
-const program_plan_import = if (source_path_import_mode)
-    struct {
-        const module = @import("../internal_program_plan.zig");
-    }
-else
-    struct {
-        const module = @import("internal_program_plan");
-    };
-const program_plan = program_plan_import.module;
-const scenarios = @import("../parity_scenarios.zig");
+const program_plan = @import("internal_program_plan");
+const scenarios = @import("parity_scenarios");
 const std = @import("std");
 
 /// Stable scenario ids re-exported from the canonical scenario registry.

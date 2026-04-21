@@ -1,17 +1,6 @@
+const fixture = @import("shift_agent_vm_fixture_spec.zig");
 const shift_compile = @import("shift_compile");
 const std = @import("std");
-
-const FixtureSpec: shift_compile.lowering.LowerSpec = .{
-    .label = "test.shift_agent_vm_public_smoke",
-    .entry_symbol = "runBody",
-    .row = shift_compile.ir.rowFromSpec(.{
-        .writer = .{
-            .tell = shift_compile.ir.Transform([]const u8, void),
-        },
-    }),
-    .ValueType = []const u8,
-    .outputs = &.{},
-};
 
 /// Regenerate the committed public agent-vm artifact fixture.
 pub fn main() anyerror!void {
@@ -20,12 +9,12 @@ pub fn main() anyerror!void {
     const allocator = fixed_buffer_allocator.allocator();
     const bytes = try shift_compile.compileAndEncode(
         allocator,
-        "test/fixtures/shift_agent_vm_smoke_source.zig",
-        FixtureSpec,
+        fixture.source_path,
+        fixture.FixtureSpec,
         .{},
     );
     try std.Io.Dir.cwd().writeFile(std.Io.Threaded.global_single_threaded.io(), .{
-        .sub_path = "test/fixtures/shift_agent_vm_smoke.artifact",
+        .sub_path = fixture.artifact_path,
         .data = bytes,
         .flags = .{ .truncate = true },
     });

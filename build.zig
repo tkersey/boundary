@@ -4029,7 +4029,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const artifact_api_mod = b.createModule(.{
-        .root_source_file = b.path("src/agent_vm_artifact.zig"),
+        .root_source_file = b.path("src/private_modules/agent_vm_artifact_build.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -4064,7 +4064,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const private_artifact_vm_core_mod = b.createModule(.{
-        .root_source_file = b.path("src/artifact_vm_runtime.zig"),
+        .root_source_file = b.path("src/private_modules/artifact_vm_runtime_build.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -4120,7 +4120,7 @@ pub fn build(b: *std.Build) void {
     });
     shift_mod.addImport("parity_scenarios", parity_scenarios_mod);
     const lowered_machine_mod = b.createModule(.{
-        .root_source_file = b.path("src/lowered_machine.zig"),
+        .root_source_file = b.path("src/private_modules/lowered_machine_build.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -4131,7 +4131,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const helper_body_ir_mod = b.createModule(.{
-        .root_source_file = b.path("src/internal/helper_body_ir.zig"),
+        .root_source_file = b.path("src/private_modules/helper_body_ir_build.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -4141,7 +4141,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const internal_program_plan_mod = b.createModule(.{
-        .root_source_file = b.path("src/internal/program_plan.zig"),
+        .root_source_file = b.path("src/private_modules/internal_program_plan_build.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -4160,7 +4160,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const internal_kernel_mod = b.createModule(.{
-        .root_source_file = b.path("src/internal/kernel.zig"),
+        .root_source_file = b.path("src/private_modules/internal_kernel_build.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -4187,8 +4187,13 @@ pub fn build(b: *std.Build) void {
     private_artifact_vm_core_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
     private_artifact_vm_core_mod.addImport("internal_program_plan", internal_program_plan_mod);
     private_artifact_vm_core_mod.addImport("lowered_machine", lowered_machine_mod);
+    private_artifact_vm_core_mod.addImport("internal_kernel", internal_kernel_mod);
     shift_agent_vm_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
     shift_agent_vm_mod.addImport("artifact_vm_runtime", private_artifact_vm_core_mod);
+    shift_agent_vm_mod.addImport("artifact_api", artifact_api_mod);
+    shift_agent_vm_mod.addImport("internal_program_plan", internal_program_plan_mod);
+    shift_agent_vm_mod.addImport("lowered_machine", lowered_machine_mod);
+    shift_agent_vm_mod.addImport("internal_kernel", internal_kernel_mod);
     lowered_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
     lowered_machine_mod.addImport("internal_kernel", internal_kernel_mod);
     lowered_machine_mod.addImport("interpreter", interpreter_mod);
@@ -4286,7 +4291,7 @@ pub fn build(b: *std.Build) void {
     with_api_mod.addImport("source_graph_embed", source_graph_embed_mod);
     with_api_mod.addImport("source_graph_engine", source_graph_engine_mod);
     const program_frontend_mod = b.createModule(.{
-        .root_source_file = b.path("src/program_frontend.zig"),
+        .root_source_file = b.path("src/private_modules/program_frontend_build.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -4531,28 +4536,15 @@ pub fn build(b: *std.Build) void {
     const pub_lowering_path_tests = addFilteredTest(b, pub_lowering_path_mod, test_runner_args.filters.items);
     const run_pub_lowering_path = addRunArtifactWithArgs(b, pub_lowering_path_tests, test_runner_args.passthrough.items);
 
-    const shift_agent_vm_path_mod = b.createModule(.{
-        .root_source_file = b.path("src/shift_agent_vm_path_compatibility_test.zig"),
+    const shift_agent_vm_consumer_mod = b.createModule(.{
+        .root_source_file = b.path("shift_agent_vm_source_path_consumer.zig"),
         .target = target,
         .optimize = optimize,
     });
-    shift_agent_vm_path_mod.addImport("shift_agent_vm", shift_agent_vm_mod);
-    shift_agent_vm_path_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
-    shift_agent_vm_path_mod.addImport("artifact_vm_runtime", private_artifact_vm_core_mod);
-    const shift_agent_vm_path_tests = addFilteredTest(b, shift_agent_vm_path_mod, test_runner_args.filters.items);
-    const run_shift_agent_vm_path = addRunArtifactWithArgs(b, shift_agent_vm_path_tests, test_runner_args.passthrough.items);
-
-    const shift_agent_vm_smoke_mod = b.createModule(.{
-        .root_source_file = b.path("test/shift_agent_vm_public_smoke_test.zig"),
-        .target = target,
-        .optimize = optimize,
+    const shift_agent_vm_consumer_exe = b.addExecutable(.{
+        .name = "shift-agent-vm-source-path-consumer",
+        .root_module = shift_agent_vm_consumer_mod,
     });
-    shift_agent_vm_smoke_mod.addImport("shift_agent_vm", shift_agent_vm_mod);
-    shift_agent_vm_smoke_mod.addImport("shift_compile", shift_compile_mod);
-    shift_agent_vm_smoke_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
-    shift_agent_vm_smoke_mod.addImport("artifact_vm_runtime", private_artifact_vm_core_mod);
-    const shift_agent_vm_smoke_tests = addFilteredTest(b, shift_agent_vm_smoke_mod, test_runner_args.filters.items);
-    const run_shift_agent_vm_smoke = addRunArtifactWithArgs(b, shift_agent_vm_smoke_tests, test_runner_args.passthrough.items);
 
     const shift_agent_vm_fixture_mod = b.createModule(.{
         .root_source_file = b.path("test/generate_shift_agent_vm_fixture.zig"),
@@ -4576,10 +4568,9 @@ pub fn build(b: *std.Build) void {
     public_api_compat_step.dependOn(&run_pub_lowering_path.step);
     const shift_agent_vm_compat_step = b.step(
         "shift-agent-vm-compat",
-        "Run retained shift_agent_vm source-path and internal module compatibility checks.",
+        "Compile one ordinary consumer that imports shift_agent_vm through the retained source path.",
     );
-    shift_agent_vm_compat_step.dependOn(&run_shift_agent_vm_path.step);
-    shift_agent_vm_compat_step.dependOn(&run_shift_agent_vm_smoke.step);
+    shift_agent_vm_compat_step.dependOn(&shift_agent_vm_consumer_exe.step);
 
     const frontend_internal_tests = addFilteredTest(
         b,

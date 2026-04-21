@@ -1,25 +1,7 @@
-const source_path_import_mode = @hasDecl(@import("root"), "source_path_compat_mode") or
-    @hasDecl(@import("root"), "source_path_consumer_mode");
-const artifact_import = if (source_path_import_mode)
-    struct {
-        const module = @import("artifact_api.zig");
-    }
-else
-    struct {
-        const module = @import("artifact_api");
-    };
-const artifact = artifact_import.module;
-const host = @import("./host_adapter_v1.zig");
-const lowered_machine = @import("./lowered_machine.zig");
-const program_plan_import = if (source_path_import_mode)
-    struct {
-        const module = @import("internal_program_plan.zig");
-    }
-else
-    struct {
-        const module = @import("internal_program_plan");
-    };
-const program_plan = program_plan_import.module;
+const artifact = @import("artifact_api");
+const host = @import("host_adapter_v1");
+const lowered_machine = @import("lowered_machine");
+const program_plan = @import("internal_program_plan");
 const std = @import("std");
 
 /// Result of executing ArtifactV1 bytes through the synchronous HostAdapterV1 runtime.
@@ -411,12 +393,12 @@ fn executeFunction(
                     }
                 },
                 .call_op => {
-                    const plan_op = ctx.plan.ops[instruction.operand];
-                    const payload = if (plan_op.payload_codec == .unit) .none else locals[instruction.aux];
+                    const op = ctx.plan.ops[instruction.operand];
+                    const payload = if (op.payload_codec == .unit) .none else locals[instruction.aux];
                     const op_result = try callHostOp(ctx, instruction.operand, payload);
                     switch (op_result) {
                         .resumed => |resumed| {
-                            if (plan_op.resume_codec != .unit) setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, resumed.value);
+                            if (op.resume_codec != .unit) setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, resumed.value);
                             if (hasAfterCapabilityOp(ctx.decoded.capabilities, ctx.decoded.requirement_capability_ids, ctx.plan, instruction.operand)) {
                                 try after_stack.append(ctx.allocator, .{
                                     .op_index = instruction.operand,
@@ -450,7 +432,7 @@ fn executeFunction(
                     .{
                         .value = switch (functionLocalCodec(ctx.plan, function, instruction.dst) orelse return error.ProgramContractViolation) {
                             .i32 => .{ .i32 = decodeI32InstructionLiteral(instruction) },
-                            .bool, .string, .string_list, .unit, .usize => return error.ProgramContractViolation,
+                            else => return error.ProgramContractViolation,
                         },
                     },
                 ),
@@ -544,14 +526,14 @@ fn callHostOp(
     op_index: u16,
     payload: lowered_machine.ProgramValue,
 ) anyerror!OpDispatchResult {
-    const plan_op = ctx.plan.ops[op_index];
+    const op = ctx.plan.ops[op_index];
     const resolved = resolveCapabilityOp(ctx.decoded.capabilities, ctx.decoded.requirement_capability_ids, ctx.plan, op_index) orelse return error.ProgramContractViolation;
     var request: host.HostEffectRequestV1 = blk: {
         const tool_id = try ctx.allocator.dupe(u8, resolved.capability.label);
         errdefer ctx.allocator.free(tool_id);
-        const op_name = try ctx.allocator.dupe(u8, plan_op.op_name);
+        const op_name = try ctx.allocator.dupe(u8, op.op_name);
         errdefer ctx.allocator.free(op_name);
-        const arguments = try programValueToDataValue(ctx.allocator, plan_op.payload_codec, payload);
+        const arguments = try programValueToDataValue(ctx.allocator, op.payload_codec, payload);
         errdefer {
             var owned_arguments = arguments;
             owned_arguments.deinit(ctx.allocator);
@@ -610,13 +592,13 @@ fn callHostOp(
 
     return switch (response.body) {
         .success => |tool_result| blk: {
-            if (!hostControlMatchesOpMode(plan_op.mode, tool_result.control)) {
+            if (!hostControlMatchesOpMode(op.mode, tool_result.control)) {
                 return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply control is incompatible with the op mode") };
             }
             break :blk switch (tool_result.control) {
                 .@"resume" => .{
                     .resumed = .{
-                        .value = dataValueToRuntimeValue(ctx.allocator, plan_op.resume_codec, tool_result.value) catch |err| switch (err) {
+                        .value = dataValueToRuntimeValue(ctx.allocator, op.resume_codec, tool_result.value) catch |err| switch (err) {
                             error.ProgramContractViolation => {
                                 return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply value does not match the declared codec") };
                             },
@@ -684,11 +666,11 @@ fn resolveCapabilityOp(
     op_index: u16,
 ) ?ResolvedCapabilityOp {
     if (op_index >= plan.ops.len) return null;
-    const plan_op = plan.ops[op_index];
-    if (plan_op.requirement_index >= requirement_capability_ids.len or plan_op.requirement_index >= plan.requirements.len) return null;
-    const requirement = plan.requirements[plan_op.requirement_index];
+    const op = plan.ops[op_index];
+    if (op.requirement_index >= requirement_capability_ids.len or op.requirement_index >= plan.requirements.len) return null;
+    const requirement = plan.requirements[op.requirement_index];
     if (op_index < requirement.first_op) return null;
-    const capability = findCapabilityById(capabilities, requirement_capability_ids[plan_op.requirement_index]) orelse return null;
+    const capability = findCapabilityById(capabilities, requirement_capability_ids[op.requirement_index]) orelse return null;
     const capability_op = findCapabilityOpByPlanOrdinalAndGlobalName(
         capability.ops,
         op_index - requirement.first_op,
@@ -707,12 +689,12 @@ fn resolveAfterCapabilityOp(
     op_index: u16,
 ) ?ResolvedCapabilityOp {
     if (op_index >= plan.ops.len) return null;
-    const plan_op = plan.ops[op_index];
-    if (plan_op.mode == .abort) return null;
-    if (plan_op.requirement_index >= requirement_capability_ids.len or plan_op.requirement_index >= plan.requirements.len) return null;
-    const requirement = plan.requirements[plan_op.requirement_index];
+    const op = plan.ops[op_index];
+    if (op.mode == .abort) return null;
+    if (op.requirement_index >= requirement_capability_ids.len or op.requirement_index >= plan.requirements.len) return null;
+    const requirement = plan.requirements[op.requirement_index];
     if (op_index < requirement.first_op) return null;
-    const capability = findCapabilityById(capabilities, requirement_capability_ids[plan_op.requirement_index]) orelse return null;
+    const capability = findCapabilityById(capabilities, requirement_capability_ids[op.requirement_index]) orelse return null;
     const capability_op = findCapabilityOpByPlanOrdinalAndGlobalName(
         capability.ops,
         op_index - requirement.first_op,
@@ -827,8 +809,8 @@ fn callHostAfterOp(
     answer: RuntimeValue,
 ) anyerror!FunctionResult {
     const resolved = resolveAfterCapabilityOp(ctx.decoded.capabilities, ctx.decoded.requirement_capability_ids, ctx.plan, op_index) orelse return error.ProgramContractViolation;
-    const plan_op = ctx.plan.ops[op_index];
-    const op_name = try afterMethodNameAlloc(ctx.allocator, plan_op.op_name);
+    const op = ctx.plan.ops[op_index];
+    const op_name = try afterMethodNameAlloc(ctx.allocator, op.op_name);
     defer ctx.allocator.free(op_name);
     var request: host.HostEffectRequestV1 = blk: {
         const tool_id = try ctx.allocator.dupe(u8, resolved.capability.label);
@@ -1704,6 +1686,7 @@ test "artifact runtime stores helper values using helper result codecs" {
                             }
                             return error.UnexpectedHostDispatch;
                         },
+                        else => return error.UnexpectedHostDispatch,
                     }
                 }
             }.dispatch,

@@ -1,6 +1,6 @@
+const fixture = @import("shift_agent_vm_fixture_spec.zig");
 const shift_agent_vm = @import("shift_agent_vm");
 const std = @import("std");
-const fixture_artifact_path = "test/fixtures/shift_agent_vm_smoke.artifact";
 
 const SeenRequest = struct {
     calls: usize = 0,
@@ -11,7 +11,7 @@ const SeenRequest = struct {
 fn loadFixtureBytes(allocator: std.mem.Allocator) ![]u8 {
     return try std.Io.Dir.cwd().readFileAlloc(
         std.Io.Threaded.global_single_threaded.io(),
-        fixture_artifact_path,
+        fixture.artifact_path,
         allocator,
         .limited(1 << 20),
     );

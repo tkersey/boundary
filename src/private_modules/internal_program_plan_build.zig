@@ -1,26 +1,6 @@
-const source_path_import_mode = @hasDecl(@import("root"), "source_path_compat_mode") or
-    @hasDecl(@import("root"), "source_path_consumer_mode");
-const effect_ir_import = if (source_path_import_mode)
-    struct {
-        const module = @import("../effect_ir.zig");
-    }
-else
-    struct {
-        const module = @import("effect_ir");
-    };
-const effect_ir = effect_ir_import.module;
-const program_frontend_import = if (source_path_import_mode)
-    struct {
-        const module = @import("../program_frontend.zig");
-    }
-else
-    struct {
-        const module = @import("program_frontend");
-    };
-const program_frontend = program_frontend_import.module;
+const effect_ir = @import("effect_ir");
+const program_frontend = @import("program_frontend");
 const std = @import("std");
-
-const source_path_compat_mode = @hasDecl(@import("root"), "source_path_compat_mode");
 
 /// Serializable value codecs admitted by the first redesign wave.
 pub const ValueCodec = enum {
@@ -1070,31 +1050,6 @@ fn rowOnlyFunctionSynthesis(
     };
 }
 
-fn countRowOnlyLocals(comptime program: effect_ir.Program) PlanError!usize {
-    var total: usize = 0;
-    for (program.functions, 0..) |_, function_index| {
-        total += (try rowOnlyFunctionSynthesis(program, function_index)).local_count;
-    }
-    return total;
-}
-
-fn countRowOnlyCallArgs(comptime program: effect_ir.Program) PlanError!usize {
-    var total: usize = 0;
-    for (program.functions, 0..) |_, function_index| {
-        total += (try rowOnlyFunctionSynthesis(program, function_index)).forwarded_arg_count;
-    }
-    return total;
-}
-
-fn countRowOnlyInstructions(comptime program: effect_ir.Program) PlanError!usize {
-    var total: usize = 0;
-    for (program.functions, 0..) |_, function_index| {
-        const synthesis = try rowOnlyFunctionSynthesis(program, function_index);
-        total += synthesis.helper_call_count + @intFromBool(synthesis.return_local != null);
-    }
-    return total;
-}
-
 /// Compute a stable hash for the full normalized IR program identity.
 pub fn irHashForProgram(comptime program: effect_ir.Program) PlanError!u64 {
     if (program.entry_index >= program.functions.len) return error.UnknownSymbol;
@@ -1197,9 +1152,28 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         for (program.functions) |function| total += function.outputs.len;
         break :blk total;
     };
-    const local_total = try countRowOnlyLocals(program);
-    const call_arg_total = try countRowOnlyCallArgs(program);
-    const instruction_total = try countRowOnlyInstructions(program);
+    const local_total = comptime blk: {
+        var total: usize = 0;
+        for (program.functions, 0..) |_, function_index| {
+            total += (try rowOnlyFunctionSynthesis(program, function_index)).local_count;
+        }
+        break :blk total;
+    };
+    const call_arg_total = comptime blk: {
+        var total: usize = 0;
+        for (program.functions, 0..) |_, function_index| {
+            total += (try rowOnlyFunctionSynthesis(program, function_index)).forwarded_arg_count;
+        }
+        break :blk total;
+    };
+    const instruction_total = comptime blk: {
+        var total: usize = 0;
+        for (program.functions, 0..) |_, function_index| {
+            const synthesis = try rowOnlyFunctionSynthesis(program, function_index);
+            total += synthesis.helper_call_count + @intFromBool(synthesis.return_local != null);
+        }
+        break :blk total;
+    };
     const ir_hash = try irHashForProgram(program);
 
     const functions = comptime blk: {
@@ -1459,100 +1433,89 @@ pub fn enrichPlanWithBindingSchemas(
     };
 }
 
-const source_path_compat_excluded_binding_tests = if (source_path_compat_mode) struct {} else struct {
-    fn expectBindingSchemaEnrichmentPreservesPlanShape() !void {
-        const base_row = comptime effect_ir.mergeRows(.{
-            effect_ir.rowFromSpec(.{
-                .state = .{
-                    .get = effect_ir.Transform(void, i32),
-                    .set = effect_ir.Transform(i32, void),
-                },
-            }),
-            effect_ir.rowFromSpec(.{
-                .writer = .{
-                    .tell = effect_ir.Transform([]const u8, void),
-                },
-            }),
-        });
-        const base_program = comptime effect_ir.Program{
-            .entry_index = 0,
-            .functions = &.{.{
-                .symbol = .{
-                    .module_path = "test/effect_schema_program_plan_enrichment.zig",
-                    .symbol_name = "runBody",
-                },
-                .row = base_row,
-                .ValueType = []const u8,
-                .outputs = &.{
-                    .{ .label = "state", .OutputType = i32 },
-                    .{ .label = "writer", .OutputType = [][]const u8 },
-                },
-            }},
-            .call_edges = &.{},
-        };
-        const base_plan = comptime blk: {
-            break :blk try planFromProgram("effect_schema.enrichment", base_program);
-        };
-        const state_family = struct {
-            const lifecycle_tag = enum {
-                abort_catch,
-                choice_policy,
-                generated_family,
-                plain_transform,
-                reader_environment,
-                resource_bracket,
-                state_cell,
-                writer_accumulator,
-            }.state_cell;
-            const output = enum {
-                accumulator,
-                custom_finalizer,
-                final_state,
-                none,
-            }.final_state;
-        };
-        const writer_family = struct {
-            const lifecycle_tag = enum {
-                abort_catch,
-                choice_policy,
-                generated_family,
-                plain_transform,
-                reader_environment,
-                resource_bracket,
-                state_cell,
-                writer_accumulator,
-            }.writer_accumulator;
-            const output = enum {
-                accumulator,
-                custom_finalizer,
-                final_state,
-                none,
-            }.accumulator;
-        };
-        const enriched = enrichPlanWithBindingSchemas(base_plan, .{
-            struct {
-                const requirement_label = "state";
-                const family = state_family;
+test "binding schema enrichment preserves plan shape while attaching lifecycle metadata" {
+    const base_row = effect_ir.mergeRows(.{
+        effect_ir.rowFromSpec(.{
+            .state = .{
+                .get = effect_ir.Transform(void, i32),
+                .set = effect_ir.Transform(i32, void),
             },
-            struct {
-                const requirement_label = "writer";
-                const family = writer_family;
+        }),
+        effect_ir.rowFromSpec(.{
+            .writer = .{
+                .tell = effect_ir.Transform([]const u8, void),
             },
-        });
+        }),
+    });
+    const base_program = effect_ir.Program{
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol = .{
+                .module_path = "test/effect_schema_program_plan_enrichment.zig",
+                .symbol_name = "runBody",
+            },
+            .row = base_row,
+            .ValueType = []const u8,
+            .outputs = &.{
+                .{ .label = "state", .OutputType = i32 },
+                .{ .label = "writer", .OutputType = [][]const u8 },
+            },
+        }},
+        .call_edges = &.{},
+    };
+    const base_plan = try planFromProgram("effect_schema.enrichment", base_program);
+    const state_family = struct {
+        const lifecycle_tag = enum {
+            abort_catch,
+            choice_policy,
+            generated_family,
+            plain_transform,
+            reader_environment,
+            resource_bracket,
+            state_cell,
+            writer_accumulator,
+        }.state_cell;
+        const output = enum {
+            accumulator,
+            custom_finalizer,
+            final_state,
+            none,
+        }.final_state;
+    };
+    const writer_family = struct {
+        const lifecycle_tag = enum {
+            abort_catch,
+            choice_policy,
+            generated_family,
+            plain_transform,
+            reader_environment,
+            resource_bracket,
+            state_cell,
+            writer_accumulator,
+        }.writer_accumulator;
+        const output = enum {
+            accumulator,
+            custom_finalizer,
+            final_state,
+            none,
+        }.accumulator;
+    };
+    const enriched = enrichPlanWithBindingSchemas(base_plan, .{
+        struct {
+            const requirement_label = "state";
+            const family = state_family;
+        },
+        struct {
+            const requirement_label = "writer";
+            const family = writer_family;
+        },
+    });
 
-        try std.testing.expectEqual(base_plan.requirements.len, enriched.requirements.len);
-        try std.testing.expectEqual(RequirementLifecycleTag.state_cell, enriched.requirements[0].lifecycle_tag);
-        try std.testing.expectEqual(RequirementOutputTag.final_state, enriched.requirements[0].output_tag);
-        try std.testing.expectEqual(RequirementLifecycleTag.writer_accumulator, enriched.requirements[1].lifecycle_tag);
-        try std.testing.expectEqual(RequirementOutputTag.accumulator, enriched.requirements[1].output_tag);
-    }
-
-    test "binding schema enrichment preserves plan shape while attaching lifecycle metadata" {
-        try expectBindingSchemaEnrichmentPreservesPlanShape();
-    }
-};
-comptime {
-    _ = source_path_compat_excluded_binding_tests;
+    try std.testing.expectEqual(base_plan.requirements.len, enriched.requirements.len);
+    try std.testing.expectEqual(RequirementLifecycleTag.state_cell, enriched.requirements[0].lifecycle_tag);
+    try std.testing.expectEqual(RequirementOutputTag.final_state, enriched.requirements[0].output_tag);
+    try std.testing.expectEqual(RequirementLifecycleTag.writer_accumulator, enriched.requirements[1].lifecycle_tag);
+    try std.testing.expectEqual(RequirementOutputTag.accumulator, enriched.requirements[1].output_tag);
 }
 
 /// Lower one body-bearing open-row program into a runtime-owned executable plan shape.
@@ -1828,7 +1791,7 @@ test "planFromProgram lowers one simple state-writer IR shell into a runtime-own
     comptime {
         @setEvalBranchQuota(20_000);
     }
-    const row = comptime effect_ir.mergeRows(.{
+    const row = effect_ir.mergeRows(.{
         effect_ir.rowFromSpec(.{
             .state = .{
                 .get = effect_ir.Transform(void, i32),
@@ -1874,7 +1837,7 @@ test "planFromProgram hashes the whole program and makes helper calls self-conta
     comptime {
         @setEvalBranchQuota(20_000);
     }
-    const shared_row = comptime effect_ir.rowFromSpec(.{
+    const shared_row = effect_ir.rowFromSpec(.{
         .state = .{
             .get = effect_ir.Transform(void, i32),
         },
@@ -1887,7 +1850,7 @@ test "planFromProgram hashes the whole program and makes helper calls self-conta
         .module_path = "examples/workflow.zig",
         .symbol_name = "root",
     };
-    const program = comptime effect_ir.Program{
+    const program = effect_ir.Program{
         .functions = &.{
             .{
                 .symbol = root_symbol,
@@ -1935,7 +1898,7 @@ test "planFromOpenRowProgram preserves row-only helper call plans" {
     comptime {
         @setEvalBranchQuota(20_000);
     }
-    const shared_row = comptime effect_ir.rowFromSpec(.{
+    const shared_row = effect_ir.rowFromSpec(.{
         .state = .{
             .get = effect_ir.Transform(void, i32),
         },
@@ -1948,7 +1911,7 @@ test "planFromOpenRowProgram preserves row-only helper call plans" {
         .module_path = "examples/workflow.zig",
         .symbol_name = "root",
     };
-    const lowered = comptime program_frontend.LoweredOpenRowProgram{
+    const lowered = program_frontend.LoweredOpenRowProgram{
         .entry_index = 0,
         .functions = &.{
             .{
@@ -1972,22 +1935,7 @@ test "planFromOpenRowProgram preserves row-only helper call plans" {
     const row_only_plan = comptime try planFromProgram("example.workflow", lowered.asEffectProgram());
     const open_row_plan = comptime try planFromOpenRowProgram("example.workflow", lowered);
 
-    try std.testing.expectEqual(row_only_plan.schema_version, open_row_plan.schema_version);
-    try std.testing.expectEqual(row_only_plan.ir_hash, open_row_plan.ir_hash);
-    try std.testing.expectEqual(row_only_plan.entry_index, open_row_plan.entry_index);
-    try std.testing.expectEqual(row_only_plan.functions.len, open_row_plan.functions.len);
-    try std.testing.expectEqual(row_only_plan.requirements.len, open_row_plan.requirements.len);
-    try std.testing.expectEqual(row_only_plan.ops.len, open_row_plan.ops.len);
-    try std.testing.expectEqual(row_only_plan.outputs.len, open_row_plan.outputs.len);
-    try std.testing.expectEqual(row_only_plan.locals.len, open_row_plan.locals.len);
-    try std.testing.expectEqual(row_only_plan.call_args.len, open_row_plan.call_args.len);
-    try std.testing.expectEqual(row_only_plan.blocks.len, open_row_plan.blocks.len);
-    try std.testing.expectEqual(row_only_plan.terminators.len, open_row_plan.terminators.len);
-    try std.testing.expectEqual(row_only_plan.instructions.len, open_row_plan.instructions.len);
-    try std.testing.expectEqualStrings(row_only_plan.functions[0].symbol_name, open_row_plan.functions[0].symbol_name);
-    try std.testing.expectEqual(row_only_plan.functions[0].instruction_count, open_row_plan.functions[0].instruction_count);
-    try std.testing.expectEqual(row_only_plan.instructions[0].kind, open_row_plan.instructions[0].kind);
-    try std.testing.expectEqualStrings(row_only_plan.ops[0].op_name, open_row_plan.ops[0].op_name);
+    try std.testing.expectEqualDeep(row_only_plan, open_row_plan);
 }
 
 test "ProgramPlan.validate rejects out-of-range helper targets" {

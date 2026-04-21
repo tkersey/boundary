@@ -1,15 +1,5 @@
-const source_path_import_mode = @hasDecl(@import("root"), "source_path_compat_mode") or
-    @hasDecl(@import("root"), "source_path_consumer_mode");
-const kernel_import = if (source_path_import_mode)
-    struct {
-        const module = @import("internal_kernel.zig");
-    }
-else
-    struct {
-        const module = @import("internal_kernel");
-    };
-const kernel = kernel_import.module;
-const portable_core = @import("./portable_core.zig");
+const kernel = @import("internal_kernel");
+const portable_core = @import("portable_core");
 const std = @import("std");
 
 /// Public runtime misuse and semantic-contract errors surfaced by `shift`.
