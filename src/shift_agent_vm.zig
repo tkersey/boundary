@@ -252,39 +252,9 @@ fn responseToInternal(
     response: host.Response,
 ) !host_api.HostEffectResultV1 {
     return switch (response) {
-        .resumed => |value| .{
-            .request_id = value.request_id,
-            .body = .{ .success = .{
-                .tool_id = try allocator.dupe(u8, value.tool_id),
-                .call_id = value.call_id,
-                .control = .@"resume",
-                .value = try value.value.clone(allocator),
-                .owns_tool_id = true,
-                .value_ownership = .deep,
-            } },
-        },
-        .return_now => |value| .{
-            .request_id = value.request_id,
-            .body = .{ .success = .{
-                .tool_id = try allocator.dupe(u8, value.tool_id),
-                .call_id = value.call_id,
-                .control = .return_now,
-                .value = try value.value.clone(allocator),
-                .owns_tool_id = true,
-                .value_ownership = .deep,
-            } },
-        },
-        .aborted => |value| .{
-            .request_id = value.request_id,
-            .body = .{ .success = .{
-                .tool_id = try allocator.dupe(u8, value.tool_id),
-                .call_id = value.call_id,
-                .control = .abort,
-                .value = try value.value.clone(allocator),
-                .owns_tool_id = true,
-                .value_ownership = .deep,
-            } },
-        },
+        .resumed => |value| try cloneSuccessResult(allocator, value.request_id, .@"resume", value),
+        .return_now => |value| try cloneSuccessResult(allocator, value.request_id, .return_now, value),
+        .aborted => |value| try cloneSuccessResult(allocator, value.request_id, .abort, value),
         .rejected => |value| .{
             .request_id = request_id,
             .body = .{ .rejected = try value.clone(allocator) },
@@ -293,6 +263,32 @@ fn responseToInternal(
             .request_id = request_id,
             .body = .{ .failed = try value.clone(allocator) },
         },
+    };
+}
+
+fn cloneSuccessResult(
+    allocator: std.mem.Allocator,
+    request_id: u64,
+    control: host_api.ToolControlV1,
+    value: anytype,
+) !host_api.HostEffectResultV1 {
+    const tool_id = try allocator.dupe(u8, value.tool_id);
+    errdefer allocator.free(tool_id);
+    const cloned_value = try value.value.clone(allocator);
+    errdefer {
+        var owned_value = cloned_value;
+        owned_value.deinit(allocator);
+    }
+    return .{
+        .request_id = request_id,
+        .body = .{ .success = .{
+            .tool_id = tool_id,
+            .call_id = value.call_id,
+            .control = control,
+            .value = cloned_value,
+            .owns_tool_id = true,
+            .value_ownership = .deep,
+        } },
     };
 }
 
@@ -356,4 +352,38 @@ test "response bridge preserves request ids for failed responses" {
         },
         else => return error.TestUnexpectedResponseKind,
     }
+}
+
+fn expectResponseBridgeClonesToolIdWithoutLeaksOnAllocationFailure(allocator: std.mem.Allocator) !void {
+    var response: host.Response = .{ .resumed = .{
+        .request_id = 41,
+        .tool_id = "generated/tooling@v1",
+        .call_id = 7,
+        .value = .{ .string = "value" },
+    } };
+    defer response.deinit(std.testing.allocator);
+
+    var bridged = try responseToInternal(allocator, 41, response);
+    defer bridged.deinit(allocator);
+
+    try std.testing.expectEqual(@as(u64, 41), bridged.request_id);
+    switch (bridged.body) {
+        .success => |success| {
+            try std.testing.expectEqual(.@"resume", success.control);
+            try std.testing.expectEqualStrings("generated/tooling@v1", success.tool_id);
+            switch (success.value) {
+                .string => |string_value| try std.testing.expectEqualStrings("value", string_value),
+                else => return error.TestUnexpectedPayload,
+            }
+        },
+        else => return error.TestUnexpectedResponseKind,
+    }
+}
+
+test "response bridge frees duplicated tool ids on allocation failure" {
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        expectResponseBridgeClonesToolIdWithoutLeaksOnAllocationFailure,
+        .{},
+    );
 }
