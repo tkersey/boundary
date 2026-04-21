@@ -272,6 +272,9 @@ fn cloneSuccessResult(
     control: host_api.ToolControlV1,
     value: anytype,
 ) !host_api.HostEffectResultV1 {
+    if (value.request_id != request_id) {
+        return invalidHostReplyResult(allocator, request_id, "host reply request_id must echo the request");
+    }
     const tool_id = try allocator.dupe(u8, value.tool_id);
     errdefer allocator.free(tool_id);
     const cloned_value = try value.value.clone(allocator);
@@ -288,6 +291,25 @@ fn cloneSuccessResult(
             .value = cloned_value,
             .owns_tool_id = true,
             .value_ownership = .deep,
+        } },
+    };
+}
+
+fn invalidHostReplyResult(
+    allocator: std.mem.Allocator,
+    request_id: u64,
+    message: []const u8,
+) !host_api.HostEffectResultV1 {
+    const code = try allocator.dupe(u8, "invalid_host_reply");
+    errdefer allocator.free(code);
+    const owned_message = try allocator.dupe(u8, message);
+    return .{
+        .request_id = request_id,
+        .body = .{ .failed = .{
+            .code = code,
+            .message = owned_message,
+            .owns_code = true,
+            .owns_message = true,
         } },
     };
 }
@@ -354,7 +376,59 @@ test "response bridge preserves request ids for failed responses" {
     }
 }
 
-fn expectResponseBridgeSuccessPreservesOuterRequestId(kind: enum { aborted, resumed, return_now }) !void {
+fn expectResponseBridgeSuccessRequiresMatchingRequestId(kind: enum { aborted, resumed, return_now }) !void {
+    const request_id: u64 = 41;
+    var response: host.Response = switch (kind) {
+        .resumed => .{ .resumed = .{
+            .request_id = request_id,
+            .tool_id = "generated/tooling@v1",
+            .call_id = 7,
+            .value = .{ .string = "value" },
+        } },
+        .return_now => .{ .return_now = .{
+            .request_id = request_id,
+            .tool_id = "generated/tooling@v1",
+            .call_id = 7,
+            .value = .{ .string = "value" },
+        } },
+        .aborted => .{ .aborted = .{
+            .request_id = request_id,
+            .tool_id = "generated/tooling@v1",
+            .call_id = 7,
+            .value = .{ .string = "value" },
+        } },
+    };
+    defer response.deinit(std.testing.allocator);
+
+    var bridged = try responseToInternal(std.testing.allocator, request_id, response);
+    defer bridged.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(request_id, bridged.request_id);
+    switch (bridged.body) {
+        .success => |success| {
+            const expected_control: host_api.ToolControlV1 = switch (kind) {
+                .resumed => .@"resume",
+                .return_now => .return_now,
+                .aborted => .abort,
+            };
+            try std.testing.expectEqual(expected_control, success.control);
+            try std.testing.expectEqualStrings("generated/tooling@v1", success.tool_id);
+            switch (success.value) {
+                .string => |string_value| try std.testing.expectEqualStrings("value", string_value),
+                else => return error.TestUnexpectedPayload,
+            }
+        },
+        else => return error.TestUnexpectedResponseKind,
+    }
+}
+
+test "response bridge preserves matching request ids for success responses" {
+    try expectResponseBridgeSuccessRequiresMatchingRequestId(.resumed);
+    try expectResponseBridgeSuccessRequiresMatchingRequestId(.return_now);
+    try expectResponseBridgeSuccessRequiresMatchingRequestId(.aborted);
+}
+
+fn expectResponseBridgeRejectsMismatchedSuccessRequestId(kind: enum { aborted, resumed, return_now }) !void {
     const outer_request_id: u64 = 41;
     const responder_request_id: u64 = 99;
     var response: host.Response = switch (kind) {
@@ -384,32 +458,23 @@ fn expectResponseBridgeSuccessPreservesOuterRequestId(kind: enum { aborted, resu
 
     try std.testing.expectEqual(outer_request_id, bridged.request_id);
     switch (bridged.body) {
-        .success => |success| {
-            const expected_control: host_api.ToolControlV1 = switch (kind) {
-                .resumed => .@"resume",
-                .return_now => .return_now,
-                .aborted => .abort,
-            };
-            try std.testing.expectEqual(expected_control, success.control);
-            try std.testing.expectEqualStrings("generated/tooling@v1", success.tool_id);
-            switch (success.value) {
-                .string => |string_value| try std.testing.expectEqualStrings("value", string_value),
-                else => return error.TestUnexpectedPayload,
-            }
+        .failed => |failure| {
+            try std.testing.expectEqualStrings("invalid_host_reply", failure.code);
+            try std.testing.expectEqualStrings("host reply request_id must echo the request", failure.message);
         },
         else => return error.TestUnexpectedResponseKind,
     }
 }
 
-test "response bridge preserves outer request ids for success responses" {
-    try expectResponseBridgeSuccessPreservesOuterRequestId(.resumed);
-    try expectResponseBridgeSuccessPreservesOuterRequestId(.return_now);
-    try expectResponseBridgeSuccessPreservesOuterRequestId(.aborted);
+test "response bridge rejects mismatched request ids for success responses" {
+    try expectResponseBridgeRejectsMismatchedSuccessRequestId(.resumed);
+    try expectResponseBridgeRejectsMismatchedSuccessRequestId(.return_now);
+    try expectResponseBridgeRejectsMismatchedSuccessRequestId(.aborted);
 }
 
 fn expectResponseBridgeClonesToolIdWithoutLeaksOnAllocationFailure(allocator: std.mem.Allocator) !void {
     var response: host.Response = .{ .resumed = .{
-        .request_id = 99,
+        .request_id = 41,
         .tool_id = "generated/tooling@v1",
         .call_id = 7,
         .value = .{ .string = "value" },

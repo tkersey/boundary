@@ -72,3 +72,49 @@ test "shift_agent_vm public smoke executes artifact bytes through the supported 
         else => return error.TestUnexpectedRuntimeResult,
     }
 }
+
+test "shift_agent_vm public smoke rejects mismatched success request ids" {
+    const allocator = std.testing.allocator;
+    const bytes = try loadFixtureBytes(allocator);
+    defer allocator.free(bytes);
+
+    var seen_calls: usize = 0;
+    const adapter: shift_agent_vm.host.Adapter = .{
+        .ctx = &seen_calls,
+        .dispatchFn = struct {
+            fn dispatch(
+                ctx_ptr: ?*anyopaque,
+                allocator_inner: std.mem.Allocator,
+                request: shift_agent_vm.host.Request,
+            ) anyerror!shift_agent_vm.host.Response {
+                const seen_calls_ptr: *usize = @ptrCast(@alignCast(ctx_ptr.?));
+                switch (request) {
+                    .call => |tool_call| {
+                        seen_calls_ptr.* += 1;
+                        return .{ .resumed = .{
+                            .request_id = tool_call.request_id + 1,
+                            .tool_id = try allocator_inner.dupe(u8, tool_call.tool_id),
+                            .call_id = tool_call.request_id,
+                            .value = .null,
+                            .owns_tool_id = true,
+                        } };
+                    },
+                    else => return error.TestUnexpectedRequestKind,
+                }
+            }
+        }.dispatch,
+    };
+
+    var result = try shift_agent_vm.runtime.runArtifact(allocator, bytes, adapter);
+    defer result.deinit(allocator);
+
+    switch (result) {
+        .failed => |failure| {
+            try std.testing.expectEqual(@as(usize, 1), seen_calls);
+            try std.testing.expectEqualStrings("invalid_host_reply", failure.failure.code);
+            try std.testing.expectEqualStrings("host reply request_id must echo the request", failure.failure.message);
+            try std.testing.expectEqual(@as(usize, 1), failure.logs.len);
+        },
+        else => return error.TestUnexpectedRuntimeResult,
+    }
+}
