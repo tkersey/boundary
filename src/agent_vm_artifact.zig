@@ -220,7 +220,7 @@ fn isReservedOptionalSectionId(raw_section_id: u16) bool {
 
 fn supportedArtifactVersion(version: u16) bool {
     return switch (version) {
-        artifact_format_version_v3 => true,
+        artifact_format_version_v2, artifact_format_version_v3 => true,
         else => false,
     };
 }
@@ -1266,6 +1266,8 @@ fn validateRequirementCapabilityMappings(
 ) !void {
     if (plan.requirements.len != capability_ids.len) return error.InvalidRequiredSection;
     for (capability_ids, 0..) |capability_id, requirement_index| {
+        const expected_capability_id = try resolveRequirementCapabilityId(plan, requirement_index, capabilities);
+        if (capability_id != expected_capability_id) return error.InvalidRequiredSection;
         const capability = findCapabilityById(capabilities, capability_id) orelse return error.InvalidRequiredSection;
         if (!toolCapabilityMatchesRequirement(plan, requirement_index, capability)) return error.InvalidRequiredSection;
         other_capability_loop: for (capability_ids[requirement_index + 1 ..], requirement_index + 1..) |other_capability_id, other_requirement_index| {
@@ -2264,6 +2266,7 @@ test "ArtifactV1 decode accepts v2 function rows with explicit result_codec byte
     });
     defer std.testing.allocator.free(encoded);
 
+    patchArtifactVersion(encoded, artifact_format_version_v2);
     patchSectionReservedByte(encoded, .function_table, 0, 9, 1);
     patchSectionReservedByte(encoded, .function_table, 0, 10, @intFromEnum(program_plan.ValueCodec.string));
 
@@ -4130,6 +4133,83 @@ test "ArtifactV1 encode allows repeated identical requirements to share one capa
 
     try std.testing.expectEqualSlices(u16, &.{ 11, 11 }, decoded.requirement_capability_ids);
     try decoded.validate(std.testing.allocator);
+}
+
+test "ArtifactV1 decode rejects repeated identical requirements rebound to a different compatible capability id" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-repeated-identical-requirement-rebound-capability");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.repeated_identical_requirement_rebound_capability",
+        .ir_hash = 0xb18,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 2,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{
+            .{ .label = "tooling", .first_op = 0, .op_count = 1 },
+            .{ .label = "tooling", .first_op = 1, .op_count = 1 },
+        },
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "value", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+            .{ .requirement_index = 1, .op_name = "value", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+        },
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const capabilities = [_]CapabilityV1{
+        .{
+            .capability_id = 11,
+            .kind = .tool,
+            .label = "generated/tooling@v1",
+            .ops = &.{.{
+                .capability_id = 11,
+                .op_id = 0,
+                .host_op_kind = .call,
+                .payload_codec = .unit,
+                .result_codec = .string,
+                .plan_op_ordinal = 0,
+            }},
+        },
+        .{
+            .capability_id = 29,
+            .kind = .tool,
+            .label = "generated/tooling@v1",
+            .ops = &.{.{
+                .capability_id = 29,
+                .op_id = 1,
+                .host_op_kind = .call,
+                .payload_codec = .unit,
+                .result_codec = .string,
+                .plan_op_ordinal = 0,
+            }},
+        },
+    };
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    });
+    defer std.testing.allocator.free(encoded);
+
+    patchRequirementCapabilityId(encoded, 1, 29);
+
+    try std.testing.expectError(error.InvalidRequiredSection, decode(std.testing.allocator, encoded));
 }
 
 test "ArtifactV1 encode accepts repeated requirement labels when codecs choose distinct capabilities" {

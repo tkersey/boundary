@@ -252,9 +252,9 @@ fn responseToInternal(
     response: host.Response,
 ) !host_api.HostEffectResultV1 {
     return switch (response) {
-        .resumed => |value| try cloneSuccessResult(allocator, value.request_id, .@"resume", value),
-        .return_now => |value| try cloneSuccessResult(allocator, value.request_id, .return_now, value),
-        .aborted => |value| try cloneSuccessResult(allocator, value.request_id, .abort, value),
+        .resumed => |value| try cloneSuccessResult(allocator, request_id, .@"resume", value),
+        .return_now => |value| try cloneSuccessResult(allocator, request_id, .return_now, value),
+        .aborted => |value| try cloneSuccessResult(allocator, request_id, .abort, value),
         .rejected => |value| .{
             .request_id = request_id,
             .body = .{ .rejected = try value.clone(allocator) },
@@ -354,9 +354,62 @@ test "response bridge preserves request ids for failed responses" {
     }
 }
 
+fn expectResponseBridgeSuccessPreservesOuterRequestId(kind: enum { aborted, resumed, return_now }) !void {
+    const outer_request_id: u64 = 41;
+    const responder_request_id: u64 = 99;
+    var response: host.Response = switch (kind) {
+        .resumed => .{ .resumed = .{
+            .request_id = responder_request_id,
+            .tool_id = "generated/tooling@v1",
+            .call_id = 7,
+            .value = .{ .string = "value" },
+        } },
+        .return_now => .{ .return_now = .{
+            .request_id = responder_request_id,
+            .tool_id = "generated/tooling@v1",
+            .call_id = 7,
+            .value = .{ .string = "value" },
+        } },
+        .aborted => .{ .aborted = .{
+            .request_id = responder_request_id,
+            .tool_id = "generated/tooling@v1",
+            .call_id = 7,
+            .value = .{ .string = "value" },
+        } },
+    };
+    defer response.deinit(std.testing.allocator);
+
+    var bridged = try responseToInternal(std.testing.allocator, outer_request_id, response);
+    defer bridged.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(outer_request_id, bridged.request_id);
+    switch (bridged.body) {
+        .success => |success| {
+            const expected_control: host_api.ToolControlV1 = switch (kind) {
+                .resumed => .@"resume",
+                .return_now => .return_now,
+                .aborted => .abort,
+            };
+            try std.testing.expectEqual(expected_control, success.control);
+            try std.testing.expectEqualStrings("generated/tooling@v1", success.tool_id);
+            switch (success.value) {
+                .string => |string_value| try std.testing.expectEqualStrings("value", string_value),
+                else => return error.TestUnexpectedPayload,
+            }
+        },
+        else => return error.TestUnexpectedResponseKind,
+    }
+}
+
+test "response bridge preserves outer request ids for success responses" {
+    try expectResponseBridgeSuccessPreservesOuterRequestId(.resumed);
+    try expectResponseBridgeSuccessPreservesOuterRequestId(.return_now);
+    try expectResponseBridgeSuccessPreservesOuterRequestId(.aborted);
+}
+
 fn expectResponseBridgeClonesToolIdWithoutLeaksOnAllocationFailure(allocator: std.mem.Allocator) !void {
     var response: host.Response = .{ .resumed = .{
-        .request_id = 41,
+        .request_id = 99,
         .tool_id = "generated/tooling@v1",
         .call_id = 7,
         .value = .{ .string = "value" },
