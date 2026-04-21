@@ -38,6 +38,12 @@ pub const CapabilityCodecV1 = enum(u8) {
     usize = 7,
 };
 
+/// Structural host operation kind carried by ArtifactV1 capability rows.
+pub const HostOpKind = enum(u8) {
+    after_call = 2,
+    call = 1,
+};
+
 /// One string-table reference inside ArtifactV1.
 pub const StringRef = struct {
     offset: u32,
@@ -57,7 +63,7 @@ pub const SectionDirectoryEntryV1 = struct {
 pub const CapabilityOpV1 = struct {
     capability_id: u16,
     op_id: u16,
-    global_op_name: []const u8,
+    host_op_kind: HostOpKind,
     payload_codec: CapabilityCodecV1,
     result_codec: CapabilityCodecV1,
     plan_op_ordinal: u16,
@@ -78,14 +84,13 @@ pub const CapabilityManifestV1 = struct {
     capabilities: []const CapabilityV1,
 };
 
-const capability_global_tool_call = "tool.call";
-const capability_global_tool_after = "tool.after";
 const artifact_magic = "SFTARTV1";
 const artifact_header_len: usize = 72;
 const artifact_directory_entry_len: usize = 32;
 const artifact_format_version_v1: u16 = 1;
 const artifact_format_version_v2: u16 = 2;
-const artifact_version_current: u16 = artifact_format_version_v2;
+const artifact_format_version_v3: u16 = 3;
+const artifact_version_current: u16 = artifact_format_version_v3;
 
 const section_optional_flag: u16 = 0x1;
 const capability_required_flag: u8 = 0x1;
@@ -215,8 +220,15 @@ fn isReservedOptionalSectionId(raw_section_id: u16) bool {
 
 fn supportedArtifactVersion(version: u16) bool {
     return switch (version) {
-        artifact_format_version_v1, artifact_format_version_v2 => true,
+        artifact_format_version_v3 => true,
         else => false,
+    };
+}
+
+fn hostOpKindName(kind: HostOpKind) []const u8 {
+    return switch (kind) {
+        .call => "call",
+        .after_call => "after_call",
     };
 }
 
@@ -313,7 +325,7 @@ pub fn deriveToolCapabilitiesFromPlan(
             ops[op_index] = .{
                 .capability_id = @intCast(index),
                 .op_id = @intCast(op_index),
-                .global_op_name = try allocator.dupe(u8, capability_global_tool_call),
+                .host_op_kind = .call,
                 .payload_codec = mapPlanCodecToCapabilityCodec(op.payload_codec),
                 .result_codec = mapPlanCodecToCapabilityCodec(try capabilityResultCodecForOp(plan, op_start + op_index)),
                 .plan_op_ordinal = @intCast(op_index),
@@ -329,7 +341,7 @@ pub fn deriveToolCapabilitiesFromPlan(
             ops[initialized_ops] = .{
                 .capability_id = @intCast(index),
                 .op_id = @intCast(next_after_op_id),
-                .global_op_name = try allocator.dupe(u8, capability_global_tool_after),
+                .host_op_kind = .after_call,
                 .payload_codec = mapPlanCodecToCapabilityCodec(after_payload_codec),
                 .result_codec = mapPlanCodecToCapabilityCodec(after_result_codec),
                 .plan_op_ordinal = @intCast(op_index),
@@ -652,7 +664,7 @@ pub fn disasmAlloc(allocator: std.mem.Allocator, bytes: []const u8) anyerror![]u
             try appendFmt(&out, allocator, "  op id={d} ordinal={d} name={s} payload={s} result={s}\n", .{
                 op.op_id,
                 op.plan_op_ordinal,
-                op.global_op_name,
+                hostOpKindName(op.host_op_kind),
                 @tagName(op.payload_codec),
                 @tagName(op.result_codec),
             });
@@ -694,16 +706,11 @@ fn validateManifest(build_fingerprint: [32]u8, capabilities: []const CapabilityV
         try validateToolIdV1(capability.label);
         for (capability.ops, 0..) |op, op_index| {
             if (op.capability_id != capability.capability_id) return error.DuplicateCapabilityOpId;
-            if (!std.mem.eql(u8, op.global_op_name, capability_global_tool_call) and
-                !std.mem.eql(u8, op.global_op_name, capability_global_tool_after))
-            {
-                return error.UnsupportedVersion;
-            }
             if (op.plan_op_ordinal >= capability.ops.len) return error.InvalidRequiredSection;
             for (capability.ops[(op_index + 1)..]) |other_op| {
                 if (op.op_id == other_op.op_id) return error.DuplicateCapabilityOpId;
                 if (op.plan_op_ordinal == other_op.plan_op_ordinal and
-                    std.mem.eql(u8, op.global_op_name, other_op.global_op_name))
+                    op.host_op_kind == other_op.host_op_kind)
                 {
                     return error.InvalidRequiredSection;
                 }
@@ -803,16 +810,15 @@ fn decodeCapabilityManifest(allocator: std.mem.Allocator, string_bytes: []const 
         const ops = try allocator.alloc(CapabilityOpV1, op_count_for_capability);
         errdefer allocator.free(ops);
         var initialized_op_count: usize = 0;
-        errdefer for (ops[0..initialized_op_count]) |op| allocator.free(op.global_op_name);
-
         var op_cursor = @as(usize, first_op) * 16;
         for (ops) |*op| {
             if (op_cursor + 16 > op_bytes.len) return error.InvalidDirectoryBounds;
             const plan_op_ordinal = readU16(op_bytes, op_cursor + 14);
+            for (op_bytes[op_cursor + 5 .. op_cursor + 12]) |byte| if (byte != 0) return error.NonZeroReserved;
             op.* = .{
                 .capability_id = readU16(op_bytes, op_cursor),
                 .op_id = readU16(op_bytes, op_cursor + 2),
-                .global_op_name = try readStringRefDup(allocator, string_bytes, op_bytes[op_cursor + 4 .. op_cursor + 12]),
+                .host_op_kind = std.enums.fromInt(HostOpKind, op_bytes[op_cursor + 4]) orelse return error.UnsupportedVersion,
                 .payload_codec = std.enums.fromInt(CapabilityCodecV1, op_bytes[op_cursor + 12]) orelse return error.UnsupportedVersion,
                 .result_codec = std.enums.fromInt(CapabilityCodecV1, op_bytes[op_cursor + 13]) orelse return error.UnsupportedVersion,
                 .plan_op_ordinal = plan_op_ordinal,
@@ -865,10 +871,10 @@ fn encodeCapabilityManifest(allocator: std.mem.Allocator, strings: *StringTable,
     }
     for (manifest.capabilities) |capability| {
         for (capability.ops) |op| {
-            const op_name_ref = try strings.add(op.global_op_name);
             try appendU16(&out, allocator, op.capability_id);
             try appendU16(&out, allocator, op.op_id);
-            try encodeStringRef(&out, allocator, op_name_ref);
+            try out.append(allocator, @intFromEnum(op.host_op_kind));
+            try out.appendNTimes(allocator, 0, 7);
             try out.append(allocator, @intFromEnum(op.payload_codec));
             try out.append(allocator, @intFromEnum(op.result_codec));
             try appendU16(&out, allocator, op.plan_op_ordinal);
@@ -881,7 +887,7 @@ fn hashCapabilityFingerprintSections(manifest_bytes: []const u8, string_bytes: [
     var hasher = std.crypto.hash.Blake3.init(.{});
     var len_bytes = std.mem.zeroes([8]u8);
 
-    hasher.update("shift-artifact-v1-capability-fingerprint-v2");
+    hasher.update("shift-artifact-v1-capability-fingerprint-v3");
     std.mem.writeInt(u64, &len_bytes, manifest_bytes.len, .little);
     hasher.update(&len_bytes);
     hasher.update(manifest_bytes);
@@ -1146,12 +1152,12 @@ fn toolCapabilityMatchesRequirement(plan: program_plan.ProgramPlan, requirement_
         const capability_op = findCapabilityOpByPlanOrdinalAndGlobalName(
             capability.ops,
             @intCast(op_offset),
-            capability_global_tool_call,
+            .call,
         ) orelse return false;
         if (capability_op.payload_codec != mapPlanCodecToCapabilityCodec(plan_op.payload_codec)) return false;
         const expected_result_codec = capabilityResultCodecForOp(plan, op_start + op_offset) catch return false;
         if (capability_op.result_codec != mapPlanCodecToCapabilityCodec(expected_result_codec)) return false;
-        const matched_after_op = findCapabilityOpByPlanOrdinalAndGlobalName(capability.ops, @intCast(op_offset), capability_global_tool_after);
+        const matched_after_op = findCapabilityOpByPlanOrdinalAndGlobalName(capability.ops, @intCast(op_offset), .after_call);
         if (plan_op.has_after) {
             const after_op = matched_after_op orelse return false;
             const after_payload_codec = afterCapabilityPayloadCodecForOp(plan, @intCast(op_start + op_offset)) orelse return false;
@@ -1245,10 +1251,10 @@ fn generatedToolIdMatchesRequirementLabel(tool_id: []const u8, requirement_label
 fn findCapabilityOpByPlanOrdinalAndGlobalName(
     ops: []const CapabilityOpV1,
     plan_op_ordinal: u16,
-    global_op_name: []const u8,
+    host_op_kind: HostOpKind,
 ) ?CapabilityOpV1 {
     for (ops) |op| {
-        if (op.plan_op_ordinal == plan_op_ordinal and std.mem.eql(u8, op.global_op_name, global_op_name)) return op;
+        if (op.plan_op_ordinal == plan_op_ordinal and op.host_op_kind == host_op_kind) return op;
     }
     return null;
 }
@@ -1436,7 +1442,7 @@ fn decodeFunctionTable(
                 for (bytes[cursor + 9 .. cursor + 12]) |byte| if (byte != 0) return error.NonZeroReserved;
                 break :blk null;
             },
-            artifact_format_version_v2 => blk: {
+            artifact_format_version_v2, artifact_format_version_v3 => blk: {
                 const has_result_codec = switch (bytes[cursor + 9]) {
                     0 => false,
                     1 => true,
@@ -1522,14 +1528,14 @@ fn decodeInstructionKind(raw_kind: u8, artifact_version: u16) !program_plan.Inst
             7 => .sub_one,
             else => error.UnsupportedVersion,
         },
-        artifact_format_version_v2 => std.enums.fromInt(program_plan.InstructionKind, raw_kind) orelse error.UnsupportedVersion,
+        artifact_format_version_v2, artifact_format_version_v3 => std.enums.fromInt(program_plan.InstructionKind, raw_kind) orelse error.UnsupportedVersion,
         else => error.UnsupportedVersion,
     };
 }
 
 fn encodeInstructionKind(kind: program_plan.InstructionKind, artifact_version: u16) u8 {
     return switch (artifact_version) {
-        artifact_format_version_v2 => switch (kind) {
+        artifact_format_version_v2, artifact_format_version_v3 => switch (kind) {
             .add_const_i32 => 0,
             .add_i32 => 1,
             .call_helper => 2,
@@ -1755,7 +1761,7 @@ fn deepCloneInstructions(allocator: std.mem.Allocator, source: []const program_p
 }
 
 fn deepFreeCapabilityOpsPrefix(allocator: std.mem.Allocator, items: []const CapabilityOpV1, initialized: usize) void {
-    for (items[0..initialized]) |item| allocator.free(item.global_op_name);
+    _ = initialized;
     allocator.free(@constCast(items));
 }
 
@@ -1853,7 +1859,6 @@ pub fn deepFreeCapabilities(allocator: std.mem.Allocator, items: []CapabilityV1)
 fn deepFreeCapabilityPrefix(allocator: std.mem.Allocator, items: []CapabilityV1) void {
     for (items) |item| {
         allocator.free(item.label);
-        for (item.ops) |op| allocator.free(op.global_op_name);
         allocator.free(item.ops);
     }
 }
@@ -1972,13 +1977,6 @@ fn patchArtifactVersion(bytes: []u8, version: u16) void {
     recomputeEncodedArtifactHash(bytes);
 }
 
-fn patchInstructionKind(bytes: []u8, instruction_index: usize, raw_kind: u8) void {
-    const instruction_table_offset = sectionPayloadOffset(bytes, .instruction_table);
-    const row_offset = instruction_table_offset + instruction_index * 16;
-    bytes[row_offset] = raw_kind;
-    recomputeEncodedArtifactHash(bytes);
-}
-
 fn patchSectionReservedByte(bytes: []u8, section_id: SectionId, row_index: usize, byte_offset: usize, value: u8) void {
     const entry_len: usize = blk: {
         if (section_id == .function_table) break :blk 36;
@@ -2085,7 +2083,7 @@ test "ArtifactV1 encode/decode preserves plan structure and capability manifest"
         .ops = &.{.{
             .capability_id = 1,
             .op_id = 0,
-            .global_op_name = "tool.call",
+            .host_op_kind = .call,
             .payload_codec = .string,
             .result_codec = .string,
             .plan_op_ordinal = 0,
@@ -2105,7 +2103,7 @@ test "ArtifactV1 encode/decode preserves plan structure and capability manifest"
     try std.testing.expectEqual(@as(u64, plan.ir_hash), decoded.semantic_ir_hash64);
     try std.testing.expectEqual(@as(usize, 1), decoded.capabilities.len);
     try std.testing.expectEqualStrings("generated/tooling@v1", decoded.capabilities[0].label);
-    try std.testing.expectEqualStrings("tool.call", decoded.capabilities[0].ops[0].global_op_name);
+    try std.testing.expectEqual(.call, decoded.capabilities[0].ops[0].host_op_kind);
     try std.testing.expectEqual(@as(u16, 0), decoded.capabilities[0].ops[0].plan_op_ordinal);
     try std.testing.expectEqual(@as(usize, 1), decoded.functions.len);
     try std.testing.expectEqualStrings("entry", decoded.functions[0].symbol_name);
@@ -2113,7 +2111,7 @@ test "ArtifactV1 encode/decode preserves plan structure and capability manifest"
     try std.testing.expectEqual(@as(usize, 1), decoded.instructions.len);
 }
 
-test "ArtifactV1 decode maps legacy v1 instruction tags into current instruction kinds" {
+test "ArtifactV1 decode rejects legacy v1 artifact versions" {
     const plan: program_plan.ProgramPlan = .{
         .label = "artifact.legacy_v1_instruction_tags",
         .ir_hash = 0x45,
@@ -2183,24 +2181,10 @@ test "ArtifactV1 decode maps legacy v1 instruction tags into current instruction
     defer std.testing.allocator.free(encoded);
 
     patchArtifactVersion(encoded, artifact_format_version_v1);
-    patchInstructionKind(encoded, 0, 1);
-    patchInstructionKind(encoded, 1, 6);
-    patchInstructionKind(encoded, 2, 5);
-    patchInstructionKind(encoded, 3, 6);
-
-    var decoded = try decode(std.testing.allocator, encoded);
-    defer decoded.deinit(std.testing.allocator);
-
-    try std.testing.expectEqual(@as(usize, 4), decoded.instructions.len);
-    try std.testing.expectEqual(program_plan.InstructionKind.call_helper, decoded.instructions[0].kind);
-    try std.testing.expectEqual(program_plan.InstructionKind.return_value, decoded.instructions[1].kind);
-    try std.testing.expectEqual(program_plan.InstructionKind.const_string, decoded.instructions[2].kind);
-    try std.testing.expectEqualStrings("legacy", decoded.instructions[2].string_literal);
-    try std.testing.expectEqual(@as(?program_plan.ValueCodec, null), decoded.functions[0].result_codec);
-    try std.testing.expectEqual(@as(?program_plan.ValueCodec, null), decoded.functions[1].result_codec);
+    try std.testing.expectError(error.UnsupportedVersion, decode(std.testing.allocator, encoded));
 }
 
-test "ArtifactV1 decode rejects legacy v1 function rows with repurposed result_codec bytes" {
+test "ArtifactV1 decode rejects legacy v1 function rows before row validation" {
     const plan: program_plan.ProgramPlan = .{
         .label = "artifact.legacy_v1_function_reserved_bytes",
         .ir_hash = 0x46,
@@ -2240,7 +2224,7 @@ test "ArtifactV1 decode rejects legacy v1 function rows with repurposed result_c
     patchArtifactVersion(encoded, artifact_format_version_v1);
     patchSectionReservedByte(encoded, .function_table, 0, 9, 1);
 
-    try std.testing.expectError(error.NonZeroReserved, decode(std.testing.allocator, encoded));
+    try std.testing.expectError(error.UnsupportedVersion, decode(std.testing.allocator, encoded));
 }
 
 test "ArtifactV1 decode accepts v2 function rows with explicit result_codec bytes" {
@@ -2333,7 +2317,7 @@ test "ArtifactV1 rejects custom capabilities whose op codecs do not match the co
             .{
                 .capability_id = 9,
                 .op_id = 0,
-                .global_op_name = "tool.call",
+                .host_op_kind = .call,
                 .payload_codec = .string,
                 .result_codec = .unit,
                 .plan_op_ordinal = 0,
@@ -2341,7 +2325,7 @@ test "ArtifactV1 rejects custom capabilities whose op codecs do not match the co
             .{
                 .capability_id = 9,
                 .op_id = 1,
-                .global_op_name = "tool.call",
+                .host_op_kind = .call,
                 .payload_codec = .unit,
                 .result_codec = .string,
                 .plan_op_ordinal = 1,
@@ -2393,7 +2377,7 @@ test "ArtifactV1 rejects exact-label custom capabilities whose op codecs do not 
         .ops = &.{.{
             .capability_id = 10,
             .op_id = 0,
-            .global_op_name = "tool.call",
+            .host_op_kind = .call,
             .payload_codec = .string,
             .result_codec = .unit,
             .plan_op_ordinal = 0,
@@ -2451,7 +2435,7 @@ test "ArtifactV1 rejects mixed-codec choice manifests" {
         .ops = &.{.{
             .capability_id = 3,
             .op_id = 0,
-            .global_op_name = "tool.call",
+            .host_op_kind = .call,
             .payload_codec = .unit,
             .result_codec = .i32,
             .plan_op_ordinal = 0,
@@ -2551,7 +2535,7 @@ test "ArtifactV1 deriveToolCapabilitiesFromPlan omits after rows unless the plan
     const derived_without_after = try deriveToolCapabilitiesFromPlan(std.testing.allocator, without_after);
     defer deepFreeCapabilities(std.testing.allocator, derived_without_after);
     try std.testing.expectEqual(@as(usize, 1), derived_without_after[0].ops.len);
-    try std.testing.expectEqualStrings("tool.call", derived_without_after[0].ops[0].global_op_name);
+    try std.testing.expectEqual(.call, derived_without_after[0].ops[0].host_op_kind);
 
     const with_after: program_plan.ProgramPlan = .{
         .label = "artifact.derived_with_after",
@@ -2571,8 +2555,8 @@ test "ArtifactV1 deriveToolCapabilitiesFromPlan omits after rows unless the plan
     const derived_with_after = try deriveToolCapabilitiesFromPlan(std.testing.allocator, with_after);
     defer deepFreeCapabilities(std.testing.allocator, derived_with_after);
     try std.testing.expectEqual(@as(usize, 2), derived_with_after[0].ops.len);
-    try std.testing.expectEqualStrings("tool.call", derived_with_after[0].ops[0].global_op_name);
-    try std.testing.expectEqualStrings("tool.after", derived_with_after[0].ops[1].global_op_name);
+    try std.testing.expectEqual(.call, derived_with_after[0].ops[0].host_op_kind);
+    try std.testing.expectEqual(.after_call, derived_with_after[0].ops[1].host_op_kind);
 }
 
 test "ArtifactV1 derives injective generated tool ids for valid requirement labels" {
@@ -2692,7 +2676,7 @@ fn expectMalformedCapabilityManifestDecodeCleanup(allocator: std.mem.Allocator) 
                 .{
                     .capability_id = 7,
                     .op_id = 0,
-                    .global_op_name = "tool.call",
+                    .host_op_kind = .call,
                     .payload_codec = .unit,
                     .result_codec = .string,
                     .plan_op_ordinal = 0,
@@ -2700,7 +2684,7 @@ fn expectMalformedCapabilityManifestDecodeCleanup(allocator: std.mem.Allocator) 
                 .{
                     .capability_id = 7,
                     .op_id = 1,
-                    .global_op_name = "tool.call",
+                    .host_op_kind = .call,
                     .payload_codec = .string,
                     .result_codec = .unit,
                     .plan_op_ordinal = 1,
@@ -2781,7 +2765,7 @@ fn expectArtifactValidateCleanupOnAllocationFailure(allocator: std.mem.Allocator
             .ops = &.{.{
                 .capability_id = 5,
                 .op_id = 0,
-                .global_op_name = "tool.call",
+                .host_op_kind = .call,
                 .payload_codec = .unit,
                 .result_codec = .string,
                 .plan_op_ordinal = 0,
@@ -2861,7 +2845,7 @@ fn expectMalformedStringBearingDecodeCleanup(allocator: std.mem.Allocator) !void
         .ops = &.{.{
             .capability_id = 5,
             .op_id = 0,
-            .global_op_name = "tool.call",
+            .host_op_kind = .call,
             .payload_codec = .unit,
             .result_codec = .string,
             .plan_op_ordinal = 0,
@@ -3073,7 +3057,7 @@ test "ArtifactV1 decode rejects unknown capability flag bits" {
         .ops = &.{.{
             .capability_id = 4,
             .op_id = 0,
-            .global_op_name = "tool.call",
+            .host_op_kind = .call,
             .payload_codec = .unit,
             .result_codec = .unit,
             .plan_op_ordinal = 0,
@@ -3128,7 +3112,7 @@ test "ArtifactV1 rejects optional capability rows during encode and decode" {
         .ops = &.{.{
             .capability_id = 4,
             .op_id = 0,
-            .global_op_name = "tool.call",
+            .host_op_kind = .call,
             .payload_codec = .unit,
             .result_codec = .unit,
             .plan_op_ordinal = 0,
@@ -3149,7 +3133,7 @@ test "ArtifactV1 rejects optional capability rows during encode and decode" {
             .ops = &.{.{
                 .capability_id = 4,
                 .op_id = 0,
-                .global_op_name = "tool.call",
+                .host_op_kind = .call,
                 .payload_codec = .unit,
                 .result_codec = .unit,
                 .plan_op_ordinal = 0,
@@ -3175,7 +3159,7 @@ test "ArtifactV1 exact-build fingerprints include custom capability label conten
         .ops = &.{.{
             .capability_id = 7,
             .op_id = 0,
-            .global_op_name = "tool.call",
+            .host_op_kind = .call,
             .payload_codec = .unit,
             .result_codec = .string,
             .plan_op_ordinal = 0,
@@ -3188,7 +3172,7 @@ test "ArtifactV1 exact-build fingerprints include custom capability label conten
         .ops = &.{.{
             .capability_id = 7,
             .op_id = 0,
-            .global_op_name = "tool.call",
+            .host_op_kind = .call,
             .payload_codec = .unit,
             .result_codec = .string,
             .plan_op_ordinal = 0,
@@ -3708,7 +3692,7 @@ test "ArtifactV1 rejects malformed capability tool ids during encode and decode"
         .ops = &.{.{
             .capability_id = 4,
             .op_id = 0,
-            .global_op_name = "tool.call",
+            .host_op_kind = .call,
             .payload_codec = .unit,
             .result_codec = .unit,
             .plan_op_ordinal = 0,
@@ -3769,7 +3753,7 @@ test "ArtifactV1 encode and decode accept a single capability op at max u16 id" 
         .ops = &.{.{
             .capability_id = 5,
             .op_id = std.math.maxInt(u16),
-            .global_op_name = "tool.call",
+            .host_op_kind = .call,
             .payload_codec = .unit,
             .result_codec = .unit,
             .plan_op_ordinal = 0,
@@ -3829,7 +3813,7 @@ test "ArtifactV1 encode and decode accept sparse explicit capability op ids" {
             .{
                 .capability_id = 5,
                 .op_id = 4,
-                .global_op_name = "tool.call",
+                .host_op_kind = .call,
                 .payload_codec = .unit,
                 .result_codec = .unit,
                 .plan_op_ordinal = 0,
@@ -3837,7 +3821,7 @@ test "ArtifactV1 encode and decode accept sparse explicit capability op ids" {
             .{
                 .capability_id = 5,
                 .op_id = 6,
-                .global_op_name = "tool.call",
+                .host_op_kind = .call,
                 .payload_codec = .unit,
                 .result_codec = .unit,
                 .plan_op_ordinal = 1,
@@ -3901,7 +3885,7 @@ test "ArtifactV1 decode rejects custom capability manifests with all-zero multi-
             .{
                 .capability_id = 7,
                 .op_id = 0,
-                .global_op_name = "tool.call",
+                .host_op_kind = .call,
                 .payload_codec = .unit,
                 .result_codec = .string,
                 .plan_op_ordinal = 0,
@@ -3909,7 +3893,7 @@ test "ArtifactV1 decode rejects custom capability manifests with all-zero multi-
             .{
                 .capability_id = 7,
                 .op_id = 1,
-                .global_op_name = "tool.call",
+                .host_op_kind = .call,
                 .payload_codec = .string,
                 .result_codec = .unit,
                 .plan_op_ordinal = 1,
@@ -3972,7 +3956,7 @@ test "ArtifactV1 decode rejects repeated requirements that alias one capability 
             .ops = &.{.{
                 .capability_id = 11,
                 .op_id = 0,
-                .global_op_name = "tool.call",
+                .host_op_kind = .call,
                 .payload_codec = .unit,
                 .result_codec = .string,
                 .plan_op_ordinal = 0,
@@ -3985,7 +3969,7 @@ test "ArtifactV1 decode rejects repeated requirements that alias one capability 
             .ops = &.{.{
                 .capability_id = 29,
                 .op_id = 1,
-                .global_op_name = "tool.call",
+                .host_op_kind = .call,
                 .payload_codec = .unit,
                 .result_codec = .string,
                 .plan_op_ordinal = 0,
@@ -4048,7 +4032,7 @@ test "ArtifactV1 decode accepts reordered capability rows when repeated requirem
             .ops = &.{.{
                 .capability_id = 11,
                 .op_id = 0,
-                .global_op_name = "tool.call",
+                .host_op_kind = .call,
                 .payload_codec = .unit,
                 .result_codec = .string,
                 .plan_op_ordinal = 0,
@@ -4061,7 +4045,7 @@ test "ArtifactV1 decode accepts reordered capability rows when repeated requirem
             .ops = &.{.{
                 .capability_id = 29,
                 .op_id = 1,
-                .global_op_name = "tool.call",
+                .host_op_kind = .call,
                 .payload_codec = .unit,
                 .result_codec = .string,
                 .plan_op_ordinal = 0,
@@ -4128,7 +4112,7 @@ test "ArtifactV1 encode allows repeated identical requirements to share one capa
         .ops = &.{.{
             .capability_id = 11,
             .op_id = 0,
-            .global_op_name = "tool.call",
+            .host_op_kind = .call,
             .payload_codec = .unit,
             .result_codec = .string,
             .plan_op_ordinal = 0,
@@ -4193,7 +4177,7 @@ test "ArtifactV1 encode accepts repeated requirement labels when codecs choose d
             .ops = &.{.{
                 .capability_id = 11,
                 .op_id = 0,
-                .global_op_name = "tool.call",
+                .host_op_kind = .call,
                 .payload_codec = .unit,
                 .result_codec = .string,
                 .plan_op_ordinal = 0,
@@ -4206,7 +4190,7 @@ test "ArtifactV1 encode accepts repeated requirement labels when codecs choose d
             .ops = &.{.{
                 .capability_id = 29,
                 .op_id = 1,
-                .global_op_name = "tool.call",
+                .host_op_kind = .call,
                 .payload_codec = .unit,
                 .result_codec = .i32,
                 .plan_op_ordinal = 0,
@@ -4272,7 +4256,7 @@ test "ArtifactV1 rejects custom capabilities that ambiguously match repeated req
             .ops = &.{.{
                 .capability_id = 11,
                 .op_id = 0,
-                .global_op_name = "tool.call",
+                .host_op_kind = .call,
                 .payload_codec = .unit,
                 .result_codec = .string,
                 .plan_op_ordinal = 0,
@@ -4285,7 +4269,7 @@ test "ArtifactV1 rejects custom capabilities that ambiguously match repeated req
             .ops = &.{.{
                 .capability_id = 29,
                 .op_id = 1,
-                .global_op_name = "tool.call",
+                .host_op_kind = .call,
                 .payload_codec = .unit,
                 .result_codec = .string,
                 .plan_op_ordinal = 0,
@@ -4366,7 +4350,7 @@ test "ArtifactV1 rejects conflicting terminal owner codecs during encode and dec
         .ops = &.{.{
             .capability_id = 0,
             .op_id = 7,
-            .global_op_name = "tool.call",
+            .host_op_kind = .call,
             .payload_codec = .unit,
             .result_codec = .string,
             .plan_op_ordinal = 0,
@@ -4507,7 +4491,7 @@ test "ArtifactV1 decode frees partially built state when validation rejects conf
         .ops = &.{.{
             .capability_id = 0,
             .op_id = 7,
-            .global_op_name = "tool.call",
+            .host_op_kind = .call,
             .payload_codec = .unit,
             .result_codec = .string,
             .plan_op_ordinal = 0,

@@ -1,8 +1,7 @@
 const helpers = @import("open_row_helper_value_flow_cross_helpers.zig");
+const shift = @import("shift");
 const shift_compile = @import("shift_compile");
-const shift_vm = @import("shift_vm");
 const std = @import("std");
-const shift = shift_vm;
 const runtime_support = shift_compile.lowering.runtime_support;
 
 /// Run one cross-file helper value-flow workflow through the open-row kernel.

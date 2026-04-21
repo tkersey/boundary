@@ -7,7 +7,7 @@ pub const ir = shared.ir;
 pub const lowering = shared.lowering;
 /// Retained internal compile helper from explicit lowering inputs to the runtime-owned plan bridge.
 pub const lower = shared.lower;
-/// Retained internal ArtifactV1 encoding and decoding helpers shared with `shift_vm`.
+/// Retained internal ArtifactV1 encoding and decoding helpers used by internal compile paths.
 pub const artifact = shared.artifact;
 /// Compile-time options for ArtifactV1 emission.
 pub const CompileOptionsV1 = compile_api.CompileOptionsV1;

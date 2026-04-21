@@ -4,9 +4,6 @@ const lowered_machine = @import("lowered_machine");
 const program_plan = @import("internal_program_plan");
 const std = @import("std");
 
-const capability_global_tool_call = "tool.call";
-const capability_global_tool_after = "tool.after";
-
 /// Result of executing ArtifactV1 bytes through the synchronous HostAdapterV1 runtime.
 pub const ExecutionOutputV1 = struct {
     label: []u8,
@@ -677,7 +674,7 @@ fn resolveCapabilityOp(
     const capability_op = findCapabilityOpByPlanOrdinalAndGlobalName(
         capability.ops,
         op_index - requirement.first_op,
-        capability_global_tool_call,
+        .call,
     ) orelse return null;
     return .{
         .capability = capability,
@@ -701,7 +698,7 @@ fn resolveAfterCapabilityOp(
     const capability_op = findCapabilityOpByPlanOrdinalAndGlobalName(
         capability.ops,
         op_index - requirement.first_op,
-        capability_global_tool_after,
+        .after_call,
     ) orelse return null;
     return .{
         .capability = capability,
@@ -719,10 +716,10 @@ fn findCapabilityById(capabilities: []const artifact.CapabilityV1, capability_id
 fn findCapabilityOpByPlanOrdinalAndGlobalName(
     ops: []const artifact.CapabilityOpV1,
     plan_op_ordinal: u16,
-    global_op_name: []const u8,
+    host_op_kind: artifact.HostOpKind,
 ) ?artifact.CapabilityOpV1 {
     for (ops) |op| {
-        if (op.plan_op_ordinal == plan_op_ordinal and std.mem.eql(u8, op.global_op_name, global_op_name)) return op;
+        if (op.plan_op_ordinal == plan_op_ordinal and op.host_op_kind == host_op_kind) return op;
     }
     return null;
 }
@@ -1242,7 +1239,7 @@ test "artifact runtime decodes after-hook replies with the function result codec
             .{
                 .capability_id = 0,
                 .op_id = 0,
-                .global_op_name = capability_global_tool_call,
+                .host_op_kind = .call,
                 .payload_codec = .unit,
                 .result_codec = .unit,
                 .plan_op_ordinal = 0,
@@ -1250,7 +1247,7 @@ test "artifact runtime decodes after-hook replies with the function result codec
             .{
                 .capability_id = 0,
                 .op_id = 1,
-                .global_op_name = capability_global_tool_after,
+                .host_op_kind = .after_call,
                 .payload_codec = .unit,
                 .result_codec = .string,
                 .plan_op_ordinal = 0,
@@ -1451,7 +1448,7 @@ test "artifact runtime rejects multiple non-diagonal after frames" {
             .{
                 .capability_id = 0,
                 .op_id = 0,
-                .global_op_name = capability_global_tool_call,
+                .host_op_kind = .call,
                 .payload_codec = .unit,
                 .result_codec = .unit,
                 .plan_op_ordinal = 0,
@@ -1459,7 +1456,7 @@ test "artifact runtime rejects multiple non-diagonal after frames" {
             .{
                 .capability_id = 0,
                 .op_id = 1,
-                .global_op_name = capability_global_tool_call,
+                .host_op_kind = .call,
                 .payload_codec = .unit,
                 .result_codec = .unit,
                 .plan_op_ordinal = 1,
@@ -1467,7 +1464,7 @@ test "artifact runtime rejects multiple non-diagonal after frames" {
             .{
                 .capability_id = 0,
                 .op_id = 2,
-                .global_op_name = capability_global_tool_after,
+                .host_op_kind = .after_call,
                 .payload_codec = .unit,
                 .result_codec = .string,
                 .plan_op_ordinal = 0,
@@ -1475,7 +1472,7 @@ test "artifact runtime rejects multiple non-diagonal after frames" {
             .{
                 .capability_id = 0,
                 .op_id = 3,
-                .global_op_name = capability_global_tool_after,
+                .host_op_kind = .after_call,
                 .payload_codec = .unit,
                 .result_codec = .string,
                 .plan_op_ordinal = 1,
@@ -1613,7 +1610,7 @@ test "artifact runtime stores helper values using helper result codecs" {
             .{
                 .capability_id = 0,
                 .op_id = 0,
-                .global_op_name = capability_global_tool_call,
+                .host_op_kind = .call,
                 .payload_codec = .unit,
                 .result_codec = .unit,
                 .plan_op_ordinal = 0,
@@ -1621,7 +1618,7 @@ test "artifact runtime stores helper values using helper result codecs" {
             .{
                 .capability_id = 0,
                 .op_id = 1,
-                .global_op_name = capability_global_tool_after,
+                .host_op_kind = .after_call,
                 .payload_codec = .unit,
                 .result_codec = .string,
                 .plan_op_ordinal = 0,
@@ -1758,7 +1755,7 @@ test "artifact runtime resolves reordered repeated-requirement after hooks by ca
                 .{
                     .capability_id = 29,
                     .op_id = 0,
-                    .global_op_name = capability_global_tool_call,
+                    .host_op_kind = .call,
                     .payload_codec = .unit,
                     .result_codec = .unit,
                     .plan_op_ordinal = 0,
@@ -1766,7 +1763,7 @@ test "artifact runtime resolves reordered repeated-requirement after hooks by ca
                 .{
                     .capability_id = 29,
                     .op_id = 1,
-                    .global_op_name = capability_global_tool_after,
+                    .host_op_kind = .after_call,
                     .payload_codec = .unit,
                     .result_codec = .string,
                     .plan_op_ordinal = 0,
@@ -1781,7 +1778,7 @@ test "artifact runtime resolves reordered repeated-requirement after hooks by ca
                 .{
                     .capability_id = 11,
                     .op_id = 0,
-                    .global_op_name = capability_global_tool_call,
+                    .host_op_kind = .call,
                     .payload_codec = .unit,
                     .result_codec = .unit,
                     .plan_op_ordinal = 0,
@@ -1789,7 +1786,7 @@ test "artifact runtime resolves reordered repeated-requirement after hooks by ca
                 .{
                     .capability_id = 11,
                     .op_id = 1,
-                    .global_op_name = capability_global_tool_after,
+                    .host_op_kind = .after_call,
                     .payload_codec = .unit,
                     .result_codec = .string,
                     .plan_op_ordinal = 0,
