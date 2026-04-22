@@ -8,17 +8,17 @@ repo's historical proof scaffolding suggested.
 
 ## Shipped Surface
 
-The ordinary public root is intentionally narrow:
+The public root export set is intentionally narrow:
 
-- `shift.effect.*`
-- `shift.effect.Define(...)`
-- `shift.with(...)`
+- `shift.effect`
 - `shift.Runtime`
 - `shift.RuntimeError`
+- `shift.with`
 
-The repo also contains maintainer-facing specialist surfaces for lowering and
-interpreter stepping. Those remain implementation detail territory, not a
-second public story.
+Everything else in the repo is outside the `@import("shift")` root contract.
+That includes retained sibling modules such as `public_ir`, `public_lowering`,
+and `shift_agent_vm`, along with maintainer-facing lowering and interpreter
+scaffolding.
 
 ## Examples
 
@@ -57,6 +57,7 @@ export bans, or compile-time misuse fixtures as part of the default contract.
 Manual run, tool, and benchmark surfaces still exist for local iteration:
 
 - `zig build run-*` for retained examples
+- `zig build published-module-contract` for retained sibling-module/package checks
 - `zig build source-lower`
 - `zig build bench*`
 - `zig build zprof-hotspots`

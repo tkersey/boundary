@@ -4587,9 +4587,12 @@ pub fn build(b: *std.Build) void {
         test_runner_args.passthrough.items,
     );
 
-    const public_api_compat_step = b.step("public-api-compat", "Run the retained public import compatibility suite.");
-    public_api_compat_step.dependOn(&run_pub_ir_path.step);
-    public_api_compat_step.dependOn(&run_pub_lowering_path.step);
+    const published_module_contract_step = b.step(
+        "published-module-contract",
+        "Run the retained published-module source-path and shift_agent_vm package contract suite.",
+    );
+    published_module_contract_step.dependOn(&run_pub_ir_path.step);
+    published_module_contract_step.dependOn(&run_pub_lowering_path.step);
     const shift_agent_vm_compat_step = b.step(
         "shift-agent-vm-compat",
         "Run retained shift_agent_vm ordinary-consumer, runtime-smoke, and downstream export witnesses.",
@@ -4597,7 +4600,7 @@ pub fn build(b: *std.Build) void {
     shift_agent_vm_compat_step.dependOn(&shift_agent_vm_consumer_exe.step);
     shift_agent_vm_compat_step.dependOn(&run_shift_agent_vm_smoke.step);
     shift_agent_vm_compat_step.dependOn(&run_shift_vm_export.step);
-    public_api_compat_step.dependOn(shift_agent_vm_compat_step);
+    published_module_contract_step.dependOn(shift_agent_vm_compat_step);
 
     const frontend_internal_tests = addFilteredTest(
         b,
@@ -4915,7 +4918,7 @@ pub fn build(b: *std.Build) void {
     const run_program_bridge_tests = addRunArtifactWithArgs(b, program_bridge_tests, test_runner_args.passthrough.items);
     const test_suites = [_]TestSuiteSpec{
         .{ .suite_id = "root", .description = "Root lexical surface", .run_step = &run_root_tests.step },
-        .{ .suite_id = "public-api-compat", .description = "Retained public import compatibility suite", .run_step = public_api_compat_step },
+        .{ .suite_id = "published-module-contract", .description = "Retained published-module source-path and package contract suite", .run_step = published_module_contract_step },
         .{ .suite_id = "shift-agent-vm-compat", .description = "Retained shift_agent_vm compatibility suite", .run_step = shift_agent_vm_compat_step },
         .{ .suite_id = "frontend", .description = "Frontend internal module", .run_step = &run_frontend_internal_tests.step },
         .{ .suite_id = "program-plan-review", .description = "ProgramPlan regression suite", .run_step = &run_plan_review_tests.step },
