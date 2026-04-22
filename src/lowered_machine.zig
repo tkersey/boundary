@@ -1,14 +1,4 @@
-const source_path_import_mode = @hasDecl(@import("root"), "source_path_compat_mode") or
-    @hasDecl(@import("root"), "source_path_consumer_mode");
-const kernel_import = if (source_path_import_mode)
-    struct {
-        const module = @import("internal_kernel.zig");
-    }
-else
-    struct {
-        const module = @import("internal_kernel");
-    };
-const kernel = kernel_import.module;
+const kernel = @import("./internal/kernel.zig");
 const portable_core = @import("./portable_core.zig");
 const std = @import("std");
 

@@ -1,25 +1,7 @@
-const source_path_import_mode = @hasDecl(@import("root"), "source_path_compat_mode") or
-    @hasDecl(@import("root"), "source_path_consumer_mode");
-const artifact_import = if (source_path_import_mode)
-    struct {
-        const module = @import("artifact_api.zig");
-    }
-else
-    struct {
-        const module = @import("artifact_api");
-    };
-const artifact = artifact_import.module;
+const artifact = @import("./agent_vm_artifact.zig");
 const host = @import("./host_adapter_v1.zig");
 const lowered_machine = @import("./lowered_machine.zig");
-const program_plan_import = if (source_path_import_mode)
-    struct {
-        const module = @import("internal_program_plan.zig");
-    }
-else
-    struct {
-        const module = @import("internal_program_plan");
-    };
-const program_plan = program_plan_import.module;
+const program_plan = @import("./internal/program_plan.zig");
 const std = @import("std");
 
 /// Result of executing ArtifactV1 bytes through the synchronous HostAdapterV1 runtime.

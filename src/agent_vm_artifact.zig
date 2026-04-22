@@ -1,14 +1,4 @@
-const source_path_import_mode = @hasDecl(@import("root"), "source_path_compat_mode") or
-    @hasDecl(@import("root"), "source_path_consumer_mode");
-const program_plan_import = if (source_path_import_mode)
-    struct {
-        const module = @import("internal_program_plan.zig");
-    }
-else
-    struct {
-        const module = @import("internal_program_plan");
-    };
-const program_plan = program_plan_import.module;
+const program_plan = @import("./internal/program_plan.zig");
 const std = @import("std");
 
 /// Stable section ids used by the ArtifactV1 binary layout.

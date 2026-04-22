@@ -1,23 +1,5 @@
-const source_path_import_mode = @hasDecl(@import("root"), "source_path_compat_mode") or
-    @hasDecl(@import("root"), "source_path_consumer_mode");
-const effect_ir_import = if (source_path_import_mode)
-    struct {
-        const module = @import("../effect_ir.zig");
-    }
-else
-    struct {
-        const module = @import("effect_ir");
-    };
-const effect_ir = effect_ir_import.module;
-const program_frontend_import = if (source_path_import_mode)
-    struct {
-        const module = @import("../program_frontend.zig");
-    }
-else
-    struct {
-        const module = @import("program_frontend");
-    };
-const program_frontend = program_frontend_import.module;
+const effect_ir = @import("../effect_ir.zig");
+const program_frontend = @import("../program_frontend.zig");
 const std = @import("std");
 
 const source_path_compat_mode = @hasDecl(@import("root"), "source_path_compat_mode");

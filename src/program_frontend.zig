@@ -1,23 +1,6 @@
 const source_path_compat_mode = @hasDecl(@import("root"), "source_path_compat_mode");
-const source_path_consumer_mode = @hasDecl(@import("root"), "source_path_consumer_mode");
-const effect_ir_import = if (source_path_compat_mode or source_path_consumer_mode)
-    struct {
-        const module = @import("./effect_ir.zig");
-    }
-else
-    struct {
-        const module = @import("effect_ir");
-    };
-const effect_ir = effect_ir_import.module;
-const helper_body_ir_import = if (source_path_compat_mode or source_path_consumer_mode)
-    struct {
-        const module = @import("helper_body_ir.zig");
-    }
-else
-    struct {
-        const module = @import("helper_body_ir");
-    };
-const helper_body_ir = helper_body_ir_import.module;
+const effect_ir = @import("./effect_ir.zig");
+const helper_body_ir = @import("./internal/helper_body_ir.zig");
 const parity_scenarios = @import("./parity_scenarios.zig");
 const std = @import("std");
 

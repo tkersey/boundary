@@ -1,5 +1,5 @@
-const host_api = @import("host_adapter_v1");
-const runtime_api = @import("artifact_vm_runtime");
+const host_api = @import("./host_adapter_v1.zig");
+const runtime_api = @import("./artifact_vm_runtime.zig");
 const std = @import("std");
 
 /// Supported host boundary for agent-vm execution.
