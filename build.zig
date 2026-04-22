@@ -2717,8 +2717,26 @@ fn runChildExpectSuccess(_: std.mem.Allocator, argv: []const []const u8) !void {
     var child = try std.process.spawn(std.testing.io, .{
         .argv = argv,
         .stdin = .ignore,
-        .stdout = .ignore,
-        .stderr = .ignore,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    });
+    const term = try child.wait(std.testing.io);
+
+    switch (term) {
+        .exited => |code| if (code == 0) return,
+        else => {},
+    }
+    std.debug.print("child command failed: {s}\n", .{argv[0]});
+    return error.UnexpectedChildCommandFailure;
+}
+
+fn runChildAtPathExpectSuccess(cwd_path: []const u8, argv: []const []const u8) !void {
+    var child = try std.process.spawn(std.testing.io, .{
+        .argv = argv,
+        .cwd = .{ .path = cwd_path },
+        .stdin = .ignore,
+        .stdout = .inherit,
+        .stderr = .inherit,
     });
     const term = try child.wait(std.testing.io);
 
@@ -2977,6 +2995,68 @@ test "artifact build fingerprint includes build.zig-wired module-name helper wra
     try writeTmpFile(tmp.dir, "helpers/schema.json", "{ \"version\": 2 }\n");
     const after = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
     try std.testing.expect(!std.mem.eql(u8, &before, &after));
+}
+
+test "shift_agent_vm package module is exported to downstream dependency consumers" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const consumer_root = try tmp.dir.realPathFileAlloc(compatIo(), ".", std.testing.allocator);
+    defer std.testing.allocator.free(consumer_root);
+
+    const build_zig = try std.fmt.allocPrint(std.testing.allocator,
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {{
+        \\    const target = b.standardTargetOptions(.{{}});
+        \\    const optimize = b.standardOptimizeOption(.{{}});
+        \\    const dep = b.dependency("shift", .{{ .target = target, .optimize = optimize }});
+        \\
+        \\    const root = b.createModule(.{{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    }});
+        \\    root.addImport("shift_agent_vm", dep.module("shift_agent_vm"));
+        \\
+        \\    const exe = b.addExecutable(.{{
+        \\        .name = "shift-agent-vm-consumer",
+        \\        .root_module = root,
+        \\    }});
+        \\    b.default_step.dependOn(&exe.step);
+        \\}}
+        \\
+    , .{});
+    defer std.testing.allocator.free(build_zig);
+    try writeTmpFile(tmp.dir, "build.zig", build_zig);
+
+    const build_zon = try std.fmt.allocPrint(std.testing.allocator,
+        \\.{{
+        \\    .name = .shift_agent_vm_consumer,
+        \\    .version = "0.0.0",
+        \\    .minimum_zig_version = "0.16.0",
+        \\    .dependencies = .{{
+        \\        .shift = .{{ .path = "../../.." }},
+        \\    }},
+        \\    .paths = .{{ "build.zig", "build.zig.zon", "main.zig" }},
+        \\    .fingerprint = 0xc0e1d8dcd351442e,
+        \\}}
+        \\
+    , .{});
+    defer std.testing.allocator.free(build_zon);
+    try writeTmpFile(tmp.dir, "build.zig.zon", build_zon);
+
+    try writeTmpFile(tmp.dir, "main.zig",
+        \\const shift_agent_vm = @import("shift_agent_vm");
+        \\
+        \\pub fn main() void {
+        \\    _ = shift_agent_vm.host.Adapter;
+        \\    _ = shift_agent_vm.runtime.runArtifact;
+        \\}
+        \\
+    );
+
+    try runChildAtPathExpectSuccess(consumer_root, &.{ "zig", "build", "--summary", "none" });
 }
 
 test "artifact build fingerprint includes same-file comptime parameter embed inputs" {
@@ -4018,7 +4098,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const shift_agent_vm_mod = b.createModule(.{
+    const shift_agent_vm_mod = b.addModule("shift_agent_vm", .{
         .root_source_file = b.path("src/shift_agent_vm.zig"),
         .target = target,
         .optimize = optimize,
@@ -4541,6 +4621,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    shift_agent_vm_consumer_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
+    shift_agent_vm_consumer_mod.addImport("artifact_vm_runtime", private_artifact_vm_core_mod);
     const shift_agent_vm_consumer_exe = b.addExecutable(.{
         .name = "shift-agent-vm-source-path-consumer",
         .root_module = shift_agent_vm_consumer_mod,
@@ -4563,14 +4645,44 @@ pub fn build(b: *std.Build) void {
     );
     shift_agent_vm_fixture_step.dependOn(&run_shift_agent_vm_fixture.step);
 
+    const shift_agent_vm_path_mod = b.createModule(.{
+        .root_source_file = b.path("src/shift_agent_vm_path_compatibility_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    shift_agent_vm_path_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
+    shift_agent_vm_path_mod.addImport("artifact_vm_runtime", private_artifact_vm_core_mod);
+    const shift_agent_vm_path_tests = addFilteredTest(b, shift_agent_vm_path_mod, test_runner_args.filters.items);
+    const run_shift_agent_vm_path = addRunArtifactWithArgs(b, shift_agent_vm_path_tests, test_runner_args.passthrough.items);
+
+    const shift_agent_vm_smoke_mod = b.createModule(.{
+        .root_source_file = b.path("test/shift_agent_vm_public_smoke_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    shift_agent_vm_smoke_mod.addImport("shift_agent_vm", shift_agent_vm_mod);
+    const shift_agent_vm_smoke_tests = addFilteredTest(
+        b,
+        shift_agent_vm_smoke_mod,
+        test_runner_args.filters.items,
+    );
+    const run_shift_agent_vm_smoke = addRunArtifactWithArgs(
+        b,
+        shift_agent_vm_smoke_tests,
+        test_runner_args.passthrough.items,
+    );
+
     const public_api_compat_step = b.step("public-api-compat", "Run the retained public import compatibility suite.");
     public_api_compat_step.dependOn(&run_pub_ir_path.step);
     public_api_compat_step.dependOn(&run_pub_lowering_path.step);
     const shift_agent_vm_compat_step = b.step(
         "shift-agent-vm-compat",
-        "Compile one ordinary consumer that imports shift_agent_vm through the retained source path.",
+        "Run retained shift_agent_vm source-path, path-compat, and public smoke witnesses.",
     );
     shift_agent_vm_compat_step.dependOn(&shift_agent_vm_consumer_exe.step);
+    shift_agent_vm_compat_step.dependOn(&run_shift_agent_vm_path.step);
+    shift_agent_vm_compat_step.dependOn(&run_shift_agent_vm_smoke.step);
+    public_api_compat_step.dependOn(shift_agent_vm_compat_step);
 
     const frontend_internal_tests = addFilteredTest(
         b,
