@@ -1,7 +1,6 @@
-const source_path_compat_mode = @hasDecl(@import("root"), "source_path_compat_mode");
-const effect_ir = @import("./effect_ir.zig");
-const helper_body_ir = @import("./internal/helper_body_ir.zig");
-const parity_scenarios = @import("./parity_scenarios.zig");
+const effect_ir = @import("effect_ir");
+const helper_body_ir = @import("helper_body_ir");
+const parity_scenarios = @import("parity_scenarios");
 const std = @import("std");
 
 /// One lowered helper-body basic block carried by the internal front end.
@@ -87,7 +86,7 @@ pub const LoweredOpenRowProgram = struct {
 pub const open_rows = struct {
     /// Lower one state-plus-writer workflow through the open-row frontend.
     pub fn stateWriterWorkflow() OpenRowProgram {
-        const row = comptime effect_ir.mergeRows(.{
+        const row = effect_ir.mergeRows(.{
             effect_ir.rowFromSpec(.{
                 .state = .{
                     .get = effect_ir.Transform(void, i32),
@@ -477,62 +476,48 @@ pub fn lowerOpenRow(comptime program: OpenRowProgram) effect_ir.NormalizeError!L
     };
 }
 
-const source_path_compat_excluded_tests = if (source_path_compat_mode) struct {} else struct {
-    fn expectLowerOpenRowPreservesFunctionPayload() !void {
-        const row = comptime effect_ir.rowFromSpec(.{
-            .state = .{
-                .get = effect_ir.Transform(void, i32),
-                .set = effect_ir.Transform(i32, void),
-            },
-        });
-        const function = comptime effect_ir.Function{
-            .symbol = .{
-                .module_path = "examples/open_row.zig",
-                .symbol_name = "workflow",
-            },
-            .row = row,
-            .outputs = &.{
-                .{ .label = "state", .OutputType = i32 },
-            },
-        };
-        const program = try lowerOpenRow(.{
-            .label = "example.open_row.workflow",
-            .entry_symbol = "workflow",
-            .functions = &.{function},
-        });
-        const digest = try effect_ir.rowDigest(row, function.outputs);
+test "lowerOpenRow preserves the function payload" {
+    const row = effect_ir.rowFromSpec(.{
+        .state = .{
+            .get = effect_ir.Transform(void, i32),
+            .set = effect_ir.Transform(i32, void),
+        },
+    });
+    const function = effect_ir.Function{
+        .symbol = .{
+            .module_path = "examples/open_row.zig",
+            .symbol_name = "workflow",
+        },
+        .row = row,
+        .outputs = &.{
+            .{ .label = "state", .OutputType = i32 },
+        },
+    };
+    const program = try lowerOpenRow(.{
+        .label = "example.open_row.workflow",
+        .entry_symbol = "workflow",
+        .functions = &.{function},
+    });
 
-        try std.testing.expectEqual(@as(usize, 1), program.functions.len);
-        try std.testing.expectEqual(@as(usize, 0), program.entry_index);
-        try std.testing.expectEqual(@as(usize, 0), program.function_bodies.len);
-        try std.testing.expectEqualStrings("workflow", program.functions[0].symbol.symbol_name);
-        try std.testing.expectEqual(@as(usize, 1), digest.requirement_count);
-        try std.testing.expectEqual(@as(usize, 2), digest.op_count);
-        try std.testing.expectEqual(@as(usize, 1), digest.output_count);
-    }
+    try @import("std").testing.expectEqual(@as(usize, 1), program.functions.len);
+    try @import("std").testing.expectEqual(@as(usize, 0), program.entry_index);
+    try @import("std").testing.expectEqual(@as(usize, 0), program.function_bodies.len);
+    try @import("std").testing.expectEqualStrings("workflow", program.functions[0].symbol.symbol_name);
+    const digest = try effect_ir.rowDigest(program.functions[0].row, program.functions[0].outputs);
+    try @import("std").testing.expectEqual(@as(usize, 1), digest.requirement_count);
+    try @import("std").testing.expectEqual(@as(usize, 2), digest.op_count);
+    try @import("std").testing.expectEqual(@as(usize, 1), digest.output_count);
+}
 
-    test "lowerOpenRow preserves the function payload" {
-        try expectLowerOpenRowPreservesFunctionPayload();
-    }
-
-    fn expectOpenRowStateWriterWorkflowCarriesBothRequirementsAndOutputs() !void {
-        const workflow = comptime open_rows.stateWriterWorkflow();
-        const program = try lowerOpenRow(workflow);
-        const digest = try effect_ir.rowDigest(workflow.functions[0].row, workflow.functions[0].outputs);
-        try std.testing.expectEqual(@as(usize, 1), program.functions.len);
-        try std.testing.expectEqual(@as(usize, 0), program.function_bodies.len);
-        try std.testing.expectEqualStrings("runBody", program.functions[0].symbol.symbol_name);
-        try std.testing.expectEqual(@as(usize, 2), digest.requirement_count);
-        try std.testing.expectEqual(@as(usize, 3), digest.op_count);
-        try std.testing.expectEqual(@as(usize, 2), digest.output_count);
-    }
-
-    test "open row state-writer workflow carries both requirements and outputs" {
-        try expectOpenRowStateWriterWorkflowCarriesBothRequirementsAndOutputs();
-    }
-};
-comptime {
-    _ = source_path_compat_excluded_tests;
+test "open row state-writer workflow carries both requirements and outputs" {
+    const program = try lowerOpenRow(open_rows.stateWriterWorkflow());
+    try @import("std").testing.expectEqual(@as(usize, 1), program.functions.len);
+    try @import("std").testing.expectEqual(@as(usize, 0), program.function_bodies.len);
+    try @import("std").testing.expectEqualStrings("runBody", program.functions[0].symbol.symbol_name);
+    const digest = try effect_ir.rowDigest(program.functions[0].row, program.functions[0].outputs);
+    try @import("std").testing.expectEqual(@as(usize, 2), digest.requirement_count);
+    try @import("std").testing.expectEqual(@as(usize, 3), digest.op_count);
+    try @import("std").testing.expectEqual(@as(usize, 2), digest.output_count);
 }
 
 test "lowerOpenRow preserves row-only helper-call metadata without synthesizing body storage" {
@@ -544,7 +529,7 @@ test "lowerOpenRow preserves row-only helper-call metadata without synthesizing 
         .module_path = "examples/synth.zig",
         .symbol_name = "root",
     };
-    const row = comptime effect_ir.rowFromSpec(.{
+    const row = effect_ir.rowFromSpec(.{
         .state = .{
             .get = effect_ir.Transform(void, i32),
         },
@@ -602,31 +587,22 @@ test "lowerOpenRow preserves helper-call metadata even when helpers carry parame
     try @import("std").testing.expectEqual(@as(usize, 1), program.call_edges.len);
 }
 
-const source_path_compat_excluded_value_tests = if (source_path_compat_mode) struct {} else struct {
-    fn expectLowerOpenRowPreservesValueReturningPayloads() !void {
-        const program = try lowerOpenRow(.{
-            .label = "example.synth_value",
-            .entry_symbol = "root",
-            .functions = &.{.{
-                .symbol = .{
-                    .module_path = "examples/synth_value.zig",
-                    .symbol_name = "root",
-                },
-                .row = effect_ir.rowFromSpec(.{}),
-                .ValueType = i32,
-            }},
-        });
+test "lowerOpenRow preserves row-only value-returning payloads without inventing bodies" {
+    const program = try lowerOpenRow(.{
+        .label = "example.synth_value",
+        .entry_symbol = "root",
+        .functions = &.{.{
+            .symbol = .{
+                .module_path = "examples/synth_value.zig",
+                .symbol_name = "root",
+            },
+            .row = effect_ir.rowFromSpec(.{}),
+            .ValueType = i32,
+        }},
+    });
 
-        try std.testing.expectEqual(@as(usize, 0), program.function_bodies.len);
-        try std.testing.expectEqualStrings("root", program.functions[0].symbol.symbol_name);
-    }
-
-    test "lowerOpenRow preserves row-only value-returning payloads without inventing bodies" {
-        try expectLowerOpenRowPreservesValueReturningPayloads();
-    }
-};
-comptime {
-    _ = source_path_compat_excluded_value_tests;
+    try @import("std").testing.expectEqual(@as(usize, 0), program.function_bodies.len);
+    try @import("std").testing.expectEqual(@as(@TypeOf(program.functions[0].ValueType), i32), program.functions[0].ValueType);
 }
 
 test "lowerOpenRow preserves attached helper body storage" {
@@ -697,35 +673,30 @@ test "lowerOpenRow keeps prior lowered functions stable across later calls" {
     try @import("std").testing.expectEqualStrings("alpha", alpha.asEffectProgram().functions[0].symbol.symbol_name);
 }
 
-const source_path_compat_excluded_error_tests = if (source_path_compat_mode) struct {} else struct {
-    test "lowerOpenRow rejects helper call edges with unknown callee symbols" {
-        try std.testing.expectError(error.UnknownSymbol, lowerOpenRow(.{
-            .label = "example.helper_edge",
-            .entry_symbol = "workflow",
-            .functions = &.{.{
-                .symbol = .{
-                    .module_path = "examples/open_row.zig",
-                    .symbol_name = "workflow",
+test "lowerOpenRow rejects helper call edges with unknown callee symbols" {
+    try @import("std").testing.expectError(error.UnknownSymbol, lowerOpenRow(.{
+        .label = "example.helper_edge",
+        .entry_symbol = "workflow",
+        .functions = &.{.{
+            .symbol = .{
+                .module_path = "examples/open_row.zig",
+                .symbol_name = "workflow",
+            },
+            .row = effect_ir.rowFromSpec(.{
+                .state = .{
+                    .get = effect_ir.Transform(void, i32),
                 },
-                .row = effect_ir.rowFromSpec(.{
-                    .state = .{
-                        .get = effect_ir.Transform(void, i32),
-                    },
-                }),
-            }},
-            .call_edges = &.{.{
-                .caller = .{
-                    .module_path = "examples/open_row.zig",
-                    .symbol_name = "workflow",
-                },
-                .callee = .{
-                    .module_path = "examples/helper.zig",
-                    .symbol_name = "helper",
-                },
-            }},
-        }));
-    }
-};
-comptime {
-    _ = source_path_compat_excluded_error_tests;
+            }),
+        }},
+        .call_edges = &.{.{
+            .caller = .{
+                .module_path = "examples/open_row.zig",
+                .symbol_name = "workflow",
+            },
+            .callee = .{
+                .module_path = "examples/helper.zig",
+                .symbol_name = "helper",
+            },
+        }},
+    }));
 }

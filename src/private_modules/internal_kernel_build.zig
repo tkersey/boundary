@@ -1,5 +1,5 @@
-const program_plan = @import("./program_plan.zig");
-const scenarios = @import("../parity_scenarios.zig");
+const program_plan = @import("internal_program_plan");
+const scenarios = @import("parity_scenarios");
 const std = @import("std");
 
 /// Stable scenario ids re-exported from the canonical scenario registry.

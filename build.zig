@@ -7,7 +7,7 @@ const ShiftConsumerDeps = struct {
     lowered_runtime_mod: ?*std.Build.Module,
     shift_mod: *std.Build.Module,
     shift_compile_mod: ?*std.Build.Module = null,
-    shift_vm_mod: ?*std.Build.Module = null,
+    shift_agent_vm_mod: ?*std.Build.Module = null,
 };
 
 const TestSuiteSpec = struct {
@@ -898,7 +898,7 @@ fn createShiftConsumerModule(
     });
     mod.addImport("shift", deps.shift_mod);
     if (deps.shift_compile_mod) |shift_compile_mod| mod.addImport("shift_compile", shift_compile_mod);
-    if (deps.shift_vm_mod) |shift_vm_mod| mod.addImport("shift_vm", shift_vm_mod);
+    if (deps.shift_agent_vm_mod) |shift_agent_vm_mod| mod.addImport("shift_agent_vm", shift_agent_vm_mod);
     if (deps.lowered_runtime_mod) |runtime_mod| mod.addImport("private_lowered_runtime", runtime_mod);
     return mod;
 }
@@ -2717,8 +2717,8 @@ fn runChildExpectSuccess(_: std.mem.Allocator, argv: []const []const u8) !void {
     var child = try std.process.spawn(std.testing.io, .{
         .argv = argv,
         .stdin = .ignore,
-        .stdout = .ignore,
-        .stderr = .ignore,
+        .stdout = .inherit,
+        .stderr = .inherit,
     });
     const term = try child.wait(std.testing.io);
 
@@ -4018,8 +4018,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const shift_vm_mod = b.createModule(.{
-        .root_source_file = b.path("src/private_modules/shift_vm.zig"),
+    const shift_agent_vm_mod = b.addModule("shift_agent_vm", .{
+        .root_source_file = b.path("src/shift_agent_vm.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -4029,7 +4029,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const artifact_api_mod = b.createModule(.{
-        .root_source_file = b.path("src/agent_vm_artifact.zig"),
+        .root_source_file = b.path("src/private_modules/agent_vm_artifact_build.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -4064,7 +4064,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const private_artifact_vm_core_mod = b.createModule(.{
-        .root_source_file = b.path("src/artifact_vm_runtime.zig"),
+        .root_source_file = b.path("src/private_modules/artifact_vm_runtime_build.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -4120,7 +4120,7 @@ pub fn build(b: *std.Build) void {
     });
     shift_mod.addImport("parity_scenarios", parity_scenarios_mod);
     const lowered_machine_mod = b.createModule(.{
-        .root_source_file = b.path("src/lowered_machine.zig"),
+        .root_source_file = b.path("src/private_modules/lowered_machine_build.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -4131,7 +4131,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const helper_body_ir_mod = b.createModule(.{
-        .root_source_file = b.path("src/internal/helper_body_ir.zig"),
+        .root_source_file = b.path("src/private_modules/helper_body_ir_build.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -4141,7 +4141,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const internal_program_plan_mod = b.createModule(.{
-        .root_source_file = b.path("src/internal/program_plan.zig"),
+        .root_source_file = b.path("src/private_modules/internal_program_plan_build.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -4160,7 +4160,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const internal_kernel_mod = b.createModule(.{
-        .root_source_file = b.path("src/internal/kernel.zig"),
+        .root_source_file = b.path("src/private_modules/internal_kernel_build.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -4187,9 +4187,13 @@ pub fn build(b: *std.Build) void {
     private_artifact_vm_core_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
     private_artifact_vm_core_mod.addImport("internal_program_plan", internal_program_plan_mod);
     private_artifact_vm_core_mod.addImport("lowered_machine", lowered_machine_mod);
-    shift_vm_mod.addImport("shift_shared", shift_shared_mod);
-    shift_vm_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
-    shift_vm_mod.addImport("artifact_vm_runtime", private_artifact_vm_core_mod);
+    private_artifact_vm_core_mod.addImport("internal_kernel", internal_kernel_mod);
+    shift_agent_vm_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
+    shift_agent_vm_mod.addImport("artifact_vm_runtime", private_artifact_vm_core_mod);
+    shift_agent_vm_mod.addImport("artifact_api", artifact_api_mod);
+    shift_agent_vm_mod.addImport("internal_program_plan", internal_program_plan_mod);
+    shift_agent_vm_mod.addImport("lowered_machine", lowered_machine_mod);
+    shift_agent_vm_mod.addImport("internal_kernel", internal_kernel_mod);
     lowered_machine_mod.addImport("parity_scenarios", parity_scenarios_mod);
     lowered_machine_mod.addImport("internal_kernel", internal_kernel_mod);
     lowered_machine_mod.addImport("interpreter", interpreter_mod);
@@ -4287,7 +4291,7 @@ pub fn build(b: *std.Build) void {
     with_api_mod.addImport("source_graph_embed", source_graph_embed_mod);
     with_api_mod.addImport("source_graph_engine", source_graph_engine_mod);
     const program_frontend_mod = b.createModule(.{
-        .root_source_file = b.path("src/program_frontend.zig"),
+        .root_source_file = b.path("src/private_modules/program_frontend_build.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -4532,9 +4536,86 @@ pub fn build(b: *std.Build) void {
     const pub_lowering_path_tests = addFilteredTest(b, pub_lowering_path_mod, test_runner_args.filters.items);
     const run_pub_lowering_path = addRunArtifactWithArgs(b, pub_lowering_path_tests, test_runner_args.passthrough.items);
 
+    const shift_agent_vm_consumer_mod = b.createModule(.{
+        .root_source_file = b.path("shift_agent_vm_source_path_consumer.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    shift_agent_vm_consumer_mod.addImport("host_adapter_v1", private_host_adapter_v1_mod);
+    shift_agent_vm_consumer_mod.addImport("artifact_vm_runtime", private_artifact_vm_core_mod);
+    const shift_agent_vm_consumer_exe = b.addExecutable(.{
+        .name = "shift-agent-vm-source-path-consumer",
+        .root_module = shift_agent_vm_consumer_mod,
+    });
+
+    const shift_agent_vm_fixture_mod = b.createModule(.{
+        .root_source_file = b.path("test/generate_shift_agent_vm_fixture.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    shift_agent_vm_fixture_mod.addImport("shift_compile", shift_compile_mod);
+    const shift_agent_vm_fixture_exe = b.addExecutable(.{
+        .name = "generate-shift-agent-vm-fixture",
+        .root_module = shift_agent_vm_fixture_mod,
+    });
+    const run_shift_agent_vm_fixture = b.addRunArtifact(shift_agent_vm_fixture_exe);
+    const shift_agent_vm_fixture_step = b.step(
+        "generate-shift-agent-vm-fixture",
+        "Generate the committed shift_agent_vm compatibility artifact fixture.",
+    );
+    shift_agent_vm_fixture_step.dependOn(&run_shift_agent_vm_fixture.step);
+
+    const shift_agent_vm_smoke_mod = b.createModule(.{
+        .root_source_file = b.path("test/shift_agent_vm_public_smoke_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    shift_agent_vm_smoke_mod.addImport("shift_agent_vm", shift_agent_vm_mod);
+    const shift_agent_vm_smoke_tests = addFilteredTest(
+        b,
+        shift_agent_vm_smoke_mod,
+        test_runner_args.filters.items,
+    );
+    const run_shift_agent_vm_smoke = addRunArtifactWithArgs(
+        b,
+        shift_agent_vm_smoke_tests,
+        test_runner_args.passthrough.items,
+    );
+    run_shift_agent_vm_smoke.step.dependOn(&run_shift_agent_vm_fixture.step);
+
+    const shift_vm_export_opts = b.addOptions();
+    shift_vm_export_opts.addOption([:0]const u8, "zig_exe", b.graph.zig_exe);
+    const shift_vm_export_mod = b.createModule(.{
+        .root_source_file = b.path("test/shift_agent_vm_package_module_export_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    shift_vm_export_mod.addOptions(
+        "build_options",
+        shift_vm_export_opts,
+    );
+    const shift_vm_export_tests = addFilteredTest(
+        b,
+        shift_vm_export_mod,
+        test_runner_args.filters.items,
+    );
+    const run_shift_vm_export = addRunArtifactWithArgs(
+        b,
+        shift_vm_export_tests,
+        test_runner_args.passthrough.items,
+    );
+
     const public_api_compat_step = b.step("public-api-compat", "Run the retained public import compatibility suite.");
     public_api_compat_step.dependOn(&run_pub_ir_path.step);
     public_api_compat_step.dependOn(&run_pub_lowering_path.step);
+    const shift_agent_vm_compat_step = b.step(
+        "shift-agent-vm-compat",
+        "Run retained shift_agent_vm ordinary-consumer, runtime-smoke, and downstream export witnesses.",
+    );
+    shift_agent_vm_compat_step.dependOn(&shift_agent_vm_consumer_exe.step);
+    shift_agent_vm_compat_step.dependOn(&run_shift_agent_vm_smoke.step);
+    shift_agent_vm_compat_step.dependOn(&run_shift_vm_export.step);
+    public_api_compat_step.dependOn(shift_agent_vm_compat_step);
 
     const frontend_internal_tests = addFilteredTest(
         b,
@@ -4619,19 +4700,19 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     runtime_stack_baseline_mod.addImport("direct_style_bridge_manifest", bridge_manifest_mod);
-    runtime_stack_baseline_mod.addImport("example_open_row_abortive_validation", createShiftConsumerModule(b, "examples/open_row_abortive_validation.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    runtime_stack_baseline_mod.addImport("example_open_row_artifact_search", createShiftConsumerModule(b, "examples/open_row_artifact_search.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    runtime_stack_baseline_mod.addImport("example_open_row_generator", createShiftConsumerModule(b, "examples/open_row_generator.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    runtime_stack_baseline_mod.addImport("example_open_row_abortive_validation", createShiftConsumerModule(b, "examples/open_row_abortive_validation.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    runtime_stack_baseline_mod.addImport("example_open_row_artifact_search", createShiftConsumerModule(b, "examples/open_row_artifact_search.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    runtime_stack_baseline_mod.addImport("example_open_row_generator", createShiftConsumerModule(b, "examples/open_row_generator.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     runtime_stack_baseline_mod.addImport("witnesses_src", witnesses_mod);
-    runtime_stack_baseline_mod.addImport("example_early_exit", createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    runtime_stack_baseline_mod.addImport("example_exception_basic", createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    runtime_stack_baseline_mod.addImport("example_nested_workflow", createShiftConsumerModule(b, "examples/nested_workflow.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    runtime_stack_baseline_mod.addImport("example_optional_basic", createShiftConsumerModule(b, "examples/optional_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    runtime_stack_baseline_mod.addImport("example_reader_basic", createShiftConsumerModule(b, "examples/reader_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    runtime_stack_baseline_mod.addImport("example_resource_basic", createShiftConsumerModule(b, "examples/resource_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    runtime_stack_baseline_mod.addImport("example_resume_or_return", createShiftConsumerModule(b, "examples/resume_or_return.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    runtime_stack_baseline_mod.addImport("example_state_basic", createShiftConsumerModule(b, "examples/state_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    runtime_stack_baseline_mod.addImport("example_writer_basic", createShiftConsumerModule(b, "examples/writer_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    runtime_stack_baseline_mod.addImport("example_early_exit", createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    runtime_stack_baseline_mod.addImport("example_exception_basic", createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    runtime_stack_baseline_mod.addImport("example_nested_workflow", createShiftConsumerModule(b, "examples/nested_workflow.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    runtime_stack_baseline_mod.addImport("example_optional_basic", createShiftConsumerModule(b, "examples/optional_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    runtime_stack_baseline_mod.addImport("example_reader_basic", createShiftConsumerModule(b, "examples/reader_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    runtime_stack_baseline_mod.addImport("example_resource_basic", createShiftConsumerModule(b, "examples/resource_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    runtime_stack_baseline_mod.addImport("example_resume_or_return", createShiftConsumerModule(b, "examples/resume_or_return.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    runtime_stack_baseline_mod.addImport("example_state_basic", createShiftConsumerModule(b, "examples/state_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    runtime_stack_baseline_mod.addImport("example_writer_basic", createShiftConsumerModule(b, "examples/writer_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     const boundary_tests = addFilteredTest(b, boundary_mod, test_runner_args.filters.items);
     const run_boundary_tests = addRunArtifactWithArgs(b, boundary_tests, test_runner_args.passthrough.items);
 
@@ -4683,8 +4764,8 @@ pub fn build(b: *std.Build) void {
     });
     source_lowering_completion_mod.addImport("source_lowering", source_lowering_mod);
     source_lowering_completion_mod.addImport("parity_scenarios", parity_scenarios_mod);
-    source_lowering_completion_mod.addImport("example_resource_basic", createShiftConsumerModule(b, "examples/resource_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
-    source_lowering_completion_mod.addImport("example_writer_basic", createShiftConsumerModule(b, "examples/writer_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = null }));
+    source_lowering_completion_mod.addImport("example_resource_basic", createShiftConsumerModule(b, "examples/resource_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = null }));
+    source_lowering_completion_mod.addImport("example_writer_basic", createShiftConsumerModule(b, "examples/writer_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = null }));
     const src_lower_completion_tests = addFilteredTest(b, source_lowering_completion_mod, test_runner_args.filters.items);
     const run_src_lower_completion_tests = addRunArtifactWithArgs(b, src_lower_completion_tests, test_runner_args.passthrough.items);
 
@@ -4697,18 +4778,18 @@ pub fn build(b: *std.Build) void {
     open_row_lowering_mod.addImport("effect_ir", effect_ir_mod);
     open_row_lowering_mod.addImport("source_lowering", source_lowering_mod);
     open_row_lowering_mod.addImport("program_frontend", program_frontend_mod);
+    open_row_lowering_mod.addImport("shift", shift_mod);
     open_row_lowering_mod.addImport("shift_compile", shift_compile_mod);
-    open_row_lowering_mod.addImport("shift_vm", shift_vm_mod);
-    open_row_lowering_mod.addImport("example_open_row_escaped_string_helper_body", createShiftConsumerModule(b, "examples/open_row_escaped_string_helper_body.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    open_row_lowering_mod.addImport("example_open_row_linear_helper_body", createShiftConsumerModule(b, "examples/open_row_linear_helper_body.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    open_row_lowering_mod.addImport("example_open_row_branching_helper_body", createShiftConsumerModule(b, "examples/open_row_branching_helper_body.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    open_row_lowering_mod.addImport("example_open_row_cross_file_writer", createShiftConsumerModule(b, "examples/open_row_cross_file_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    open_row_lowering_mod.addImport("example_open_row_helper_bool_flow", createShiftConsumerModule(b, "examples/open_row_helper_bool_flow.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    open_row_lowering_mod.addImport("example_open_row_helper_value_flow", createShiftConsumerModule(b, "examples/open_row_helper_value_flow.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    open_row_lowering_mod.addImport("example_open_row_helper_value_flow_cross", createShiftConsumerModule(b, "examples/open_row_helper_value_flow_cross.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    open_row_lowering_mod.addImport("example_open_row_state_writer", createShiftConsumerModule(b, "examples/open_row_state_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    open_row_lowering_mod.addImport("example_open_row_recursive_writer", createShiftConsumerModule(b, "examples/open_row_recursive_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    open_row_lowering_mod.addImport("example_open_row_recursive_cross_writer", createShiftConsumerModule(b, "examples/open_row_recursive_cross_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .shift_vm_mod = shift_vm_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    open_row_lowering_mod.addImport("example_open_row_escaped_string_helper_body", createShiftConsumerModule(b, "examples/open_row_escaped_string_helper_body.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    open_row_lowering_mod.addImport("example_open_row_linear_helper_body", createShiftConsumerModule(b, "examples/open_row_linear_helper_body.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    open_row_lowering_mod.addImport("example_open_row_branching_helper_body", createShiftConsumerModule(b, "examples/open_row_branching_helper_body.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    open_row_lowering_mod.addImport("example_open_row_cross_file_writer", createShiftConsumerModule(b, "examples/open_row_cross_file_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    open_row_lowering_mod.addImport("example_open_row_helper_bool_flow", createShiftConsumerModule(b, "examples/open_row_helper_bool_flow.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    open_row_lowering_mod.addImport("example_open_row_helper_value_flow", createShiftConsumerModule(b, "examples/open_row_helper_value_flow.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    open_row_lowering_mod.addImport("example_open_row_helper_value_flow_cross", createShiftConsumerModule(b, "examples/open_row_helper_value_flow_cross.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    open_row_lowering_mod.addImport("example_open_row_state_writer", createShiftConsumerModule(b, "examples/open_row_state_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    open_row_lowering_mod.addImport("example_open_row_recursive_writer", createShiftConsumerModule(b, "examples/open_row_recursive_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
+    open_row_lowering_mod.addImport("example_open_row_recursive_cross_writer", createShiftConsumerModule(b, "examples/open_row_recursive_cross_writer.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     const open_row_lowering_tests = addFilteredTest(b, open_row_lowering_mod, test_runner_args.filters.items);
     const run_open_row_lowering_tests = addRunArtifactWithArgs(b, open_row_lowering_tests, test_runner_args.passthrough.items);
 
@@ -4872,7 +4953,6 @@ pub fn build(b: *std.Build) void {
             .shift_mod = shift_mod,
             .lowered_runtime_mod = private_lowered_runtime_mod,
             .shift_compile_mod = shift_compile_mod,
-            .shift_vm_mod = shift_vm_mod,
         },
     );
     lex_named_boundary_mod.addImport("lexical_with_named_body_boundary_support", named_boundary_support_mod);
@@ -4911,6 +4991,7 @@ pub fn build(b: *std.Build) void {
     const test_suites = [_]TestSuiteSpec{
         .{ .suite_id = "root", .description = "Root lexical surface", .run_step = &run_root_tests.step },
         .{ .suite_id = "public-api-compat", .description = "Retained public import compatibility suite", .run_step = public_api_compat_step },
+        .{ .suite_id = "shift-agent-vm-compat", .description = "Retained shift_agent_vm compatibility suite", .run_step = shift_agent_vm_compat_step },
         .{ .suite_id = "frontend", .description = "Frontend internal module", .run_step = &run_frontend_internal_tests.step },
         .{ .suite_id = "program-plan-review", .description = "ProgramPlan regression suite", .run_step = &run_plan_review_tests.step },
         .{ .suite_id = "program-bridge", .description = "Program bridge suite", .run_step = &run_program_bridge_tests.step },
@@ -4973,7 +5054,6 @@ pub fn build(b: *std.Build) void {
         });
         mod.addImport("shift", shift_mod);
         mod.addImport("shift_compile", shift_compile_mod);
-        mod.addImport("shift_vm", shift_vm_mod);
         mod.addImport("private_lowered_runtime", private_lowered_runtime_mod);
 
         const exe = b.addExecutable(.{
@@ -4996,7 +5076,6 @@ pub fn build(b: *std.Build) void {
         });
         mod.addImport("shift", shift_mod);
         mod.addImport("shift_compile", shift_compile_mod);
-        mod.addImport("shift_vm", shift_vm_mod);
         mod.addImport("private_lowered_runtime", private_lowered_runtime_mod);
 
         const exe = b.addExecutable(.{

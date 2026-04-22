@@ -1,7 +1,6 @@
+const shift = @import("shift");
 const shift_compile = @import("shift_compile");
-const shift_vm = @import("shift_vm");
 const std = @import("std");
-const shift = shift_vm;
 const runtime_support = shift_compile.lowering.runtime_support;
 
 fn choose(eff: anytype) !void {

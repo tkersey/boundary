@@ -1,5 +1,5 @@
-const kernel = @import("./internal/kernel.zig");
-const portable_core = @import("./portable_core.zig");
+const kernel = @import("internal_kernel");
+const portable_core = @import("portable_core");
 const std = @import("std");
 
 /// Public runtime misuse and semantic-contract errors surfaced by `shift`.

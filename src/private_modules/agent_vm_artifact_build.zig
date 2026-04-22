@@ -1,4 +1,5 @@
-const program_plan = @import("./internal/program_plan.zig");
+const artifact_build_options = @import("artifact_build_options");
+const program_plan = @import("internal_program_plan");
 const std = @import("std");
 
 /// Stable section ids used by the ArtifactV1 binary layout.
@@ -103,21 +104,21 @@ const capability_required_flag: u8 = 0x1;
 pub const ArtifactV1 = struct {
     artifact_version: u16 = artifact_version_current,
     semantic_ir_hash64: u64,
-    artifact_hash_blake3_256: [32]u8 = std.mem.zeroes([32]u8),
+    artifact_hash_blake3_256: [32]u8,
     manifest_build_fingerprint: [32]u8 = std.mem.zeroes([32]u8),
     build_fingerprint_blake3_256: [32]u8,
-    entry_function_index: u16 = 0,
-    capabilities: []const CapabilityV1,
-    requirement_capability_ids: []const u16,
-    functions: []const program_plan.FunctionPlan,
-    requirements: []const program_plan.RequirementPlan,
-    ops: []const program_plan.OpPlan,
-    outputs: []const program_plan.OutputPlan,
-    locals: []const program_plan.LocalPlan,
-    call_args: []const u16,
-    blocks: []const program_plan.BlockPlan,
-    terminators: []const program_plan.Terminator,
-    instructions: []const program_plan.Instruction,
+    entry_function_index: u16,
+    capabilities: []CapabilityV1,
+    requirement_capability_ids: []u16,
+    functions: []program_plan.FunctionPlan,
+    requirements: []program_plan.RequirementPlan,
+    ops: []program_plan.OpPlan,
+    outputs: []program_plan.OutputPlan,
+    locals: []program_plan.LocalPlan,
+    call_args: []u16,
+    blocks: []program_plan.BlockPlan,
+    terminators: []program_plan.Terminator,
+    instructions: []program_plan.Instruction,
 
     /// Validate that the artifact manifest and rebuilt program plan are self-consistent.
     pub fn validate(self: @This(), allocator: std.mem.Allocator) anyerror!void {
@@ -181,17 +182,17 @@ pub const ArtifactV1 = struct {
 
     /// Release all allocator-owned memory held by this artifact.
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-        deepFreeCapabilities(allocator, @constCast(self.capabilities));
-        allocator.free(@constCast(self.requirement_capability_ids));
-        deepFreeFunctionPlansConst(allocator, self.functions);
-        deepFreeRequirementPlansConst(allocator, self.requirements);
-        deepFreeOpPlansConst(allocator, self.ops);
-        deepFreeOutputPlansConst(allocator, self.outputs);
-        allocator.free(@constCast(self.locals));
-        allocator.free(@constCast(self.call_args));
-        allocator.free(@constCast(self.blocks));
-        allocator.free(@constCast(self.terminators));
-        deepFreeInstructionsConst(allocator, self.instructions);
+        deepFreeCapabilities(allocator, self.capabilities);
+        allocator.free(self.requirement_capability_ids);
+        deepFreeFunctionPlans(allocator, self.functions);
+        deepFreeRequirementPlans(allocator, self.requirements);
+        deepFreeOpPlans(allocator, self.ops);
+        deepFreeOutputPlans(allocator, self.outputs);
+        allocator.free(self.locals);
+        allocator.free(self.call_args);
+        allocator.free(self.blocks);
+        allocator.free(self.terminators);
+        deepFreeInstructions(allocator, self.instructions);
         self.* = undefined;
     }
 };
@@ -284,7 +285,6 @@ pub fn buildFingerprintWithSeed(base_fingerprint: [32]u8, seed: []const u8) [32]
 
 /// Return the current build-derived exact-build fingerprint used by default ArtifactV1 emission.
 pub fn defaultBuildFingerprint() [32]u8 {
-    const artifact_build_options = @import("artifact_build_options");
     return artifact_build_options.default_artifact_build_fingerprint;
 }
 
@@ -1155,9 +1155,9 @@ fn canonicalInstruction(plan: program_plan.ProgramPlan, instruction: program_pla
             canonical.string_literal = "";
         },
         .call_op => {
-            const plan_op = plan.ops[instruction.operand];
-            if (plan_op.resume_codec == .unit) canonical.dst = 0;
-            if (plan_op.payload_codec == .unit) canonical.aux = 0;
+            const op = plan.ops[instruction.operand];
+            if (op.resume_codec == .unit) canonical.dst = 0;
+            if (op.payload_codec == .unit) canonical.aux = 0;
             canonical.string_literal = "";
         },
         .compare_eq_zero => {
@@ -1390,13 +1390,13 @@ fn validateRequirementCapabilityMappings(
 }
 
 fn capabilityResultCodecForOp(plan: program_plan.ProgramPlan, op_index: usize) !program_plan.ValueCodec {
-    const plan_op = plan.ops[op_index];
-    return switch (plan_op.mode) {
-        .transform => plan_op.resume_codec,
+    const op = plan.ops[op_index];
+    return switch (op.mode) {
+        .transform => op.resume_codec,
         .choice => blk: {
             const terminal_codec = try terminalResultCodecForOp(plan, @intCast(op_index));
-            if (terminal_codec != plan_op.resume_codec) return error.InvalidRequiredSection;
-            break :blk plan_op.resume_codec;
+            if (terminal_codec != op.resume_codec) return error.InvalidRequiredSection;
+            break :blk op.resume_codec;
         },
         .abort => try terminalResultCodecForOp(plan, @intCast(op_index)),
     };

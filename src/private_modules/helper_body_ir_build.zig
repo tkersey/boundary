@@ -1,4 +1,4 @@
-const effect_ir = @import("../effect_ir.zig");
+const effect_ir = @import("effect_ir");
 
 /// Stable local slot identifier inside one helper body.
 pub const LocalId = effect_ir.LocalId;
