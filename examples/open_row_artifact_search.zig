@@ -47,9 +47,14 @@ pub fn run(writer: anytype) anyerror!void {
     defer runtime.deinit();
 
     transcript.len = 0;
-    const result = try shift.withAt(@src(), &runtime, .{
+    const result = try shift.with(&runtime, .{
         .search = Search.use(.{ .handler = search_handler{} }),
-    }, shift.NamedBody("examples/open_row_artifact_search.zig", "artifactSearchBody", anyerror!i32, artifactSearchBody));
+    }, struct {
+        /// Run the artifact-search example body through the lexical front door.
+        pub fn body(eff: anytype) @TypeOf(artifactSearchBody(eff)) {
+            return artifactSearchBody(eff);
+        }
+    });
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }

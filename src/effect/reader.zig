@@ -9,7 +9,7 @@ const std = @import("std");
 /// Prompt-backed effect instance for a reader family.
 pub const Instance = family.Instance;
 
-/// Lexical reader handle used by `shift.withAt(@src(), ...)`.
+/// Lexical reader handle used by `shift.with(...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -21,7 +21,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     };
 }
 
-/// Descriptor value used by `shift.withAt(@src(), ...)` for the built-in reader family.
+/// Descriptor value used by `shift.with(...)` for the built-in reader family.
 pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) type {
     return struct {
         /// Shared error set carried by the lexical reader descriptor.
@@ -52,7 +52,7 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
         /// Run one lexical reader descriptor through the existing reader family.
         pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             var instance = family.Instance(StateType, ErrorSetType).init();
-            const result = try algebraic.handleReaderWithErrorSetLexicalAt(AnswerType, RunErrorSetType, @TypeOf(run_ctx).caller_source, .{
+            const result = try algebraic.handleReaderWithErrorSetLexical(AnswerType, RunErrorSetType, .{
                 .runtime = run_ctx.runtime,
                 .instance = &instance,
                 .environment = self.environment,
@@ -66,7 +66,7 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
     };
 }
 
-/// Create one lexical reader descriptor for `shift.withAt(@src(), ...)`.
+/// Create one lexical reader descriptor for `shift.with(...)`.
 pub fn use(environment: anytype) LexicalDescriptor(@TypeOf(environment), error{}) {
     return .{ .environment = environment };
 }
@@ -101,19 +101,7 @@ pub fn handle(
     environment: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try algebraic.handleReader(null, AnswerType, runtime, instance, environment, Body);
-}
-
-/// Run a reader effect body with explicit caller provenance and return the body answer.
-pub fn handleAt(
-    comptime caller_source: std.builtin.SourceLocation,
-    comptime AnswerType: type,
-    runtime: *shift.Runtime,
-    instance: anytype,
-    environment: family.InstanceStateType(@TypeOf(instance)),
-    comptime Body: type,
-) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try algebraic.handleReader(caller_source, AnswerType, runtime, instance, environment, Body);
+    return try algebraic.handleReader(AnswerType, runtime, instance, environment, Body);
 }
 
 /// Public `handleWithErrorSet` helper.
@@ -126,21 +114,7 @@ pub fn handleWithErrorSet(
     environment: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try algebraic.handleReaderWithErrorSet(null, AnswerType, RunErrorSetType, runtime, instance, environment, Body);
-}
-
-/// Public `handleWithErrorSetAt` helper.
-// zlinter-disable max_positional_args - public caller provenance and reader inputs stay explicit at this compatibility wrapper.
-pub fn handleWithErrorSetAt(
-    comptime caller_source: std.builtin.SourceLocation,
-    comptime AnswerType: type,
-    comptime RunErrorSetType: type,
-    runtime: *shift.Runtime,
-    instance: anytype,
-    environment: family.InstanceStateType(@TypeOf(instance)),
-    comptime Body: type,
-) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try algebraic.handleReaderWithErrorSet(caller_source, AnswerType, RunErrorSetType, runtime, instance, environment, Body);
+    return try algebraic.handleReaderWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, environment, Body);
 }
 
 test "public reader handleWithErrorSet leaves caller provenance absent by default" {
@@ -190,7 +164,7 @@ test "reader handle threads environment into the body" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ReaderInstance.init();
-    const result = try handleAt(@src(), i32, &runtime, &instance, 21, demo);
+    const result = try handle(i32, &runtime, &instance, 21, demo);
     try std.testing.expectEqual(@as(i32, 21), result);
 }
 
@@ -203,7 +177,7 @@ test "nested same-shaped reader handles get distinct capability types" {
 
         /// Open an inner reader handle and prove its capability type differs from the outer one.
         pub fn outer(comptime OuterCap: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
-            return try handleAt(@src(), i32, runtime_ptr.?, inner_ptr.?, 0, struct {
+            return try handle(i32, runtime_ptr.?, inner_ptr.?, 0, struct {
                 /// Reject capability-type collapse inside the nested reader handle.
                 pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(family.computeProgram(InnerCap, inner_ctx, struct {
                     /// Return a neutral value from the nested reader body.
@@ -231,7 +205,7 @@ test "nested same-shaped reader handles get distinct capability types" {
     var inner_instance = ReaderInstance.init();
     demo.runtime_ptr = &runtime;
     demo.inner_ptr = &inner_instance;
-    const result = try handleAt(@src(), i32, &runtime, &outer_instance, 0, struct {
+    const result = try handle(i32, &runtime, &outer_instance, 0, struct {
         /// Enter the outer reader handle and hand its capability to the nested check.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(family.computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested reader witness through the outer capability.

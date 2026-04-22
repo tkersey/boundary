@@ -25,7 +25,7 @@ pub fn Instance(comptime ResumeType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.resume_or_return, ResumeType, ErrorSetType);
 }
 
-/// Lexical optional handle used by `shift.withAt(@src(), ...)`.
+/// Lexical optional handle used by `shift.with(...)`.
 pub fn LexicalHandle(
     comptime Cap: type,
     comptime ContextPtrType: type,
@@ -93,7 +93,7 @@ pub fn LexicalHandle(
     };
 }
 
-/// Descriptor value used by `shift.withAt(@src(), ...)` for the built-in optional family.
+/// Descriptor value used by `shift.with(...)` for the built-in optional family.
 pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type, comptime Policy: type) type {
     return struct {
         /// Shared error set carried by the lexical optional descriptor.
@@ -149,7 +149,7 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
         pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
             var instance = family.InstanceWithMode(.resume_or_return, ResumeType, ErrorSetType).init();
-            const result = try algebraic.handleOptionalLexicalWithErrorSetAt(AnswerType, RunErrorSetType, @TypeOf(run_ctx).caller_source, .{
+            const result = try algebraic.handleOptionalLexicalWithErrorSet(AnswerType, RunErrorSetType, .{
                 .runtime = run_ctx.runtime,
                 .instance = &instance,
                 .lexical_state = @constCast(run_ctx.lexical_state),
@@ -162,7 +162,7 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
     };
 }
 
-/// Create one lexical optional descriptor for `shift.withAt(@src(), ...)`.
+/// Create one lexical optional descriptor for `shift.with(...)`.
 pub fn use(comptime ResumeType: type, comptime Policy: type) LexicalDescriptor(ResumeType, PolicyErrorSet(Policy), Policy) {
     return .{};
 }
@@ -225,19 +225,7 @@ pub fn handle(
     comptime Policy: type,
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try algebraic.handleOptional(null, AnswerType, runtime, instance, Policy, Body);
-}
-
-/// Run an optional-resumption effect body with explicit caller provenance and return the final handler answer.
-pub fn handleAt(
-    comptime caller_source: std.builtin.SourceLocation,
-    comptime AnswerType: type,
-    runtime: *shift.Runtime,
-    instance: anytype,
-    comptime Policy: type,
-    comptime Body: type,
-) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try algebraic.handleOptional(caller_source, AnswerType, runtime, instance, Policy, Body);
+    return try algebraic.handleOptional(AnswerType, runtime, instance, Policy, Body);
 }
 
 /// Public `handleWithErrorSet` helper.
@@ -250,21 +238,7 @@ pub fn handleWithErrorSet(
     comptime Policy: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try algebraic.handleOptionalWithErrorSet(null, AnswerType, RunErrorSetType, runtime, instance, Policy, Body);
-}
-
-/// Public `handleWithErrorSetAt` helper.
-// zlinter-disable max_positional_args - public caller provenance and optional policy inputs stay explicit at this compatibility wrapper.
-pub fn handleWithErrorSetAt(
-    comptime caller_source: std.builtin.SourceLocation,
-    comptime AnswerType: type,
-    comptime RunErrorSetType: type,
-    runtime: *shift.Runtime,
-    instance: anytype,
-    comptime Policy: type,
-    comptime Body: type,
-) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try algebraic.handleOptionalWithErrorSet(caller_source, AnswerType, RunErrorSetType, runtime, instance, Policy, Body);
+    return try algebraic.handleOptionalWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, Policy, Body);
 }
 
 test "optional instance shell stays prompt-sized" {
@@ -310,7 +284,7 @@ test "optional handle can return now without resuming the body tail" {
     defer runtime.deinit();
     var instance = OptionalInstance.init();
     demo.after_request = false;
-    const result = try handleAt(@src(), []const u8, &runtime, &instance, policy, demo);
+    const result = try handle([]const u8, &runtime, &instance, policy, demo);
     try std.testing.expectEqualStrings("result=early", result);
     try std.testing.expect(!demo.after_request);
 }
@@ -355,7 +329,7 @@ test "optional requestProgram stays on the explicit frontend.Program surface" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = OptionalInstance.init();
-    const result = try handleAt(@src(), []const u8, &runtime, &instance, policy, demo);
+    const result = try handle([]const u8, &runtime, &instance, policy, demo);
     try std.testing.expectEqualStrings("answer=42", result);
 }
 
@@ -409,7 +383,7 @@ test "optional handle can resume and transform the resumed answer" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = OptionalInstance.init();
-    const result = try handleAt(@src(), []const u8, &runtime, &instance, policy, demo);
+    const result = try handle([]const u8, &runtime, &instance, policy, demo);
     try std.testing.expectEqualStrings("answer=42", result);
 }
 
@@ -464,7 +438,7 @@ test "nested same-shaped optional handles get distinct capability types" {
 
         /// Open an inner optional handle and compare its capability type.
         pub fn outer(comptime OuterCap: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
-            return try handleAt(@src(), i32, runtime_ptr.?, inner_ptr.?, policy, struct {
+            return try handle(i32, runtime_ptr.?, inner_ptr.?, policy, struct {
                 /// Reject capability-type collapse inside the nested handle.
                 pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(computeProgram(InnerCap, inner_ctx, struct {
                     /// Return a neutral value from the nested optional body.
@@ -492,7 +466,7 @@ test "nested same-shaped optional handles get distinct capability types" {
     var inner_instance = OptionalInstance.init();
     demo.runtime_ptr = &runtime;
     demo.inner_ptr = &inner_instance;
-    const result = try handleAt(@src(), i32, &runtime, &outer_instance, policy, struct {
+    const result = try handle(i32, &runtime, &outer_instance, policy, struct {
         /// Enter the outer optional handle and hand its capability inward.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested optional witness through the outer capability.

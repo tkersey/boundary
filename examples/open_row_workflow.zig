@@ -66,12 +66,17 @@ fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void
 
     transcript.search_line = "";
     transcript.approval_line = "";
-    const result = try shift.withAt(@src(), &runtime, .{
+    const result = try shift.with(&runtime, .{
         .state = shift.effect.state.use(@as(i32, 0)),
         .writer = shift.effect.writer.use([]const u8, allocator),
         .search = Search.use(.{ .handler = search_handler{} }),
         .approval = Approval.use(.{ .handler = approval_handler{} }),
-    }, shift.NamedBody("examples/open_row_workflow.zig", "workflowBody", anyerror![]const u8, workflowBody));
+    }, struct {
+        /// Run the workflow example body through the lexical front door.
+        pub fn body(eff: anytype) @TypeOf(workflowBody(eff)) {
+            return workflowBody(eff);
+        }
+    });
     defer allocator.free(result.outputs.writer);
 
     try writer.print("{s}\n", .{transcript.search_line});

@@ -23,9 +23,14 @@ pub fn run(writer: anytype) anyerror!void {
     defer runtime.deinit();
     transcript.handler_line = "";
 
-    const result = try shift.withAt(@src(), &runtime, .{
+    const result = try shift.with(&runtime, .{
         .exception = shift.effect.exception.use([]const u8, catch_policy),
-    }, shift.NamedBody("examples/early_exit.zig", "earlyExitBody", anyerror![]const u8, earlyExitBody));
+    }, struct {
+        /// Run the early-exit example body through the lexical front door.
+        pub fn body(eff: anytype) @TypeOf(earlyExitBody(eff)) {
+            return earlyExitBody(eff);
+        }
+    });
 
     try writer.print("{s}\n", .{transcript.handler_line});
     try writer.print("final={s}\n", .{result.value});

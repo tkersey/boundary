@@ -13,21 +13,12 @@ The ordinary public root is intentionally narrow:
 - `shift.effect.*`
 - `shift.effect.Define(...)`
 - `shift.with(...)`
-- `shift.NamedBody(...)`
 - `shift.Runtime`
 - `shift.RuntimeError`
 
 The repo also contains maintainer-facing specialist surfaces for lowering and
 interpreter stepping. Those remain implementation detail territory, not a
 second public story.
-
-For shipped execution inside this package, `shift.NamedBody(...)` is the
-canonical source identity for `shift.with(...)`. The retained ordinary examples
-and admitted witness subset, including the nested-prompt `static_redelim` and
-`multi_prompt` witnesses, are driven onto that compiled path rather than
-relying on anonymous inline lexical body execution in shipped builds.
-Downstream caller-owned source files are still not admitted to the compiled
-NamedBody subset.
 
 ## Examples
 

@@ -1,5 +1,4 @@
 const artifact_api = @import("artifact_api");
-const compat_api = @import("compat.zig");
 const effect_root = @import("effect/root.zig");
 const error_witness = @import("error_witness");
 const interpreter_api = @import("interpreter");
@@ -18,33 +17,13 @@ pub const Runtime = lowered_machine.Runtime;
 pub const RuntimeError = lowered_machine.RuntimeError;
 /// Public `With` helper retained at the root surface.
 pub const With = with_api.With;
-/// Canonical named lexical body helper retained at the root surface.
-pub const NamedBody = with_api.NamedBody;
-/// Explicit caller-owned source witness retained for `withOwnedSource(...)`.
-pub const OwnedSourceWitness = with_api.OwnedSourceWitness;
 /// Public `with(...)` helper retained at the root surface.
 pub const with = with_api.with;
-/// Public `withAt(...)` helper retained for explicit caller provenance.
-pub const withAt = with_api.withAt;
-/// Public `withOwnedSource(...)` helper retained for explicit caller-owned lexical compilation witnesses.
-pub const withOwnedSource = with_api.withOwnedSource;
 
-/// Compatibility API namespace retained for existing `shift.compat.*` users.
-pub const compat = compat_api;
 /// Interpreter namespace retained for compatibility surfaces.
 pub const interpreter = interpreter_api;
 /// Public semantic-error witness surface.
 pub const ErrorWitnessV1 = error_witness.ErrorWitnessV1;
-/// Retained compatibility declaration vocabulary.
-pub const Decl = compat_api.Decl;
-/// Retained compatibility operation vocabulary.
-pub const Op = compat_api.Op;
-/// Retained compatibility decision vocabulary.
-pub const Decision = compat_api.Decision;
-/// Retained compatibility program vocabulary.
-pub const Program = compat_api.Program;
-/// Retained compatibility execution helper.
-pub const run = compat_api.run;
 
 /// Retained explicit IR compatibility surface shared by `shift` and `shift_compile`.
 // zlinter-disable-next-line declaration_naming - retained public API contract is shift.ir

@@ -64,9 +64,14 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=return_now\n");
     transcript.len = 0;
-    const early_result = try shift.withAt(@src(), &runtime, .{
+    const early_result = try shift.with(&runtime, .{
         .optional = shift.effect.optional.use(i32, return_now_policy),
-    }, shift.NamedBody("examples/optional_basic.zig", "optionalReturnNowBody", anyerror![]const u8, optionalReturnNowBody));
+    }, struct {
+        /// Run the return-now optional example body.
+        pub fn body(eff: anytype) @TypeOf(optionalReturnNowBody(eff)) {
+            return optionalReturnNowBody(eff);
+        }
+    });
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }
@@ -74,9 +79,14 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=resume_with\n");
     transcript.len = 0;
-    const resumed = try shift.withAt(@src(), &runtime, .{
+    const resumed = try shift.with(&runtime, .{
         .optional = shift.effect.optional.use(i32, resume_policy),
-    }, shift.NamedBody("examples/optional_basic.zig", "optionalResumeBody", anyerror![]const u8, optionalResumeBody));
+    }, struct {
+        /// Run the resumed optional example body.
+        pub fn body(eff: anytype) @TypeOf(optionalResumeBody(eff)) {
+            return optionalResumeBody(eff);
+        }
+    });
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }
