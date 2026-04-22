@@ -4661,6 +4661,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     shift_agent_vm_smoke_mod.addImport("shift_agent_vm", shift_agent_vm_mod);
+    shift_agent_vm_smoke_mod.addImport("shift_compile", shift_compile_mod);
     const shift_agent_vm_smoke_tests = addFilteredTest(
         b,
         shift_agent_vm_smoke_mod,
