@@ -1,4 +1,4 @@
-const shift = @import("lexical_runtime_internal");
+const shift = @import("shift");
 const std = @import("std");
 
 fn ExecResult(comptime T: type) type {
@@ -9,7 +9,7 @@ test "shift.with accepts body run(eff)" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.withAt(@src(), &runtime, .{
+    const result = try shift.with(&runtime, .{
         .state = shift.effect.state.use(@as(i32, 9)),
     }, struct {
         /// Run the body through the declared one-argument `run` hook.
@@ -25,7 +25,7 @@ test "shift.with accepts body run(self, eff)" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.withAt(@src(), &runtime, .{
+    const result = try shift.with(&runtime, .{
         .state = shift.effect.state.use(@as(i32, 11)),
     }, struct {
         /// Run the body through the declared self-plus-eff `run` hook.

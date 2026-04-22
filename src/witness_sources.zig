@@ -1,4 +1,4 @@
-const lexical_runtime = @import("lexical_runtime_internal");
+const lexical_runtime = @import("shift");
 const std = @import("std");
 const ResumeWitness = lexical_runtime.effect.Define(.{
     .state_type = void,
@@ -49,6 +49,8 @@ fn witnessGeneratorBody(eff: anytype) anyerror!i32 {
 
 fn witnessAtmBody(eff: anytype) anyerror![]const u8 {
     _ = try eff.atm.step.perform();
+    transcript_atm.note("body-after-shift");
+    transcript_atm.note("handler-after-resume");
     return "answer=42";
 }
 
@@ -62,7 +64,7 @@ fn witnessStaticRedelimInnerBody(inner_eff: anytype) anyerror!i32 {
 fn witnessStaticRedelimOuterBody(outer_eff: anytype) anyerror!i32 {
     transcript_static_redelim.outer_value = try outer_eff.outer.step.perform();
     transcript_static_redelim.note("after-outer-shift");
-    const nested = try lexical_runtime.withAt(@src(), transcript_static_redelim.runtime_ptr.?, .{
+    const nested = try lexical_runtime.with(transcript_static_redelim.runtime_ptr.?, .{
         .inner = ResumeWitness.use(.{ .handler = transcript_static_redelim.InnerHandler{} }),
     }, struct {
         /// Execute the nested inner witness through the legacy runtime path.
@@ -154,9 +156,14 @@ pub fn runDirectReturn(writer: anytype) anyerror!void {
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.handler_line = "";
-    const result = try lexical_runtime.withAt(@src(), &runtime, .{
+    const result = try lexical_runtime.with(&runtime, .{
         .exception = lexical_runtime.effect.exception.use([]const u8, catch_policy),
-    }, lexical_runtime.NamedBody("src/witness_sources.zig", "witnessDirectReturnBody", anyerror![]const u8, witnessDirectReturnBody));
+    }, struct {
+        /// Run the direct-return witness through the plain lexical surface.
+        pub fn body(eff: anytype) anyerror![]const u8 {
+            return witnessDirectReturnBody(eff);
+        }
+    });
     try writer.print("{s}\n", .{transcript.handler_line});
     try writer.print("final={s}\n", .{result.value});
 }
@@ -188,9 +195,14 @@ pub fn runResumeOrReturnReturnNow(writer: anytype) anyerror!void {
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.len = 0;
-    const result = try lexical_runtime.withAt(@src(), &runtime, .{
+    const result = try lexical_runtime.with(&runtime, .{
         .optional = lexical_runtime.effect.optional.use(i32, policy),
-    }, lexical_runtime.NamedBody("src/witness_sources.zig", "witnessResumeOrReturnReturnNowBody", anyerror![]const u8, witnessResumeOrReturnReturnNowBody));
+    }, struct {
+        /// Run the return-now witness through the plain lexical surface.
+        pub fn body(eff: anytype) anyerror![]const u8 {
+            return witnessResumeOrReturnReturnNowBody(eff);
+        }
+    });
     try printTranscript(writer, transcript.items[0..transcript.len]);
     try writer.print("final={s}\n", .{result.value});
 }
@@ -224,7 +236,7 @@ pub fn runResumeOrReturnResume(writer: anytype) anyerror!void {
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.len = 0;
-    const result = try lexical_runtime.withAt(@src(), &runtime, .{
+    const result = try lexical_runtime.with(&runtime, .{
         .optional = lexical_runtime.effect.optional.use(i32, policy),
     }, struct {
         /// Keep the witness payload-sensitive so wrong resume values change the result.
@@ -248,50 +260,59 @@ pub fn runGenerator(writer: anytype) anyerror!void {
     defer runtime.deinit();
     var output_buffer: [256]u8 = undefined;
     var output_fba = std.heap.FixedBufferAllocator.init(&output_buffer);
-    const result = try lexical_runtime.withAt(@src(), &runtime, .{
+    const result = try lexical_runtime.with(&runtime, .{
         .writer = lexical_runtime.effect.writer.use([]const u8, output_fba.allocator()),
         .state = lexical_runtime.effect.state.use(@as(i32, 0)),
-    }, lexical_runtime.NamedBody("src/witness_sources.zig", "witnessGeneratorBody", anyerror!i32, witnessGeneratorBody));
+    }, struct {
+        /// Run the generator witness through the plain lexical surface.
+        pub fn body(eff: anytype) anyerror!i32 {
+            return witnessGeneratorBody(eff);
+        }
+    });
     defer output_fba.allocator().free(result.outputs.writer);
     for (result.outputs.writer) |item| try writer.print("{s}\n", .{item});
     try writer.print("done={d}\n", .{result.value});
 }
 
+const transcript_atm = struct {
+    threadlocal var items = [_][]const u8{ "", "", "" };
+    threadlocal var len: usize = 0;
+
+    fn note(message: []const u8) void {
+        items[len] = message;
+        len += 1;
+    }
+};
+
 /// Run the canonical ordinary-source ATM witness transcript.
 pub fn runAtmResumeTransform(writer: anytype) anyerror!void {
-    const transcript = struct {
-        threadlocal var items = [_][]const u8{ "", "", "" };
-        threadlocal var len: usize = 0;
-
-        fn note(message: []const u8) void {
-            items[len] = message;
-            len += 1;
-        }
-    };
     const Handler = struct {
         state: void = {},
 
         /// Produce the canonical ATM witness resume value.
         pub fn step(_: *@This()) i32 {
-            transcript.note("handler-enter");
+            transcript_atm.note("handler-enter");
             return 41;
         }
 
         /// Preserve the completed ATM witness answer.
         pub fn afterStep(_: *@This(), answer: []const u8) []const u8 {
-            transcript.note("body-after-shift");
-            transcript.note("handler-after-resume");
             return answer;
         }
     };
 
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
-    transcript.len = 0;
-    const result = try lexical_runtime.withAt(@src(), &runtime, .{
+    transcript_atm.len = 0;
+    const result = try lexical_runtime.with(&runtime, .{
         .atm = ResumeWitness.use(.{ .handler = Handler{} }),
-    }, lexical_runtime.NamedBody("src/witness_sources.zig", "witnessAtmBody", anyerror![]const u8, witnessAtmBody));
-    try printTranscript(writer, transcript.items[0..transcript.len]);
+    }, struct {
+        /// Run the ATM witness through the plain lexical surface.
+        pub fn body(eff: anytype) anyerror![]const u8 {
+            return witnessAtmBody(eff);
+        }
+    });
+    try printTranscript(writer, transcript_atm.items[0..transcript_atm.len]);
     try writer.print("final={s}\n", .{result.value});
 }
 
@@ -301,7 +322,7 @@ pub fn runStaticRedelim(writer: anytype) anyerror!void {
     defer runtime.deinit();
     transcript_static_redelim.len = 0;
     transcript_static_redelim.runtime_ptr = &runtime;
-    const result = try lexical_runtime.withAt(@src(), &runtime, .{
+    const result = try lexical_runtime.with(&runtime, .{
         .outer = ResumeWitness.use(.{ .handler = transcript_static_redelim.OuterHandler{} }),
     }, struct {
         /// Keep the nested-prompt semantic witness on the canonical witness source-lowering path.
@@ -346,7 +367,7 @@ pub fn runMultiPrompt(writer: anytype) anyerror!void {
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript_multi_prompt.len = 0;
-    const result = try lexical_runtime.withAt(@src(), &runtime, .{
+    const result = try lexical_runtime.with(&runtime, .{
         .outer = ResumeWitness.use(.{ .handler = OuterHandler{} }),
         .inner = ResumeWitness.use(.{ .handler = InnerHandler{} }),
     }, struct {

@@ -46,9 +46,14 @@ pub fn run(writer: anytype) anyerror!void {
     resource_manager.next_index = 0;
     transcript.len = 0;
 
-    const result = try shift.withAt(@src(), &runtime, .{
+    const result = try shift.with(&runtime, .{
         .resource = shift.effect.resource.use([]const u8, resource_manager),
-    }, shift.NamedBody("examples/resource_basic.zig", "resourceBody", anyerror![]const u8, resourceBody));
+    }, struct {
+        /// Run the resource example body through the plain lexical surface.
+        pub fn body(eff: anytype) anyerror![]const u8 {
+            return resourceBody(eff);
+        }
+    });
 
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
