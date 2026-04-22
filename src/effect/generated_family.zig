@@ -967,7 +967,7 @@ pub fn Build(comptime spec: anytype) type {
             return @Struct(.auto, null, &field_names, &field_types, &field_attrs);
         }
 
-        /// Lexical handle used by `shift.withAt(@src(), ...)` for generated families.
+        /// Lexical handle used by `shift.with(...)` for generated families.
         pub fn LexicalHandle(
             comptime Cap: type,
             comptime ContextPtrType: type,
@@ -978,7 +978,7 @@ pub fn Build(comptime spec: anytype) type {
             return LexicalFieldContainerHandle(Cap, ContextPtrType, HandlersType, PreviousEffType, index);
         }
 
-        /// Descriptor value used by `shift.withAt(@src(), ...)` for generated families.
+        /// Descriptor value used by `shift.with(...)` for generated families.
         pub fn LexicalDescriptor(comptime HandlerType: type) type {
             return struct {
                 const produces_output = mode == .resume_then_transform and stateTypeProducesOutput(StateType);
@@ -1045,7 +1045,7 @@ pub fn Build(comptime spec: anytype) type {
                 pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType || InferHandlerOperationErrorSet(mode, op_specs, HandlerType))!lexical_with.DescriptorResult(Output, AnswerType) {
                     var instance = Instance.init();
                     const ActualRunErrorSet = RunErrorSetType || InferHandlerOperationErrorSet(mode, op_specs, HandlerType);
-                    const result = try self_type.handleWithLexicalState(AnswerType, ActualRunErrorSet, run_ctx.runtime, &instance, self.handler, @constCast(run_ctx.lexical_state), Body, @TypeOf(run_ctx).caller_source);
+                    const result = try self_type.handleWithLexicalState(AnswerType, ActualRunErrorSet, run_ctx.runtime, &instance, self.handler, @constCast(run_ctx.lexical_state), Body);
                     if (produces_output) {
                         return .{
                             .output = result.state,
@@ -1075,28 +1075,16 @@ pub fn Build(comptime spec: anytype) type {
         pub fn handle(comptime AnswerType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler), Body))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
             const HandlerType = @TypeOf(handler);
             const RunErrorSetType = HandleErrorSet(AnswerType, HandlerType, Body);
-            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body, null);
-        }
-
-        /// Run one generated family body with explicit caller provenance.
-        pub fn handleAt(comptime caller_source: std.builtin.SourceLocation, comptime AnswerType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler), Body))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
-            const HandlerType = @TypeOf(handler);
-            const RunErrorSetType = HandleErrorSet(AnswerType, HandlerType, Body);
-            return self_type.handleWithErrorSetAt(caller_source, AnswerType, RunErrorSetType, runtime, instance, handler, Body);
+            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body);
         }
 
         /// Public `handleWithErrorSet` helper.
         pub fn handleWithErrorSet(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
-            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body, null);
+            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body);
         }
 
-        /// Public `handleWithErrorSetAt` helper.
-        pub fn handleWithErrorSetAt(comptime caller_source: std.builtin.SourceLocation, comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
-            return self_type.handleWithLexicalState(AnswerType, RunErrorSetType, runtime, instance, handler, null, Body, caller_source);
-        }
-
-        // zlinter-disable max_positional_args - this internal seam keeps the lexical caller packet explicit until compiled-body dispatch fully replaces the legacy path.
-        fn handleWithLexicalState(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, lexical_state: ?*anyopaque, comptime Body: type, comptime caller_source: ?std.builtin.SourceLocation) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
+        // zlinter-disable max_positional_args - this internal seam keeps the lexical-state packet explicit while generated-family handlers run through the shared engine.
+        fn handleWithLexicalState(comptime AnswerType: type, comptime RunErrorSetType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, lexical_state: ?*anyopaque, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
             var handler_value = handler;
             const handler_ptr = &handler_value;
             const HandlerType = @TypeOf(handler_value);
@@ -1130,7 +1118,7 @@ pub fn Build(comptime spec: anytype) type {
                 sealed_contract.AnswerTypeG,
                 sealed_contract.ErrorSetTypeG,
                 sealed_contract.capability_decls,
-                .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = lexical_state, .caller_source = caller_source },
+                .{ .runtime = runtime, .prompt_identity = promptIdentity(&instance.prompt), .engine_ctx = &engine_ctx, .lexical_state = lexical_state },
                 Body,
             );
             if (mode == .resume_then_transform) {
@@ -1226,7 +1214,7 @@ pub fn Build(comptime spec: anytype) type {
 
             /// Run one generated-family example harness through the public handle surface.
             pub fn exampleHarness(comptime AnswerType: type, runtime: *shift.Runtime, instance: anytype, handler: anytype, comptime Body: type) lowered_machine.ResetError(HandleErrorSet(AnswerType, @TypeOf(handler), Body))!if (mode == .resume_then_transform) HandleResult(AnswerType) else AnswerType {
-                return self_type.handleAt(@src(), AnswerType, runtime, instance, handler, Body);
+                return self_type.handle(AnswerType, runtime, instance, handler, Body);
             }
         };
     };

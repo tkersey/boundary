@@ -1,5 +1,5 @@
 // zlinter-disable require_doc_comment - these fixture witnesses expose public nested bodies only because the lexical API binds comptime-visible structs.
-const shift = @import("lexical_runtime_internal");
+const shift = @import("shift");
 const std = @import("std");
 
 fn ExecResult(comptime T: type) type {
@@ -17,7 +17,7 @@ test "shift.with composes state and reader through lexical handles" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.withAt(@src(), &runtime, .{
+    const result = try shift.with(&runtime, .{
         .state = shift.effect.state.use(@as(i32, 5)),
         .reader = shift.effect.reader.use(@as(i32, 21)),
     }, struct {
@@ -39,7 +39,7 @@ test "shift.with matches the state fixture transcript through lexical handles" {
             var runtime = shift.Runtime.init(std.testing.allocator);
             defer runtime.deinit();
 
-            const result = try shift.withAt(@src(), &runtime, .{
+            const result = try shift.with(&runtime, .{
                 .state = shift.effect.state.use(@as(i32, 5)),
             }, struct {
                 pub fn body(eff: anytype) ExecResult(i32) {
@@ -60,7 +60,7 @@ test "shift.with matches the reader fixture transcript through lexical handles" 
             var runtime = shift.Runtime.init(std.testing.allocator);
             defer runtime.deinit();
 
-            const result = try shift.withAt(@src(), &runtime, .{
+            const result = try shift.with(&runtime, .{
                 .reader = shift.effect.reader.use(@as(i32, 21)),
             }, struct {
                 pub fn body(eff: anytype) ExecResult(i32) {
@@ -80,7 +80,7 @@ test "shift.with matches the writer fixture transcript through lexical handles" 
             var runtime = shift.Runtime.init(std.testing.allocator);
             defer runtime.deinit();
 
-            const result = try shift.withAt(@src(), &runtime, .{
+            const result = try shift.with(&runtime, .{
                 .writer = shift.effect.writer.use([]const u8, std.testing.allocator),
             }, struct {
                 pub fn body(eff: anytype) ExecResult([]const u8) {

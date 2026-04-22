@@ -24,7 +24,7 @@ pub fn Instance(comptime PayloadType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.direct_return, PayloadType, ErrorSetType);
 }
 
-/// Lexical exception handle used by `shift.withAt(@src(), ...)`.
+/// Lexical exception handle used by `shift.with(...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -36,7 +36,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     };
 }
 
-/// Descriptor value used by `shift.withAt(@src(), ...)` for the built-in exception family.
+/// Descriptor value used by `shift.with(...)` for the built-in exception family.
 pub fn LexicalDescriptor(comptime PayloadType: type, comptime ErrorSetType: type, comptime Catch: type) type {
     return struct {
         /// Shared error set carried by the lexical exception descriptor.
@@ -66,7 +66,7 @@ pub fn LexicalDescriptor(comptime PayloadType: type, comptime ErrorSetType: type
         pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             _ = self;
             var instance = family.InstanceWithMode(.direct_return, PayloadType, ErrorSetType).init();
-            const result = try algebraic.handleExceptionWithErrorSetLexicalAt(AnswerType, RunErrorSetType, @TypeOf(run_ctx).caller_source, .{
+            const result = try algebraic.handleExceptionWithErrorSetLexical(AnswerType, RunErrorSetType, .{
                 .runtime = run_ctx.runtime,
                 .instance = &instance,
                 .lexical_state = @constCast(run_ctx.lexical_state),
@@ -79,7 +79,7 @@ pub fn LexicalDescriptor(comptime PayloadType: type, comptime ErrorSetType: type
     };
 }
 
-/// Create one lexical exception descriptor for `shift.withAt(@src(), ...)`.
+/// Create one lexical exception descriptor for `shift.with(...)`.
 pub fn use(comptime PayloadType: type, comptime Catch: type) LexicalDescriptor(PayloadType, CatchErrorSet(Catch), Catch) {
     return .{};
 }
@@ -133,19 +133,7 @@ pub fn handle(
     comptime Catch: type,
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try algebraic.handleException(null, AnswerType, runtime, instance, Catch, Body);
-}
-
-/// Run an exception effect body with explicit caller provenance and return the final caught or normal answer.
-pub fn handleAt(
-    comptime caller_source: std.builtin.SourceLocation,
-    comptime AnswerType: type,
-    runtime: *shift.Runtime,
-    instance: anytype,
-    comptime Catch: type,
-    comptime Body: type,
-) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!AnswerType {
-    return try algebraic.handleException(caller_source, AnswerType, runtime, instance, Catch, Body);
+    return try algebraic.handleException(AnswerType, runtime, instance, Catch, Body);
 }
 
 /// Public `handleWithErrorSet` helper.
@@ -158,21 +146,7 @@ pub fn handleWithErrorSet(
     comptime Catch: type,
     comptime Body: type,
 ) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try algebraic.handleExceptionWithErrorSet(null, AnswerType, RunErrorSetType, runtime, instance, Catch, Body);
-}
-
-/// Public `handleWithErrorSetAt` helper.
-// zlinter-disable max_positional_args - public caller provenance and catch inputs stay explicit at this compatibility wrapper.
-pub fn handleWithErrorSetAt(
-    comptime caller_source: std.builtin.SourceLocation,
-    comptime AnswerType: type,
-    comptime RunErrorSetType: type,
-    runtime: *shift.Runtime,
-    instance: anytype,
-    comptime Catch: type,
-    comptime Body: type,
-) lowered_machine.ResetError(RunErrorSetType)!AnswerType {
-    return try algebraic.handleExceptionWithErrorSet(caller_source, AnswerType, RunErrorSetType, runtime, instance, Catch, Body);
+    return try algebraic.handleExceptionWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, Catch, Body);
 }
 
 test "exception instance shell stays prompt-sized" {
@@ -201,7 +175,7 @@ test "exception handle can throw directly to the catch policy" {
     defer runtime.deinit();
     var instance = ExceptionInstance.init();
     demo.after_throw = false;
-    const result = try handleAt(@src(), []const u8, &runtime, &instance, catcher, demo);
+    const result = try handle([]const u8, &runtime, &instance, catcher, demo);
     try std.testing.expectEqualStrings("result=early", result);
     try std.testing.expect(!demo.after_throw);
 }
@@ -235,7 +209,7 @@ test "exception throwProgram stays on the explicit frontend.Program surface" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ExceptionInstance.init();
-    const result = try handleAt(@src(), []const u8, &runtime, &instance, catcher, demo);
+    const result = try handle([]const u8, &runtime, &instance, catcher, demo);
     try std.testing.expectEqualStrings("result=early", result);
 }
 
@@ -280,7 +254,7 @@ test "exception throwProgram keeps direct explicit-program state thread-local ac
             var runtime = shift.Runtime.init(std.testing.allocator);
             defer runtime.deinit();
             var instance = ExceptionInstance.init();
-            state.first_result = handleAt(@src(), []const u8, &runtime, &instance, catcher, demo) catch unreachable;
+            state.first_result = handle([]const u8, &runtime, &instance, catcher, demo) catch unreachable;
         }
     }.run, .{&shared});
 
@@ -303,7 +277,7 @@ test "exception throwProgram keeps direct explicit-program state thread-local ac
             var runtime = shift.Runtime.init(std.testing.allocator);
             defer runtime.deinit();
             var instance = ExceptionInstance.init();
-            state.second_result = handleAt(@src(), []const u8, &runtime, &instance, catcher, demo) catch unreachable;
+            state.second_result = handle([]const u8, &runtime, &instance, catcher, demo) catch unreachable;
         }
     }.run, .{&shared});
 
@@ -354,7 +328,7 @@ test "nested same-shaped exception handles get distinct capability types" {
 
         /// Open an inner exception handle and prove its capability differs from the outer one.
         pub fn outer(comptime OuterCap: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
-            return try handleAt(@src(), i32, runtime_ptr.?, inner_ptr.?, catcher, struct {
+            return try handle(i32, runtime_ptr.?, inner_ptr.?, catcher, struct {
                 /// Reject capability-type collapse inside the nested exception handle.
                 pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(computeProgram(InnerCap, inner_ctx, struct {
                     /// Return a neutral value from the nested exception body.
@@ -382,7 +356,7 @@ test "nested same-shaped exception handles get distinct capability types" {
     var inner_instance = ExceptionInstance.init();
     demo.runtime_ptr = &runtime;
     demo.inner_ptr = &inner_instance;
-    const result = try handleAt(@src(), i32, &runtime, &outer_instance, catcher, struct {
+    const result = try handle(i32, &runtime, &outer_instance, catcher, struct {
         /// Enter the outer exception handle and hand its capability inward.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested exception witness through the outer capability.

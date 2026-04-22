@@ -13,9 +13,14 @@ pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
-    const result = try shift.withAt(@src(), &runtime, .{
+    const result = try shift.with(&runtime, .{
         .state = shift.effect.state.use(@as(i32, 5)),
-    }, shift.NamedBody("examples/state_basic.zig", "stateBody", anyerror!i32, stateBody));
+    }, struct {
+        /// Run the state example body through the lexical front door.
+        pub fn body(eff: anytype) @TypeOf(stateBody(eff)) {
+            return stateBody(eff);
+        }
+    });
 
     try writer.print("before=5\nafter=6\nfinal_state={d}\nvalue={d}\n", .{ result.outputs.state, result.value });
 }

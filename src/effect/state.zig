@@ -12,7 +12,7 @@ pub const Instance = family.Instance;
 /// Final state plus body answer returned from a handled state program.
 pub const HandleResult = family.HandleResult;
 
-/// Lexical state handle used by `shift.withAt(@src(), ...)`.
+/// Lexical state handle used by `shift.with(...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -29,7 +29,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     };
 }
 
-/// Descriptor value used by `shift.withAt(@src(), ...)` for the built-in state family.
+/// Descriptor value used by `shift.with(...)` for the built-in state family.
 pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) type {
     return struct {
         /// Shared error set carried by the lexical state descriptor.
@@ -60,7 +60,7 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
         /// Run one lexical state descriptor through the existing state family.
         pub fn run(self: @This(), comptime AnswerType: type, comptime RunErrorSetType: type, run_ctx: anytype, comptime Body: type) lowered_machine.ResetError(RunErrorSetType)!lexical_with.DescriptorResult(Output, AnswerType) {
             var instance = family.Instance(StateType, ErrorSetType).init();
-            const result = try algebraic.handleStateWithErrorSetLexicalAt(AnswerType, RunErrorSetType, @TypeOf(run_ctx).caller_source, .{
+            const result = try algebraic.handleStateWithErrorSetLexical(AnswerType, RunErrorSetType, .{
                 .runtime = run_ctx.runtime,
                 .instance = &instance,
                 .initial_state = self.initial_state,
@@ -74,7 +74,7 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
     };
 }
 
-/// Create one lexical state descriptor for `shift.withAt(@src(), ...)`.
+/// Create one lexical state descriptor for `shift.with(...)`.
 pub fn use(initial_state: anytype) LexicalDescriptor(@TypeOf(initial_state), error{}) {
     return .{ .initial_state = initial_state };
 }
@@ -121,22 +121,7 @@ pub fn handle(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
-    return try algebraic.handleState(null, AnswerType, runtime, instance, initial_state, Body);
-}
-
-/// Run a state effect body with explicit caller provenance and return the final state plus the body answer.
-pub fn handleAt(
-    comptime caller_source: std.builtin.SourceLocation,
-    comptime AnswerType: type,
-    runtime: *shift.Runtime,
-    instance: anytype,
-    initial_state: family.InstanceStateType(@TypeOf(instance)),
-    comptime Body: type,
-) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!HandleResult(
-    family.InstanceStateType(@TypeOf(instance)),
-    AnswerType,
-) {
-    return try algebraic.handleState(caller_source, AnswerType, runtime, instance, initial_state, Body);
+    return try algebraic.handleState(AnswerType, runtime, instance, initial_state, Body);
 }
 
 /// Public `handleWithErrorSet` helper.
@@ -152,24 +137,7 @@ pub fn handleWithErrorSet(
     family.InstanceStateType(@TypeOf(instance)),
     AnswerType,
 ) {
-    return try algebraic.handleStateWithErrorSet(null, AnswerType, RunErrorSetType, runtime, instance, initial_state, Body);
-}
-
-/// Public `handleWithErrorSetAt` helper.
-// zlinter-disable max_positional_args - public caller provenance and state inputs stay explicit at this compatibility wrapper.
-pub fn handleWithErrorSetAt(
-    comptime caller_source: std.builtin.SourceLocation,
-    comptime AnswerType: type,
-    comptime RunErrorSetType: type,
-    runtime: *shift.Runtime,
-    instance: anytype,
-    initial_state: family.InstanceStateType(@TypeOf(instance)),
-    comptime Body: type,
-) lowered_machine.ResetError(RunErrorSetType)!HandleResult(
-    family.InstanceStateType(@TypeOf(instance)),
-    AnswerType,
-) {
-    return try algebraic.handleStateWithErrorSet(caller_source, AnswerType, RunErrorSetType, runtime, instance, initial_state, Body);
+    return try algebraic.handleStateWithErrorSet(AnswerType, RunErrorSetType, runtime, instance, initial_state, Body);
 }
 
 test "state instance shell stays prompt-sized" {
@@ -211,7 +179,7 @@ test "state handle threads value and final state" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = StateInstance.init();
-    const result = try handleAt(@src(), i32, &runtime, &instance, 5, demo);
+    const result = try handle(i32, &runtime, &instance, 5, demo);
     try std.testing.expectEqual(@as(i32, 6), result.state);
     try std.testing.expectEqual(@as(i32, 6), result.value);
 }
@@ -225,7 +193,7 @@ test "nested same-shaped state handles get distinct capability types" {
 
         /// Open an inner handle and prove its capability type differs from the outer one.
         pub fn outer(comptime OuterCap: type, _: anytype) lowered_machine.ResetError(NoError)!i32 {
-            const result = try handleAt(@src(), i32, runtime_ptr.?, inner_ptr.?, 0, struct {
+            const result = try handle(i32, runtime_ptr.?, inner_ptr.?, 0, struct {
                 /// Reject capability-type collapse inside the nested handle.
                 pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(family.computeProgram(InnerCap, inner_ctx, struct {
                     /// Return a neutral value from the nested state body.
@@ -254,7 +222,7 @@ test "nested same-shaped state handles get distinct capability types" {
     var inner_instance = StateInstance.init();
     demo.runtime_ptr = &runtime;
     demo.inner_ptr = &inner_instance;
-    const result = try handleAt(@src(), i32, &runtime, &outer_instance, 0, struct {
+    const result = try handle(i32, &runtime, &outer_instance, 0, struct {
         /// Enter the outer handle and hand its capability to the nested check.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(family.computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested state witness through the outer capability.

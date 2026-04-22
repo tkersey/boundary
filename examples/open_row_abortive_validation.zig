@@ -31,9 +31,14 @@ pub fn run(writer: anytype) anyerror!void {
 
     transcript.abort_line = "";
     try writer.writeAll("validate=name\n");
-    const result = try shift.withAt(@src(), &runtime, .{
+    const result = try shift.with(&runtime, .{
         .guard = Guard.use(.{ .handler = guard_handler{} }),
-    }, shift.NamedBody("examples/open_row_abortive_validation.zig", "abortiveValidationBody", anyerror![]const u8, abortiveValidationBody));
+    }, struct {
+        /// Run the abortive-validation example body through the lexical front door.
+        pub fn body(eff: anytype) @TypeOf(abortiveValidationBody(eff)) {
+            return abortiveValidationBody(eff);
+        }
+    });
     try writer.print("abort={s}\n", .{transcript.abort_line});
     try writer.print("final={s}\n", .{result.value});
 }
