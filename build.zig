@@ -4581,6 +4581,7 @@ pub fn build(b: *std.Build) void {
         shift_agent_vm_smoke_tests,
         test_runner_args.passthrough.items,
     );
+    run_shift_agent_vm_smoke.step.dependOn(&run_shift_agent_vm_fixture.step);
 
     const shift_vm_export_opts = b.addOptions();
     shift_vm_export_opts.addOption([:0]const u8, "zig_exe", b.graph.zig_exe);
