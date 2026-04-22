@@ -3053,7 +3053,7 @@ test "source ownership accepts canonical absolute paths and requires content wit
             .file = alias_owned,
             .line = 1,
             .column = 1,
-            .fn_name = "aliasOwnedSourcePath",
+            .fn_name = "aliasOwnedSourceWitness",
         })));
         try std.testing.expect(!sourceOwnershipMatches(.{
             .repo_path = "examples/open_row_state_writer.zig",

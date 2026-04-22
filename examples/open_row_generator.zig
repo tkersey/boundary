@@ -28,15 +28,10 @@ fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void
     var runtime = shift.Runtime.init(allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 0)),
         .writer = shift.effect.writer.use([]const u8, allocator),
-    }, struct {
-        /// Run the generator example body through the lexical front door.
-        pub fn body(eff: anytype) @TypeOf(generatorBody(eff)) {
-            return generatorBody(eff);
-        }
-    });
+    }, shift.NamedBody("examples/open_row_generator.zig", "generatorBody", anyerror!i32, generatorBody));
     defer allocator.free(result.outputs.writer);
 
     for (result.outputs.writer) |item| {

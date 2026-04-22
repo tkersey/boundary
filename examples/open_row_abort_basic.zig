@@ -31,14 +31,9 @@ pub fn run(writer: anytype) anyerror!void {
 
     transcript.abort_line = "";
     try writer.writeAll("validate=name\n");
-    const result = try shift.with(&runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .guard = Guard.use(.{ .handler = guard_handler{} }),
-    }, struct {
-        /// Run the abort example body through the lexical front door.
-        pub fn body(eff: anytype) @TypeOf(abortBody(eff)) {
-            return abortBody(eff);
-        }
-    });
+    }, shift.NamedBody("examples/open_row_abort_basic.zig", "abortBody", anyerror![]const u8, abortBody));
     try writer.print("abort={s}\n", .{transcript.abort_line});
     try writer.print("final={s}\n", .{result.value});
 }

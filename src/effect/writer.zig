@@ -73,7 +73,7 @@ const HandleWithErrorSetTypes = struct {
     ErrorSet: type,
 };
 
-/// Lexical writer handle used by `shift.with(...)`.
+/// Lexical writer handle used by `shift.withAt(@src(), ...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type, comptime ItemType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -85,7 +85,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type, comptime
     };
 }
 
-/// Descriptor value used by `shift.with(...)` for the built-in writer family.
+/// Descriptor value used by `shift.withAt(@src(), ...)` for the built-in writer family.
 pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) type {
     return struct {
         /// Shared error set carried by the lexical writer descriptor.
@@ -124,7 +124,7 @@ pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) t
                 /// Writer state type carried by this lexical writer helper.
                 pub const WriterStateType = WriterState(ItemType);
             };
-            const result = try algebraic.handleWriterWithErrorSetLexical(writer_contract, RunErrorSetType, .{
+            const result = try algebraic.handleWriterWithErrorSetLexicalAt(writer_contract, RunErrorSetType, @TypeOf(run_ctx).caller_source, .{
                 .runtime = run_ctx.runtime,
                 .instance = &instance,
                 .allocator = self.allocator,
@@ -138,7 +138,7 @@ pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) t
     };
 }
 
-/// Create one lexical writer descriptor for `shift.with(...)`.
+/// Create one lexical writer descriptor for `shift.withAt(@src(), ...)`.
 pub fn use(comptime ItemType: type, allocator: std.mem.Allocator) LexicalDescriptor(ItemType, error{}) {
     return .{ .allocator = allocator };
 }
@@ -176,13 +176,40 @@ pub fn handle(
     allocator: std.mem.Allocator,
     comptime Body: type,
 ) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!HandleResult(ItemType, AnswerType) {
-    const result = try algebraic.handleWriter(struct {
+    const result = try algebraic.handleWriter(null, struct {
         /// Item type threaded through the shared writer engine adapter.
         pub const Item = ItemType;
         /// Final answer type threaded through the shared writer engine adapter.
         pub const Answer = AnswerType;
         /// Exact writer state type used by the shared writer engine adapter.
         pub const WriterStateType = WriterState(ItemType);
+    }, runtime, instance, allocator, Body);
+    return .{
+        .items = result.items,
+        .value = result.value,
+    };
+}
+
+/// Run a writer effect body with explicit caller provenance and return the accumulated log plus the body answer.
+// zlinter-disable max_positional_args - public caller provenance and writer inputs stay explicit at this compatibility wrapper.
+pub fn handleAt(
+    comptime caller_source: std.builtin.SourceLocation,
+    comptime ItemType: type,
+    comptime AnswerType: type,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    allocator: std.mem.Allocator,
+    comptime Body: type,
+) lowered_machine.ResetError(family.InstanceErrorSetType(@TypeOf(instance)))!HandleResult(ItemType, AnswerType) {
+    const item_type = ItemType;
+    const answer_type = AnswerType;
+    const result = try algebraic.handleWriter(caller_source, struct {
+        /// Item type threaded through the shared writer engine adapter.
+        pub const Item = item_type;
+        /// Final answer type threaded through the shared writer engine adapter.
+        pub const Answer = answer_type;
+        /// Exact writer state type used by the shared writer engine adapter.
+        pub const WriterStateType = WriterState(item_type);
     }, runtime, instance, allocator, Body);
     return .{
         .items = result.items,
@@ -198,7 +225,32 @@ pub fn handleWithErrorSet(
     allocator: std.mem.Allocator,
     comptime Body: type,
 ) lowered_machine.ResetError(Types.ErrorSet)!HandleResult(Types.Item, Types.Answer) {
-    return try algebraic.handleWriterWithErrorSet(Types, runtime, instance, allocator, Body);
+    return try algebraic.handleWriterWithErrorSet(null, Types, runtime, instance, allocator, Body);
+}
+
+/// Public `handleWithErrorSetAt` helper.
+pub fn handleWithErrorSetAt(
+    comptime caller_source: std.builtin.SourceLocation,
+    comptime Types: HandleWithErrorSetTypes,
+    runtime: *shift.Runtime,
+    instance: anytype,
+    allocator: std.mem.Allocator,
+    comptime Body: type,
+) lowered_machine.ResetError(Types.ErrorSet)!HandleResult(Types.Item, Types.Answer) {
+    const ItemType = Types.Item;
+    const AnswerType = Types.Answer;
+    const result = try algebraic.handleWriterWithErrorSet(caller_source, struct {
+        /// Public `Item` declaration.
+        pub const Item = ItemType;
+        /// Public `Answer` declaration.
+        pub const Answer = AnswerType;
+        /// Public `WriterStateType` declaration.
+        pub const WriterStateType = WriterState(ItemType);
+    }, Types.ErrorSet, runtime, instance, allocator, Body);
+    return .{
+        .items = result.items,
+        .value = result.value,
+    };
 }
 
 test "writer instance shell stays prompt-sized" {
@@ -233,7 +285,7 @@ test "writer handle accumulates items in order" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = WriterInstance.init();
-    const result = try handle([]const u8, []const u8, &runtime, &instance, std.testing.allocator, demo);
+    const result = try handleAt(@src(), []const u8, []const u8, &runtime, &instance, std.testing.allocator, demo);
     defer std.testing.allocator.free(result.items);
     try std.testing.expectEqual(@as(usize, 2), result.items.len);
     try std.testing.expectEqualStrings("a", result.items[0]);
@@ -296,7 +348,7 @@ test "nested same-shaped writer handles get distinct capability types" {
 
         /// Open an inner writer handle and prove its capability differs from the outer one.
         pub fn outer(comptime OuterCap: type, _: anytype) lowered_machine.ResetError(NoError)![]const u8 {
-            const result = try handle([]const u8, []const u8, runtime_ptr.?, inner_ptr.?, std.testing.allocator, struct {
+            const result = try handleAt(@src(), []const u8, []const u8, runtime_ptr.?, inner_ptr.?, std.testing.allocator, struct {
                 /// Reject capability-type collapse inside the nested writer handle.
                 pub fn program(comptime InnerCap: type, inner_ctx: anytype) @TypeOf(family.computeProgram(InnerCap, inner_ctx, struct {
                     /// Return a neutral value from the nested writer body.
@@ -326,7 +378,7 @@ test "nested same-shaped writer handles get distinct capability types" {
     var inner_instance = WriterInstance.init();
     demo.runtime_ptr = &runtime;
     demo.inner_ptr = &inner_instance;
-    const result = try handle([]const u8, []const u8, &runtime, &outer_instance, std.testing.allocator, struct {
+    const result = try handleAt(@src(), []const u8, []const u8, &runtime, &outer_instance, std.testing.allocator, struct {
         /// Enter the outer writer handle and hand its capability inward.
         pub fn program(comptime OuterCap: type, ctx: anytype) @TypeOf(family.computeProgram(OuterCap, ctx, struct {
             /// Re-enter the nested writer witness through the outer capability.

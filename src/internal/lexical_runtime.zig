@@ -21,6 +21,5 @@ pub fn with(
     handlers: anytype,
     comptime Body: type,
 ) with_api.WithFnReturnType(@TypeOf(handlers), Body) {
-    _ = caller;
-    return with_api.with(runtime, handlers, Body);
+    return with_api.withAt(caller, runtime, handlers, Body);
 }

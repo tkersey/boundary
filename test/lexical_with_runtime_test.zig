@@ -1,5 +1,5 @@
 // zlinter-disable require_doc_comment - this runtime witness file exposes public nested handlers and continuations to exercise comptime-facing lexical runtime seams.
-const shift = @import("shift");
+const shift = @import("lexical_runtime_internal");
 const std = @import("std");
 
 fn ExecResult(comptime T: type) type {
@@ -10,7 +10,7 @@ test "shift.with composes state and reader through lexical handles" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 5)),
         .reader = shift.effect.reader.use(@as(i32, 21)),
     }, struct {
@@ -37,7 +37,7 @@ test "generated choice families use the lexical choice form" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const early = try shift.with(&runtime, .{
+    const early = try shift.withAt(@src(), &runtime, .{
         .picker = Picker.use(.{ .handler = struct {
             pub fn pick(_: *@This(), _: i32) shift.effect.choice.Decision(i32, []const u8) {
                 return shift.effect.choice.Decision(i32, []const u8).returnNow("result=early");
@@ -58,7 +58,7 @@ test "generated choice families use the lexical choice form" {
     });
     try std.testing.expectEqualStrings("result=early", early.value);
 
-    const resumed = try shift.with(&runtime, .{
+    const resumed = try shift.withAt(@src(), &runtime, .{
         .picker = Picker.use(.{ .handler = struct {
             pub fn pick(_: *@This(), payload: i32) shift.effect.choice.Decision(i32, []const u8) {
                 return shift.effect.choice.Decision(i32, []const u8).resumeWith(payload);
@@ -92,7 +92,7 @@ test "generated abort families use the lexical abort form" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .guard = Guard.use(.{ .handler = struct {
             pub fn fail(_: *@This(), payload: []const u8) []const u8 {
                 if (!std.mem.eql(u8, payload, "missing-name")) unreachable;
@@ -119,7 +119,7 @@ test "generated zero-payload choice fields stay ergonomic" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .asker = Ask.use(.{ .handler = struct {
             pub fn ask(_: *@This()) shift.effect.choice.Decision(i32, []const u8) {
                 return shift.effect.choice.Decision(i32, []const u8).resumeWith(7);

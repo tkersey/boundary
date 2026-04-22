@@ -1,5 +1,5 @@
 // zlinter-disable require_doc_comment - these fixture witnesses expose public nested policies and continuations only because the lexical API binds comptime-visible structs.
-const shift = @import("shift");
+const shift = @import("lexical_runtime_internal");
 const std = @import("std");
 
 fn ExecResult(comptime T: type) type {
@@ -55,7 +55,7 @@ test "shift.with matches the optional fixture transcript through lexical handles
             defer transcript.active_writer = previous_writer;
 
             try writer.writeAll("branch=return_now\n");
-            const early = try shift.with(&runtime, .{
+            const early = try shift.withAt(@src(), &runtime, .{
                 .optional = shift.effect.optional.use(i32, return_now_policy),
             }, struct {
                 pub fn body(eff: anytype) ExecResult([]const u8) {
@@ -69,7 +69,7 @@ test "shift.with matches the optional fixture transcript through lexical handles
             try writer.print("final={s}\n", .{early.value});
 
             try writer.writeAll("branch=resume_with\n");
-            const resumed = try shift.with(&runtime, .{
+            const resumed = try shift.withAt(@src(), &runtime, .{
                 .optional = shift.effect.optional.use(i32, resume_policy),
             }, struct {
                 pub fn body(eff: anytype) ExecResult([]const u8) {

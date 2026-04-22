@@ -1,5 +1,5 @@
 // zlinter-disable require_doc_comment - these fixture witnesses expose public nested resource hooks only because the lexical API binds comptime-visible structs.
-const shift = @import("shift");
+const shift = @import("lexical_runtime_internal");
 const std = @import("std");
 
 fn ExecResult(comptime T: type) type {
@@ -48,7 +48,7 @@ test "shift.with matches the resource fixture transcript through lexical handles
             defer transcript.active_writer = previous_writer;
             resource_manager.next_index = 0;
 
-            const result = try shift.with(&runtime, .{
+            const result = try shift.withAt(@src(), &runtime, .{
                 .resource = shift.effect.resource.use([]const u8, resource_manager),
             }, struct {
                 pub fn body(eff: anytype) ExecResult([]const u8) {

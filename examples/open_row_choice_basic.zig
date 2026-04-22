@@ -70,14 +70,9 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=return_now\n");
     transcript.len = 0;
-    const early = try shift.with(&runtime, .{
+    const early = try shift.withAt(@src(), &runtime, .{
         .picker = Picker.use(.{ .handler = PickerHandler{ .branch = .return_now } }),
-    }, struct {
-        /// Run the return-now choice example body.
-        pub fn body(eff: anytype) @TypeOf(choiceReturnNowBody(eff)) {
-            return choiceReturnNowBody(eff);
-        }
-    });
+    }, shift.NamedBody("examples/open_row_choice_basic.zig", "choiceReturnNowBody", anyerror![]const u8, choiceReturnNowBody));
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }
@@ -85,14 +80,9 @@ pub fn run(writer: anytype) anyerror!void {
 
     try writer.writeAll("branch=resume_with\n");
     transcript.len = 0;
-    const resumed = try shift.with(&runtime, .{
+    const resumed = try shift.withAt(@src(), &runtime, .{
         .picker = Picker.use(.{ .handler = PickerHandler{ .branch = .resume_with } }),
-    }, struct {
-        /// Run the resumed choice example body.
-        pub fn body(eff: anytype) @TypeOf(choiceResumeBody(eff)) {
-            return choiceResumeBody(eff);
-        }
-    });
+    }, shift.NamedBody("examples/open_row_choice_basic.zig", "choiceResumeBody", anyerror![]const u8, choiceResumeBody));
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }

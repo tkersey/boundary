@@ -2524,10 +2524,13 @@ fn zigLintPathExcluded(path: []const u8) bool {
     if (std.mem.startsWith(u8, path, ".zig-global-cache/")) return true;
     if (std.mem.startsWith(u8, path, "zig-global-cache/")) return true;
     if (std.mem.eql(u8, path, "src/error_witness.zig")) return true;
+    if (std.mem.eql(u8, path, "src/op_compat.zig")) return true;
     if (std.mem.eql(u8, path, "src/public_ir.zig")) return true;
     if (std.mem.eql(u8, path, "src/public_lowering.zig")) return true;
     if (std.mem.eql(u8, path, "src/ir_api.zig")) return true;
     if (std.mem.eql(u8, path, "src/lowering_api.zig")) return true;
+    if (std.mem.eql(u8, path, "src/program_api_compat.zig")) return true;
+    if (std.mem.eql(u8, path, "src/program_api.zig")) return true;
     if (std.mem.eql(u8, path, "src/root.zig")) return true;
     return false;
 }
@@ -4302,6 +4305,21 @@ pub fn build(b: *std.Build) void {
     shift_mod.addImport("source_graph_embed", source_graph_embed_mod);
     authoring_lowerer_mod.addImport("program_frontend", program_frontend_mod);
     shift_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
+    const lexical_runtime_internal_mod = b.createModule(.{
+        .root_source_file = b.path("src/lexical_runtime_internal.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_runtime_internal_mod.addImport("portable_core", portable_core_mod);
+    lexical_runtime_internal_mod.addImport("frontend_support", frontend_support_mod);
+    lexical_runtime_internal_mod.addImport("lowered_machine", lowered_machine_mod);
+    lexical_runtime_internal_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
+    lexical_runtime_internal_mod.addImport("effect_ir", effect_ir_mod);
+    lexical_runtime_internal_mod.addImport("lowering_api", lowering_api_mod);
+    lexical_runtime_internal_mod.addImport("source_graph_embed", source_graph_embed_mod);
+    lexical_runtime_internal_mod.addImport("source_graph_engine", source_graph_engine_mod);
+    lexical_runtime_internal_mod.addImport("authoring_build_options", authoring_build_options_mod);
+    lexical_runtime_internal_mod.addImport("shift_shared", shift_shared_mod);
     const witness_sources_mod = b.createModule(.{
         .root_source_file = b.path("src/witness_sources.zig"),
         .target = target,
@@ -4320,7 +4338,7 @@ pub fn build(b: *std.Build) void {
     });
     bridge_redelim_mod.addImport("parity_scenarios", parity_scenarios_mod);
     witness_sources_mod.addImport("lowered_machine", lowered_machine_mod);
-    witness_sources_mod.addImport("shift", shift_mod);
+    witness_sources_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     witness_sources_mod.addImport("bridge_fixture_multi_prompt", bridge_multi_mod);
     witness_sources_mod.addImport("bridge_fixture_static_redelim", bridge_redelim_mod);
     witness_sources_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
@@ -4813,14 +4831,15 @@ pub fn build(b: *std.Build) void {
     source_lowering_tool_step.dependOn(&source_lowering_tool_exe.step);
     source_lowering_tool_step.dependOn(&source_lowering_tool_install.step);
 
-    lexical_witness_runners_mod.addImport("shift", shift_mod);
+    lexical_witness_runners_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
 
     const lexical_witness_mod = b.createModule(.{
         .root_source_file = b.path("test/lexical_witness_test.zig"),
         .target = target,
         .optimize = optimize,
     });
-    lexical_witness_mod.addImport("shift", shift_mod);
+    lexical_witness_mod.addImport("shift", shift_shared_mod);
+    lexical_witness_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     lexical_witness_mod.addImport("parity_scenarios", parity_scenarios_mod);
     lexical_witness_mod.addImport("lexical_witness_runners", lexical_witness_runners_mod);
     const lexical_witness_tests = addFilteredTest(b, lexical_witness_mod, test_runner_args.filters.items);
@@ -4831,7 +4850,23 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    lexical_with_mod.addImport("shift", shift_mod);
+    lexical_with_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    const named_basic_support_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_named_body_basic_support.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const named_generated_support_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_named_body_generated_support.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const named_boundary_support_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_named_body_boundary_support.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    named_boundary_support_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     const lexical_with_tests = addFilteredTest(b, lexical_with_mod, test_runner_args.filters.items);
     const run_lexical_with_tests_core = addRunArtifactWithArgs(b, lexical_with_tests, test_runner_args.passthrough.items);
 
@@ -4840,8 +4875,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    lexical_with_preview_mod.addImport("shift", shift_mod);
-    lexical_with_preview_mod.addImport("shift_shared", shift_shared_mod);
+    lexical_with_preview_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     const lexical_with_preview_tests = addFilteredTest(b, lexical_with_preview_mod, test_runner_args.filters.items);
     const run_lexical_with_preview_tests = addRunArtifactWithArgs(b, lexical_with_preview_tests, test_runner_args.passthrough.items);
 
@@ -4850,7 +4884,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    lexical_with_fixture_mod.addImport("shift", shift_mod);
+    lexical_with_fixture_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     const lexical_with_fixture_tests = addFilteredTest(b, lexical_with_fixture_mod, test_runner_args.filters.items);
     const run_lexical_with_fixture_tests = addRunArtifactWithArgs(b, lexical_with_fixture_tests, test_runner_args.passthrough.items);
 
@@ -4859,7 +4893,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    lex_fix_ctl_mod.addImport("shift", shift_mod);
+    lex_fix_ctl_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     const lex_fix_ctl_tests = addFilteredTest(b, lex_fix_ctl_mod, test_runner_args.filters.items);
     const run_lex_fix_ctl = addRunArtifactWithArgs(b, lex_fix_ctl_tests, test_runner_args.passthrough.items);
 
@@ -4868,7 +4902,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    lex_fix_res_mod.addImport("shift", shift_mod);
+    lex_fix_res_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     const lex_fix_res_tests = addFilteredTest(b, lex_fix_res_mod, test_runner_args.filters.items);
     const run_lex_fix_res = addRunArtifactWithArgs(b, lex_fix_res_tests, test_runner_args.passthrough.items);
 
@@ -4877,7 +4911,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    lex_fix_opt_mod.addImport("shift", shift_mod);
+    lex_fix_opt_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     const lex_fix_opt_tests = addFilteredTest(b, lex_fix_opt_mod, test_runner_args.filters.items);
     const run_lex_fix_opt = addRunArtifactWithArgs(b, lex_fix_opt_tests, test_runner_args.passthrough.items);
 
@@ -4886,8 +4920,46 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    lexical_with_runtime_mod.addImport("shift", shift_mod);
+    lexical_with_runtime_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
     const lexical_with_runtime_tests = addFilteredTest(b, lexical_with_runtime_mod, test_runner_args.filters.items);
+    const run_lexical_with_runtime_tests = addRunArtifactWithArgs(b, lexical_with_runtime_tests, test_runner_args.passthrough.items);
+
+    const lexical_with_named_body_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_named_body_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_with_named_body_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    lexical_with_named_body_mod.addImport("lexical_with_named_body_basic_support", named_basic_support_mod);
+    const lexical_with_named_body_tests = addFilteredTest(b, lexical_with_named_body_mod, test_runner_args.filters.items);
+    const run_lexical_with_named_tests = addRunArtifactWithArgs(b, lexical_with_named_body_tests, test_runner_args.passthrough.items);
+
+    const lex_named_gen_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_with_named_body_generated_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lex_named_gen_mod.addImport("lexical_runtime_internal", lexical_runtime_internal_mod);
+    lex_named_gen_mod.addImport("lexical_with_named_body_generated_support", named_generated_support_mod);
+    const lex_named_gen_tests = addFilteredTest(b, lex_named_gen_mod, test_runner_args.filters.items);
+    const run_lex_named_gen = addRunArtifactWithArgs(b, lex_named_gen_tests, test_runner_args.passthrough.items);
+
+    const lex_named_boundary_mod = createShiftConsumerModule(
+        b,
+        "test/lexical_with_named_body_boundary_fail.zig",
+        target,
+        optimize,
+        .{
+            .shift_mod = shift_mod,
+            .lowered_runtime_mod = private_lowered_runtime_mod,
+            .shift_compile_mod = shift_compile_mod,
+        },
+    );
+    lex_named_boundary_mod.addImport("lexical_with_named_body_boundary_support", named_boundary_support_mod);
+    const lex_named_boundary_tests = addFilteredTest(b, lex_named_boundary_mod, test_runner_args.filters.items);
+    lex_named_boundary_tests.expect_errors = .{
+        .contains = "shift.NamedBody execution must stay within the retained compiled lexical subset",
+    };
 
     lexical_with_preview_tests.step.dependOn(&run_lexical_with_tests_core.step);
     lexical_with_fixture_tests.step.dependOn(&run_lexical_with_preview_tests.step);
@@ -4895,9 +4967,12 @@ pub fn build(b: *std.Build) void {
     lex_fix_ctl_tests.step.dependOn(&run_lex_fix_opt.step);
     lex_fix_res_tests.step.dependOn(&run_lex_fix_ctl.step);
     lexical_with_runtime_tests.step.dependOn(&run_lex_fix_res.step);
+    lexical_with_named_body_tests.step.dependOn(&run_lexical_with_runtime_tests.step);
+    lex_named_gen_tests.step.dependOn(&run_lexical_with_named_tests.step);
+    lex_named_boundary_tests.step.dependOn(&run_lex_named_gen.step);
 
     const run_lexical_with_tests = b.step("lexical-with", "Run the lexical-with suite.");
-    run_lexical_with_tests.dependOn(&lexical_with_runtime_tests.step);
+    run_lexical_with_tests.dependOn(&lex_named_boundary_tests.step);
 
     const run_lexical_with_all = b.step("lexical-with-all", "Run the full lexical-with suite.");
     run_lexical_with_all.dependOn(run_lexical_with_tests);

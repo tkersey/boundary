@@ -27,28 +27,18 @@ pub fn run(writer: anytype) anyerror!void {
     defer runtime.deinit();
 
     try writer.writeAll("branch=pass\n");
-    const ok = try shift.with(&runtime, .{
+    const ok = try shift.withAt(@src(), &runtime, .{
         .exception = shift.effect.exception.use([]const u8, catch_policy),
-    }, struct {
-        /// Run the non-throwing exception example body.
-        pub fn body(eff: anytype) @TypeOf(exceptionPassBody(eff)) {
-            return exceptionPassBody(eff);
-        }
-    });
+    }, shift.NamedBody("examples/exception_basic.zig", "exceptionPassBody", anyerror![]const u8, exceptionPassBody));
     try writer.writeAll("body-pass\n");
     try writer.print("final={s}\n", .{ok.value});
 
     try writer.writeAll("branch=throw\n");
     transcript.caught_payload = "";
     try writer.writeAll("body-before-throw\n");
-    const thrown = try shift.with(&runtime, .{
+    const thrown = try shift.withAt(@src(), &runtime, .{
         .exception = shift.effect.exception.use([]const u8, catch_policy),
-    }, struct {
-        /// Run the throwing exception example body.
-        pub fn body(eff: anytype) @TypeOf(exceptionThrowBody(eff)) {
-            return exceptionThrowBody(eff);
-        }
-    });
+    }, shift.NamedBody("examples/exception_basic.zig", "exceptionThrowBody", anyerror![]const u8, exceptionThrowBody));
     try writer.print("catch={s}\n", .{transcript.caught_payload});
     try writer.print("final={s}\n", .{thrown.value});
 }

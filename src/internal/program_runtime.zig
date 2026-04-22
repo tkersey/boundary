@@ -27,7 +27,7 @@ pub fn run(
     handlers: anytype,
     comptime Body: type,
 ) with_api.WithFnReturnType(@TypeOf(handlers), Body) {
-    _ = caller;
+    if (caller) |caller_source| return with_api.withAt(caller_source, runtime, handlers, Body);
     return with_api.with(runtime, handlers, Body);
 }
 

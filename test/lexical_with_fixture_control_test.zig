@@ -1,5 +1,5 @@
 // zlinter-disable require_doc_comment - these fixture witnesses expose public nested handlers and bodies only because the lexical API binds comptime-visible structs.
-const shift = @import("shift");
+const shift = @import("lexical_runtime_internal");
 const std = @import("std");
 
 fn ExecResult(comptime T: type) type {
@@ -39,7 +39,7 @@ test "shift.with matches the exception fixture transcript through lexical handle
             defer transcript.active_writer = previous_writer;
 
             try writer.writeAll("branch=pass\n");
-            const ok = try shift.with(&runtime, .{
+            const ok = try shift.withAt(@src(), &runtime, .{
                 .exception = shift.effect.exception.use([]const u8, catch_policy),
             }, struct {
                 pub fn body(_: anytype) ExecResult([]const u8) {
@@ -51,7 +51,7 @@ test "shift.with matches the exception fixture transcript through lexical handle
 
             try writer.writeAll("branch=throw\n");
             try writer.writeAll("body-before-throw\n");
-            const thrown = try shift.with(&runtime, .{
+            const thrown = try shift.withAt(@src(), &runtime, .{
                 .exception = shift.effect.exception.use([]const u8, catch_policy),
             }, struct {
                 pub fn body(eff: anytype) ExecResult([]const u8) {

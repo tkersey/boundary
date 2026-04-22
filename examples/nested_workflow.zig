@@ -42,14 +42,9 @@ pub fn run(writer: anytype) anyerror!void {
     defer runtime.deinit();
     transcript.len = 0;
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .optional = shift.effect.optional.use([]const u8, approval_policy),
-    }, struct {
-        /// Run the nested workflow example body through the lexical front door.
-        pub fn body(eff: anytype) @TypeOf(nestedWorkflowBody(eff)) {
-            return nestedWorkflowBody(eff);
-        }
-    });
+    }, shift.NamedBody("examples/nested_workflow.zig", "nestedWorkflowBody", anyerror![]const u8, nestedWorkflowBody));
     transcript.note("workflow=done");
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});

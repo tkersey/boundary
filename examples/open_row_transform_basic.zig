@@ -41,14 +41,9 @@ fn counterBody(eff: anytype) anyerror!i32 {
 }
 
 fn runCounter(runtime: *shift.Runtime) anyerror!i32 {
-    const result = try shift.with(runtime, .{
+    const result = try shift.withAt(@src(), runtime, .{
         .counter = Counter.use(.{ .handler = CounterHandler{ .state = 5 } }),
-    }, struct {
-        /// Run the transform example body through the lexical front door.
-        pub fn body(eff: anytype) @TypeOf(counterBody(eff)) {
-            return counterBody(eff);
-        }
-    });
+    }, shift.NamedBody("examples/open_row_transform_basic.zig", "counterBody", anyerror!i32, counterBody));
     return result.value;
 }
 

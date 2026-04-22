@@ -1,6 +1,5 @@
 // zlinter-disable require_doc_comment - this preview witness file exposes public nested declarations to exercise comptime-facing lexical metadata seams.
-const shift = @import("shift");
-const shift_shared = @import("shift_shared");
+const shift = @import("lexical_runtime_internal");
 const std = @import("std");
 
 fn hasErrorName(comptime ErrorSet: type, comptime wanted: []const u8) bool {
@@ -18,7 +17,7 @@ test "shift.with retains explicit body errors in ExecutionError" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const CallType = @TypeOf(shift.with(&runtime, .{
+    const CallType = @TypeOf(shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 7)),
     }, struct {
         /// Execute this public body hook.
@@ -31,7 +30,7 @@ test "shift.with retains explicit body errors in ExecutionError" {
 
     try std.testing.expect(hasErrorName(ErrorSet, "BodyOops"));
 
-    _ = shift.with(&runtime, .{
+    _ = shift.withAt(@src(), &runtime, .{
         .state = shift.effect.state.use(@as(i32, 7)),
     }, struct {
         /// Execute this public body hook.
@@ -46,7 +45,7 @@ test "shift.with retains explicit body errors in ExecutionError" {
     return error.TestExpectedError;
 }
 
-test "shift_shared.With distinguishes semantic from execution error metadata" {
+test "shift.With distinguishes semantic from execution error metadata" {
     const Handlers = @TypeOf(.{
         .state = shift.effect.state.use(@as(i32, 7)),
     });
@@ -60,7 +59,7 @@ test "shift_shared.With distinguishes semantic from execution error metadata" {
             return error.BodyOops;
         }
     };
-    const Meta = shift_shared.With(Handlers, body_spec);
+    const Meta = shift.With(Handlers, body_spec);
 
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "BodyOops"));
     try std.testing.expect(!hasErrorName(Meta.SemanticErrorSet, "MissingPrompt"));
@@ -71,7 +70,7 @@ test "shift_shared.With distinguishes semantic from execution error metadata" {
     try std.testing.expect(hasErrorName(Meta.ExecutionError, "OutOfMemory"));
 }
 
-test "shift_shared.With preserves semantic body errors that collide with setup names" {
+test "shift.With preserves semantic body errors that collide with setup names" {
     const Handlers = @TypeOf(.{
         .state = shift.effect.state.use(@as(i32, 7)),
     });
@@ -84,13 +83,13 @@ test "shift_shared.With preserves semantic body errors that collide with setup n
             return error.OutOfMemory;
         }
     };
-    const Meta = shift_shared.With(Handlers, body_spec);
+    const Meta = shift.With(Handlers, body_spec);
 
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "OutOfMemory"));
     try std.testing.expect(hasErrorName(Meta.ExecutionError, "OutOfMemory"));
 }
 
-test "shift_shared.With preserves mixed collided body errors in SemanticErrorSet" {
+test "shift.With preserves mixed collided body errors in SemanticErrorSet" {
     const Handlers = @TypeOf(.{
         .state = shift.effect.state.use(@as(i32, 7)),
     });
@@ -104,14 +103,14 @@ test "shift_shared.With preserves mixed collided body errors in SemanticErrorSet
             return error.OutOfMemory;
         }
     };
-    const Meta = shift_shared.With(Handlers, body_spec);
+    const Meta = shift.With(Handlers, body_spec);
 
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "BodyOops"));
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "OutOfMemory"));
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "MissingPrompt"));
 }
 
-test "shift_shared.With instantiates for effect-only bodies without SemanticErrorSet metadata" {
+test "shift.With instantiates for effect-only bodies without SemanticErrorSet metadata" {
     const Handlers = @TypeOf(.{
         .state = shift.effect.state.use(@as(i32, 7)),
     });
@@ -122,7 +121,7 @@ test "shift_shared.With instantiates for effect-only bodies without SemanticErro
             return 0;
         }
     };
-    const Meta = shift_shared.With(Handlers, body_spec);
+    const Meta = shift.With(Handlers, body_spec);
 
     try std.testing.expect(@sizeOf(Meta.Result) > 0);
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "MissingPrompt"));
@@ -130,7 +129,7 @@ test "shift_shared.With instantiates for effect-only bodies without SemanticErro
     try std.testing.expect(hasErrorName(Meta.ExecutionError, "OutOfMemory"));
 }
 
-test "shift_shared.With preview includes continuation errors from lexical explicit programs" {
+test "shift.With preview includes continuation errors from lexical explicit programs" {
     const probe_descriptor = struct {
         pub const ErrorSet = error{};
         pub const State = i32;
@@ -189,13 +188,13 @@ test "shift_shared.With preview includes continuation errors from lexical explic
             });
         }
     };
-    const Meta = shift_shared.With(Handlers, body_spec);
+    const Meta = shift.With(Handlers, body_spec);
 
     try std.testing.expect(hasErrorName(Meta.ExecutionError, "ContinueOops"));
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "ContinueOops"));
 }
 
-test "shift_shared.With preview specializes generic lexical explicit continuations" {
+test "shift.With preview specializes generic lexical explicit continuations" {
     const probe_descriptor = struct {
         pub const ErrorSet = error{};
         pub const State = i32;
@@ -250,7 +249,7 @@ test "shift_shared.With preview specializes generic lexical explicit continuatio
             return try eff.probe.perform(genericResumeValue);
         }
     };
-    const Meta = shift_shared.With(Handlers, body_spec);
+    const Meta = shift.With(Handlers, body_spec);
 
     try std.testing.expect(@FieldType(Meta.Result, "value") == i32);
 }
@@ -269,7 +268,7 @@ test "lexical optional request retains explicit continuation errors" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const CallType = @TypeOf(shift.with(&runtime, .{
+    const CallType = @TypeOf(shift.withAt(@src(), &runtime, .{
         .optional = shift.effect.optional.use(i32, policy),
     }, struct {
         pub fn body(eff: anytype) ExecResult(i32) {
@@ -285,7 +284,7 @@ test "lexical optional request retains explicit continuation errors" {
 
     try std.testing.expect(hasErrorName(ErrorSet, "ContinueOops"));
 
-    _ = shift.with(&runtime, .{
+    _ = shift.withAt(@src(), &runtime, .{
         .optional = shift.effect.optional.use(i32, policy),
     }, struct {
         pub fn body(eff: anytype) ExecResult(i32) {
@@ -323,7 +322,7 @@ test "lexical optional request accepts generic callable continuations" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .optional = shift.effect.optional.use(i32, policy),
     }, struct {
         pub fn body(eff: anytype) ExecResult(i32) {
@@ -348,7 +347,7 @@ test "lexical optional request keeps continuation inference value-agnostic for s
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .optional = shift.effect.optional.use([]const u8, policy),
     }, struct {
         pub fn body(eff: anytype) ExecResult(u8) {
@@ -384,7 +383,7 @@ test "generated lexical choice retains explicit continuation errors" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const CallType = @TypeOf(shift.with(&runtime, .{
+    const CallType = @TypeOf(shift.withAt(@src(), &runtime, .{
         .picker = Picker.use(.{ .handler = handler{} }),
     }, struct {
         pub fn body(eff: anytype) ExecResult(i32) {
@@ -400,7 +399,7 @@ test "generated lexical choice retains explicit continuation errors" {
 
     try std.testing.expect(hasErrorName(ErrorSet, "ContinueOops"));
 
-    _ = shift.with(&runtime, .{
+    _ = shift.withAt(@src(), &runtime, .{
         .picker = Picker.use(.{ .handler = handler{} }),
     }, struct {
         pub fn body(eff: anytype) ExecResult(i32) {
@@ -440,7 +439,7 @@ test "generated family infers handler errors when error_set_type is omitted" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const CallType = @TypeOf(shift.with(&runtime, .{
+    const CallType = @TypeOf(shift.withAt(@src(), &runtime, .{
         .picker = Picker.use(.{ .handler = handler{} }),
     }, struct {
         pub fn body(eff: anytype) ExecResult(i32) {
@@ -455,7 +454,7 @@ test "generated family infers handler errors when error_set_type is omitted" {
 
     try std.testing.expect(hasErrorName(ErrorSet, "HandlerOops"));
 
-    _ = shift.with(&runtime, .{
+    _ = shift.withAt(@src(), &runtime, .{
         .picker = Picker.use(.{ .handler = handler{} }),
     }, struct {
         pub fn body(eff: anytype) ExecResult(i32) {
@@ -495,7 +494,7 @@ test "generated lexical handlers infer after-hook errors when error_set_type is 
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const CallType = @TypeOf(shift.with(&runtime, .{
+    const CallType = @TypeOf(shift.withAt(@src(), &runtime, .{
         .counter = Counter.use(.{ .handler = Handler{} }),
     }, struct {
         pub fn body(eff: anytype) ExecResult(i32) {
@@ -563,7 +562,7 @@ test "generated family handle keeps source-compatible arity" {
     try std.testing.expectEqualStrings("ok", result.value);
 }
 
-test "generated family handleWithErrorSet leaves caller provenance absent" {
+test "generated family handleWithErrorSetAt preserves caller provenance" {
     const NoError = error{};
     const Audit = shift.effect.Define(.{
         .state_type = void,
@@ -576,7 +575,7 @@ test "generated family handleWithErrorSet leaves caller provenance absent" {
     defer runtime.deinit();
     var instance = Audit.Instance.init();
 
-    const result = try Audit.handleWithErrorSet([]const u8, NoError, &runtime, &instance, struct {
+    const result = try Audit.handleWithErrorSetAt(@src(), []const u8, NoError, &runtime, &instance, struct {
         pub fn note(_: *@This(), _: []const u8) void {
             // Intentionally empty witness hook.
         }
@@ -584,17 +583,16 @@ test "generated family handleWithErrorSet leaves caller provenance absent" {
         pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
             _ = Cap;
             return switch (@typeInfo(@TypeOf(@TypeOf(ctx.*).caller_source))) {
-                .optional => if (@TypeOf(ctx.*).caller_source == null) "absent" else @TypeOf(ctx.*).caller_source.?.file,
-                .null => "absent",
+                .optional => @TypeOf(ctx.*).caller_source.?.file,
                 else => @TypeOf(ctx.*).caller_source.file,
             };
         }
     });
 
-    try std.testing.expectEqualStrings("absent", result.value);
+    try std.testing.expectEqualStrings(@src().file, result.value);
 }
 
-test "generated family handle leaves caller provenance absent" {
+test "generated family handleAt preserves caller provenance" {
     const NoError = error{};
     const Audit = shift.effect.Define(.{
         .state_type = void,
@@ -607,7 +605,7 @@ test "generated family handle leaves caller provenance absent" {
     defer runtime.deinit();
     var instance = Audit.Instance.init();
 
-    const result = try Audit.handle([]const u8, &runtime, &instance, struct {
+    const result = try Audit.handleAt(@src(), []const u8, &runtime, &instance, struct {
         pub fn note(_: *@This(), _: []const u8) void {
             // Intentionally empty witness hook.
         }
@@ -615,14 +613,13 @@ test "generated family handle leaves caller provenance absent" {
         pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
             _ = Cap;
             return switch (@typeInfo(@TypeOf(@TypeOf(ctx.*).caller_source))) {
-                .optional => if (@TypeOf(ctx.*).caller_source == null) "absent" else @TypeOf(ctx.*).caller_source.?.file,
-                .null => "absent",
+                .optional => @TypeOf(ctx.*).caller_source.?.file,
                 else => @TypeOf(ctx.*).caller_source.file,
             };
         }
     });
 
-    try std.testing.expectEqualStrings("absent", result.value);
+    try std.testing.expectEqualStrings(@src().file, result.value);
 }
 
 test "generated lexical transform handlers accept void state without a state field" {
@@ -642,7 +639,7 @@ test "generated lexical transform handlers accept void state without a state fie
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .search = Search.use(.{ .handler = handler{} }),
     }, struct {
         pub fn body(eff: anytype) ExecResult(i32) {

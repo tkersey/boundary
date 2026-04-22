@@ -11,14 +11,9 @@ pub fn run(writer: anytype) anyerror!void {
     var runtime = shift.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
+    const result = try shift.withAt(@src(), &runtime, .{
         .reader = shift.effect.reader.use(@as(i32, 21)),
-    }, struct {
-        /// Run the reader example body through the lexical front door.
-        pub fn body(eff: anytype) @TypeOf(readerBody(eff)) {
-            return readerBody(eff);
-        }
-    });
+    }, shift.NamedBody("examples/reader_basic.zig", "readerBody", anyerror!i32, readerBody));
 
     try writer.print("env=21\nvalue={d}\n", .{result.value});
 }
