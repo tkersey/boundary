@@ -7,22 +7,20 @@ pub const Runtime = shared.Runtime;
 /// Public runtime misuse and semantic-contract errors surfaced by `shift`.
 pub const RuntimeError = shared.RuntimeError;
 /// Run the public lexical handler entrypoint.
-pub const with = shared.with;
+pub fn with(
+    runtime: *Runtime,
+    handlers: anytype,
+    comptime Body: type,
+) shared.WithFnReturnType(@TypeOf(handlers), Body) {
+    return shared.with(runtime, handlers, Body);
+}
+/// Test-only anonymous-body lowering helper for parity probes.
+pub const debug_anonymous_body_synthesis = shared.debug_anonymous_body_synthesis;
 
 test {
     _ = Runtime;
     _ = RuntimeError;
     _ = effect;
     _ = with;
-}
-
-test "retained public_ir/public_lowering imports stay source-compatible" {
-    const public_ir = @import("public_ir");
-    const public_lowering = @import("public_lowering");
-    const std = @import("std");
-
-    try std.testing.expect(public_ir.Program == shared.ir.Program);
-    try std.testing.expect(public_lowering.ProgramPlan == shared.lowering.ProgramPlan);
-    try std.testing.expect(@hasDecl(public_ir, "compile"));
-    try std.testing.expect(@hasDecl(public_lowering, "lowerAt"));
+    _ = debug_anonymous_body_synthesis;
 }

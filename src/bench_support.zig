@@ -3,6 +3,7 @@
 const effect_root = @import("effect/root.zig");
 const internal_algebraic = @import("internal/algebraic_engine.zig");
 const lowered_machine = @import("lowered_machine");
+const lowering_api = @import("lowering_api");
 const prompt_support = @import("internal/prompt_support.zig");
 
 /// Benchmark-visible runtime shell.
@@ -42,6 +43,8 @@ pub fn ResetError(comptime ErrorSetType: type) type {
 
 /// Benchmark-visible algebraic engine compatibility facade.
 pub const algebraic = struct {
+    /// Benchmark-visible lowering namespace used by retained algebraic micro-benches.
+    pub const lowering = lowering_api;
     /// Benchmark-visible transform op constructor.
     pub const TransformOp = internal_algebraic.TransformOp;
     /// Benchmark-visible choice op constructor.

@@ -316,9 +316,9 @@ test "public lowered runner decodes escaped return string literals before const_
     }, .{
         .label = "test.inline_escaped_return_literal",
         .entry_symbol = "runBody",
-        .row = shift.ir.rowFromSpec(.{
+        .row = shift.effect_ir.rowFromSpec(.{
             .writer = .{
-                .tell = shift.ir.Transform([]const u8, void),
+                .tell = shift.effect_ir.Transform([]const u8, void),
             },
         }),
         .ValueType = []const u8,
@@ -366,16 +366,16 @@ test "recursive helper lowering honors renamed effect params" {
     }, .{
         .label = "test.inline_recursive_ctx",
         .entry_symbol = "runBody",
-        .row = shift.ir.mergeRows(.{
-            shift.ir.rowFromSpec(.{
+        .row = shift.effect_ir.mergeRows(.{
+            shift.effect_ir.rowFromSpec(.{
                 .state = .{
-                    .get = shift.ir.Transform(void, i32),
-                    .set = shift.ir.Transform(i32, void),
+                    .get = shift.effect_ir.Transform(void, i32),
+                    .set = shift.effect_ir.Transform(i32, void),
                 },
             }),
-            shift.ir.rowFromSpec(.{
+            shift.effect_ir.rowFromSpec(.{
                 .writer = .{
-                    .tell = shift.ir.Transform([]const u8, void),
+                    .tell = shift.effect_ir.Transform([]const u8, void),
                 },
             }),
         }),
@@ -602,7 +602,7 @@ test "generated lowered programs validate repo-relative source paths from outsid
 }
 
 test "explicit ir compilation matches the generated runtime plan shape" {
-    const ExplicitIrProgramType = shift.ir.compile(
+    const ExplicitIrProgramType = shift.effect_ir.compile(
         "example.open_row_state_writer",
         example_open_row_state_writer.irProgram(),
     );
@@ -614,7 +614,7 @@ test "explicit ir compilation matches the generated runtime plan shape" {
 }
 
 test "explicit ir compilation stays executable through run" {
-    const ExplicitIrProgramType = shift.ir.compile(
+    const ExplicitIrProgramType = shift.effect_ir.compile(
         "example.open_row_state_writer",
         example_open_row_state_writer.irProgram(),
     );
@@ -639,26 +639,26 @@ test "explicit ir compilation stays executable through run" {
 }
 
 test "explicit ir compilation accepts row-only helper params and helper return values" {
-    const helper_symbol: shift.ir.SymbolRef = .{
+    const helper_symbol: shift.effect_ir.SymbolRef = .{
         .module_path = "examples/row_only_value.zig",
         .symbol_name = "helper",
     };
-    const root_symbol: shift.ir.SymbolRef = .{
+    const root_symbol: shift.effect_ir.SymbolRef = .{
         .module_path = "examples/row_only_value.zig",
         .symbol_name = "root",
     };
-    const ProgramType = shift.ir.compile("example.row_only_helper_value", .{
+    const ProgramType = shift.effect_ir.compile("example.row_only_helper_value", .{
         .entry_index = 0,
         .functions = &.{
             .{
                 .symbol = root_symbol,
-                .row = shift.ir.rowFromSpec(.{}),
+                .row = shift.effect_ir.rowFromSpec(.{}),
                 .parameter_codecs = &.{.i32},
                 .ValueType = i32,
             },
             .{
                 .symbol = helper_symbol,
-                .row = shift.ir.rowFromSpec(.{}),
+                .row = shift.effect_ir.rowFromSpec(.{}),
                 .parameter_codecs = &.{.i32},
                 .ValueType = i32,
             },
@@ -678,20 +678,20 @@ test "explicit ir compilation accepts row-only helper params and helper return v
 }
 
 test "explicit ir compilation respects an explicit non-zero entry index" {
-    const row = comptime shift.ir.rowFromSpec(.{
+    const row = comptime shift.effect_ir.rowFromSpec(.{
         .writer = .{
-            .tell = shift.ir.Transform([]const u8, void),
+            .tell = shift.effect_ir.Transform([]const u8, void),
         },
     });
-    const helper_symbol: shift.ir.SymbolRef = .{
+    const helper_symbol: shift.effect_ir.SymbolRef = .{
         .module_path = "examples/hand_authored.zig",
         .symbol_name = "helper",
     };
-    const root_symbol: shift.ir.SymbolRef = .{
+    const root_symbol: shift.effect_ir.SymbolRef = .{
         .module_path = "examples/hand_authored.zig",
         .symbol_name = "root",
     };
-    const HandAuthoredProgram = comptime shift.ir.Program{
+    const HandAuthoredProgram = comptime shift.effect_ir.Program{
         .entry_index = 1,
         .functions = &.{
             .{
@@ -750,29 +750,29 @@ test "explicit ir compilation respects an explicit non-zero entry index" {
         },
     };
 
-    const ProgramType = shift.ir.compile("example.hand_authored_ir", HandAuthoredProgram);
+    const ProgramType = shift.effect_ir.compile("example.hand_authored_ir", HandAuthoredProgram);
 
     try std.testing.expectEqualStrings("root", ProgramType.entry_symbol);
     try std.testing.expectEqual(@as(u16, 1), ProgramType.runtime_plan.entry_index);
 }
 
 test "explicit ir run result outputs stay scoped to the entry function" {
-    const helper_symbol: shift.ir.SymbolRef = .{
+    const helper_symbol: shift.effect_ir.SymbolRef = .{
         .module_path = "test/open_row_lowering_test.zig",
         .symbol_name = "helperOutputOnly",
     };
-    const root_symbol: shift.ir.SymbolRef = .{
+    const root_symbol: shift.effect_ir.SymbolRef = .{
         .module_path = "test/open_row_lowering_test.zig",
         .symbol_name = "entryOutputOnly",
     };
-    const ProgramType = shift.ir.compile("example.entry_scoped_outputs", .{
+    const ProgramType = shift.effect_ir.compile("example.entry_scoped_outputs", .{
         .entry_index = 1,
         .functions = &.{
             .{
                 .symbol = helper_symbol,
-                .row = shift.ir.rowFromSpec(.{
+                .row = shift.effect_ir.rowFromSpec(.{
                     .helper = .{
-                        .noop = shift.ir.Transform(void, void),
+                        .noop = shift.effect_ir.Transform(void, void),
                     },
                 }),
                 .ValueType = i32,
@@ -780,9 +780,9 @@ test "explicit ir run result outputs stay scoped to the entry function" {
             },
             .{
                 .symbol = root_symbol,
-                .row = shift.ir.rowFromSpec(.{
+                .row = shift.effect_ir.rowFromSpec(.{
                     .entry = .{
-                        .noop = shift.ir.Transform(void, void),
+                        .noop = shift.effect_ir.Transform(void, void),
                     },
                 }),
                 .ValueType = i32,
@@ -854,7 +854,7 @@ test "explicit ir run result outputs stay scoped to the entry function" {
 }
 
 test "root lowerAt matches the example-owned same-module lowering" {
-    const ExplicitProgramType = shift.lowering.lowerAt(
+    const ExplicitProgramType = shift.lowering_api.lowerAt(
         example_open_row_state_writer.loweringSourcePath(),
         example_open_row_state_writer.loweringSpec(),
     );
@@ -894,15 +894,15 @@ test "repo-owned examples pass explicit repo-path caller witnesses to sourceWith
 }
 
 test "explicit IR compilation preserves non-zero helper-body entry blocks in the runtime plan" {
-    const entry_symbol: shift.ir.SymbolRef = .{
+    const entry_symbol: shift.effect_ir.SymbolRef = .{
         .module_path = "test/open_row_lowering_test.zig",
         .symbol_name = "entryBlockRoot",
     };
-    const HandAuthoredProgram = comptime shift.ir.Program{
+    const HandAuthoredProgram = comptime shift.effect_ir.Program{
         .entry_index = 0,
         .functions = &.{.{
             .symbol = entry_symbol,
-            .row = shift.ir.rowFromSpec(.{}),
+            .row = shift.effect_ir.rowFromSpec(.{}),
             .ValueType = i32,
         }},
         .call_edges = &.{},
@@ -928,7 +928,7 @@ test "explicit IR compilation preserves non-zero helper-body entry blocks in the
         }},
     };
 
-    const ExplicitProgramType = shift.ir.compile("example.entry_block_root", HandAuthoredProgram);
+    const ExplicitProgramType = shift.effect_ir.compile("example.entry_block_root", HandAuthoredProgram);
     try std.testing.expectEqual(@as(u16, 1), ExplicitProgramType.runtime_plan.functions[0].entry_block);
     try std.testing.expectEqual(@as(u16, 0), ExplicitProgramType.runtime_plan.functions[0].first_block);
 }
@@ -961,7 +961,7 @@ test "same-module validation accepts helper graphs for explicit-path lowering" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
+    try shift.lowering_api.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
 }
 
 test "same-module validation accepts alias-based effect access for explicit-path lowering" {
@@ -989,7 +989,7 @@ test "same-module validation accepts alias-based effect access for explicit-path
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
+    try shift.lowering_api.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
 }
 
 test "same-module validation rejects unsupported effect access for explicit-path lowering" {
@@ -1013,7 +1013,7 @@ test "same-module validation rejects unsupported effect access for explicit-path
     defer arena.deinit();
     try std.testing.expectError(
         error.UnsupportedEffectAccess,
-        shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody"),
+        shift.lowering_api.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody"),
     );
 }
 
@@ -1038,7 +1038,7 @@ test "same-module validation accepts recursive helper graphs for explicit-path l
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
+    try shift.lowering_api.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
 }
 
 test "file-backed validation resolves cross-file helper imports for explicit-path lowering" {
@@ -1069,7 +1069,7 @@ test "file-backed validation resolves cross-file helper imports for explicit-pat
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
+    try shift.lowering_api.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
 }
 
 test "file-backed validation ignores unreachable imported helper graphs review regression" {
@@ -1096,7 +1096,7 @@ test "file-backed validation ignores unreachable imported helper graphs review r
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
+    try shift.lowering_api.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
 }
 
 test "file-backed validation resolves escaped helper import strings for explicit-path lowering" {
@@ -1128,7 +1128,7 @@ test "file-backed validation resolves escaped helper import strings for explicit
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
+    try shift.lowering_api.validateFileBackedOpenRowAt(arena.allocator(), tmp_path, "runBody");
 }
 
 test "file-backed validation resolves cross-file helper imports from checkout aliases" {
@@ -1148,7 +1148,7 @@ test "file-backed validation resolves cross-file helper imports from checkout al
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), entry_path, "runBody");
+    try shift.lowering_api.validateFileBackedOpenRowAt(arena.allocator(), entry_path, "runBody");
 }
 
 test "file-backed validation rejects helper imports that escape the package root" {
@@ -1159,7 +1159,7 @@ test "file-backed validation rejects helper imports that escape the package root
     defer arena.deinit();
     try std.testing.expectError(
         error.UnsupportedHelperGraph,
-        shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), entry_path, "runBody"),
+        shift.lowering_api.validateFileBackedOpenRowAt(arena.allocator(), entry_path, "runBody"),
     );
 }
 
@@ -1206,7 +1206,7 @@ test "file-backed validation rejects absolute-path helper imports that escape th
     defer arena.deinit();
     try std.testing.expectError(
         error.UnsupportedHelperGraph,
-        shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), entry_path, "runBody"),
+        shift.lowering_api.validateFileBackedOpenRowAt(arena.allocator(), entry_path, "runBody"),
     );
 }
 
@@ -1219,7 +1219,7 @@ test "file-backed validation accepts repo-local relative entry paths from subdir
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    try shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), "open_row_cross_file_writer.zig", "runBody");
+    try shift.lowering_api.validateFileBackedOpenRowAt(arena.allocator(), "open_row_cross_file_writer.zig", "runBody");
 }
 
 test "file-backed validation rejects relative entry paths that escape the package root" {
@@ -1257,7 +1257,7 @@ test "file-backed validation rejects relative entry paths that escape the packag
     defer arena.deinit();
     try std.testing.expectError(
         error.UnsupportedHelperGraph,
-        shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), "../outside.zig", "runBody"),
+        shift.lowering_api.validateFileBackedOpenRowAt(arena.allocator(), "../outside.zig", "runBody"),
     );
 }
 
@@ -1288,7 +1288,7 @@ test "file-backed validation rejects absolute entry paths outside the package ro
     defer arena.deinit();
     try std.testing.expectError(
         error.UnsupportedHelperGraph,
-        shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), entry_path, "runBody"),
+        shift.lowering_api.validateFileBackedOpenRowAt(arena.allocator(), entry_path, "runBody"),
     );
 }
 
@@ -1336,7 +1336,7 @@ test "file-backed validation rejects repo-relative symlink entries that canonica
     defer arena.deinit();
     try std.testing.expectError(
         error.UnsupportedHelperGraph,
-        shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), repo_link_path, "runBody"),
+        shift.lowering_api.validateFileBackedOpenRowAt(arena.allocator(), repo_link_path, "runBody"),
     );
 }
 
@@ -1412,26 +1412,26 @@ test "file-backed validation rejects repo-relative symlink helper imports that c
     defer arena.deinit();
     try std.testing.expectError(
         error.UnsupportedHelperGraph,
-        shift.lowering.validateFileBackedOpenRowAt(arena.allocator(), repo_entry_path, "runBody"),
+        shift.lowering_api.validateFileBackedOpenRowAt(arena.allocator(), repo_entry_path, "runBody"),
     );
 }
 
 test "generated validate rejects file-backed helper-body drift against its compile-time snapshot" {
     const fixture_path = "examples/open_row_validation_snapshot_helper.zig";
     const entry_path = "examples/open_row_validation_snapshot_entry.zig";
-    const spec = comptime shift.lowering.LowerSpec{
+    const spec = comptime shift.lowering_api.LowerSpec{
         .label = "example.open_row_validation_snapshot",
         .entry_symbol = "runBody",
-        .row = shift.ir.mergeRows(.{
-            shift.ir.rowFromSpec(.{
+        .row = shift.effect_ir.mergeRows(.{
+            shift.effect_ir.rowFromSpec(.{
                 .state = .{
-                    .get = shift.ir.Transform(void, i32),
-                    .set = shift.ir.Transform(i32, void),
+                    .get = shift.effect_ir.Transform(void, i32),
+                    .set = shift.effect_ir.Transform(i32, void),
                 },
             }),
-            shift.ir.rowFromSpec(.{
+            shift.effect_ir.rowFromSpec(.{
                 .writer = .{
-                    .tell = shift.ir.Transform([]const u8, void),
+                    .tell = shift.effect_ir.Transform([]const u8, void),
                 },
             }),
         }),
@@ -1441,7 +1441,7 @@ test "generated validate rejects file-backed helper-body drift against its compi
             .{ .label = "writer", .OutputType = [][]const u8 },
         },
     };
-    const ProgramType = shift.lowering.lowerAt(
+    const ProgramType = shift.lowering_api.lowerAt(
         entry_path,
         spec,
     );
@@ -1524,7 +1524,7 @@ test "recursive same-file helper runtime plan preserves full instruction operand
 }
 
 test "explicit IR compilation matches recursive same-file lowered runtime plan" {
-    const ExplicitProgramType = shift.ir.compile(
+    const ExplicitProgramType = shift.effect_ir.compile(
         "example.open_row_recursive_writer",
         example_open_row_recursive_writer.irProgram(),
     );
@@ -1540,28 +1540,28 @@ test "explicit IR compilation matches recursive same-file lowered runtime plan" 
 }
 
 test "hand-authored explicit IR matches recursive same-file lowered runtime plan" {
-    const row = comptime shift.ir.mergeRows(.{
-        shift.ir.rowFromSpec(.{
+    const row = comptime shift.effect_ir.mergeRows(.{
+        shift.effect_ir.rowFromSpec(.{
             .state = .{
-                .get = shift.ir.Transform(void, i32),
-                .set = shift.ir.Transform(i32, void),
+                .get = shift.effect_ir.Transform(void, i32),
+                .set = shift.effect_ir.Transform(i32, void),
             },
         }),
-        shift.ir.rowFromSpec(.{
+        shift.effect_ir.rowFromSpec(.{
             .writer = .{
-                .tell = shift.ir.Transform([]const u8, void),
+                .tell = shift.effect_ir.Transform([]const u8, void),
             },
         }),
     });
-    const countdown_symbol: shift.ir.SymbolRef = .{
+    const countdown_symbol: shift.effect_ir.SymbolRef = .{
         .module_path = "examples/open_row_recursive_writer.zig",
         .symbol_name = "countdown",
     };
-    const run_body_symbol: shift.ir.SymbolRef = .{
+    const run_body_symbol: shift.effect_ir.SymbolRef = .{
         .module_path = "examples/open_row_recursive_writer.zig",
         .symbol_name = "runBody",
     };
-    const HandAuthoredProgram = comptime shift.ir.Program{
+    const HandAuthoredProgram = comptime shift.effect_ir.Program{
         .entry_index = 0,
         .functions = &.{
             .{
@@ -1637,7 +1637,7 @@ test "hand-authored explicit IR matches recursive same-file lowered runtime plan
         },
     };
 
-    const ExplicitProgramType = shift.ir.compile("example.open_row_recursive_writer", HandAuthoredProgram);
+    const ExplicitProgramType = shift.effect_ir.compile("example.open_row_recursive_writer", HandAuthoredProgram);
 
     try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.functions, ExplicitProgramType.runtime_plan.functions);
     try std.testing.expectEqualDeep(example_open_row_recursive_writer.CompiledProgram.runtime_plan.requirements, ExplicitProgramType.runtime_plan.requirements);
@@ -1698,7 +1698,7 @@ test "recursive imported helper runtime plan preserves full instruction operands
 }
 
 test "explicit IR compilation matches recursive imported-helper lowered runtime plan" {
-    const ExplicitProgramType = shift.ir.compile(
+    const ExplicitProgramType = shift.effect_ir.compile(
         "example.open_row_recursive_cross_writer",
         example_open_row_recursive_cross_writer.irProgram(),
     );
@@ -1744,7 +1744,7 @@ test "public lowered runner executes recursive imported-helper lowered program" 
     };
     defer handlers.writer.deinit();
 
-    const result = try shift.lowering.run(&runtime, example_open_row_recursive_cross_writer.CompiledProgram, &handlers);
+    const result = try shift.lowering_api.run(&runtime, example_open_row_recursive_cross_writer.CompiledProgram, &handlers);
     defer std.testing.allocator.free(result.outputs.writer);
 
     try std.testing.expectEqual(@as(i32, 0), result.outputs.state);
@@ -1755,19 +1755,19 @@ test "public lowered runner executes recursive imported-helper lowered program" 
 }
 
 test "explicit-path lowering supports cross-file helper modules" {
-    const spec = comptime shift.lowering.LowerSpec{
+    const spec = comptime shift.lowering_api.LowerSpec{
         .label = "example.open_row_cross_file_writer",
         .entry_symbol = "runBody",
-        .row = shift.ir.mergeRows(.{
-            shift.ir.rowFromSpec(.{
+        .row = shift.effect_ir.mergeRows(.{
+            shift.effect_ir.rowFromSpec(.{
                 .state = .{
-                    .get = shift.ir.Transform(void, i32),
-                    .set = shift.ir.Transform(i32, void),
+                    .get = shift.effect_ir.Transform(void, i32),
+                    .set = shift.effect_ir.Transform(i32, void),
                 },
             }),
-            shift.ir.rowFromSpec(.{
+            shift.effect_ir.rowFromSpec(.{
                 .writer = .{
-                    .tell = shift.ir.Transform([]const u8, void),
+                    .tell = shift.effect_ir.Transform([]const u8, void),
                 },
             }),
         }),
@@ -1778,8 +1778,8 @@ test "explicit-path lowering supports cross-file helper modules" {
         },
     };
 
-    const Lowered = shift.lowering.lowerAt("examples/open_row_cross_file_writer.zig", spec);
-    const Explicit = shift.ir.compile(spec.label, shift.lowering.irProgramAt("examples/open_row_cross_file_writer.zig", spec));
+    const Lowered = shift.lowering_api.lowerAt("examples/open_row_cross_file_writer.zig", spec);
+    const Explicit = shift.effect_ir.compile(spec.label, shift.lowering_api.irProgramAt("examples/open_row_cross_file_writer.zig", spec));
 
     try std.testing.expectEqualStrings("example.open_row_cross_file_writer", Lowered.label);
     try std.testing.expectEqual(@as(usize, 3), Lowered.runtime_plan.functions.len);
@@ -1790,19 +1790,19 @@ test "explicit-path lowering supports cross-file helper modules" {
 
 test "explicit-path lowering accepts checkout-alias absolute paths" {
     if (!authoring_build_options.package_root_alias_available) return error.SkipZigTest;
-    const spec = comptime shift.lowering.LowerSpec{
+    const spec = comptime shift.lowering_api.LowerSpec{
         .label = "example.open_row_cross_file_writer.alias",
         .entry_symbol = "runBody",
-        .row = shift.ir.mergeRows(.{
-            shift.ir.rowFromSpec(.{
+        .row = shift.effect_ir.mergeRows(.{
+            shift.effect_ir.rowFromSpec(.{
                 .state = .{
-                    .get = shift.ir.Transform(void, i32),
-                    .set = shift.ir.Transform(i32, void),
+                    .get = shift.effect_ir.Transform(void, i32),
+                    .set = shift.effect_ir.Transform(i32, void),
                 },
             }),
-            shift.ir.rowFromSpec(.{
+            shift.effect_ir.rowFromSpec(.{
                 .writer = .{
-                    .tell = shift.ir.Transform([]const u8, void),
+                    .tell = shift.effect_ir.Transform([]const u8, void),
                 },
             }),
         }),
@@ -1817,8 +1817,8 @@ test "explicit-path lowering accepts checkout-alias absolute paths" {
         .{authoring_build_options.package_root_alias},
     );
 
-    const Lowered = shift.lowering.lowerAt(alias_source_path, spec);
-    const Canonical = shift.lowering.lowerAt("examples/open_row_cross_file_writer.zig", spec);
+    const Lowered = shift.lowering_api.lowerAt(alias_source_path, spec);
+    const Canonical = shift.lowering_api.lowerAt("examples/open_row_cross_file_writer.zig", spec);
 
     try std.testing.expectEqualStrings(alias_source_path, Lowered.source_path);
     try std.testing.expectEqualDeep(Canonical.runtime_plan.functions, Lowered.runtime_plan.functions);
@@ -1832,12 +1832,12 @@ test "explicit-path lowering accepts checkout-alias absolute paths" {
 }
 
 test "explicit-path lowering disambiguates imported helpers by alias" {
-    const spec = comptime shift.lowering.LowerSpec{
+    const spec = comptime shift.lowering_api.LowerSpec{
         .label = "test.open_row_helper_alias",
         .entry_symbol = "runBody",
-        .row = shift.ir.rowFromSpec(.{
+        .row = shift.effect_ir.rowFromSpec(.{
             .writer = .{
-                .tell = shift.ir.Transform([]const u8, void),
+                .tell = shift.effect_ir.Transform([]const u8, void),
             },
         }),
         .outputs = &.{
@@ -1845,7 +1845,7 @@ test "explicit-path lowering disambiguates imported helpers by alias" {
         },
     };
 
-    const Lowered = shift.lowering.lowerAt("test/open_row_helper_alias/entry.zig", spec);
+    const Lowered = shift.lowering_api.lowerAt("test/open_row_helper_alias/entry.zig", spec);
 
     var runtime = shift_runtime.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -1889,12 +1889,12 @@ test "explicit-path lowering ignores unreachable imported helper failures outsid
         \\    try missing_nested.emit(eff);
         \\}
     ;
-    const spec = comptime shift.lowering.LowerSpec{
+    const spec = comptime shift.lowering_api.LowerSpec{
         .label = "test.open_row_unreachable_imported_helper",
         .entry_symbol = "runBody",
-        .row = shift.ir.rowFromSpec(.{
+        .row = shift.effect_ir.rowFromSpec(.{
             .writer = .{
-                .tell = shift.ir.Transform([]const u8, void),
+                .tell = shift.effect_ir.Transform([]const u8, void),
             },
         }),
         .outputs = &.{
@@ -1909,8 +1909,8 @@ test "explicit-path lowering ignores unreachable imported helper failures outsid
             .caller_hash = std.hash.Wyhash.hash(0, root_source),
             .caller_source = root_source,
             .imported_sources = &.{
-                shift.lowering.importedSource(root_path, "live_helper.zig", live_source),
-                shift.lowering.importedSource(root_path, "dead_helper.zig", dead_source),
+                shift.lowering_api.importedSource(root_path, "live_helper.zig", live_source),
+                shift.lowering_api.importedSource(root_path, "dead_helper.zig", dead_source),
             },
         },
         spec,
@@ -1934,12 +1934,12 @@ test "explicit-path lowering ignores unreachable imported helper failures outsid
 }
 
 test "explicit-path lowering ignores ordinary line comments inside retained helper bodies" {
-    const spec = comptime shift.lowering.LowerSpec{
+    const spec = comptime shift.lowering_api.LowerSpec{
         .label = "test.open_row_helper_line_comment",
         .entry_symbol = "runBody",
-        .row = shift.ir.rowFromSpec(.{
+        .row = shift.effect_ir.rowFromSpec(.{
             .writer = .{
-                .tell = shift.ir.Transform([]const u8, void),
+                .tell = shift.effect_ir.Transform([]const u8, void),
             },
         }),
         .ValueType = []const u8,
@@ -1948,7 +1948,7 @@ test "explicit-path lowering ignores ordinary line comments inside retained help
         },
     };
 
-    const Lowered = shift.lowering.lowerAt("test/open_row_helper_line_comment.zig", spec);
+    const Lowered = shift.lowering_api.lowerAt("test/open_row_helper_line_comment.zig", spec);
 
     var runtime = shift_runtime.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
@@ -1967,12 +1967,12 @@ test "explicit-path lowering ignores ordinary line comments inside retained help
 }
 
 test "explicit-path IR lowering supports max-arity helper calls with literal arguments" {
-    const spec = comptime shift.lowering.LowerSpec{
+    const spec = comptime shift.lowering_api.LowerSpec{
         .label = "test.open_row_helper_max_arity",
         .entry_symbol = "runBody",
-        .row = shift.ir.rowFromSpec(.{
+        .row = shift.effect_ir.rowFromSpec(.{
             .writer = .{
-                .tell = shift.ir.Transform([]const u8, void),
+                .tell = shift.effect_ir.Transform([]const u8, void),
             },
         }),
         .ValueType = []const u8,
@@ -1981,7 +1981,7 @@ test "explicit-path IR lowering supports max-arity helper calls with literal arg
         },
     };
 
-    const ir_program = comptime shift.lowering.irProgramAt("test/open_row_helper_max_arity.zig", spec);
+    const ir_program = comptime shift.lowering_api.irProgramAt("test/open_row_helper_max_arity.zig", spec);
     const helper_index = comptime blk: {
         for (ir_program.functions, 0..) |function, function_index| {
             if (std.mem.eql(u8, function.symbol.symbol_name, "helper")) break :blk function_index;
@@ -1999,12 +1999,12 @@ test "explicit-path IR lowering supports max-arity helper calls with literal arg
 }
 
 test "explicit-path lowering preserves the entry module when helpers share the entry symbol name" {
-    const spec = comptime shift.lowering.LowerSpec{
+    const spec = comptime shift.lowering_api.LowerSpec{
         .label = "test.open_row_entry_symbol_alias",
         .entry_symbol = "runBody",
-        .row = shift.ir.rowFromSpec(.{
+        .row = shift.effect_ir.rowFromSpec(.{
             .writer = .{
-                .tell = shift.ir.Transform([]const u8, void),
+                .tell = shift.effect_ir.Transform([]const u8, void),
             },
         }),
         .outputs = &.{
@@ -2012,8 +2012,8 @@ test "explicit-path lowering preserves the entry module when helpers share the e
         },
     };
 
-    const lowered = shift.lowering.lowerAt("test/open_row_entry_symbol_alias/entry.zig", spec);
-    const ir_program = shift.lowering.irProgramAt("test/open_row_entry_symbol_alias/entry.zig", spec);
+    const lowered = shift.lowering_api.lowerAt("test/open_row_entry_symbol_alias/entry.zig", spec);
+    const ir_program = shift.lowering_api.irProgramAt("test/open_row_entry_symbol_alias/entry.zig", spec);
 
     try std.testing.expectEqualStrings(
         "test/open_row_entry_symbol_alias/entry.zig",

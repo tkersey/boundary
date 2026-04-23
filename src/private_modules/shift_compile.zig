@@ -2,9 +2,9 @@ const compile_api = @import("shift_compile_api");
 const shared = @import("shift_shared");
 
 /// Retained internal explicit compile-time IR surface.
-pub const ir = shared.ir;
+pub const effect_ir = shared.ir;
 /// Retained internal lowering and source-provenance surface.
-pub const lowering = shared.lowering;
+pub const lowering_api = shared.lowering;
 /// Retained internal compile helper from explicit lowering inputs to the runtime-owned plan bridge.
 pub const lower = shared.lower;
 /// Retained internal ArtifactV1 encoding and decoding helpers used by internal compile paths.
@@ -21,7 +21,7 @@ test {
     _ = CompileSource;
     _ = artifact;
     _ = compileAndEncode;
-    _ = ir;
-    _ = lowering;
+    _ = effect_ir;
+    _ = lowering_api;
     _ = lower;
 }

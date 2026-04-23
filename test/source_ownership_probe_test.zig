@@ -30,18 +30,6 @@ test "source-compatible wrappers leave caller provenance absent by default" {
     defer runtime.deinit();
 
     {
-        const result = try shift.with(&runtime, .{
-            .state = shift.effect.state.use(@as(i32, 0)),
-        }, struct {
-            /// Report whether the default lexical wrapper leaves caller provenance absent.
-            pub fn body(eff: anytype) anyerror!bool {
-                return callerSourceIsAbsent(@TypeOf(eff.state.ctx.?.*));
-            }
-        });
-        try std.testing.expect(result.value);
-    }
-
-    {
         const NoError = error{};
 
         var reader_instance = shift.effect.reader.Instance(i32, NoError).init();
@@ -78,14 +66,14 @@ test "source-compatible wrappers leave caller provenance absent by default" {
 }
 
 test "source helper captures explicit repo path plus caller-owned participation" {
-    const src = shift_compile.lowering.sourceWithContent("test/source_ownership_probe_test.zig", @src(), @embedFile(@src().file));
+    const src = shift_compile.lowering_api.sourceWithContent("test/source_ownership_probe_test.zig", @src(), @embedFile(@src().file));
 
     try std.testing.expectEqualStrings("test/source_ownership_probe_test.zig", src.repo_path);
     try std.testing.expectEqualStrings(std.Io.Dir.path.basename(@src().file), std.Io.Dir.path.basename(src.caller_file));
 }
 
 test "source helper stays callable from test modules" {
-    const src = shift_compile.lowering.source("test/source_ownership_probe_test.zig", @src());
+    const src = shift_compile.lowering_api.source("test/source_ownership_probe_test.zig", @src());
 
     try std.testing.expectEqualStrings("test/source_ownership_probe_test.zig", src.repo_path);
     try std.testing.expectEqualStrings(std.Io.Dir.path.basename(@src().file), std.Io.Dir.path.basename(src.caller_file));
@@ -105,7 +93,9 @@ test "public root drops compile entrypoints while shift_compile keeps provenance
     try std.testing.expect(!@hasDecl(shift, "durable"));
     try std.testing.expect(!@hasDecl(shift, "interpreter"));
     try std.testing.expect(!@hasDecl(shift, "ir"));
+    try std.testing.expect(!@hasDecl(shift, "lowering"));
     try std.testing.expect(@hasDecl(shift_compile, "lower"));
-    try std.testing.expect(@hasDecl(shift_compile, "lowering"));
-    try std.testing.expect(@hasDecl(shift_compile.lowering, "lowerAt"));
+    try std.testing.expect(@hasDecl(shift_compile, "effect_ir"));
+    try std.testing.expect(@hasDecl(shift_compile, "lowering_api"));
+    try std.testing.expect(@hasDecl(shift_compile.lowering_api, "lowerAt"));
 }

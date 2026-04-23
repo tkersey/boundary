@@ -185,6 +185,15 @@ pub fn runExecutablePlan(
     return try program_plan_interpreter.runEntry(runtime, compiled_plan, handlers);
 }
 
+pub fn runExecutablePlanInSource(
+    runtime: *lowered_machine.Runtime,
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime NestedSourceModule: type,
+    handlers: anytype,
+) anyerror!program_plan_interpreter.RunResultTypeForPlan(compiled_plan) {
+    return try program_plan_interpreter.runEntryInSource(runtime, compiled_plan, NestedSourceModule, handlers);
+}
+
 /// Execute one explicit ProgramPlan through the direct native handler interpreter with runtime entry arguments.
 pub fn runExecutablePlanWithArgs(
     runtime: *lowered_machine.Runtime,
@@ -193,6 +202,16 @@ pub fn runExecutablePlanWithArgs(
     args: []const lowered_machine.ProgramValue,
 ) anyerror!program_plan_interpreter.RunResultTypeForPlan(compiled_plan) {
     return try program_plan_interpreter.runEntryWithArgs(runtime, compiled_plan, handlers, args);
+}
+
+pub fn runExecutablePlanWithArgsInSource(
+    runtime: *lowered_machine.Runtime,
+    comptime compiled_plan: program_plan.ProgramPlan,
+    comptime NestedSourceModule: type,
+    handlers: anytype,
+    args: []const lowered_machine.ProgramValue,
+) anyerror!program_plan_interpreter.RunResultTypeForPlan(compiled_plan) {
+    return try program_plan_interpreter.runEntryWithArgsInSource(runtime, compiled_plan, NestedSourceModule, handlers, args);
 }
 
 const LoweredFunctionResult = program_plan_interpreter.FunctionResult;

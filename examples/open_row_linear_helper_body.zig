@@ -19,13 +19,13 @@ pub fn runBody(eff: anytype) ![]const u8 {
 }
 
 /// Return the additive public lowering spec for this straight-line helper-body workflow.
-pub fn loweringSpec() shift_compile.lowering.LowerSpec {
+pub fn loweringSpec() shift_compile.lowering_api.LowerSpec {
     return .{
         .label = "example.open_row_linear_helper_body",
         .entry_symbol = "runBody",
-        .row = shift_compile.ir.rowFromSpec(.{
+        .row = shift_compile.effect_ir.rowFromSpec(.{
             .writer = .{
-                .tell = shift_compile.ir.Transform([]const u8, void),
+                .tell = shift_compile.effect_ir.Transform([]const u8, void),
             },
         }),
         .ValueType = []const u8,
@@ -52,18 +52,18 @@ fn explicitLoweringCaller() std.builtin.SourceLocation {
 }
 
 /// Return the explicit caller-owned lowering provenance witness for this module.
-pub fn loweringSource() shift_compile.lowering.SourceRef {
-    return shift_compile.lowering.sourceWithContent(loweringSourcePath(), explicitLoweringCaller(), @embedFile(@src().file));
+pub fn loweringSource() shift_compile.lowering_api.SourceRef {
+    return shift_compile.lowering_api.sourceWithContent(loweringSourcePath(), explicitLoweringCaller(), @embedFile(@src().file));
 }
 
 /// Return the additive public lowered artifact for this straight-line helper-body workflow.
-pub fn loweredProgram() @TypeOf(shift_compile.lowering.lowerOpenRowAt(loweringSourcePath(), loweringSpec())) {
-    return try shift_compile.lowering.lowerOpenRowAt(loweringSourcePath(), loweringSpec());
+pub fn loweredProgram() @TypeOf(shift_compile.lowering_api.lowerOpenRowAt(loweringSourcePath(), loweringSpec())) {
+    return try shift_compile.lowering_api.lowerOpenRowAt(loweringSourcePath(), loweringSpec());
 }
 
 /// Return the explicit IR view paired with this same-module lowering request.
-pub fn irProgram() shift_compile.ir.Program {
-    return shift_compile.lowering.irProgramAt(loweringSourcePath(), loweringSpec());
+pub fn irProgram() shift_compile.effect_ir.Program {
+    return shift_compile.lowering_api.irProgramAt(loweringSourcePath(), loweringSpec());
 }
 
 fn CompiledProgramType() type {

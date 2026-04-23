@@ -21,13 +21,8 @@ fn exceptionThrowBody(eff: anytype) anyerror![]const u8 {
     try eff.exception.throw("result=boom");
 }
 
-/// Write the exception-family transcript through the lexical front door.
-pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
-
-    try writer.writeAll("branch=pass\n");
-    const ok = try shift.with(&runtime, .{
+fn runPass(runtime: *shift.Runtime) ![]const u8 {
+    const ok = try shift.with(runtime, .{
         .exception = shift.effect.exception.use([]const u8, catch_policy),
     }, struct {
         /// Run the non-throwing exception example body.
@@ -35,13 +30,11 @@ pub fn run(writer: anytype) anyerror!void {
             return exceptionPassBody(eff);
         }
     });
-    try writer.writeAll("body-pass\n");
-    try writer.print("final={s}\n", .{ok.value});
+    return ok.value;
+}
 
-    try writer.writeAll("branch=throw\n");
-    transcript.caught_payload = "";
-    try writer.writeAll("body-before-throw\n");
-    const thrown = try shift.with(&runtime, .{
+fn runThrow(runtime: *shift.Runtime) ![]const u8 {
+    const thrown = try shift.with(runtime, .{
         .exception = shift.effect.exception.use([]const u8, catch_policy),
     }, struct {
         /// Run the throwing exception example body.
@@ -49,8 +42,25 @@ pub fn run(writer: anytype) anyerror!void {
             return exceptionThrowBody(eff);
         }
     });
+    return thrown.value;
+}
+
+/// Write the exception-family transcript through the lexical front door.
+pub fn run(writer: anytype) anyerror!void {
+    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    defer runtime.deinit();
+
+    try writer.writeAll("branch=pass\n");
+    const pass_result = try runPass(&runtime);
+    try writer.writeAll("body-pass\n");
+    try writer.print("final={s}\n", .{pass_result});
+
+    try writer.writeAll("branch=throw\n");
+    transcript.caught_payload = "";
+    try writer.writeAll("body-before-throw\n");
+    const thrown = try runThrow(&runtime);
     try writer.print("catch={s}\n", .{transcript.caught_payload});
-    try writer.print("final={s}\n", .{thrown.value});
+    try writer.print("final={s}\n", .{thrown});
 }
 
 /// Run the exception family example.

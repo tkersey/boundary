@@ -1,8 +1,10 @@
+const admitted_body_v1 = @import("admitted_body_v1");
 const effect_ir = @import("effect_ir");
 const program_frontend = @import("program_frontend");
 const source_graph_embed = @import("source_graph_embed");
 const source_graph_engine = @import("source_graph_engine");
 const std = @import("std");
+// zlinter-disable no_unused - AdmittedBodyV1 migration temporarily leaves legacy token parsers in place for the remaining non-normalized paths.
 
 const BodyToken = struct {
     tag: std.zig.Token.Tag,
@@ -69,8 +71,55 @@ const FunctionBuildContext = struct {
     root_source: RootSource,
 };
 
+const nested_with_metadata_delimiter = "\x1f";
+
 fn cloneBytes(comptime bytes: []const u8) []const u8 {
     return std.fmt.comptimePrint("{s}", .{bytes});
+}
+
+fn encodeNestedWithMetadata(
+    comptime requirement_label: []const u8,
+    comptime factory_name: []const u8,
+    comptime container_name: []const u8,
+    comptime handler_name: []const u8,
+    comptime helper_name: []const u8,
+) []const u8 {
+    return std.fmt.comptimePrint(
+        "{s}{s}{s}{s}{s}{s}{s}{s}{s}",
+        .{
+            requirement_label,
+            nested_with_metadata_delimiter,
+            factory_name,
+            nested_with_metadata_delimiter,
+            container_name,
+            nested_with_metadata_delimiter,
+            handler_name,
+            nested_with_metadata_delimiter,
+            helper_name,
+        },
+    );
+}
+
+fn codecForValueShape(shape: ?source_graph_engine.ValueShape) effect_ir.LocalCodec {
+    return switch (shape orelse return .unit) {
+        .bool => .bool,
+        .i32 => .i32,
+        .string => .string,
+        .usize => .usize,
+    };
+}
+
+fn nestedWithResultCodec(
+    comptime graph: source_graph_embed.ProgramGraph,
+    comptime module_path: []const u8,
+    comptime helper_name: []const u8,
+) effect_ir.LocalCodec {
+    inline for (graph.functions) |function| {
+        if (!std.mem.eql(u8, function.module_path, module_path)) continue;
+        if (!std.mem.eql(u8, function.name, helper_name)) continue;
+        return codecForValueShape(function.return_shape);
+    }
+    @compileError("public lowering could not resolve the nested lexical with helper result codec");
 }
 
 fn cloneInstructions(comptime instructions: []const program_frontend.BodyInstruction) []const program_frontend.BodyInstruction {
@@ -222,6 +271,37 @@ fn bodyTokensForFunction(
         const exact = buffer;
         break :blk exact[0..];
     };
+}
+
+fn moduleImportsForFunction(
+    comptime module_path: []const u8,
+    comptime root_source: RootSource,
+) []const source_graph_engine.ImportAlias {
+    const module_source = source_graph_embed.sourceBytes(
+        module_path,
+        root_source.path,
+        root_source.content,
+        root_source.imported_sources,
+    ) catch |err| switch (err) {
+        error.MissingImport => @compileError("public lowering recursive helper subset could not resolve one caller-owned helper module"),
+        else => unreachable,
+    };
+    const module_graph = source_graph_engine.analyzeComptime(module_source, .{}) catch |err| switch (err) {
+        error.ParseError => @compileError("public lowering could not re-analyze one helper module while building AdmittedBodyV1"),
+        error.TooManyFunctions,
+        error.TooManyFunctionParams,
+        error.TooManyImports,
+        error.TooManyHelperUses,
+        error.TooManyHelperEdges,
+        error.TooManyOpUses,
+        error.UnsupportedEffectAccess,
+        error.UnsupportedImportPath,
+        error.MissingImport,
+        error.RecursiveHelpers,
+        error.EntryMissing,
+        => @compileError("public lowering could not load one helper module import table for AdmittedBodyV1"),
+    };
+    return module_graph.imports;
 }
 
 fn statementRangesForTokens(comptime tokens: []const BodyToken) []const StatementRange {
@@ -539,6 +619,22 @@ fn parseDirectCall(
     };
 }
 
+fn parseRequirementAliasTouch(
+    comptime effect_param: ?[]const u8,
+    comptime aliases: []const BodyAlias,
+    comptime statement: []const BodyToken,
+) ?void {
+    const tokens = statementTrimSemicolon(statement);
+    if (tokens.len != 5) return null;
+    if (tokens[0].tag != .identifier or !std.mem.eql(u8, tokens[0].lexeme, "_")) return null;
+    if (tokens[1].tag != .equal) return null;
+    if (tokens[2].tag != .identifier) return null;
+    const base_kind = bodyAliasKind(effect_param, aliases, tokens[2].lexeme) orelse return null;
+    if (base_kind != .effect_root) return null;
+    if (tokens[3].tag != .period or tokens[4].tag != .identifier) return null;
+    return {};
+}
+
 fn continuationStructStart(args: []const BodyToken) ?struct {
     payload_end: usize,
     struct_start: usize,
@@ -820,7 +916,7 @@ fn parseBoundLocalFromDirectCall(
 // zlinter-disable max_positional_args - this helper threads the inlined continuation lowering state without introducing an extra transient struct into the comptime-only path.
 fn lowerContinuationApplyBody(
     comptime function: effect_ir.Function,
-    comptime apply_body: []const BodyToken,
+    comptime apply_return: admitted_body_v1.ReturnValue,
     comptime apply_param_name: ?[]const u8,
     comptime resume_local_id: u16,
     comptime resume_codec: effect_ir.LocalCodec,
@@ -829,8 +925,6 @@ fn lowerContinuationApplyBody(
     terminated: *bool,
     terminator: *program_frontend.BodyTerminator,
 ) ?void {
-    if (apply_body.len == 0) return null;
-
     if (apply_param_name) |param_name| {
         if (resume_codec == .unit or resume_local_id == noLocalId()) return null;
         local_storage.bindings[local_storage.binding_count.*] = .{
@@ -850,9 +944,8 @@ fn lowerContinuationApplyBody(
         else => return null,
     };
 
-    if (statementIsLiteralReturn(apply_body)) {
-        const return_literal = parseReturnLiteralStatement(apply_body) orelse return null;
-        switch (return_literal) {
+    switch (apply_return) {
+        .literal => |return_literal| switch (return_literal) {
             .bool_value => |value| {
                 if (expected_codec != .bool) return null;
                 const dst = appendBoolLiteralValue(body_state, value);
@@ -887,8 +980,9 @@ fn lowerContinuationApplyBody(
                 terminated.* = true;
                 return;
             },
-            .string_value => |value| {
+            .string_value => |literal| {
                 if (expected_codec != .string) return null;
+                const value = stringLiteralContents(literal) orelse return null;
                 const dst = appendAnonymousLocal(local_storage, .string);
                 appendInstruction(body_state.instructions, body_state.instruction_count, .{
                     .kind = .const_string,
@@ -903,29 +997,26 @@ fn lowerContinuationApplyBody(
                 terminated.* = true;
                 return;
             },
-        }
+        },
+        .unit => {
+            if (function.ValueType != void) return null;
+            terminator.* = .{ .kind = .return_unit };
+            terminated.* = true;
+            return;
+        },
+        .local => |local_name| {
+            const local = findBoundLocal(local_storage.bindings[0..local_storage.binding_count.*], local_name) orelse return null;
+            if (local.codec != expected_codec) return null;
+            appendInstruction(body_state.instructions, body_state.instruction_count, .{
+                .kind = .return_value,
+                .operand = local.local_id,
+            });
+            terminator.* = .{ .kind = .return_value };
+            terminated.* = true;
+            return;
+        },
+        else => return null,
     }
-
-    if (statementIsSimpleReturn(apply_body)) {
-        if (function.ValueType != void) return null;
-        terminator.* = .{ .kind = .return_unit };
-        terminated.* = true;
-        return;
-    }
-
-    if (parseReturnLocalStatement(apply_body)) |local_name| {
-        const local = findBoundLocal(local_storage.bindings[0..local_storage.binding_count.*], local_name) orelse return null;
-        if (local.codec != expected_codec) return null;
-        appendInstruction(body_state.instructions, body_state.instruction_count, .{
-            .kind = .return_value,
-            .operand = local.local_id,
-        });
-        terminator.* = .{ .kind = .return_value };
-        terminated.* = true;
-        return;
-    }
-
-    return null;
 }
 
 const HelperCall = struct {
@@ -936,6 +1027,7 @@ const HelperCall = struct {
 
 fn parseHelperCall(
     comptime effect_param: ?[]const u8,
+    comptime aliases: []const BodyAlias,
     comptime statement: []const BodyToken,
 ) ?HelperCall {
     const tokens = statementTrimSemicolon(statement);
@@ -963,6 +1055,7 @@ fn parseHelperCall(
         tokens[index + 3].tag == .l_paren and
         tokens[tokens.len - 1].tag == .r_paren)
     {
+        if (bodyAliasKind(effect_param, aliases, tokens[index].lexeme) != null) return null;
         const args = tokens[index + 4 .. tokens.len - 1];
         const value_args = helperCallValueArgs(effect_param, args) orelse return null;
         return .{
@@ -976,12 +1069,33 @@ fn parseHelperCall(
 }
 
 fn helperCallValueArgs(comptime effect_param: ?[]const u8, comptime args: []const BodyToken) ?[]const BodyToken {
+    if (args.len == 0) return &.{};
     if (effect_param) |param| {
         if (args.len == 1 and args[0].tag == .identifier and std.mem.eql(u8, args[0].lexeme, param)) {
             return &.{};
         }
     } else if (args.len == 1 and args[0].tag == .identifier and std.mem.eql(u8, args[0].lexeme, "eff")) {
         return &.{};
+    }
+    var all_value_args = true;
+    for (args) |arg| {
+        if (arg.tag != .comma and
+            arg.tag != .identifier and
+            arg.tag != .string_literal and
+            arg.tag != .number_literal and
+            arg.tag != .plus)
+        {
+            all_value_args = false;
+            break;
+        }
+    }
+    if (all_value_args) {
+        const trailing_eff = args.len >= 3 and
+            args[args.len - 1].tag == .identifier and
+            args[args.len - 2].tag == .comma and
+            ((effect_param != null and std.mem.eql(u8, args[args.len - 1].lexeme, effect_param.?)) or
+                (effect_param == null and std.mem.eql(u8, args[args.len - 1].lexeme, "eff")));
+        if (!trailing_eff) return args;
     }
     if (args.len < 3) return null;
     if (args[args.len - 1].tag != .identifier) return null;
@@ -995,6 +1109,7 @@ fn helperCallValueArgs(comptime effect_param: ?[]const u8, comptime args: []cons
 
 fn parseBoundLocalFromHelperCall(
     comptime effect_param: ?[]const u8,
+    comptime aliases: []const BodyAlias,
     comptime statement: []const BodyToken,
 ) ?struct {
     local_name: []const u8,
@@ -1004,7 +1119,7 @@ fn parseBoundLocalFromHelperCall(
     if (statement[0].tag != .keyword_const) return null;
     if (statement[1].tag != .identifier) return null;
     if (statement[2].tag != .equal) return null;
-    const helper_call = parseHelperCall(effect_param, statement[3..]) orelse return null;
+    const helper_call = parseHelperCall(effect_param, aliases, statement[3..]) orelse return null;
     return .{
         .local_name = statement[1].lexeme,
         .helper_call = helper_call,
@@ -1073,7 +1188,7 @@ fn parseBranchAction(
     if (parseDirectCall(effect_param, aliases, statement)) |direct_call| {
         return .{ .direct_call = direct_call };
     }
-    if (parseHelperCall(effect_param, statement)) |helper_call| {
+    if (parseHelperCall(effect_param, aliases, statement)) |helper_call| {
         return .{ .helper_call = helper_call };
     }
     if (statementIsSimpleReturn(statement)) {
@@ -1148,9 +1263,18 @@ fn parseLocalDecrementOpStatement(
     };
 }
 
-fn parseHelperCallStatement(comptime effect_param: ?[]const u8, comptime statement: []const BodyToken) ?HelperCall {
-    const helper_call = parseHelperCall(effect_param, statement) orelse return null;
+fn parseHelperCallStatement(comptime effect_param: ?[]const u8, comptime aliases: []const BodyAlias, comptime statement: []const BodyToken) ?HelperCall {
+    const helper_call = parseHelperCall(effect_param, aliases, statement) orelse return null;
     if (helper_call.value_args.len != 0) return null;
+    return helper_call;
+}
+
+fn parseReturnHelperCallStatement(comptime effect_param: ?[]const u8, comptime aliases: []const BodyAlias, comptime statement: []const BodyToken) ?HelperCall {
+    if (statement.len < 3) return null;
+    if (statement[0].tag != .keyword_return) return null;
+    const helper_call = parseHelperCall(effect_param, aliases, statement[1 .. statement.len - 1]) orelse return null;
+    if (helper_call.value_args.len != 0) return null;
+    if (statement[statement.len - 1].tag != .semicolon) return null;
     return helper_call;
 }
 
@@ -1252,7 +1376,14 @@ fn payloadCodecForFunctionUse(
             @compileError("public lowering recursive helper subset produced an unsupported payload codec");
         }
     }
-    @compileError("public lowering recursive helper subset could not map one bound local to an op payload codec");
+    @compileError(std.fmt.comptimePrint(
+        "public lowering recursive helper subset could not map one bound local to an op payload codec: function={s} requirement={s} op={s}",
+        .{
+            functions[function_index].symbol.symbol_name,
+            requirement_label,
+            op_name,
+        },
+    ));
 }
 
 fn opIndexForFunctionUse(
@@ -1328,7 +1459,10 @@ fn helperTargetIndex(
     const caller_module_path = graph.functions[graph_function_index].module_path;
     const expected_module_path = if (helper_call.import_alias) |import_alias|
         helperImportModulePath(caller_module_path, import_alias, root_source) orelse
-            @compileError("public lowering recursive helper subset could not resolve one helper import alias")
+            @compileError(std.fmt.comptimePrint(
+                "public lowering recursive helper subset could not resolve one helper import alias: caller={s} alias={s} callee={s}",
+                .{ caller_module_path, import_alias, helper_call.callee_name },
+            ))
     else
         caller_module_path;
 
@@ -1488,6 +1622,78 @@ fn appendInstruction(
     instruction_count.* += 1;
 }
 
+fn emitAdmittedValueExpr(
+    comptime value: admitted_body_v1.ValueExpr,
+    comptime expected_codec: effect_ir.LocalCodec,
+    comptime local_bindings: []const BoundLocal,
+    state: *BodyBuildState,
+) ?u16 {
+    return switch (value) {
+        .local => |local_name| if (findBoundLocal(local_bindings, local_name)) |local| blk: {
+            if (local.codec != expected_codec) return null;
+            break :blk local.local_id;
+        } else null,
+        .bool_literal => |bool_value| blk: {
+            if (expected_codec != .bool) break :blk null;
+            break :blk appendBoolLiteralValue(state, bool_value);
+        },
+        .number_literal => |literal| switch (expected_codec) {
+            .i32 => literal_i32: {
+                const value_i32 = std.fmt.parseInt(i32, literal, 0) catch return null;
+                const dst = appendAnonymousLocal(&state.local_storage, .i32);
+                var instruction = encodeI32LiteralInstruction(value_i32);
+                instruction.dst = dst;
+                appendInstruction(state.instructions, state.instruction_count, instruction);
+                break :literal_i32 dst;
+            },
+            .usize => literal_usize: {
+                _ = std.fmt.parseUnsigned(usize, literal, 0) catch return null;
+                const dst = appendAnonymousLocal(&state.local_storage, .usize);
+                var instruction = encodeUsizeLiteralInstruction(literal);
+                instruction.dst = dst;
+                appendInstruction(state.instructions, state.instruction_count, instruction);
+                break :literal_usize dst;
+            },
+            else => null,
+        },
+        .string_literal => |literal| blk: {
+            if (expected_codec != .string) break :blk null;
+            const decoded = stringLiteralContents(literal) orelse return null;
+            const dst = appendAnonymousLocal(&state.local_storage, .string);
+            appendInstruction(state.instructions, state.instruction_count, .{
+                .kind = .const_string,
+                .dst = dst,
+                .string_literal = cloneBytes(decoded),
+            });
+            break :blk dst;
+        },
+        .add_const_i32 => |add_expr| blk: {
+            if (expected_codec != .i32) break :blk null;
+            const source_local = findBoundLocal(local_bindings, add_expr.local_name) orelse return null;
+            if (source_local.codec != .i32) return null;
+            const increment = std.fmt.parseInt(u16, add_expr.increment_literal, 10) catch return null;
+            const dst = appendAnonymousLocal(&state.local_storage, .i32);
+            appendInstruction(state.instructions, state.instruction_count, .{
+                .kind = .add_const_i32,
+                .dst = dst,
+                .operand = source_local.local_id,
+                .aux = increment,
+            });
+            break :blk dst;
+        },
+    };
+}
+
+fn emitPayloadValueForAdmittedDirectCall(
+    comptime direct_call: admitted_body_v1.DirectCall,
+    comptime expected_codec: effect_ir.LocalCodec,
+    comptime local_bindings: []const BoundLocal,
+    state: *BodyBuildState,
+) ?u16 {
+    const payload = direct_call.payload orelse return noLocalId();
+    return emitAdmittedValueExpr(payload, expected_codec, local_bindings, state);
+}
+
 fn emitPayloadValueForDirectCall(
     comptime direct_call: DirectCall,
     comptime expected_codec: effect_ir.LocalCodec,
@@ -1613,6 +1819,36 @@ fn helperCallArgLocals(
     };
 }
 
+fn helperCallArgLocalsAdmitted(
+    comptime helper_call: admitted_body_v1.HelperCall,
+    comptime callee: effect_ir.Function,
+    comptime local_bindings: []const BoundLocal,
+    state: *BodyBuildState,
+) ?struct {
+    start: u16,
+    count: usize,
+} {
+    if (callee.parameter_codecs.len == 0) {
+        if (helper_call.arg_count != 0) return null;
+        return .{ .start = noLocalId(), .count = 0 };
+    }
+    if (helper_call.arg_count != callee.parameter_codecs.len) return null;
+
+    var arg_locals = [_]u16{0} ** source_graph_engine.max_function_params;
+    for (callee.parameter_codecs, 0..) |codec, arg_index| {
+        arg_locals[arg_index] = emitAdmittedValueExpr(
+            helper_call.args[arg_index],
+            codec,
+            local_bindings,
+            state,
+        ) orelse return null;
+    }
+    return .{
+        .start = appendCallArgs(state, arg_locals[0..helper_call.arg_count]),
+        .count = helper_call.arg_count,
+    };
+}
+
 const HelperEmission = struct {
     callee_index: u16,
     callee: effect_ir.Function,
@@ -1626,6 +1862,20 @@ fn emitHelperCallInstruction(
     state: *BodyBuildState,
 ) ?void {
     const arg_info = helperCallArgLocals(helper_call, emission.callee, emission.local_bindings, state) orelse return null;
+    appendInstruction(state.instructions, state.instruction_count, .{
+        .kind = .call_helper,
+        .dst = emission.dst,
+        .operand = emission.callee_index,
+        .aux = arg_info.start,
+    });
+}
+
+fn emitAdmittedHelperCallInstruction(
+    comptime helper_call: admitted_body_v1.HelperCall,
+    comptime emission: HelperEmission,
+    state: *BodyBuildState,
+) ?void {
+    const arg_info = helperCallArgLocalsAdmitted(helper_call, emission.callee, emission.local_bindings, state) orelse return null;
     appendInstruction(state.instructions, state.instruction_count, .{
         .kind = .call_helper,
         .dst = emission.dst,
@@ -1686,35 +1936,100 @@ fn appendBranchActionInstructions(
     }
 }
 
+fn appendAdmittedBranchActionInstructions(
+    comptime context: BranchBuildContext,
+    comptime action: admitted_body_v1.BranchAction,
+    comptime local_bindings: []const BoundLocal,
+    state: *BodyBuildState,
+) ?program_frontend.BodyTerminator {
+    switch (action) {
+        .direct_call => |direct_call| {
+            const payload_local = emitPayloadValueForAdmittedDirectCall(
+                direct_call,
+                payloadCodecForFunctionUse(
+                    context.functions,
+                    context.lowered_function_index,
+                    direct_call.requirement_label,
+                    direct_call.op_name,
+                ),
+                local_bindings,
+                state,
+            ) orelse return null;
+            appendInstruction(state.instructions, state.instruction_count, .{
+                .kind = .call_op,
+                .operand = opIndexForFunctionUse(
+                    context.functions,
+                    context.lowered_function_index,
+                    direct_call.requirement_label,
+                    direct_call.op_name,
+                ),
+                .aux = payload_local,
+            });
+            return .{ .kind = .return_unit };
+        },
+        .helper_call => |helper_call| {
+            const callee_index = helperTargetIndex(
+                context.graph,
+                context.lowered_index_map,
+                context.graph_function_index,
+                context.root_source,
+                .{
+                    .callee_name = helper_call.callee_name,
+                    .import_alias = helper_call.import_alias,
+                    .value_args = &.{},
+                },
+            );
+            const callee = context.functions[callee_index];
+            emitAdmittedHelperCallInstruction(helper_call, .{
+                .callee_index = callee_index,
+                .callee = callee,
+                .dst = noLocalId(),
+                .local_bindings = local_bindings,
+            }, state) orelse return null;
+            return .{ .kind = .return_unit };
+        },
+        .return_unit => return .{ .kind = .return_unit },
+    }
+}
+
 fn buildLinearBodyForFunction(
     comptime context: FunctionBuildContext,
 ) ?program_frontend.FunctionBody {
     const function = context.graph.functions[context.graph_function_index];
     if (function.body_end_offset <= function.body_start_offset) return null;
-
-    const tokens = bodyTokensForFunction(function.module_path, context.root_source, function.body_start_offset, function.body_end_offset);
-    const statement_ranges = statementRangesForTokens(tokens);
-    if (statement_ranges.len == 0) return null;
+    const module_source = source_graph_embed.sourceBytes(
+        function.module_path,
+        context.root_source.path,
+        context.root_source.content,
+        context.root_source.imported_sources,
+    ) catch |err| switch (err) {
+        error.MissingImport => @compileError("public lowering recursive helper subset could not resolve one caller-owned helper module"),
+        else => unreachable,
+    };
+    const module_imports = moduleImportsForFunction(function.module_path, context.root_source);
+    const admitted_body = admitted_body_v1.parseFunctionBody(
+        module_source,
+        function.module_path,
+        function.body_start_offset,
+        function.body_end_offset,
+        function.effect_param,
+        module_imports,
+    ) orelse return null;
 
     return comptime blk: {
-        var aliases: [statement_ranges.len]BodyAlias = [_]BodyAlias{.{
-            .name = "",
-            .kind = .effect_root,
-        }} ** statement_ranges.len;
-        var alias_count: usize = 0;
-        var local_bindings: [statement_ranges.len * max_statement_bound_locals + source_graph_engine.max_function_params]BoundLocal = [_]BoundLocal{.{
+        var local_bindings: [admitted_body_v1.max_steps * max_statement_bound_locals + source_graph_engine.max_function_params]BoundLocal = [_]BoundLocal{.{
             .name = "",
             .codec = .unit,
             .local_id = 0,
-        }} ** (statement_ranges.len * max_statement_bound_locals + source_graph_engine.max_function_params);
+        }} ** (admitted_body_v1.max_steps * max_statement_bound_locals + source_graph_engine.max_function_params);
         var binding_count: usize = 0;
-        var local_codecs: [statement_ranges.len * max_statement_scratch_locals + source_graph_engine.max_function_params]effect_ir.LocalCodec = [_]effect_ir.LocalCodec{.unit} ** (statement_ranges.len * max_statement_scratch_locals + source_graph_engine.max_function_params);
+        var local_codecs: [admitted_body_v1.max_steps * max_statement_scratch_locals + source_graph_engine.max_function_params]effect_ir.LocalCodec = [_]effect_ir.LocalCodec{.unit} ** (admitted_body_v1.max_steps * max_statement_scratch_locals + source_graph_engine.max_function_params);
         var local_count: usize = 0;
-        var call_args: [statement_ranges.len * max_statement_call_args]u16 = [_]u16{0} ** (statement_ranges.len * max_statement_call_args);
+        var call_args: [admitted_body_v1.max_steps * max_statement_call_args]u16 = [_]u16{0} ** (admitted_body_v1.max_steps * max_statement_call_args);
         var call_arg_count: usize = 0;
-        var instructions: [statement_ranges.len * max_statement_scratch_instructions]program_frontend.BodyInstruction = [_]program_frontend.BodyInstruction{.{
+        var instructions: [admitted_body_v1.max_steps * max_statement_scratch_instructions]program_frontend.BodyInstruction = [_]program_frontend.BodyInstruction{.{
             .kind = .call_helper,
-        }} ** (statement_ranges.len * max_statement_scratch_instructions);
+        }} ** (admitted_body_v1.max_steps * max_statement_scratch_instructions);
         var instruction_count: usize = 0;
         var terminator: program_frontend.BodyTerminator = .{ .kind = .return_unit };
         var terminated = false;
@@ -1749,420 +2064,483 @@ fn buildLinearBodyForFunction(
             .lowered_function_index = context.lowered_function_index,
         };
 
-        for (statement_ranges, 0..) |range, statement_index| {
-            const statement = tokens[range.start..range.end];
-            if (parseAliasDeclaration(function.effect_param, aliases[0..alias_count], statement)) |alias| {
-                upsertBodyAlias(aliases[0..], &alias_count, alias.name, alias.kind);
-                continue;
-            }
-            if (parseBoundLocalFromHelperCall(function.effect_param, statement)) |bound_helper| {
-                const callee_index = helperTargetIndex(
-                    context.graph,
-                    context.lowered_index_map,
-                    context.graph_function_index,
-                    context.root_source,
-                    bound_helper.helper_call,
-                );
-                const callee = context.functions[callee_index];
-                if (callee.ValueType == void) break :blk null;
-                const dst = appendBoundLocal(
-                    &local_storage,
-                    bound_helper.local_name,
-                    switch (callee.ValueType) {
-                        bool => .bool,
-                        i32 => .i32,
-                        []const u8 => .string,
-                        usize => .usize,
-                        else => break :blk null,
-                    },
-                );
-                emitHelperCallInstruction(
-                    bound_helper.helper_call,
-                    .{
-                        .callee_index = callee_index,
-                        .callee = callee,
-                        .dst = dst,
-                        .local_bindings = local_bindings[0..binding_count],
-                    },
-                    &body_state,
-                ) orelse break :blk null;
-                continue;
-            }
-            if (parseBoundLocalFromDirectCall(function.effect_param, aliases[0..alias_count], statement)) |bound_local| {
-                const codec = resumeCodecForFunctionUse(
-                    context.functions,
-                    context.lowered_function_index,
-                    bound_local.requirement_label,
-                    bound_local.op_name,
-                );
-                const dst = appendBoundLocal(&local_storage, bound_local.local_name, codec);
-                const payload_local = emitPayloadValueForDirectCall(
-                    .{
-                        .requirement_label = bound_local.requirement_label,
-                        .op_name = bound_local.op_name,
-                        .args = parseDirectCall(function.effect_param, aliases[0..alias_count], statement[3..]).?.args,
-                    },
-                    payloadCodecForFunctionUse(
-                        context.functions,
-                        context.lowered_function_index,
-                        bound_local.requirement_label,
-                        bound_local.op_name,
-                    ),
-                    local_bindings[0..binding_count],
-                    &body_state,
-                ) orelse break :blk null;
-                appendInstruction(instructions[0..], &instruction_count, .{
-                    .kind = .call_op,
-                    .dst = dst,
-                    .operand = opIndexForFunctionUse(
-                        context.functions,
-                        context.lowered_function_index,
-                        bound_local.requirement_label,
-                        bound_local.op_name,
-                    ),
-                    .aux = payload_local,
-                });
-                continue;
-            }
-            if (parseIfLocalEqZeroBranchStatement(function.effect_param, aliases[0..alias_count], statement)) |branch_statement| {
-                if (statement_index + 1 != statement_ranges.len) break :blk null;
-                if (context.functions[context.lowered_function_index].ValueType != void) break :blk null;
-                const condition_local = findBoundLocal(local_bindings[0..binding_count], branch_statement.local_name) orelse break :blk null;
-                if (condition_local.codec != .i32 and condition_local.codec != .usize) break :blk null;
-
-                const predicate_local = appendAnonymousLocal(&local_storage, .bool);
-                appendInstruction(instructions[0..], &instruction_count, .{
-                    .kind = .compare_eq_zero,
-                    .dst = predicate_local,
-                    .operand = condition_local.local_id,
-                });
-                const entry_instruction_end = instruction_count;
-                const then_instruction_start = instruction_count;
-                const then_terminator = appendBranchActionInstructions(
-                    branch_build_context,
-                    branch_statement.then_action,
-                    local_bindings[0..binding_count],
-                    &body_state,
-                ) orelse break :blk null;
-                const then_instruction_end = instruction_count;
-                const else_instruction_start = instruction_count;
-                const else_terminator = appendBranchActionInstructions(
-                    branch_build_context,
-                    branch_statement.else_action,
-                    local_bindings[0..binding_count],
-                    &body_state,
-                ) orelse break :blk null;
-                const blocks = [_]program_frontend.BodyBlock{
-                    .{
-                        .instructions = instructions[0..entry_instruction_end],
-                        .terminator = .{
-                            .kind = .branch_if,
-                            .primary = 1,
-                            .secondary = 2,
+        for (admitted_body.slice(), 0..) |step, step_index| {
+            switch (step) {
+                .bind_local_from_helper => |bound_helper| {
+                    const helper_target: HelperCall = .{
+                        .callee_name = bound_helper.helper_call.callee_name,
+                        .import_alias = bound_helper.helper_call.import_alias,
+                        .value_args = &.{},
+                    };
+                    const callee_index = helperTargetIndex(
+                        context.graph,
+                        context.lowered_index_map,
+                        context.graph_function_index,
+                        context.root_source,
+                        helper_target,
+                    );
+                    const callee = context.functions[callee_index];
+                    if (callee.ValueType == void) break :blk null;
+                    const dst = appendBoundLocal(
+                        &local_storage,
+                        bound_helper.local_name,
+                        switch (callee.ValueType) {
+                            bool => .bool,
+                            i32 => .i32,
+                            []const u8 => .string,
+                            usize => .usize,
+                            else => break :blk null,
                         },
-                    },
-                    .{
-                        .instructions = instructions[then_instruction_start..then_instruction_end],
-                        .terminator = then_terminator,
-                    },
-                    .{
-                        .instructions = instructions[else_instruction_start..instruction_count],
-                        .terminator = else_terminator,
-                    },
-                };
-                break :blk .{
-                    .local_codecs = cloneLocalCodecs(local_codecs[0..local_count]),
-                    .call_arg_locals = cloneLocalIds(call_args[0..call_arg_count]),
-                    .entry_block = 0,
-                    .blocks = cloneBlocks(&blocks),
-                };
-            }
-            if (parseReturnContinuationDirectCall(function.effect_param, aliases[0..alias_count], statement)) |continuation_call| {
-                if (statement_index + 1 != statement_ranges.len) break :blk null;
-                const resume_codec = resumeCodecForFunctionUse(
-                    context.functions,
-                    context.lowered_function_index,
-                    continuation_call.direct_call.requirement_label,
-                    continuation_call.direct_call.op_name,
-                );
-                const payload_local = emitPayloadValueForDirectCall(
-                    continuation_call.direct_call,
-                    payloadCodecForFunctionUse(
+                    );
+                    emitAdmittedHelperCallInstruction(
+                        bound_helper.helper_call,
+                        .{
+                            .callee_index = callee_index,
+                            .callee = callee,
+                            .dst = dst,
+                            .local_bindings = local_bindings[0..binding_count],
+                        },
+                        &body_state,
+                    ) orelse break :blk null;
+                },
+                .bind_local_from_nested_with => |nested_with| {
+                    const codec = nestedWithResultCodec(
+                        context.graph,
+                        context.graph.functions[context.graph_function_index].module_path,
+                        nested_with.helper_name,
+                    );
+                    if (codec == .unit) break :blk null;
+                    const dst = appendBoundLocal(&local_storage, nested_with.local_name, codec);
+                    const metadata = encodeNestedWithMetadata(
+                        nested_with.requirement_label,
+                        nested_with.factory_name,
+                        nested_with.container_name,
+                        nested_with.handler_name,
+                        nested_with.helper_name,
+                    );
+                    appendInstruction(instructions[0..], &instruction_count, .{
+                        .kind = .call_nested_with,
+                        .dst = dst,
+                        .aux = @intFromEnum(codec),
+                        .string_literal = cloneBytes(metadata),
+                    });
+                },
+                .bind_local_from_direct => |bound_local| {
+                    const codec = resumeCodecForFunctionUse(
                         context.functions,
                         context.lowered_function_index,
-                        continuation_call.direct_call.requirement_label,
-                        continuation_call.direct_call.op_name,
-                    ),
-                    local_bindings[0..binding_count],
-                    &body_state,
-                ) orelse break :blk null;
-                const resume_local = if (resume_codec == .unit)
-                    noLocalId()
-                else
-                    appendAnonymousLocal(&local_storage, resume_codec);
-                appendInstruction(instructions[0..], &instruction_count, .{
-                    .kind = .call_op,
-                    .dst = resume_local,
-                    .operand = opIndexForFunctionUse(
-                        context.functions,
-                        context.lowered_function_index,
-                        continuation_call.direct_call.requirement_label,
-                        continuation_call.direct_call.op_name,
-                    ),
-                    .aux = payload_local,
-                });
-                lowerContinuationApplyBody(
-                    context.functions[context.lowered_function_index],
-                    continuation_call.apply_body,
-                    continuation_call.apply_param_name,
-                    resume_local,
-                    resume_codec,
-                    &local_storage,
-                    &body_state,
-                    &terminated,
-                    &terminator,
-                ) orelse break :blk null;
-                continue;
-            }
-            if (parseDirectCall(function.effect_param, aliases[0..alias_count], statement)) |direct_call| {
-                const payload_local = emitPayloadValueForDirectCall(
-                    direct_call,
-                    payloadCodecForFunctionUse(
-                        context.functions,
-                        context.lowered_function_index,
-                        direct_call.requirement_label,
-                        direct_call.op_name,
-                    ),
-                    local_bindings[0..binding_count],
-                    &body_state,
-                ) orelse break :blk null;
-                const op_mode = opModeForFunctionUse(
-                    context.functions,
-                    context.lowered_function_index,
-                    direct_call.requirement_label,
-                    direct_call.op_name,
-                );
-                const dst = if (op_mode == .abort)
-                    noLocalId()
-                else ignored_resume_dst: {
+                        bound_local.direct_call.requirement_label,
+                        bound_local.direct_call.op_name,
+                    );
+                    const dst = appendBoundLocal(&local_storage, bound_local.local_name, codec);
+                    const payload_local = emitPayloadValueForAdmittedDirectCall(
+                        bound_local.direct_call,
+                        payloadCodecForFunctionUse(
+                            context.functions,
+                            context.lowered_function_index,
+                            bound_local.direct_call.requirement_label,
+                            bound_local.direct_call.op_name,
+                        ),
+                        local_bindings[0..binding_count],
+                        &body_state,
+                    ) orelse break :blk null;
+                    appendInstruction(instructions[0..], &instruction_count, .{
+                        .kind = .call_op,
+                        .dst = dst,
+                        .operand = opIndexForFunctionUse(
+                            context.functions,
+                            context.lowered_function_index,
+                            bound_local.direct_call.requirement_label,
+                            bound_local.direct_call.op_name,
+                        ),
+                        .aux = payload_local,
+                    });
+                },
+                .if_local_eq_zero_branch => |branch_statement| {
+                    if (step_index + 1 != admitted_body.step_count) break :blk null;
+                    if (context.functions[context.lowered_function_index].ValueType != void) break :blk null;
+                    const condition_local = findBoundLocal(local_bindings[0..binding_count], branch_statement.local_name) orelse break :blk null;
+                    if (condition_local.codec != .i32 and condition_local.codec != .usize) break :blk null;
+
+                    const predicate_local = appendAnonymousLocal(&local_storage, .bool);
+                    appendInstruction(instructions[0..], &instruction_count, .{
+                        .kind = .compare_eq_zero,
+                        .dst = predicate_local,
+                        .operand = condition_local.local_id,
+                    });
+                    const entry_instruction_end = instruction_count;
+                    const then_instruction_start = instruction_count;
+                    const then_terminator_v1 = appendAdmittedBranchActionInstructions(
+                        branch_build_context,
+                        branch_statement.then_action,
+                        local_bindings[0..binding_count],
+                        &body_state,
+                    ) orelse break :blk null;
+                    const then_instruction_end = instruction_count;
+                    const else_instruction_start = instruction_count;
+                    const else_terminator = appendAdmittedBranchActionInstructions(
+                        branch_build_context,
+                        branch_statement.else_action,
+                        local_bindings[0..binding_count],
+                        &body_state,
+                    ) orelse break :blk null;
+                    const blocks = [_]program_frontend.BodyBlock{
+                        .{
+                            .instructions = instructions[0..entry_instruction_end],
+                            .terminator = .{
+                                .kind = .branch_if,
+                                .primary = 1,
+                                .secondary = 2,
+                            },
+                        },
+                        .{
+                            .instructions = instructions[then_instruction_start..then_instruction_end],
+                            .terminator = then_terminator_v1,
+                        },
+                        .{
+                            .instructions = instructions[else_instruction_start..instruction_count],
+                            .terminator = else_terminator,
+                        },
+                    };
+                    break :blk .{
+                        .local_codecs = cloneLocalCodecs(local_codecs[0..local_count]),
+                        .call_arg_locals = cloneLocalIds(call_args[0..call_arg_count]),
+                        .entry_block = 0,
+                        .blocks = cloneBlocks(&blocks),
+                    };
+                },
+                .return_continuation_direct => |continuation_call| {
+                    if (step_index + 1 != admitted_body.step_count) break :blk null;
                     const resume_codec = resumeCodecForFunctionUse(
+                        context.functions,
+                        context.lowered_function_index,
+                        continuation_call.direct_call.requirement_label,
+                        continuation_call.direct_call.op_name,
+                    );
+                    const payload_local = emitPayloadValueForAdmittedDirectCall(
+                        continuation_call.direct_call,
+                        payloadCodecForFunctionUse(
+                            context.functions,
+                            context.lowered_function_index,
+                            continuation_call.direct_call.requirement_label,
+                            continuation_call.direct_call.op_name,
+                        ),
+                        local_bindings[0..binding_count],
+                        &body_state,
+                    ) orelse break :blk null;
+                    const resume_local = if (resume_codec == .unit)
+                        noLocalId()
+                    else
+                        appendAnonymousLocal(&local_storage, resume_codec);
+                    appendInstruction(instructions[0..], &instruction_count, .{
+                        .kind = .call_op,
+                        .dst = resume_local,
+                        .operand = opIndexForFunctionUse(
+                            context.functions,
+                            context.lowered_function_index,
+                            continuation_call.direct_call.requirement_label,
+                            continuation_call.direct_call.op_name,
+                        ),
+                        .aux = payload_local,
+                    });
+                    lowerContinuationApplyBody(
+                        context.functions[context.lowered_function_index],
+                        continuation_call.apply_return,
+                        continuation_call.apply_param_name,
+                        resume_local,
+                        resume_codec,
+                        &local_storage,
+                        &body_state,
+                        &terminated,
+                        &terminator,
+                    ) orelse break :blk null;
+                },
+                .call_direct => |direct_call| {
+                    const payload_local = emitPayloadValueForAdmittedDirectCall(
+                        direct_call,
+                        payloadCodecForFunctionUse(
+                            context.functions,
+                            context.lowered_function_index,
+                            direct_call.requirement_label,
+                            direct_call.op_name,
+                        ),
+                        local_bindings[0..binding_count],
+                        &body_state,
+                    ) orelse break :blk null;
+                    const op_mode = opModeForFunctionUse(
                         context.functions,
                         context.lowered_function_index,
                         direct_call.requirement_label,
                         direct_call.op_name,
                     );
-                    break :ignored_resume_dst if (resume_codec == .unit)
+                    const dst = if (op_mode == .abort)
                         noLocalId()
-                    else
-                        appendAnonymousLocal(&local_storage, resume_codec);
-                };
-                appendInstruction(instructions[0..], &instruction_count, .{
-                    .kind = .call_op,
-                    .dst = dst,
-                    .operand = opIndexForFunctionUse(
-                        context.functions,
-                        context.lowered_function_index,
-                        direct_call.requirement_label,
-                        direct_call.op_name,
-                    ),
-                    .aux = payload_local,
-                });
-                if (statement_index + 1 == statement_ranges.len and
-                    context.functions[context.lowered_function_index].ValueType != void and
-                    opModeForFunctionUse(
-                        context.functions,
-                        context.lowered_function_index,
-                        direct_call.requirement_label,
-                        direct_call.op_name,
-                    ) == .abort)
-                {
-                    terminator = .{ .kind = .return_unit };
-                    terminated = true;
-                }
-                continue;
-            }
-            if (parseHelperCall(function.effect_param, statement)) |helper_call| {
-                const callee_index = helperTargetIndex(
-                    context.graph,
-                    context.lowered_index_map,
-                    context.graph_function_index,
-                    context.root_source,
-                    helper_call,
-                );
-                const callee = context.functions[callee_index];
-                emitHelperCallInstruction(
-                    helper_call,
-                    .{
-                        .callee_index = callee_index,
-                        .callee = callee,
-                        .dst = noLocalId(),
-                        .local_bindings = local_bindings[0..binding_count],
-                    },
-                    &body_state,
-                ) orelse break :blk null;
-                continue;
-            }
-            if (statementIsLiteralReturn(statement)) {
-                if (statement_index + 1 != statement_ranges.len) break :blk null;
-                const return_literal = parseReturnLiteralStatement(statement) orelse break :blk null;
-                switch (return_literal) {
-                    .bool_value => |value| {
-                        if (context.functions[context.lowered_function_index].ValueType != bool) break :blk null;
-                        const dst = appendBoolLiteralValue(&body_state, value);
-                        appendInstruction(instructions[0..], &instruction_count, .{
-                            .kind = .return_value,
-                            .operand = dst,
-                        });
-                        terminator = .{ .kind = .return_value };
+                    else ignored_resume_dst: {
+                        const resume_codec = resumeCodecForFunctionUse(
+                            context.functions,
+                            context.lowered_function_index,
+                            direct_call.requirement_label,
+                            direct_call.op_name,
+                        );
+                        break :ignored_resume_dst if (resume_codec == .unit)
+                            noLocalId()
+                        else
+                            appendAnonymousLocal(&local_storage, resume_codec);
+                    };
+                    appendInstruction(instructions[0..], &instruction_count, .{
+                        .kind = .call_op,
+                        .dst = dst,
+                        .operand = opIndexForFunctionUse(
+                            context.functions,
+                            context.lowered_function_index,
+                            direct_call.requirement_label,
+                            direct_call.op_name,
+                        ),
+                        .aux = payload_local,
+                    });
+                    if (step_index + 1 == admitted_body.step_count and
+                        context.functions[context.lowered_function_index].ValueType != void and
+                        opModeForFunctionUse(
+                            context.functions,
+                            context.lowered_function_index,
+                            direct_call.requirement_label,
+                            direct_call.op_name,
+                        ) == .abort)
+                    {
+                        terminator = .{ .kind = .return_unit };
                         terminated = true;
-                    },
-                    .number_literal => |literal| {
-                        const expected_codec: effect_ir.LocalCodec = switch (context.functions[context.lowered_function_index].ValueType) {
-                            i32 => .i32,
-                            usize => .usize,
-                            else => break :blk null,
-                        };
-                        const dst = appendAnonymousLocal(&local_storage, expected_codec);
-                        var instruction = switch (expected_codec) {
-                            .i32 => literal_i32: {
-                                const value = std.fmt.parseInt(i32, literal, 0) catch break :blk null;
-                                break :literal_i32 encodeI32LiteralInstruction(value);
+                    }
+                },
+                .call_helper => |helper_call| {
+                    const helper_target: HelperCall = .{
+                        .callee_name = helper_call.callee_name,
+                        .import_alias = helper_call.import_alias,
+                        .value_args = &.{},
+                    };
+                    const callee_index = helperTargetIndex(
+                        context.graph,
+                        context.lowered_index_map,
+                        context.graph_function_index,
+                        context.root_source,
+                        helper_target,
+                    );
+                    const callee = context.functions[callee_index];
+                    emitAdmittedHelperCallInstruction(
+                        helper_call,
+                        .{
+                            .callee_index = callee_index,
+                            .callee = callee,
+                            .dst = noLocalId(),
+                            .local_bindings = local_bindings[0..binding_count],
+                        },
+                        &body_state,
+                    ) orelse break :blk null;
+                },
+                .return_value => |return_value| {
+                    if (step_index + 1 != admitted_body.step_count) break :blk null;
+                    switch (return_value) {
+                        .unit => {
+                            terminator = .{ .kind = .return_unit };
+                            terminated = true;
+                        },
+                        .literal => |return_literal| switch (return_literal) {
+                            .bool_value => |value| {
+                                if (context.functions[context.lowered_function_index].ValueType != bool) break :blk null;
+                                const dst = appendBoolLiteralValue(&body_state, value);
+                                appendInstruction(instructions[0..], &instruction_count, .{
+                                    .kind = .return_value,
+                                    .operand = dst,
+                                });
+                                terminator = .{ .kind = .return_value };
+                                terminated = true;
                             },
-                            .usize => literal_usize: {
-                                _ = std.fmt.parseUnsigned(usize, literal, 0) catch break :blk null;
-                                break :literal_usize encodeUsizeLiteralInstruction(literal);
+                            .number_literal => |literal| {
+                                const expected_codec: effect_ir.LocalCodec = switch (context.functions[context.lowered_function_index].ValueType) {
+                                    i32 => .i32,
+                                    usize => .usize,
+                                    else => break :blk null,
+                                };
+                                const dst = appendAnonymousLocal(&local_storage, expected_codec);
+                                var instruction = switch (expected_codec) {
+                                    .i32 => literal_i32: {
+                                        const value = std.fmt.parseInt(i32, literal, 0) catch break :blk null;
+                                        break :literal_i32 encodeI32LiteralInstruction(value);
+                                    },
+                                    .usize => literal_usize: {
+                                        _ = std.fmt.parseUnsigned(usize, literal, 0) catch break :blk null;
+                                        break :literal_usize encodeUsizeLiteralInstruction(literal);
+                                    },
+                                    else => unreachable,
+                                };
+                                instruction.dst = dst;
+                                appendInstruction(instructions[0..], &instruction_count, instruction);
+                                appendInstruction(instructions[0..], &instruction_count, .{
+                                    .kind = .return_value,
+                                    .operand = dst,
+                                });
+                                terminator = .{ .kind = .return_value };
+                                terminated = true;
                             },
-                            else => unreachable,
-                        };
-                        instruction.dst = dst;
-                        appendInstruction(instructions[0..], &instruction_count, instruction);
-                        appendInstruction(instructions[0..], &instruction_count, .{
-                            .kind = .return_value,
-                            .operand = dst,
-                        });
-                        terminator = .{ .kind = .return_value };
-                        terminated = true;
-                    },
-                    .string_value => |value| {
-                        if (context.functions[context.lowered_function_index].ValueType != []const u8) break :blk null;
-                        const dst = appendAnonymousLocal(&local_storage, .string);
-                        appendInstruction(instructions[0..], &instruction_count, .{
-                            .kind = .const_string,
-                            .dst = dst,
-                            .string_literal = cloneBytes(value),
-                        });
-                        appendInstruction(instructions[0..], &instruction_count, .{
-                            .kind = .return_value,
-                            .operand = dst,
-                        });
-                        terminator = .{ .kind = .return_value };
-                        terminated = true;
-                    },
-                }
-                continue;
+                            .string_value => |literal| {
+                                if (context.functions[context.lowered_function_index].ValueType != []const u8) break :blk null;
+                                const dst = appendAnonymousLocal(&local_storage, .string);
+                                const value = stringLiteralContents(literal) orelse break :blk null;
+                                appendInstruction(instructions[0..], &instruction_count, .{
+                                    .kind = .const_string,
+                                    .dst = dst,
+                                    .string_literal = cloneBytes(value),
+                                });
+                                appendInstruction(instructions[0..], &instruction_count, .{
+                                    .kind = .return_value,
+                                    .operand = dst,
+                                });
+                                terminator = .{ .kind = .return_value };
+                                terminated = true;
+                            },
+                        },
+                        .local => |local_name| {
+                            const local = findBoundLocal(local_bindings[0..binding_count], local_name) orelse break :blk null;
+                            const expected_codec: effect_ir.LocalCodec = switch (context.functions[context.lowered_function_index].ValueType) {
+                                void => break :blk null,
+                                bool => .bool,
+                                i32 => .i32,
+                                []const u8 => .string,
+                                usize => .usize,
+                                else => break :blk null,
+                            };
+                            if (local.codec != expected_codec) break :blk null;
+                            appendInstruction(instructions[0..], &instruction_count, .{
+                                .kind = .return_value,
+                                .operand = local.local_id,
+                            });
+                            terminator = .{ .kind = .return_value };
+                            terminated = true;
+                        },
+                        .direct_call => |direct_call| {
+                            const expected_codec: effect_ir.LocalCodec = switch (context.functions[context.lowered_function_index].ValueType) {
+                                void => break :blk null,
+                                bool => .bool,
+                                i32 => .i32,
+                                []const u8 => .string,
+                                usize => .usize,
+                                else => break :blk null,
+                            };
+                            if (opModeForFunctionUse(
+                                context.functions,
+                                context.lowered_function_index,
+                                direct_call.requirement_label,
+                                direct_call.op_name,
+                            ) == .abort) break :blk null;
+                            const resume_codec = resumeCodecForFunctionUse(
+                                context.functions,
+                                context.lowered_function_index,
+                                direct_call.requirement_label,
+                                direct_call.op_name,
+                            );
+                            if (resume_codec != expected_codec) break :blk null;
+                            const payload_local = emitPayloadValueForAdmittedDirectCall(
+                                direct_call,
+                                payloadCodecForFunctionUse(
+                                    context.functions,
+                                    context.lowered_function_index,
+                                    direct_call.requirement_label,
+                                    direct_call.op_name,
+                                ),
+                                local_bindings[0..binding_count],
+                                &body_state,
+                            ) orelse break :blk null;
+                            const dst = appendAnonymousLocal(&local_storage, expected_codec);
+                            appendInstruction(instructions[0..], &instruction_count, .{
+                                .kind = .call_op,
+                                .dst = dst,
+                                .operand = opIndexForFunctionUse(
+                                    context.functions,
+                                    context.lowered_function_index,
+                                    direct_call.requirement_label,
+                                    direct_call.op_name,
+                                ),
+                                .aux = payload_local,
+                            });
+                            appendInstruction(instructions[0..], &instruction_count, .{
+                                .kind = .return_value,
+                                .operand = dst,
+                            });
+                            terminator = .{ .kind = .return_value };
+                            terminated = true;
+                        },
+                        .helper_call => |helper_call| {
+                            const helper_target: HelperCall = .{
+                                .callee_name = helper_call.callee_name,
+                                .import_alias = helper_call.import_alias,
+                                .value_args = &.{},
+                            };
+                            const callee_index = helperTargetIndex(
+                                context.graph,
+                                context.lowered_index_map,
+                                context.graph_function_index,
+                                context.root_source,
+                                helper_target,
+                            );
+                            const callee = context.functions[callee_index];
+                            const expected_codec: effect_ir.LocalCodec = switch (context.functions[context.lowered_function_index].ValueType) {
+                                void => break :blk null,
+                                bool => .bool,
+                                i32 => .i32,
+                                []const u8 => .string,
+                                usize => .usize,
+                                else => break :blk null,
+                            };
+                            const callee_codec: effect_ir.LocalCodec = switch (callee.ValueType) {
+                                bool => .bool,
+                                i32 => .i32,
+                                []const u8 => .string,
+                                usize => .usize,
+                                else => break :blk null,
+                            };
+                            if (callee_codec != expected_codec) break :blk null;
+                            const dst = appendAnonymousLocal(&local_storage, expected_codec);
+                            emitAdmittedHelperCallInstruction(
+                                helper_call,
+                                .{
+                                    .callee_index = callee_index,
+                                    .callee = callee,
+                                    .dst = dst,
+                                    .local_bindings = local_bindings[0..binding_count],
+                                },
+                                &body_state,
+                            ) orelse break :blk null;
+                            appendInstruction(instructions[0..], &instruction_count, .{
+                                .kind = .return_value,
+                                .operand = dst,
+                            });
+                            terminator = .{ .kind = .return_value };
+                            terminated = true;
+                        },
+                        .add_locals => |return_add| {
+                            if (context.functions[context.lowered_function_index].ValueType != i32) break :blk null;
+                            const left_local = findBoundLocal(local_bindings[0..binding_count], return_add.left_name) orelse break :blk null;
+                            const right_local = findBoundLocal(local_bindings[0..binding_count], return_add.right_name) orelse break :blk null;
+                            if (left_local.codec != .i32 or right_local.codec != .i32) break :blk null;
+                            const dst = appendAnonymousLocal(&local_storage, .i32);
+                            appendInstruction(instructions[0..], &instruction_count, .{
+                                .kind = .add_i32,
+                                .dst = dst,
+                                .operand = left_local.local_id,
+                                .aux = right_local.local_id,
+                            });
+                            appendInstruction(instructions[0..], &instruction_count, .{
+                                .kind = .return_value,
+                                .operand = dst,
+                            });
+                            terminator = .{ .kind = .return_value };
+                            terminated = true;
+                        },
+                    }
+                },
+                .if_local_eq_zero_return_unit,
+                .decrement_local_direct,
+                => break :blk null,
             }
-            if (statementIsSimpleReturn(statement)) {
-                if (statement_index + 1 != statement_ranges.len) break :blk null;
-                terminator = .{ .kind = .return_unit };
-                terminated = true;
-                continue;
-            }
-            if (parseReturnLocalStatement(statement)) |local_name| {
-                if (statement_index + 1 != statement_ranges.len) break :blk null;
-                const local = findBoundLocal(local_bindings[0..binding_count], local_name) orelse break :blk null;
-                const expected_codec: effect_ir.LocalCodec = switch (context.functions[context.lowered_function_index].ValueType) {
-                    void => break :blk null,
-                    bool => .bool,
-                    i32 => .i32,
-                    []const u8 => .string,
-                    usize => .usize,
-                    else => break :blk null,
-                };
-                if (local.codec != expected_codec) break :blk null;
-                appendInstruction(instructions[0..], &instruction_count, .{
-                    .kind = .return_value,
-                    .operand = local.local_id,
-                });
-                terminator = .{ .kind = .return_value };
-                terminated = true;
-                continue;
-            }
-            if (parseReturnDirectCall(function.effect_param, aliases[0..alias_count], statement)) |direct_call| {
-                if (statement_index + 1 != statement_ranges.len) break :blk null;
-                const expected_codec: effect_ir.LocalCodec = switch (context.functions[context.lowered_function_index].ValueType) {
-                    void => break :blk null,
-                    bool => .bool,
-                    i32 => .i32,
-                    []const u8 => .string,
-                    usize => .usize,
-                    else => break :blk null,
-                };
-                if (opModeForFunctionUse(
-                    context.functions,
-                    context.lowered_function_index,
-                    direct_call.requirement_label,
-                    direct_call.op_name,
-                ) == .abort) break :blk null;
-                const resume_codec = resumeCodecForFunctionUse(
-                    context.functions,
-                    context.lowered_function_index,
-                    direct_call.requirement_label,
-                    direct_call.op_name,
-                );
-                if (resume_codec != expected_codec) break :blk null;
-                const payload_local = emitPayloadValueForDirectCall(
-                    direct_call,
-                    payloadCodecForFunctionUse(
-                        context.functions,
-                        context.lowered_function_index,
-                        direct_call.requirement_label,
-                        direct_call.op_name,
-                    ),
-                    local_bindings[0..binding_count],
-                    &body_state,
-                ) orelse break :blk null;
-                const dst = appendAnonymousLocal(&local_storage, expected_codec);
-                appendInstruction(instructions[0..], &instruction_count, .{
-                    .kind = .call_op,
-                    .dst = dst,
-                    .operand = opIndexForFunctionUse(
-                        context.functions,
-                        context.lowered_function_index,
-                        direct_call.requirement_label,
-                        direct_call.op_name,
-                    ),
-                    .aux = payload_local,
-                });
-                appendInstruction(instructions[0..], &instruction_count, .{
-                    .kind = .return_value,
-                    .operand = dst,
-                });
-                terminator = .{ .kind = .return_value };
-                terminated = true;
-                continue;
-            }
-            if (parseReturnAddLocalsStatement(statement)) |return_add| {
-                if (statement_index + 1 != statement_ranges.len) break :blk null;
-                if (context.functions[context.lowered_function_index].ValueType != i32) break :blk null;
-                const left_local = findBoundLocal(local_bindings[0..binding_count], return_add.left_name) orelse break :blk null;
-                const right_local = findBoundLocal(local_bindings[0..binding_count], return_add.right_name) orelse break :blk null;
-                if (left_local.codec != .i32 or right_local.codec != .i32) break :blk null;
-                const dst = appendAnonymousLocal(&local_storage, .i32);
-                appendInstruction(instructions[0..], &instruction_count, .{
-                    .kind = .add_i32,
-                    .dst = dst,
-                    .operand = left_local.local_id,
-                    .aux = right_local.local_id,
-                });
-                appendInstruction(instructions[0..], &instruction_count, .{
-                    .kind = .return_value,
-                    .operand = dst,
-                });
-                terminator = .{ .kind = .return_value };
-                terminated = true;
-                continue;
-            }
-            break :blk null;
         }
 
         if (!terminated and context.functions[context.lowered_function_index].ValueType != void) break :blk null;
@@ -2294,6 +2672,10 @@ fn buildRecursiveGuardBodyForFunction(
 
     const bound = parseLocalFromOpStatement(function.effect_param, tokens[statement_ranges[0].start..statement_ranges[0].end]) orelse return null;
     if (!parseIfLocalEqZeroReturnStatement(tokens[statement_ranges[1].start..statement_ranges[1].end], bound.local_name)) return null;
+    const aliases = [_]BodyAlias{.{
+        .name = bound.requirement_label,
+        .kind = .{ .requirement = bound.requirement_label },
+    }};
 
     const local_codec = resumeCodecForFunctionUse(
         context.functions,
@@ -2310,13 +2692,13 @@ fn buildRecursiveGuardBodyForFunction(
                 total += 2;
                 continue;
             }
-            if (parseDirectCall(function.effect_param, &.{}, statement)) |direct_call| {
+            if (parseDirectCall(function.effect_param, &aliases, statement)) |direct_call| {
                 total += 1;
                 if (direct_call.args.len == 1 and direct_call.args[0].tag == .string_literal) total += 1;
                 if (direct_call.args.len != 0 and !(direct_call.args.len == 1 and direct_call.args[0].tag == .string_literal)) return null;
                 continue;
             }
-            if (parseHelperCallStatement(function.effect_param, statement) != null) {
+            if (parseHelperCallStatement(function.effect_param, &aliases, statement) != null) {
                 total += 1;
                 continue;
             }
@@ -2350,7 +2732,7 @@ fn buildRecursiveGuardBodyForFunction(
                 index += 1;
                 continue;
             }
-            if (parseDirectCall(function.effect_param, &.{}, statement)) |direct_op| {
+            if (parseDirectCall(function.effect_param, &aliases, statement)) |direct_op| {
                 if (direct_op.args.len == 1) {
                     const literal = stringLiteralContents(direct_op.args[0].lexeme).?;
                     buffer[index] = .{
@@ -2373,7 +2755,7 @@ fn buildRecursiveGuardBodyForFunction(
                 index += 1;
                 continue;
             }
-            const helper_call = parseHelperCallStatement(function.effect_param, statement).?;
+            const helper_call = parseHelperCallStatement(function.effect_param, &aliases, statement).?;
             buffer[index] = .{
                 .kind = .call_helper,
                 .operand = helperTargetIndex(

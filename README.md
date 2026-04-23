@@ -16,9 +16,8 @@ The public root export set is intentionally narrow:
 - `shift.with`
 
 Everything else in the repo is outside the `@import("shift")` root contract.
-That includes retained sibling modules such as `public_ir`, `public_lowering`,
-and `shift_agent_vm`, along with maintainer-facing lowering and interpreter
-scaffolding.
+That includes sibling modules such as `shift_agent_vm` along with maintainer-facing
+lowering and interpreter scaffolding.
 
 ## Examples
 

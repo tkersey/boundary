@@ -13,6 +13,14 @@ const Sample = struct {
     elapsed_ns: u64,
 };
 
+fn monotonicNowNs() u64 {
+    var timespec_value: std.c.timespec = std.mem.zeroes(std.c.timespec);
+    if (std.c.clock_gettime(std.c.CLOCK.MONOTONIC, &timespec_value) != 0) return 0;
+    const sec = if (@hasField(std.c.timespec, "tv_sec")) timespec_value.tv_sec else timespec_value.sec;
+    const nsec = if (@hasField(std.c.timespec, "tv_nsec")) timespec_value.tv_nsec else timespec_value.nsec;
+    return @as(u64, @intCast(sec)) * std.time.ns_per_s + @as(u64, @intCast(nsec));
+}
+
 fn preserveValue(value: anytype) @TypeOf(value) {
     const preserved = value;
     std.mem.doNotOptimizeAway(preserved);
@@ -111,7 +119,7 @@ fn runRawSample(runtime: *shift.Runtime, prompt: *RawPrompt, iterations: usize) 
 }
 
 fn runRawResetOnlySample(runtime: *shift.Runtime, prompt: *RawPrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
 
     var index: usize = 0;
@@ -122,12 +130,12 @@ fn runRawResetOnlySample(runtime: *shift.Runtime, prompt: *RawPrompt, iterations
 
     return .{
         .checksum = checksum,
-        .elapsed_ns = timer.read(),
+        .elapsed_ns = monotonicNowNs() - start_ns,
     };
 }
 
 fn runEffectSample(runtime: *shift.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
 
     var index: usize = 0;
@@ -138,12 +146,12 @@ fn runEffectSample(runtime: *shift.Runtime, instance: *const StateInstance, iter
 
     return .{
         .checksum = checksum,
-        .elapsed_ns = timer.read(),
+        .elapsed_ns = monotonicNowNs() - start_ns,
     };
 }
 
 fn runEffectPassthroughSample(runtime: *shift.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
 
     var index: usize = 0;
@@ -154,7 +162,7 @@ fn runEffectPassthroughSample(runtime: *shift.Runtime, instance: *const StateIns
 
     return .{
         .checksum = checksum,
-        .elapsed_ns = timer.read(),
+        .elapsed_ns = monotonicNowNs() - start_ns,
     };
 }
 

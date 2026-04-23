@@ -231,6 +231,7 @@ fn dummyValue(comptime T: type) T {
             }
             break :blk value_buffer;
         },
+        .noreturn => unreachable,
         .void => {},
         else => dummyPointer(*T).*,
     };

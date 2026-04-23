@@ -108,6 +108,7 @@ pub const InstructionKind = enum {
     add_const_i32,
     add_i32,
     call_helper,
+    call_nested_with,
     call_op,
     compare_eq_zero,
     const_i32,
@@ -322,6 +323,13 @@ pub const ProgramPlan = struct {
                                 }
                             }
                         }
+                    },
+                    .call_nested_with => {
+                        const result_codec: ValueCodec = @enumFromInt(@as(u8, @truncate(instruction.aux)));
+                        if (result_codec != .unit and !functionLocalHasCodec(self, function, instruction.dst, result_codec)) {
+                            return error.InvalidInstructionLocalIndex;
+                        }
+                        if (instruction.string_literal.len == 0) return error.InvalidInstructionLocalIndex;
                     },
                     .call_op => {
                         if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
@@ -573,6 +581,7 @@ fn instructionKindFromEffectIrBody(kind: effect_ir.InstructionKind) InstructionK
         .add_i32 => .add_i32,
         .add_const_i32 => .add_const_i32,
         .call_helper => .call_helper,
+        .call_nested_with => .call_nested_with,
         .call_op => .call_op,
         .compare_eq_zero => .compare_eq_zero,
         .const_i32 => .const_i32,

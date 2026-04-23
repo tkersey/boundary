@@ -11,6 +11,14 @@ const Sample = struct {
     elapsed_ns: u64,
 };
 
+fn monotonicNowNs() u64 {
+    var timespec_value: std.c.timespec = std.mem.zeroes(std.c.timespec);
+    if (std.c.clock_gettime(std.c.CLOCK.MONOTONIC, &timespec_value) != 0) return 0;
+    const sec = if (@hasField(std.c.timespec, "tv_sec")) timespec_value.tv_sec else timespec_value.sec;
+    const nsec = if (@hasField(std.c.timespec, "tv_nsec")) timespec_value.tv_nsec else timespec_value.nsec;
+    return @as(u64, @intCast(sec)) * std.time.ns_per_s + @as(u64, @intCast(nsec));
+}
+
 fn preserveValue(value: anytype) @TypeOf(value) {
     const preserved = value;
     std.mem.doNotOptimizeAway(preserved);
@@ -535,21 +543,17 @@ const effect_algebraic_transform = struct {
     const configured = program.handlers(.{
         shift.algebraic.handleTransform(AlgebraicTransformOp, no_state{}, handler),
     });
+    const continuation = struct {
+        /// Increment the resumed transform value for the benchmark lane.
+        pub fn apply(value: usize) usize {
+            return value + 1;
+        }
+    };
 
     const body = struct {
         /// Execute the public algebraic transform micro benchmark body.
-        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(AlgebraicTransformOp, raw_algebraic_transform.current_value, struct {
-            /// Increment the resumed transform value for the benchmark lane.
-            pub fn apply(value: usize) usize {
-                return value + 1;
-            }
-        })) {
-            return ctx.performProgram(AlgebraicTransformOp, raw_algebraic_transform.current_value, struct {
-                /// Increment the resumed transform value for the benchmark lane.
-                pub fn apply(value: usize) usize {
-                    return value + 1;
-                }
-            });
+        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(AlgebraicTransformOp, raw_algebraic_transform.current_value, continuation)) {
+            return ctx.performProgram(AlgebraicTransformOp, raw_algebraic_transform.current_value, continuation);
         }
     };
 };
@@ -593,21 +597,17 @@ const effect_algebraic_choice = struct {
     const configured = program.handlers(.{
         shift.algebraic.handleChoice(AlgebraicChoiceOp, no_state{}, handler),
     });
+    const continuation = struct {
+        /// Return the direct-answer branch if the algebraic choice unexpectedly resumes.
+        pub fn apply(_: usize) usize {
+            return 0;
+        }
+    };
 
     const body = struct {
         /// Execute the public algebraic choice micro benchmark body.
-        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(AlgebraicChoiceOp, raw_algebraic_choice.current_value, struct {
-            /// Return the direct-answer branch if the algebraic choice unexpectedly resumes.
-            pub fn apply(_: usize) usize {
-                return 0;
-            }
-        })) {
-            return ctx.performProgram(AlgebraicChoiceOp, raw_algebraic_choice.current_value, struct {
-                /// Return the direct-answer branch if the algebraic choice unexpectedly resumes.
-                pub fn apply(_: usize) usize {
-                    return 0;
-                }
-            });
+        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(AlgebraicChoiceOp, raw_algebraic_choice.current_value, continuation)) {
+            return ctx.performProgram(AlgebraicChoiceOp, raw_algebraic_choice.current_value, continuation);
         }
     };
 };
@@ -641,21 +641,17 @@ const effect_algebraic_abort = struct {
     const configured = program.handlers(.{
         shift.algebraic.handleAbort(AlgebraicAbortOp, no_state{}, handler),
     });
+    const continuation = struct {
+        /// Unreachable continuation placeholder for the abort lane.
+        pub fn apply(_: usize) usize {
+            unreachable;
+        }
+    };
 
     const body = struct {
         /// Execute the public algebraic abort micro benchmark body.
-        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(AlgebraicAbortOp, raw_algebraic_abort.current_value + 1, struct {
-            /// Unreachable continuation placeholder for the abort lane.
-            pub fn apply(_: noreturn) usize {
-                unreachable;
-            }
-        })) {
-            return ctx.performProgram(AlgebraicAbortOp, raw_algebraic_abort.current_value + 1, struct {
-                /// Unreachable continuation placeholder for the abort lane.
-                pub fn apply(_: noreturn) usize {
-                    unreachable;
-                }
-            });
+        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(AlgebraicAbortOp, raw_algebraic_abort.current_value + 1, continuation)) {
+            return ctx.performProgram(AlgebraicAbortOp, raw_algebraic_abort.current_value + 1, continuation);
         }
     };
 };
@@ -777,14 +773,14 @@ fn runStateRawSample(runtime: *shift.Runtime, prompt: *RawStatePrompt, iteration
 }
 
 fn runStateEffectSample(runtime: *shift.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         const result = preserveValue(try shift.effect.state.handle(usize, runtime, instance, index, effect_state));
         checksum += result.value + result.state;
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = monotonicNowNs() - start_ns };
 }
 
 fn runReaderRawSample(runtime: *shift.Runtime, prompt: *ReaderPrompt, iterations: usize) !Sample {
@@ -793,13 +789,13 @@ fn runReaderRawSample(runtime: *shift.Runtime, prompt: *ReaderPrompt, iterations
 }
 
 fn runReaderEffectSample(runtime: *shift.Runtime, instance: *const ReaderInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         checksum += preserveValue(try shift.effect.reader.handle(usize, runtime, instance, index, effect_reader_micro));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = monotonicNowNs() - start_ns };
 }
 
 fn runReaderBatchRawSample(runtime: *shift.Runtime, prompt: *ReaderPrompt, iterations: usize) !Sample {
@@ -808,13 +804,13 @@ fn runReaderBatchRawSample(runtime: *shift.Runtime, prompt: *ReaderPrompt, itera
 }
 
 fn runReaderBatchEffectSample(runtime: *shift.Runtime, instance: *const ReaderInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         checksum += preserveValue(try shift.effect.reader.handle(usize, runtime, instance, index, effect_reader_batch));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = monotonicNowNs() - start_ns };
 }
 
 fn runOptionalReturnRawSample(runtime: *shift.Runtime, prompt: *OptionalReturnPrompt, iterations: usize) !Sample {
@@ -823,14 +819,14 @@ fn runOptionalReturnRawSample(runtime: *shift.Runtime, prompt: *OptionalReturnPr
 }
 
 fn runOptionalReturnEffectSample(runtime: *shift.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_return.current_value = index;
         checksum += preserveValue(try shift.effect.optional.handle(usize, runtime, instance, effect_optional_return_micro.policy, effect_optional_return_micro));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = monotonicNowNs() - start_ns };
 }
 
 fn runOptionalReturnPreludeRawSample(runtime: *shift.Runtime, prompt: *OptionalReturnPrompt, iterations: usize) !Sample {
@@ -839,14 +835,14 @@ fn runOptionalReturnPreludeRawSample(runtime: *shift.Runtime, prompt: *OptionalR
 }
 
 fn runOptionalReturnPreludeEffectSample(runtime: *shift.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_return_prelude.current_value = index;
         checksum += preserveValue(try shift.effect.optional.handle(usize, runtime, instance, effect_optional_return_prelude.policy, effect_optional_return_prelude));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = monotonicNowNs() - start_ns };
 }
 
 fn runOptionalResumeRawSample(runtime: *shift.Runtime, prompt: *OptionalResumePrompt, iterations: usize) !Sample {
@@ -855,14 +851,14 @@ fn runOptionalResumeRawSample(runtime: *shift.Runtime, prompt: *OptionalResumePr
 }
 
 fn runOptionalResumeEffectSample(runtime: *shift.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_resume.current_value = index;
         checksum += preserveValue(try shift.effect.optional.handle(usize, runtime, instance, effect_optional_resume_micro.policy, effect_optional_resume_micro));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = monotonicNowNs() - start_ns };
 }
 
 fn runOptionalResumeBatchRawSample(runtime: *shift.Runtime, prompt: *OptionalResumePrompt, iterations: usize) !Sample {
@@ -871,14 +867,14 @@ fn runOptionalResumeBatchRawSample(runtime: *shift.Runtime, prompt: *OptionalRes
 }
 
 fn runOptionalResumeBatchEffectSample(runtime: *shift.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_resume_batch.current_value = index;
         checksum += preserveValue(try shift.effect.optional.handle(usize, runtime, instance, effect_optional_resume_batch.policy, effect_optional_resume_batch));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = monotonicNowNs() - start_ns };
 }
 
 fn runExceptionRawSample(runtime: *shift.Runtime, prompt: *ExceptionPrompt, iterations: usize) !Sample {
@@ -887,14 +883,14 @@ fn runExceptionRawSample(runtime: *shift.Runtime, prompt: *ExceptionPrompt, iter
 }
 
 fn runExceptionEffectSample(runtime: *shift.Runtime, instance: *const ExceptionInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_exception.pending_payload = index;
         checksum += preserveValue(try shift.effect.exception.handle(usize, runtime, instance, effect_exception_micro.catcher, effect_exception_micro));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = monotonicNowNs() - start_ns };
 }
 
 fn runExceptionPreludeRawSample(runtime: *shift.Runtime, prompt: *ExceptionPrompt, iterations: usize) !Sample {
@@ -903,14 +899,14 @@ fn runExceptionPreludeRawSample(runtime: *shift.Runtime, prompt: *ExceptionPromp
 }
 
 fn runExceptionPreludeEffectSample(runtime: *shift.Runtime, instance: *const ExceptionInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_exception_prelude.pending_payload = index;
         checksum += preserveValue(try shift.effect.exception.handle(usize, runtime, instance, effect_exception_prelude.catcher, effect_exception_prelude));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = monotonicNowNs() - start_ns };
 }
 
 fn runAlgebraicTransformRawSample(runtime: *shift.Runtime, prompt: *AlgebraicTransformPrompt, iterations: usize) !Sample {
@@ -919,14 +915,14 @@ fn runAlgebraicTransformRawSample(runtime: *shift.Runtime, prompt: *AlgebraicTra
 }
 
 fn runAlgebraicTransformEffectSample(runtime: *shift.Runtime, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_algebraic_transform.current_value = index;
         checksum += preserveValue(try effect_algebraic_transform.configured.run(runtime, effect_algebraic_transform.body));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = monotonicNowNs() - start_ns };
 }
 
 fn runAlgebraicChoiceRawSample(runtime: *shift.Runtime, prompt: *AlgebraicChoicePrompt, iterations: usize) !Sample {
@@ -935,14 +931,14 @@ fn runAlgebraicChoiceRawSample(runtime: *shift.Runtime, prompt: *AlgebraicChoice
 }
 
 fn runAlgebraicChoiceEffectSample(runtime: *shift.Runtime, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_algebraic_choice.current_value = index;
         checksum += preserveValue(try effect_algebraic_choice.configured.run(runtime, effect_algebraic_choice.body));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = monotonicNowNs() - start_ns };
 }
 
 fn runAlgebraicAbortRawSample(runtime: *shift.Runtime, prompt: *AlgebraicAbortPrompt, iterations: usize) !Sample {
@@ -951,29 +947,29 @@ fn runAlgebraicAbortRawSample(runtime: *shift.Runtime, prompt: *AlgebraicAbortPr
 }
 
 fn runAlgebraicAbortEffectSample(runtime: *shift.Runtime, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_algebraic_abort.current_value = index;
         checksum += preserveValue(try effect_algebraic_abort.configured.run(runtime, effect_algebraic_abort.body));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = monotonicNowNs() - start_ns };
 }
 
 fn runResourceRawSample(allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_resource.current_base = index * items_per_body;
         checksum += preserveValue(try raw_resource.body(allocator, items_per_body));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = monotonicNowNs() - start_ns };
 }
 
 fn runResourceEffectSample(runtime: *shift.Runtime, instance: *const ResourceInstance, comptime items_per_body: usize, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
@@ -987,21 +983,21 @@ fn runResourceEffectSample(runtime: *shift.Runtime, instance: *const ResourceIns
         };
         checksum += preserveValue(try shift.effect.resource.handle(usize, runtime, instance, effect_resource.manager, body));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = monotonicNowNs() - start_ns };
 }
 
 fn runWriterRawSample(allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         checksum += preserveValue(try raw_writer.body(allocator, items_per_body));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = monotonicNowNs() - start_ns };
 }
 
 fn runWriterEffectSample(runtime: *shift.Runtime, instance: *const WriterInstance, allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+    const start_ns = monotonicNowNs();
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
@@ -1018,7 +1014,7 @@ fn runWriterEffectSample(runtime: *shift.Runtime, instance: *const WriterInstanc
         for (result.items) |item| item_checksum += item;
         checksum += item_checksum;
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = monotonicNowNs() - start_ns };
 }
 
 const LaneReport = struct {

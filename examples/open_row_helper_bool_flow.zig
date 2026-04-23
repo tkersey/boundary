@@ -13,13 +13,13 @@ pub fn runBody(eff: anytype) anyerror!bool {
 }
 
 /// Return the additive public lowering spec for this bool helper workflow.
-pub fn loweringSpec() shift_compile.lowering.LowerSpec {
+pub fn loweringSpec() shift_compile.lowering_api.LowerSpec {
     return .{
         .label = "example.open_row_helper_bool_flow",
         .entry_symbol = "runBody",
-        .row = shift_compile.ir.rowFromSpec(.{
+        .row = shift_compile.effect_ir.rowFromSpec(.{
             .approval = .{
-                .ask = shift_compile.ir.Transform(void, bool),
+                .ask = shift_compile.effect_ir.Transform(void, bool),
             },
         }),
         .ValueType = bool,
@@ -43,18 +43,18 @@ fn explicitLoweringCaller() std.builtin.SourceLocation {
 }
 
 /// Return the explicit caller-owned lowering provenance witness for this module.
-pub fn loweringSource() shift_compile.lowering.SourceRef {
-    return shift_compile.lowering.sourceWithContent(loweringSourcePath(), explicitLoweringCaller(), @embedFile(@src().file));
+pub fn loweringSource() shift_compile.lowering_api.SourceRef {
+    return shift_compile.lowering_api.sourceWithContent(loweringSourcePath(), explicitLoweringCaller(), @embedFile(@src().file));
 }
 
 /// Return the additive public lowered artifact for this bool helper workflow.
-pub fn loweredProgram() @TypeOf(shift_compile.lowering.lowerOpenRowAt(loweringSourcePath(), loweringSpec())) {
-    return try shift_compile.lowering.lowerOpenRowAt(loweringSourcePath(), loweringSpec());
+pub fn loweredProgram() @TypeOf(shift_compile.lowering_api.lowerOpenRowAt(loweringSourcePath(), loweringSpec())) {
+    return try shift_compile.lowering_api.lowerOpenRowAt(loweringSourcePath(), loweringSpec());
 }
 
 /// Return the explicit IR view paired with this same-module lowering request.
-pub fn irProgram() shift_compile.ir.Program {
-    return shift_compile.lowering.irProgramAt(loweringSourcePath(), loweringSpec());
+pub fn irProgram() shift_compile.effect_ir.Program {
+    return shift_compile.lowering_api.irProgramAt(loweringSourcePath(), loweringSpec());
 }
 
 fn CompiledProgramType() type {

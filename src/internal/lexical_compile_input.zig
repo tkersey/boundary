@@ -11,13 +11,12 @@ pub fn CompileInput(comptime HandlersType: type) type {
     };
 }
 
-/// Derive one shared row/output/source packet from a concrete lexical-state pointer type.
+/// Derive one shared row/output packet from a concrete lexical-state pointer type.
 pub fn fromLexicalStatePointer(comptime LexicalStatePtrType: type) CompileInput(std.meta.Child(@FieldType(@typeInfo(LexicalStatePtrType).pointer.child, "handlers_ptr"))) {
     const pointer = @typeInfo(LexicalStatePtrType);
     if (pointer != .pointer) @compileError("expected lexical state pointer type");
     const LexicalStateType = pointer.pointer.child;
     if (!@hasField(LexicalStateType, "handlers_ptr")) @compileError("lexical state must expose handlers_ptr");
-    if (!@hasField(LexicalStateType, "caller_file")) @compileError("lexical state must expose caller_file");
 
     const HandlersPtrType = @FieldType(LexicalStateType, "handlers_ptr");
     const HandlersType = std.meta.Child(HandlersPtrType);
