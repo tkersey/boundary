@@ -3,6 +3,37 @@ const shift = @import("shift");
 const shift_compile = @import("shift_compile");
 const std = @import("std");
 
+fn writeTmpFile(dir: std.Io.Dir, sub_path: []const u8, contents: []const u8) !void {
+    try dir.writeFile(std.testing.io, .{
+        .sub_path = sub_path,
+        .data = contents,
+        .flags = .{ .truncate = true },
+    });
+}
+
+fn runChildAtPathExpectSuccess(
+    cwd_path: []const u8,
+    argv: []const []const u8,
+    environ_map: ?*const std.process.Environ.Map,
+) !void {
+    var child = try std.process.spawn(std.testing.io, .{
+        .argv = argv,
+        .cwd = .{ .path = cwd_path },
+        .environ_map = environ_map,
+        .stdin = .ignore,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    });
+    const term = try child.wait(std.testing.io);
+
+    switch (term) {
+        .exited => |code| if (code == 0) return,
+        else => {},
+    }
+    std.debug.print("child command failed: {s}\n", .{argv[0]});
+    return error.UnexpectedChildCommandFailure;
+}
+
 fn callerSourceIsAbsent(comptime ContextType: type) bool {
     const caller_source = ContextType.caller_source;
     return switch (@typeInfo(@TypeOf(caller_source))) {
@@ -98,4 +129,89 @@ test "public root drops compile entrypoints while shift_compile keeps provenance
     try std.testing.expect(@hasDecl(shift_compile, "effect_ir"));
     try std.testing.expect(@hasDecl(shift_compile, "lowering_api"));
     try std.testing.expect(@hasDecl(shift_compile.lowering_api, "lowerAt"));
+}
+
+test "plain shift.with anonymous bodies stay usable in downstream consumers" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const consumer_root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(consumer_root);
+
+    const build_zig =
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\
+        \\    const root = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    root.addImport("shift", dep.module("shift"));
+        \\
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "downstream-shift-with",
+        \\        .root_module = root,
+        \\    });
+        \\    const run = b.addRunArtifact(exe);
+        \\    b.default_step.dependOn(&run.step);
+        \\}
+        \\
+    ;
+    try writeTmpFile(tmp.dir, "build.zig", build_zig);
+
+    const build_zon =
+        \\.{
+        \\    .name = .downstream_shift_with,
+        \\    .version = "0.0.0",
+        \\    .minimum_zig_version = "0.16.0",
+        \\    .dependencies = .{
+        \\        .shift = .{ .path = "../../.." },
+        \\    },
+        \\    .paths = .{ "build.zig", "build.zig.zon", "main.zig" },
+        \\    .fingerprint = 0xf5798bf9dbefd4d5,
+        \\}
+        \\
+    ;
+    try writeTmpFile(tmp.dir, "build.zig.zon", build_zon);
+
+    const main_zig =
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try shift.with(&runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 9)),
+        \\    }, struct {
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            return try eff.state.get();
+        \\        }
+        \\    });
+        \\    if (result.value != 9) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try writeTmpFile(tmp.dir, "main.zig", main_zig);
+
+    try runChildAtPathExpectSuccess(
+        consumer_root,
+        &.{
+            "zig",
+            "build",
+            "--summary",
+            "none",
+            "--cache-dir",
+            ".zig-cache",
+            "--global-cache-dir",
+            "zig-global-cache",
+        },
+        null,
+    );
 }

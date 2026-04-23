@@ -1214,18 +1214,9 @@ fn tryRepoOwnedNamedCompiledWith(
     );
 }
 
-fn rejectUnsupportedRepoOwnedAnonymousWith(comptime Body: type) void {
-    if (comptime anonymous_body_synthesis.bodyIdentity(Body) == null) return;
-    if (comptime anonymous_body_synthesis.resolvedRepoPath(Body) == null) {
-        @compileError(std.fmt.comptimePrint(
-            "plain repo-owned shift.with anonymous body could not be mapped back to one repo source file: {s}",
-            .{@typeName(Body)},
-        ));
-    }
-}
-
-fn preferInterpretedRepoOwnedAnonymousWith(comptime Body: type) bool {
-    const repo_path = comptime anonymous_body_synthesis.resolvedRepoPath(Body) orelse return false;
+fn preferInterpretedAnonymousWith(comptime Body: type) bool {
+    if (comptime anonymous_body_synthesis.bodyIdentity(Body) == null) return false;
+    const repo_path = comptime anonymous_body_synthesis.resolvedRepoPath(Body) orelse return true;
     return std.mem.startsWith(u8, repo_path, "test/lexical_with_");
 }
 
@@ -1256,11 +1247,10 @@ fn withImpl(
 ) WithFnReturnType(@TypeOf(handlers), Body) {
     const HandlersType = @TypeOf(handlers);
     comptime assertHandlerBundleShape(HandlersType);
-    comptime rejectUnsupportedRepoOwnedAnonymousWith(Body);
 
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
-    if (comptime anonymous_body_synthesis.bodyIdentity(Body) != null and preferInterpretedRepoOwnedAnonymousWith(Body)) {
+    if (comptime preferInterpretedAnonymousWith(Body)) {
         const value = try runInterpretedLexicalWith(HandlersType, Body, runtime, &handler_state, &outputs);
         return .{
             .outputs = outputs,
