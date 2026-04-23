@@ -1214,6 +1214,10 @@ fn tryRepoOwnedNamedCompiledWith(
     );
 }
 
+fn supportsNamedBodyLowering(comptime Body: type) bool {
+    return comptime bodyDeclSourcePath(Body) != null and bodyDeclBodySymbol(Body) != null;
+}
+
 fn preferInterpretedAnonymousWith(comptime Body: type) bool {
     if (comptime anonymous_body_synthesis.bodyIdentity(Body) == null) return false;
     const repo_path = comptime anonymous_body_synthesis.resolvedRepoPath(Body) orelse return true;
@@ -1251,6 +1255,13 @@ fn withImpl(
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
     if (comptime preferInterpretedAnonymousWith(Body)) {
+        const value = try runInterpretedLexicalWith(HandlersType, Body, runtime, &handler_state, &outputs);
+        return .{
+            .outputs = outputs,
+            .value = value,
+        };
+    }
+    if (comptime anonymous_body_synthesis.bodyIdentity(Body) == null and !supportsNamedBodyLowering(Body)) {
         const value = try runInterpretedLexicalWith(HandlersType, Body, runtime, &handler_state, &outputs);
         return .{
             .outputs = outputs,
