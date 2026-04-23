@@ -684,7 +684,14 @@ fn functionDeclStart(
 fn repoOwnedSyntheticCallerSource(
     comptime caller_source: []const u8,
     comptime bounds: Bounds,
+    comptime identity: AnonymousBodyIdentity,
 ) []const u8 {
+    if (isTestModulePath(identity.module_path)) {
+        const sentinel = std.fmt.comptimePrint("{s}\x00", .{caller_source});
+        const test_block = testBlockBounds(sentinel[0..caller_source.len :0], identity.enclosing_function) orelse
+            return sanitizedCallerSourceForBounds(caller_source, bounds);
+        return caller_source[0..test_block.start];
+    }
     const sentinel = std.fmt.comptimePrint("{s}\x00", .{caller_source});
     const graph = source_graph_engine.analyzeComptime(sentinel[0..caller_source.len :0], .{}) catch
         return sanitizedCallerSourceForBounds(caller_source, bounds);
@@ -1019,7 +1026,7 @@ pub fn uniqueRepoOwnedAnonymousSourceWithReturnSyntax(
             Body,
             candidate_bounds[0],
             caller_source,
-            repoOwnedSyntheticCallerSource(caller_source, candidate_bounds[0]),
+            repoOwnedSyntheticCallerSource(caller_source, candidate_bounds[0], identity),
             entry_symbol,
             override_return_syntax,
         ) orelse return null;
@@ -1028,7 +1035,7 @@ pub fn uniqueRepoOwnedAnonymousSourceWithReturnSyntax(
                 Body,
                 candidate,
                 caller_source,
-                repoOwnedSyntheticCallerSource(caller_source, candidate),
+                repoOwnedSyntheticCallerSource(caller_source, candidate, identity),
                 entry_symbol,
                 override_return_syntax,
             ) orelse return null;
@@ -1043,7 +1050,7 @@ pub fn uniqueRepoOwnedAnonymousSourceWithReturnSyntax(
             Body,
             selected_bounds,
             caller_source,
-            repoOwnedSyntheticCallerSource(caller_source, selected_bounds),
+            repoOwnedSyntheticCallerSource(caller_source, selected_bounds, identity),
             entry_symbol,
             override_return_syntax,
         ) orelse return null,
