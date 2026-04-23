@@ -1178,6 +1178,11 @@ fn canonicalInstruction(plan: program_plan.ProgramPlan, instruction: program_pla
             canonical.operand = 0;
             canonical.aux = 0;
         },
+        .return_error => {
+            canonical.dst = 0;
+            canonical.operand = 0;
+            canonical.aux = 0;
+        },
         .return_value => {
             canonical.dst = 0;
             canonical.aux = 0;
@@ -1658,6 +1663,7 @@ fn decodeInstructionKind(raw_kind: u8, artifact_version: u16) !program_plan.Inst
             8 => .return_value,
             9 => .sub_one,
             10 => .call_nested_with,
+            11 => .return_error,
             else => error.UnsupportedVersion,
         },
         else => error.UnsupportedVersion,
@@ -1678,6 +1684,7 @@ fn encodeInstructionKind(kind: program_plan.InstructionKind, artifact_version: u
             .return_value => 8,
             .sub_one => 9,
             .call_nested_with => 10,
+            .return_error => 11,
         },
         artifact_format_version_v1 => switch (kind) {
             .add_const_i32 => 0,
@@ -1688,7 +1695,7 @@ fn encodeInstructionKind(kind: program_plan.InstructionKind, artifact_version: u
             .const_string => 5,
             .return_value => 6,
             .sub_one => 7,
-            .add_i32, .const_usize, .call_nested_with => unreachable,
+            .add_i32, .const_usize, .call_nested_with, .return_error => unreachable,
         },
         else => unreachable,
     };

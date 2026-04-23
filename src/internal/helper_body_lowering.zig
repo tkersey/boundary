@@ -319,6 +319,13 @@ fn encodeUsizeLiteralInstruction(comptime literal: []const u8) program_frontend.
     };
 }
 
+fn encodeErrorReturnInstruction(comptime error_name: []const u8) program_frontend.BodyInstruction {
+    return .{
+        .kind = .return_error,
+        .string_literal = cloneBytes(error_name),
+    };
+}
+
 fn appendBoolLiteralValue(state: *BodyBuildState, value: bool) u16 {
     const raw_local = appendAnonymousLocal(&state.local_storage, .i32);
     var raw_instruction = encodeI32LiteralInstruction(if (value) 0 else 1);
@@ -1073,6 +1080,12 @@ fn lowerContinuationApplyBody(
     };
 
     switch (apply_return) {
+        .error_name => |error_name| {
+            appendInstruction(body_state.instructions, body_state.instruction_count, encodeErrorReturnInstruction(error_name));
+            terminator.* = .{ .kind = .return_unit };
+            terminated.* = true;
+            return;
+        },
         .literal => |return_literal| switch (return_literal) {
             .bool_value => |value| {
                 if (expected_codec != .bool) return null;
@@ -2470,6 +2483,11 @@ fn buildLinearBodyForFunction(
                     if (step_index + 1 != admitted_body.step_count) break :blk null;
                     switch (return_value) {
                         .unit => {
+                            terminator = .{ .kind = .return_unit };
+                            terminated = true;
+                        },
+                        .error_name => |error_name| {
+                            appendInstruction(instructions[0..], &instruction_count, encodeErrorReturnInstruction(error_name));
                             terminator = .{ .kind = .return_unit };
                             terminated = true;
                         },

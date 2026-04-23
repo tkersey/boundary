@@ -53,6 +53,7 @@ pub const BranchAction = union(enum) {
 
 pub const ReturnValue = union(enum) {
     unit,
+    error_name: []const u8,
     literal: Literal,
     local: []const u8,
     direct_call: DirectCall,
@@ -450,8 +451,19 @@ fn parseAddLocalsReturn(statement: []const Token) ?struct {
     };
 }
 
+fn parseErrorReturn(statement: []const Token) ?[]const u8 {
+    if (statement.len != 5) return null;
+    if (statement[0].tag != .keyword_return) return null;
+    if (statement[1].tag != .keyword_error) return null;
+    if (statement[2].tag != .period) return null;
+    if (statement[3].tag != .identifier) return null;
+    if (statement[4].tag != .semicolon) return null;
+    return statement[3].lexeme;
+}
+
 fn parseReturnValue(effect_param: ?[]const u8, aliases: []const Alias, imports: anytype, statement: []const Token) ?ReturnValue {
     if (statementIsSimpleReturn(statement)) return .unit;
+    if (parseErrorReturn(statement)) |error_name| return .{ .error_name = error_name };
     if (parseLiteralReturn(statement)) |literal| return .{ .literal = literal };
     if (parseLocalReturn(statement)) |local_name| return .{ .local = local_name };
     if (parseAddLocalsReturn(statement)) |pair| return .{ .add_locals = .{

@@ -238,6 +238,7 @@ pub const InstructionKind = enum {
     const_i32,
     const_string,
     const_usize,
+    return_error,
     return_value,
     sub_one,
 };

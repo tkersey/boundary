@@ -298,6 +298,22 @@ fn executeNestedWithAtInstruction(
     };
 }
 
+fn executeReturnErrorAtInstruction(
+    comptime compiled_plan: program_plan.ProgramPlan,
+    instruction_index: u16,
+) anyerror {
+    return switch (instruction_index) {
+        inline 0...(compiled_plan.instructions.len - 1) => |active_index| blk: {
+            const instruction = compiled_plan.instructions[active_index];
+            if (instruction.kind != .return_error or instruction.string_literal.len == 0) {
+                break :blk error.ProgramContractViolation;
+            }
+            break :blk @field(anyerror, instruction.string_literal);
+        },
+        else => error.ProgramContractViolation,
+    };
+}
+
 fn runtimeValueMatchesCodec(comptime codec: program_plan.ValueCodec, value: lowered_machine.ProgramValue) bool {
     return switch (codec) {
         .unit => value == .none,
@@ -662,6 +678,7 @@ fn continueFunction(
                         return error.ProgramContractViolation,
                 }),
                 .const_string => setLocal(locals, instruction.dst, .{ .string = instruction.string_literal }),
+                .return_error => return executeReturnErrorAtInstruction(compiled_plan, instruction_index),
                 .return_value => return_local = instruction.operand,
                 .sub_one => setLocal(locals, instruction.dst, switch (getLocal(locals, instruction.operand)) {
                     .i32 => |typed| .{ .i32 = typed - 1 },

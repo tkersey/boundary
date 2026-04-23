@@ -114,6 +114,7 @@ pub const InstructionKind = enum {
     const_i32,
     const_string,
     const_usize,
+    return_error,
     return_value,
     sub_one,
 };
@@ -354,6 +355,10 @@ pub const ProgramPlan = struct {
                         _ = std.fmt.parseUnsigned(usize, instruction.string_literal, 0) catch
                             return error.InvalidInstructionLocalIndex;
                     },
+                    .return_error => {
+                        if (instruction.string_literal.len == 0) return error.InvalidInstructionLocalIndex;
+                        if (relative_index + 1 != block.instruction_count) return error.InvalidTerminatorInstruction;
+                    },
                     .add_i32, .add_const_i32, .compare_eq_zero, .const_i32, .sub_one => {
                         if (instruction.kind == .add_i32) {
                             if (!functionLocalHasCodec(self, function, instruction.dst, .i32) or
@@ -587,6 +592,7 @@ fn instructionKindFromEffectIrBody(kind: effect_ir.InstructionKind) InstructionK
         .const_i32 => .const_i32,
         .const_usize => .const_usize,
         .const_string => .const_string,
+        .return_error => .return_error,
         .return_value => .return_value,
         .sub_one => .sub_one,
     };
@@ -713,6 +719,7 @@ fn terminalAbortInstruction(
     const instruction_span_end = @as(usize, function.first_instruction) + function.instruction_count;
     if (instruction_index < function.first_instruction or instruction_index >= instruction_span_end) return false;
     const instruction = self.instructions[instruction_index];
+    if (instruction.kind == .return_error) return instruction.string_literal.len != 0;
     if (instruction.kind == .call_helper) {
         return instruction.operand < self.functions.len and
             reachability.terminal[instruction.operand] and
