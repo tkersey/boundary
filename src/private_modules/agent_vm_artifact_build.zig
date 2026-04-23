@@ -138,6 +138,7 @@ pub const ArtifactV1 = struct {
         defer deepFreeProgramPlan(allocator, plan);
         try plan.validate();
         try validateExecutableCodecSupport(plan);
+        try validateExecutableInstructionSupport(plan);
         try validateRequirementCapabilityMappings(plan, self.requirement_capability_ids, self.capabilities);
     }
 
@@ -216,6 +217,7 @@ pub const DecodeError = error{
     UnsupportedVersion,
     ArtifactHashMismatch,
     UnsupportedExecutableCodec,
+    UnsupportedExecInstruction,
 };
 
 fn isReservedOptionalSectionId(raw_section_id: u16) bool {
@@ -444,6 +446,7 @@ fn encodeProgramPlanVersioned(
 ) anyerror![]u8 {
     try plan.validate();
     try validateExecutableCodecSupport(plan);
+    try validateExecutableInstructionSupport(plan);
     if (plan.functions[plan.entry_index].parameter_count != 0) return error.UnsupportedEntryParameters;
     try validateManifest(manifest.build_fingerprint_blake3_256, manifest.capabilities);
     try validateRequirementCapabilityOpNameDisambiguation(plan, manifest.capabilities);
@@ -791,6 +794,23 @@ fn validateExecutableCodecSupport(plan: program_plan.ProgramPlan) !void {
         if (!executableCodecSupported(op.payload_codec)) return error.UnsupportedExecutableCodec;
         if (!executableCodecSupported(op.resume_codec)) return error.UnsupportedExecutableCodec;
     }
+}
+
+fn validateExecutableInstructionSupport(plan: program_plan.ProgramPlan) !void {
+    for (plan.instructions) |instruction| switch (instruction.kind) {
+        .call_nested_with, .return_error => return error.UnsupportedExecInstruction,
+        .add_const_i32,
+        .add_i32,
+        .call_helper,
+        .call_op,
+        .compare_eq_zero,
+        .const_i32,
+        .const_string,
+        .const_usize,
+        .return_value,
+        .sub_one,
+        => {},
+    };
 }
 
 fn executableCodecSupported(codec: program_plan.ValueCodec) bool {
@@ -2131,6 +2151,26 @@ fn patchSectionReservedByte(bytes: []u8, section_id: SectionId, row_index: usize
     const section_offset = sectionPayloadOffset(bytes, section_id);
     const row_offset = section_offset + row_index * entry_len;
     bytes[row_offset + byte_offset] = value;
+    recomputeEncodedArtifactHash(bytes);
+}
+
+fn patchInstructionKind(bytes: []u8, row_index: usize, kind: u8) void {
+    const instruction_table_offset = sectionPayloadOffset(bytes, .instruction_table);
+    bytes[instruction_table_offset + row_index * 16] = kind;
+    recomputeEncodedArtifactHash(bytes);
+}
+
+fn patchInstructionStringRefFromRow(bytes: []u8, target_row_index: usize, source_row_index: usize) void {
+    const instruction_table_offset = sectionPayloadOffset(bytes, .instruction_table);
+    const target_offset = instruction_table_offset + target_row_index * 16;
+    const source_offset = instruction_table_offset + source_row_index * 16;
+    @memcpy(bytes[target_offset + 8 .. target_offset + 16], bytes[source_offset + 8 .. source_offset + 16]);
+    recomputeEncodedArtifactHash(bytes);
+}
+
+fn patchTerminatorKind(bytes: []u8, row_index: usize, kind: program_plan.TerminatorKind) void {
+    const terminator_table_offset = sectionPayloadOffset(bytes, .terminator_table);
+    bytes[terminator_table_offset + row_index * 8] = @intFromEnum(kind);
     recomputeEncodedArtifactHash(bytes);
 }
 
@@ -3620,6 +3660,115 @@ test "ArtifactV1 rejects executable string_list result codecs during encode" {
         .build_fingerprint_blake3_256 = build_fingerprint,
         .capabilities = &.{},
     }));
+}
+
+test "ArtifactV1 rejects executable-only interpreter instructions during encode and decode" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-unsupported-interpreter-instructions");
+    const base_plan: program_plan.ProgramPlan = .{
+        .label = "artifact.unsupported_interpreter_instruction_base",
+        .ir_hash = 0x351,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .string }},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_string, .dst = 0, .string_literal = "Boom" },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+    const unsupported_nested_plan: program_plan.ProgramPlan = .{
+        .label = "artifact.unsupported_nested_with",
+        .ir_hash = 0x352,
+        .entry_index = 0,
+        .functions = base_plan.functions,
+        .requirements = base_plan.requirements,
+        .ops = base_plan.ops,
+        .outputs = base_plan.outputs,
+        .locals = base_plan.locals,
+        .call_args = base_plan.call_args,
+        .blocks = base_plan.blocks,
+        .terminators = base_plan.terminators,
+        .instructions = &.{
+            .{ .kind = .call_nested_with, .dst = 0, .aux = @intFromEnum(program_plan.ValueCodec.unit), .string_literal = "nested\x1fruntime\x1fptr\x1ffactory\x1fcontainer\x1fhandler\x1f\x1f\x1f" },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+    const unsupported_return_error_plan: program_plan.ProgramPlan = .{
+        .label = "artifact.unsupported_return_error",
+        .ir_hash = 0x353,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{ .kind = .return_error, .string_literal = "Boom" }},
+    };
+
+    try std.testing.expectError(error.UnsupportedExecInstruction, encodeProgramPlan(std.testing.allocator, unsupported_nested_plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &.{},
+    }));
+    try std.testing.expectError(error.UnsupportedExecInstruction, encodeProgramPlan(std.testing.allocator, unsupported_return_error_plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &.{},
+    }));
+
+    const nested_encoded = try encodeProgramPlan(std.testing.allocator, base_plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(nested_encoded);
+    patchInstructionKind(nested_encoded, 0, 10);
+    try std.testing.expectError(error.UnsupportedExecInstruction, decode(std.testing.allocator, nested_encoded));
+
+    const return_error_encoded = try encodeProgramPlan(std.testing.allocator, base_plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(return_error_encoded);
+    patchInstructionKind(return_error_encoded, 1, 11);
+    patchInstructionStringRefFromRow(return_error_encoded, 1, 0);
+    patchTerminatorKind(return_error_encoded, 0, .return_unit);
+    try std.testing.expectError(error.UnsupportedExecInstruction, decode(std.testing.allocator, return_error_encoded));
 }
 
 test "ArtifactV1 derives after capability payload and result codecs from function value and result codecs" {

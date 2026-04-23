@@ -14,7 +14,7 @@ pub const ResumeWitness = shift.effect.Define(.{
 pub const transcript = struct {
     threadlocal var items = [_][]const u8{ "", "", "", "", "", "" };
     threadlocal var len: usize = 0;
-    threadlocal var runtime_ptr: ?*lexical_runtime.Runtime = null;
+    pub threadlocal var runtime_ptr: ?*lexical_runtime.Runtime = null;
     threadlocal var outer_value: i32 = 0;
 
     fn note(message: []const u8) void {
@@ -77,9 +77,11 @@ fn runStaticRedelim(writer: anytype) anyerror!void {
     const result = try lexical_runtime.with(&runtime, .{
         .outer = ResumeWitness.use(.{ .handler = transcript.OuterHandler{} }),
     }, struct {
+        pub const runtime_transcript = transcript;
+
         pub fn body(outer_eff: anytype) anyerror!i32 {
             _ = try outer_eff.outer.step.perform();
-            const nested_result = (try lexical_runtime.with(transcript.runtime_ptr.?, .{
+            const nested_result = (try lexical_runtime.with(runtime_transcript.runtime_ptr.?, .{
                 .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
             }, static_redelim_inner_body_carrier)).value;
             return nested_result;

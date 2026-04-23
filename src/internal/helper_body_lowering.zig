@@ -82,6 +82,8 @@ fn cloneBytes(comptime bytes: []const u8) []const u8 {
 
 fn encodeNestedWithMetadata(
     comptime requirement_label: []const u8,
+    comptime runtime_container_name: []const u8,
+    comptime runtime_field_name: []const u8,
     comptime factory_name: []const u8,
     comptime container_name: []const u8,
     comptime handler_name: []const u8,
@@ -90,9 +92,13 @@ fn encodeNestedWithMetadata(
     comptime body_symbol: ?[]const u8,
 ) []const u8 {
     return std.fmt.comptimePrint(
-        "{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}",
+        "{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}",
         .{
             requirement_label,
+            nested_with_metadata_delimiter,
+            runtime_container_name,
+            nested_with_metadata_delimiter,
+            runtime_field_name,
             nested_with_metadata_delimiter,
             factory_name,
             nested_with_metadata_delimiter,
@@ -2288,6 +2294,8 @@ fn buildLinearBodyForFunction(
                     const dst = appendBoundLocal(&local_storage, nested_with.local_name, codec);
                     const metadata = encodeNestedWithMetadata(
                         nested_with.requirement_label,
+                        nested_with.runtime_container_name,
+                        nested_with.runtime_field_name,
                         nested_with.factory_name,
                         nested_with.container_name,
                         nested_with.handler_name,

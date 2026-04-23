@@ -93,10 +93,12 @@ fn witnessMultiPromptBody(eff: anytype) anyerror!i32 {
     return 42;
 }
 
-const transcript_static_redelim = struct {
+/// Runtime-visible transcript state for the static re-delimitation witness.
+pub const transcript_static_redelim = struct {
     threadlocal var items = [_][]const u8{ "", "", "", "", "", "" };
     threadlocal var len: usize = 0;
-    threadlocal var runtime_ptr: ?*lexical_runtime.Runtime = null;
+    /// Runtime selected by the source-level nested lexical `with` call.
+    pub threadlocal var runtime_ptr: ?*lexical_runtime.Runtime = null;
     threadlocal var outer_value: i32 = 0;
 
     fn note(message: []const u8) void {

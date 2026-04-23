@@ -71,6 +71,8 @@ pub const Step = union(enum) {
     },
     bind_local_from_nested_with: struct {
         local_name: []const u8,
+        runtime_container_name: []const u8,
+        runtime_field_name: []const u8,
         requirement_label: []const u8,
         factory_name: []const u8,
         container_name: []const u8,
@@ -499,6 +501,8 @@ fn parseBoundLocalFromNestedWith(
     statement: []const Token,
 ) ?struct {
     local_name: []const u8,
+    runtime_container_name: []const u8,
+    runtime_field_name: []const u8,
     requirement_label: []const u8,
     factory_name: []const u8,
     container_name: []const u8,
@@ -554,7 +558,7 @@ fn parseBoundLocalFromNestedWith(
             else => {},
         }
     }
-    _ = runtime_arg orelse return null;
+    const runtime_ref = parseNestedRuntimeArg(runtime_arg orelse return null) orelse return null;
     const handlers = handlers_arg orelse return null;
     const body_tokens = body_arg orelse return null;
 
@@ -585,11 +589,32 @@ fn parseBoundLocalFromNestedWith(
 
     return .{
         .local_name = tokens[1].lexeme,
+        .runtime_container_name = runtime_ref.container_name,
+        .runtime_field_name = runtime_ref.field_name,
         .requirement_label = nested_label,
         .factory_name = factory_name,
         .container_name = container_name,
         .handler_name = handler_name,
         .carrier_name = carrier_name,
+    };
+}
+
+fn parseNestedRuntimeArg(tokens: []const Token) ?struct {
+    container_name: []const u8,
+    field_name: []const u8,
+} {
+    if (tokens.len != 5) return null;
+    if (tokens[0].tag != .identifier or
+        tokens[1].tag != .period or
+        tokens[2].tag != .identifier or
+        tokens[3].tag != .period or
+        tokens[4].tag != .question_mark)
+    {
+        return null;
+    }
+    return .{
+        .container_name = tokens[0].lexeme,
+        .field_name = tokens[2].lexeme,
     };
 }
 
@@ -1013,6 +1038,8 @@ pub fn parseFunctionBody(
         if (parseBoundLocalFromNestedWith(statement)) |nested_with| {
             body.steps[body.step_count] = .{ .bind_local_from_nested_with = .{
                 .local_name = nested_with.local_name,
+                .runtime_container_name = nested_with.runtime_container_name,
+                .runtime_field_name = nested_with.runtime_field_name,
                 .requirement_label = nested_with.requirement_label,
                 .factory_name = nested_with.factory_name,
                 .container_name = nested_with.container_name,

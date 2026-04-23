@@ -90,6 +90,8 @@ const nested_with_metadata_delimiter = "\x1f";
 
 const NestedWithMetadata = struct {
     requirement_label: []const u8,
+    runtime_container_name: []const u8,
+    runtime_field_name: []const u8,
     factory_name: []const u8,
     container_name: []const u8,
     handler_name: []const u8,
@@ -99,7 +101,7 @@ const NestedWithMetadata = struct {
 };
 
 fn parseNestedWithMetadata(comptime encoded: []const u8) NestedWithMetadata {
-    comptime var parts: [7][]const u8 = undefined;
+    comptime var parts: [9][]const u8 = undefined;
     comptime var part_index: usize = 0;
     comptime var start: usize = 0;
     comptime var index: usize = 0;
@@ -117,12 +119,14 @@ fn parseNestedWithMetadata(comptime encoded: []const u8) NestedWithMetadata {
     if (part_index != parts.len) @compileError("nested lexical with metadata is malformed");
     return .{
         .requirement_label = parts[0],
-        .factory_name = parts[1],
-        .container_name = parts[2],
-        .handler_name = parts[3],
-        .carrier_name = if (parts[4].len == 0) null else parts[4],
-        .source_path = if (parts[5].len == 0) null else parts[5],
-        .body_symbol = if (parts[6].len == 0) null else parts[6],
+        .runtime_container_name = parts[1],
+        .runtime_field_name = parts[2],
+        .factory_name = parts[3],
+        .container_name = parts[4],
+        .handler_name = parts[5],
+        .carrier_name = if (parts[6].len == 0) null else parts[6],
+        .source_path = if (parts[7].len == 0) null else parts[7],
+        .body_symbol = if (parts[8].len == 0) null else parts[8],
     };
 }
 
@@ -280,7 +284,9 @@ fn executeNestedWithInstruction(
     comptime result_codec: program_plan.ValueCodec,
     runtime: *lowered_machine.Runtime,
 ) anyerror!lowered_machine.ProgramValue {
+    _ = runtime;
     const metadata = comptime parseNestedWithMetadata(metadata_source);
+    const nested_runtime = try nestedRuntimePointer(SourceModule, metadata);
     if (metadata.carrier_name) |carrier_name| {
         const nested_carrier = nested_named_carrier_runtime.NamedNestedCarrier(
             SourceModule,
@@ -295,7 +301,7 @@ fn executeNestedWithInstruction(
         const HandlersType = singleFieldStructType(metadata.requirement_label, nested_carrier.descriptor_type);
         var handlers: HandlersType = undefined;
         @field(handlers, metadata.requirement_label) = nested_carrier.descriptor();
-        const result = try runEntryInSource(runtime, nested_carrier.compiled_plan_value, SourceModule, &handlers);
+        const result = try runEntryInSource(nested_runtime, nested_carrier.compiled_plan_value, SourceModule, &handlers);
         return encodeTypedProgramValue(result.value);
     }
     const source_module = nestedWithSourceModule(SourceModule);
@@ -305,8 +311,23 @@ fn executeNestedWithInstruction(
     var handlers: HandlersType = undefined;
     @field(handlers, metadata.requirement_label) = HandlerType{};
     const nested_plan = comptime nestedWithProgramPlan(SourceModule, metadata_source, result_codec);
-    const result = try runEntryInSource(runtime, nested_plan, SourceModule, &handlers);
+    const result = try runEntryInSource(nested_runtime, nested_plan, SourceModule, &handlers);
     return encodeTypedProgramValue(result.value);
+}
+
+fn nestedRuntimePointer(
+    comptime SourceModule: type,
+    comptime metadata: NestedWithMetadata,
+) anyerror!*lowered_machine.Runtime {
+    const source_module = nestedWithSourceModule(SourceModule);
+    if (!@hasDecl(source_module, metadata.runtime_container_name)) {
+        @compileError("nested lexical with runtime argument must name a source-visible runtime container");
+    }
+    const RuntimeContainer = @field(source_module, metadata.runtime_container_name);
+    if (!@hasDecl(RuntimeContainer, metadata.runtime_field_name)) {
+        @compileError("nested lexical with runtime argument must name a source-visible runtime pointer field");
+    }
+    return @field(RuntimeContainer, metadata.runtime_field_name) orelse error.ProgramContractViolation;
 }
 
 fn executeNestedWithAtInstruction(
