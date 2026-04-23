@@ -122,6 +122,7 @@ test "public root drops compile entrypoints while shift_compile keeps provenance
     try std.testing.expect(!@hasDecl(shift, "run"));
     try std.testing.expect(!@hasDecl(shift, "artifact"));
     try std.testing.expect(!@hasDecl(shift, "durable"));
+    try std.testing.expect(!@hasDecl(shift, "debug_anonymous_body_synthesis"));
     try std.testing.expect(!@hasDecl(shift, "interpreter"));
     try std.testing.expect(!@hasDecl(shift, "ir"));
     try std.testing.expect(!@hasDecl(shift, "lowering"));

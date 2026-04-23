@@ -340,8 +340,9 @@ fn executeNestedWithAtInstruction(
         inline 0...(compiled_plan.instructions.len - 1) => |active_index| blk: {
             const instruction = compiled_plan.instructions[active_index];
             if (instruction.kind != .call_nested_with) break :blk error.ProgramContractViolation;
-            const result_codec: program_plan.ValueCodec = @enumFromInt(@as(u8, @truncate(instruction.aux)));
-            break :blk try executeNestedWithInstruction(SourceModule, instruction.string_literal, result_codec, runtime);
+            const result_codec: ?program_plan.ValueCodec = comptime program_plan.valueCodecFromInstructionAux(instruction.aux) catch null;
+            if (comptime result_codec == null) break :blk error.ProgramContractViolation;
+            break :blk try executeNestedWithInstruction(SourceModule, instruction.string_literal, result_codec.?, runtime);
         },
         else => error.ProgramContractViolation,
     };
@@ -679,7 +680,8 @@ fn continueFunction(
                         instruction_index,
                         runtime,
                     );
-                    const nested_codec: program_plan.ValueCodec = @enumFromInt(@as(u8, @truncate(instruction.aux)));
+                    const nested_codec = program_plan.valueCodecFromInstructionAux(instruction.aux) catch
+                        return error.ProgramContractViolation;
                     if (nested_codec != .unit) {
                         if (instruction.dst >= locals.len) return error.ProgramContractViolation;
                         setLocal(locals, instruction.dst, nested_result);
@@ -1022,6 +1024,60 @@ test "program plan interpreter rejects const_i32 instructions targeting usize lo
     };
 
     var handlers = struct {}{};
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, executeDispatch(&runtime, compiled_plan, &handlers, 0, &.{}));
+}
+
+test "program plan interpreter rejects invalid call_nested_with aux codecs" {
+    const compiled_plan: program_plan.ProgramPlan = .{
+        .label = "interpreter.invalid.call_nested_with_aux_codec",
+        .ir_hash = 0x306,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{.{ .label = "req", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "noop",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .unit,
+        }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{
+            .kind = .call_nested_with,
+            .aux = 256,
+            .string_literal = "nested\x1fruntime\x1fptr\x1ffactory\x1fcontainer\x1fhandler\x1f\x1f\x1f",
+        }},
+    };
+
+    var handlers = struct {
+        req: struct {
+            /// Compile-only no-op handler for unreachable call_op branches.
+            pub fn noop(_: *@This()) void {
+                // The malformed nested-with instruction returns before this handler can run.
+            }
+        } = .{},
+    }{};
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     try std.testing.expectError(error.ProgramContractViolation, executeDispatch(&runtime, compiled_plan, &handlers, 0, &.{}));

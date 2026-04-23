@@ -326,7 +326,7 @@ pub const ProgramPlan = struct {
                         }
                     },
                     .call_nested_with => {
-                        const result_codec: ValueCodec = @enumFromInt(@as(u8, @truncate(instruction.aux)));
+                        const result_codec = try valueCodecFromInstructionAux(instruction.aux);
                         if (result_codec != .unit and !functionLocalHasCodec(self, function, instruction.dst, result_codec)) {
                             return error.InvalidInstructionLocalIndex;
                         }
@@ -538,6 +538,7 @@ pub const ValidationError = error{
     InvalidTerminatorInstruction,
     InvalidTerminatorTarget,
     UnsupportedSchemaVersion,
+    InvalidInstructionCodec,
 };
 /// Error set for lowering comptime IR into a runtime-owned plan.
 pub const PlanError = CodecError || effect_ir.NormalizeError || error{EmptyProgram};
@@ -699,6 +700,14 @@ fn rangeEnd(start: u16, len: u16) ?usize {
 
 fn isValidFunctionLocal(local_count: u16, local_id: u16) bool {
     return local_id < local_count;
+}
+
+/// Decode a serialized instruction aux field as a full-width ValueCodec tag.
+pub fn valueCodecFromInstructionAux(aux: u16) ValidationError!ValueCodec {
+    inline for (@typeInfo(ValueCodec).@"enum".fields) |field| {
+        if (aux == field.value) return @enumFromInt(field.value);
+    }
+    return error.InvalidInstructionCodec;
 }
 
 fn functionLocalCodec(self: ProgramPlan, function: FunctionPlan, local_id: u16) ?ValueCodec {

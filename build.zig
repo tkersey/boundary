@@ -4677,6 +4677,8 @@ pub fn build(b: *std.Build) void {
     );
     internal_program_plan_tests.root_module.addImport("internal_program_plan", internal_program_plan_mod);
     internal_program_plan_tests.root_module.addImport("effect_ir", effect_ir_mod);
+    internal_program_plan_tests.root_module.addImport("lowered_machine", lowered_machine_mod);
+    internal_program_plan_tests.root_module.addImport("lowering_api", lowering_api_mod);
     const run_plan_review_tests = addRunArtifactWithArgs(b, internal_program_plan_tests, test_runner_args.passthrough.items);
 
     const witness_mod = b.createModule(.{
