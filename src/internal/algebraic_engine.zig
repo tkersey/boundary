@@ -268,6 +268,14 @@ fn ExplicitContinuationErrorSetWithContext(
     return ReturnTypeErrorSet(ExplicitContinuationReturnTypeWithContext(ContextPtrType, Continuation, ResumeType));
 }
 
+fn contextualContinuationCanUseCompiledChoicePath(
+    comptime ContextPtrType: type,
+    comptime Continuation: type,
+    comptime ResumeType: type,
+) bool {
+    return @typeInfo(ExplicitContinuationReturnTypeWithContext(ContextPtrType, Continuation, ResumeType)) != .error_union;
+}
+
 fn callExplicitContinuation(
     comptime Continuation: anytype,
     resume_value: anytype,
@@ -812,7 +820,9 @@ fn Binding(
                 /// Final answer type produced by the authored contextual program.
                 pub const AuthoredAnswerType = Answer;
                 /// Whether this authored contextual program has a semantic compiled ProgramPlan path.
-                pub const has_compiled_plan = authoredCompiledProgram() != null and SpecType.builder_kind == .choice;
+                pub const has_compiled_plan = authoredCompiledProgram() != null and
+                    SpecType.builder_kind == .choice and
+                    contextualContinuationCanUseCompiledChoicePath(ContextPtrType, Continuation, Op.Resume);
 
                 /// Install the explicit handler carrier onto the authored choice program before execution.
                 pub fn activate(self: *const @This()) void {

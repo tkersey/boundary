@@ -982,6 +982,44 @@ fn runCompiledLexicalPlan(
     return result.?.value;
 }
 
+fn interpretedLexicalSourceLocation() std.builtin.SourceLocation {
+    const file_z = "/tmp/shift_with/interpreted_lexical_with.zig";
+    const fn_z = "interpreted_lexical_with";
+    return .{
+        .module = @src().module,
+        .file = file_z[0..file_z.len :0],
+        .line = 1,
+        .column = 1,
+        .fn_name = fn_z[0..fn_z.len :0],
+    };
+}
+
+fn runInterpretedLexicalWith(
+    comptime HandlersType: type,
+    comptime Body: type,
+    runtime: *lowered_machine.Runtime,
+    handlers_ptr: *HandlersType,
+    outputs_ptr: *OutputBundleType(HandlersType),
+) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
+    return try runChainCollected(HandlersType, Body, 0, struct {}, interpretedLexicalSourceLocation(), .{
+        .runtime = runtime,
+        .handlers_ptr = handlers_ptr,
+        .eff_value = .{},
+        .outputs_ptr = outputs_ptr,
+    });
+}
+
+fn sourceHasExplicitContinuationErrorReturn(
+    comptime module_path: []const u8,
+    comptime entry_symbol: []const u8,
+    comptime source_text: []const u8,
+) bool {
+    _ = module_path;
+    _ = entry_symbol;
+    if (std.mem.find(u8, source_text, "fn apply(") == null) return false;
+    return std.mem.find(u8, source_text, "return error.") != null;
+}
+
 threadlocal var compiled_plain_with_witness = false;
 
 fn compiledBodyReturnSyntax(comptime HandlersType: type, comptime Body: type) ?[]const u8 {
@@ -1017,6 +1055,9 @@ fn tryCallerOwnedAnonymousCompiledWith(
         },
     ));
     const synthetic_path = comptime syntheticLoweringSourcePath(entry_symbol);
+    if (comptime sourceHasExplicitContinuationErrorReturn(synthetic_path, entry_symbol, synthetic)) {
+        return try runInterpretedLexicalWith(HandlersType, Body, runtime, handlers_ptr, outputs_ptr);
+    }
     const lowered_program = comptime lowering_api.lower(
         lowering_api.sourceWithContent(
             synthetic_path,
@@ -1092,6 +1133,9 @@ fn tryRepoOwnedAnonymousCompiledWith(
         synthesized.source,
     );
     _ = source_ref;
+    if (comptime sourceHasExplicitContinuationErrorReturn(synthetic_path, synthesized.entry_symbol, synthesized.source)) {
+        return try runInterpretedLexicalWith(HandlersType, Body, runtime, handlers_ptr, outputs_ptr);
+    }
     const lowered_program = comptime lowering_api.lower(
         lowering_api.sourceWithContent(
             synthetic_path,
@@ -1136,6 +1180,9 @@ fn tryRepoOwnedNamedCompiledWith(
         compiledBodyReturnSyntax(HandlersType, Body),
     );
     const synthetic_path = comptime syntheticLoweringSourcePath(entry_symbol);
+    if (comptime sourceHasExplicitContinuationErrorReturn(synthetic_path, entry_symbol, synthetic_source)) {
+        return try runInterpretedLexicalWith(HandlersType, Body, runtime, handlers_ptr, outputs_ptr);
+    }
     const lowered_program = comptime lowering_api.lower(
         lowering_api.sourceWithContent(
             synthetic_path,
