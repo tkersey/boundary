@@ -61,17 +61,24 @@ fn witnessStaticRedelimInnerBody(inner_eff: anytype) anyerror!i32 {
     return inner_value + 9 + transcript_static_redelim.outer_value;
 }
 
+const static_redelim_inner_body = struct {
+    /// Source path for the named nested carrier used by compiled witness lowering.
+    pub const source_path = "src/witness_sources.zig";
+    /// Entry symbol for the named nested carrier used by compiled witness lowering.
+    pub const body_symbol = "witnessStaticRedelimInnerBody";
+
+    /// Execute the static redelim inner witness body through the named carrier.
+    pub fn body(inner_eff: anytype) anyerror!i32 {
+        return witnessStaticRedelimInnerBody(inner_eff);
+    }
+};
+
 fn witnessStaticRedelimOuterBody(outer_eff: anytype) anyerror!i32 {
     transcript_static_redelim.outer_value = try outer_eff.outer.step.perform();
     transcript_static_redelim.note("after-outer-shift");
     const nested = try lexical_runtime.with(transcript_static_redelim.runtime_ptr.?, .{
         .inner = ResumeWitness.use(.{ .handler = transcript_static_redelim.InnerHandler{} }),
-    }, struct {
-        /// Execute the nested inner witness through the legacy runtime path.
-        pub fn body(inner_eff: anytype) anyerror!i32 {
-            return witnessStaticRedelimInnerBody(inner_eff);
-        }
-    });
+    }, static_redelim_inner_body);
     transcript_static_redelim.note("outer-handler-exit");
     return nested.value;
 }

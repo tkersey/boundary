@@ -2154,6 +2154,15 @@ test "shared engine finds appended entry after top-level const struct declaratio
         \\    return 2;
         \\}
         \\
+        \\const static_redelim_inner_body_carrier = struct {
+        \\    pub const source_path = "source_graph_engine_demo.zig";
+        \\    pub const body_symbol = "staticRedelimInnerBody";
+        \\
+        \\    pub fn body(inner_eff: anytype) anyerror!i32 {
+        \\        return staticRedelimInnerBody(inner_eff);
+        \\    }
+        \\};
+        \\
         \\fn runStaticRedelim(writer: anytype) anyerror!void {
         \\    _ = writer;
         \\    _ = try lexical_runtime.with(&runtime, .{
@@ -2163,11 +2172,7 @@ test "shared engine finds appended entry after top-level const struct declaratio
         \\            _ = try outer_eff.outer.step.perform();
         \\            const nested = (try lexical_runtime.with(transcript.runtime_ptr.?, .{
         \\                .inner = NestedResumeWitness.use(.{ .handler = Nested.InnerHandler{} }),
-        \\            }, struct {
-        \\                pub fn body(inner_eff: anytype) anyerror!i32 {
-        \\                    return staticRedelimInnerBody(inner_eff);
-        \\                }
-        \\            })).value;
+        \\            }, static_redelim_inner_body_carrier)).value;
         \\            return nested;
         \\        }
         \\
@@ -2186,11 +2191,7 @@ test "shared engine finds appended entry after top-level const struct declaratio
         \\    _ = try outer_eff.outer.step.perform();
         \\    const nested = (try lexical_runtime.with(transcript.runtime_ptr.?, .{
         \\        .inner = NestedResumeWitness.use(.{ .handler = Nested.InnerHandler{} }),
-        \\    }, struct {
-        \\        pub fn body(inner_eff: anytype) anyerror!i32 {
-        \\            return staticRedelimInnerBody(inner_eff);
-        \\        }
-        \\    })).value;
+        \\    }, static_redelim_inner_body_carrier)).value;
         \\    return nested;
         \\}
     ,

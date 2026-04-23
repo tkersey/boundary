@@ -4,6 +4,7 @@
 // zlinter-disable no_undefined - fixed-size local helper buffers are completely overwritten before observation in the interpreter hot path.
 // zlinter-disable require_doc_comment - executable plan interpreter helpers are internal runtime glue, not user-facing API docs.
 const lowered_machine = @import("lowered_machine");
+const nested_named_carrier_runtime = @import("nested_named_carrier_runtime.zig");
 const program_plan = @import("internal_program_plan");
 const std = @import("std");
 
@@ -92,10 +93,13 @@ const NestedWithMetadata = struct {
     factory_name: []const u8,
     container_name: []const u8,
     handler_name: []const u8,
+    carrier_name: ?[]const u8,
+    source_path: ?[]const u8,
+    body_symbol: ?[]const u8,
 };
 
 fn parseNestedWithMetadata(comptime encoded: []const u8) NestedWithMetadata {
-    comptime var parts: [4][]const u8 = undefined;
+    comptime var parts: [7][]const u8 = undefined;
     comptime var part_index: usize = 0;
     comptime var start: usize = 0;
     comptime var index: usize = 0;
@@ -116,6 +120,9 @@ fn parseNestedWithMetadata(comptime encoded: []const u8) NestedWithMetadata {
         .factory_name = parts[1],
         .container_name = parts[2],
         .handler_name = parts[3],
+        .carrier_name = if (parts[4].len == 0) null else parts[4],
+        .source_path = if (parts[5].len == 0) null else parts[5],
+        .body_symbol = if (parts[6].len == 0) null else parts[6],
     };
 }
 
@@ -128,6 +135,10 @@ fn singleFieldStructType(comptime field_name: []const u8, comptime FieldType: ty
     const types = [_]type{FieldType};
     const attrs = [_]std.builtin.Type.StructField.Attributes{.{ .@"align" = @alignOf(FieldType) }};
     return @Struct(.auto, null, &names, &types, &attrs);
+}
+
+fn effectiveHandlerPtr(handler_ptr: anytype) @TypeOf(if (@hasField(@TypeOf(handler_ptr.*), "handler")) &handler_ptr.handler else handler_ptr) {
+    return if (@hasField(@TypeOf(handler_ptr.*), "handler")) &handler_ptr.handler else handler_ptr;
 }
 
 fn encodeTypedProgramValue(value: anytype) lowered_machine.ProgramValue {
@@ -270,6 +281,23 @@ fn executeNestedWithInstruction(
     runtime: *lowered_machine.Runtime,
 ) anyerror!lowered_machine.ProgramValue {
     const metadata = comptime parseNestedWithMetadata(metadata_source);
+    if (metadata.carrier_name) |carrier_name| {
+        const nested_carrier = nested_named_carrier_runtime.NamedNestedCarrier(
+            SourceModule,
+            metadata.requirement_label,
+            metadata.factory_name,
+            metadata.container_name,
+            metadata.handler_name,
+            carrier_name,
+            metadata.source_path orelse @compileError("named nested lexical metadata requires a source_path"),
+            metadata.body_symbol orelse @compileError("named nested lexical metadata requires a body_symbol"),
+        );
+        const HandlersType = singleFieldStructType(metadata.requirement_label, nested_carrier.descriptor_type);
+        var handlers: HandlersType = undefined;
+        @field(handlers, metadata.requirement_label) = nested_carrier.descriptor();
+        const result = try runEntryInSource(runtime, nested_carrier.compiled_plan_value, SourceModule, &handlers);
+        return encodeTypedProgramValue(result.value);
+    }
     const source_module = nestedWithSourceModule(SourceModule);
     const handler_container = @field(source_module, metadata.container_name);
     const HandlerType = @field(handler_container, metadata.handler_name);
@@ -430,7 +458,8 @@ fn callOp(
         inline 0...(compiled_plan.ops.len - 1) => |active_index| blk: {
             const op = compiled_plan.ops[active_index];
             const requirement = compiled_plan.requirements[op.requirement_index];
-            const handler_ptr = &@field(handlers_ptr.*, requirement.label);
+            const binding_ptr = &@field(handlers_ptr.*, requirement.label);
+            const handler_ptr = effectiveHandlerPtr(binding_ptr);
             const HandlerType = @TypeOf(handler_ptr.*);
             const method = @field(HandlerType, op.op_name);
             const ResumeType = runtimeValueType(op.resume_codec);
@@ -510,7 +539,8 @@ fn applyAfter(
         inline 0...(compiled_plan.ops.len - 1) => |active_index| blk: {
             const op = compiled_plan.ops[active_index];
             const requirement = compiled_plan.requirements[op.requirement_index];
-            const handler_ptr = &@field(handlers_ptr.*, requirement.label);
+            const binding_ptr = &@field(handlers_ptr.*, requirement.label);
+            const handler_ptr = effectiveHandlerPtr(binding_ptr);
             const HandlerType = @TypeOf(handler_ptr.*);
             const maybe_after_name = comptime resolvedAfterMethodName(HandlerType, op.op_name);
             const after_name = maybe_after_name orelse break :blk answer;

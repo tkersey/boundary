@@ -85,9 +85,12 @@ fn encodeNestedWithMetadata(
     comptime factory_name: []const u8,
     comptime container_name: []const u8,
     comptime handler_name: []const u8,
+    comptime carrier_name: ?[]const u8,
+    comptime source_path: ?[]const u8,
+    comptime body_symbol: ?[]const u8,
 ) []const u8 {
     return std.fmt.comptimePrint(
-        "{s}{s}{s}{s}{s}{s}{s}",
+        "{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}",
         .{
             requirement_label,
             nested_with_metadata_delimiter,
@@ -96,6 +99,12 @@ fn encodeNestedWithMetadata(
             container_name,
             nested_with_metadata_delimiter,
             handler_name,
+            nested_with_metadata_delimiter,
+            carrier_name orelse "",
+            nested_with_metadata_delimiter,
+            source_path orelse "",
+            nested_with_metadata_delimiter,
+            body_symbol orelse "",
         },
     );
 }
@@ -121,10 +130,11 @@ fn nextRelevantToken(tokenizer: *std.zig.Tokenizer, source: [:0]const u8) ?BodyT
     }
 }
 
-fn namedCarrierBodySymbol(
+fn namedCarrierStringField(
     comptime module_path: []const u8,
     comptime root_source: RootSource,
     comptime carrier_name: []const u8,
+    comptime field_name_target: []const u8,
 ) ?[]const u8 {
     const module_source = source_graph_embed.sourceBytes(
         module_path,
@@ -172,7 +182,7 @@ fn namedCarrierBodySymbol(
                         .keyword_const, .keyword_var => {
                             if (struct_depth != 1) continue;
                             const field_name = nextRelevantToken(&tokenizer, module_source) orelse return null;
-                            if (field_name.tag != .identifier or !std.mem.eql(u8, field_name.lexeme, "body_symbol")) continue;
+                            if (field_name.tag != .identifier or !std.mem.eql(u8, field_name.lexeme, field_name_target)) continue;
                             const field_equal = nextRelevantToken(&tokenizer, module_source) orelse return null;
                             if (field_equal.tag != .equal) return null;
                             const literal = nextRelevantToken(&tokenizer, module_source) orelse return null;
@@ -191,6 +201,22 @@ fn namedCarrierBodySymbol(
     return null;
 }
 
+fn namedCarrierBodySymbol(
+    comptime module_path: []const u8,
+    comptime root_source: RootSource,
+    comptime carrier_name: []const u8,
+) ?[]const u8 {
+    return namedCarrierStringField(module_path, root_source, carrier_name, "body_symbol");
+}
+
+fn namedCarrierSourcePath(
+    comptime module_path: []const u8,
+    comptime root_source: RootSource,
+    comptime carrier_name: []const u8,
+) ?[]const u8 {
+    return namedCarrierStringField(module_path, root_source, carrier_name, "source_path");
+}
+
 fn nestedWithResultCodec(
     comptime functions: []const effect_ir.Function,
     comptime module_path: []const u8,
@@ -198,7 +224,7 @@ fn nestedWithResultCodec(
     comptime function_index: usize,
     comptime requirement_label: []const u8,
     comptime carrier_name: ?[]const u8,
-) effect_ir.LocalCodec {
+) ?effect_ir.LocalCodec {
     if (carrier_name) |named_carrier| {
         const body_symbol = namedCarrierBodySymbol(module_path, root_source, named_carrier) orelse
             @compileError("public lowering named nested lexical carrier requires a top-level body_symbol string");
@@ -233,21 +259,10 @@ fn nestedWithResultCodec(
         };
         return codecForValueShape(module_graph.functions[module_graph.entry_index.?].return_shape);
     }
-    for (functions[function_index].row.requirements) |requirement| {
-        if (!std.mem.eql(u8, requirement.label, requirement_label)) continue;
-        if (requirement.ops.len != 1) {
-            @compileError("public lowering nested lexical with currently requires one-op generated families");
-        }
-        const op = requirement.ops[0];
-        if (op.ResumeType == void) return .unit;
-        if (op.ResumeType == bool) return .bool;
-        if (op.ResumeType == i32) return .i32;
-        if (op.ResumeType == usize) return .usize;
-        if (op.ResumeType == []const u8) return .string;
-        if (op.ResumeType == [][]const u8) return .string_list;
-        @compileError("public lowering nested lexical with produced an unsupported resume codec");
-    }
-    @compileError("public lowering could not resolve the nested lexical with requirement codec");
+    _ = functions;
+    _ = function_index;
+    _ = requirement_label;
+    return null;
 }
 
 fn cloneInstructions(comptime instructions: []const program_frontend.BodyInstruction) []const program_frontend.BodyInstruction {
@@ -2252,14 +2267,33 @@ fn buildLinearBodyForFunction(
                         context.lowered_function_index,
                         nested_with.requirement_label,
                         nested_with.carrier_name,
-                    );
+                    ) orelse break :blk null;
                     if (codec == .unit) break :blk null;
+                    const body_symbol = if (nested_with.carrier_name) |carrier_name|
+                        namedCarrierBodySymbol(
+                            context.graph.functions[context.graph_function_index].module_path,
+                            context.root_source,
+                            carrier_name,
+                        ) orelse @compileError("public lowering named nested lexical carrier requires a top-level body_symbol string")
+                    else
+                        null;
+                    const source_path = if (nested_with.carrier_name) |carrier_name|
+                        namedCarrierSourcePath(
+                            context.graph.functions[context.graph_function_index].module_path,
+                            context.root_source,
+                            carrier_name,
+                        ) orelse @compileError("public lowering named nested lexical carrier requires a top-level source_path string")
+                    else
+                        null;
                     const dst = appendBoundLocal(&local_storage, nested_with.local_name, codec);
                     const metadata = encodeNestedWithMetadata(
                         nested_with.requirement_label,
                         nested_with.factory_name,
                         nested_with.container_name,
                         nested_with.handler_name,
+                        nested_with.carrier_name,
+                        source_path,
+                        body_symbol,
                     );
                     appendInstruction(instructions[0..], &instruction_count, .{
                         .kind = .call_nested_with,
