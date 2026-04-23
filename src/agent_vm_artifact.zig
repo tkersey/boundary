@@ -1154,6 +1154,11 @@ fn canonicalInstruction(plan: program_plan.ProgramPlan, instruction: program_pla
             if (callee.parameter_count == 0) canonical.aux = 0;
             canonical.string_literal = "";
         },
+        .call_nested_with => {
+            const result_codec: program_plan.ValueCodec = @enumFromInt(@as(u8, @truncate(instruction.aux)));
+            if (result_codec == .unit) canonical.dst = 0;
+            canonical.operand = 0;
+        },
         .call_op => {
             const plan_op = plan.ops[instruction.operand];
             if (plan_op.resume_codec == .unit) canonical.dst = 0;
@@ -1641,7 +1646,20 @@ fn decodeInstructionKind(raw_kind: u8, artifact_version: u16) !program_plan.Inst
             7 => .sub_one,
             else => error.UnsupportedVersion,
         },
-        artifact_format_version_v2, artifact_format_version_v3 => std.enums.fromInt(program_plan.InstructionKind, raw_kind) orelse error.UnsupportedVersion,
+        artifact_format_version_v2, artifact_format_version_v3 => switch (raw_kind) {
+            0 => .add_const_i32,
+            1 => .add_i32,
+            2 => .call_helper,
+            3 => .call_op,
+            4 => .compare_eq_zero,
+            5 => .const_i32,
+            6 => .const_string,
+            7 => .const_usize,
+            8 => .return_value,
+            9 => .sub_one,
+            10 => .call_nested_with,
+            else => error.UnsupportedVersion,
+        },
         else => error.UnsupportedVersion,
     };
 }
@@ -1659,6 +1677,7 @@ fn encodeInstructionKind(kind: program_plan.InstructionKind, artifact_version: u
             .const_usize => 7,
             .return_value => 8,
             .sub_one => 9,
+            .call_nested_with => 10,
         },
         artifact_format_version_v1 => switch (kind) {
             .add_const_i32 => 0,
@@ -1669,7 +1688,7 @@ fn encodeInstructionKind(kind: program_plan.InstructionKind, artifact_version: u
             .const_string => 5,
             .return_value => 6,
             .sub_one => 7,
-            .add_i32, .const_usize => unreachable,
+            .add_i32, .const_usize, .call_nested_with => unreachable,
         },
         else => unreachable,
     };

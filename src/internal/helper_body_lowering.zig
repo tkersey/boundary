@@ -5,6 +5,9 @@ const source_graph_embed = @import("source_graph_embed");
 const source_graph_engine = @import("source_graph_engine");
 const std = @import("std");
 // zlinter-disable no_unused - AdmittedBodyV1 migration temporarily leaves legacy token parsers in place for the remaining non-normalized paths.
+// zlinter-disable require_labeled_continue - token-walk control flow is intentionally kept compact in the named-carrier probe.
+// zlinter-disable max_positional_args - retained-body lowering helpers carry explicit compile-time context instead of opaque structs.
+// zlinter-disable require_exhaustive_enum_switch - tokenizer tag scans are intentionally partial and fail closed through explicit fallthrough.
 
 const BodyToken = struct {
     tag: std.zig.Token.Tag,
@@ -82,10 +85,9 @@ fn encodeNestedWithMetadata(
     comptime factory_name: []const u8,
     comptime container_name: []const u8,
     comptime handler_name: []const u8,
-    comptime helper_name: []const u8,
 ) []const u8 {
     return std.fmt.comptimePrint(
-        "{s}{s}{s}{s}{s}{s}{s}{s}{s}",
+        "{s}{s}{s}{s}{s}{s}{s}",
         .{
             requirement_label,
             nested_with_metadata_delimiter,
@@ -94,8 +96,6 @@ fn encodeNestedWithMetadata(
             container_name,
             nested_with_metadata_delimiter,
             handler_name,
-            nested_with_metadata_delimiter,
-            helper_name,
         },
     );
 }
@@ -109,17 +109,145 @@ fn codecForValueShape(shape: ?source_graph_engine.ValueShape) effect_ir.LocalCod
     };
 }
 
-fn nestedWithResultCodec(
-    comptime graph: source_graph_embed.ProgramGraph,
-    comptime module_path: []const u8,
-    comptime helper_name: []const u8,
-) effect_ir.LocalCodec {
-    inline for (graph.functions) |function| {
-        if (!std.mem.eql(u8, function.module_path, module_path)) continue;
-        if (!std.mem.eql(u8, function.name, helper_name)) continue;
-        return codecForValueShape(function.return_shape);
+fn nextRelevantToken(tokenizer: *std.zig.Tokenizer, source: [:0]const u8) ?BodyToken {
+    while (true) {
+        const token = tokenizer.next();
+        if (token.tag == .eof) return null;
+        if (isBodyIgnorable(token.tag)) continue;
+        return .{
+            .tag = token.tag,
+            .lexeme = source[token.loc.start..token.loc.end],
+        };
     }
-    @compileError("public lowering could not resolve the nested lexical with helper result codec");
+}
+
+fn namedCarrierBodySymbol(
+    comptime module_path: []const u8,
+    comptime root_source: RootSource,
+    comptime carrier_name: []const u8,
+) ?[]const u8 {
+    const module_source = source_graph_embed.sourceBytes(
+        module_path,
+        root_source.path,
+        root_source.content,
+        root_source.imported_sources,
+    ) catch return null;
+    var tokenizer = std.zig.Tokenizer.init(module_source);
+    var depth: usize = 0;
+
+    while (nextRelevantToken(&tokenizer, module_source)) |token| {
+        switch (token.tag) {
+            .l_brace => {
+                depth += 1;
+                continue;
+            },
+            .r_brace => {
+                if (depth != 0) depth -= 1;
+                continue;
+            },
+            .keyword_const, .keyword_var => {
+                if (depth != 0) continue;
+                const name = nextRelevantToken(&tokenizer, module_source) orelse return null;
+                if (name.tag != .identifier or !std.mem.eql(u8, name.lexeme, carrier_name)) continue;
+                const equal = nextRelevantToken(&tokenizer, module_source) orelse return null;
+                if (equal.tag != .equal) return null;
+                const struct_kw = nextRelevantToken(&tokenizer, module_source) orelse return null;
+                if (struct_kw.tag != .keyword_struct) return null;
+                const open_brace = nextRelevantToken(&tokenizer, module_source) orelse return null;
+                if (open_brace.tag != .l_brace) return null;
+
+                var struct_depth: usize = 1;
+                while (nextRelevantToken(&tokenizer, module_source)) |inner| {
+                    switch (inner.tag) {
+                        .l_brace => {
+                            struct_depth += 1;
+                            continue;
+                        },
+                        .r_brace => {
+                            struct_depth -= 1;
+                            if (struct_depth == 0) break;
+                            continue;
+                        },
+                        .keyword_pub => continue,
+                        .keyword_const, .keyword_var => {
+                            if (struct_depth != 1) continue;
+                            const field_name = nextRelevantToken(&tokenizer, module_source) orelse return null;
+                            if (field_name.tag != .identifier or !std.mem.eql(u8, field_name.lexeme, "body_symbol")) continue;
+                            const field_equal = nextRelevantToken(&tokenizer, module_source) orelse return null;
+                            if (field_equal.tag != .equal) return null;
+                            const literal = nextRelevantToken(&tokenizer, module_source) orelse return null;
+                            if (literal.tag != .string_literal) return null;
+                            return stringLiteralContents(literal.lexeme);
+                        },
+                        else => {},
+                    }
+                }
+                return null;
+            },
+            else => {},
+        }
+    }
+
+    return null;
+}
+
+fn nestedWithResultCodec(
+    comptime functions: []const effect_ir.Function,
+    comptime module_path: []const u8,
+    comptime root_source: RootSource,
+    comptime function_index: usize,
+    comptime requirement_label: []const u8,
+    comptime carrier_name: ?[]const u8,
+) effect_ir.LocalCodec {
+    if (carrier_name) |named_carrier| {
+        const body_symbol = namedCarrierBodySymbol(module_path, root_source, named_carrier) orelse
+            @compileError("public lowering named nested lexical carrier requires a top-level body_symbol string");
+        const module_source = source_graph_embed.sourceBytes(
+            module_path,
+            root_source.path,
+            root_source.content,
+            root_source.imported_sources,
+        ) catch |err| switch (err) {
+            error.MissingImport => @compileError("public lowering named nested lexical carrier could not resolve caller-owned source bytes"),
+            else => unreachable,
+        };
+        const module_graph = source_graph_engine.analyzeComptime(module_source, .{
+            .entry_symbol = body_symbol,
+            .reject_recursive_helpers = false,
+            .reject_indirect_effect_access = true,
+            .reject_malformed_statements = true,
+        }) catch |err| switch (err) {
+            error.EntryMissing => @compileError("public lowering named nested lexical carrier body_symbol was not found in the source graph"),
+            error.ParseError => @compileError("public lowering named nested lexical carrier source did not parse"),
+            error.TooManyFunctions,
+            error.TooManyFunctionParams,
+            error.TooManyImports,
+            error.TooManyHelperUses,
+            error.TooManyHelperEdges,
+            error.TooManyOpUses,
+            error.UnsupportedEffectAccess,
+            error.UnsupportedImportPath,
+            error.MissingImport,
+            error.RecursiveHelpers,
+            => @compileError("public lowering named nested lexical carrier could not analyze the source graph"),
+        };
+        return codecForValueShape(module_graph.functions[module_graph.entry_index.?].return_shape);
+    }
+    for (functions[function_index].row.requirements) |requirement| {
+        if (!std.mem.eql(u8, requirement.label, requirement_label)) continue;
+        if (requirement.ops.len != 1) {
+            @compileError("public lowering nested lexical with currently requires one-op generated families");
+        }
+        const op = requirement.ops[0];
+        if (op.ResumeType == void) return .unit;
+        if (op.ResumeType == bool) return .bool;
+        if (op.ResumeType == i32) return .i32;
+        if (op.ResumeType == usize) return .usize;
+        if (op.ResumeType == []const u8) return .string;
+        if (op.ResumeType == [][]const u8) return .string_list;
+        @compileError("public lowering nested lexical with produced an unsupported resume codec");
+    }
+    @compileError("public lowering could not resolve the nested lexical with requirement codec");
 }
 
 fn cloneInstructions(comptime instructions: []const program_frontend.BodyInstruction) []const program_frontend.BodyInstruction {
@@ -2105,9 +2233,12 @@ fn buildLinearBodyForFunction(
                 },
                 .bind_local_from_nested_with => |nested_with| {
                     const codec = nestedWithResultCodec(
-                        context.graph,
+                        context.functions,
                         context.graph.functions[context.graph_function_index].module_path,
-                        nested_with.helper_name,
+                        context.root_source,
+                        context.lowered_function_index,
+                        nested_with.requirement_label,
+                        nested_with.carrier_name,
                     );
                     if (codec == .unit) break :blk null;
                     const dst = appendBoundLocal(&local_storage, nested_with.local_name, codec);
@@ -2116,7 +2247,6 @@ fn buildLinearBodyForFunction(
                         nested_with.factory_name,
                         nested_with.container_name,
                         nested_with.handler_name,
-                        nested_with.helper_name,
                     );
                     appendInstruction(instructions[0..], &instruction_count, .{
                         .kind = .call_nested_with,

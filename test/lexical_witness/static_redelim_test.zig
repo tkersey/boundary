@@ -1,7 +1,15 @@
+// zlinter-disable require_doc_comment - lexical witness helpers are test-only support surfaces.
+// zlinter-disable declaration_naming - carrier/test helper names intentionally mirror the witness they wrap.
 const common = @import("common.zig");
-const lexical_runtime = common.lexical_runtime;
+const shift = @import("shift");
+const lexical_runtime = shift;
 const std = common.std;
-pub const ResumeWitness = common.ResumeWitness;
+pub const ResumeWitness = shift.effect.Define(.{
+    .state_type = void,
+    .ops = .{
+        shift.effect.ops.Transform("step", void, i32),
+    },
+});
 
 pub const transcript = struct {
     threadlocal var items = [_][]const u8{ "", "", "", "", "", "" };
@@ -19,6 +27,7 @@ pub const transcript = struct {
 
         pub fn step(_: *@This()) i32 {
             transcript.note("outer-handler-enter");
+            transcript.outer_value = 1;
             transcript.note("after-outer-shift");
             return 1;
         }
@@ -50,28 +59,34 @@ pub fn staticRedelimInnerBody(inner_eff: anytype) anyerror!i32 {
     return inner_value;
 }
 
+const static_redelim_inner_body_carrier = struct {
+    pub const source_path = "test/lexical_witness/static_redelim_test.zig";
+    pub const body_symbol = "staticRedelimInnerBody";
+
+    pub fn body(inner_eff: anytype) anyerror!i32 {
+        return staticRedelimInnerBody(inner_eff);
+    }
+};
+
 fn runStaticRedelim(writer: anytype) anyerror!void {
     var runtime = lexical_runtime.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.len = 0;
     transcript.runtime_ptr = &runtime;
+    transcript.outer_value = 0;
     const result = try lexical_runtime.with(&runtime, .{
         .outer = ResumeWitness.use(.{ .handler = transcript.OuterHandler{} }),
     }, struct {
         pub fn body(outer_eff: anytype) anyerror!i32 {
             _ = try outer_eff.outer.step.perform();
-            const nested = (try lexical_runtime.with(transcript.runtime_ptr.?, .{
-                .inner = NestedResumeWitness.use(.{ .handler = Nested.InnerHandler{} }),
-            }, struct {
-                pub fn body(inner_eff: anytype) anyerror!i32 {
-                    return staticRedelimInnerBody(inner_eff);
-                }
-            })).value;
-            return nested;
+            const nested_result = (try lexical_runtime.with(transcript.runtime_ptr.?, .{
+                .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
+            }, static_redelim_inner_body_carrier)).value;
+            return nested_result;
         }
 
         pub const NestedResumeWitness = common.ResumeWitness;
-        pub const Nested = struct {
+        pub const nested = struct {
             pub const InnerHandler = transcript.InnerHandler;
         };
     });

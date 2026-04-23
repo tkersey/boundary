@@ -74,7 +74,7 @@ pub const Step = union(enum) {
         factory_name: []const u8,
         container_name: []const u8,
         handler_name: []const u8,
-        helper_name: []const u8,
+        carrier_name: ?[]const u8,
     },
     bind_local_from_direct: struct {
         local_name: []const u8,
@@ -491,7 +491,7 @@ fn parseBoundLocalFromNestedWith(
     factory_name: []const u8,
     container_name: []const u8,
     handler_name: []const u8,
-    helper_name: []const u8,
+    carrier_name: ?[]const u8,
 } {
     const tokens = statementTrimSemicolon(statement);
     if (tokens.len < 25) return null;
@@ -563,25 +563,13 @@ fn parseBoundLocalFromNestedWith(
     const container_name = handlers[14].lexeme;
     const handler_name = handlers[16].lexeme;
 
-    if (!(body_tokens.len >= 4 and body_tokens[0].tag == .keyword_struct and body_tokens[1].tag == .l_brace)) return null;
-    const helper_name = blk: {
-        var helper: ?[]const u8 = null;
-        var cursor: usize = 0;
-        while (cursor + 1 < body_tokens.len) : (cursor += 1) {
-            if (body_tokens[cursor].tag == .keyword_return and
-                cursor + 5 < body_tokens.len and
-                body_tokens[cursor + 1].tag == .identifier and
-                body_tokens[cursor + 2].tag == .l_paren and
-                body_tokens[cursor + 3].tag == .identifier and
-                body_tokens[cursor + 4].tag == .r_paren and
-                body_tokens[cursor + 5].tag == .semicolon)
-            {
-                helper = body_tokens[cursor + 1].lexeme;
-                break;
-            }
-        }
-        break :blk helper orelse return null;
-    };
+    if (body_tokens.len == 0) return null;
+    const carrier_name: ?[]const u8 = if (body_tokens[0].tag == .identifier)
+        body_tokens[0].lexeme
+    else if (body_tokens.len >= 2 and body_tokens[0].tag == .keyword_struct and body_tokens[1].tag == .l_brace)
+        null
+    else
+        return null;
 
     return .{
         .local_name = tokens[1].lexeme,
@@ -589,7 +577,7 @@ fn parseBoundLocalFromNestedWith(
         .factory_name = factory_name,
         .container_name = container_name,
         .handler_name = handler_name,
-        .helper_name = helper_name,
+        .carrier_name = carrier_name,
     };
 }
 
@@ -1017,7 +1005,7 @@ pub fn parseFunctionBody(
                 .factory_name = nested_with.factory_name,
                 .container_name = nested_with.container_name,
                 .handler_name = nested_with.handler_name,
-                .helper_name = nested_with.helper_name,
+                .carrier_name = nested_with.carrier_name,
             } };
             body.step_count += 1;
             continue;
@@ -1075,7 +1063,7 @@ pub fn parseFunctionBody(
             body.step_count += 1;
             continue;
         }
-        if (helperCallWithoutArgs(effect_param, aliases[0..alias_count], imports, statement)) |helper_call| {
+        if (parseHelperCall(effect_param, aliases[0..alias_count], imports, statement)) |helper_call| {
             body.steps[body.step_count] = .{ .call_helper = helper_call };
             body.step_count += 1;
             continue;

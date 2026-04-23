@@ -2,6 +2,7 @@
 // zlinter-disable function_naming - internal codec helpers intentionally mirror the ProgramPlan vocabulary even when they return comptime types.
 // zlinter-disable max_positional_args - the interpreter core keeps the live execution state explicit instead of packing it into a transient context struct.
 // zlinter-disable no_undefined - fixed-size local helper buffers are completely overwritten before observation in the interpreter hot path.
+// zlinter-disable require_doc_comment - executable plan interpreter helpers are internal runtime glue, not user-facing API docs.
 const lowered_machine = @import("lowered_machine");
 const program_plan = @import("internal_program_plan");
 const std = @import("std");
@@ -91,11 +92,10 @@ const NestedWithMetadata = struct {
     factory_name: []const u8,
     container_name: []const u8,
     handler_name: []const u8,
-    helper_name: []const u8,
 };
 
 fn parseNestedWithMetadata(comptime encoded: []const u8) NestedWithMetadata {
-    comptime var parts: [5][]const u8 = undefined;
+    comptime var parts: [4][]const u8 = undefined;
     comptime var part_index: usize = 0;
     comptime var start: usize = 0;
     comptime var index: usize = 0;
@@ -116,7 +116,6 @@ fn parseNestedWithMetadata(comptime encoded: []const u8) NestedWithMetadata {
         .factory_name = parts[1],
         .container_name = parts[2],
         .handler_name = parts[3],
-        .helper_name = parts[4],
     };
 }
 
@@ -132,12 +131,12 @@ fn singleFieldStructType(comptime field_name: []const u8, comptime FieldType: ty
 }
 
 fn encodeTypedProgramValue(value: anytype) lowered_machine.ProgramValue {
-    const T = @TypeOf(value);
-    if (T == void) return .none;
-    if (T == bool) return .{ .bool = value };
-    if (T == i32) return .{ .i32 = value };
-    if (T == []const u8) return .{ .string = value };
-    if (T == usize) return .{ .usize = value };
+    const ValueType = @TypeOf(value);
+    if (ValueType == void) return .none;
+    if (ValueType == bool) return .{ .bool = value };
+    if (ValueType == i32) return .{ .i32 = value };
+    if (ValueType == []const u8) return .{ .string = value };
+    if (ValueType == usize) return .{ .usize = value };
     @compileError("nested lexical with execution only supports void, bool, i32, []const u8, and usize results");
 }
 
@@ -186,7 +185,7 @@ fn nestedWithProgramPlan(
     const resume_codec = valueCodecForType(Op.Resume);
 
     const functions = [_]program_plan.FunctionPlan{.{
-        .symbol_name = metadata.helper_name,
+        .symbol_name = "nested_with_entry",
         .value_codec = result_codec,
         .result_codec = result_codec,
         .parameter_count = 0,

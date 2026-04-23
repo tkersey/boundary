@@ -4797,6 +4797,7 @@ pub fn build(b: *std.Build) void {
     source_lowering_tool_step.dependOn(&source_lowering_tool_exe.step);
     source_lowering_tool_step.dependOn(&source_lowering_tool_install.step);
 
+    // zlinter-disable declaration_naming - lexical witness module/test handles mirror suite ids for traceable proof receipts.
     const lexical_witness_direct_mod = b.createModule(.{
         .root_source_file = b.path("test/lexical_witness/direct_return_test.zig"),
         .target = target,

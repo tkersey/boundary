@@ -392,6 +392,7 @@ fn executeFunction(
                         .failed => |failure| return .{ .failed = failure },
                     }
                 },
+                .call_nested_with => return error.ProgramContractViolation,
                 .call_op => {
                     const op = ctx.plan.ops[instruction.operand];
                     const payload = if (op.payload_codec == .unit) .none else locals[instruction.aux];

@@ -1,4 +1,5 @@
 const shared = @import("shift_shared");
+// zlinter-disable require_doc_comment - synthetic shift root is an internal generated-packet shim.
 
 /// Synthetic lexical-effect root used only by generated anonymous-body lowering packets.
 pub const effect = shared.effect;

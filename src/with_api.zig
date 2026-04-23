@@ -444,6 +444,16 @@ fn bodyDeclSemanticErrorSet(comptime Body: type) ?type {
     return null;
 }
 
+fn bodyDeclSourcePath(comptime Body: type) ?[]const u8 {
+    if (hasDeclSafe(Body, "source_path")) return Body.source_path;
+    return null;
+}
+
+fn bodyDeclBodySymbol(comptime Body: type) ?[]const u8 {
+    if (hasDeclSafe(Body, "body_symbol")) return Body.body_symbol;
+    return null;
+}
+
 /// Return the public continuation effect type.
 pub fn ContinuationEffType(
     comptime HandlersType: type,
@@ -899,7 +909,29 @@ fn syntheticSourceLocation(
     };
 }
 
-fn nestedSourceModuleForBody(comptime Body: type) type {
+fn namedBodySyntheticSource(
+    comptime body_symbol: []const u8,
+    comptime caller_source: []const u8,
+    comptime generated_entry_name: []const u8,
+    comptime return_syntax: ?[]const u8,
+) [:0]const u8 {
+    const normalized_caller_source = comptime anonymous_body_synthesis.normalizedSyntheticCallerSource(caller_source);
+    const return_clause = if (return_syntax) |syntax|
+        std.fmt.comptimePrint(" {s} ", .{syntax})
+    else
+        " ";
+    return std.fmt.comptimePrint(
+        "{s}\npub fn {s}(eff: anytype){s}{{\n    return {s}(eff);\n}}\n",
+        .{
+            normalized_caller_source,
+            generated_entry_name,
+            return_clause,
+            body_symbol,
+        },
+    );
+}
+
+fn NestedSourceModuleForBody(comptime Body: type) type {
     return Body;
 }
 
@@ -927,7 +959,7 @@ fn runCompiledLexicalPlan(
     const result = lowering_api.runExecutablePlanInSource(
         runtime,
         compiled_plan,
-        nestedSourceModuleForBody(Body),
+        NestedSourceModuleForBody(Body),
         &executable_bundle,
     ) catch |err| blk: {
         run_error = @errorCast(err);
@@ -1084,6 +1116,50 @@ fn tryRepoOwnedAnonymousCompiledWith(
     );
 }
 
+fn tryRepoOwnedNamedCompiledWith(
+    comptime HandlersType: type,
+    comptime Body: type,
+    runtime: *lowered_machine.Runtime,
+    handlers_ptr: *HandlersType,
+    outputs_ptr: *OutputBundleType(HandlersType),
+) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
+    const source_path = comptime bodyDeclSourcePath(Body) orelse
+        @compileError("shift.with named-body lowering requires Body.source_path");
+    const body_symbol = comptime bodyDeclBodySymbol(Body) orelse
+        @compileError("shift.with named-body lowering requires Body.body_symbol");
+    const entry_symbol = comptime std.fmt.comptimePrint("__shift_with_named_{s}", .{body_symbol});
+    const caller_source = comptime @import("source_graph_embed").embeddedSource(source_path);
+    const synthetic_source = comptime namedBodySyntheticSource(
+        body_symbol,
+        caller_source,
+        entry_symbol,
+        compiledBodyReturnSyntax(HandlersType, Body),
+    );
+    const synthetic_path = comptime syntheticLoweringSourcePath(entry_symbol);
+    const lowered_program = comptime lowering_api.lower(
+        lowering_api.sourceWithContent(
+            synthetic_path,
+            syntheticSourceLocation(synthetic_path, entry_symbol),
+            synthetic_source,
+        ),
+        .{
+            .label = "shift.with repo-owned named body",
+            .entry_symbol = entry_symbol,
+            .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+            .row = lexical_manifest.Manifest(HandlersType).row(),
+            .outputs = lexical_manifest.Manifest(HandlersType).outputs(),
+        },
+    ).runtime_plan;
+    return try runCompiledLexicalPlan(
+        HandlersType,
+        Body,
+        runtime,
+        handlers_ptr,
+        outputs_ptr,
+        lowered_program,
+    );
+}
+
 fn rejectUnsupportedRepoOwnedAnonymousWith(comptime Body: type) void {
     if (comptime anonymous_body_synthesis.bodyIdentity(Body) == null) return;
     if (comptime anonymous_body_synthesis.resolvedRepoPath(Body) == null) {
@@ -1125,7 +1201,10 @@ fn withImpl(
 
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
-    const compiled = tryRepoOwnedAnonymousCompiledWith(HandlersType, Body, runtime, &handler_state, &outputs);
+    const compiled = if (comptime anonymous_body_synthesis.bodyIdentity(Body) != null)
+        tryRepoOwnedAnonymousCompiledWith(HandlersType, Body, runtime, &handler_state, &outputs)
+    else
+        tryRepoOwnedNamedCompiledWith(HandlersType, Body, runtime, &handler_state, &outputs);
     const value = try compiled;
     return .{
         .outputs = outputs,

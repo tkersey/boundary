@@ -187,6 +187,92 @@ pub fn resolvedRepoPath(comptime Body: type) ?[]const u8 {
     return matched_path;
 }
 
+fn candidateScoreForLookupModule(
+    comptime lookup_module: []const u8,
+    comptime candidate: []const u8,
+) ?u8 {
+    const canonical_module = sourceModulePath(candidate);
+    const base_module = sourceBaseModuleName(candidate);
+    const example_alias: ?[]const u8 = if (std.mem.startsWith(u8, candidate, "examples/") and candidateAllowsBaseModuleAlias(candidate))
+        std.fmt.comptimePrint("example_{s}", .{base_module})
+    else
+        null;
+    const test_alias: ?[]const u8 = if (std.mem.startsWith(u8, candidate, "test/"))
+        base_module
+    else
+        null;
+    return if (modulePathMatchesCandidate(lookup_module, canonical_module))
+        4
+    else if (example_alias != null and modulePathMatchesCandidate(lookup_module, example_alias.?))
+        3
+    else if (test_alias != null and modulePathMatchesCandidate(lookup_module, test_alias.?))
+        2
+    else if (candidateAllowsBaseModuleAlias(candidate) and modulePathMatchesCandidate(lookup_module, base_module))
+        1
+    else
+        null;
+}
+
+fn candidateBoundsForIdentity(
+    comptime source_path: []const u8,
+    comptime identity: AnonymousBodyIdentity,
+    comptime kind: CompilationKind,
+) ?[]const Bounds {
+    const caller_source = source_graph_embed.embeddedSource(source_path);
+    if (isTestModulePath(identity.module_path)) {
+        const test_block = testBlockBounds(caller_source, identity.enclosing_function) orelse return null;
+        return bodyExpressionBoundsInRangeCandidates(
+            caller_source,
+            test_block.start,
+            test_block.end,
+            kind,
+        );
+    }
+    const graph = source_graph_engine.analyzeComptime(caller_source, .{}) catch return null;
+    const function_name = canonicalEnclosingFunctionName(identity.enclosing_function);
+    const function_node = for (graph.functions) |function| {
+        if (std.mem.eql(u8, function.name, function_name)) break function;
+    } else return null;
+    return bodyExpressionBoundsInRangeCandidates(
+        caller_source,
+        function_node.body_start_offset,
+        function_node.body_end_offset,
+        kind,
+    );
+}
+
+fn fallbackResolvedRepoPathForIdentity(
+    comptime identity: AnonymousBodyIdentity,
+    comptime kind: CompilationKind,
+) ?[]const u8 {
+    const lookup_module = canonicalLookupModulePath(identity.module_path);
+    var best_score: u8 = 0;
+    var match_count: usize = 0;
+    var matched_path: ?[]const u8 = null;
+    var start: usize = 0;
+    while (start < build_options.repo_zig_paths.len) {
+        var end = start;
+        while (end < build_options.repo_zig_paths.len and build_options.repo_zig_paths[end] != '\n') : (end += 1) {}
+        const candidate = build_options.repo_zig_paths[start..end];
+        start = end + 1;
+        if (candidate.len == 0) continue;
+        const score = candidateScoreForLookupModule(lookup_module, candidate) orelse continue;
+        const bounds = candidateBoundsForIdentity(candidate, identity, kind) orelse continue;
+        if (bounds.len == 0) continue;
+        if (score > best_score) {
+            best_score = score;
+            match_count = 1;
+            matched_path = candidate;
+            continue;
+        }
+        if (score == best_score) {
+            match_count += 1;
+        }
+    }
+    if (match_count != 1) return null;
+    return matched_path;
+}
+
 fn callName(comptime kind: CompilationKind) ?[]const u8 {
     return switch (kind) {
         .none => null,
@@ -539,7 +625,7 @@ fn trimAsciiWhitespace(comptime source: []const u8) []const u8 {
     return source[start..end];
 }
 
-fn normalizedSyntheticCallerSource(comptime caller_source: []const u8) []const u8 {
+pub fn normalizedSyntheticCallerSource(comptime caller_source: []const u8) []const u8 {
     const public_shift_import = "const shift = @import(\"shift\");";
     const synthetic_shift_import = "const shift = @import(\"synthetic_shift\");";
     const import_index = std.mem.indexOf(u8, caller_source, public_shift_import) orelse return caller_source;
@@ -917,29 +1003,13 @@ pub fn uniqueRepoOwnedAnonymousSourceWithReturnSyntax(
     comptime override_return_syntax: ?[]const u8,
 ) ?RepoOwnedAnonymousSource {
     const identity = bodyIdentity(Body) orelse return null;
-    const source_path = resolvedRepoPath(Body) orelse return null;
+    const initial_source_path = resolvedRepoPath(Body) orelse return null;
+    const source_path = if (candidateBoundsForIdentity(initial_source_path, identity, kind)) |bounds|
+        if (bounds.len != 0) initial_source_path else fallbackResolvedRepoPathForIdentity(identity, kind) orelse return null
+    else
+        fallbackResolvedRepoPathForIdentity(identity, kind) orelse return null;
     const caller_source = source_graph_embed.embeddedSource(source_path);
-    const candidate_bounds = if (isTestModulePath(identity.module_path)) blk: {
-        const test_block = testBlockBounds(caller_source, identity.enclosing_function) orelse return null;
-        break :blk bodyExpressionBoundsInRangeCandidates(
-            caller_source,
-            test_block.start,
-            test_block.end,
-            kind,
-        ) orelse return null;
-    } else blk: {
-        const graph = source_graph_engine.analyzeComptime(caller_source, .{}) catch return null;
-        const function_name = canonicalEnclosingFunctionName(identity.enclosing_function);
-        const function_node = for (graph.functions) |function| {
-            if (std.mem.eql(u8, function.name, function_name)) break function;
-        } else return null;
-        break :blk bodyExpressionBoundsInRangeCandidates(
-            caller_source,
-            function_node.body_start_offset,
-            function_node.body_end_offset,
-            kind,
-        ) orelse return null;
-    };
+    const candidate_bounds = candidateBoundsForIdentity(source_path, identity, kind) orelse return null;
     const entry_symbol = entryNameFromIdentity(identity);
     if (candidate_bounds.len == 0) return null;
     const selected_bounds = if (candidate_bounds.len == 1)

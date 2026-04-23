@@ -1,3 +1,4 @@
+// zlinter-disable require_doc_comment - lexical witness helpers are test-only support surfaces.
 const common = @import("common.zig");
 const lexical_runtime = common.lexical_runtime;
 const std = common.std;
