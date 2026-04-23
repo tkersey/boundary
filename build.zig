@@ -961,7 +961,9 @@ fn pathExistsAtRoot(root_dir: std.Io.Dir, io: std.Io, path: []const u8) bool {
 }
 
 fn repoRootContainsGitMetadata(root_dir: std.Io.Dir, io: std.Io) bool {
-    root_dir.access(io, ".git", .{}) catch return false;
+    if (pathExistsAtRoot(root_dir, io, ".git")) return true;
+    var git_dir = root_dir.openDir(io, ".git", .{}) catch return false;
+    git_dir.close(io);
     return true;
 }
 
@@ -2523,6 +2525,8 @@ fn zigLintPathExcluded(path: []const u8) bool {
     if (std.mem.startsWith(u8, path, "zig-cache/")) return true;
     if (std.mem.startsWith(u8, path, ".zig-global-cache/")) return true;
     if (std.mem.startsWith(u8, path, "zig-global-cache/")) return true;
+    if (std.mem.startsWith(u8, path, "tmp.")) return true;
+    if (std.mem.startsWith(u8, path, "zig-pkg/")) return true;
     if (std.mem.eql(u8, path, "src/error_witness.zig")) return true;
     if (std.mem.eql(u8, path, "src/ir_api.zig")) return true;
     if (std.mem.eql(u8, path, "src/lowering_api.zig")) return true;
@@ -2542,6 +2546,29 @@ fn repoZigLintIncludePaths(b: *std.Build) []const std.Build.LazyPath {
     }
     return includes.toOwnedSlice(b.allocator) catch
         std.process.fatal("unable to allocate repo Zig lint path list", .{});
+}
+
+fn repoZigLintCliArgsFromRegistryAlloc(
+    allocator: std.mem.Allocator,
+    registry: []const u8,
+    tail_args: []const []const u8,
+) ![]const []const u8 {
+    var args = std.ArrayList([]const u8).empty;
+    errdefer args.deinit(allocator);
+    var lines = std.mem.tokenizeScalar(u8, registry, '\n');
+    while (lines.next()) |line| {
+        if (!std.mem.endsWith(u8, line, ".zig")) continue;
+        if (zigLintPathExcluded(line)) continue;
+        try args.append(allocator, "--include");
+        try args.append(allocator, line);
+    }
+    for (tail_args) |arg| try args.append(allocator, arg);
+    return args.toOwnedSlice(allocator);
+}
+
+fn repoZigLintCliArgsAlloc(b: *std.Build, tail_args: []const []const u8) []const []const u8 {
+    return repoZigLintCliArgsFromRegistryAlloc(b.allocator, repoZigPathRegistry(b), tail_args) catch
+        std.process.fatal("unable to allocate repo Zig lint command args", .{});
 }
 
 const PackageRootAlias = struct {
@@ -3218,9 +3245,52 @@ test "repo Zig path registry matches tracked Zig files in the working checkout" 
     const tracked_registry = repoZigPathRegistryAlloc(std.testing.allocator, repo_root);
     defer std.testing.allocator.free(tracked_registry);
 
+    const tracked = try std.process.run(std.testing.allocator, childProcessIo(), .{
+        .argv = &.{ "git", "-C", repo_root, "ls-files", "--cached", "--", "*.zig" },
+        .stdout_limit = .limited(512 * 1024),
+        .stderr_limit = .limited(512 * 1024),
+    });
+    defer std.testing.allocator.free(tracked.stdout);
+    defer std.testing.allocator.free(tracked.stderr);
+
+    switch (tracked.term) {
+        .exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.GitLsFilesFailed,
+    }
+
     try std.testing.expect(tracked_registry.len != 0);
     try std.testing.expect(std.mem.find(u8, tracked_registry, "build.zig\n") != null);
     try std.testing.expect(std.mem.find(u8, tracked_registry, "source_graph_embed.zig\n") != null);
+    var registry_lines = std.mem.tokenizeScalar(u8, tracked_registry, '\n');
+    while (registry_lines.next()) |line| {
+        try std.testing.expect(std.mem.findScalar(u8, line, '\n') == null);
+        try std.testing.expect(std.mem.findScalar(u8, line, '\r') == null);
+        const line_with_separator = try std.mem.concat(std.testing.allocator, u8, &.{ line, "\n" });
+        defer std.testing.allocator.free(line_with_separator);
+        try std.testing.expect(std.mem.find(u8, tracked.stdout, line_with_separator) != null);
+    }
+}
+
+test "repo Zig lint CLI args include tracked files explicitly" {
+    const args = try repoZigLintCliArgsFromRegistryAlloc(
+        std.testing.allocator,
+        \\build.zig
+        \\src/error_witness.zig
+        \\src/with_api.zig
+        \\tmp.scratch/main.zig
+        \\
+    ,
+        &.{ "--max-warnings", "0" },
+    );
+    defer std.testing.allocator.free(args);
+
+    try std.testing.expectEqual(@as(usize, 6), args.len);
+    try std.testing.expectEqualStrings("--include", args[0]);
+    try std.testing.expectEqualStrings("build.zig", args[1]);
+    try std.testing.expectEqualStrings("--include", args[2]);
+    try std.testing.expectEqualStrings("src/with_api.zig", args[3]);
+    try std.testing.expectEqualStrings("--max-warnings", args[4]);
+    try std.testing.expectEqualStrings("0", args[5]);
 }
 
 test "test suite selection accepts trimmed multi-suite lists" {
@@ -5185,8 +5255,10 @@ pub fn build(b: *std.Build) void {
     lint_step.dependOn(step: {
         const saved_verbose = b.verbose;
         const saved_args = b.args;
+        const lint_args = repoZigLintCliArgsAlloc(b, lint_shared_tail_args);
+        defer b.allocator.free(lint_args);
         b.verbose = true;
-        b.args = lint_shared_tail_args;
+        b.args = lint_args;
         defer {
             b.verbose = saved_verbose;
             b.args = saved_args;

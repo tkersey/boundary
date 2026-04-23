@@ -1095,33 +1095,8 @@ fn tryRepoOwnedAnonymousCompiledWith(
         synthesized
     else if (maybe_fallback) |fallback|
         fallback
-    else {
-        const identity = comptime anonymous_body_synthesis.bodyIdentity(Body).?;
-        const source_path = comptime anonymous_body_synthesis.resolvedRepoPath(Body).?;
-        const caller_source = comptime @import("source_graph_embed").embeddedSource(source_path);
-        const test_block = comptime if (std.mem.endsWith(u8, identity.module_path, ".test"))
-            anonymous_body_synthesis.testBlockBounds(caller_source, identity.enclosing_function)
-        else
-            null;
-        const expr_run_marker_found = comptime if (test_block) |bounds|
-            if (anonymous_body_synthesis.uniqueBodyExpressionBoundsInRange(caller_source, bounds.start, bounds.end, .plain_with)) |expr_bounds|
-                std.mem.find(u8, caller_source[expr_bounds.start..expr_bounds.end], "fn run(") != null
-            else
-                false
-        else
-            false;
-        @compileError(std.fmt.comptimePrint(
-            "shift.with repo-owned synthesis disappeared after rejectUnsupportedRepoOwnedAnonymousWith: body={s} repo_path={s} enclosing={s} override={s} fallback={s} expr_run_marker={s}",
-            .{
-                @typeName(Body),
-                source_path,
-                identity.enclosing_function,
-                if (maybe_override != null) "true" else "false",
-                if (maybe_fallback != null) "true" else "false",
-                if (expr_run_marker_found) "true" else "false",
-            },
-        ));
-    };
+    else
+        return try runInterpretedLexicalWith(HandlersType, Body, runtime, handlers_ptr, outputs_ptr);
     const synthetic_path = comptime syntheticLoweringSourcePath(synthesized.entry_symbol);
     const source_ref = comptime lowering_api.sourceWithContent(
         synthetic_path,
