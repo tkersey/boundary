@@ -11,26 +11,25 @@ fn writeTmpFile(dir: std.Io.Dir, sub_path: []const u8, contents: []const u8) !vo
     });
 }
 
-fn runChildAtPathExpectSuccess(
+fn runChildAtPathExpectFailureContaining(
     cwd_path: []const u8,
     argv: []const []const u8,
-    environ_map: ?*const std.process.Environ.Map,
+    expected_stderr: []const u8,
 ) !void {
-    var child = try std.process.spawn(std.testing.io, .{
+    const result = try std.process.run(std.testing.allocator, std.testing.io, .{
         .argv = argv,
         .cwd = .{ .path = cwd_path },
-        .environ_map = environ_map,
-        .stdin = .ignore,
-        .stdout = .inherit,
-        .stderr = .inherit,
+        .stderr_limit = .limited(1024 * 1024),
+        .stdout_limit = .limited(1024 * 1024),
     });
-    const term = try child.wait(std.testing.io);
+    defer std.testing.allocator.free(result.stdout);
+    defer std.testing.allocator.free(result.stderr);
 
-    switch (term) {
-        .exited => |code| if (code == 0) return,
+    switch (result.term) {
+        .exited => |code| if (code != 0 and std.mem.find(u8, result.stderr, expected_stderr) != null) return,
         else => {},
     }
-    std.debug.print("child command failed: {s}\n", .{argv[0]});
+    std.debug.print("child command did not fail with expected stderr: {s}\n{s}\n", .{ argv[0], result.stderr });
     return error.UnexpectedChildCommandFailure;
 }
 
@@ -132,7 +131,7 @@ test "public root drops compile entrypoints while shift_compile keeps provenance
     try std.testing.expect(@hasDecl(shift_compile.lowering_api, "lowerAt"));
 }
 
-test "plain shift.with anonymous bodies stay usable in downstream consumers" {
+test "plain shift.with anonymous downstream bodies fail closed without caller-owned source" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -201,7 +200,7 @@ test "plain shift.with anonymous bodies stay usable in downstream consumers" {
     ;
     try writeTmpFile(tmp.dir, "main.zig", main_zig);
 
-    try runChildAtPathExpectSuccess(
+    try runChildAtPathExpectFailureContaining(
         consumer_root,
         &.{
             "zig",
@@ -213,6 +212,6 @@ test "plain shift.with anonymous bodies stay usable in downstream consumers" {
             "--global-cache-dir",
             "zig-global-cache",
         },
-        null,
+        "shift.with requires a repo-owned body candidate for compiled execution",
     );
 }

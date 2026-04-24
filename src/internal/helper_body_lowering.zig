@@ -1101,12 +1101,7 @@ fn lowerContinuationApplyBody(
     };
 
     switch (apply_return) {
-        .error_name => |error_name| {
-            appendInstruction(body_state.instructions, body_state.instruction_count, encodeErrorReturnInstruction(error_name));
-            terminator.* = .{ .kind = .return_unit };
-            terminated.* = true;
-            return;
-        },
+        .error_name => return null,
         .literal => |return_literal| switch (return_literal) {
             .bool_value => |value| {
                 if (expected_codec != .bool) return null;

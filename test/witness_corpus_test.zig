@@ -88,7 +88,7 @@ test "multi-prompt witness stays locked" {
     );
 }
 
-test "hard witnesses agree across evaluator, reference machine, and runtime" {
+test "hard witnesses agree across evaluator, reference machine, and archived transcript adapter" {
     const ids = [_][]const u8{
         "atm_resume_transform",
         "direct_return",
@@ -99,9 +99,9 @@ test "hard witnesses agree across evaluator, reference machine, and runtime" {
     };
     for (ids) |id| {
         const entry = semantic_manifest.find(id).?;
-        var runtime_buffer: [1024]u8 = undefined;
-        var runtime_writer = std.Io.Writer.fixed(&runtime_buffer);
-        try witnesses.runWitness(&runtime_writer, id);
+        var archived_buffer: [1024]u8 = undefined;
+        var archived_writer = std.Io.Writer.fixed(&archived_buffer);
+        try witnesses.runWitness(&archived_writer, id);
 
         var reference_buffer: [1024]u8 = undefined;
         var reference_writer = std.Io.Writer.fixed(&reference_buffer);
@@ -113,8 +113,8 @@ test "hard witnesses agree across evaluator, reference machine, and runtime" {
 
         try std.testing.expectEqualStrings(entry.required_transcript, reference_writer.buffered());
         try std.testing.expectEqualStrings(entry.required_transcript, machine_writer.buffered());
-        try std.testing.expectEqualStrings(entry.required_transcript, runtime_writer.buffered());
-        try std.testing.expect(!std.mem.eql(u8, entry.forbidden_transcript.?, runtime_writer.buffered()));
+        try std.testing.expectEqualStrings(entry.required_transcript, archived_writer.buffered());
+        try std.testing.expect(!std.mem.eql(u8, entry.forbidden_transcript.?, archived_writer.buffered()));
         try std.testing.expect(!std.mem.eql(u8, entry.forbidden_transcript.?, reference_writer.buffered()));
         try std.testing.expect(!std.mem.eql(u8, entry.forbidden_transcript.?, machine_writer.buffered()));
     }
