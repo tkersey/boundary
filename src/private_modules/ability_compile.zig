@@ -1,5 +1,5 @@
-const compile_api = @import("shift_compile_api");
-const shared = @import("shift_shared");
+const compile_api = @import("ability_compile_api");
+const shared = @import("ability_shared");
 
 /// Retained internal explicit compile-time IR surface.
 pub const effect_ir = shared.ir;

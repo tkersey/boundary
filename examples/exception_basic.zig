@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const ability = @import("ability");
 const std = @import("std");
 
 const catch_policy = struct {
@@ -21,9 +21,9 @@ fn exceptionThrowBody(eff: anytype) anyerror![]const u8 {
     try eff.exception.throw("result=boom");
 }
 
-fn runPass(runtime: *shift.Runtime) ![]const u8 {
-    const ok = try shift.with(runtime, .{
-        .exception = shift.effect.exception.use([]const u8, catch_policy),
+fn runPass(runtime: *ability.Runtime) ![]const u8 {
+    const ok = try ability.with(runtime, .{
+        .exception = ability.effect.exception.use([]const u8, catch_policy),
     }, struct {
         /// Run the non-throwing exception example body.
         pub fn body(eff: anytype) @TypeOf(exceptionPassBody(eff)) {
@@ -33,9 +33,9 @@ fn runPass(runtime: *shift.Runtime) ![]const u8 {
     return ok.value;
 }
 
-fn runThrow(runtime: *shift.Runtime) ![]const u8 {
-    const thrown = try shift.with(runtime, .{
-        .exception = shift.effect.exception.use([]const u8, catch_policy),
+fn runThrow(runtime: *ability.Runtime) ![]const u8 {
+    const thrown = try ability.with(runtime, .{
+        .exception = ability.effect.exception.use([]const u8, catch_policy),
     }, struct {
         /// Run the throwing exception example body.
         pub fn body(eff: anytype) @TypeOf(exceptionThrowBody(eff)) {
@@ -47,7 +47,7 @@ fn runThrow(runtime: *shift.Runtime) ![]const u8 {
 
 /// Write the exception-family transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    var runtime = ability.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
     try writer.writeAll("branch=pass\n");

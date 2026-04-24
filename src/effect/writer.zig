@@ -3,7 +3,7 @@ const effect_schema = @import("../effect_schema.zig");
 const family = @import("family.zig");
 const lexical_with = @import("../with_api.zig");
 const lowered_machine = @import("lowered_machine");
-const shift = lowered_machine;
+const ability = lowered_machine;
 const std = @import("std");
 
 fn WriterState(comptime ItemType: type) type {
@@ -73,7 +73,7 @@ const HandleWithErrorSetTypes = struct {
     ErrorSet: type,
 };
 
-/// Lexical writer handle used by `shift.with(...)`.
+/// Lexical writer handle used by `ability.with(...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type, comptime ItemType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -85,7 +85,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type, comptime
     };
 }
 
-/// Descriptor value used by `shift.with(...)` for the built-in writer family.
+/// Descriptor value used by `ability.with(...)` for the built-in writer family.
 pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) type {
     return struct {
         /// Shared error set carried by the lexical writer descriptor.
@@ -138,7 +138,7 @@ pub fn LexicalDescriptor(comptime ItemType: type, comptime ErrorSetType: type) t
     };
 }
 
-/// Create one lexical writer descriptor for `shift.with(...)`.
+/// Create one lexical writer descriptor for `ability.with(...)`.
 pub fn use(comptime ItemType: type, allocator: std.mem.Allocator) LexicalDescriptor(ItemType, error{}) {
     return .{ .allocator = allocator };
 }
@@ -171,7 +171,7 @@ pub inline fn computeProgram(
 pub fn handle(
     comptime ItemType: type,
     comptime AnswerType: type,
-    runtime: *shift.Runtime,
+    runtime: *ability.Runtime,
     instance: anytype,
     allocator: std.mem.Allocator,
     comptime Body: type,
@@ -193,7 +193,7 @@ pub fn handle(
 /// Public `handleWithErrorSet` helper.
 pub fn handleWithErrorSet(
     comptime Types: HandleWithErrorSetTypes,
-    runtime: *shift.Runtime,
+    runtime: *ability.Runtime,
     instance: anytype,
     allocator: std.mem.Allocator,
     comptime Body: type,
@@ -230,7 +230,7 @@ test "writer handle accumulates items in order" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = WriterInstance.init();
     const result = try handle([]const u8, []const u8, &runtime, &instance, std.testing.allocator, demo);
@@ -245,7 +245,7 @@ test "public writer handleWithErrorSet leaves caller provenance absent by defaul
     const NoError = error{};
     const WriterInstance = Instance([]const u8, NoError);
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = WriterInstance.init();
 
@@ -270,7 +270,7 @@ test "public writer handle leaves caller provenance absent by default" {
     const NoError = error{};
     const WriterInstance = Instance([]const u8, NoError);
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = WriterInstance.init();
 
@@ -291,7 +291,7 @@ test "nested same-shaped writer handles get distinct capability types" {
     const NoError = error{};
     const WriterInstance = Instance([]const u8, NoError);
     const demo = struct {
-        var runtime_ptr: ?*shift.Runtime = null;
+        var runtime_ptr: ?*ability.Runtime = null;
         var inner_ptr: ?*const WriterInstance = null;
 
         /// Open an inner writer handle and prove its capability differs from the outer one.
@@ -320,7 +320,7 @@ test "nested same-shaped writer handles get distinct capability types" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var outer_instance = WriterInstance.init();
     var inner_instance = WriterInstance.init();

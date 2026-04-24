@@ -1,6 +1,6 @@
 // zlinter-disable require_doc_comment - this preview witness file exposes public nested declarations to exercise comptime-facing lexical metadata seams.
-const shift = @import("shift");
-const shift_shared = @import("shift_shared");
+const ability = @import("ability");
+const ability_shared = @import("ability_shared");
 const std = @import("std");
 
 fn hasErrorName(comptime ErrorSet: type, comptime wanted: []const u8) bool {
@@ -11,15 +11,15 @@ fn hasErrorName(comptime ErrorSet: type, comptime wanted: []const u8) bool {
 }
 
 fn ExecResult(comptime T: type) type {
-    return (shift.RuntimeError || error{ OutOfMemory, BodyOops, ContinueOops, HandlerOops, AfterOops })!T;
+    return (ability.RuntimeError || error{ OutOfMemory, BodyOops, ContinueOops, HandlerOops, AfterOops })!T;
 }
 
-test "shift.with retains explicit body errors in ExecutionError" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+test "ability.with retains explicit body errors in ExecutionError" {
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const CallType = @TypeOf(shift.with(&runtime, .{
-        .state = shift.effect.state.use(@as(i32, 7)),
+    const CallType = @TypeOf(ability.with(&runtime, .{
+        .state = ability.effect.state.use(@as(i32, 7)),
     }, struct {
         /// Execute this public body hook.
         pub fn body(eff: anytype) ExecResult(i32) {
@@ -31,8 +31,8 @@ test "shift.with retains explicit body errors in ExecutionError" {
 
     try std.testing.expect(hasErrorName(ErrorSet, "BodyOops"));
 
-    _ = shift.with(&runtime, .{
-        .state = shift.effect.state.use(@as(i32, 7)),
+    _ = ability.with(&runtime, .{
+        .state = ability.effect.state.use(@as(i32, 7)),
     }, struct {
         /// Execute this public body hook.
         pub fn body(eff: anytype) ExecResult(i32) {
@@ -46,9 +46,9 @@ test "shift.with retains explicit body errors in ExecutionError" {
     return error.TestExpectedError;
 }
 
-test "shift_shared.With distinguishes semantic from execution error metadata" {
+test "ability_shared.With distinguishes semantic from execution error metadata" {
     const Handlers = @TypeOf(.{
-        .state = shift.effect.state.use(@as(i32, 7)),
+        .state = ability.effect.state.use(@as(i32, 7)),
     });
     const body_spec = struct {
         /// Public `SemanticErrorSet` declaration.
@@ -60,7 +60,7 @@ test "shift_shared.With distinguishes semantic from execution error metadata" {
             return error.BodyOops;
         }
     };
-    const Meta = shift_shared.With(Handlers, body_spec);
+    const Meta = ability_shared.With(Handlers, body_spec);
 
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "BodyOops"));
     try std.testing.expect(!hasErrorName(Meta.SemanticErrorSet, "MissingPrompt"));
@@ -71,9 +71,9 @@ test "shift_shared.With distinguishes semantic from execution error metadata" {
     try std.testing.expect(hasErrorName(Meta.ExecutionError, "OutOfMemory"));
 }
 
-test "shift_shared.With preserves semantic body errors that collide with setup names" {
+test "ability_shared.With preserves semantic body errors that collide with setup names" {
     const Handlers = @TypeOf(.{
-        .state = shift.effect.state.use(@as(i32, 7)),
+        .state = ability.effect.state.use(@as(i32, 7)),
     });
     const body_spec = struct {
         /// Public `SemanticErrorSet` declaration.
@@ -84,15 +84,15 @@ test "shift_shared.With preserves semantic body errors that collide with setup n
             return error.OutOfMemory;
         }
     };
-    const Meta = shift_shared.With(Handlers, body_spec);
+    const Meta = ability_shared.With(Handlers, body_spec);
 
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "OutOfMemory"));
     try std.testing.expect(hasErrorName(Meta.ExecutionError, "OutOfMemory"));
 }
 
-test "shift_shared.With preserves mixed collided body errors in SemanticErrorSet" {
+test "ability_shared.With preserves mixed collided body errors in SemanticErrorSet" {
     const Handlers = @TypeOf(.{
-        .state = shift.effect.state.use(@as(i32, 7)),
+        .state = ability.effect.state.use(@as(i32, 7)),
     });
     const body_spec = struct {
         /// Public `SemanticErrorSet` declaration.
@@ -104,16 +104,16 @@ test "shift_shared.With preserves mixed collided body errors in SemanticErrorSet
             return error.OutOfMemory;
         }
     };
-    const Meta = shift_shared.With(Handlers, body_spec);
+    const Meta = ability_shared.With(Handlers, body_spec);
 
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "BodyOops"));
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "OutOfMemory"));
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "MissingPrompt"));
 }
 
-test "shift_shared.With instantiates for effect-only bodies without SemanticErrorSet metadata" {
+test "ability_shared.With instantiates for effect-only bodies without SemanticErrorSet metadata" {
     const Handlers = @TypeOf(.{
-        .state = shift.effect.state.use(@as(i32, 7)),
+        .state = ability.effect.state.use(@as(i32, 7)),
     });
     const body_spec = struct {
         /// Execute this public body hook.
@@ -122,7 +122,7 @@ test "shift_shared.With instantiates for effect-only bodies without SemanticErro
             return 0;
         }
     };
-    const Meta = shift_shared.With(Handlers, body_spec);
+    const Meta = ability_shared.With(Handlers, body_spec);
 
     try std.testing.expect(@sizeOf(Meta.Result) > 0);
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "MissingPrompt"));
@@ -130,12 +130,12 @@ test "shift_shared.With instantiates for effect-only bodies without SemanticErro
     try std.testing.expect(hasErrorName(Meta.ExecutionError, "OutOfMemory"));
 }
 
-test "shift_shared.With preview includes continuation errors from lexical explicit programs" {
+test "ability_shared.With preview includes continuation errors from lexical explicit programs" {
     const probe_descriptor = struct {
         pub const ErrorSet = error{};
         pub const State = i32;
         pub const Output = void;
-        const ProbeOp = shift.effect.ops.Choice("probe", void, i32);
+        const ProbeOp = ability.effect.ops.Choice("probe", void, i32);
 
         pub fn HandleType(comptime Cap: type, comptime ContextPtrType: type) type {
             _ = ContextPtrType;
@@ -149,7 +149,7 @@ test "shift_shared.With preview includes continuation errors from lexical explic
                 }
 
                 fn ExecutionErrorSet(comptime Continuation: type) type {
-                    return shift.RuntimeError || error{OutOfMemory} || PromptType(Continuation).ErrorSet;
+                    return ability.RuntimeError || error{OutOfMemory} || PromptType(Continuation).ErrorSet;
                 }
 
                 pub fn perform(_: @This(), comptime Continuation: type) ExecutionErrorSet(Continuation)!PromptType(Continuation).OutAnswer {
@@ -167,9 +167,9 @@ test "shift_shared.With preview includes continuation errors from lexical explic
             self: @This(),
             comptime AnswerType: type,
             comptime RunErrorSetType: type,
-            runtime: *shift.Runtime,
+            runtime: *ability.Runtime,
             comptime Body: type,
-        ) (shift.RuntimeError || error{OutOfMemory} || RunErrorSetType)!struct { output: void, value: AnswerType } {
+        ) (ability.RuntimeError || error{OutOfMemory} || RunErrorSetType)!struct { output: void, value: AnswerType } {
             _ = self;
             _ = runtime;
             _ = Body;
@@ -189,18 +189,18 @@ test "shift_shared.With preview includes continuation errors from lexical explic
             });
         }
     };
-    const Meta = shift_shared.With(Handlers, body_spec);
+    const Meta = ability_shared.With(Handlers, body_spec);
 
     try std.testing.expect(hasErrorName(Meta.ExecutionError, "ContinueOops"));
     try std.testing.expect(hasErrorName(Meta.SemanticErrorSet, "ContinueOops"));
 }
 
-test "shift_shared.With preview specializes generic lexical explicit continuations" {
+test "ability_shared.With preview specializes generic lexical explicit continuations" {
     const probe_descriptor = struct {
         pub const ErrorSet = error{};
         pub const State = i32;
         pub const Output = void;
-        const ProbeOp = shift.effect.ops.Choice("probe", void, i32);
+        const ProbeOp = ability.effect.ops.Choice("probe", void, i32);
 
         pub fn HandleType(comptime Cap: type, comptime ContextPtrType: type) type {
             _ = ContextPtrType;
@@ -213,7 +213,7 @@ test "shift_shared.With preview specializes generic lexical explicit continuatio
                     return @typeInfo(@FieldType(BoundProgramType(Continuation), "prompt")).pointer.child;
                 }
 
-                pub fn perform(_: @This(), comptime Continuation: anytype) (shift.RuntimeError || error{OutOfMemory} || PromptType(Continuation).ErrorSet)!PromptType(Continuation).OutAnswer {
+                pub fn perform(_: @This(), comptime Continuation: anytype) (ability.RuntimeError || error{OutOfMemory} || PromptType(Continuation).ErrorSet)!PromptType(Continuation).OutAnswer {
                     unreachable;
                 }
             };
@@ -228,9 +228,9 @@ test "shift_shared.With preview specializes generic lexical explicit continuatio
             self: @This(),
             comptime AnswerType: type,
             comptime RunErrorSetType: type,
-            runtime: *shift.Runtime,
+            runtime: *ability.Runtime,
             comptime Body: type,
-        ) (shift.RuntimeError || error{OutOfMemory} || RunErrorSetType)!struct { output: void, value: AnswerType } {
+        ) (ability.RuntimeError || error{OutOfMemory} || RunErrorSetType)!struct { output: void, value: AnswerType } {
             _ = self;
             _ = runtime;
             _ = Body;
@@ -250,21 +250,21 @@ test "shift_shared.With preview specializes generic lexical explicit continuatio
             return try eff.probe.perform(genericResumeValue);
         }
     };
-    const Meta = shift_shared.With(Handlers, body_spec);
+    const Meta = ability_shared.With(Handlers, body_spec);
 
     try std.testing.expect(@FieldType(Meta.Result, "value") == i32);
 }
 
 test "generated family infers handler errors when error_set_type is omitted" {
-    const Picker = shift.effect.Define(.{
+    const Picker = ability.effect.Define(.{
         .state_type = struct {},
         .ops = .{
-            shift.effect.ops.Choice("pick", i32, i32),
+            ability.effect.ops.Choice("pick", i32, i32),
         },
     });
 
     const handler = struct {
-        pub fn pick(_: *@This(), value: i32) ExecResult(shift.effect.choice.Decision(i32, i32)) {
+        pub fn pick(_: *@This(), value: i32) ExecResult(ability.effect.choice.Decision(i32, i32)) {
             _ = value;
             return error.HandlerOops;
         }
@@ -274,10 +274,10 @@ test "generated family infers handler errors when error_set_type is omitted" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const CallType = @TypeOf(shift.with(&runtime, .{
+    const CallType = @TypeOf(ability.with(&runtime, .{
         .picker = Picker.use(.{ .handler = handler{} }),
     }, struct {
         pub fn body(eff: anytype) ExecResult(i32) {
@@ -292,7 +292,7 @@ test "generated family infers handler errors when error_set_type is omitted" {
 
     try std.testing.expect(hasErrorName(ErrorSet, "HandlerOops"));
 
-    _ = shift.with(&runtime, .{
+    _ = ability.with(&runtime, .{
         .picker = Picker.use(.{ .handler = handler{} }),
     }, struct {
         pub fn body(eff: anytype) ExecResult(i32) {
@@ -310,10 +310,10 @@ test "generated family infers handler errors when error_set_type is omitted" {
 }
 
 test "generated lexical handlers infer after-hook errors when error_set_type is omitted" {
-    const Counter = shift.effect.Define(.{
+    const Counter = ability.effect.Define(.{
         .state_type = i32,
         .ops = .{
-            shift.effect.ops.Transform("get", void, i32),
+            ability.effect.ops.Transform("get", void, i32),
         },
     });
 
@@ -329,10 +329,10 @@ test "generated lexical handlers infer after-hook errors when error_set_type is 
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const CallType = @TypeOf(shift.with(&runtime, .{
+    const CallType = @TypeOf(ability.with(&runtime, .{
         .counter = Counter.use(.{ .handler = Handler{} }),
     }, struct {
         pub fn body(eff: anytype) ExecResult(i32) {
@@ -346,14 +346,14 @@ test "generated lexical handlers infer after-hook errors when error_set_type is 
 
 test "generated family handleWithErrorSet keeps source-compatible arity" {
     const NoError = error{};
-    const Audit = shift.effect.Define(.{
+    const Audit = ability.effect.Define(.{
         .state_type = void,
         .ops = .{
-            shift.effect.ops.Transform("note", []const u8, void),
+            ability.effect.ops.Transform("note", []const u8, void),
         },
     });
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = Audit.Instance.init();
 
@@ -374,14 +374,14 @@ test "generated family handleWithErrorSet keeps source-compatible arity" {
 
 test "generated family handle keeps source-compatible arity" {
     const NoError = error{};
-    const Audit = shift.effect.Define(.{
+    const Audit = ability.effect.Define(.{
         .state_type = void,
         .ops = .{
-            shift.effect.ops.Transform("note", []const u8, void),
+            ability.effect.ops.Transform("note", []const u8, void),
         },
     });
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = Audit.Instance.init();
 
@@ -402,14 +402,14 @@ test "generated family handle keeps source-compatible arity" {
 
 test "generated family handleWithErrorSet leaves caller provenance absent" {
     const NoError = error{};
-    const Audit = shift.effect.Define(.{
+    const Audit = ability.effect.Define(.{
         .state_type = void,
         .ops = .{
-            shift.effect.ops.Transform("note", []const u8, void),
+            ability.effect.ops.Transform("note", []const u8, void),
         },
     });
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = Audit.Instance.init();
 
@@ -433,14 +433,14 @@ test "generated family handleWithErrorSet leaves caller provenance absent" {
 
 test "generated family handle leaves caller provenance absent" {
     const NoError = error{};
-    const Audit = shift.effect.Define(.{
+    const Audit = ability.effect.Define(.{
         .state_type = void,
         .ops = .{
-            shift.effect.ops.Transform("note", []const u8, void),
+            ability.effect.ops.Transform("note", []const u8, void),
         },
     });
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = Audit.Instance.init();
 
@@ -463,10 +463,10 @@ test "generated family handle leaves caller provenance absent" {
 }
 
 test "generated lexical transform handlers accept void state without a state field" {
-    const Search = shift.effect.Define(.{
+    const Search = ability.effect.Define(.{
         .state_type = void,
         .ops = .{
-            shift.effect.ops.Transform("query", []const u8, i32),
+            ability.effect.ops.Transform("query", []const u8, i32),
         },
     });
 
@@ -476,10 +476,10 @@ test "generated lexical transform handlers accept void state without a state fie
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
+    const result = try ability.with(&runtime, .{
         .search = Search.use(.{ .handler = handler{} }),
     }, struct {
         pub fn body(eff: anytype) ExecResult(i32) {

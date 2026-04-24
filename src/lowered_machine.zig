@@ -2,7 +2,7 @@ const kernel = @import("./internal/kernel.zig");
 const portable_core = @import("./portable_core.zig");
 const std = @import("std");
 
-/// Public runtime misuse and semantic-contract errors surfaced by `shift`.
+/// Public runtime misuse and semantic-contract errors surfaced by `ability`.
 pub const RuntimeError = error{
     MissingPrompt,
     CrossThread,

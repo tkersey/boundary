@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const ability = @import("ability");
 const std = @import("std");
 
 const NoError = error{};
@@ -6,7 +6,7 @@ const timed_iterations: usize = 50_000;
 const warmup_iterations: usize = 20_000;
 const samples_per_run: usize = 5;
 
-const WriterInstance = shift.effect.writer.Instance(usize, NoError);
+const WriterInstance = ability.effect.writer.Instance(usize, NoError);
 
 const Sample = struct {
     checksum: usize,
@@ -105,10 +105,10 @@ const raw_writer = struct {
 };
 
 const effect_writer = struct {
-    fn body(comptime Cap: type, ctx: anytype, comptime items_per_body: usize) shift.ResetError(NoError)!usize {
+    fn body(comptime Cap: type, ctx: anytype, comptime items_per_body: usize) ability.ResetError(NoError)!usize {
         var current: usize = 0;
         while (current < items_per_body) : (current += 1) {
-            try shift.effect.writer.tell(Cap, ctx, current + 1);
+            try ability.effect.writer.tell(Cap, ctx, current + 1);
         }
         return 0;
     }
@@ -124,18 +124,18 @@ fn runWriterRawSample(allocator: std.mem.Allocator, comptime items_per_body: usi
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
 
-fn runWriterEffectSample(runtime: *shift.Runtime, instance: *const WriterInstance, allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
+fn runWriterEffectSample(runtime: *ability.Runtime, instance: *const WriterInstance, allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
     var timer = try std.time.Timer.start();
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         const body = struct {
             /// Re-enter the current writer handle with a fixed item count.
-            pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!usize {
+            pub fn body(comptime Cap: type, ctx: anytype) ability.ResetError(NoError)!usize {
                 return try effect_writer.body(Cap, ctx, items_per_body);
             }
         };
-        const result = preserveValue(try shift.effect.writer.handle(usize, usize, runtime, instance, allocator, body));
+        const result = preserveValue(try ability.effect.writer.handle(usize, usize, runtime, instance, allocator, body));
         defer allocator.free(result.items);
         std.mem.doNotOptimizeAway(result.items.ptr);
         var item_checksum: usize = result.items.len + result.value;
@@ -186,7 +186,7 @@ fn printLine(writer: anytype, report: *const LaneReport) !void {
     );
 }
 
-fn runLane(runtime: *shift.Runtime, instance: *const WriterInstance, allocator: std.mem.Allocator, comptime items_per_body: usize) !LaneReport {
+fn runLane(runtime: *ability.Runtime, instance: *const WriterInstance, allocator: std.mem.Allocator, comptime items_per_body: usize) !LaneReport {
     _ = try runWriterRawSample(allocator, items_per_body, warmup_iterations);
     _ = try runWriterEffectSample(runtime, instance, allocator, items_per_body, warmup_iterations);
     _ = try runWriterFinalizeOnlySample(allocator, items_per_body, warmup_iterations);
@@ -232,7 +232,7 @@ fn runLane(runtime: *shift.Runtime, instance: *const WriterInstance, allocator: 
 
 /// Decompose writer-effect append and finalization costs for representative item counts.
 pub fn main(init: std.process.Init) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.smp_allocator);
+    var runtime = ability.Runtime.init(std.heap.smp_allocator);
     defer runtime.deinit();
     var instance = WriterInstance.init();
 

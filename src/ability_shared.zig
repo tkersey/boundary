@@ -30,8 +30,8 @@ pub const interpreter = interpreter_api;
 /// Public semantic-error witness surface.
 pub const ErrorWitnessV1 = error_witness.ErrorWitnessV1;
 
-/// Retained explicit IR compatibility surface shared by `shift` and `shift_compile`.
-// zlinter-disable-next-line declaration_naming - retained public API contract is shift.ir
+/// Retained explicit IR compatibility surface shared by `ability` and `ability_compile`.
+// zlinter-disable-next-line declaration_naming - retained public API contract is ability.ir
 pub const ir = ir_api;
 /// Public lowering namespace retained for shared build wiring.
 pub const lowering = lowering_api;
@@ -69,10 +69,10 @@ test "anonymous body synthesis helper stays buildable under the shared harness" 
         .fn_name = "probe",
     };
     const source =
-        \\const shift = @import("shift");
+        \\const ability = @import("ability");
         \\
         \\pub fn probe() !void {
-        \\    _ = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{}, undefined, .{}, struct {
+        \\    _ = try ability.withOwnedSource(@src(), @embedFile(@src().file), .{}, undefined, .{}, struct {
         \\        pub fn body(eff: anytype) anyerror!void { _ = eff; }
         \\    });
         \\}
@@ -88,9 +88,9 @@ test "anonymous body synthesis helper stays buildable under the shared harness" 
         witness_body,
         source,
         .owned_source,
-        "__shift_with_entry_l5_c34",
+        "__ability_with_entry_l5_c34",
         null,
     ).?;
 
-    try std.testing.expect(std.mem.containsAtLeast(u8, synthetic, 1, "pub fn __shift_with_entry_l5_c34"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, synthetic, 1, "pub fn __ability_with_entry_l5_c34"));
 }

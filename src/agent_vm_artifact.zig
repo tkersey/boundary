@@ -83,8 +83,8 @@ pub const CapabilityManifestV1 = struct {
     capabilities: []const CapabilityV1,
 };
 
-const cap_fp_domain_v2 = "shift-artifact-v1-capability-fingerprint-v2";
-const cap_fp_domain_v3 = "shift-artifact-v1-capability-fingerprint-v3";
+const cap_fp_domain_v2 = "ability-artifact-v1-capability-fingerprint-v2";
+const cap_fp_domain_v3 = "ability-artifact-v1-capability-fingerprint-v3";
 const capability_global_tool_after = "tool.after";
 const capability_global_tool_call = "tool.call";
 
@@ -273,7 +273,7 @@ pub fn buildFingerprintWithSeed(base_fingerprint: [32]u8, seed: []const u8) [32]
     var hasher = std.crypto.hash.Blake3.init(.{});
     var len_bytes = std.mem.zeroes([8]u8);
 
-    hasher.update("shift-artifact-v1-build-fingerprint-seed-v1");
+    hasher.update("ability-artifact-v1-build-fingerprint-seed-v1");
     hasher.update(&base_fingerprint);
     std.mem.writeInt(u64, &len_bytes, seed.len, .little);
     hasher.update(&len_bytes);

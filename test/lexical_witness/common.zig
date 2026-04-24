@@ -2,7 +2,7 @@
 // zlinter-disable require_doc_comment - lexical witness helpers are test-only support surfaces.
 // zlinter-disable no_inferred_error_unions - compact test helpers intentionally use inferred error unions.
 const parity_scenarios = @import("parity_scenarios");
-pub const lexical_runtime = @import("shift");
+pub const lexical_runtime = @import("ability");
 pub const std = @import("std");
 
 pub const ResumeWitness = lexical_runtime.effect.Define(.{

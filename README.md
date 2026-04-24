@@ -1,6 +1,6 @@
-# shift
+# ability
 
-`shift` is a Zig library for generalized algebraic effects over a typed
+`ability` is a Zig library for generalized algebraic effects over a typed
 `shift/reset` substrate. The longer-term direction is still a defunctionalized,
 data-oriented interpreter model for agentic systems and other programmable
 control systems, but the shipped surface today is smaller and simpler than the
@@ -10,13 +10,13 @@ repo's historical proof scaffolding suggested.
 
 The public root export set is intentionally narrow:
 
-- `shift.effect`
-- `shift.Runtime`
-- `shift.RuntimeError`
-- `shift.with`
+- `ability.effect`
+- `ability.Runtime`
+- `ability.RuntimeError`
+- `ability.with`
 
-Everything else in the repo is outside the `@import("shift")` root contract.
-That includes sibling modules such as `shift_agent_vm` along with maintainer-facing
+Everything else in the repo is outside the `@import("ability")` root contract.
+That includes sibling modules such as `ability_agent_vm` along with maintainer-facing
 lowering and interpreter scaffolding.
 
 ## Examples

@@ -3,7 +3,7 @@ const family = @import("family.zig");
 pub const choice = @import("choice.zig");
 /// Public sealed custom-effect generator.
 pub const Define = @import("define.zig").Define;
-/// Public op-descriptor namespace for `shift.effect.Define(...)`.
+/// Public op-descriptor namespace for `ability.effect.Define(...)`.
 pub const ops = @import("define.zig").ops;
 /// Exception effect family built on top of the core shift/reset runtime.
 pub const exception = @import("exception.zig");

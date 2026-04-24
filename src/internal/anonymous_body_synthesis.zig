@@ -373,9 +373,9 @@ fn sourceMethodName(comptime expr_source: []const u8) ?[]const u8 {
 fn BodyMethodFnType(comptime Body: type, comptime method_name: []const u8) type {
     const FnRef = @TypeOf(@field(Body, method_name));
     return switch (@typeInfo(FnRef)) {
-        .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn") pointer.child else @compileError("shift.with body method must be callable"),
+        .pointer => |pointer| if (@typeInfo(pointer.child) == .@"fn") pointer.child else @compileError("ability.with body method must be callable"),
         .@"fn" => FnRef,
-        else => @compileError("shift.with body method must be callable"),
+        else => @compileError("ability.with body method must be callable"),
     };
 }
 
@@ -402,7 +402,7 @@ pub fn canonicalReturnTypeSyntax(comptime ReturnType: type) ?[]const u8 {
 
 fn entryName(caller: std.builtin.SourceLocation) [:0]const u8 {
     const name = std.fmt.comptimePrint(
-        "__shift_with_entry_l{d}_c{d}\x00",
+        "__ability_with_entry_l{d}_c{d}\x00",
         .{ caller.line, caller.column },
     );
     return name[0 .. name.len - 1 :0];
@@ -656,15 +656,15 @@ fn trimAsciiWhitespace(comptime source: []const u8) []const u8 {
 }
 
 pub fn normalizedSyntheticCallerSource(comptime caller_source: []const u8) []const u8 {
-    const public_shift_import = "const shift = @import(\"shift\");";
-    const synthetic_shift_import = "const shift = @import(\"synthetic_shift\");";
-    const import_index = std.mem.indexOf(u8, caller_source, public_shift_import) orelse return caller_source;
+    const public_ability_import = "const ability = @import(\"ability\");";
+    const synthetic_ability_import = "const ability = @import(\"synthetic_ability\");";
+    const import_index = std.mem.indexOf(u8, caller_source, public_ability_import) orelse return caller_source;
     return std.fmt.comptimePrint(
         "{s}{s}{s}",
         .{
             caller_source[0..import_index],
-            synthetic_shift_import,
-            caller_source[import_index + public_shift_import.len ..],
+            synthetic_ability_import,
+            caller_source[import_index + public_ability_import.len ..],
         },
     );
 }
@@ -1011,7 +1011,7 @@ fn genericMaybeLowerSynthetic(
             .fn_name = entry_symbol ++ "\x00",
         }, synthetic_source),
         .{
-            .label = "shift.with repo-owned lexical body",
+            .label = "ability.with repo-owned lexical body",
             .entry_symbol = entry_symbol,
             .ValueType = ValueType,
             .row = row,
@@ -1029,7 +1029,7 @@ fn entryNameFromIdentity(comptime identity: AnonymousBodyIdentity) [:0]const u8 
         }
         break :blk buffer;
     };
-    const name = std.fmt.comptimePrint("__shift_with_entry_{s}\x00", .{sanitized_suffix[0..]});
+    const name = std.fmt.comptimePrint("__ability_with_entry_{s}\x00", .{sanitized_suffix[0..]});
     return name[0 .. name.len - 1 :0];
 }
 
@@ -1100,10 +1100,10 @@ test "bodyExpressionBounds finds the anonymous withOwnedSource body argument" {
         .fn_name = "probe",
     };
     const source =
-        \\const shift = @import("shift");
+        \\const ability = @import("ability");
         \\
         \\pub fn probe() !void {
-        \\    _ = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{}, undefined, .{}, struct {
+        \\    _ = try ability.withOwnedSource(@src(), @embedFile(@src().file), .{}, undefined, .{}, struct {
         \\        pub fn body(eff: anytype) anyerror!void { _ = eff; }
         \\    });
         \\}
@@ -1121,10 +1121,10 @@ test "syntheticSourceWithEntry appends one renamed entry function" {
         .fn_name = "probe",
     };
     const source =
-        \\const shift = @import("shift");
+        \\const ability = @import("ability");
         \\
         \\pub fn probe() !void {
-        \\    _ = try shift.withOwnedSource(@src(), @embedFile(@src().file), .{}, undefined, .{}, struct {
+        \\    _ = try ability.withOwnedSource(@src(), @embedFile(@src().file), .{}, undefined, .{}, struct {
         \\        pub fn body(eff: anytype) anyerror!void { _ = eff; }
         \\    });
         \\}
@@ -1132,16 +1132,16 @@ test "syntheticSourceWithEntry appends one renamed entry function" {
     const Body = struct {
         fn body(_: anytype) anyerror!void {}
     };
-    const synthetic = comptime syntheticSourceWithEntry(caller, Body, source, .owned_source, "__shift_with_entry_l5_c34", null).?;
-    try std.testing.expect(std.mem.containsAtLeast(u8, synthetic, 1, "pub fn __shift_with_entry_l5_c34"));
+    const synthetic = comptime syntheticSourceWithEntry(caller, Body, source, .owned_source, "__ability_with_entry_l5_c34", null).?;
+    try std.testing.expect(std.mem.containsAtLeast(u8, synthetic, 1, "pub fn __ability_with_entry_l5_c34"));
 }
 
 test "syntheticSourceForExpr hoists supporting declarations around anonymous body methods" {
     const caller_source =
-        \\const shift = @import("shift");
+        \\const ability = @import("ability");
         \\
         \\pub fn demo() !void {
-        \\    _ = try shift.with(undefined, .{}, struct {
+        \\    _ = try ability.with(undefined, .{}, struct {
         \\        pub fn body(eff: anytype) anyerror!i32 {
         \\            _ = eff;
         \\            return Support.answer();
@@ -1178,11 +1178,11 @@ test "syntheticSourceForExpr hoists supporting declarations around anonymous bod
         Body,
         expr_source,
         caller_source,
-        "__shift_with_entry_demo",
+        "__ability_with_entry_demo",
         "anyerror!i32",
     ).?;
     try std.testing.expect(std.mem.containsAtLeast(u8, synthetic, 1, "const Support = struct"));
-    try std.testing.expect(std.mem.containsAtLeast(u8, synthetic, 1, "pub fn __shift_with_entry_demo"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, synthetic, 1, "pub fn __ability_with_entry_demo"));
     try std.testing.expect(std.mem.containsAtLeast(u8, synthetic, 1, "return Support.answer();"));
 }
 
@@ -1206,10 +1206,10 @@ test "resolvedRepoPath maps anonymous inline body module paths back to one repo 
 
 test "resolvedRepoPath accepts nested test module base aliases when they remain unique" {
     const nested_source =
-        \\const shift = @import("shift");
+        \\const ability = @import("ability");
         \\
         \\test "nested lexical witness generator" {
-        \\    _ = try shift.with(undefined, .{}, struct {
+        \\    _ = try ability.with(undefined, .{}, struct {
         \\        pub fn body(eff: anytype) anyerror!void {
         \\            _ = eff;
         \\        }
@@ -1230,13 +1230,13 @@ test "resolvedRepoPath accepts nested test module base aliases when they remain 
 
 test "uniqueBodyExpressionBoundsInRange fails closed when one function contains two plain with bodies" {
     const source =
-        \\const shift = @import("shift");
+        \\const ability = @import("ability");
         \\
         \\pub fn run() !void {
-        \\    _ = try shift.with(undefined, .{}, struct {
+        \\    _ = try ability.with(undefined, .{}, struct {
         \\        pub fn body(eff: anytype) anyerror!void { _ = eff; }
         \\    });
-        \\    _ = try shift.with(undefined, .{}, struct {
+        \\    _ = try ability.with(undefined, .{}, struct {
         \\        pub fn body(eff: anytype) anyerror!void { _ = eff; }
         \\    });
         \\}
@@ -1332,7 +1332,7 @@ test "synthetic plain with helper-call body stays lowerable" {
         \\}
         \\
         \\pub fn run() !void {
-        \\    _ = try shift.with(undefined, .{
+        \\    _ = try ability.with(undefined, .{
         \\        .state = undefined,
         \\    }, struct {
         \\        pub fn body(eff: anytype) anyerror!i32 {
@@ -1349,7 +1349,7 @@ test "synthetic plain with helper-call body stays lowerable" {
             unreachable;
         }
     };
-    const synthetic = comptime syntheticSourceWithEntry(caller, Body, source, .plain_with, "__shift_with_entry_l8_c34", null).?;
+    const synthetic = comptime syntheticSourceWithEntry(caller, Body, source, .plain_with, "__ability_with_entry_l8_c34", null).?;
     const Handlers = struct {
         state: state.LexicalDescriptor(i32, error{}),
     };
@@ -1357,7 +1357,7 @@ test "synthetic plain with helper-call body stays lowerable" {
         lowering_api.sourceWithContent("/tmp/helper_probe.zig", caller, synthetic),
         .{
             .label = "anonymous_body_synthesis.helper_probe",
-            .entry_symbol = "__shift_with_entry_l8_c34",
+            .entry_symbol = "__ability_with_entry_l8_c34",
             .ValueType = i32,
             .row = lexical_manifest.Manifest(Handlers).row(),
             .outputs = lexical_manifest.Manifest(Handlers).outputs(),
@@ -1377,7 +1377,7 @@ test "synthetic plain with run(self, eff) lowers when self is unused" {
     };
     const source =
         \\pub fn run() !void {
-        \\    _ = try shift.with(undefined, .{
+        \\    _ = try ability.with(undefined, .{
         \\        .state = undefined,
         \\    }, struct {
         \\        pub fn run(self: @This(), eff: anytype) anyerror!i32 {
@@ -1393,7 +1393,7 @@ test "synthetic plain with run(self, eff) lowers when self is unused" {
             return try eff.state.get();
         }
     };
-    const synthetic = comptime syntheticSourceWithEntry(caller, Body, source, .plain_with, "__shift_with_entry_l5_c34", null).?;
+    const synthetic = comptime syntheticSourceWithEntry(caller, Body, source, .plain_with, "__ability_with_entry_l5_c34", null).?;
     const Handlers = struct {
         state: state.LexicalDescriptor(i32, error{}),
     };
@@ -1401,7 +1401,7 @@ test "synthetic plain with run(self, eff) lowers when self is unused" {
         lowering_api.sourceWithContent("/tmp/self_probe.zig", caller, synthetic),
         .{
             .label = "anonymous_body_synthesis.self_probe",
-            .entry_symbol = "__shift_with_entry_l5_c34",
+            .entry_symbol = "__ability_with_entry_l5_c34",
             .ValueType = i32,
             .row = lexical_manifest.Manifest(Handlers).row(),
             .outputs = lexical_manifest.Manifest(Handlers).outputs(),
@@ -1411,10 +1411,10 @@ test "synthetic plain with run(self, eff) lowers when self is unused" {
 }
 
 test "actual lexical_with_test run(self, eff) source lowers through synthetic entry" {
-    const shift = @import("shift");
+    const ability = @import("ability");
     const source = source_graph_embed.embeddedSource("test/lexical_with_test.zig");
     const bounds = comptime blk: {
-        const test_block = testBlockBounds(source, "shift.with accepts body run(self, eff)").?;
+        const test_block = testBlockBounds(source, "ability.with accepts body run(self, eff)").?;
         break :blk uniqueBodyExpressionBoundsInRange(source, test_block.start, test_block.end, .plain_with).?;
     };
     const Body = struct {
@@ -1423,8 +1423,8 @@ test "actual lexical_with_test run(self, eff) source lowers through synthetic en
             return try eff.state.get();
         }
     };
-    const entry_symbol = "__shift_with_entry_36363";
-    const synthetic_path = "/tmp/shift_with/__shift_with_entry_36363.zig";
+    const entry_symbol = "__ability_with_entry_36363";
+    const synthetic_path = "/tmp/ability_with/__ability_with_entry_36363.zig";
     const synthetic = comptime syntheticSourceForExpr(
         Body,
         source[bounds.start..bounds.end],
@@ -1440,12 +1440,12 @@ test "actual lexical_with_test run(self, eff) source lowers through synthetic en
         .fn_name = entry_symbol,
     };
     const Handlers = @TypeOf(.{
-        .state = shift.effect.state.use(@as(i32, 11)),
+        .state = ability.effect.state.use(@as(i32, 11)),
     });
     const lowered = lowering_api.maybeLower(
         lowering_api.sourceWithContent(synthetic_path, caller, synthetic),
         .{
-            .label = "shift.with repo-owned lexical body",
+            .label = "ability.with repo-owned lexical body",
             .entry_symbol = entry_symbol,
             .ValueType = i32,
             .row = lexical_manifest.Manifest(Handlers).row(),
@@ -1463,7 +1463,7 @@ test "actual lexical_with_test run(self, eff) source lowers through synthetic en
     _ = lowering_api.lower(
         lowering_api.sourceWithContent(synthetic_path, caller, synthetic),
         .{
-            .label = "shift.with repo-owned lexical body",
+            .label = "ability.with repo-owned lexical body",
             .entry_symbol = entry_symbol,
             .ValueType = i32,
             .row = lexical_manifest.Manifest(Handlers).row(),
@@ -1481,7 +1481,7 @@ test "actual lexical_with_test run(self, eff) source lowers through synthetic en
 
 test "actual lexical_with_test run(eff) synthetic hash probe" {
     const source = source_graph_embed.embeddedSource("test/lexical_with_test.zig");
-    const test_block = comptime testBlockBounds(source, "shift.with accepts body run(eff)").?;
+    const test_block = comptime testBlockBounds(source, "ability.with accepts body run(eff)").?;
     const bounds = comptime uniqueBodyExpressionBoundsInRange(
         source,
         test_block.start,
@@ -1497,13 +1497,13 @@ test "actual lexical_with_test run(eff) synthetic hash probe" {
         Body,
         source[bounds.start..bounds.end],
         source,
-        "__shift_with_entry_probe",
+        "__ability_with_entry_probe",
         null,
     ).?;
 }
 
 test "actual writer_basic helper body lowers through synthetic entry" {
-    const shift = @import("shift");
+    const ability = @import("ability");
     const source = source_graph_embed.embeddedSource("examples/writer_basic.zig");
     const graph = source_graph_engine.analyzeComptime(source, .{}) catch unreachable;
     const function_node = blk: {
@@ -1527,8 +1527,8 @@ test "actual writer_basic helper body lowers through synthetic entry" {
             unreachable;
         }
     };
-    const entry_symbol = "__shift_with_entry_36746";
-    const synthetic_path = "/tmp/shift_with/__shift_with_entry_36746.zig";
+    const entry_symbol = "__ability_with_entry_36746";
+    const synthetic_path = "/tmp/ability_with/__ability_with_entry_36746.zig";
     const synthetic = comptime syntheticSourceForExpr(
         Body,
         source[bounds.start..bounds.end],
@@ -1545,12 +1545,12 @@ test "actual writer_basic helper body lowers through synthetic entry" {
         .fn_name = entry_symbol,
     };
     const Handlers = @TypeOf(.{
-        .writer = shift.effect.writer.use([]const u8, std.testing.allocator),
+        .writer = ability.effect.writer.use([]const u8, std.testing.allocator),
     });
     const lowered = lowering_api.maybeLower(
         lowering_api.sourceWithContent(synthetic_path, caller, synthetic),
         .{
-            .label = "shift.with repo-owned lexical body",
+            .label = "ability.with repo-owned lexical body",
             .entry_symbol = entry_symbol,
             .ValueType = []const u8,
             .row = lexical_manifest.Manifest(Handlers).row(),
@@ -1575,7 +1575,7 @@ test "actual writer_basic helper body lowers through synthetic entry" {
 }
 
 test "actual resource_basic helper body lowers through synthetic entry" {
-    const shift = @import("shift");
+    const ability = @import("ability");
     const source = source_graph_embed.embeddedSource("examples/resource_basic.zig");
     const graph = source_graph_engine.analyzeComptime(source, .{}) catch unreachable;
     const function_node = blk: {
@@ -1599,8 +1599,8 @@ test "actual resource_basic helper body lowers through synthetic entry" {
             unreachable;
         }
     };
-    const entry_symbol = "__shift_with_entry_30142";
-    const synthetic_path = "/tmp/shift_with/__shift_with_entry_30142.zig";
+    const entry_symbol = "__ability_with_entry_30142";
+    const synthetic_path = "/tmp/ability_with/__ability_with_entry_30142.zig";
     const synthetic = comptime syntheticSourceForExpr(
         Body,
         source[bounds.start..bounds.end],
@@ -1622,12 +1622,12 @@ test "actual resource_basic helper body lowers through synthetic entry" {
         pub fn release(_: []const u8) void {}
     };
     const Handlers = @TypeOf(.{
-        .resource = shift.effect.resource.use([]const u8, resource_manager),
+        .resource = ability.effect.resource.use([]const u8, resource_manager),
     });
     const lowered = lowering_api.maybeLower(
         lowering_api.sourceWithContent(synthetic_path, caller, synthetic),
         .{
-            .label = "shift.with repo-owned lexical body",
+            .label = "ability.with repo-owned lexical body",
             .entry_symbol = entry_symbol,
             .ValueType = []const u8,
             .row = lexical_manifest.Manifest(Handlers).row(),
@@ -1645,7 +1645,7 @@ test "actual resource_basic helper body lowers through synthetic entry" {
 }
 
 test "caller-owned writer_basic body lowers through syntheticSourceWithEntry" {
-    const shift = @import("shift");
+    const ability = @import("ability");
     const source = source_graph_embed.embeddedSource("examples/writer_basic.zig");
     const caller = std.builtin.SourceLocation{
         .module = @src().module,
@@ -1665,7 +1665,7 @@ test "caller-owned writer_basic body lowers through syntheticSourceWithEntry" {
     };
     const entry_symbol = callerEntryName(caller);
     const synthetic = comptime syntheticSourceWithEntry(caller, Body, source, .plain_with, entry_symbol, null).?;
-    const synthetic_path = std.fmt.comptimePrint("/tmp/shift_with/{s}.zig", .{entry_symbol});
+    const synthetic_path = std.fmt.comptimePrint("/tmp/ability_with/{s}.zig", .{entry_symbol});
     const path_z = std.fmt.comptimePrint("{s}\x00", .{synthetic_path});
     const entry_z = std.fmt.comptimePrint("{s}\x00", .{entry_symbol});
     const caller_owned = std.builtin.SourceLocation{
@@ -1676,12 +1676,12 @@ test "caller-owned writer_basic body lowers through syntheticSourceWithEntry" {
         .fn_name = entry_z[0..entry_symbol.len :0],
     };
     const Handlers = @TypeOf(.{
-        .writer = shift.effect.writer.use([]const u8, std.testing.allocator),
+        .writer = ability.effect.writer.use([]const u8, std.testing.allocator),
     });
     try std.testing.expect(lowering_api.maybeLower(
         lowering_api.sourceWithContent(synthetic_path, caller_owned, synthetic),
         .{
-            .label = "shift.with repo-owned lexical body",
+            .label = "ability.with repo-owned lexical body",
             .entry_symbol = entry_symbol,
             .ValueType = []const u8,
             .row = lexical_manifest.Manifest(Handlers).row(),
@@ -1691,7 +1691,7 @@ test "caller-owned writer_basic body lowers through syntheticSourceWithEntry" {
 }
 
 test "caller-owned resource_basic body lowers through syntheticSourceWithEntry" {
-    const shift = @import("shift");
+    const ability = @import("ability");
     const source = source_graph_embed.embeddedSource("examples/resource_basic.zig");
     const caller = std.builtin.SourceLocation{
         .module = @src().module,
@@ -1711,7 +1711,7 @@ test "caller-owned resource_basic body lowers through syntheticSourceWithEntry" 
     };
     const entry_symbol = callerEntryName(caller);
     const synthetic = comptime syntheticSourceWithEntry(caller, Body, source, .plain_with, entry_symbol, null).?;
-    const synthetic_path = std.fmt.comptimePrint("/tmp/shift_with/{s}.zig", .{entry_symbol});
+    const synthetic_path = std.fmt.comptimePrint("/tmp/ability_with/{s}.zig", .{entry_symbol});
     const path_z = std.fmt.comptimePrint("{s}\x00", .{synthetic_path});
     const entry_z = std.fmt.comptimePrint("{s}\x00", .{entry_symbol});
     const caller_owned = std.builtin.SourceLocation{
@@ -1728,12 +1728,12 @@ test "caller-owned resource_basic body lowers through syntheticSourceWithEntry" 
         pub fn release(_: []const u8) void {}
     };
     const Handlers = @TypeOf(.{
-        .resource = shift.effect.resource.use([]const u8, resource_manager),
+        .resource = ability.effect.resource.use([]const u8, resource_manager),
     });
     try std.testing.expect(lowering_api.maybeLower(
         lowering_api.sourceWithContent(synthetic_path, caller_owned, synthetic),
         .{
-            .label = "shift.with repo-owned lexical body",
+            .label = "ability.with repo-owned lexical body",
             .entry_symbol = entry_symbol,
             .ValueType = []const u8,
             .row = lexical_manifest.Manifest(Handlers).row(),
@@ -1743,7 +1743,7 @@ test "caller-owned resource_basic body lowers through syntheticSourceWithEntry" 
 }
 
 test "caller-owned state_basic body lowers through syntheticSourceWithEntry" {
-    const shift = @import("shift");
+    const ability = @import("ability");
     const source = source_graph_embed.embeddedSource("examples/state_basic.zig");
     const caller = std.builtin.SourceLocation{
         .module = @src().module,
@@ -1763,7 +1763,7 @@ test "caller-owned state_basic body lowers through syntheticSourceWithEntry" {
     };
     const entry_symbol = callerEntryName(caller);
     const synthetic = comptime syntheticSourceWithEntry(caller, Body, source, .plain_with, entry_symbol, "anyerror!i32").?;
-    const synthetic_path = std.fmt.comptimePrint("/tmp/shift_with/{s}.zig", .{entry_symbol});
+    const synthetic_path = std.fmt.comptimePrint("/tmp/ability_with/{s}.zig", .{entry_symbol});
     const path_z = std.fmt.comptimePrint("{s}\x00", .{synthetic_path});
     const entry_z = std.fmt.comptimePrint("{s}\x00", .{entry_symbol});
     const caller_owned = std.builtin.SourceLocation{
@@ -1774,12 +1774,12 @@ test "caller-owned state_basic body lowers through syntheticSourceWithEntry" {
         .fn_name = entry_z[0..entry_symbol.len :0],
     };
     const Handlers = @TypeOf(.{
-        .state = shift.effect.state.use(@as(i32, 5)),
+        .state = ability.effect.state.use(@as(i32, 5)),
     });
     try std.testing.expect(lowering_api.maybeLower(
         lowering_api.sourceWithContent(synthetic_path, caller_owned, synthetic),
         .{
-            .label = "shift.with repo-owned lexical body",
+            .label = "ability.with repo-owned lexical body",
             .entry_symbol = entry_symbol,
             .ValueType = i32,
             .row = lexical_manifest.Manifest(Handlers).row(),
@@ -1789,7 +1789,7 @@ test "caller-owned state_basic body lowers through syntheticSourceWithEntry" {
 }
 
 test "actual state_basic helper body lowers through synthetic entry" {
-    const shift = @import("shift");
+    const ability = @import("ability");
     const source = source_graph_embed.embeddedSource("examples/state_basic.zig");
     const graph = source_graph_engine.analyzeComptime(source, .{}) catch unreachable;
     const function_node = blk: {
@@ -1813,8 +1813,8 @@ test "actual state_basic helper body lowers through synthetic entry" {
             unreachable;
         }
     };
-    const entry_symbol = "__shift_with_entry_30101";
-    const synthetic_path = "/tmp/shift_with/__shift_with_entry_30101.zig";
+    const entry_symbol = "__ability_with_entry_30101";
+    const synthetic_path = "/tmp/ability_with/__ability_with_entry_30101.zig";
     const synthetic = comptime syntheticSourceForExpr(
         Body,
         source[bounds.start..bounds.end],
@@ -1830,12 +1830,12 @@ test "actual state_basic helper body lowers through synthetic entry" {
         .fn_name = entry_symbol,
     };
     const Handlers = @TypeOf(.{
-        .state = shift.effect.state.use(@as(i32, 5)),
+        .state = ability.effect.state.use(@as(i32, 5)),
     });
     const lowered = lowering_api.maybeLower(
         lowering_api.sourceWithContent(synthetic_path, caller, synthetic),
         .{
-            .label = "shift.with repo-owned lexical body",
+            .label = "ability.with repo-owned lexical body",
             .entry_symbol = entry_symbol,
             .ValueType = i32,
             .row = lexical_manifest.Manifest(Handlers).row(),
@@ -1853,7 +1853,7 @@ test "actual state_basic helper body lowers through synthetic entry" {
 }
 
 test "actual open_row_generator helper body lowers through synthetic entry" {
-    const shift = @import("shift");
+    const ability = @import("ability");
     const source = source_graph_embed.embeddedSource("examples/open_row_generator.zig");
     const graph = source_graph_engine.analyzeComptime(source, .{}) catch unreachable;
     const function_node = blk: {
@@ -1877,8 +1877,8 @@ test "actual open_row_generator helper body lowers through synthetic entry" {
             unreachable;
         }
     };
-    const entry_symbol = "__shift_with_entry_30125";
-    const synthetic_path = "/tmp/shift_with/__shift_with_entry_30125.zig";
+    const entry_symbol = "__ability_with_entry_30125";
+    const synthetic_path = "/tmp/ability_with/__ability_with_entry_30125.zig";
     const synthetic = comptime syntheticSourceForExpr(
         Body,
         source[bounds.start..bounds.end],
@@ -1894,13 +1894,13 @@ test "actual open_row_generator helper body lowers through synthetic entry" {
         .fn_name = entry_symbol,
     };
     const Handlers = @TypeOf(.{
-        .state = shift.effect.state.use(@as(i32, 0)),
-        .writer = shift.effect.writer.use([]const u8, std.testing.allocator),
+        .state = ability.effect.state.use(@as(i32, 0)),
+        .writer = ability.effect.writer.use([]const u8, std.testing.allocator),
     });
     const lowered = lowering_api.maybeLower(
         lowering_api.sourceWithContent(synthetic_path, caller, synthetic),
         .{
-            .label = "shift.with repo-owned lexical body",
+            .label = "ability.with repo-owned lexical body",
             .entry_symbol = entry_symbol,
             .ValueType = i32,
             .row = lexical_manifest.Manifest(Handlers).row(),
@@ -1918,7 +1918,7 @@ test "actual open_row_generator helper body lowers through synthetic entry" {
 }
 
 test "actual open_row_workflow helper body lowers through synthetic entry" {
-    const shift = @import("shift");
+    const ability = @import("ability");
     const source = source_graph_embed.embeddedSource("examples/open_row_workflow.zig");
     const graph = source_graph_engine.analyzeComptime(source, .{}) catch unreachable;
     const function_node = blk: {
@@ -1933,16 +1933,16 @@ test "actual open_row_workflow helper body lowers through synthetic entry" {
         function_node.body_end_offset,
         .plain_with,
     ).?;
-    const Search = shift.effect.Define(.{
+    const Search = ability.effect.Define(.{
         .state_type = struct {},
         .ops = .{
-            shift.effect.ops.Transform("search", []const u8, i32),
+            ability.effect.ops.Transform("search", []const u8, i32),
         },
     });
-    const Approval = shift.effect.Define(.{
+    const Approval = ability.effect.Define(.{
         .state_type = void,
         .ops = .{
-            shift.effect.ops.Choice("publish", void, []const u8),
+            ability.effect.ops.Choice("publish", void, []const u8),
         },
     });
     const search_handler = struct {
@@ -1954,7 +1954,7 @@ test "actual open_row_workflow helper body lowers through synthetic entry" {
         }
     };
     const approval_handler = struct {
-        pub fn publish(_: *@This()) shift.effect.choice.Decision([]const u8, []const u8) {
+        pub fn publish(_: *@This()) ability.effect.choice.Decision([]const u8, []const u8) {
             unreachable;
         }
         pub fn afterPublish(_: *@This(), answer: []const u8) []const u8 {
@@ -1970,8 +1970,8 @@ test "actual open_row_workflow helper body lowers through synthetic entry" {
             unreachable;
         }
     };
-    const entry_symbol = "__shift_with_entry_30467";
-    const synthetic_path = "/tmp/shift_with/__shift_with_entry_30467.zig";
+    const entry_symbol = "__ability_with_entry_30467";
+    const synthetic_path = "/tmp/ability_with/__ability_with_entry_30467.zig";
     const synthetic = comptime syntheticSourceForExpr(
         Body,
         source[bounds.start..bounds.end],
@@ -1987,15 +1987,15 @@ test "actual open_row_workflow helper body lowers through synthetic entry" {
         .fn_name = entry_symbol,
     };
     const Handlers = @TypeOf(.{
-        .state = shift.effect.state.use(@as(i32, 0)),
-        .writer = shift.effect.writer.use([]const u8, std.testing.allocator),
+        .state = ability.effect.state.use(@as(i32, 0)),
+        .writer = ability.effect.writer.use([]const u8, std.testing.allocator),
         .search = Search.use(.{ .handler = search_handler{} }),
         .approval = Approval.use(.{ .handler = approval_handler{} }),
     });
     const lowered = lowering_api.maybeLower(
         lowering_api.sourceWithContent(synthetic_path, caller, synthetic),
         .{
-            .label = "shift.with repo-owned lexical body",
+            .label = "ability.with repo-owned lexical body",
             .entry_symbol = entry_symbol,
             .ValueType = []const u8,
             .row = lexical_manifest.Manifest(Handlers).row(),

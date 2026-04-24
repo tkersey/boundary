@@ -1,4 +1,4 @@
-const shift_compile = @import("shift_compile");
+const ability_compile = @import("ability_compile");
 const std = @import("std");
 
 fn preserve(flag: bool, _: anytype) !bool {
@@ -13,13 +13,13 @@ pub fn runBody(eff: anytype) anyerror!bool {
 }
 
 /// Return the additive public lowering spec for this bool helper workflow.
-pub fn loweringSpec() shift_compile.lowering_api.LowerSpec {
+pub fn loweringSpec() ability_compile.lowering_api.LowerSpec {
     return .{
         .label = "example.open_row_helper_bool_flow",
         .entry_symbol = "runBody",
-        .row = shift_compile.effect_ir.rowFromSpec(.{
+        .row = ability_compile.effect_ir.rowFromSpec(.{
             .approval = .{
-                .ask = shift_compile.effect_ir.Transform(void, bool),
+                .ask = ability_compile.effect_ir.Transform(void, bool),
             },
         }),
         .ValueType = bool,
@@ -43,22 +43,22 @@ fn explicitLoweringCaller() std.builtin.SourceLocation {
 }
 
 /// Return the explicit caller-owned lowering provenance witness for this module.
-pub fn loweringSource() shift_compile.lowering_api.SourceRef {
-    return shift_compile.lowering_api.sourceWithContent(loweringSourcePath(), explicitLoweringCaller(), @embedFile(@src().file));
+pub fn loweringSource() ability_compile.lowering_api.SourceRef {
+    return ability_compile.lowering_api.sourceWithContent(loweringSourcePath(), explicitLoweringCaller(), @embedFile(@src().file));
 }
 
 /// Return the additive public lowered artifact for this bool helper workflow.
-pub fn loweredProgram() @TypeOf(shift_compile.lowering_api.lowerOpenRowAt(loweringSourcePath(), loweringSpec())) {
-    return try shift_compile.lowering_api.lowerOpenRowAt(loweringSourcePath(), loweringSpec());
+pub fn loweredProgram() @TypeOf(ability_compile.lowering_api.lowerOpenRowAt(loweringSourcePath(), loweringSpec())) {
+    return try ability_compile.lowering_api.lowerOpenRowAt(loweringSourcePath(), loweringSpec());
 }
 
 /// Return the explicit IR view paired with this same-module lowering request.
-pub fn irProgram() shift_compile.effect_ir.Program {
-    return shift_compile.lowering_api.irProgramAt(loweringSourcePath(), loweringSpec());
+pub fn irProgram() ability_compile.effect_ir.Program {
+    return ability_compile.lowering_api.irProgramAt(loweringSourcePath(), loweringSpec());
 }
 
 fn CompiledProgramType() type {
-    return shift_compile.lower(loweringSource(), loweringSpec());
+    return ability_compile.lower(loweringSource(), loweringSpec());
 }
 
 /// Generated additive program type exposing the runtime-owned plan bridge.

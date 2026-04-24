@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const ability = @import("ability");
 const std = @import("std");
 
 const transcript = struct {
@@ -13,10 +13,10 @@ const guard_handler = struct {
     }
 };
 
-const Guard = shift.effect.Define(.{
+const Guard = ability.effect.Define(.{
     .state_type = void,
     .ops = .{
-        shift.effect.ops.Abort("fail", []const u8),
+        ability.effect.ops.Abort("fail", []const u8),
     },
 });
 
@@ -26,12 +26,12 @@ fn abortBody(eff: anytype) anyerror![]const u8 {
 
 /// Render the abort example transcript.
 pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    var runtime = ability.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
     transcript.abort_line = "";
     try writer.writeAll("validate=name\n");
-    const result = try shift.with(&runtime, .{
+    const result = try ability.with(&runtime, .{
         .guard = Guard.use(.{ .handler = guard_handler{} }),
     }, struct {
         /// Run the abort example body through the lexical front door.

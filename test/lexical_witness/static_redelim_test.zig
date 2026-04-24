@@ -1,13 +1,13 @@
 // zlinter-disable require_doc_comment - lexical witness helpers are test-only support surfaces.
 // zlinter-disable declaration_naming - carrier/test helper names intentionally mirror the witness they wrap.
+const ability = @import("ability");
 const common = @import("common.zig");
-const shift = @import("shift");
-const lexical_runtime = shift;
+const lexical_runtime = ability;
 const std = common.std;
-pub const ResumeWitness = shift.effect.Define(.{
+pub const ResumeWitness = ability.effect.Define(.{
     .state_type = void,
     .ops = .{
-        shift.effect.ops.Transform("step", void, i32),
+        ability.effect.ops.Transform("step", void, i32),
     },
 });
 

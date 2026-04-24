@@ -10,7 +10,7 @@ const EmitMode = enum {
 
 fn usage() noreturn {
     std.debug.print(
-        "usage: shift-source-lower --id <source.case> --source <path> --entry <symbol> --surface <source_case|example|effect|user_defined_effect|witness> --emit <json|zig> --out <path>\n",
+        "usage: ability-source-lower --id <source.case> --source <path> --entry <symbol> --surface <source_case|example|effect|user_defined_effect|witness> --emit <json|zig> --out <path>\n",
         .{},
     );
     std.process.exit(1);
@@ -252,7 +252,7 @@ fn writeZig(program: source_lowering.GeneratedProgram, writer: anytype) !void {
     try writer.writeAll(
         "const source_lowering = @import(\"source_lowering\");\n" ++
             "const std = @import(\"std\");\n\n" ++
-            "// Executable kernel program artifact emitted by shift-source-lower.\n\n",
+            "// Executable kernel program artifact emitted by ability-source-lower.\n\n",
     );
     try writer.writeAll("const generated_program_steps = [_]source_lowering.Step{\n");
     for (artifact.steps) |step| try writeStepLiteral(writer, step);

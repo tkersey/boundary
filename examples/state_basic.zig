@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const ability = @import("ability");
 const std = @import("std");
 
 fn stateBody(eff: anytype) anyerror!i32 {
@@ -10,11 +10,11 @@ fn stateBody(eff: anytype) anyerror!i32 {
 
 /// Write the state-effect transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    var runtime = ability.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
-        .state = shift.effect.state.use(@as(i32, 5)),
+    const result = try ability.with(&runtime, .{
+        .state = ability.effect.state.use(@as(i32, 5)),
     }, struct {
         /// Run the state example body through the lexical front door.
         pub fn body(eff: anytype) @TypeOf(stateBody(eff)) {

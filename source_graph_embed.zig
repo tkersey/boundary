@@ -405,7 +405,7 @@ test "sourceBytes requires repo-resolving absolute helper imports to mirror repo
     const repo_parent = comptime std.Io.Dir.path.dirname(build_options.package_root) orelse
         @compileError("package_root must have a parent directory");
     const external_root_path = comptime std.fmt.comptimePrint(
-        "{s}/shift-external-entry/entry.zig",
+        "{s}/ability-external-entry/entry.zig",
         .{repo_parent},
     );
 
@@ -924,9 +924,9 @@ test "canonicalCallerLocation keeps external basename-only matches external" {
 
 test "resolveImportPathAt preserves parent-directory helpers for absolute caller-owned roots" {
     try std.testing.expectEqualStrings(
-        "/tmp/shift-owned-open-row/helpers/util.zig",
+        "/tmp/ability-owned-open-row/helpers/util.zig",
         try resolveImportPathAt(
-            "/tmp/shift-owned-open-row/nested/entry.zig",
+            "/tmp/ability-owned-open-row/nested/entry.zig",
             "../helpers/util.zig",
         ),
     );
@@ -936,14 +936,14 @@ test "resolveImportPathAt rejects helper imports that climb above the admitted a
     try std.testing.expectError(
         error.UnsupportedImportPath,
         resolveImportPathAt(
-            "/tmp/shift-owned-open-row/nested/deeper/entry.zig",
+            "/tmp/ability-owned-open-row/nested/deeper/entry.zig",
             "../../outside_helper.zig",
         ),
     );
     try std.testing.expectError(
         error.UnsupportedImportPath,
         resolveImportPathAt(
-            "/tmp/shift-owned-open-row/nested/entry.zig",
+            "/tmp/ability-owned-open-row/nested/entry.zig",
             "helpers/../../outside_helper.zig",
         ),
     );
@@ -953,7 +953,7 @@ test "analyzeProgramWithRootSource rejects transitive helper imports that leave 
     try std.testing.expectError(
         error.UnsupportedImportPath,
         analyzeProgramWithRootSource(
-            "/tmp/shift-owned-open-row/nested/entry.zig",
+            "/tmp/ability-owned-open-row/nested/entry.zig",
             \\const helpers = @import("../helpers/a.zig");
             \\
             \\pub fn runBody(eff: anytype) !void {
@@ -962,7 +962,7 @@ test "analyzeProgramWithRootSource rejects transitive helper imports that leave 
         ,
             &.{
                 .{
-                    .path = "/tmp/shift-owned-open-row/helpers/a.zig",
+                    .path = "/tmp/ability-owned-open-row/helpers/a.zig",
                     .content =
                     \\const other = @import("../other/b.zig");
                     \\
@@ -972,7 +972,7 @@ test "analyzeProgramWithRootSource rejects transitive helper imports that leave 
                     ,
                 },
                 .{
-                    .path = "/tmp/shift-owned-open-row/other/b.zig",
+                    .path = "/tmp/ability-owned-open-row/other/b.zig",
                     .content =
                     \\pub fn emit(eff: anytype) !void {
                     \\    try eff.writer.tell("escaped");
@@ -989,14 +989,14 @@ test "resolveImportPathAt rejects Windows absolute helper imports" {
     try std.testing.expectError(
         error.UnsupportedImportPath,
         resolveImportPathAt(
-            "/tmp/shift-owned-open-row/nested/entry.zig",
+            "/tmp/ability-owned-open-row/nested/entry.zig",
             "C:/tmp/helper.zig",
         ),
     );
     try std.testing.expectError(
         error.UnsupportedImportPath,
         resolveImportPathAt(
-            "/tmp/shift-owned-open-row/nested/entry.zig",
+            "/tmp/ability-owned-open-row/nested/entry.zig",
             "\\\\server\\share\\helper.zig",
         ),
     );

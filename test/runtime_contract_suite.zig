@@ -1,6 +1,6 @@
+const ability = @import("ability");
 const prompt_support = @import("prompt_support");
 const runtime_contracts = @import("runtime_contract_registry");
-const shift = @import("shift");
 const std = @import("std");
 
 test "runtime contract registry stays in sync with the executable suite" {
@@ -27,16 +27,16 @@ test "missing prompt still fails closed through the public API" {
 }
 
 test "cross-thread runtime misuse still fails closed" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const Result = struct {
-        err: ?shift.RuntimeError = null,
+        err: ?ability.RuntimeError = null,
     };
     var result = Result{};
 
     const worker = struct {
-        fn run(runtime_ptr: *shift.Runtime, result_ptr: *Result) void {
+        fn run(runtime_ptr: *ability.Runtime, result_ptr: *Result) void {
             runtime_ptr.deinitChecked() catch |err| {
                 result_ptr.err = err;
                 return;
@@ -50,7 +50,7 @@ test "cross-thread runtime misuse still fails closed" {
 }
 
 test "runtime deinit rejects active reset" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const NoError = error{};
@@ -69,7 +69,7 @@ test "runtime deinit rejects active reset" {
         }
     };
     const continuation = struct {
-        var runtime_ptr: *shift.Runtime = undefined;
+        var runtime_ptr: *ability.Runtime = undefined;
 
         /// Probe the runtime-busy contract from the resumed continuation.
         pub fn apply(_: usize) anyerror!usize {
@@ -87,9 +87,9 @@ test "runtime deinit rejects active reset" {
 }
 
 test "independent runtimes can execute on the same thread while another runtime is active" {
-    var outer_runtime = shift.Runtime.init(std.testing.allocator);
+    var outer_runtime = ability.Runtime.init(std.testing.allocator);
     defer outer_runtime.deinit();
-    var inner_runtime = shift.Runtime.init(std.testing.allocator);
+    var inner_runtime = ability.Runtime.init(std.testing.allocator);
     defer inner_runtime.deinit();
 
     const NoError = error{};
@@ -127,7 +127,7 @@ test "independent runtimes can execute on the same thread while another runtime 
         }
     };
     const outer_continuation = struct {
-        var inner_runtime_ptr: *shift.Runtime = undefined;
+        var inner_runtime_ptr: *ability.Runtime = undefined;
         var inner_prompt_ptr: *InnerPrompt = undefined;
 
         /// Run the nested prompt on the second runtime while the outer runtime stays active.
@@ -151,7 +151,7 @@ test "independent runtimes can execute on the same thread while another runtime 
 }
 
 test "destroyed runtime rejects later reset use" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     try runtime.deinitChecked();
     try std.testing.expectError(error.RuntimeDestroyed, runtime.deinitChecked());
 
@@ -163,7 +163,7 @@ test "destroyed runtime rejects later reset use" {
 }
 
 test "unsupported non-diagonal completion still fails closed" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     const NoError = error{};

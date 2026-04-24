@@ -4,7 +4,7 @@ const family = @import("family.zig");
 const lexical_with = @import("../with_api.zig");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
-const shift = lowered_machine;
+const ability = lowered_machine;
 const std = @import("std");
 
 fn ReturnTypeErrorSet(comptime ReturnType: type) type {
@@ -24,7 +24,7 @@ pub fn Instance(comptime ResourceType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.resume_then_transform, ResourceType, ErrorSetType);
 }
 
-/// Lexical resource handle used by `shift.with(...)`.
+/// Lexical resource handle used by `ability.with(...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -36,7 +36,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     };
 }
 
-/// Descriptor value used by `shift.with(...)` for the built-in resource family.
+/// Descriptor value used by `ability.with(...)` for the built-in resource family.
 pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: type, comptime Manager: type) type {
     return struct {
         /// Shared error set carried by the lexical resource descriptor.
@@ -79,7 +79,7 @@ pub fn LexicalDescriptor(comptime ResourceType: type, comptime ErrorSetType: typ
     };
 }
 
-/// Create one lexical resource descriptor for `shift.with(...)`.
+/// Create one lexical resource descriptor for `ability.with(...)`.
 pub fn use(comptime ResourceType: type, comptime Manager: type) LexicalDescriptor(ResourceType, ManagerErrorSet(Manager), Manager) {
     return .{};
 }
@@ -109,7 +109,7 @@ pub inline fn computeProgram(
 /// Run a resource effect body and guarantee LIFO cleanup of acquired resources.
 pub fn handle(
     comptime AnswerType: type,
-    runtime: *shift.Runtime,
+    runtime: *ability.Runtime,
     instance: anytype,
     comptime Manager: type,
     comptime Body: type,
@@ -122,7 +122,7 @@ pub fn handle(
 pub fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
-    runtime: *shift.Runtime,
+    runtime: *ability.Runtime,
     instance: anytype,
     comptime Manager: type,
     comptime Body: type,
@@ -187,7 +187,7 @@ test "resource handle releases in LIFO order after normal completion" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ResourceInstance.init();
     manager.next_index = 0;
@@ -239,7 +239,7 @@ test "resource handle releases before outer exception catch returns" {
     };
 
     const scenario = struct {
-        var runtime_ptr: ?*shift.Runtime = null;
+        var runtime_ptr: ?*ability.Runtime = null;
         var resource_ptr: ?*const ResourceInstance = null;
         var outer_exception_ctx: ?*const anyopaque = null;
 
@@ -278,7 +278,7 @@ test "resource handle releases before outer exception catch returns" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var exception_instance = ExceptionInstance.init();
     var resource_instance = ResourceInstance.init();
@@ -330,7 +330,7 @@ test "public resource handleWithErrorSet leaves caller provenance absent by defa
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ResourceInstance.init();
 
@@ -386,7 +386,7 @@ test "resource handle releases before outer optional return-now completes" {
     };
 
     const scenario = struct {
-        var runtime_ptr: ?*shift.Runtime = null;
+        var runtime_ptr: ?*ability.Runtime = null;
         var resource_ptr: ?*const ResourceInstance = null;
         var outer_optional_ctx: ?*const anyopaque = null;
 
@@ -427,7 +427,7 @@ test "resource handle releases before outer optional return-now completes" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var optional_instance = OptionalInstance.init();
     var resource_instance = ResourceInstance.init();
@@ -499,7 +499,7 @@ test "resource release error wins after a successful body" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ResourceInstance.init();
     try std.testing.expectError(error.ReleaseFailed, handle([]const u8, &runtime, &instance, manager, demo));
@@ -540,7 +540,7 @@ test "resource body error wins over release error" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ResourceInstance.init();
     try std.testing.expectError(error.BodyFailed, handle([]const u8, &runtime, &instance, manager, demo));
@@ -561,7 +561,7 @@ test "nested same-shaped resource handles get distinct capability types" {
         }
     };
     const demo = struct {
-        var runtime_ptr: ?*shift.Runtime = null;
+        var runtime_ptr: ?*ability.Runtime = null;
         var inner_ptr: ?*const ResourceInstance = null;
 
         /// Open an inner resource handle and prove its capability differs from the outer one.
@@ -588,7 +588,7 @@ test "nested same-shaped resource handles get distinct capability types" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var outer_instance = ResourceInstance.init();
     var inner_instance = ResourceInstance.init();

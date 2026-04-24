@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const ability = @import("ability");
 const std = @import("std");
 
 const transcript = struct {
@@ -22,9 +22,9 @@ const search_handler = struct {
 
 const approval_handler = struct {
     /// Approve publication through the workflow example.
-    pub fn publish(_: *@This()) shift.effect.choice.Decision([]const u8, []const u8) {
+    pub fn publish(_: *@This()) ability.effect.choice.Decision([]const u8, []const u8) {
         transcript.approval_line = "approval=publish";
-        return shift.effect.choice.Decision([]const u8, []const u8).returnNow("completed");
+        return ability.effect.choice.Decision([]const u8, []const u8).returnNow("completed");
     }
 
     /// Preserve the resumed workflow result unchanged.
@@ -33,17 +33,17 @@ const approval_handler = struct {
     }
 };
 
-const Search = shift.effect.Define(.{
+const Search = ability.effect.Define(.{
     .state_type = struct {},
     .ops = .{
-        shift.effect.ops.Transform("search", []const u8, i32),
+        ability.effect.ops.Transform("search", []const u8, i32),
     },
 });
 
-const Approval = shift.effect.Define(.{
+const Approval = ability.effect.Define(.{
     .state_type = void,
     .ops = .{
-        shift.effect.ops.Choice("publish", void, []const u8),
+        ability.effect.ops.Choice("publish", void, []const u8),
     },
 });
 
@@ -61,14 +61,14 @@ fn workflowBody(eff: anytype) anyerror![]const u8 {
 }
 
 fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
-    var runtime = shift.Runtime.init(allocator);
+    var runtime = ability.Runtime.init(allocator);
     defer runtime.deinit();
 
     transcript.search_line = "";
     transcript.approval_line = "";
-    const result = try shift.with(&runtime, .{
-        .state = shift.effect.state.use(@as(i32, 0)),
-        .writer = shift.effect.writer.use([]const u8, allocator),
+    const result = try ability.with(&runtime, .{
+        .state = ability.effect.state.use(@as(i32, 0)),
+        .writer = ability.effect.writer.use([]const u8, allocator),
         .search = Search.use(.{ .handler = search_handler{} }),
         .approval = Approval.use(.{ .handler = approval_handler{} }),
     }, struct {

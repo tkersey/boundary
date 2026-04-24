@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const ability = @import("ability");
 const std = @import("std");
 
 const NoError = error{};
@@ -6,8 +6,8 @@ const timed_iterations: usize = 50_000;
 const warmup_iterations: usize = 20_000;
 const samples_per_run: usize = 5;
 
-const RawTransformPrompt = shift.Prompt(.resume_then_transform, usize, usize, NoError);
-const AlgebraicTransformOp = shift.algebraic.TransformOp("algebraic_decompose", usize, usize);
+const RawTransformPrompt = ability.Prompt(.resume_then_transform, usize, usize, NoError);
+const AlgebraicTransformOp = ability.algebraic.TransformOp("algebraic_decompose", usize, usize);
 
 const Sample = struct {
     checksum: usize,
@@ -54,8 +54,8 @@ const raw_transform = struct {
         }
     };
 
-    fn program() shift.Program(RawTransformPrompt) {
-        return shift.transformProgram(RawTransformPrompt, usize, handler, struct {
+    fn program() ability.Program(RawTransformPrompt) {
+        return ability.transformProgram(RawTransformPrompt, usize, handler, struct {
             /// Preserve the raw resumed value plus the benchmark's one-step tail.
             pub fn apply(value: usize) usize {
                 return value + 1;
@@ -78,11 +78,11 @@ const effect_algebraic_transform = struct {
         }
     };
 
-    const transform_program = shift.algebraic.Program(usize, NoError, .{AlgebraicTransformOp});
+    const transform_program = ability.algebraic.Program(usize, NoError, .{AlgebraicTransformOp});
     const transform_configured = transform_program.handlers(.{
-        shift.algebraic.handleTransform(AlgebraicTransformOp, no_state{}, handler),
+        ability.algebraic.handleTransform(AlgebraicTransformOp, no_state{}, handler),
     });
-    const empty_program = shift.algebraic.Program(usize, NoError, .{});
+    const empty_program = ability.algebraic.Program(usize, NoError, .{});
     const empty_configured = empty_program.handlers(.{});
 
     const transform_body = struct {
@@ -104,24 +104,24 @@ const effect_algebraic_transform = struct {
 
     const empty_body = struct {
         /// Execute the empty configured-run shell with no operations.
-        pub fn body(_: *@TypeOf(empty_configured).Context) shift.ResetError(NoError)!usize {
+        pub fn body(_: *@TypeOf(empty_configured).Context) ability.ResetError(NoError)!usize {
             return raw_transform.current_value + 1;
         }
     };
 };
 
-fn runRawTransformSample(runtime: *shift.Runtime, prompt: *RawTransformPrompt, iterations: usize) !Sample {
+fn runRawTransformSample(runtime: *ability.Runtime, prompt: *RawTransformPrompt, iterations: usize) !Sample {
     var timer = try std.time.Timer.start();
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_transform.current_value = index;
-        checksum += preserveValue(try shift.reset(runtime, prompt, raw_transform.program()));
+        checksum += preserveValue(try ability.reset(runtime, prompt, raw_transform.program()));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
 
-fn runConfiguredShellSample(runtime: *shift.Runtime, iterations: usize) !Sample {
+fn runConfiguredShellSample(runtime: *ability.Runtime, iterations: usize) !Sample {
     var timer = try std.time.Timer.start();
     var checksum: usize = 0;
     var index: usize = 0;
@@ -132,7 +132,7 @@ fn runConfiguredShellSample(runtime: *shift.Runtime, iterations: usize) !Sample 
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
 
-fn runConfiguredTransformSample(runtime: *shift.Runtime, iterations: usize) !Sample {
+fn runConfiguredTransformSample(runtime: *ability.Runtime, iterations: usize) !Sample {
     var timer = try std.time.Timer.start();
     var checksum: usize = 0;
     var index: usize = 0;
@@ -168,15 +168,15 @@ fn medianDelta(later: *const [samples_per_run]u64, earlier: *const [samples_per_
 
 /// Decompose public algebraic builder overhead into raw, configured-shell, and full-path lanes.
 pub fn main(init: std.process.Init) anyerror!void {
-    var raw_runtime = shift.Runtime.init(std.heap.smp_allocator);
+    var raw_runtime = ability.Runtime.init(std.heap.smp_allocator);
     defer raw_runtime.deinit();
     var raw_prompt = RawTransformPrompt.init();
     raw_transform.prompt_ptr = &raw_prompt;
 
-    var shell_runtime = shift.Runtime.init(std.heap.smp_allocator);
+    var shell_runtime = ability.Runtime.init(std.heap.smp_allocator);
     defer shell_runtime.deinit();
 
-    var full_runtime = shift.Runtime.init(std.heap.smp_allocator);
+    var full_runtime = ability.Runtime.init(std.heap.smp_allocator);
     defer full_runtime.deinit();
 
     _ = try runRawTransformSample(&raw_runtime, &raw_prompt, warmup_iterations);

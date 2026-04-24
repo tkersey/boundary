@@ -1,6 +1,6 @@
+const ability = @import("ability");
+const ability_compile = @import("ability_compile");
 const probe = @import("source_ownership_probe_helper.zig");
-const shift = @import("shift");
-const shift_compile = @import("shift_compile");
 const std = @import("std");
 
 fn writeTmpFile(dir: std.Io.Dir, sub_path: []const u8, contents: []const u8) !void {
@@ -32,6 +32,47 @@ fn runChildAtPathExpectSuccess(
     return error.UnexpectedChildCommandFailure;
 }
 
+fn suggestedFingerprint(stderr: []const u8) ?[]const u8 {
+    const marker = "suggested value: ";
+    const marker_start = std.mem.find(u8, stderr, marker) orelse return null;
+    const value_start = marker_start + marker.len;
+    var value_end = value_start;
+    while (value_end < stderr.len) : (value_end += 1) {
+        switch (stderr[value_end]) {
+            '0'...'9', 'a'...'f', 'A'...'F', 'x' => {},
+            else => break,
+        }
+    }
+    return if (value_end > value_start) stderr[value_start..value_end] else null;
+}
+
+fn writeDownstreamBuildZon(dir: std.Io.Dir, fingerprint: ?[]const u8) !void {
+    const fingerprint_line = if (fingerprint) |value|
+        try std.fmt.allocPrint(std.testing.allocator, "    .fingerprint = {s},\n", .{value})
+    else
+        try std.testing.allocator.dupe(u8, "");
+    defer std.testing.allocator.free(fingerprint_line);
+
+    const build_zon = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\.{{
+        \\    .name = .downstream_ability_with,
+        \\    .version = "0.0.0",
+        \\    .minimum_zig_version = "0.16.0",
+        \\{s}    .dependencies = .{{
+        \\        .ability = .{{ .path = "../../.." }},
+        \\    }},
+        \\    .paths = .{{ "build.zig", "build.zig.zon", "main.zig" }},
+        \\}}
+        \\
+    ,
+        .{fingerprint_line},
+    );
+    defer std.testing.allocator.free(build_zon);
+
+    try writeTmpFile(dir, "build.zig.zon", build_zon);
+}
+
 fn callerSourceIsAbsent(comptime ContextType: type) bool {
     const caller_source = ContextType.caller_source;
     return switch (@typeInfo(@TypeOf(caller_source))) {
@@ -41,7 +82,7 @@ fn callerSourceIsAbsent(comptime ContextType: type) bool {
     };
 }
 
-fn runDownstreamShiftWithMain(comptime main_zig: []const u8) !void {
+fn runDownstreamAbilityWithMain(comptime main_zig: []const u8) !void {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -54,17 +95,17 @@ fn runDownstreamShiftWithMain(comptime main_zig: []const u8) !void {
         \\pub fn build(b: *std.Build) void {
         \\    const target = b.standardTargetOptions(.{});
         \\    const optimize = b.standardOptimizeOption(.{});
-        \\    const dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\    const dep = b.dependency("ability", .{ .target = target, .optimize = optimize });
         \\
         \\    const root = b.createModule(.{
         \\        .root_source_file = b.path("main.zig"),
         \\        .target = target,
         \\        .optimize = optimize,
         \\    });
-        \\    root.addImport("shift", dep.module("shift"));
+        \\    root.addImport("ability", dep.module("ability"));
         \\
         \\    const exe = b.addExecutable(.{
-        \\        .name = "downstream-shift-with",
+        \\        .name = "downstream-ability-with",
         \\        .root_module = root,
         \\    });
         \\    const run = b.addRunArtifact(exe);
@@ -73,36 +114,38 @@ fn runDownstreamShiftWithMain(comptime main_zig: []const u8) !void {
         \\
     ;
     try writeTmpFile(tmp.dir, "build.zig", build_zig);
-
-    const build_zon =
-        \\.{
-        \\    .name = .downstream_shift_with,
-        \\    .version = "0.0.0",
-        \\    .minimum_zig_version = "0.16.0",
-        \\    .dependencies = .{
-        \\        .shift = .{ .path = "../../.." },
-        \\    },
-        \\    .paths = .{ "build.zig", "build.zig.zon", "main.zig" },
-        \\    .fingerprint = 0xf5798bf9dbefd4d5,
-        \\}
-        \\
-    ;
-    try writeTmpFile(tmp.dir, "build.zig.zon", build_zon);
+    try writeDownstreamBuildZon(tmp.dir, null);
     try writeTmpFile(tmp.dir, "main.zig", main_zig);
 
-    try runChildAtPathExpectSuccess(
-        consumer_root,
-        &.{
-            "zig",
-            "build",
-            "--summary",
-            "none",
-            "--cache-dir",
-            ".zig-cache",
-            "--global-cache-dir",
-            "zig-global-cache",
-        },
-    );
+    const build_args = &.{
+        "zig",
+        "build",
+        "--summary",
+        "none",
+        "--cache-dir",
+        ".zig-cache",
+        "--global-cache-dir",
+        "zig-global-cache",
+    };
+    const fingerprint_probe = try std.process.run(std.testing.allocator, std.testing.io, .{
+        .argv = build_args,
+        .cwd = .{ .path = consumer_root },
+        .stderr_limit = .limited(1024 * 1024),
+        .stdout_limit = .limited(1024 * 1024),
+    });
+    defer std.testing.allocator.free(fingerprint_probe.stdout);
+    defer std.testing.allocator.free(fingerprint_probe.stderr);
+
+    switch (fingerprint_probe.term) {
+        .exited => |code| if (code == 0) return,
+        else => {},
+    }
+    const fingerprint = suggestedFingerprint(fingerprint_probe.stderr) orelse {
+        std.debug.print("downstream fingerprint probe failed unexpectedly:\n{s}\n", .{fingerprint_probe.stderr});
+        return error.UnexpectedChildCommandFailure;
+    };
+    try writeDownstreamBuildZon(tmp.dir, fingerprint);
+    try runChildAtPathExpectSuccess(consumer_root, build_args);
 }
 
 test "wrapper-local source capture stays callee-owned across realistic zero-argument wrapper forms" {
@@ -119,14 +162,14 @@ test "wrapper-local source capture stays callee-owned across realistic zero-argu
 }
 
 test "source-compatible wrappers leave caller provenance absent by default" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
     {
         const NoError = error{};
 
-        var reader_instance = shift.effect.reader.Instance(i32, NoError).init();
-        const reader_result = try shift.effect.reader.handleWithErrorSet([]const u8, NoError, &runtime, &reader_instance, @as(i32, 21), struct {
+        var reader_instance = ability.effect.reader.Instance(i32, NoError).init();
+        const reader_result = try ability.effect.reader.handleWithErrorSet([]const u8, NoError, &runtime, &reader_instance, @as(i32, 21), struct {
             /// Report whether the default reader wrapper leaves caller provenance absent.
             pub fn body(comptime Cap: type, ctx: anytype) NoError![]const u8 {
                 _ = Cap;
@@ -135,10 +178,10 @@ test "source-compatible wrappers leave caller provenance absent by default" {
         });
         try std.testing.expectEqualStrings("absent", reader_result);
 
-        const Audit = shift.effect.Define(.{
+        const Audit = ability.effect.Define(.{
             .state_type = void,
             .ops = .{
-                shift.effect.ops.Transform("note", []const u8, void),
+                ability.effect.ops.Transform("note", []const u8, void),
             },
         });
         var generated_instance = Audit.Instance.init();
@@ -159,52 +202,52 @@ test "source-compatible wrappers leave caller provenance absent by default" {
 }
 
 test "source helper captures explicit repo path plus caller-owned participation" {
-    const src = shift_compile.lowering_api.sourceWithContent("test/source_ownership_probe_test.zig", @src(), @embedFile(@src().file));
+    const src = ability_compile.lowering_api.sourceWithContent("test/source_ownership_probe_test.zig", @src(), @embedFile(@src().file));
 
     try std.testing.expectEqualStrings("test/source_ownership_probe_test.zig", src.repo_path);
     try std.testing.expectEqualStrings(std.Io.Dir.path.basename(@src().file), std.Io.Dir.path.basename(src.caller_file));
 }
 
 test "source helper stays callable from test modules" {
-    const src = shift_compile.lowering_api.source("test/source_ownership_probe_test.zig", @src());
+    const src = ability_compile.lowering_api.source("test/source_ownership_probe_test.zig", @src());
 
     try std.testing.expectEqualStrings("test/source_ownership_probe_test.zig", src.repo_path);
     try std.testing.expectEqualStrings(std.Io.Dir.path.basename(@src().file), std.Io.Dir.path.basename(src.caller_file));
 }
 
-test "public root drops compile entrypoints while shift_compile keeps provenance-bearing lowering" {
-    try std.testing.expect(!@hasDecl(shift, "lowerAt"));
-    try std.testing.expect(!@hasDecl(shift, "lower"));
-    try std.testing.expect(!@hasDecl(shift, "lowering"));
-    try std.testing.expect(!@hasDecl(shift, "compat"));
-    try std.testing.expect(!@hasDecl(shift, "Decl"));
-    try std.testing.expect(!@hasDecl(shift, "Op"));
-    try std.testing.expect(!@hasDecl(shift, "Decision"));
-    try std.testing.expect(!@hasDecl(shift, "Program"));
-    try std.testing.expect(!@hasDecl(shift, "run"));
-    try std.testing.expect(!@hasDecl(shift, "artifact"));
-    try std.testing.expect(!@hasDecl(shift, "durable"));
-    try std.testing.expect(!@hasDecl(shift, "debug_anonymous_body_synthesis"));
-    try std.testing.expect(!@hasDecl(shift, "interpreter"));
-    try std.testing.expect(!@hasDecl(shift, "ir"));
-    try std.testing.expect(!@hasDecl(shift, "lowering"));
-    try std.testing.expect(@hasDecl(shift_compile, "lower"));
-    try std.testing.expect(@hasDecl(shift_compile, "effect_ir"));
-    try std.testing.expect(@hasDecl(shift_compile, "lowering_api"));
-    try std.testing.expect(@hasDecl(shift_compile.lowering_api, "lowerAt"));
+test "public root drops compile entrypoints while ability_compile keeps provenance-bearing lowering" {
+    try std.testing.expect(!@hasDecl(ability, "lowerAt"));
+    try std.testing.expect(!@hasDecl(ability, "lower"));
+    try std.testing.expect(!@hasDecl(ability, "lowering"));
+    try std.testing.expect(!@hasDecl(ability, "compat"));
+    try std.testing.expect(!@hasDecl(ability, "Decl"));
+    try std.testing.expect(!@hasDecl(ability, "Op"));
+    try std.testing.expect(!@hasDecl(ability, "Decision"));
+    try std.testing.expect(!@hasDecl(ability, "Program"));
+    try std.testing.expect(!@hasDecl(ability, "run"));
+    try std.testing.expect(!@hasDecl(ability, "artifact"));
+    try std.testing.expect(!@hasDecl(ability, "durable"));
+    try std.testing.expect(!@hasDecl(ability, "debug_anonymous_body_synthesis"));
+    try std.testing.expect(!@hasDecl(ability, "interpreter"));
+    try std.testing.expect(!@hasDecl(ability, "ir"));
+    try std.testing.expect(!@hasDecl(ability, "lowering"));
+    try std.testing.expect(@hasDecl(ability_compile, "lower"));
+    try std.testing.expect(@hasDecl(ability_compile, "effect_ir"));
+    try std.testing.expect(@hasDecl(ability_compile, "lowering_api"));
+    try std.testing.expect(@hasDecl(ability_compile.lowering_api, "lowerAt"));
 }
 
-test "plain shift.with anonymous downstream bodies stay usable without caller-owned source" {
+test "plain ability.with anonymous downstream bodies stay usable without caller-owned source" {
     const main_zig =
-        \\const shift = @import("shift");
+        \\const ability = @import("ability");
         \\const std = @import("std");
         \\
         \\pub fn main() !void {
-        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
         \\    defer runtime.deinit();
         \\
-        \\    const result = try shift.with(&runtime, .{
-        \\        .state = shift.effect.state.use(@as(i32, 9)),
+        \\    const result = try ability.with(&runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
         \\    }, struct {
         \\        pub fn body(eff: anytype) anyerror!i32 {
         \\            return try eff.state.get();
@@ -214,12 +257,12 @@ test "plain shift.with anonymous downstream bodies stay usable without caller-ow
         \\}
         \\
     ;
-    try runDownstreamShiftWithMain(main_zig);
+    try runDownstreamAbilityWithMain(main_zig);
 }
 
-test "plain shift.with named downstream bodies stay usable without caller-owned source" {
+test "plain ability.with named downstream bodies stay usable without caller-owned source" {
     const main_zig =
-        \\const shift = @import("shift");
+        \\const ability = @import("ability");
         \\const std = @import("std");
         \\
         \\const Body = struct {
@@ -229,15 +272,15 @@ test "plain shift.with named downstream bodies stay usable without caller-owned 
         \\};
         \\
         \\pub fn main() !void {
-        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
         \\    defer runtime.deinit();
         \\
-        \\    const result = try shift.with(&runtime, .{
-        \\        .state = shift.effect.state.use(@as(i32, 9)),
+        \\    const result = try ability.with(&runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
         \\    }, Body);
         \\    if (result.value != 9) return error.UnexpectedValue;
         \\}
         \\
     ;
-    try runDownstreamShiftWithMain(main_zig);
+    try runDownstreamAbilityWithMain(main_zig);
 }

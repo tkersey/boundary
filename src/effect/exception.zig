@@ -5,7 +5,7 @@ const frontend = @import("frontend_support");
 const lexical_with = @import("../with_api.zig");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
-const shift = lowered_machine;
+const ability = lowered_machine;
 const std = @import("std");
 
 fn ReturnTypeErrorSet(comptime ReturnType: type) type {
@@ -24,7 +24,7 @@ pub fn Instance(comptime PayloadType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.direct_return, PayloadType, ErrorSetType);
 }
 
-/// Lexical exception handle used by `shift.with(...)`.
+/// Lexical exception handle used by `ability.with(...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -36,7 +36,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     };
 }
 
-/// Descriptor value used by `shift.with(...)` for the built-in exception family.
+/// Descriptor value used by `ability.with(...)` for the built-in exception family.
 pub fn LexicalDescriptor(comptime PayloadType: type, comptime ErrorSetType: type, comptime Catch: type) type {
     return struct {
         /// Shared error set carried by the lexical exception descriptor.
@@ -79,7 +79,7 @@ pub fn LexicalDescriptor(comptime PayloadType: type, comptime ErrorSetType: type
     };
 }
 
-/// Create one lexical exception descriptor for `shift.with(...)`.
+/// Create one lexical exception descriptor for `ability.with(...)`.
 pub fn use(comptime PayloadType: type, comptime Catch: type) LexicalDescriptor(PayloadType, CatchErrorSet(Catch), Catch) {
     return .{};
 }
@@ -128,7 +128,7 @@ pub inline fn computeProgram(
 /// Run an exception effect body and return the final caught or normal answer.
 pub fn handle(
     comptime AnswerType: type,
-    runtime: *shift.Runtime,
+    runtime: *ability.Runtime,
     instance: anytype,
     comptime Catch: type,
     comptime Body: type,
@@ -141,7 +141,7 @@ pub fn handle(
 pub fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
-    runtime: *shift.Runtime,
+    runtime: *ability.Runtime,
     instance: anytype,
     comptime Catch: type,
     comptime Body: type,
@@ -171,7 +171,7 @@ test "exception handle can throw directly to the catch policy" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ExceptionInstance.init();
     demo.after_throw = false;
@@ -206,7 +206,7 @@ test "exception throwProgram stays on the explicit frontend.Program surface" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ExceptionInstance.init();
     const result = try handle([]const u8, &runtime, &instance, catcher, demo);
@@ -251,7 +251,7 @@ test "exception throwProgram keeps direct explicit-program state thread-local ac
             };
 
             demo.shared_ptr = state;
-            var runtime = shift.Runtime.init(std.testing.allocator);
+            var runtime = ability.Runtime.init(std.testing.allocator);
             defer runtime.deinit();
             var instance = ExceptionInstance.init();
             state.first_result = handle([]const u8, &runtime, &instance, catcher, demo) catch unreachable;
@@ -274,7 +274,7 @@ test "exception throwProgram keeps direct explicit-program state thread-local ac
             };
 
             demo.shared_ptr = state;
-            var runtime = shift.Runtime.init(std.testing.allocator);
+            var runtime = ability.Runtime.init(std.testing.allocator);
             defer runtime.deinit();
             var instance = ExceptionInstance.init();
             state.second_result = handle([]const u8, &runtime, &instance, catcher, demo) catch unreachable;
@@ -298,7 +298,7 @@ test "public exception handleWithErrorSet leaves caller provenance absent by def
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = ExceptionInstance.init();
 
@@ -323,7 +323,7 @@ test "nested same-shaped exception handles get distinct capability types" {
         }
     };
     const demo = struct {
-        var runtime_ptr: ?*shift.Runtime = null;
+        var runtime_ptr: ?*ability.Runtime = null;
         var inner_ptr: ?*const ExceptionInstance = null;
 
         /// Open an inner exception handle and prove its capability differs from the outer one.
@@ -350,7 +350,7 @@ test "nested same-shaped exception handles get distinct capability types" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var outer_instance = ExceptionInstance.init();
     var inner_instance = ExceptionInstance.init();

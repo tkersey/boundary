@@ -24,7 +24,7 @@ pub fn maybeLowerSyntheticLexicalBody(
             .fn_name = entry_z[0..entry_symbol.len :0],
         }, synthetic_source),
         .{
-            .label = "shift.with repo-owned lexical body",
+            .label = "ability.with repo-owned lexical body",
             .entry_symbol = entry_symbol,
             .ValueType = ValueType,
             .row = row,

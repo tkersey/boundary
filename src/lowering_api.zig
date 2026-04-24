@@ -2734,7 +2734,7 @@ test "same-module lowerAt preserves caller-provided source ownership" {
 
 test "absolute caller-owned helper regression: lowering accepts normalized sibling-tree imports" {
     try writeAbsoluteTestFile(
-        "/tmp/shift-owned-open-row/nested/entry.zig",
+        "/tmp/ability-owned-open-row/nested/entry.zig",
         \\const other = @import("../helpers/../other/util.zig");
         \\
         \\pub fn runBody(eff: anytype) !void {
@@ -2743,7 +2743,7 @@ test "absolute caller-owned helper regression: lowering accepts normalized sibli
         ,
     );
     try writeAbsoluteTestFile(
-        "/tmp/shift-owned-open-row/other/util.zig",
+        "/tmp/ability-owned-open-row/other/util.zig",
         \\pub fn emit(eff: anytype) !void {
         \\    try eff.writer.tell("normalized");
         \\}
@@ -2753,13 +2753,13 @@ test "absolute caller-owned helper regression: lowering accepts normalized sibli
     const current_src = @src();
     const caller: std.builtin.SourceLocation = .{
         .module = current_src.module,
-        .file = "/tmp/shift-owned-open-row/nested/entry.zig",
+        .file = "/tmp/ability-owned-open-row/nested/entry.zig",
         .line = 1,
         .column = 1,
         .fn_name = "normalizedSiblingLoweringCaller",
     };
     const ProgramType = lower(sourceWithContentAndImports(
-        "/tmp/shift-owned-open-row/nested/entry.zig",
+        "/tmp/ability-owned-open-row/nested/entry.zig",
         caller,
         \\const other = @import("../helpers/../other/util.zig");
         \\
@@ -2768,7 +2768,7 @@ test "absolute caller-owned helper regression: lowering accepts normalized sibli
         \\}
     ,
         &.{importedSource(
-            "/tmp/shift-owned-open-row/nested/entry.zig",
+            "/tmp/ability-owned-open-row/nested/entry.zig",
             "../helpers/../other/util.zig",
             \\pub fn emit(eff: anytype) !void {
             \\    try eff.writer.tell("normalized");
@@ -2791,7 +2791,7 @@ test "absolute caller-owned helper regression: lowering accepts normalized sibli
 
 test "absolute caller-owned helper regression: lowering accepts shared helper subtrees" {
     try writeAbsoluteTestFile(
-        "/tmp/shift-owned-open-row/nested/entry.zig",
+        "/tmp/ability-owned-open-row/nested/entry.zig",
         \\const direct = @import("helpers/sub/b.zig");
         \\const helpers = @import("helpers/a.zig");
         \\
@@ -2802,7 +2802,7 @@ test "absolute caller-owned helper regression: lowering accepts shared helper su
         ,
     );
     try writeAbsoluteTestFile(
-        "/tmp/shift-owned-open-row/nested/helpers/a.zig",
+        "/tmp/ability-owned-open-row/nested/helpers/a.zig",
         \\const shared = @import("sub/b.zig");
         \\
         \\pub fn emit(eff: anytype) !void {
@@ -2811,7 +2811,7 @@ test "absolute caller-owned helper regression: lowering accepts shared helper su
         ,
     );
     try writeAbsoluteTestFile(
-        "/tmp/shift-owned-open-row/nested/helpers/sub/b.zig",
+        "/tmp/ability-owned-open-row/nested/helpers/sub/b.zig",
         \\pub fn emit(eff: anytype) !void {
         \\    try eff.writer.tell("shared");
         \\}
@@ -2821,13 +2821,13 @@ test "absolute caller-owned helper regression: lowering accepts shared helper su
     const current_src = @src();
     const caller: std.builtin.SourceLocation = .{
         .module = current_src.module,
-        .file = "/tmp/shift-owned-open-row/nested/entry.zig",
+        .file = "/tmp/ability-owned-open-row/nested/entry.zig",
         .line = 1,
         .column = 1,
         .fn_name = "sharedHelperSubtreeLoweringCaller",
     };
     const ProgramType = lower(sourceWithContentAndImports(
-        "/tmp/shift-owned-open-row/nested/entry.zig",
+        "/tmp/ability-owned-open-row/nested/entry.zig",
         caller,
         \\const direct = @import("helpers/sub/b.zig");
         \\const helpers = @import("helpers/a.zig");
@@ -2839,7 +2839,7 @@ test "absolute caller-owned helper regression: lowering accepts shared helper su
     ,
         &.{
             importedSource(
-                "/tmp/shift-owned-open-row/nested/entry.zig",
+                "/tmp/ability-owned-open-row/nested/entry.zig",
                 "helpers/a.zig",
                 \\const shared = @import("sub/b.zig");
                 \\
@@ -2849,7 +2849,7 @@ test "absolute caller-owned helper regression: lowering accepts shared helper su
                 ,
             ),
             importedSource(
-                "/tmp/shift-owned-open-row/nested/entry.zig",
+                "/tmp/ability-owned-open-row/nested/entry.zig",
                 "helpers/sub/b.zig",
                 \\pub fn emit(eff: anytype) !void {
                 \\    try eff.writer.tell("shared");
@@ -2875,12 +2875,12 @@ test "caller-owned lowering binds explicit continuation params to resumed locals
     const current_src = @src();
     const caller: std.builtin.SourceLocation = .{
         .module = current_src.module,
-        .file = "/tmp/shift-owned-open-row/value_resume.zig",
+        .file = "/tmp/ability-owned-open-row/value_resume.zig",
         .line = 1,
         .column = 1,
         .fn_name = "resumeLocalLoweringCaller",
     };
-    const ProgramType = lower(sourceWithContent("/tmp/shift-owned-open-row/value_resume.zig", caller,
+    const ProgramType = lower(sourceWithContent("/tmp/ability-owned-open-row/value_resume.zig", caller,
         \\pub fn runBody(eff: anytype) !i32 {
         \\    const value = 7;
         \\    return try eff.picker.pick.perform(41, struct {
@@ -3278,13 +3278,13 @@ test "validation owned source content reports SourceDrifted for repo-owned witne
 }
 
 test "importedSource preserves parent-directory helpers for absolute caller-owned roots" {
-    const imported = comptime importedSource("/tmp/shift-owned-open-row/nested/entry.zig", "../helpers/util.zig",
+    const imported = comptime importedSource("/tmp/ability-owned-open-row/nested/entry.zig", "../helpers/util.zig",
         \\pub fn emit(eff: anytype) !void {
         \\    _ = eff;
         \\}
     );
 
-    try std.testing.expectEqualStrings("/tmp/shift-owned-open-row/helpers/util.zig", imported.path);
+    try std.testing.expectEqualStrings("/tmp/ability-owned-open-row/helpers/util.zig", imported.path);
 }
 
 test "source helper preserves basename-only callers so ownership still fails closed" {
@@ -3471,27 +3471,27 @@ test "source ownership accepts absolute caller-owned content witnesses outside o
 test "owned validation resolves parent-directory helpers for absolute caller-owned roots" {
     const resolved = try resolveOwnedValidationImportPathAlloc(
         std.testing.allocator,
-        "/tmp/shift-owned-open-row/nested/entry.zig",
+        "/tmp/ability-owned-open-row/nested/entry.zig",
         "../helpers/util.zig",
         null,
     );
     defer std.testing.allocator.free(resolved.path);
     defer if (resolved.absolute_entry_tree_root) |tree_root| std.testing.allocator.free(tree_root);
 
-    try std.testing.expectEqualStrings("/tmp/shift-owned-open-row/helpers/util.zig", resolved.path);
+    try std.testing.expectEqualStrings("/tmp/ability-owned-open-row/helpers/util.zig", resolved.path);
 }
 
 test "absolute caller-owned helper regression: validation accepts normalized sibling-tree imports" {
     const resolved = try resolveOwnedValidationImportPathAlloc(
         std.testing.allocator,
-        "/tmp/shift-owned-open-row/nested/entry.zig",
+        "/tmp/ability-owned-open-row/nested/entry.zig",
         "../helpers/../other/util.zig",
         null,
     );
     defer std.testing.allocator.free(resolved.path);
     defer if (resolved.absolute_entry_tree_root) |tree_root| std.testing.allocator.free(tree_root);
 
-    try std.testing.expectEqualStrings("/tmp/shift-owned-open-row/other/util.zig", resolved.path);
+    try std.testing.expectEqualStrings("/tmp/ability-owned-open-row/other/util.zig", resolved.path);
 }
 
 test "owned validation rejects helper imports that climb above the admitted absolute entry tree" {
@@ -3499,7 +3499,7 @@ test "owned validation rejects helper imports that climb above the admitted abso
         error.UnsupportedHelperGraph,
         resolveOwnedValidationImportPathAlloc(
             std.testing.allocator,
-            "/tmp/shift-owned-open-row/nested/deeper/entry.zig",
+            "/tmp/ability-owned-open-row/nested/deeper/entry.zig",
             "../../outside_helper.zig",
             null,
         ),
@@ -3508,7 +3508,7 @@ test "owned validation rejects helper imports that climb above the admitted abso
         error.UnsupportedHelperGraph,
         resolveOwnedValidationImportPathAlloc(
             std.testing.allocator,
-            "/tmp/shift-owned-open-row/nested/entry.zig",
+            "/tmp/ability-owned-open-row/nested/entry.zig",
             "helpers/../../outside_helper.zig",
             null,
         ),
@@ -3520,7 +3520,7 @@ test "owned validation rejects Windows absolute helper imports" {
         error.UnsupportedHelperGraph,
         resolveOwnedValidationImportPathAlloc(
             std.testing.allocator,
-            "/tmp/shift-owned-open-row/nested/entry.zig",
+            "/tmp/ability-owned-open-row/nested/entry.zig",
             "C:/tmp/helper.zig",
             null,
         ),
@@ -3529,7 +3529,7 @@ test "owned validation rejects Windows absolute helper imports" {
         error.UnsupportedHelperGraph,
         resolveOwnedValidationImportPathAlloc(
             std.testing.allocator,
-            "/tmp/shift-owned-open-row/nested/entry.zig",
+            "/tmp/ability-owned-open-row/nested/entry.zig",
             "\\\\server\\share\\helper.zig",
             null,
         ),
@@ -3630,7 +3630,7 @@ test "owned-source validation rejects helper imports that are missing from calle
 test "owned-source validation rejects absolute helper imports that climb outside the entry tree" {
     const external_root = try std.fmt.allocPrint(
         std.testing.allocator,
-        "/tmp/shift-owned-open-row-absolute-helper-import-{d}",
+        "/tmp/ability-owned-open-row-absolute-helper-import-{d}",
         .{std.time.nanoTimestamp()},
     );
     defer std.testing.allocator.free(external_root);
@@ -3702,9 +3702,9 @@ test "owned-source validation rejects absolute helper imports that climb outside
 }
 
 test "owned-source validation rejects transitive helper imports that leave the first admitted absolute helper tree" {
-    const entry_path = "/tmp/shift-owned-open-row/nested/entry.zig";
-    const helper_path = "/tmp/shift-owned-open-row/helpers/a.zig";
-    const escaped_helper_path = "/tmp/shift-owned-open-row/other/b.zig";
+    const entry_path = "/tmp/ability-owned-open-row/nested/entry.zig";
+    const helper_path = "/tmp/ability-owned-open-row/helpers/a.zig";
+    const escaped_helper_path = "/tmp/ability-owned-open-row/other/b.zig";
 
     try writeAbsoluteTestFile(
         entry_path,
@@ -3771,7 +3771,7 @@ test "owned-source validation rejects transitive helper imports that leave the f
 test "owned validation rejects repo-resolving absolute helper overrides for external roots" {
     const repo_parent = comptime std.fs.path.dirname(build_options.package_root) orelse
         @compileError("package_root must have a parent directory");
-    const root_path = comptime std.fmt.comptimePrint("{s}/shift-external-entry/entry.zig", .{repo_parent});
+    const root_path = comptime std.fmt.comptimePrint("{s}/ability-external-entry/entry.zig", .{repo_parent});
     const helper_path = comptime std.fmt.comptimePrint(
         "{s}/examples/open_row_cross_file_helpers.zig",
         .{build_options.package_root},
@@ -3779,7 +3779,7 @@ test "owned validation rejects repo-resolving absolute helper overrides for exte
 
     try writeAbsoluteTestFile(
         root_path,
-        \\const helpers = @import("../shift/examples/open_row_cross_file_helpers.zig");
+        \\const helpers = @import("../ability/examples/open_row_cross_file_helpers.zig");
         \\
         \\pub fn runBody(eff: anytype) !void {
         \\    try helpers.advanceState(eff);
@@ -3792,7 +3792,7 @@ test "owned validation rejects repo-resolving absolute helper overrides for exte
         validateOwnedOpenRowAt(
             std.testing.allocator,
             root_path,
-            \\const helpers = @import("../shift/examples/open_row_cross_file_helpers.zig");
+            \\const helpers = @import("../ability/examples/open_row_cross_file_helpers.zig");
             \\
             \\pub fn runBody(eff: anytype) !void {
             \\    try helpers.advanceState(eff);
@@ -3813,7 +3813,7 @@ test "owned validation rejects repo-resolving absolute helper overrides for exte
 
 test "absolute caller-owned helper regression: validation accepts shared helper subtrees" {
     try writeAbsoluteTestFile(
-        "/tmp/shift-owned-open-row/nested/entry.zig",
+        "/tmp/ability-owned-open-row/nested/entry.zig",
         \\const direct = @import("helpers/sub/b.zig");
         \\const helpers = @import("helpers/a.zig");
         \\
@@ -3824,7 +3824,7 @@ test "absolute caller-owned helper regression: validation accepts shared helper 
         ,
     );
     try writeAbsoluteTestFile(
-        "/tmp/shift-owned-open-row/nested/helpers/a.zig",
+        "/tmp/ability-owned-open-row/nested/helpers/a.zig",
         \\const shared = @import("sub/b.zig");
         \\
         \\pub fn emit(eff: anytype) !void {
@@ -3833,7 +3833,7 @@ test "absolute caller-owned helper regression: validation accepts shared helper 
         ,
     );
     try writeAbsoluteTestFile(
-        "/tmp/shift-owned-open-row/nested/helpers/sub/b.zig",
+        "/tmp/ability-owned-open-row/nested/helpers/sub/b.zig",
         \\pub fn emit(eff: anytype) !void {
         \\    try eff.writer.tell("shared");
         \\}
@@ -3842,7 +3842,7 @@ test "absolute caller-owned helper regression: validation accepts shared helper 
 
     try validateOwnedOpenRowAt(
         std.testing.allocator,
-        "/tmp/shift-owned-open-row/nested/entry.zig",
+        "/tmp/ability-owned-open-row/nested/entry.zig",
         \\const direct = @import("helpers/sub/b.zig");
         \\const helpers = @import("helpers/a.zig");
         \\
@@ -3853,7 +3853,7 @@ test "absolute caller-owned helper regression: validation accepts shared helper 
     ,
         &.{
             .{
-                .path = "/tmp/shift-owned-open-row/nested/helpers/a.zig",
+                .path = "/tmp/ability-owned-open-row/nested/helpers/a.zig",
                 .content =
                 \\const shared = @import("sub/b.zig");
                 \\
@@ -3863,7 +3863,7 @@ test "absolute caller-owned helper regression: validation accepts shared helper 
                 ,
             },
             .{
-                .path = "/tmp/shift-owned-open-row/nested/helpers/sub/b.zig",
+                .path = "/tmp/ability-owned-open-row/nested/helpers/sub/b.zig",
                 .content =
                 \\pub fn emit(eff: anytype) !void {
                 \\    try eff.writer.tell("shared");

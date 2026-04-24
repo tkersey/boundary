@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const ability = @import("ability");
 const std = @import("std");
 
 const transcript = struct {
@@ -41,13 +41,13 @@ fn resourceBody(eff: anytype) anyerror![]const u8 {
 
 /// Write the resource-effect transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    var runtime = ability.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     resource_manager.next_index = 0;
     transcript.len = 0;
 
-    const result = try shift.with(&runtime, .{
-        .resource = shift.effect.resource.use([]const u8, resource_manager),
+    const result = try ability.with(&runtime, .{
+        .resource = ability.effect.resource.use([]const u8, resource_manager),
     }, struct {
         /// Run the resource example body through the plain lexical surface.
         pub fn body(eff: anytype) anyerror![]const u8 {

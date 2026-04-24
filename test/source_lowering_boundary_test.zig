@@ -66,7 +66,7 @@ test "source-lowering rejects non-canonical source paths for known cases" {
 test "source-lowering rejects unreadable non-canonical paths before reading" {
     var lowered = try source_lowering.inspectSource(std.testing.allocator, .{
         .case_id = "source.branch_resume",
-        .source_path = "/tmp/shift_missing_noncanonical_branch_resume.zig",
+        .source_path = "/tmp/ability_missing_noncanonical_branch_resume.zig",
         .entry_symbol = "run",
         .surface_kind = .source_case,
     });
@@ -224,7 +224,7 @@ test "inline source lowering rejects non-canonical source paths even for canonic
 
     var lowered = try source_lowering.inspectInlineSource(std.testing.allocator, .{
         .case_id = "source.branch_resume",
-        .source_path = "/tmp/shift-inline-noncanonical.zig",
+        .source_path = "/tmp/ability-inline-noncanonical.zig",
         .entry_symbol = "run",
         .surface_kind = .source_case,
     }, canonical_text);
@@ -285,7 +285,7 @@ test "source-lowering accepts canonical repo-relative paths from symlinked check
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const checkout_alias = try symlinkAliasPath(std.testing.allocator, &tmp, original_cwd, "shift_repo_alias");
+    const checkout_alias = try symlinkAliasPath(std.testing.allocator, &tmp, original_cwd, "ability_repo_alias");
     defer std.testing.allocator.free(checkout_alias);
 
     try std.process.setCurrentPath(compatIo(), checkout_alias);
@@ -312,7 +312,7 @@ test "inline source lowering rejects alias-root prefix matches without a path bo
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const checkout_alias = try symlinkAliasPath(std.testing.allocator, &tmp, original_cwd, "shift_repo_alias_prefix");
+    const checkout_alias = try symlinkAliasPath(std.testing.allocator, &tmp, original_cwd, "ability_repo_alias_prefix");
     defer std.testing.allocator.free(checkout_alias);
 
     const prefixed_alias_path = try std.fmt.allocPrint(
@@ -341,7 +341,7 @@ test "inline source lowering rejects repo-internal checkout aliases" {
     const original_cwd = try currentPathAlloc(std.testing.allocator);
     defer std.testing.allocator.free(original_cwd);
 
-    const internal_alias_name = ".tmp_shift_repo_alias_internal";
+    const internal_alias_name = ".tmp_ability_repo_alias_internal";
     std.Io.Dir.cwd().deleteFile(compatIo(), internal_alias_name) catch {};
     try std.Io.Dir.cwd().symLink(compatIo(), original_cwd, internal_alias_name, .{});
     defer std.Io.Dir.cwd().deleteFile(compatIo(), internal_alias_name) catch unreachable;
@@ -374,12 +374,12 @@ test "inline source lowering rejects repo-internal aliases nested inside symlink
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const checkout_alias = try symlinkAliasPath(std.testing.allocator, &tmp, original_cwd, "shift_repo_alias_nested");
+    const checkout_alias = try symlinkAliasPath(std.testing.allocator, &tmp, original_cwd, "ability_repo_alias_nested");
     defer std.testing.allocator.free(checkout_alias);
 
     var checkout_dir = try std.Io.Dir.openDirAbsolute(compatIo(), checkout_alias, .{});
     defer checkout_dir.close(compatIo());
-    const nested_alias_name = ".tmp_shift_repo_alias_nested_internal";
+    const nested_alias_name = ".tmp_ability_repo_alias_nested_internal";
     checkout_dir.deleteFile(compatIo(), nested_alias_name) catch {};
     try checkout_dir.symLink(compatIo(), original_cwd, nested_alias_name, .{});
     defer checkout_dir.deleteFile(compatIo(), nested_alias_name) catch unreachable;
@@ -711,7 +711,7 @@ test "source-lowering rejects mismatched expected_status values" {
 }
 
 test "source-lowering no longer exposes a public root surface" {
-    const shift = @import("shift");
+    const ability = @import("ability");
 
-    try std.testing.expect(!@hasDecl(shift, "source_lowering"));
+    try std.testing.expect(!@hasDecl(ability, "source_lowering"));
 }
