@@ -11,10 +11,9 @@ fn writeTmpFile(dir: std.Io.Dir, sub_path: []const u8, contents: []const u8) !vo
     });
 }
 
-fn runChildAtPathExpectFailureContaining(
+fn runChildAtPathExpectSuccess(
     cwd_path: []const u8,
     argv: []const []const u8,
-    expected_stderr: []const u8,
 ) !void {
     const result = try std.process.run(std.testing.allocator, std.testing.io, .{
         .argv = argv,
@@ -26,10 +25,10 @@ fn runChildAtPathExpectFailureContaining(
     defer std.testing.allocator.free(result.stderr);
 
     switch (result.term) {
-        .exited => |code| if (code != 0 and std.mem.find(u8, result.stderr, expected_stderr) != null) return,
+        .exited => |code| if (code == 0) return,
         else => {},
     }
-    std.debug.print("child command did not fail with expected stderr: {s}\n{s}\n", .{ argv[0], result.stderr });
+    std.debug.print("child command failed unexpectedly: {s}\n{s}\n", .{ argv[0], result.stderr });
     return error.UnexpectedChildCommandFailure;
 }
 
@@ -131,7 +130,7 @@ test "public root drops compile entrypoints while shift_compile keeps provenance
     try std.testing.expect(@hasDecl(shift_compile.lowering_api, "lowerAt"));
 }
 
-test "plain shift.with anonymous downstream bodies fail closed without caller-owned source" {
+test "plain shift.with anonymous downstream bodies stay usable without caller-owned source" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -200,7 +199,7 @@ test "plain shift.with anonymous downstream bodies fail closed without caller-ow
     ;
     try writeTmpFile(tmp.dir, "main.zig", main_zig);
 
-    try runChildAtPathExpectFailureContaining(
+    try runChildAtPathExpectSuccess(
         consumer_root,
         &.{
             "zig",
@@ -212,6 +211,5 @@ test "plain shift.with anonymous downstream bodies fail closed without caller-ow
             "--global-cache-dir",
             "zig-global-cache",
         },
-        "shift.with requires a repo-owned body candidate for compiled execution",
     );
 }

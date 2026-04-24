@@ -19,22 +19,73 @@ fn cloneBytes(comptime bytes: []const u8) []const u8 {
     return std.fmt.comptimePrint("{s}", .{bytes});
 }
 
-fn BindingSchemaFamily(comptime DescriptorType: type, comptime requirement_label: [:0]const u8) type {
+fn BindingSchemaFor(comptime DescriptorType: type, comptime requirement_label: [:0]const u8) type {
     const BindingSchema = DescriptorType.BindingSchema(requirement_label);
-    if (@hasDecl(BindingSchema, "Family")) return BindingSchema.Family;
-    if (@hasDecl(BindingSchema, "family")) return BindingSchema.family;
+    if (@hasDecl(BindingSchema, "Family") or @hasDecl(BindingSchema, "family")) return BindingSchema;
     @compileError("nested lexical with binding schema must expose Family");
 }
 
-fn rowFromFamily(
-    comptime requirement_label: []const u8,
-    comptime Family: anytype,
-) effect_ir.Row {
+fn afterMethodName(comptime op_name: []const u8) []const u8 {
+    var buffer: [128]u8 = undefined;
+    var len: usize = 0;
+    buffer[len..][0..5].* = "after".*;
+    len += 5;
+    var upper_next = true;
+    inline for (op_name) |byte| {
+        if (byte == '_') {
+            buffer[len] = byte;
+            len += 1;
+            upper_next = true;
+            continue;
+        }
+        buffer[len] = if (upper_next and byte >= 'a' and byte <= 'z') byte - 32 else byte;
+        len += 1;
+        upper_next = false;
+    }
+    return buffer[0..len];
+}
+
+fn legacyAfterMethodName(comptime op_name: []const u8) []const u8 {
+    var buffer: [128]u8 = undefined;
+    var len: usize = 0;
+    buffer[len..][0..5].* = "after".*;
+    len += 5;
+    var upper_next = true;
+    inline for (op_name) |byte| {
+        if (byte == '_') {
+            upper_next = true;
+            continue;
+        }
+        buffer[len] = if (upper_next and byte >= 'a' and byte <= 'z') byte - 32 else byte;
+        len += 1;
+        upper_next = false;
+    }
+    return buffer[0..len];
+}
+
+fn hasAfterMethod(comptime HandlerType: type, comptime op_name: []const u8) bool {
+    const underscored_name = comptime afterMethodName(op_name);
+    if (@hasDecl(HandlerType, underscored_name)) return true;
+    const legacy_name = comptime legacyAfterMethodName(op_name);
+    return !std.mem.eql(u8, legacy_name, underscored_name) and @hasDecl(HandlerType, legacy_name);
+}
+
+fn bindingHasAfter(comptime OpSchema: type, comptime HandlerType: type) bool {
+    if (!@hasDecl(OpSchema, "after")) return false;
+    return switch (OpSchema.after) {
+        .none => false,
+        .binding_optional => hasAfterMethod(HandlerType, OpSchema.name),
+    };
+}
+
+fn rowFromBindingSchema(comptime BindingSchema: type) effect_ir.Row {
+    const Family = if (@hasDecl(BindingSchema, "Family")) BindingSchema.Family else BindingSchema.family;
+    const Handler = if (@hasDecl(BindingSchema, "Handler")) BindingSchema.Handler else BindingSchema.handler;
     const ops = comptime blk: {
         var buffer: [Family.ops.len]effect_ir.OpSpec = undefined;
         for (Family.ops, 0..) |op, index| {
             buffer[index] = .{
-                .requirement_label = cloneBytes(requirement_label),
+                .requirement_label = cloneBytes(BindingSchema.requirement_label),
                 .op_name = cloneBytes(op.name),
                 .mode = switch (op.control_mode) {
                     .abort => .abort,
@@ -43,7 +94,7 @@ fn rowFromFamily(
                 },
                 .PayloadType = op.Payload,
                 .ResumeType = op.Resume,
-                .has_after = true,
+                .has_after = bindingHasAfter(op, Handler),
             };
         }
         const exact = buffer;
@@ -51,10 +102,44 @@ fn rowFromFamily(
     };
     return .{
         .requirements = &[_]effect_ir.Requirement{.{
-            .label = cloneBytes(requirement_label),
+            .label = cloneBytes(BindingSchema.requirement_label),
             .ops = ops,
         }},
     };
+}
+
+test "nested generated abort binding row does not synthesize after hook metadata" {
+    const test_family_type = struct {
+        pub const ops = .{
+            struct {
+                pub const op_name: [:0]const u8 = "fail";
+                pub const name: [:0]const u8 = "fail";
+                pub const control_mode = enum { abort, choice, transform }.abort;
+                pub const Payload = []const u8;
+                pub const Resume = noreturn;
+                pub const after = enum { binding_optional, none }.none;
+            },
+        };
+    };
+    const test_handler_type = struct {
+        pub fn fail(_: *@This(), payload: []const u8) []const u8 {
+            return payload;
+        }
+    };
+    const descriptor = struct {
+        pub fn BindingSchema(comptime label: [:0]const u8) type {
+            return struct {
+                pub const requirement_label: [:0]const u8 = label;
+                pub const family = test_family_type;
+                pub const handler = test_handler_type;
+            };
+        }
+    };
+    const BindingSchema = BindingSchemaFor(descriptor, "abort");
+    const row = rowFromBindingSchema(BindingSchema);
+
+    try std.testing.expectEqual(effect_ir.OpMode.abort, row.requirements[0].ops[0].mode);
+    try std.testing.expect(!row.requirements[0].ops[0].has_after);
 }
 
 fn programGraphFromModuleGraph(
@@ -270,8 +355,8 @@ pub fn NamedNestedCarrier(
     const handler_container = @field(SourceModuleType, container_name);
     const HandlerType = @field(handler_container, handler_name);
     const DescriptorType = @TypeOf(factory.use(.{ .handler = HandlerType{} }));
-    const Family = BindingSchemaFamily(DescriptorType, sentinelBytes(requirement_label));
-    const row = rowFromFamily(requirement_label, Family);
+    const BindingSchema = BindingSchemaFor(DescriptorType, sentinelBytes(requirement_label));
+    const row = rowFromBindingSchema(BindingSchema);
     const source = source_graph_embed.embeddedSource(source_path);
     const graph = source_graph_engine.analyzeComptime(source, .{
         .entry_symbol = body_symbol,
