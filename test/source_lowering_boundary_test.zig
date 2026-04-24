@@ -613,6 +613,33 @@ test "shared witness rows reject shared helper edits in the same source file" {
     try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
 }
 
+test "shared static redelim witness rejects stateful nested handler initializers" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const witness_source_text = try cwdReadFileAlloc(allocator, "src/witness_sources.zig", 1 << 20);
+
+    const mutated = try std.mem.replaceOwned(
+        u8,
+        allocator,
+        witness_source_text,
+        ".inner = ResumeWitness.use(.{ .handler = transcript_static_redelim.InnerHandler{} }),",
+        ".inner = ResumeWitness.use(.{ .handler = transcript_static_redelim.InnerHandler{ .state = {} } }),",
+    );
+
+    var lowered = try source_lowering.inspectInlineSource(allocator, .{
+        .case_id = "witness.static_redelim",
+        .source_path = "src/witness_sources.zig",
+        .entry_symbol = "runStaticRedelim",
+        .surface_kind = .witness,
+    }, mutated);
+    defer lowered.deinit(allocator);
+
+    try std.testing.expect(!lowered.isAccepted());
+    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+}
+
 test "source-lowering owns rejected source paths" {
     const original_path = "test/source_lowering_corpus/fixtures/helper_call_resume.zig";
     const mutable_path = try std.testing.allocator.dupe(u8, original_path);

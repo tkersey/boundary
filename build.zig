@@ -4666,6 +4666,9 @@ pub fn build(b: *std.Build) void {
     frontend_internal_tests.root_module.addImport("prompt_contract_support", prompt_contract_support_mod);
     const run_frontend_internal_tests = addRunArtifactWithArgs(b, frontend_internal_tests, test_runner_args.passthrough.items);
 
+    const admitted_body_v1_tests = addFilteredTest(b, admitted_body_v1_mod, test_runner_args.filters.items);
+    const run_admitted_body_v1_tests = addRunArtifactWithArgs(b, admitted_body_v1_tests, test_runner_args.passthrough.items);
+
     const internal_program_plan_tests = addFilteredTest(
         b,
         b.createModule(.{
@@ -5047,6 +5050,7 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "published-module-contract", .description = "Retained published-module source-path and package contract suite", .run_step = published_module_contract_step },
         .{ .suite_id = "shift-agent-vm-compat", .description = "Retained shift_agent_vm compatibility suite", .run_step = shift_agent_vm_compat_step },
         .{ .suite_id = "frontend", .description = "Frontend internal module", .run_step = &run_frontend_internal_tests.step },
+        .{ .suite_id = "admitted-body-v1", .description = "Admitted body parser suite", .run_step = &run_admitted_body_v1_tests.step },
         .{ .suite_id = "program-plan-review", .description = "ProgramPlan regression suite", .run_step = &run_plan_review_tests.step },
         .{ .suite_id = "program-bridge", .description = "Program bridge suite", .run_step = &run_program_bridge_tests.step },
         .{ .suite_id = "witness-corpus", .description = "Core witness corpus", .run_step = &run_witness_tests.step },
