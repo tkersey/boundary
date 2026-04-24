@@ -141,8 +141,27 @@ fn singleFieldStructType(comptime field_name: []const u8, comptime FieldType: ty
     return @Struct(.auto, null, &names, &types, &attrs);
 }
 
-fn effectiveHandlerPtr(handler_ptr: anytype) @TypeOf(if (@hasField(@TypeOf(handler_ptr.*), "handler")) &handler_ptr.handler else handler_ptr) {
-    return if (@hasField(@TypeOf(handler_ptr.*), "handler")) &handler_ptr.handler else handler_ptr;
+fn isGeneratedFamilyDescriptorWrapper(comptime HandlerType: type) bool {
+    return @hasField(HandlerType, "handler") and
+        @hasDecl(HandlerType, "BindingSchema") and
+        @hasDecl(HandlerType, "HandleType") and
+        @hasDecl(HandlerType, "bindLexical") and
+        @hasDecl(HandlerType, "run");
+}
+
+fn EffectiveHandlerPtrType(comptime PtrType: type) type {
+    const HandlerType = std.meta.Child(PtrType);
+    return if (isGeneratedFamilyDescriptorWrapper(HandlerType))
+        *@FieldType(HandlerType, "handler")
+    else
+        PtrType;
+}
+
+fn effectiveHandlerPtr(handler_ptr: anytype) EffectiveHandlerPtrType(@TypeOf(handler_ptr)) {
+    if (comptime isGeneratedFamilyDescriptorWrapper(@TypeOf(handler_ptr.*))) {
+        return &handler_ptr.handler;
+    }
+    return handler_ptr;
 }
 
 fn encodeTypedProgramValue(value: anytype) lowered_machine.ProgramValue {
@@ -480,8 +499,7 @@ fn callOp(
         inline 0...(compiled_plan.ops.len - 1) => |active_index| blk: {
             const op = compiled_plan.ops[active_index];
             const requirement = compiled_plan.requirements[op.requirement_index];
-            const binding_ptr = &@field(handlers_ptr.*, requirement.label);
-            const handler_ptr = effectiveHandlerPtr(binding_ptr);
+            const handler_ptr = effectiveHandlerPtr(&@field(handlers_ptr.*, requirement.label));
             const HandlerType = @TypeOf(handler_ptr.*);
             const method = @field(HandlerType, op.op_name);
             const ResumeType = runtimeValueType(op.resume_codec);
@@ -561,8 +579,7 @@ fn applyAfter(
         inline 0...(compiled_plan.ops.len - 1) => |active_index| blk: {
             const op = compiled_plan.ops[active_index];
             const requirement = compiled_plan.requirements[op.requirement_index];
-            const binding_ptr = &@field(handlers_ptr.*, requirement.label);
-            const handler_ptr = effectiveHandlerPtr(binding_ptr);
+            const handler_ptr = effectiveHandlerPtr(&@field(handlers_ptr.*, requirement.label));
             const HandlerType = @TypeOf(handler_ptr.*);
             const maybe_after_name = comptime resolvedAfterMethodName(HandlerType, op.op_name);
             const after_name = maybe_after_name orelse break :blk answer;

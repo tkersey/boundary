@@ -992,6 +992,80 @@ test "ProgramPlan.validate accepts helper value destinations typed by helper res
     try plan.validate();
 }
 
+test "compiled ProgramPlan dispatch preserves outer handler structs with handler data fields" {
+    const compiled_plan = internal_program_plan.ProgramPlan{
+        .label = "regression.outer_handler_field_name_collision",
+        .ir_hash = 3,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{.{
+            .label = "tooling",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "dispatch",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .i32,
+        }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 2,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{
+                .kind = .call_op,
+                .dst = 0,
+                .operand = 0,
+                .aux = std.math.maxInt(u16),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+        },
+    };
+
+    try compiled_plan.validate();
+
+    const OuterHandler = struct {
+        handler: i32,
+
+        /// Dispatches through the outer handler even though it owns a field named handler.
+        pub fn dispatch(self: *@This()) i32 {
+            return self.handler + 1;
+        }
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    const Handlers = struct { tooling: OuterHandler };
+    var handlers = Handlers{ .tooling = .{ .handler = 41 } };
+
+    const result = try lowering_api.runExecutablePlan(&runtime, compiled_plan, &handlers);
+
+    try std.testing.expectEqual(@as(i32, 42), result.value);
+}
+
 test "ProgramPlan.validate ignores unreachable helper terminal-only paths when checking helper codec escape" {
     const plan = internal_program_plan.ProgramPlan{
         .label = "valid.helper_unreachable_terminal_codec_escape",
