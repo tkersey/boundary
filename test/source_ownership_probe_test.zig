@@ -41,6 +41,70 @@ fn callerSourceIsAbsent(comptime ContextType: type) bool {
     };
 }
 
+fn runDownstreamShiftWithMain(comptime main_zig: []const u8) !void {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const consumer_root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(consumer_root);
+
+    const build_zig =
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\
+        \\    const root = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    root.addImport("shift", dep.module("shift"));
+        \\
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "downstream-shift-with",
+        \\        .root_module = root,
+        \\    });
+        \\    const run = b.addRunArtifact(exe);
+        \\    b.default_step.dependOn(&run.step);
+        \\}
+        \\
+    ;
+    try writeTmpFile(tmp.dir, "build.zig", build_zig);
+
+    const build_zon =
+        \\.{
+        \\    .name = .downstream_shift_with,
+        \\    .version = "0.0.0",
+        \\    .minimum_zig_version = "0.16.0",
+        \\    .dependencies = .{
+        \\        .shift = .{ .path = "../../.." },
+        \\    },
+        \\    .paths = .{ "build.zig", "build.zig.zon", "main.zig" },
+        \\    .fingerprint = 0xf5798bf9dbefd4d5,
+        \\}
+        \\
+    ;
+    try writeTmpFile(tmp.dir, "build.zig.zon", build_zon);
+    try writeTmpFile(tmp.dir, "main.zig", main_zig);
+
+    try runChildAtPathExpectSuccess(
+        consumer_root,
+        &.{
+            "zig",
+            "build",
+            "--summary",
+            "none",
+            "--cache-dir",
+            ".zig-cache",
+            "--global-cache-dir",
+            "zig-global-cache",
+        },
+    );
+}
+
 test "wrapper-local source capture stays callee-owned across realistic zero-argument wrapper forms" {
     const caller_source = @src().file;
     const helper_source = probe.helperSourceFile();
@@ -131,53 +195,6 @@ test "public root drops compile entrypoints while shift_compile keeps provenance
 }
 
 test "plain shift.with anonymous downstream bodies stay usable without caller-owned source" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const consumer_root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
-    defer std.testing.allocator.free(consumer_root);
-
-    const build_zig =
-        \\const std = @import("std");
-        \\
-        \\pub fn build(b: *std.Build) void {
-        \\    const target = b.standardTargetOptions(.{});
-        \\    const optimize = b.standardOptimizeOption(.{});
-        \\    const dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
-        \\
-        \\    const root = b.createModule(.{
-        \\        .root_source_file = b.path("main.zig"),
-        \\        .target = target,
-        \\        .optimize = optimize,
-        \\    });
-        \\    root.addImport("shift", dep.module("shift"));
-        \\
-        \\    const exe = b.addExecutable(.{
-        \\        .name = "downstream-shift-with",
-        \\        .root_module = root,
-        \\    });
-        \\    const run = b.addRunArtifact(exe);
-        \\    b.default_step.dependOn(&run.step);
-        \\}
-        \\
-    ;
-    try writeTmpFile(tmp.dir, "build.zig", build_zig);
-
-    const build_zon =
-        \\.{
-        \\    .name = .downstream_shift_with,
-        \\    .version = "0.0.0",
-        \\    .minimum_zig_version = "0.16.0",
-        \\    .dependencies = .{
-        \\        .shift = .{ .path = "../../.." },
-        \\    },
-        \\    .paths = .{ "build.zig", "build.zig.zon", "main.zig" },
-        \\    .fingerprint = 0xf5798bf9dbefd4d5,
-        \\}
-        \\
-    ;
-    try writeTmpFile(tmp.dir, "build.zig.zon", build_zon);
-
     const main_zig =
         \\const shift = @import("shift");
         \\const std = @import("std");
@@ -197,19 +214,30 @@ test "plain shift.with anonymous downstream bodies stay usable without caller-ow
         \\}
         \\
     ;
-    try writeTmpFile(tmp.dir, "main.zig", main_zig);
+    try runDownstreamShiftWithMain(main_zig);
+}
 
-    try runChildAtPathExpectSuccess(
-        consumer_root,
-        &.{
-            "zig",
-            "build",
-            "--summary",
-            "none",
-            "--cache-dir",
-            ".zig-cache",
-            "--global-cache-dir",
-            "zig-global-cache",
-        },
-    );
+test "plain shift.with named downstream bodies stay usable without caller-owned source" {
+    const main_zig =
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\const Body = struct {
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        return try eff.state.get();
+        \\    }
+        \\};
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try shift.with(&runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 9)),
+        \\    }, Body);
+        \\    if (result.value != 9) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamShiftWithMain(main_zig);
 }

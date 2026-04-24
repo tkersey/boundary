@@ -1184,9 +1184,6 @@ fn withImpl(
 
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
-    if (comptime anonymous_body_synthesis.bodyIdentity(Body) == null and !supportsNamedBodyLowering(Body)) {
-        @compileError("shift.with requires repo-owned body identity or explicit Body.source_path/body_symbol metadata for compiled execution");
-    }
     const compiled = if (comptime supportsNamedBodyLowering(Body))
         tryRepoOwnedNamedCompiledWith(HandlersType, Body, runtime, &handler_state, &outputs)
     else if (comptime anonymous_body_synthesis.hasRepoOwnedCandidate(Body))
