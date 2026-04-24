@@ -3,6 +3,7 @@ const program_frontend = @import("../program_frontend.zig");
 const std = @import("std");
 
 const source_path_compat_mode = @hasDecl(@import("root"), "source_path_compat_mode");
+const nested_with_metadata_delimiter = "\x1f";
 
 /// Serializable value codecs admitted by the first redesign wave.
 pub const ValueCodec = enum {
@@ -52,6 +53,23 @@ fn controlModeFromIr(mode: effect_ir.ControlMode) ControlMode {
         .choice => .choice,
         .transform => .transform,
     };
+}
+
+fn namedNestedWithMetadataIsComplete(encoded: []const u8) bool {
+    var part_count: usize = 0;
+    var start: usize = 0;
+    var index: usize = 0;
+    while (index <= encoded.len) : (index += 1) {
+        const is_delimiter = index == encoded.len or std.mem.startsWith(u8, encoded[index..], nested_with_metadata_delimiter);
+        if (!is_delimiter) continue;
+        if (part_count >= 9 or start == index) return false;
+        part_count += 1;
+        if (index != encoded.len) {
+            index += nested_with_metadata_delimiter.len - 1;
+            start = index + 1;
+        }
+    }
+    return part_count == 9;
 }
 
 /// One lowered output descriptor in the runtime-owned executable plan.
@@ -331,6 +349,7 @@ pub const ProgramPlan = struct {
                             return error.InvalidInstructionLocalIndex;
                         }
                         if (instruction.string_literal.len == 0) return error.InvalidInstructionLocalIndex;
+                        if (!namedNestedWithMetadataIsComplete(instruction.string_literal)) return error.InvalidNestedWithMetadata;
                     },
                     .call_op => {
                         if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
@@ -539,6 +558,7 @@ pub const ValidationError = error{
     InvalidTerminatorTarget,
     UnsupportedSchemaVersion,
     InvalidInstructionCodec,
+    InvalidNestedWithMetadata,
 };
 /// Error set for lowering comptime IR into a runtime-owned plan.
 pub const PlanError = CodecError || effect_ir.NormalizeError || error{EmptyProgram};

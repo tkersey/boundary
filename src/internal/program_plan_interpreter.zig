@@ -174,129 +174,6 @@ fn encodeTypedProgramValue(value: anytype) lowered_machine.ProgramValue {
     @compileError("nested lexical with execution only supports void, bool, i32, []const u8, and usize results");
 }
 
-fn valueCodecForType(comptime T: type) program_plan.ValueCodec {
-    return switch (T) {
-        void => .unit,
-        bool => .bool,
-        i32 => .i32,
-        []const u8 => .string,
-        usize => .usize,
-        else => @compileError("nested lexical with execution only supports void, bool, i32, []const u8, and usize values"),
-    };
-}
-
-fn controlModeFromSchema(mode: anytype) program_plan.ControlMode {
-    return switch (mode) {
-        .abort => .abort,
-        .choice => .choice,
-        .transform => .transform,
-    };
-}
-
-fn bindingSchemaFamily(comptime DescriptorType: type, comptime requirement_label: [:0]const u8) type {
-    const BindingSchema = DescriptorType.BindingSchema(requirement_label);
-    if (@hasDecl(BindingSchema, "Family")) return BindingSchema.Family;
-    if (@hasDecl(BindingSchema, "family")) return BindingSchema.family;
-    @compileError("nested lexical with binding schema must expose Family");
-}
-
-fn nestedWithProgramPlan(
-    comptime SourceModule: type,
-    comptime metadata_source: []const u8,
-    comptime result_codec: program_plan.ValueCodec,
-) program_plan.ProgramPlan {
-    const metadata = comptime parseNestedWithMetadata(metadata_source);
-    const source_module = nestedWithSourceModule(SourceModule);
-    const factory = @field(source_module, metadata.factory_name);
-    const handler_container = @field(source_module, metadata.container_name);
-    const HandlerType = @field(handler_container, metadata.handler_name);
-    const descriptor = factory.use(.{ .handler = HandlerType{} });
-    const DescriptorType = @TypeOf(descriptor);
-    const Family = bindingSchemaFamily(DescriptorType, sentinelBytes(metadata.requirement_label));
-    if (Family.ops.len != 1) @compileError("nested lexical with currently supports one-op generated families only");
-    const Op = Family.ops[0];
-    const payload_codec = valueCodecForType(Op.Payload);
-    const resume_codec = valueCodecForType(Op.Resume);
-
-    const functions = [_]program_plan.FunctionPlan{.{
-        .symbol_name = "nested_with_entry",
-        .value_codec = result_codec,
-        .result_codec = result_codec,
-        .parameter_count = 0,
-        .first_requirement = 0,
-        .requirement_count = 1,
-        .first_output = 0,
-        .output_count = 0,
-        .first_local = 0,
-        .local_count = if (resume_codec == .unit) 0 else 1,
-        .first_block = 0,
-        .entry_block = 0,
-        .block_count = 1,
-        .first_instruction = 0,
-        .instruction_count = if (resume_codec == .unit) 1 else 2,
-    }};
-    const requirements = [_]program_plan.RequirementPlan{.{
-        .label = metadata.requirement_label,
-        .first_op = 0,
-        .op_count = 1,
-    }};
-    const ops = [_]program_plan.OpPlan{.{
-        .requirement_index = 0,
-        .op_name = Op.name,
-        .mode = controlModeFromSchema(Op.control_mode),
-        .payload_codec = payload_codec,
-        .resume_codec = resume_codec,
-        .has_after = true,
-    }};
-    const locals = switch (resume_codec) {
-        .unit => [_]program_plan.LocalPlan{},
-        else => [_]program_plan.LocalPlan{.{ .codec = resume_codec }},
-    };
-    const blocks = [_]program_plan.BlockPlan{.{
-        .first_instruction = 0,
-        .instruction_count = if (resume_codec == .unit) 1 else 2,
-        .terminator_index = 0,
-    }};
-    const terminators = [_]program_plan.Terminator{.{
-        .kind = if (resume_codec == .unit) .return_unit else .return_value,
-    }};
-    const instructions = if (resume_codec == .unit)
-        [_]program_plan.Instruction{.{
-            .kind = .call_op,
-            .dst = std.math.maxInt(u16),
-            .operand = 0,
-            .aux = std.math.maxInt(u16),
-        }}
-    else
-        [_]program_plan.Instruction{
-            .{
-                .kind = .call_op,
-                .dst = 0,
-                .operand = 0,
-                .aux = std.math.maxInt(u16),
-            },
-            .{
-                .kind = .return_value,
-                .operand = 0,
-            },
-        };
-
-    return .{
-        .label = "nested_lexical_with",
-        .ir_hash = std.hash.Wyhash.hash(0, metadata_source),
-        .entry_index = 0,
-        .functions = &functions,
-        .requirements = &requirements,
-        .ops = &ops,
-        .outputs = &.{},
-        .locals = &locals,
-        .call_args = &.{},
-        .blocks = &blocks,
-        .terminators = &terminators,
-        .instructions = &instructions,
-    };
-}
-
 fn executeNestedWithInstruction(
     comptime SourceModule: type,
     comptime metadata_source: []const u8,
@@ -305,33 +182,27 @@ fn executeNestedWithInstruction(
 ) anyerror!lowered_machine.ProgramValue {
     _ = runtime;
     const metadata = comptime parseNestedWithMetadata(metadata_source);
+    const carrier_name = metadata.carrier_name orelse @compileError("nested lexical with metadata requires a named body carrier");
     const nested_runtime = try nestedRuntimePointer(SourceModule, metadata);
-    if (metadata.carrier_name) |carrier_name| {
-        const nested_carrier = nested_named_carrier_runtime.NamedNestedCarrier(
-            SourceModule,
-            metadata.requirement_label,
-            metadata.factory_name,
-            metadata.container_name,
-            metadata.handler_name,
-            carrier_name,
-            metadata.source_path orelse @compileError("named nested lexical metadata requires a source_path"),
-            metadata.body_symbol orelse @compileError("named nested lexical metadata requires a body_symbol"),
-        );
-        const HandlersType = singleFieldStructType(metadata.requirement_label, nested_carrier.descriptor_type);
-        var handlers: HandlersType = undefined;
-        @field(handlers, metadata.requirement_label) = nested_carrier.descriptor();
-        const result = try runEntryInSource(nested_runtime, nested_carrier.compiled_plan_value, SourceModule, &handlers);
-        return encodeTypedProgramValue(result.value);
-    }
-    const source_module = nestedWithSourceModule(SourceModule);
-    const handler_container = @field(source_module, metadata.container_name);
-    const HandlerType = @field(handler_container, metadata.handler_name);
-    const HandlersType = singleFieldStructType(metadata.requirement_label, HandlerType);
+    const nested_carrier = nested_named_carrier_runtime.NamedNestedCarrier(
+        SourceModule,
+        metadata.requirement_label,
+        metadata.factory_name,
+        metadata.container_name,
+        metadata.handler_name,
+        carrier_name,
+        metadata.source_path orelse @compileError("named nested lexical metadata requires a source_path"),
+        metadata.body_symbol orelse @compileError("named nested lexical metadata requires a body_symbol"),
+    );
+    const nested_result_codec = comptime program_plan.functionResultCodec(nested_carrier.compiled_plan_value.functions[nested_carrier.compiled_plan_value.entry_index]);
+    if (comptime nested_result_codec != result_codec) return error.ProgramContractViolation;
+    const HandlersType = singleFieldStructType(metadata.requirement_label, nested_carrier.descriptor_type);
     var handlers: HandlersType = undefined;
-    @field(handlers, metadata.requirement_label) = HandlerType{};
-    const nested_plan = comptime nestedWithProgramPlan(SourceModule, metadata_source, result_codec);
-    const result = try runEntryInSource(nested_runtime, nested_plan, SourceModule, &handlers);
-    return encodeTypedProgramValue(result.value);
+    @field(handlers, metadata.requirement_label) = nested_carrier.descriptor();
+    const result = try runEntryInSource(nested_runtime, nested_carrier.compiled_plan_value, SourceModule, &handlers);
+    const encoded = encodeTypedProgramValue(result.value);
+    if (!runtimeValueMatchesCodec(result_codec, encoded)) return error.ProgramContractViolation;
+    return encoded;
 }
 
 fn nestedRuntimePointer(

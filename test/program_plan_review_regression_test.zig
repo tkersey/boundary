@@ -309,6 +309,64 @@ test "ProgramPlan.validate rejects call_nested_with aux values outside ValueCode
     try std.testing.expectError(error.InvalidInstructionCodec, invalid_tag_plan.validate());
 }
 
+test "ProgramPlan.validate rejects call_nested_with metadata without named carrier fields" {
+    const stale_metadata_plan = internal_program_plan.ProgramPlan{
+        .label = "invalid.call_nested_with_empty_carrier_metadata",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 1,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{
+            .kind = .call_nested_with,
+            .aux = @intFromEnum(internal_program_plan.ValueCodec.unit),
+            .string_literal = "nested\x1fruntime\x1fptr\x1ffactory\x1fcontainer\x1fhandler\x1f\x1f\x1f",
+        }},
+    };
+    try std.testing.expectError(error.InvalidNestedWithMetadata, stale_metadata_plan.validate());
+
+    const named_metadata_plan = internal_program_plan.ProgramPlan{
+        .label = "valid.call_nested_with_named_carrier_metadata",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = stale_metadata_plan.functions,
+        .requirements = stale_metadata_plan.requirements,
+        .ops = stale_metadata_plan.ops,
+        .outputs = stale_metadata_plan.outputs,
+        .locals = stale_metadata_plan.locals,
+        .call_args = stale_metadata_plan.call_args,
+        .blocks = stale_metadata_plan.blocks,
+        .terminators = stale_metadata_plan.terminators,
+        .instructions = &.{.{
+            .kind = .call_nested_with,
+            .aux = @intFromEnum(internal_program_plan.ValueCodec.unit),
+            .string_literal = "nested\x1fruntime\x1fptr\x1ffactory\x1fcontainer\x1fhandler\x1fcarrier\x1fsrc.zig\x1fbody",
+        }},
+    };
+    try named_metadata_plan.validate();
+}
+
 test "runExecutablePlanWithArgs rejects call_nested_with aux values outside ValueCodec tags" {
     const plan = internal_program_plan.ProgramPlan{
         .label = "invalid.call_nested_with_interpreter_high_bits_codec",

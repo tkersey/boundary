@@ -3709,7 +3709,7 @@ test "ArtifactV1 rejects executable-only interpreter instructions during encode 
         .blocks = base_plan.blocks,
         .terminators = base_plan.terminators,
         .instructions = &.{
-            .{ .kind = .call_nested_with, .dst = 0, .aux = @intFromEnum(program_plan.ValueCodec.unit), .string_literal = "nested\x1fruntime\x1fptr\x1ffactory\x1fcontainer\x1fhandler\x1f\x1f\x1f" },
+            .{ .kind = .call_nested_with, .dst = 0, .aux = @intFromEnum(program_plan.ValueCodec.unit), .string_literal = "nested\x1fruntime\x1fptr\x1ffactory\x1fcontainer\x1fhandler\x1fcarrier\x1fsrc.zig\x1fbody" },
             .{ .kind = .return_value, .operand = 0 },
         },
     };

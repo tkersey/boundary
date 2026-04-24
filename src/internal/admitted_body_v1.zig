@@ -581,12 +581,8 @@ fn parseBoundLocalFromNestedWith(
     const handler_name = handlers[16].lexeme;
 
     if (body_tokens.len == 0) return null;
-    const carrier_name: ?[]const u8 = if (body_tokens[0].tag == .identifier)
-        body_tokens[0].lexeme
-    else if (body_tokens.len >= 2 and body_tokens[0].tag == .keyword_struct and body_tokens[1].tag == .l_brace)
-        null
-    else
-        return null;
+    if (body_tokens.len != 1 or body_tokens[0].tag != .identifier) return null;
+    const carrier_name = body_tokens[0].lexeme;
 
     return .{
         .local_name = tokens[1].lexeme,
@@ -1158,7 +1154,7 @@ test "parseFunctionBody normalizes continuation apply return" {
     try std.testing.expect(body.steps[0] == .return_continuation_direct);
 }
 
-test "parseFunctionBody admits nested with only for empty handler initializer" {
+test "parseFunctionBody admits nested with only for named carrier and empty handler initializer" {
     const source =
         \\pub fn run() i32 {
         \\    const nested_result = (try lexical_runtime.with(runtime_transcript.runtime_ptr.?, .{
@@ -1177,6 +1173,40 @@ test "parseFunctionBody admits nested with only for empty handler initializer" {
     try std.testing.expectEqualStrings("NestedResumeWitness", body.steps[0].bind_local_from_nested_with.factory_name);
     try std.testing.expectEqualStrings("nested", body.steps[0].bind_local_from_nested_with.container_name);
     try std.testing.expectEqualStrings("InnerHandler", body.steps[0].bind_local_from_nested_with.handler_name);
+    try std.testing.expectEqualStrings("static_redelim_inner_body_carrier", body.steps[0].bind_local_from_nested_with.carrier_name.?);
+}
+
+test "parseFunctionBody rejects nested with inline struct body until lowered" {
+    const source =
+        \\pub fn run() i32 {
+        \\    const nested_result = (try lexical_runtime.with(runtime_transcript.runtime_ptr.?, .{
+        \\        .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
+        \\    }, struct {
+        \\        pub fn body(eff: anytype) i32 {
+        \\            _ = eff;
+        \\            return 41;
+        \\        }
+        \\    })).value;
+        \\    return nested_result;
+        \\}
+    ;
+    const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
+    const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
+    try std.testing.expect(parseFunctionBody(source, "test/nested_inline_body.zig", body_start, body_end, null, &.{}) == null);
+}
+
+test "parseFunctionBody rejects nested with non-carrier body expression" {
+    const source =
+        \\pub fn run() i32 {
+        \\    const nested_result = (try lexical_runtime.with(runtime_transcript.runtime_ptr.?, .{
+        \\        .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
+        \\    }, static_redelim_inner_body_carrier.variant)).value;
+        \\    return nested_result;
+        \\}
+    ;
+    const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
+    const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
+    try std.testing.expect(parseFunctionBody(source, "test/nested_body_expression.zig", body_start, body_end, null, &.{}) == null);
 }
 
 test "parseFunctionBody rejects nested with stateful handler initializer" {
