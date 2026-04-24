@@ -57,14 +57,8 @@ fn optionalResumeBody(eff: anytype) anyerror![]const u8 {
     });
 }
 
-/// Write the optional-family transcript through the lexical front door.
-pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
-
-    try writer.writeAll("branch=return_now\n");
-    transcript.len = 0;
-    const early_result = try shift.with(&runtime, .{
+fn runReturnNow(runtime: *shift.Runtime) ![]const u8 {
+    const early_result = try shift.with(runtime, .{
         .optional = shift.effect.optional.use(i32, return_now_policy),
     }, struct {
         /// Run the return-now optional example body.
@@ -72,14 +66,11 @@ pub fn run(writer: anytype) anyerror!void {
             return optionalReturnNowBody(eff);
         }
     });
-    for (transcript.items[0..transcript.len]) |item| {
-        try writer.print("{s}\n", .{item});
-    }
-    try writer.print("final={s}\n", .{early_result.value});
+    return early_result.value;
+}
 
-    try writer.writeAll("branch=resume_with\n");
-    transcript.len = 0;
-    const resumed = try shift.with(&runtime, .{
+fn runResume(runtime: *shift.Runtime) ![]const u8 {
+    const resumed = try shift.with(runtime, .{
         .optional = shift.effect.optional.use(i32, resume_policy),
     }, struct {
         /// Run the resumed optional example body.
@@ -87,10 +78,29 @@ pub fn run(writer: anytype) anyerror!void {
             return optionalResumeBody(eff);
         }
     });
+    return resumed.value;
+}
+
+/// Write the optional-family transcript through the lexical front door.
+pub fn run(writer: anytype) anyerror!void {
+    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    defer runtime.deinit();
+
+    try writer.writeAll("branch=return_now\n");
+    transcript.len = 0;
+    const early_result = try runReturnNow(&runtime);
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }
-    try writer.print("final={s}\n", .{resumed.value});
+    try writer.print("final={s}\n", .{early_result});
+
+    try writer.writeAll("branch=resume_with\n");
+    transcript.len = 0;
+    const resumed = try runResume(&runtime);
+    for (transcript.items[0..transcript.len]) |item| {
+        try writer.print("{s}\n", .{item});
+    }
+    try writer.print("final={s}\n", .{resumed});
 }
 
 /// Run the optional family example.

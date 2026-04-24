@@ -3,6 +3,7 @@ const program_frontend = @import("../program_frontend.zig");
 const std = @import("std");
 
 const source_path_compat_mode = @hasDecl(@import("root"), "source_path_compat_mode");
+const nested_with_metadata_delimiter = "\x1f";
 
 /// Serializable value codecs admitted by the first redesign wave.
 pub const ValueCodec = enum {
@@ -52,6 +53,23 @@ fn controlModeFromIr(mode: effect_ir.ControlMode) ControlMode {
         .choice => .choice,
         .transform => .transform,
     };
+}
+
+fn namedNestedWithMetadataIsComplete(encoded: []const u8) bool {
+    var part_count: usize = 0;
+    var start: usize = 0;
+    var index: usize = 0;
+    while (index <= encoded.len) : (index += 1) {
+        const is_delimiter = index == encoded.len or std.mem.startsWith(u8, encoded[index..], nested_with_metadata_delimiter);
+        if (!is_delimiter) continue;
+        if (part_count >= 9 or start == index) return false;
+        part_count += 1;
+        if (index != encoded.len) {
+            index += nested_with_metadata_delimiter.len - 1;
+            start = index + 1;
+        }
+    }
+    return part_count == 9;
 }
 
 /// One lowered output descriptor in the runtime-owned executable plan.
@@ -108,11 +126,13 @@ pub const InstructionKind = enum {
     add_const_i32,
     add_i32,
     call_helper,
+    call_nested_with,
     call_op,
     compare_eq_zero,
     const_i32,
     const_string,
     const_usize,
+    return_error,
     return_value,
     sub_one,
 };
@@ -323,6 +343,14 @@ pub const ProgramPlan = struct {
                             }
                         }
                     },
+                    .call_nested_with => {
+                        const result_codec = try valueCodecFromInstructionAux(instruction.aux);
+                        if (result_codec != .unit and !functionLocalHasCodec(self, function, instruction.dst, result_codec)) {
+                            return error.InvalidInstructionLocalIndex;
+                        }
+                        if (instruction.string_literal.len == 0) return error.InvalidInstructionLocalIndex;
+                        if (!namedNestedWithMetadataIsComplete(instruction.string_literal)) return error.InvalidNestedWithMetadata;
+                    },
                     .call_op => {
                         if (instruction.operand >= self.ops.len or !functionOwnsOpTarget(self, function, instruction.operand)) {
                             return error.InvalidCallOpTarget;
@@ -345,6 +373,10 @@ pub const ProgramPlan = struct {
                         if (!functionLocalHasCodec(self, function, instruction.dst, .usize)) return error.InvalidInstructionLocalIndex;
                         _ = std.fmt.parseUnsigned(usize, instruction.string_literal, 0) catch
                             return error.InvalidInstructionLocalIndex;
+                    },
+                    .return_error => {
+                        if (instruction.string_literal.len == 0) return error.InvalidInstructionLocalIndex;
+                        if (relative_index + 1 != block.instruction_count) return error.InvalidTerminatorInstruction;
                     },
                     .add_i32, .add_const_i32, .compare_eq_zero, .const_i32, .sub_one => {
                         if (instruction.kind == .add_i32) {
@@ -525,6 +557,8 @@ pub const ValidationError = error{
     InvalidTerminatorInstruction,
     InvalidTerminatorTarget,
     UnsupportedSchemaVersion,
+    InvalidInstructionCodec,
+    InvalidNestedWithMetadata,
 };
 /// Error set for lowering comptime IR into a runtime-owned plan.
 pub const PlanError = CodecError || effect_ir.NormalizeError || error{EmptyProgram};
@@ -573,11 +607,13 @@ fn instructionKindFromEffectIrBody(kind: effect_ir.InstructionKind) InstructionK
         .add_i32 => .add_i32,
         .add_const_i32 => .add_const_i32,
         .call_helper => .call_helper,
+        .call_nested_with => .call_nested_with,
         .call_op => .call_op,
         .compare_eq_zero => .compare_eq_zero,
         .const_i32 => .const_i32,
         .const_usize => .const_usize,
         .const_string => .const_string,
+        .return_error => .return_error,
         .return_value => .return_value,
         .sub_one => .sub_one,
     };
@@ -686,6 +722,14 @@ fn isValidFunctionLocal(local_count: u16, local_id: u16) bool {
     return local_id < local_count;
 }
 
+/// Decode a serialized instruction aux field as a full-width ValueCodec tag.
+pub fn valueCodecFromInstructionAux(aux: u16) ValidationError!ValueCodec {
+    inline for (@typeInfo(ValueCodec).@"enum".fields) |field| {
+        if (aux == field.value) return @enumFromInt(field.value);
+    }
+    return error.InvalidInstructionCodec;
+}
+
 fn functionLocalCodec(self: ProgramPlan, function: FunctionPlan, local_id: u16) ?ValueCodec {
     if (!isValidFunctionLocal(function.local_count, local_id)) return null;
     return self.locals[function.first_local + local_id].codec;
@@ -704,6 +748,7 @@ fn terminalAbortInstruction(
     const instruction_span_end = @as(usize, function.first_instruction) + function.instruction_count;
     if (instruction_index < function.first_instruction or instruction_index >= instruction_span_end) return false;
     const instruction = self.instructions[instruction_index];
+    if (instruction.kind == .return_error) return instruction.string_literal.len != 0;
     if (instruction.kind == .call_helper) {
         return instruction.operand < self.functions.len and
             reachability.terminal[instruction.operand] and
@@ -946,7 +991,9 @@ fn invalidGeneratedPlan(err: ValidationError) noreturn {
         error.InvalidFunctionLocalSpan => "runtime plan generator produced an invalid function local span",
         error.InvalidFunctionOutputSpan => "runtime plan generator produced an invalid function output span",
         error.InvalidFunctionRequirementSpan => "runtime plan generator produced an invalid function requirement span",
+        error.InvalidInstructionCodec => "runtime plan generator produced an instruction whose encoded codec is invalid",
         error.InvalidInstructionLocalIndex => "runtime plan generator produced an instruction with an out-of-range function-local reference",
+        error.InvalidNestedWithMetadata => "runtime plan generator produced an incomplete nested lexical-with metadata packet",
         error.InvalidAfterHookMode => "runtime plan generator marked an abort op as requiring an after hook",
         error.InvalidOpRequirementIndex => "runtime plan generator produced an op with an invalid requirement index",
         error.InvalidOpRequirementOwnership => "runtime plan generator produced an op whose requirement index does not own its op span",

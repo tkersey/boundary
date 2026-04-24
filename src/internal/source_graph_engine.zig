@@ -1,4 +1,6 @@
+const admitted_body_v1 = @import("admitted_body_v1");
 const std = @import("std");
+// zlinter-disable no_unused - AdmittedBodyV1 migration keeps the legacy statement matcher scaffolding in place until all witness paths are ported.
 
 /// Shared error surface for same-module source graph extraction.
 pub const Error = error{
@@ -809,9 +811,18 @@ fn statementArgsSupported(args: []const TokenItem) bool {
 }
 
 fn helperCallArgsSupported(effect_param: ?[]const u8, args: []const TokenItem) bool {
+    if (args.len == 0) return true;
     if (args.len == 1 and args[0].tag == .identifier) {
         if (effect_param) |param| return std.mem.eql(u8, args[0].lexeme, param);
         return std.mem.eql(u8, args[0].lexeme, "eff");
+    }
+    if (statementArgsSupported(args)) {
+        const trailing_eff = args.len >= 3 and
+            args[args.len - 1].tag == .identifier and
+            args[args.len - 2].tag == .comma and
+            ((effect_param != null and std.mem.eql(u8, args[args.len - 1].lexeme, effect_param.?)) or
+                (effect_param == null and std.mem.eql(u8, args[args.len - 1].lexeme, "eff")));
+        if (!trailing_eff) return true;
     }
     if (args.len < 3) return false;
     if (args[args.len - 1].tag != .identifier) return false;
@@ -888,6 +899,21 @@ fn statementMatchesSupportedDirectOp(
             return statementArgsSupported(tokens[index + 4 .. tokens.len - 1]);
         },
     }
+}
+
+fn statementMatchesSupportedRequirementAliasTouch(
+    effect_param: ?[]const u8,
+    aliases: []const Alias,
+    statement: []const TokenItem,
+) bool {
+    const tokens = statementTrimSemicolon(statement);
+    if (tokens.len != 5) return false;
+    if (tokens[0].tag != .identifier or !std.mem.eql(u8, tokens[0].lexeme, "_")) return false;
+    if (tokens[1].tag != .equal) return false;
+    if (tokens[2].tag != .identifier) return false;
+    const base_kind = aliasKind(effect_param, aliases, tokens[2].lexeme) orelse return false;
+    if (base_kind != .effect_root) return false;
+    return tokens[3].tag == .period and tokens[4].tag == .identifier;
 }
 
 fn statementMatchesSupportedReturnDirectOp(
@@ -1184,6 +1210,16 @@ fn statementMatchesSupportedHelperCall(
     return helperCallArgsSupported(effect_param, tokens[index + 4 .. tokens.len - 1]);
 }
 
+fn statementMatchesSupportedReturnHelperCall(
+    effect_param: ?[]const u8,
+    imports: []const ImportAlias,
+    statement: []const TokenItem,
+) bool {
+    const tokens = statementTrimSemicolon(statement);
+    if (tokens.len < 2 or tokens[0].tag != .keyword_return) return false;
+    return statementMatchesSupportedHelperCall(effect_param, imports, tokens[1..]);
+}
+
 fn statementMatchesSupportedIfLocalEqZeroReturn(statement: []const TokenItem) bool {
     return statement.len == 8 and
         statement[0].tag == .keyword_if and
@@ -1284,6 +1320,8 @@ fn statementSupportsBodyLowering(
     if (statementMatchesSupportedIfLocalEqZeroBranch(effect_param, aliases, imports, statement)) return true;
     if (statementMatchesSupportedContinuationDirectOp(effect_param, aliases, statement)) return true;
     if (statementMatchesSupportedReturnDirectOp(effect_param, aliases, statement)) return true;
+    if (statementMatchesSupportedReturnHelperCall(effect_param, imports, statement)) return true;
+    if (statementMatchesSupportedRequirementAliasTouch(effect_param, aliases, statement)) return true;
     if (statementMatchesSupportedDirectOp(effect_param, aliases, statement)) return true;
     if (statementMatchesSupportedLocalDecrementOp(effect_param, aliases, statement)) return true;
     if (statementMatchesSupportedHelperCall(effect_param, imports, statement)) return true;
@@ -1345,6 +1383,27 @@ fn maybeTopLevelImportAlias(token_window: *const TokenWindow) ?TopLevelImportMat
     return .{
         .name = tail[1].lexeme,
         .import_path = import_path,
+    };
+}
+
+fn maybeTopLevelImportForwardAlias(
+    imports: []const ImportAlias,
+    token_window: *const TokenWindow,
+) ?TopLevelImportMatch {
+    if (token_window.count < 5) return null;
+    const tail = token_window.items[token_window.count - 5 .. token_window.count];
+    if (!((tail[0].tag == .keyword_const or tail[0].tag == .keyword_var) and
+        tail[1].tag == .identifier and
+        tail[2].tag == .equal and
+        tail[3].tag == .identifier and
+        tail[4].tag == .semicolon))
+    {
+        return null;
+    }
+    const import_alias = findImportAlias(imports, tail[3].lexeme) orelse return null;
+    return .{
+        .name = tail[1].lexeme,
+        .import_path = import_alias.import_path,
     };
 }
 
@@ -1433,6 +1492,7 @@ const BodyScanContext = struct {
     caller_index: usize,
     caller_name: []const u8,
     effect_param: ?[]const u8,
+    body_start_offset: usize,
     imports: []const ImportAlias,
     options: AnalyzeOptions,
 };
@@ -1451,7 +1511,6 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
     var body_depth: usize = 1;
     var paren_depth: usize = 0;
     var bracket_depth: usize = 0;
-    var body_lowering_supported = true;
     var previous_kept_tag: ?std.zig.Token.Tag = null;
     var pending_identifier: ?PendingIdentifier = null;
     var token_window = TokenWindow{};
@@ -1467,10 +1526,16 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
         } else if (token.tag == .r_brace) {
             body_depth -= 1;
             if (body_depth == 0) {
-                if (statement_window.slice().len != 0) body_lowering_supported = false;
                 return .{
                     .body_end_offset = token.loc.start,
-                    .body_lowering_supported = body_lowering_supported,
+                    .body_lowering_supported = admitted_body_v1.parseFunctionBody(
+                        context.source,
+                        "",
+                        context.body_start_offset,
+                        token.loc.start,
+                        context.effect_param,
+                        context.imports,
+                    ) != null,
                 };
             }
         } else if (token.tag == .l_paren) {
@@ -1535,12 +1600,6 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
             {
                 return error.ParseError;
             }
-            if (!statementSupportsBodyLowering(
-                context.effect_param,
-                aliases[0..alias_count],
-                context.imports,
-                &statement_window,
-            )) body_lowering_supported = false;
             if (maybeAliasFromDeclaration(context.effect_param, aliases[0..alias_count], &token_window)) |alias| {
                 try upsertAlias(aliases[0..], &alias_count, alias.name, alias.kind);
             }
@@ -1562,7 +1621,14 @@ fn scanBody(context: *BodyScanContext, collector: anytype) AnalysisError!BodySca
 
     return .{
         .body_end_offset = context.source.len,
-        .body_lowering_supported = body_lowering_supported,
+        .body_lowering_supported = admitted_body_v1.parseFunctionBody(
+            context.source,
+            "",
+            context.body_start_offset,
+            context.source.len,
+            context.effect_param,
+            context.imports,
+        ) != null,
     };
 }
 
@@ -1729,6 +1795,7 @@ fn scanSource(source: [:0]const u8, collector: anytype, options: AnalyzeOptions)
                         .caller_index = function_index,
                         .caller_name = name,
                         .effect_param = effect_param,
+                        .body_start_offset = next.loc.end,
                         .imports = collector.importsSlice(),
                         .options = options,
                     };
@@ -1747,6 +1814,11 @@ fn scanSource(source: [:0]const u8, collector: anytype, options: AnalyzeOptions)
             });
             if (token.tag == .semicolon) {
                 if (maybeTopLevelImportAlias(&top_level_window)) |import_alias| {
+                    try collector.pushImport(.{
+                        .name = import_alias.name,
+                        .import_path = import_alias.import_path,
+                    });
+                } else if (maybeTopLevelImportForwardAlias(collector.importsSlice(), &top_level_window)) |import_alias| {
                     try collector.pushImport(.{
                         .name = import_alias.name,
                         .import_path = import_alias.import_path,
@@ -1973,6 +2045,88 @@ test "shared engine keeps bool literal continuation request bodies in the loweri
     try std.testing.expectEqualStrings("request", graph.direct_op_uses[0].op_name);
 }
 
+test "shared engine admits public shift nested with only through shift import evidence" {
+    const graph = try analyzeComptime(
+        \\const shift = @import("shift");
+        \\pub fn runBody() anyerror!i32 {
+        \\    const nested_result = (try shift.with(runtime_holder.ptr.?, .{
+        \\        .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
+        \\    }, static_redelim_inner_body_carrier)).value;
+        \\    return nested_result;
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
+}
+
+test "shared engine rejects public shift nested with through shadow import" {
+    const graph = try analyzeComptime(
+        \\const shift = @import("shadow.zig");
+        \\pub fn runBody() anyerror!i32 {
+        \\    const nested_result = (try shift.with(runtime_holder.ptr.?, .{
+        \\        .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
+        \\    }, static_redelim_inner_body_carrier)).value;
+        \\    return nested_result;
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expect(!graph.functions[graph.entry_index.?].body_lowering_supported);
+}
+
+test "shared engine admits forwarded shift import alias for nested with" {
+    const graph = try analyzeComptime(
+        \\const shift = @import("shift");
+        \\const lexical_runtime = shift;
+        \\pub fn runBody() anyerror!i32 {
+        \\    const nested_result = (try lexical_runtime.with(runtime_holder.ptr.?, .{
+        \\        .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
+        \\    }, static_redelim_inner_body_carrier)).value;
+        \\    return nested_result;
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
+}
+
+test "shared engine admits forwarded synthetic shift import alias for nested with" {
+    const graph = try analyzeComptime(
+        \\const shift = @import("synthetic_shift");
+        \\const lexical_runtime = shift;
+        \\pub fn runBody() anyerror!i32 {
+        \\    const nested_result = (try lexical_runtime.with(runtime_holder.ptr.?, .{
+        \\        .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
+        \\    }, static_redelim_inner_body_carrier)).value;
+        \\    return nested_result;
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
+}
+
 test "shared engine rejects negative payload literals from the lowering subset" {
     const graph = try analyzeComptime(
         \\pub fn runBody(eff: anytype) anyerror!i32 {
@@ -2090,4 +2244,72 @@ test "shared engine rejects recursive helper graphs" {
             .reject_indirect_effect_access = true,
         },
     ));
+}
+
+test "shared engine finds appended entry after top-level const struct declarations" {
+    const graph = try analyzeComptime(
+        \\const common = @import("common.zig");
+        \\const lexical_runtime = common.lexical_runtime;
+        \\const std = common.std;
+        \\pub const ResumeWitness = common.ResumeWitness;
+        \\
+        \\pub const transcript = struct {
+        \\    pub const InnerHandler = struct {};
+        \\};
+        \\
+        \\pub fn staticRedelimInnerBody(inner_eff: anytype) anyerror!i32 {
+        \\    _ = inner_eff;
+        \\    return 2;
+        \\}
+        \\
+        \\const static_redelim_inner_body_carrier = struct {
+        \\    pub const source_path = "source_graph_engine_demo.zig";
+        \\    pub const body_symbol = "staticRedelimInnerBody";
+        \\
+        \\    pub fn body(inner_eff: anytype) anyerror!i32 {
+        \\        return staticRedelimInnerBody(inner_eff);
+        \\    }
+        \\};
+        \\
+        \\fn runStaticRedelim(writer: anytype) anyerror!void {
+        \\    _ = writer;
+        \\    _ = try lexical_runtime.with(&runtime, .{
+        \\        .outer = ResumeWitness.use(.{ .handler = transcript.OuterHandler{} }),
+        \\    }, struct {
+        \\        pub fn body(outer_eff: anytype) anyerror!i32 {
+        \\            _ = try outer_eff.outer.step.perform();
+        \\            const nested = (try lexical_runtime.with(transcript.runtime_ptr.?, .{
+        \\                .inner = NestedResumeWitness.use(.{ .handler = Nested.InnerHandler{} }),
+        \\            }, static_redelim_inner_body_carrier)).value;
+        \\            return nested;
+        \\        }
+        \\
+        \\        pub const NestedResumeWitness = common.ResumeWitness;
+        \\        pub const Nested = struct {
+        \\            pub const InnerHandler = transcript.InnerHandler;
+        \\        };
+        \\    });
+        \\}
+        \\
+        \\pub const NestedResumeWitness = common.ResumeWitness;
+        \\pub const Nested = struct {
+        \\    pub const InnerHandler = transcript.InnerHandler;
+        \\};
+        \\pub fn __shift_with_entry_demo(outer_eff: anytype) anyerror!i32 {
+        \\    _ = try outer_eff.outer.step.perform();
+        \\    const nested = (try lexical_runtime.with(transcript.runtime_ptr.?, .{
+        \\        .inner = NestedResumeWitness.use(.{ .handler = Nested.InnerHandler{} }),
+        \\    }, static_redelim_inner_body_carrier)).value;
+        \\    return nested;
+        \\}
+    ,
+        .{
+            .entry_symbol = "__shift_with_entry_demo",
+            .reject_recursive_helpers = false,
+            .reject_indirect_effect_access = true,
+            .reject_malformed_statements = true,
+        },
+    );
+
+    try std.testing.expectEqualStrings("__shift_with_entry_demo", graph.functions[graph.entry_index.?].name);
 }

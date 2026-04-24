@@ -11,6 +11,10 @@ const Sample = struct {
     elapsed_ns: u64,
 };
 
+fn elapsedNsSince(io: std.Io, start: std.Io.Timestamp) u64 {
+    return @intCast(start.durationTo(std.Io.Timestamp.now(io, .boot)).toNanoseconds());
+}
+
 fn preserveValue(value: anytype) @TypeOf(value) {
     const preserved = value;
     std.mem.doNotOptimizeAway(preserved);
@@ -535,21 +539,17 @@ const effect_algebraic_transform = struct {
     const configured = program.handlers(.{
         shift.algebraic.handleTransform(AlgebraicTransformOp, no_state{}, handler),
     });
+    const continuation = struct {
+        /// Increment the resumed transform value for the benchmark lane.
+        pub fn apply(value: usize) usize {
+            return value + 1;
+        }
+    };
 
     const body = struct {
         /// Execute the public algebraic transform micro benchmark body.
-        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(AlgebraicTransformOp, raw_algebraic_transform.current_value, struct {
-            /// Increment the resumed transform value for the benchmark lane.
-            pub fn apply(value: usize) usize {
-                return value + 1;
-            }
-        })) {
-            return ctx.performProgram(AlgebraicTransformOp, raw_algebraic_transform.current_value, struct {
-                /// Increment the resumed transform value for the benchmark lane.
-                pub fn apply(value: usize) usize {
-                    return value + 1;
-                }
-            });
+        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(AlgebraicTransformOp, raw_algebraic_transform.current_value, continuation)) {
+            return ctx.performProgram(AlgebraicTransformOp, raw_algebraic_transform.current_value, continuation);
         }
     };
 };
@@ -593,21 +593,17 @@ const effect_algebraic_choice = struct {
     const configured = program.handlers(.{
         shift.algebraic.handleChoice(AlgebraicChoiceOp, no_state{}, handler),
     });
+    const continuation = struct {
+        /// Return the direct-answer branch if the algebraic choice unexpectedly resumes.
+        pub fn apply(_: usize) usize {
+            return 0;
+        }
+    };
 
     const body = struct {
         /// Execute the public algebraic choice micro benchmark body.
-        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(AlgebraicChoiceOp, raw_algebraic_choice.current_value, struct {
-            /// Return the direct-answer branch if the algebraic choice unexpectedly resumes.
-            pub fn apply(_: usize) usize {
-                return 0;
-            }
-        })) {
-            return ctx.performProgram(AlgebraicChoiceOp, raw_algebraic_choice.current_value, struct {
-                /// Return the direct-answer branch if the algebraic choice unexpectedly resumes.
-                pub fn apply(_: usize) usize {
-                    return 0;
-                }
-            });
+        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(AlgebraicChoiceOp, raw_algebraic_choice.current_value, continuation)) {
+            return ctx.performProgram(AlgebraicChoiceOp, raw_algebraic_choice.current_value, continuation);
         }
     };
 };
@@ -641,21 +637,17 @@ const effect_algebraic_abort = struct {
     const configured = program.handlers(.{
         shift.algebraic.handleAbort(AlgebraicAbortOp, no_state{}, handler),
     });
+    const continuation = struct {
+        /// Unreachable continuation placeholder for the abort lane.
+        pub fn apply(_: usize) usize {
+            unreachable;
+        }
+    };
 
     const body = struct {
         /// Execute the public algebraic abort micro benchmark body.
-        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(AlgebraicAbortOp, raw_algebraic_abort.current_value + 1, struct {
-            /// Unreachable continuation placeholder for the abort lane.
-            pub fn apply(_: noreturn) usize {
-                unreachable;
-            }
-        })) {
-            return ctx.performProgram(AlgebraicAbortOp, raw_algebraic_abort.current_value + 1, struct {
-                /// Unreachable continuation placeholder for the abort lane.
-                pub fn apply(_: noreturn) usize {
-                    unreachable;
-                }
-            });
+        pub fn program(ctx: *@TypeOf(configured).Context) @TypeOf(ctx.performProgram(AlgebraicAbortOp, raw_algebraic_abort.current_value + 1, continuation)) {
+            return ctx.performProgram(AlgebraicAbortOp, raw_algebraic_abort.current_value + 1, continuation);
         }
     };
 };
@@ -771,209 +763,209 @@ fn summarizeSamples(values: *const [samples_per_run]u64) struct { min: u64, medi
     };
 }
 
-fn runStateRawSample(runtime: *shift.Runtime, prompt: *RawStatePrompt, iterations: usize) !Sample {
+fn runStateRawSample(io: std.Io, runtime: *shift.Runtime, prompt: *RawStatePrompt, iterations: usize) !Sample {
     _ = prompt;
-    return try runStateEffectSample(runtime, &StateInstance.init(), iterations);
+    return try runStateEffectSample(io, runtime, &StateInstance.init(), iterations);
 }
 
-fn runStateEffectSample(runtime: *shift.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runStateEffectSample(io: std.Io, runtime: *shift.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         const result = preserveValue(try shift.effect.state.handle(usize, runtime, instance, index, effect_state));
         checksum += result.value + result.state;
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runReaderRawSample(runtime: *shift.Runtime, prompt: *ReaderPrompt, iterations: usize) !Sample {
+fn runReaderRawSample(io: std.Io, runtime: *shift.Runtime, prompt: *ReaderPrompt, iterations: usize) !Sample {
     _ = prompt;
-    return try runReaderEffectSample(runtime, &ReaderInstance.init(), iterations);
+    return try runReaderEffectSample(io, runtime, &ReaderInstance.init(), iterations);
 }
 
-fn runReaderEffectSample(runtime: *shift.Runtime, instance: *const ReaderInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runReaderEffectSample(io: std.Io, runtime: *shift.Runtime, instance: *const ReaderInstance, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         checksum += preserveValue(try shift.effect.reader.handle(usize, runtime, instance, index, effect_reader_micro));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runReaderBatchRawSample(runtime: *shift.Runtime, prompt: *ReaderPrompt, iterations: usize) !Sample {
+fn runReaderBatchRawSample(io: std.Io, runtime: *shift.Runtime, prompt: *ReaderPrompt, iterations: usize) !Sample {
     _ = prompt;
-    return try runReaderBatchEffectSample(runtime, &ReaderInstance.init(), iterations);
+    return try runReaderBatchEffectSample(io, runtime, &ReaderInstance.init(), iterations);
 }
 
-fn runReaderBatchEffectSample(runtime: *shift.Runtime, instance: *const ReaderInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runReaderBatchEffectSample(io: std.Io, runtime: *shift.Runtime, instance: *const ReaderInstance, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         checksum += preserveValue(try shift.effect.reader.handle(usize, runtime, instance, index, effect_reader_batch));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runOptionalReturnRawSample(runtime: *shift.Runtime, prompt: *OptionalReturnPrompt, iterations: usize) !Sample {
+fn runOptionalReturnRawSample(io: std.Io, runtime: *shift.Runtime, prompt: *OptionalReturnPrompt, iterations: usize) !Sample {
     _ = prompt;
-    return try runOptionalReturnEffectSample(runtime, &OptionalInstance.init(), iterations);
+    return try runOptionalReturnEffectSample(io, runtime, &OptionalInstance.init(), iterations);
 }
 
-fn runOptionalReturnEffectSample(runtime: *shift.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runOptionalReturnEffectSample(io: std.Io, runtime: *shift.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_return.current_value = index;
         checksum += preserveValue(try shift.effect.optional.handle(usize, runtime, instance, effect_optional_return_micro.policy, effect_optional_return_micro));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runOptionalReturnPreludeRawSample(runtime: *shift.Runtime, prompt: *OptionalReturnPrompt, iterations: usize) !Sample {
+fn runOptionalReturnPreludeRawSample(io: std.Io, runtime: *shift.Runtime, prompt: *OptionalReturnPrompt, iterations: usize) !Sample {
     _ = prompt;
-    return try runOptionalReturnPreludeEffectSample(runtime, &OptionalInstance.init(), iterations);
+    return try runOptionalReturnPreludeEffectSample(io, runtime, &OptionalInstance.init(), iterations);
 }
 
-fn runOptionalReturnPreludeEffectSample(runtime: *shift.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runOptionalReturnPreludeEffectSample(io: std.Io, runtime: *shift.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_return_prelude.current_value = index;
         checksum += preserveValue(try shift.effect.optional.handle(usize, runtime, instance, effect_optional_return_prelude.policy, effect_optional_return_prelude));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runOptionalResumeRawSample(runtime: *shift.Runtime, prompt: *OptionalResumePrompt, iterations: usize) !Sample {
+fn runOptionalResumeRawSample(io: std.Io, runtime: *shift.Runtime, prompt: *OptionalResumePrompt, iterations: usize) !Sample {
     _ = prompt;
-    return try runOptionalResumeEffectSample(runtime, &OptionalInstance.init(), iterations);
+    return try runOptionalResumeEffectSample(io, runtime, &OptionalInstance.init(), iterations);
 }
 
-fn runOptionalResumeEffectSample(runtime: *shift.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runOptionalResumeEffectSample(io: std.Io, runtime: *shift.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_resume.current_value = index;
         checksum += preserveValue(try shift.effect.optional.handle(usize, runtime, instance, effect_optional_resume_micro.policy, effect_optional_resume_micro));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runOptionalResumeBatchRawSample(runtime: *shift.Runtime, prompt: *OptionalResumePrompt, iterations: usize) !Sample {
+fn runOptionalResumeBatchRawSample(io: std.Io, runtime: *shift.Runtime, prompt: *OptionalResumePrompt, iterations: usize) !Sample {
     _ = prompt;
-    return try runOptionalResumeBatchEffectSample(runtime, &OptionalInstance.init(), iterations);
+    return try runOptionalResumeBatchEffectSample(io, runtime, &OptionalInstance.init(), iterations);
 }
 
-fn runOptionalResumeBatchEffectSample(runtime: *shift.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runOptionalResumeBatchEffectSample(io: std.Io, runtime: *shift.Runtime, instance: *const OptionalInstance, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_optional_resume_batch.current_value = index;
         checksum += preserveValue(try shift.effect.optional.handle(usize, runtime, instance, effect_optional_resume_batch.policy, effect_optional_resume_batch));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runExceptionRawSample(runtime: *shift.Runtime, prompt: *ExceptionPrompt, iterations: usize) !Sample {
+fn runExceptionRawSample(io: std.Io, runtime: *shift.Runtime, prompt: *ExceptionPrompt, iterations: usize) !Sample {
     _ = prompt;
-    return try runExceptionEffectSample(runtime, &ExceptionInstance.init(), iterations);
+    return try runExceptionEffectSample(io, runtime, &ExceptionInstance.init(), iterations);
 }
 
-fn runExceptionEffectSample(runtime: *shift.Runtime, instance: *const ExceptionInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runExceptionEffectSample(io: std.Io, runtime: *shift.Runtime, instance: *const ExceptionInstance, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_exception.pending_payload = index;
         checksum += preserveValue(try shift.effect.exception.handle(usize, runtime, instance, effect_exception_micro.catcher, effect_exception_micro));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runExceptionPreludeRawSample(runtime: *shift.Runtime, prompt: *ExceptionPrompt, iterations: usize) !Sample {
+fn runExceptionPreludeRawSample(io: std.Io, runtime: *shift.Runtime, prompt: *ExceptionPrompt, iterations: usize) !Sample {
     _ = prompt;
-    return try runExceptionPreludeEffectSample(runtime, &ExceptionInstance.init(), iterations);
+    return try runExceptionPreludeEffectSample(io, runtime, &ExceptionInstance.init(), iterations);
 }
 
-fn runExceptionPreludeEffectSample(runtime: *shift.Runtime, instance: *const ExceptionInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runExceptionPreludeEffectSample(io: std.Io, runtime: *shift.Runtime, instance: *const ExceptionInstance, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_exception_prelude.pending_payload = index;
         checksum += preserveValue(try shift.effect.exception.handle(usize, runtime, instance, effect_exception_prelude.catcher, effect_exception_prelude));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runAlgebraicTransformRawSample(runtime: *shift.Runtime, prompt: *AlgebraicTransformPrompt, iterations: usize) !Sample {
+fn runAlgebraicTransformRawSample(io: std.Io, runtime: *shift.Runtime, prompt: *AlgebraicTransformPrompt, iterations: usize) !Sample {
     _ = prompt;
-    return try runAlgebraicTransformEffectSample(runtime, iterations);
+    return try runAlgebraicTransformEffectSample(io, runtime, iterations);
 }
 
-fn runAlgebraicTransformEffectSample(runtime: *shift.Runtime, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runAlgebraicTransformEffectSample(io: std.Io, runtime: *shift.Runtime, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_algebraic_transform.current_value = index;
         checksum += preserveValue(try effect_algebraic_transform.configured.run(runtime, effect_algebraic_transform.body));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runAlgebraicChoiceRawSample(runtime: *shift.Runtime, prompt: *AlgebraicChoicePrompt, iterations: usize) !Sample {
+fn runAlgebraicChoiceRawSample(io: std.Io, runtime: *shift.Runtime, prompt: *AlgebraicChoicePrompt, iterations: usize) !Sample {
     _ = prompt;
-    return try runAlgebraicChoiceEffectSample(runtime, iterations);
+    return try runAlgebraicChoiceEffectSample(io, runtime, iterations);
 }
 
-fn runAlgebraicChoiceEffectSample(runtime: *shift.Runtime, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runAlgebraicChoiceEffectSample(io: std.Io, runtime: *shift.Runtime, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_algebraic_choice.current_value = index;
         checksum += preserveValue(try effect_algebraic_choice.configured.run(runtime, effect_algebraic_choice.body));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runAlgebraicAbortRawSample(runtime: *shift.Runtime, prompt: *AlgebraicAbortPrompt, iterations: usize) !Sample {
+fn runAlgebraicAbortRawSample(io: std.Io, runtime: *shift.Runtime, prompt: *AlgebraicAbortPrompt, iterations: usize) !Sample {
     _ = prompt;
-    return try runAlgebraicAbortEffectSample(runtime, iterations);
+    return try runAlgebraicAbortEffectSample(io, runtime, iterations);
 }
 
-fn runAlgebraicAbortEffectSample(runtime: *shift.Runtime, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runAlgebraicAbortEffectSample(io: std.Io, runtime: *shift.Runtime, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_algebraic_abort.current_value = index;
         checksum += preserveValue(try effect_algebraic_abort.configured.run(runtime, effect_algebraic_abort.body));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runResourceRawSample(allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runResourceRawSample(io: std.Io, allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         raw_resource.current_base = index * items_per_body;
         checksum += preserveValue(try raw_resource.body(allocator, items_per_body));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runResourceEffectSample(runtime: *shift.Runtime, instance: *const ResourceInstance, comptime items_per_body: usize, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runResourceEffectSample(io: std.Io, runtime: *shift.Runtime, instance: *const ResourceInstance, comptime items_per_body: usize, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
@@ -987,21 +979,22 @@ fn runResourceEffectSample(runtime: *shift.Runtime, instance: *const ResourceIns
         };
         checksum += preserveValue(try shift.effect.resource.handle(usize, runtime, instance, effect_resource.manager, body));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runWriterRawSample(allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runWriterRawSample(io: std.Io, allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
         checksum += preserveValue(try raw_writer.body(allocator, items_per_body));
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
-fn runWriterEffectSample(runtime: *shift.Runtime, instance: *const WriterInstance, allocator: std.mem.Allocator, comptime items_per_body: usize, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runWriterEffectSample(io: std.Io, runtime: *shift.Runtime, instance: *const WriterInstance, comptime items_per_body: usize, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
+    const allocator = std.heap.smp_allocator;
     var checksum: usize = 0;
     var index: usize = 0;
     while (index < iterations) : (index += 1) {
@@ -1018,7 +1011,7 @@ fn runWriterEffectSample(runtime: *shift.Runtime, instance: *const WriterInstanc
         for (result.items) |item| item_checksum += item;
         checksum += item_checksum;
     }
-    return .{ .checksum = checksum, .elapsed_ns = timer.read() };
+    return .{ .checksum = checksum, .elapsed_ns = elapsedNsSince(io, start) };
 }
 
 const LaneReport = struct {
@@ -1134,40 +1127,40 @@ pub fn main(init: std.process.Init) anyerror!void {
     defer writer_effect_runtime.deinit();
     var writer_effect_instance = WriterInstance.init();
 
-    _ = try runStateRawSample(&state_raw_runtime, &state_raw_prompt, warmup_iterations);
-    _ = try runStateEffectSample(&state_effect_runtime, &state_effect_instance, warmup_iterations);
-    _ = try runReaderRawSample(&reader_raw_runtime, &reader_raw_prompt, warmup_iterations);
-    _ = try runReaderEffectSample(&reader_effect_runtime, &reader_effect_instance, warmup_iterations);
-    _ = try runReaderBatchRawSample(&reader_raw_runtime, &reader_raw_prompt, warmup_iterations);
-    _ = try runReaderBatchEffectSample(&reader_effect_runtime, &reader_effect_instance, warmup_iterations);
-    _ = try runOptionalReturnRawSample(&optional_return_raw_runtime, &optional_return_prompt, warmup_iterations);
-    _ = try runOptionalReturnEffectSample(&optional_return_effect_runtime, &optional_return_effect_instance, warmup_iterations);
-    _ = try runOptionalReturnPreludeRawSample(&optional_return_raw_runtime, &optional_return_prompt, warmup_iterations);
-    _ = try runOptionalReturnPreludeEffectSample(&optional_return_effect_runtime, &optional_return_effect_instance, warmup_iterations);
-    _ = try runOptionalResumeRawSample(&optional_resume_raw_runtime, &optional_resume_prompt, warmup_iterations);
-    _ = try runOptionalResumeEffectSample(&optional_resume_effect_runtime, &optional_resume_effect_instance, warmup_iterations);
-    _ = try runOptionalResumeBatchRawSample(&optional_resume_raw_runtime, &optional_resume_prompt, warmup_iterations);
-    _ = try runOptionalResumeBatchEffectSample(&optional_resume_effect_runtime, &optional_resume_effect_instance, warmup_iterations);
-    _ = try runExceptionRawSample(&exception_raw_runtime, &exception_prompt, warmup_iterations);
-    _ = try runExceptionEffectSample(&exception_effect_runtime, &exception_effect_instance, warmup_iterations);
-    _ = try runExceptionPreludeRawSample(&exception_raw_runtime, &exception_prompt, warmup_iterations);
-    _ = try runExceptionPreludeEffectSample(&exception_effect_runtime, &exception_effect_instance, warmup_iterations);
-    _ = try runAlgebraicTransformRawSample(&algebraic_transform_raw_runtime, &algebraic_transform_prompt, warmup_iterations);
-    _ = try runAlgebraicTransformEffectSample(&algebraic_transform_effect_runtime, warmup_iterations);
-    _ = try runAlgebraicChoiceRawSample(&algebraic_choice_raw_runtime, &algebraic_choice_prompt, warmup_iterations);
-    _ = try runAlgebraicChoiceEffectSample(&algebraic_choice_effect_runtime, warmup_iterations);
-    _ = try runAlgebraicAbortRawSample(&algebraic_abort_raw_runtime, &algebraic_abort_prompt, warmup_iterations);
-    _ = try runAlgebraicAbortEffectSample(&algebraic_abort_effect_runtime, warmup_iterations);
-    _ = try runResourceRawSample(std.heap.smp_allocator, resource_small_items_per_body, warmup_iterations);
-    _ = try runResourceEffectSample(&resource_effect_runtime, &resource_effect_instance, resource_small_items_per_body, warmup_iterations);
-    _ = try runResourceRawSample(std.heap.smp_allocator, resource_large_items_per_body, warmup_iterations);
-    _ = try runResourceEffectSample(&resource_effect_runtime, &resource_effect_instance, resource_large_items_per_body, warmup_iterations);
-    _ = try runWriterRawSample(std.heap.smp_allocator, 1, warmup_iterations);
-    _ = try runWriterEffectSample(&writer_effect_runtime, &writer_effect_instance, std.heap.smp_allocator, 1, warmup_iterations);
-    _ = try runWriterRawSample(std.heap.smp_allocator, writer_small_items_per_body, warmup_iterations);
-    _ = try runWriterEffectSample(&writer_effect_runtime, &writer_effect_instance, std.heap.smp_allocator, writer_small_items_per_body, warmup_iterations);
-    _ = try runWriterRawSample(std.heap.smp_allocator, writer_large_items_per_body, warmup_iterations);
-    _ = try runWriterEffectSample(&writer_effect_runtime, &writer_effect_instance, std.heap.smp_allocator, writer_large_items_per_body, warmup_iterations);
+    _ = try runStateRawSample(init.io, &state_raw_runtime, &state_raw_prompt, warmup_iterations);
+    _ = try runStateEffectSample(init.io, &state_effect_runtime, &state_effect_instance, warmup_iterations);
+    _ = try runReaderRawSample(init.io, &reader_raw_runtime, &reader_raw_prompt, warmup_iterations);
+    _ = try runReaderEffectSample(init.io, &reader_effect_runtime, &reader_effect_instance, warmup_iterations);
+    _ = try runReaderBatchRawSample(init.io, &reader_raw_runtime, &reader_raw_prompt, warmup_iterations);
+    _ = try runReaderBatchEffectSample(init.io, &reader_effect_runtime, &reader_effect_instance, warmup_iterations);
+    _ = try runOptionalReturnRawSample(init.io, &optional_return_raw_runtime, &optional_return_prompt, warmup_iterations);
+    _ = try runOptionalReturnEffectSample(init.io, &optional_return_effect_runtime, &optional_return_effect_instance, warmup_iterations);
+    _ = try runOptionalReturnPreludeRawSample(init.io, &optional_return_raw_runtime, &optional_return_prompt, warmup_iterations);
+    _ = try runOptionalReturnPreludeEffectSample(init.io, &optional_return_effect_runtime, &optional_return_effect_instance, warmup_iterations);
+    _ = try runOptionalResumeRawSample(init.io, &optional_resume_raw_runtime, &optional_resume_prompt, warmup_iterations);
+    _ = try runOptionalResumeEffectSample(init.io, &optional_resume_effect_runtime, &optional_resume_effect_instance, warmup_iterations);
+    _ = try runOptionalResumeBatchRawSample(init.io, &optional_resume_raw_runtime, &optional_resume_prompt, warmup_iterations);
+    _ = try runOptionalResumeBatchEffectSample(init.io, &optional_resume_effect_runtime, &optional_resume_effect_instance, warmup_iterations);
+    _ = try runExceptionRawSample(init.io, &exception_raw_runtime, &exception_prompt, warmup_iterations);
+    _ = try runExceptionEffectSample(init.io, &exception_effect_runtime, &exception_effect_instance, warmup_iterations);
+    _ = try runExceptionPreludeRawSample(init.io, &exception_raw_runtime, &exception_prompt, warmup_iterations);
+    _ = try runExceptionPreludeEffectSample(init.io, &exception_effect_runtime, &exception_effect_instance, warmup_iterations);
+    _ = try runAlgebraicTransformRawSample(init.io, &algebraic_transform_raw_runtime, &algebraic_transform_prompt, warmup_iterations);
+    _ = try runAlgebraicTransformEffectSample(init.io, &algebraic_transform_effect_runtime, warmup_iterations);
+    _ = try runAlgebraicChoiceRawSample(init.io, &algebraic_choice_raw_runtime, &algebraic_choice_prompt, warmup_iterations);
+    _ = try runAlgebraicChoiceEffectSample(init.io, &algebraic_choice_effect_runtime, warmup_iterations);
+    _ = try runAlgebraicAbortRawSample(init.io, &algebraic_abort_raw_runtime, &algebraic_abort_prompt, warmup_iterations);
+    _ = try runAlgebraicAbortEffectSample(init.io, &algebraic_abort_effect_runtime, warmup_iterations);
+    _ = try runResourceRawSample(init.io, std.heap.smp_allocator, resource_small_items_per_body, warmup_iterations);
+    _ = try runResourceEffectSample(init.io, &resource_effect_runtime, &resource_effect_instance, resource_small_items_per_body, warmup_iterations);
+    _ = try runResourceRawSample(init.io, std.heap.smp_allocator, resource_large_items_per_body, warmup_iterations);
+    _ = try runResourceEffectSample(init.io, &resource_effect_runtime, &resource_effect_instance, resource_large_items_per_body, warmup_iterations);
+    _ = try runWriterRawSample(init.io, std.heap.smp_allocator, 1, warmup_iterations);
+    _ = try runWriterEffectSample(init.io, &writer_effect_runtime, &writer_effect_instance, 1, warmup_iterations);
+    _ = try runWriterRawSample(init.io, std.heap.smp_allocator, writer_small_items_per_body, warmup_iterations);
+    _ = try runWriterEffectSample(init.io, &writer_effect_runtime, &writer_effect_instance, writer_small_items_per_body, warmup_iterations);
+    _ = try runWriterRawSample(init.io, std.heap.smp_allocator, writer_large_items_per_body, warmup_iterations);
+    _ = try runWriterEffectSample(init.io, &writer_effect_runtime, &writer_effect_instance, writer_large_items_per_body, warmup_iterations);
 
     var state_raw_samples = [_]u64{0} ** samples_per_run;
     var state_effect_samples = [_]u64{0} ** samples_per_run;
@@ -1241,40 +1234,40 @@ pub fn main(init: std.process.Init) anyerror!void {
 
     var index: usize = 0;
     while (index < samples_per_run) : (index += 1) {
-        const state_raw_sample = try runStateRawSample(&state_raw_runtime, &state_raw_prompt, timed_iterations);
-        const state_effect_sample = try runStateEffectSample(&state_effect_runtime, &state_effect_instance, timed_iterations);
-        const reader_raw_sample = try runReaderRawSample(&reader_raw_runtime, &reader_raw_prompt, timed_iterations);
-        const reader_effect_sample = try runReaderEffectSample(&reader_effect_runtime, &reader_effect_instance, timed_iterations);
-        const reader_batch_raw_sample = try runReaderBatchRawSample(&reader_raw_runtime, &reader_raw_prompt, timed_iterations);
-        const reader_batch_effect_sample = try runReaderBatchEffectSample(&reader_effect_runtime, &reader_effect_instance, timed_iterations);
-        const optional_return_raw_sample = try runOptionalReturnRawSample(&optional_return_raw_runtime, &optional_return_prompt, timed_iterations);
-        const optional_return_effect_sample = try runOptionalReturnEffectSample(&optional_return_effect_runtime, &optional_return_effect_instance, timed_iterations);
-        const opt_ret_pre_raw_sample = try runOptionalReturnPreludeRawSample(&optional_return_raw_runtime, &optional_return_prompt, timed_iterations);
-        const opt_ret_pre_eff_sample = try runOptionalReturnPreludeEffectSample(&optional_return_effect_runtime, &optional_return_effect_instance, timed_iterations);
-        const optional_resume_raw_sample = try runOptionalResumeRawSample(&optional_resume_raw_runtime, &optional_resume_prompt, timed_iterations);
-        const optional_resume_effect_sample = try runOptionalResumeEffectSample(&optional_resume_effect_runtime, &optional_resume_effect_instance, timed_iterations);
-        const opt_res_batch_raw_sample = try runOptionalResumeBatchRawSample(&optional_resume_raw_runtime, &optional_resume_prompt, timed_iterations);
-        const opt_res_batch_eff_sample = try runOptionalResumeBatchEffectSample(&optional_resume_effect_runtime, &optional_resume_effect_instance, timed_iterations);
-        const exception_raw_sample = try runExceptionRawSample(&exception_raw_runtime, &exception_prompt, timed_iterations);
-        const exception_effect_sample = try runExceptionEffectSample(&exception_effect_runtime, &exception_effect_instance, timed_iterations);
-        const exception_prelude_raw_sample = try runExceptionPreludeRawSample(&exception_raw_runtime, &exception_prompt, timed_iterations);
-        const exn_pre_eff_sample = try runExceptionPreludeEffectSample(&exception_effect_runtime, &exception_effect_instance, timed_iterations);
-        const algebraic_transform_raw_sample = try runAlgebraicTransformRawSample(&algebraic_transform_raw_runtime, &algebraic_transform_prompt, timed_iterations);
-        const alg_transform_effect_sample = try runAlgebraicTransformEffectSample(&algebraic_transform_effect_runtime, timed_iterations);
-        const algebraic_choice_raw_sample = try runAlgebraicChoiceRawSample(&algebraic_choice_raw_runtime, &algebraic_choice_prompt, timed_iterations);
-        const alg_choice_effect_sample = try runAlgebraicChoiceEffectSample(&algebraic_choice_effect_runtime, timed_iterations);
-        const algebraic_abort_raw_sample = try runAlgebraicAbortRawSample(&algebraic_abort_raw_runtime, &algebraic_abort_prompt, timed_iterations);
-        const alg_abort_effect_sample = try runAlgebraicAbortEffectSample(&algebraic_abort_effect_runtime, timed_iterations);
-        const resource4_raw_sample = try runResourceRawSample(std.heap.smp_allocator, resource_small_items_per_body, timed_iterations);
-        const resource4_effect_sample = try runResourceEffectSample(&resource_effect_runtime, &resource_effect_instance, resource_small_items_per_body, timed_iterations);
-        const resource32_raw_sample = try runResourceRawSample(std.heap.smp_allocator, resource_large_items_per_body, timed_iterations);
-        const resource32_effect_sample = try runResourceEffectSample(&resource_effect_runtime, &resource_effect_instance, resource_large_items_per_body, timed_iterations);
-        const writer_micro_raw_sample = try runWriterRawSample(std.heap.smp_allocator, 1, timed_iterations);
-        const writer_micro_effect_sample = try runWriterEffectSample(&writer_effect_runtime, &writer_effect_instance, std.heap.smp_allocator, 1, timed_iterations);
-        const writer16_raw_sample = try runWriterRawSample(std.heap.smp_allocator, writer_small_items_per_body, timed_iterations);
-        const writer16_effect_sample = try runWriterEffectSample(&writer_effect_runtime, &writer_effect_instance, std.heap.smp_allocator, writer_small_items_per_body, timed_iterations);
-        const writer64_raw_sample = try runWriterRawSample(std.heap.smp_allocator, writer_large_items_per_body, timed_iterations);
-        const writer64_effect_sample = try runWriterEffectSample(&writer_effect_runtime, &writer_effect_instance, std.heap.smp_allocator, writer_large_items_per_body, timed_iterations);
+        const state_raw_sample = try runStateRawSample(init.io, &state_raw_runtime, &state_raw_prompt, timed_iterations);
+        const state_effect_sample = try runStateEffectSample(init.io, &state_effect_runtime, &state_effect_instance, timed_iterations);
+        const reader_raw_sample = try runReaderRawSample(init.io, &reader_raw_runtime, &reader_raw_prompt, timed_iterations);
+        const reader_effect_sample = try runReaderEffectSample(init.io, &reader_effect_runtime, &reader_effect_instance, timed_iterations);
+        const reader_batch_raw_sample = try runReaderBatchRawSample(init.io, &reader_raw_runtime, &reader_raw_prompt, timed_iterations);
+        const reader_batch_effect_sample = try runReaderBatchEffectSample(init.io, &reader_effect_runtime, &reader_effect_instance, timed_iterations);
+        const optional_return_raw_sample = try runOptionalReturnRawSample(init.io, &optional_return_raw_runtime, &optional_return_prompt, timed_iterations);
+        const optional_return_effect_sample = try runOptionalReturnEffectSample(init.io, &optional_return_effect_runtime, &optional_return_effect_instance, timed_iterations);
+        const opt_ret_pre_raw_sample = try runOptionalReturnPreludeRawSample(init.io, &optional_return_raw_runtime, &optional_return_prompt, timed_iterations);
+        const opt_ret_pre_eff_sample = try runOptionalReturnPreludeEffectSample(init.io, &optional_return_effect_runtime, &optional_return_effect_instance, timed_iterations);
+        const optional_resume_raw_sample = try runOptionalResumeRawSample(init.io, &optional_resume_raw_runtime, &optional_resume_prompt, timed_iterations);
+        const optional_resume_effect_sample = try runOptionalResumeEffectSample(init.io, &optional_resume_effect_runtime, &optional_resume_effect_instance, timed_iterations);
+        const opt_res_batch_raw_sample = try runOptionalResumeBatchRawSample(init.io, &optional_resume_raw_runtime, &optional_resume_prompt, timed_iterations);
+        const opt_res_batch_eff_sample = try runOptionalResumeBatchEffectSample(init.io, &optional_resume_effect_runtime, &optional_resume_effect_instance, timed_iterations);
+        const exception_raw_sample = try runExceptionRawSample(init.io, &exception_raw_runtime, &exception_prompt, timed_iterations);
+        const exception_effect_sample = try runExceptionEffectSample(init.io, &exception_effect_runtime, &exception_effect_instance, timed_iterations);
+        const exception_prelude_raw_sample = try runExceptionPreludeRawSample(init.io, &exception_raw_runtime, &exception_prompt, timed_iterations);
+        const exn_pre_eff_sample = try runExceptionPreludeEffectSample(init.io, &exception_effect_runtime, &exception_effect_instance, timed_iterations);
+        const algebraic_transform_raw_sample = try runAlgebraicTransformRawSample(init.io, &algebraic_transform_raw_runtime, &algebraic_transform_prompt, timed_iterations);
+        const alg_transform_effect_sample = try runAlgebraicTransformEffectSample(init.io, &algebraic_transform_effect_runtime, timed_iterations);
+        const algebraic_choice_raw_sample = try runAlgebraicChoiceRawSample(init.io, &algebraic_choice_raw_runtime, &algebraic_choice_prompt, timed_iterations);
+        const alg_choice_effect_sample = try runAlgebraicChoiceEffectSample(init.io, &algebraic_choice_effect_runtime, timed_iterations);
+        const algebraic_abort_raw_sample = try runAlgebraicAbortRawSample(init.io, &algebraic_abort_raw_runtime, &algebraic_abort_prompt, timed_iterations);
+        const alg_abort_effect_sample = try runAlgebraicAbortEffectSample(init.io, &algebraic_abort_effect_runtime, timed_iterations);
+        const resource4_raw_sample = try runResourceRawSample(init.io, std.heap.smp_allocator, resource_small_items_per_body, timed_iterations);
+        const resource4_effect_sample = try runResourceEffectSample(init.io, &resource_effect_runtime, &resource_effect_instance, resource_small_items_per_body, timed_iterations);
+        const resource32_raw_sample = try runResourceRawSample(init.io, std.heap.smp_allocator, resource_large_items_per_body, timed_iterations);
+        const resource32_effect_sample = try runResourceEffectSample(init.io, &resource_effect_runtime, &resource_effect_instance, resource_large_items_per_body, timed_iterations);
+        const writer_micro_raw_sample = try runWriterRawSample(init.io, std.heap.smp_allocator, 1, timed_iterations);
+        const writer_micro_effect_sample = try runWriterEffectSample(init.io, &writer_effect_runtime, &writer_effect_instance, 1, timed_iterations);
+        const writer16_raw_sample = try runWriterRawSample(init.io, std.heap.smp_allocator, writer_small_items_per_body, timed_iterations);
+        const writer16_effect_sample = try runWriterEffectSample(init.io, &writer_effect_runtime, &writer_effect_instance, writer_small_items_per_body, timed_iterations);
+        const writer64_raw_sample = try runWriterRawSample(init.io, std.heap.smp_allocator, writer_large_items_per_body, timed_iterations);
+        const writer64_effect_sample = try runWriterEffectSample(init.io, &writer_effect_runtime, &writer_effect_instance, writer_large_items_per_body, timed_iterations);
 
         if (state_raw_checksum) |checksum| {
             if (checksum != state_raw_sample.checksum) return error.StateRawChecksumMismatch;

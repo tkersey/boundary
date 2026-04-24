@@ -1,7 +1,12 @@
+const anonymous_body_synthesis = @import("internal/anonymous_body_synthesis.zig");
+const builtin = @import("builtin");
 const family = @import("effect/family.zig");
 const frontend = @import("frontend_support");
+const lexical_manifest = @import("internal/lexical_manifest.zig");
 const lowered_machine = @import("lowered_machine");
+const lowering_api = @import("lowering_api");
 const prompt_contract = @import("prompt_contract_support");
+const source_graph_embed = @import("source_graph_embed");
 const std = @import("std");
 
 /// One descriptor result: final descriptor output plus body answer.
@@ -439,6 +444,16 @@ fn bodyDeclSemanticErrorSet(comptime Body: type) ?type {
     return null;
 }
 
+fn bodyDeclSourcePath(comptime Body: type) ?[]const u8 {
+    if (hasDeclSafe(Body, "source_path")) return Body.source_path;
+    return null;
+}
+
+fn bodyDeclBodySymbol(comptime Body: type) ?[]const u8 {
+    if (hasDeclSafe(Body, "body_symbol")) return Body.body_symbol;
+    return null;
+}
+
 /// Return the public continuation effect type.
 pub fn ContinuationEffType(
     comptime HandlersType: type,
@@ -449,17 +464,6 @@ pub fn ContinuationEffType(
     const field = @typeInfo(HandlersType).@"struct".fields[index];
     const CurrentEff = ExtendBundleType(PreviousEffType, field.name, CurrentHandleType);
     return PreviewEffType(HandlersType, index + 1, CurrentEff, HandlerErrorSet(HandlersType));
-}
-
-fn BodyFunctionType(comptime Body: type) type {
-    if (switch (@typeInfo(Body)) {
-        .pointer => |pointer| @typeInfo(pointer.child) == .@"fn",
-        .@"fn" => true,
-        else => false,
-    }) return Body;
-    if (@hasDecl(Body, "body")) return @TypeOf(Body.body);
-    if (@hasDecl(Body, "run")) return @TypeOf(Body.run);
-    @compileError("shift.with body must be a function or a type declaring body(eff)");
 }
 
 fn BodyRunFnType(comptime Body: type) type {
@@ -509,63 +513,19 @@ fn BodyErrorSet(comptime Body: type, comptime EffType: type) type {
     return ReturnTypeErrorSet(BodyReturnType(Body, EffType));
 }
 
-fn callBody(
-    comptime Body: type,
-    eff: anytype,
-    comptime ErrorSet: type,
-    comptime AnswerType: type,
-) lowered_machine.ResetError(ErrorSet)!AnswerType {
-    const BodyFn = BodyFunctionType(Body);
-    const FnType = switch (@typeInfo(BodyFn)) {
-        .pointer => |pointer| pointer.child,
-        .@"fn" => BodyFn,
-        else => unreachable,
-    };
-    const ReturnType = @typeInfo(FnType).@"fn".return_type.?;
-
-    if (@hasDecl(Body, "body")) {
-        if (@typeInfo(ReturnType) == .error_union) {
-            return Body.body(eff) catch |err| return @errorCast(err);
-        }
-        return Body.body(eff);
-    }
-
+fn callBody(comptime Body: type, eff: anytype) BodyReturnType(Body, @TypeOf(eff)) {
+    if (@hasDecl(Body, "body")) return Body.body(eff);
     if (@hasDecl(Body, "run")) {
         const params = @typeInfo(BodyRunFnType(Body)).@"fn".params;
-        if (params.len == 1) {
-            if (@typeInfo(ReturnType) == .error_union) {
-                return Body.run(eff) catch |err| return @errorCast(err);
-            }
-            return Body.run(eff);
-        }
-        if (params.len == 2) {
-            const FirstParam = params[0].type orelse @compileError("shift.with body run must type every parameter");
-            if (FirstParam == type) {
-                if (@typeInfo(ReturnType) == .error_union) {
-                    return Body.run(Body, eff) catch |err| return @errorCast(err);
-                }
-                return Body.run(Body, eff);
-            }
-            if (FirstParam == Body) {
-                const self = bodyRunSelfValue(Body);
-                if (@typeInfo(ReturnType) == .error_union) {
-                    return Body.run(self, eff) catch |err| return @errorCast(err);
-                }
-                return Body.run(self, eff);
-            }
-            if (FirstParam == *Body or FirstParam == *const Body) {
-                var self = bodyRunSelfValue(Body);
-                if (@typeInfo(ReturnType) == .error_union) {
-                    return Body.run(&self, eff) catch |err| return @errorCast(err);
-                }
-                return Body.run(&self, eff);
-            }
+        if (params.len == 1) return Body.run(eff);
+        const FirstParam = params[0].type orelse @compileError("shift.with body run must type every parameter");
+        if (FirstParam == type) return Body.run(Body, eff);
+        if (FirstParam == Body) return Body.run(bodyRunSelfValue(Body), eff);
+        if (FirstParam == *Body or FirstParam == *const Body) {
+            var self = bodyRunSelfValue(Body);
+            return Body.run(&self, eff);
         }
         @compileError("shift.with body run must accept either (eff), (self, eff), (*self, eff), or (BodyType, eff)");
-    }
-
-    if (@typeInfo(ReturnType) == .error_union) {
-        return Body(eff) catch |err| return @errorCast(err);
     }
     return Body(eff);
 }
@@ -704,10 +664,6 @@ fn exactContextCallerSource(comptime ContextPtrType: type) @TypeOf(family.contex
     return family.contextCallerSource(ContextPtrType);
 }
 
-fn CollectedRunState(comptime HandlersType: type, comptime EffType: type, comptime caller: anytype) type {
-    return LexicalState(HandlersType, EffType, caller);
-}
-
 fn ChoiceRunState(comptime HandlersType: type, comptime EffType: type, comptime caller: anytype) type {
     return LexicalState(HandlersType, EffType, caller);
 }
@@ -735,66 +691,6 @@ pub fn activeLexicalState(
     comptime EffType: type,
 ) *LexicalState(HandlersType, EffType, exactContextCallerSource(@TypeOf(ctx))) {
     return @ptrCast(@alignCast(ctx._cap.lexical_state.?));
-}
-
-// zlinter-disable max_positional_args - threading the exact caller source through the recursive lexical runner is the minimal change that preserves the existing control flow.
-fn runChainCollected(
-    comptime HandlersType: type,
-    comptime Body: type,
-    comptime index: usize,
-    comptime EffType: type,
-    comptime caller: anytype,
-    state: CollectedRunState(HandlersType, EffType, caller),
-) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
-    const ErrorSet = HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType));
-    const Answer = BodyAnswerType(Body, PreviewBodyEffType(HandlersType));
-    const fields = @typeInfo(HandlersType).@"struct".fields;
-
-    if (index == fields.len) {
-        return try callBody(Body, state.eff_value, ErrorSet, Answer);
-    }
-
-    const field = fields[index];
-    const DescriptorType = field.type;
-    const desc_value: DescriptorType = @field(state.handlers_ptr.*, field.name);
-
-    const step_ctx = struct {
-        /// Extend the lexical effect bundle with one bound handle, thread the shared outputs bundle, and continue inward.
-        pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSet)!Answer {
-            const lexical_state = activeLexicalState(ctx, HandlersType, EffType);
-            const current_desc: DescriptorType = @field(lexical_state.handlers_ptr.*, field.name);
-            const handle = blk: {
-                const BindFn = @TypeOf(DescriptorType.bindLexical);
-                const params = @typeInfo(BindFn).@"fn".params;
-                switch (params.len) {
-                    3 => break :blk current_desc.bindLexical(Cap, ctx),
-                    6 => break :blk current_desc.bindLexical(Cap, ctx, HandlersType, EffType, index),
-                    else => @compileError("shift.with descriptor bindLexical must accept either (self, Cap, ctx) or (self, Cap, ctx, HandlersType, PreviousEffType, index)"),
-                }
-            };
-            const next_eff = extendBundle(EffType, lexical_state.eff_value, field.name, handle);
-            return try runChainCollected(HandlersType, Body, index + 1, @TypeOf(next_eff), caller, .{
-                .runtime = lexical_state.runtime,
-                .handlers_ptr = lexical_state.handlers_ptr,
-                .eff_value = next_eff,
-                .outputs_ptr = lexical_state.outputs_ptr,
-            });
-        }
-    };
-
-    const result = blk: {
-        const RunFn = @TypeOf(DescriptorType.run);
-        const params = @typeInfo(RunFn).@"fn".params;
-        switch (params.len) {
-            5 => break :blk desc_value.run(Answer, ErrorSet, descriptorRunContext(caller, state.runtime, &state), step_ctx),
-            6 => break :blk desc_value.run(Answer, ErrorSet, state.runtime, &state, step_ctx),
-            else => @compileError("shift.with descriptor run must accept either (self, AnswerType, RunErrorSetType, run_ctx, Body) or the legacy runtime/lexical_state form"),
-        }
-    } catch |err| return @errorCast(err);
-    if (DescriptorType.Output != void) {
-        @field(state.outputs_ptr.*, field.name) = result.output;
-    }
-    return result.value;
 }
 
 fn runChoiceChain(
@@ -856,6 +752,69 @@ fn runChoiceChain(
     return result.value;
 }
 
+fn runBodyChain(
+    comptime HandlersType: type,
+    comptime index: usize,
+    comptime EffType: type,
+    comptime caller: anytype,
+    state: ChoiceRunState(HandlersType, EffType, caller),
+    comptime Body: type,
+) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
+    const ErrorSet = HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType));
+    const AnswerType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType));
+    const fields = @typeInfo(HandlersType).@"struct".fields;
+
+    if (index == fields.len) {
+        const ReturnType = BodyReturnType(Body, EffType);
+        if (@typeInfo(ReturnType) == .error_union) {
+            return callBody(Body, state.eff_value) catch |err| return @errorCast(err);
+        }
+        return callBody(Body, state.eff_value);
+    }
+
+    const field = fields[index];
+    const DescriptorType = field.type;
+    const desc_value: DescriptorType = @field(state.handlers_ptr.*, field.name);
+
+    const step_ctx = struct {
+        /// Extend the lexical bundle for the initial body entry and continue inward.
+        pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSet)!AnswerType {
+            const lexical_state = activeLexicalState(ctx, HandlersType, EffType);
+            const current_desc: DescriptorType = @field(lexical_state.handlers_ptr.*, field.name);
+            const handle = blk: {
+                const BindFn = @TypeOf(DescriptorType.bindLexical);
+                const params = @typeInfo(BindFn).@"fn".params;
+                switch (params.len) {
+                    3 => break :blk current_desc.bindLexical(Cap, ctx),
+                    6 => break :blk current_desc.bindLexical(Cap, ctx, HandlersType, EffType, index),
+                    else => @compileError("shift.with descriptor bindLexical must accept either (self, Cap, ctx) or (self, Cap, ctx, HandlersType, PreviousEffType, index)"),
+                }
+            };
+            const next_eff = extendBundle(EffType, lexical_state.eff_value, field.name, handle);
+            return try runBodyChain(HandlersType, index + 1, @TypeOf(next_eff), caller, .{
+                .runtime = lexical_state.runtime,
+                .handlers_ptr = lexical_state.handlers_ptr,
+                .eff_value = next_eff,
+                .outputs_ptr = lexical_state.outputs_ptr,
+            }, Body);
+        }
+    };
+
+    const result = blk: {
+        const RunFn = @TypeOf(DescriptorType.run);
+        const params = @typeInfo(RunFn).@"fn".params;
+        switch (params.len) {
+            5 => break :blk desc_value.run(AnswerType, ErrorSet, descriptorRunContext(caller, state.runtime, &state), step_ctx),
+            6 => break :blk desc_value.run(AnswerType, ErrorSet, state.runtime, &state, step_ctx),
+            else => @compileError("shift.with descriptor run must accept either (self, AnswerType, RunErrorSetType, run_ctx, Body) or the legacy runtime/lexical_state form"),
+        }
+    } catch |err| return @errorCast(err);
+    if (DescriptorType.Output != void) {
+        @field(state.outputs_ptr.*, field.name) = result.output;
+    }
+    return result.value;
+}
+
 /// Continue one lexical choice continuation by rebuilding the remaining `eff` bundle from the current handler slot onward.
 pub fn continueChoice(
     comptime HandlersType: type,
@@ -890,6 +849,311 @@ fn WithSemanticErrorSet(comptime HandlersType: type, comptime Body: type) type {
     return HandlerSet || BodySet;
 }
 
+fn syntheticLoweringSourcePath(
+    comptime entry_symbol: []const u8,
+) []const u8 {
+    return std.fmt.comptimePrint("/tmp/shift_with/{s}.zig", .{entry_symbol});
+}
+
+fn syntheticSourceLocation(
+    comptime synthetic_path: []const u8,
+    comptime entry_symbol: []const u8,
+) std.builtin.SourceLocation {
+    const source_path_z = std.fmt.comptimePrint("{s}\x00", .{synthetic_path});
+    const entry_symbol_z = std.fmt.comptimePrint("{s}\x00", .{entry_symbol});
+    return .{
+        .module = @src().module,
+        .file = source_path_z[0..synthetic_path.len :0],
+        .line = 1,
+        .column = 1,
+        .fn_name = entry_symbol_z[0..entry_symbol.len :0],
+    };
+}
+
+fn namedBodySyntheticSource(
+    comptime body_symbol: []const u8,
+    comptime caller_source: []const u8,
+    comptime generated_entry_name: []const u8,
+    comptime return_syntax: ?[]const u8,
+) [:0]const u8 {
+    const normalized_caller_source = comptime anonymous_body_synthesis.normalizedSyntheticCallerSource(caller_source);
+    const return_clause = if (return_syntax) |syntax|
+        std.fmt.comptimePrint(" {s} ", .{syntax})
+    else
+        " ";
+    return std.fmt.comptimePrint(
+        "{s}\npub fn {s}(eff: anytype){s}{{\n    return {s}(eff);\n}}\n",
+        .{
+            normalized_caller_source,
+            generated_entry_name,
+            return_clause,
+            body_symbol,
+        },
+    );
+}
+
+fn NestedSourceModuleForBody(comptime Body: type) type {
+    return Body;
+}
+
+// zlinter-disable max_positional_args - compiled execution must carry exact body, runtime, handler, output, and plan witnesses across a comptime boundary.
+fn runCompiledLexicalPlan(
+    comptime HandlersType: type,
+    comptime Body: type,
+    runtime: *lowered_machine.Runtime,
+    handlers_ptr: *HandlersType,
+    outputs_ptr: *OutputBundleType(HandlersType),
+    comptime compiled_plan: lowering_api.ProgramPlan,
+) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
+    if (builtin.is_test) compiled_plain_with_witness = true;
+    lowering_api.assertExecutablePlanCodecSupport(compiled_plan);
+
+    const lexical_state = struct {
+        runtime: *lowered_machine.Runtime,
+        handlers_ptr: *HandlersType,
+    }{
+        .runtime = runtime,
+        .handlers_ptr = handlers_ptr,
+    };
+
+    var executable_bundle = lexical_manifest.Manifest(HandlersType).fromLexicalState(lexical_state);
+    var run_error: ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType))) = null;
+    const result = lowering_api.runExecutablePlanInSource(
+        runtime,
+        compiled_plan,
+        NestedSourceModuleForBody(Body),
+        &executable_bundle,
+    ) catch |err| blk: {
+        run_error = @errorCast(err);
+        break :blk null;
+    };
+
+    var cleanup_error: ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType))) = null;
+    lexical_manifest.Manifest(HandlersType).deinitBundle(&executable_bundle) catch |err| {
+        cleanup_error = @errorCast(err);
+    };
+
+    if (run_error) |err| return err;
+    if (cleanup_error) |err| return err;
+
+    inline for (std.meta.fields(OutputBundleType(HandlersType))) |field| {
+        if (@hasField(@TypeOf(result.?.outputs), field.name)) {
+            @field(outputs_ptr.*, field.name) = @field(result.?.outputs, field.name);
+        }
+    }
+    return result.?.value;
+}
+
+threadlocal var compiled_plain_with_witness = false;
+
+fn runInterpretedLexicalWith(
+    comptime HandlersType: type,
+    comptime Body: type,
+    runtime: *lowered_machine.Runtime,
+    handlers_ptr: *HandlersType,
+    outputs_ptr: *OutputBundleType(HandlersType),
+) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
+    return try runBodyChain(HandlersType, 0, struct {}, null, .{
+        .runtime = runtime,
+        .handlers_ptr = handlers_ptr,
+        .eff_value = .{},
+        .outputs_ptr = outputs_ptr,
+    }, Body);
+}
+
+fn compiledBodyReturnSyntax(comptime HandlersType: type, comptime Body: type) ?[]const u8 {
+    return anonymous_body_synthesis.canonicalReturnTypeSyntax(BodyReturnType(Body, PreviewBodyEffType(HandlersType)));
+}
+
+fn failRepoOwnedAnonymousSource(comptime Body: type) noreturn {
+    @compileError(std.fmt.comptimePrint(
+        "shift.with repo-owned anonymous body requires a unique synthetic source before compiled execution: body={s}",
+        .{@typeName(Body)},
+    ));
+}
+
+// zlinter-disable max_positional_args - caller-owned synthesis needs the exact caller source plus the same runtime state bundle as repo-owned compilation.
+fn tryCallerOwnedAnonymousCompiledWith(
+    comptime caller: std.builtin.SourceLocation,
+    comptime caller_source: []const u8,
+    comptime HandlersType: type,
+    comptime Body: type,
+    runtime: *lowered_machine.Runtime,
+    handlers_ptr: *HandlersType,
+    outputs_ptr: *OutputBundleType(HandlersType),
+) ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
+    const entry_symbol = comptime anonymous_body_synthesis.callerEntryName(caller);
+    const return_syntax = comptime compiledBodyReturnSyntax(HandlersType, Body);
+    const maybe_synthetic = comptime anonymous_body_synthesis.syntheticSourceWithEntry(
+        caller,
+        Body,
+        caller_source,
+        .explicit_location,
+        entry_symbol,
+        return_syntax,
+    );
+    const synthetic = maybe_synthetic orelse @compileError(std.fmt.comptimePrint(
+        "shift.with caller-owned syntheticSourceWithEntry failed: file={s} line={d} column={d} source_hash={d}",
+        .{
+            caller.file,
+            caller.line,
+            caller.column,
+            std.hash.Wyhash.hash(0, caller_source),
+        },
+    ));
+    const synthetic_path = comptime syntheticLoweringSourcePath(entry_symbol);
+    const source_ref = comptime lowering_api.sourceWithContent(
+        synthetic_path,
+        syntheticSourceLocation(synthetic_path, entry_symbol),
+        synthetic,
+    );
+    if (comptime anonymous_body_synthesis.maybeLowerSyntheticLexicalBody(
+        HandlersType,
+        BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+        synthetic_path,
+        synthetic,
+        entry_symbol,
+    ) == null) {
+        return null;
+    }
+    const lowered_program = comptime lowering_api.lower(
+        source_ref,
+        .{
+            .label = "shift.with caller-owned lexical body",
+            .entry_symbol = entry_symbol,
+            .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+            .row = lexical_manifest.Manifest(HandlersType).row(),
+            .outputs = lexical_manifest.Manifest(HandlersType).outputs(),
+        },
+    ).runtime_plan;
+    return try runCompiledLexicalPlan(
+        HandlersType,
+        Body,
+        runtime,
+        handlers_ptr,
+        outputs_ptr,
+        lowered_program,
+    );
+}
+
+fn tryRepoOwnedAnonymousCompiledWith(
+    comptime HandlersType: type,
+    comptime Body: type,
+    runtime: *lowered_machine.Runtime,
+    handlers_ptr: *HandlersType,
+    outputs_ptr: *OutputBundleType(HandlersType),
+) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
+    const maybe_override = comptime anonymous_body_synthesis.uniqueRepoOwnedAnonymousSourceWithReturnSyntax(
+        Body,
+        .plain_with,
+        compiledBodyReturnSyntax(HandlersType, Body),
+    );
+    const maybe_fallback = comptime anonymous_body_synthesis.uniqueRepoOwnedAnonymousSource(Body, .plain_with);
+    const synthesized = if (maybe_override) |synthesized|
+        synthesized
+    else if (maybe_fallback) |fallback|
+        fallback
+    else
+        failRepoOwnedAnonymousSource(Body);
+    const synthetic_path = comptime syntheticLoweringSourcePath(synthesized.entry_symbol);
+    const source_ref = comptime lowering_api.sourceWithContent(
+        synthetic_path,
+        syntheticSourceLocation(synthetic_path, synthesized.entry_symbol),
+        synthesized.source,
+    );
+    if (comptime anonymous_body_synthesis.maybeLowerSyntheticLexicalBody(
+        HandlersType,
+        BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+        synthetic_path,
+        synthesized.source,
+        synthesized.entry_symbol,
+    ) == null) {
+        @compileError(std.fmt.comptimePrint(
+            "shift.with repo-owned anonymous body must lower to ProgramPlan: source={s} entry={s}",
+            .{ synthesized.source_path, synthesized.entry_symbol },
+        ));
+    }
+    const lowered_program = comptime lowering_api.lower(
+        source_ref,
+        .{
+            .label = "shift.with repo-owned lexical body",
+            .entry_symbol = synthesized.entry_symbol,
+            .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+            .row = lexical_manifest.Manifest(HandlersType).row(),
+            .outputs = lexical_manifest.Manifest(HandlersType).outputs(),
+        },
+    ).runtime_plan;
+    return try runCompiledLexicalPlan(
+        HandlersType,
+        Body,
+        runtime,
+        handlers_ptr,
+        outputs_ptr,
+        lowered_program,
+    );
+}
+
+fn tryRepoOwnedNamedCompiledWith(
+    comptime HandlersType: type,
+    comptime Body: type,
+    runtime: *lowered_machine.Runtime,
+    handlers_ptr: *HandlersType,
+    outputs_ptr: *OutputBundleType(HandlersType),
+) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
+    const source_path = comptime bodyDeclSourcePath(Body) orelse
+        @compileError("shift.with named-body lowering requires Body.source_path");
+    const body_symbol = comptime bodyDeclBodySymbol(Body) orelse
+        @compileError("shift.with named-body lowering requires Body.body_symbol");
+    const entry_symbol = comptime std.fmt.comptimePrint("__shift_with_named_{s}", .{body_symbol});
+    const caller_source = comptime @import("source_graph_embed").embeddedSource(source_path);
+    const synthetic_source = comptime namedBodySyntheticSource(
+        body_symbol,
+        caller_source,
+        entry_symbol,
+        compiledBodyReturnSyntax(HandlersType, Body),
+    );
+    const synthetic_path = comptime syntheticLoweringSourcePath(entry_symbol);
+    const source_ref = comptime lowering_api.sourceWithContent(
+        synthetic_path,
+        syntheticSourceLocation(synthetic_path, entry_symbol),
+        synthetic_source,
+    );
+    if (comptime anonymous_body_synthesis.maybeLowerSyntheticLexicalBody(
+        HandlersType,
+        BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+        synthetic_path,
+        synthetic_source,
+        entry_symbol,
+    ) == null) {
+        @compileError(std.fmt.comptimePrint(
+            "shift.with repo-owned named body must lower to ProgramPlan: source={s} entry={s}",
+            .{ source_path, entry_symbol },
+        ));
+    }
+    const lowered_program = comptime lowering_api.lower(
+        source_ref,
+        .{
+            .label = "shift.with repo-owned named body",
+            .entry_symbol = entry_symbol,
+            .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+            .row = lexical_manifest.Manifest(HandlersType).row(),
+            .outputs = lexical_manifest.Manifest(HandlersType).outputs(),
+        },
+    ).runtime_plan;
+    return try runCompiledLexicalPlan(
+        HandlersType,
+        Body,
+        runtime,
+        handlers_ptr,
+        outputs_ptr,
+        lowered_program,
+    );
+}
+
+fn supportsNamedBodyLowering(comptime Body: type) bool {
+    return comptime bodyDeclSourcePath(Body) != null and bodyDeclBodySymbol(Body) != null;
+}
+
 /// Build the public With metadata type.
 pub fn With(comptime HandlersType: type, comptime Body: type) type {
     const ReturnType = WithFnReturnType(HandlersType, Body);
@@ -920,12 +1184,13 @@ fn withImpl(
 
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
-    const value = try runChainCollected(HandlersType, Body, 0, struct {}, null, .{
-        .runtime = runtime,
-        .handlers_ptr = &handler_state,
-        .eff_value = .{},
-        .outputs_ptr = &outputs,
-    });
+    const compiled = if (comptime supportsNamedBodyLowering(Body))
+        tryRepoOwnedNamedCompiledWith(HandlersType, Body, runtime, &handler_state, &outputs)
+    else if (comptime anonymous_body_synthesis.hasRepoOwnedCandidate(Body))
+        tryRepoOwnedAnonymousCompiledWith(HandlersType, Body, runtime, &handler_state, &outputs)
+    else
+        runInterpretedLexicalWith(HandlersType, Body, runtime, &handler_state, &outputs);
+    const value = try compiled;
     return .{
         .outputs = outputs,
         .value = value,
@@ -939,6 +1204,28 @@ pub fn with(
     comptime Body: type,
 ) WithFnReturnType(@TypeOf(handlers), Body) {
     return withImpl(runtime, handlers, Body);
+}
+
+/// Run one lexical effect bundle using explicit caller provenance and source bytes.
+pub fn withCallerSource(
+    comptime caller: std.builtin.SourceLocation,
+    comptime caller_source: []const u8,
+    runtime: *lowered_machine.Runtime,
+    handlers: anytype,
+    comptime Body: type,
+) WithFnReturnType(@TypeOf(handlers), Body) {
+    const HandlersType = @TypeOf(handlers);
+    comptime assertHandlerBundleShape(HandlersType);
+
+    var handler_state = handlers;
+    var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
+    const compiled = tryCallerOwnedAnonymousCompiledWith(caller, caller_source, HandlersType, Body, runtime, &handler_state, &outputs) orelse
+        @compileError("shift.with caller-owned anonymous body did not lower to ProgramPlan");
+    const value = try compiled;
+    return .{
+        .outputs = outputs,
+        .value = value,
+    };
 }
 
 test "closed output bundle keeps only handlers with Output" {
@@ -1054,4 +1341,66 @@ test "collectClosedOutputs preserves const handler pointers for const-safe finis
 
     const outputs = collectClosedOutputs(&handlers);
     try std.testing.expectEqual(@as(i32, 9), outputs.reader);
+}
+
+test "plain repo-owned shift.with uses the compiled lexical fast path when the body is unique" {
+    const state = @import("effect/state.zig");
+
+    compiled_plain_with_witness = false;
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+
+    const result = try with(&runtime, .{
+        .state = state.use(@as(i32, 5)),
+    }, struct {
+        /// Drive one unique repo-owned plain lexical body through the compiled fast path witness.
+        pub fn body(eff: anytype) anyerror!i32 {
+            const before = try eff.state.get();
+            try eff.state.set(before + 1);
+            return try eff.state.get();
+        }
+    });
+
+    try std.testing.expect(compiled_plain_with_witness);
+    try std.testing.expectEqual(@as(i32, 6), result.value);
+    try std.testing.expectEqual(@as(i32, 6), result.outputs.state);
+}
+
+test "with_api module can lower the actual lexical_with_test synthetic packet through the shared helper" {
+    const shift = @import("shift");
+    const source = source_graph_embed.embeddedSource("test/lexical_with_test.zig");
+    const test_block = comptime anonymous_body_synthesis.testBlockBounds(source, "shift.with accepts body run(self, eff)").?;
+    const bounds = comptime anonymous_body_synthesis.uniqueBodyExpressionBoundsInRange(
+        source,
+        test_block.start,
+        test_block.end,
+        .plain_with,
+    ).?;
+    const body_type = struct {
+        /// Keep the actual lexical_with_test witness body shape available to this module test.
+        pub fn run(self: @This(), eff: anytype) anyerror!i32 {
+            _ = self;
+            return try eff.state.get();
+        }
+    };
+    const entry_symbol = "__shift_with_entry_36363";
+    const synthetic_path = "/tmp/shift_with/__shift_with_entry_36363.zig";
+    const synthetic = comptime anonymous_body_synthesis.syntheticSourceForExpr(
+        body_type,
+        source[bounds.start..bounds.end],
+        source,
+        entry_symbol,
+        null,
+    ).?;
+    const Handlers = @TypeOf(.{
+        .state = shift.effect.state.use(@as(i32, 11)),
+    });
+
+    try std.testing.expect(anonymous_body_synthesis.maybeLowerSyntheticLexicalBody(
+        Handlers,
+        i32,
+        synthetic_path,
+        synthetic,
+        entry_symbol,
+    ) != null);
 }

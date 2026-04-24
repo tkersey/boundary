@@ -1,5 +1,7 @@
 const effect_ir = @import("effect_ir");
 const internal_program_plan = @import("internal_program_plan");
+const lowered_machine = @import("lowered_machine");
+const lowering_api = @import("lowering_api");
 const std = @import("std");
 
 test "planFromProgram emits return_unit for row-only leaf programs" {
@@ -231,6 +233,193 @@ test "ProgramPlan.validate rejects helper call arguments whose codecs disagree w
     };
 
     try std.testing.expectError(error.InvalidInstructionLocalIndex, plan.validate());
+}
+
+test "ProgramPlan.validate rejects call_nested_with aux values outside ValueCodec tags" {
+    const high_bits_plan = internal_program_plan.ProgramPlan{
+        .label = "invalid.call_nested_with_high_bits_codec",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 1,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{
+            .kind = .call_nested_with,
+            .aux = 256,
+            .string_literal = "nested\x1fruntime\x1fptr\x1ffactory\x1fcontainer\x1fhandler\x1f\x1f\x1f",
+        }},
+    };
+    try std.testing.expectError(error.InvalidInstructionCodec, high_bits_plan.validate());
+
+    const invalid_tag_plan = internal_program_plan.ProgramPlan{
+        .label = "invalid.call_nested_with_bad_codec_tag",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 1,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{
+            .kind = .call_nested_with,
+            .aux = std.math.maxInt(u16),
+            .string_literal = "nested\x1fruntime\x1fptr\x1ffactory\x1fcontainer\x1fhandler\x1f\x1f\x1f",
+        }},
+    };
+    try std.testing.expectError(error.InvalidInstructionCodec, invalid_tag_plan.validate());
+}
+
+test "ProgramPlan.validate rejects call_nested_with metadata without named carrier fields" {
+    const stale_metadata_plan = internal_program_plan.ProgramPlan{
+        .label = "invalid.call_nested_with_empty_carrier_metadata",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 1,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{
+            .kind = .call_nested_with,
+            .aux = @intFromEnum(internal_program_plan.ValueCodec.unit),
+            .string_literal = "nested\x1fruntime\x1fptr\x1ffactory\x1fcontainer\x1fhandler\x1f\x1f\x1f",
+        }},
+    };
+    try std.testing.expectError(error.InvalidNestedWithMetadata, stale_metadata_plan.validate());
+
+    const named_metadata_plan = internal_program_plan.ProgramPlan{
+        .label = "valid.call_nested_with_named_carrier_metadata",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = stale_metadata_plan.functions,
+        .requirements = stale_metadata_plan.requirements,
+        .ops = stale_metadata_plan.ops,
+        .outputs = stale_metadata_plan.outputs,
+        .locals = stale_metadata_plan.locals,
+        .call_args = stale_metadata_plan.call_args,
+        .blocks = stale_metadata_plan.blocks,
+        .terminators = stale_metadata_plan.terminators,
+        .instructions = &.{.{
+            .kind = .call_nested_with,
+            .aux = @intFromEnum(internal_program_plan.ValueCodec.unit),
+            .string_literal = "nested\x1fruntime\x1fptr\x1ffactory\x1fcontainer\x1fhandler\x1fcarrier\x1fsrc.zig\x1fbody",
+        }},
+    };
+    try named_metadata_plan.validate();
+}
+
+test "runExecutablePlanWithArgs rejects call_nested_with aux values outside ValueCodec tags" {
+    const plan = internal_program_plan.ProgramPlan{
+        .label = "invalid.call_nested_with_interpreter_high_bits_codec",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        }},
+        .requirements = &.{.{ .label = "req", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "noop",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .unit,
+        }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 1,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{.{
+            .kind = .call_nested_with,
+            .aux = 256,
+            .string_literal = "nested\x1fruntime\x1fptr\x1ffactory\x1fcontainer\x1fhandler\x1f\x1f\x1f",
+        }},
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    var handlers = struct {
+        req: struct {
+            /// Compile-only no-op handler for unreachable call_op branches.
+            pub fn noop(_: *@This()) void {
+                // The malformed nested-with instruction returns before this handler can run.
+            }
+        } = .{},
+    }{};
+    try std.testing.expectError(error.ProgramContractViolation, lowering_api.runExecutablePlanWithArgs(&runtime, plan, &handlers, &.{}));
 }
 
 test "ProgramPlan.validate rejects payload-bearing call_op instructions without a payload local" {
@@ -859,6 +1048,80 @@ test "ProgramPlan.validate accepts helper value destinations typed by helper res
     };
 
     try plan.validate();
+}
+
+test "compiled ProgramPlan dispatch preserves outer handler structs with handler data fields" {
+    const compiled_plan = internal_program_plan.ProgramPlan{
+        .label = "regression.outer_handler_field_name_collision",
+        .ir_hash = 3,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{.{
+            .label = "tooling",
+            .first_op = 0,
+            .op_count = 1,
+        }},
+        .ops = &.{.{
+            .requirement_index = 0,
+            .op_name = "dispatch",
+            .mode = .transform,
+            .payload_codec = .unit,
+            .resume_codec = .i32,
+        }},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 2,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{
+                .kind = .call_op,
+                .dst = 0,
+                .operand = 0,
+                .aux = std.math.maxInt(u16),
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+        },
+    };
+
+    try compiled_plan.validate();
+
+    const OuterHandler = struct {
+        handler: i32,
+
+        /// Dispatches through the outer handler even though it owns a field named handler.
+        pub fn dispatch(self: *@This()) i32 {
+            return self.handler + 1;
+        }
+    };
+
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    const Handlers = struct { tooling: OuterHandler };
+    var handlers = Handlers{ .tooling = .{ .handler = 41 } };
+
+    const result = try lowering_api.runExecutablePlan(&runtime, compiled_plan, &handlers);
+
+    try std.testing.expectEqual(@as(i32, 42), result.value);
 }
 
 test "ProgramPlan.validate ignores unreachable helper terminal-only paths when checking helper codec escape" {

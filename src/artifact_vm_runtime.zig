@@ -392,6 +392,7 @@ fn executeFunction(
                         .failed => |failure| return .{ .failed = failure },
                     }
                 },
+                .call_nested_with => return error.ProgramContractViolation,
                 .call_op => {
                     const plan_op = ctx.plan.ops[instruction.operand];
                     const payload = if (plan_op.payload_codec == .unit) .none else locals[instruction.aux];
@@ -449,6 +450,7 @@ fn executeFunction(
                     },
                 ),
                 .const_string => setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, .{ .value = .{ .string = instruction.string_literal } }),
+                .return_error => return error.ProgramContractViolation,
                 .return_value => return_local = instruction.operand,
                 .sub_one => setLocal(
                     ctx.allocator,

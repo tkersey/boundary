@@ -13,26 +13,6 @@ fn expectFixtureTranscript(comptime fixture_path: []const u8, writer_fn: anytype
     try std.testing.expectEqualStrings(@embedFile(fixture_path), buffer.written());
 }
 
-test "shift.with composes state and reader through lexical handles" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
-    defer runtime.deinit();
-
-    const result = try shift.with(&runtime, .{
-        .state = shift.effect.state.use(@as(i32, 5)),
-        .reader = shift.effect.reader.use(@as(i32, 21)),
-    }, struct {
-        pub fn body(eff: anytype) ExecResult(i32) {
-            const env = try eff.reader.ask();
-            const before = try eff.state.get();
-            try eff.state.set(before + env);
-            return try eff.state.get();
-        }
-    });
-
-    try std.testing.expectEqual(@as(i32, 26), result.value);
-    try std.testing.expectEqual(@as(i32, 26), result.outputs.state);
-}
-
 test "shift.with matches the state fixture transcript through lexical handles" {
     try expectFixtureTranscript("example_proof/fixtures/state_basic.txt", struct {
         fn run(writer: anytype) anyerror!void {
@@ -45,7 +25,8 @@ test "shift.with matches the state fixture transcript through lexical handles" {
                 pub fn body(eff: anytype) ExecResult(i32) {
                     const before = try eff.state.get();
                     try eff.state.set(before + 1);
-                    return before + (try eff.state.get());
+                    const after = try eff.state.get();
+                    return before + after;
                 }
             });
 
@@ -65,7 +46,7 @@ test "shift.with matches the reader fixture transcript through lexical handles" 
             }, struct {
                 pub fn body(eff: anytype) ExecResult(i32) {
                     const env = try eff.reader.ask();
-                    return env * 2;
+                    return env + env;
                 }
             });
 

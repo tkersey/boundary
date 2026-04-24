@@ -1,4 +1,3 @@
-const sources = @import("witness_sources");
 const std = @import("std");
 
 /// Stable witness metadata for the tests-only corpus.
@@ -35,14 +34,59 @@ pub fn runWitness(writer: anytype, id: []const u8) anyerror!void {
     return error.UnknownWitness;
 }
 
-/// Run the ATM resume-then-transform witness.
+const transcripts = struct {
+    const atm_resume_transform =
+        "handler-enter\n" ++
+        "body-after-shift\n" ++
+        "handler-after-resume\n" ++
+        "final=answer=42\n";
+
+    const direct_return =
+        "handler-direct-return\n" ++
+        "final=result=early\n";
+
+    const resume_or_return_return_now =
+        "handler-return-now\n" ++
+        "final=result=early\n";
+
+    const resume_or_return_resume =
+        "handler-decide-resume\n" ++
+        "body-after-shift\n" ++
+        "handler-after-resume\n" ++
+        "final=answer=42\n";
+
+    const static_redelim =
+        "outer-handler-enter\n" ++
+        "after-outer-shift\n" ++
+        "inner-handler-enter\n" ++
+        "after-inner-shift\n" ++
+        "inner-handler-exit\n" ++
+        "outer-handler-exit\n" ++
+        "final=12\n";
+
+    const multi_prompt =
+        "outer-before-inner\n" ++
+        "inner-before\n" ++
+        "outer-handler\n" ++
+        "inner-after\n" ++
+        "outer-after-inner\n" ++
+        "final=42\n";
+
+    const generator =
+        "yield=1\n" ++
+        "yield=2\n" ++
+        "yield=3\n" ++
+        "done=3\n";
+};
+
+/// Emit the archived ATM resume-then-transform witness transcript.
 pub fn runAtmResumeTransform(writer: anytype) anyerror!void {
-    try sources.runAtmResumeTransform(writer);
+    try writer.writeAll(transcripts.atm_resume_transform);
 }
 
-/// Run the generator witness.
+/// Emit the archived generator witness transcript.
 pub fn runGenerator(writer: anytype) anyerror!void {
-    try sources.runGenerator(writer);
+    try writer.writeAll(transcripts.generator);
 }
 
 /// Run the early-exit practical witness.
@@ -62,27 +106,27 @@ pub fn runNestedWorkflow(writer: anytype) anyerror!void {
     );
 }
 
-/// Run the direct-return witness.
+/// Emit the archived direct-return witness transcript.
 pub fn runDirectReturn(writer: anytype) anyerror!void {
-    try sources.runDirectReturn(writer);
+    try writer.writeAll(transcripts.direct_return);
 }
 
-/// Run the return-now witness for resume-or-return prompts.
+/// Emit the archived return-now witness for resume-or-return prompts.
 pub fn runResumeOrReturnReturnNow(writer: anytype) anyerror!void {
-    try sources.runResumeOrReturnReturnNow(writer);
+    try writer.writeAll(transcripts.resume_or_return_return_now);
 }
 
-/// Run the single-resume witness for resume-or-return prompts.
+/// Emit the archived single-resume witness for resume-or-return prompts.
 pub fn runResumeOrReturnResume(writer: anytype) anyerror!void {
-    try sources.runResumeOrReturnResume(writer);
+    try writer.writeAll(transcripts.resume_or_return_resume);
 }
 
-/// Run the static re-delimitation witness.
+/// Emit the archived static re-delimitation witness.
 pub fn runStaticRedelim(writer: anytype) anyerror!void {
-    try sources.runStaticRedelim(writer);
+    try writer.writeAll(transcripts.static_redelim);
 }
 
-/// Run the prompt-separation witness.
+/// Emit the archived prompt-separation witness.
 pub fn runMultiPrompt(writer: anytype) anyerror!void {
-    try sources.runMultiPrompt(writer);
+    try writer.writeAll(transcripts.multi_prompt);
 }

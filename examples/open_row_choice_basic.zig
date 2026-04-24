@@ -63,14 +63,8 @@ fn choiceResumeBody(eff: anytype) anyerror![]const u8 {
     });
 }
 
-/// Render the choice example transcript.
-pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
-    defer runtime.deinit();
-
-    try writer.writeAll("branch=return_now\n");
-    transcript.len = 0;
-    const early = try shift.with(&runtime, .{
+fn runReturnNow(runtime: *shift.Runtime) ![]const u8 {
+    const early = try shift.with(runtime, .{
         .picker = Picker.use(.{ .handler = PickerHandler{ .branch = .return_now } }),
     }, struct {
         /// Run the return-now choice example body.
@@ -78,14 +72,11 @@ pub fn run(writer: anytype) anyerror!void {
             return choiceReturnNowBody(eff);
         }
     });
-    for (transcript.items[0..transcript.len]) |item| {
-        try writer.print("{s}\n", .{item});
-    }
-    try writer.print("final={s}\n", .{early.value});
+    return early.value;
+}
 
-    try writer.writeAll("branch=resume_with\n");
-    transcript.len = 0;
-    const resumed = try shift.with(&runtime, .{
+fn runResume(runtime: *shift.Runtime) ![]const u8 {
+    const resumed = try shift.with(runtime, .{
         .picker = Picker.use(.{ .handler = PickerHandler{ .branch = .resume_with } }),
     }, struct {
         /// Run the resumed choice example body.
@@ -93,10 +84,29 @@ pub fn run(writer: anytype) anyerror!void {
             return choiceResumeBody(eff);
         }
     });
+    return resumed.value;
+}
+
+/// Render the choice example transcript.
+pub fn run(writer: anytype) anyerror!void {
+    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    defer runtime.deinit();
+
+    try writer.writeAll("branch=return_now\n");
+    transcript.len = 0;
+    const early = try runReturnNow(&runtime);
     for (transcript.items[0..transcript.len]) |item| {
         try writer.print("{s}\n", .{item});
     }
-    try writer.print("final={s}\n", .{resumed.value});
+    try writer.print("final={s}\n", .{early});
+
+    try writer.writeAll("branch=resume_with\n");
+    transcript.len = 0;
+    const resumed = try runResume(&runtime);
+    for (transcript.items[0..transcript.len]) |item| {
+        try writer.print("{s}\n", .{item});
+    }
+    try writer.print("final={s}\n", .{resumed});
 }
 
 /// Run the choice example on stdout.

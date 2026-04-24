@@ -13,6 +13,10 @@ const Sample = struct {
     elapsed_ns: u64,
 };
 
+fn elapsedNsSince(io: std.Io, start: std.Io.Timestamp) u64 {
+    return @intCast(start.durationTo(std.Io.Timestamp.now(io, .boot)).toNanoseconds());
+}
+
 fn preserveValue(value: anytype) @TypeOf(value) {
     const preserved = value;
     std.mem.doNotOptimizeAway(preserved);
@@ -105,13 +109,13 @@ fn sortAscending(values: []u64) void {
     }
 }
 
-fn runRawSample(runtime: *shift.Runtime, prompt: *RawPrompt, iterations: usize) !Sample {
+fn runRawSample(io: std.Io, runtime: *shift.Runtime, prompt: *RawPrompt, iterations: usize) !Sample {
     _ = prompt;
-    return try runEffectSample(runtime, &StateInstance.init(), iterations);
+    return try runEffectSample(io, runtime, &StateInstance.init(), iterations);
 }
 
-fn runRawResetOnlySample(runtime: *shift.Runtime, prompt: *RawPrompt, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runRawResetOnlySample(io: std.Io, runtime: *shift.Runtime, prompt: *RawPrompt, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
 
     var index: usize = 0;
@@ -122,12 +126,12 @@ fn runRawResetOnlySample(runtime: *shift.Runtime, prompt: *RawPrompt, iterations
 
     return .{
         .checksum = checksum,
-        .elapsed_ns = timer.read(),
+        .elapsed_ns = elapsedNsSince(io, start),
     };
 }
 
-fn runEffectSample(runtime: *shift.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runEffectSample(io: std.Io, runtime: *shift.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
 
     var index: usize = 0;
@@ -138,12 +142,12 @@ fn runEffectSample(runtime: *shift.Runtime, instance: *const StateInstance, iter
 
     return .{
         .checksum = checksum,
-        .elapsed_ns = timer.read(),
+        .elapsed_ns = elapsedNsSince(io, start),
     };
 }
 
-fn runEffectPassthroughSample(runtime: *shift.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
-    var timer = try std.time.Timer.start();
+fn runEffectPassthroughSample(io: std.Io, runtime: *shift.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
 
     var index: usize = 0;
@@ -154,7 +158,7 @@ fn runEffectPassthroughSample(runtime: *shift.Runtime, instance: *const StateIns
 
     return .{
         .checksum = checksum,
-        .elapsed_ns = timer.read(),
+        .elapsed_ns = elapsedNsSince(io, start),
     };
 }
 
@@ -179,10 +183,10 @@ pub fn main(init: std.process.Init) anyerror!void {
     defer effect_runtime.deinit();
     var effect_instance = StateInstance.init();
 
-    _ = try runRawSample(&raw_runtime, &raw_prompt, warmup_iterations);
-    _ = try runRawResetOnlySample(&raw_runtime, &raw_prompt, warmup_iterations);
-    _ = try runEffectSample(&effect_runtime, &effect_instance, warmup_iterations);
-    _ = try runEffectPassthroughSample(&effect_runtime, &effect_instance, warmup_iterations);
+    _ = try runRawSample(init.io, &raw_runtime, &raw_prompt, warmup_iterations);
+    _ = try runRawResetOnlySample(init.io, &raw_runtime, &raw_prompt, warmup_iterations);
+    _ = try runEffectSample(init.io, &effect_runtime, &effect_instance, warmup_iterations);
+    _ = try runEffectPassthroughSample(init.io, &effect_runtime, &effect_instance, warmup_iterations);
 
     var raw_samples = [_]u64{0} ** samples_per_run;
     var raw_reset_only_samples = [_]u64{0} ** samples_per_run;
@@ -195,10 +199,10 @@ pub fn main(init: std.process.Init) anyerror!void {
 
     var index: usize = 0;
     while (index < samples_per_run) : (index += 1) {
-        const raw_sample = try runRawSample(&raw_runtime, &raw_prompt, timed_iterations);
-        const raw_reset_only_sample = try runRawResetOnlySample(&raw_runtime, &raw_prompt, timed_iterations);
-        const effect_sample = try runEffectSample(&effect_runtime, &effect_instance, timed_iterations);
-        const effect_passthrough_sample = try runEffectPassthroughSample(&effect_runtime, &effect_instance, timed_iterations);
+        const raw_sample = try runRawSample(init.io, &raw_runtime, &raw_prompt, timed_iterations);
+        const raw_reset_only_sample = try runRawResetOnlySample(init.io, &raw_runtime, &raw_prompt, timed_iterations);
+        const effect_sample = try runEffectSample(init.io, &effect_runtime, &effect_instance, timed_iterations);
+        const effect_passthrough_sample = try runEffectPassthroughSample(init.io, &effect_runtime, &effect_instance, timed_iterations);
 
         if (raw_checksum) |checksum| {
             if (checksum != raw_sample.checksum) return error.RawChecksumMismatch;

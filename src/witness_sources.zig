@@ -54,24 +54,35 @@ fn witnessAtmBody(eff: anytype) anyerror![]const u8 {
     return "answer=42";
 }
 
-fn witnessStaticRedelimInnerBody(inner_eff: anytype) anyerror!i32 {
+fn witnessStaticRedelimInnerHelper(inner_eff: anytype) anyerror!i32 {
     const inner_value = try inner_eff.inner.step.perform();
     transcript_static_redelim.note("after-inner-shift");
     transcript_static_redelim.note("inner-handler-exit");
     return inner_value + 9 + transcript_static_redelim.outer_value;
 }
 
+fn witnessStaticRedelimInnerBody(inner_eff: anytype) anyerror!i32 {
+    return witnessStaticRedelimInnerHelper(inner_eff);
+}
+
+const static_redelim_inner_body = struct {
+    /// Source path for the named nested carrier used by compiled witness lowering.
+    pub const source_path = "src/witness_sources.zig";
+    /// Entry symbol for the named nested carrier used by compiled witness lowering.
+    pub const body_symbol = "witnessStaticRedelimInnerBody";
+
+    /// Execute the static redelim inner witness body through the named carrier.
+    pub fn body(inner_eff: anytype) anyerror!i32 {
+        return witnessStaticRedelimInnerBody(inner_eff);
+    }
+};
+
 fn witnessStaticRedelimOuterBody(outer_eff: anytype) anyerror!i32 {
     transcript_static_redelim.outer_value = try outer_eff.outer.step.perform();
     transcript_static_redelim.note("after-outer-shift");
     const nested = try lexical_runtime.with(transcript_static_redelim.runtime_ptr.?, .{
         .inner = ResumeWitness.use(.{ .handler = transcript_static_redelim.InnerHandler{} }),
-    }, struct {
-        /// Execute the nested inner witness through the legacy runtime path.
-        pub fn body(inner_eff: anytype) anyerror!i32 {
-            return witnessStaticRedelimInnerBody(inner_eff);
-        }
-    });
+    }, static_redelim_inner_body);
     transcript_static_redelim.note("outer-handler-exit");
     return nested.value;
 }
@@ -86,10 +97,12 @@ fn witnessMultiPromptBody(eff: anytype) anyerror!i32 {
     return 42;
 }
 
-const transcript_static_redelim = struct {
+/// Runtime-visible transcript state for the static re-delimitation witness.
+pub const transcript_static_redelim = struct {
     threadlocal var items = [_][]const u8{ "", "", "", "", "", "" };
     threadlocal var len: usize = 0;
-    threadlocal var runtime_ptr: ?*lexical_runtime.Runtime = null;
+    /// Runtime selected by the source-level nested lexical `with` call.
+    pub threadlocal var runtime_ptr: ?*lexical_runtime.Runtime = null;
     threadlocal var outer_value: i32 = 0;
 
     fn note(message: []const u8) void {

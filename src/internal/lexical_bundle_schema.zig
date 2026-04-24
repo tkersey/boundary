@@ -1,38 +1,46 @@
 // zlinter-disable no_undefined - fixed-size comptime assembly buffers are fully overwritten before observation in this internal schema helper.
+// zlinter-disable require_doc_comment - this internal comptime schema helper uses public constants as type-level assembly surfaces.
 const effect_ir = @import("effect_ir");
 const effect_schema = @import("../effect_schema.zig");
 const std = @import("std");
 
-fn cloneRequirement(comptime requirement: effect_ir.Requirement) effect_ir.Requirement {
-    const ops = comptime blk: {
-        var buffer: [requirement.ops.len]effect_ir.OpSpec = undefined;
-        for (requirement.ops, 0..) |op, index| {
-            buffer[index] = op;
-        }
-        break :blk buffer;
-    };
-    return .{
-        .label = requirement.label,
-        .ops = &ops,
+fn RequirementStorage(comptime requirement: effect_ir.Requirement) type {
+    return struct {
+        pub const ops = blk: {
+            var buffer: [requirement.ops.len]effect_ir.OpSpec = undefined;
+            for (requirement.ops, 0..) |op, index| {
+                buffer[index] = op;
+            }
+            break :blk buffer;
+        };
+
+        pub const value: effect_ir.Requirement = .{
+            .label = requirement.label,
+            .ops = &ops,
+        };
     };
 }
 
-fn mergeRows(comptime rows: anytype) effect_ir.Row {
+fn MergedRowStorage(comptime rows: anytype) type {
     const total = comptime blk: {
         var count: usize = 0;
         for (rows) |row| count += row.requirements.len;
         break :blk count;
     };
-    return comptime blk: {
-        var buffer: [total]effect_ir.Requirement = undefined;
-        var index: usize = 0;
-        for (rows) |row| {
-            for (row.requirements) |requirement| {
-                buffer[index] = cloneRequirement(requirement);
-                index += 1;
+    return struct {
+        pub const requirements = blk: {
+            var buffer: [total]effect_ir.Requirement = undefined;
+            var index: usize = 0;
+            for (rows) |current_row| {
+                for (current_row.requirements) |requirement| {
+                    buffer[index] = RequirementStorage(requirement).value;
+                    index += 1;
+                }
             }
-        }
-        break :blk .{ .requirements = &buffer };
+            break :blk buffer;
+        };
+
+        pub const row: effect_ir.Row = .{ .requirements = &requirements };
     };
 }
 
@@ -50,38 +58,44 @@ pub fn BindingSchemas(comptime HandlersType: type) type {
 /// Lower one lexical handler bundle into the shared effect_ir row.
 pub fn rowForHandlers(comptime HandlersType: type) effect_ir.Row {
     const fields = @typeInfo(HandlersType).@"struct".fields;
-    return comptime blk: {
+    const rows = comptime blk: {
         var rows: [fields.len]effect_ir.Row = undefined;
         for (fields, 0..) |field, index| {
             const DescriptorType = field.type;
             rows[index] = effect_schema.row(DescriptorType.BindingSchema(field.name));
         }
-        break :blk mergeRows(rows);
+        break :blk rows;
     };
+    return MergedRowStorage(rows).row;
 }
 
 /// Lower one lexical handler bundle into explicit effect_ir outputs.
 pub fn outputsForHandlers(comptime HandlersType: type) []const effect_ir.OutputSpec {
     const fields = @typeInfo(HandlersType).@"struct".fields;
-    return comptime blk: {
+    const count = comptime blk: {
         var count: usize = 0;
         for (fields) |field| {
             const DescriptorType = field.type;
             count += effect_schema.outputs(DescriptorType.BindingSchema(field.name)).len;
         }
-
-        var buffer: [count]effect_ir.OutputSpec = undefined;
-        var index: usize = 0;
-        for (fields) |field| {
-            const DescriptorType = field.type;
-            const outputs = effect_schema.outputs(DescriptorType.BindingSchema(field.name));
-            for (outputs) |output| {
-                buffer[index] = output;
-                index += 1;
-            }
-        }
-        break :blk &buffer;
+        break :blk count;
     };
+    const output_storage = struct {
+        pub const values = blk: {
+            var buffer: [count]effect_ir.OutputSpec = undefined;
+            var index: usize = 0;
+            for (fields) |field| {
+                const DescriptorType = field.type;
+                const outputs = effect_schema.outputs(DescriptorType.BindingSchema(field.name));
+                for (outputs) |output| {
+                    buffer[index] = output;
+                    index += 1;
+                }
+            }
+            break :blk buffer;
+        };
+    };
+    return &output_storage.values;
 }
 
 test "lexical bundle schema lowers built-in handlers to one merged row and outputs" {

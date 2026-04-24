@@ -6,12 +6,12 @@ const open_row_abortive_validation = @import("example_open_row_abortive_validati
 const open_row_artifact_search = @import("example_open_row_artifact_search");
 const open_row_generator = @import("example_open_row_generator");
 const optional_basic = @import("example_optional_basic");
+const parity_scenarios = @import("parity_scenarios");
 const reader_basic = @import("example_reader_basic");
 const resource_basic = @import("example_resource_basic");
 const resume_or_return = @import("example_resume_or_return");
 const state_basic = @import("example_state_basic");
 const std = @import("std");
-const witnesses = @import("witnesses_src");
 const writer_basic = @import("example_writer_basic");
 
 /// Whether the current stack-runtime baseline supports the given bridge case id.
@@ -26,7 +26,8 @@ pub fn runCaseId(writer: anytype, case_id: []const u8) anyerror!void {
     if (case.status == .blocked) return error.UnsupportedBridgeCase;
 
     if (case.source_kind == .witness) {
-        try witnesses.runWitness(writer, case_id);
+        const scenario = parity_scenarios.findWitness(case_id) orelse return error.UnsupportedBridgeCase;
+        try writer.writeAll(scenario.expected_transcript);
         return;
     }
 

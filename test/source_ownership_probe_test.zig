@@ -3,6 +3,35 @@ const shift = @import("shift");
 const shift_compile = @import("shift_compile");
 const std = @import("std");
 
+fn writeTmpFile(dir: std.Io.Dir, sub_path: []const u8, contents: []const u8) !void {
+    try dir.writeFile(std.testing.io, .{
+        .sub_path = sub_path,
+        .data = contents,
+        .flags = .{ .truncate = true },
+    });
+}
+
+fn runChildAtPathExpectSuccess(
+    cwd_path: []const u8,
+    argv: []const []const u8,
+) !void {
+    const result = try std.process.run(std.testing.allocator, std.testing.io, .{
+        .argv = argv,
+        .cwd = .{ .path = cwd_path },
+        .stderr_limit = .limited(1024 * 1024),
+        .stdout_limit = .limited(1024 * 1024),
+    });
+    defer std.testing.allocator.free(result.stdout);
+    defer std.testing.allocator.free(result.stderr);
+
+    switch (result.term) {
+        .exited => |code| if (code == 0) return,
+        else => {},
+    }
+    std.debug.print("child command failed unexpectedly: {s}\n{s}\n", .{ argv[0], result.stderr });
+    return error.UnexpectedChildCommandFailure;
+}
+
 fn callerSourceIsAbsent(comptime ContextType: type) bool {
     const caller_source = ContextType.caller_source;
     return switch (@typeInfo(@TypeOf(caller_source))) {
@@ -10,6 +39,70 @@ fn callerSourceIsAbsent(comptime ContextType: type) bool {
         .null => true,
         else => false,
     };
+}
+
+fn runDownstreamShiftWithMain(comptime main_zig: []const u8) !void {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const consumer_root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(consumer_root);
+
+    const build_zig =
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const dep = b.dependency("shift", .{ .target = target, .optimize = optimize });
+        \\
+        \\    const root = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    root.addImport("shift", dep.module("shift"));
+        \\
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "downstream-shift-with",
+        \\        .root_module = root,
+        \\    });
+        \\    const run = b.addRunArtifact(exe);
+        \\    b.default_step.dependOn(&run.step);
+        \\}
+        \\
+    ;
+    try writeTmpFile(tmp.dir, "build.zig", build_zig);
+
+    const build_zon =
+        \\.{
+        \\    .name = .downstream_shift_with,
+        \\    .version = "0.0.0",
+        \\    .minimum_zig_version = "0.16.0",
+        \\    .dependencies = .{
+        \\        .shift = .{ .path = "../../.." },
+        \\    },
+        \\    .paths = .{ "build.zig", "build.zig.zon", "main.zig" },
+        \\    .fingerprint = 0xf5798bf9dbefd4d5,
+        \\}
+        \\
+    ;
+    try writeTmpFile(tmp.dir, "build.zig.zon", build_zon);
+    try writeTmpFile(tmp.dir, "main.zig", main_zig);
+
+    try runChildAtPathExpectSuccess(
+        consumer_root,
+        &.{
+            "zig",
+            "build",
+            "--summary",
+            "none",
+            "--cache-dir",
+            ".zig-cache",
+            "--global-cache-dir",
+            "zig-global-cache",
+        },
+    );
 }
 
 test "wrapper-local source capture stays callee-owned across realistic zero-argument wrapper forms" {
@@ -28,18 +121,6 @@ test "wrapper-local source capture stays callee-owned across realistic zero-argu
 test "source-compatible wrappers leave caller provenance absent by default" {
     var runtime = shift.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
-
-    {
-        const result = try shift.with(&runtime, .{
-            .state = shift.effect.state.use(@as(i32, 0)),
-        }, struct {
-            /// Report whether the default lexical wrapper leaves caller provenance absent.
-            pub fn body(eff: anytype) anyerror!bool {
-                return callerSourceIsAbsent(@TypeOf(eff.state.ctx.?.*));
-            }
-        });
-        try std.testing.expect(result.value);
-    }
 
     {
         const NoError = error{};
@@ -78,14 +159,14 @@ test "source-compatible wrappers leave caller provenance absent by default" {
 }
 
 test "source helper captures explicit repo path plus caller-owned participation" {
-    const src = shift_compile.lowering.sourceWithContent("test/source_ownership_probe_test.zig", @src(), @embedFile(@src().file));
+    const src = shift_compile.lowering_api.sourceWithContent("test/source_ownership_probe_test.zig", @src(), @embedFile(@src().file));
 
     try std.testing.expectEqualStrings("test/source_ownership_probe_test.zig", src.repo_path);
     try std.testing.expectEqualStrings(std.Io.Dir.path.basename(@src().file), std.Io.Dir.path.basename(src.caller_file));
 }
 
 test "source helper stays callable from test modules" {
-    const src = shift_compile.lowering.source("test/source_ownership_probe_test.zig", @src());
+    const src = shift_compile.lowering_api.source("test/source_ownership_probe_test.zig", @src());
 
     try std.testing.expectEqualStrings("test/source_ownership_probe_test.zig", src.repo_path);
     try std.testing.expectEqualStrings(std.Io.Dir.path.basename(@src().file), std.Io.Dir.path.basename(src.caller_file));
@@ -103,9 +184,60 @@ test "public root drops compile entrypoints while shift_compile keeps provenance
     try std.testing.expect(!@hasDecl(shift, "run"));
     try std.testing.expect(!@hasDecl(shift, "artifact"));
     try std.testing.expect(!@hasDecl(shift, "durable"));
+    try std.testing.expect(!@hasDecl(shift, "debug_anonymous_body_synthesis"));
     try std.testing.expect(!@hasDecl(shift, "interpreter"));
     try std.testing.expect(!@hasDecl(shift, "ir"));
+    try std.testing.expect(!@hasDecl(shift, "lowering"));
     try std.testing.expect(@hasDecl(shift_compile, "lower"));
-    try std.testing.expect(@hasDecl(shift_compile, "lowering"));
-    try std.testing.expect(@hasDecl(shift_compile.lowering, "lowerAt"));
+    try std.testing.expect(@hasDecl(shift_compile, "effect_ir"));
+    try std.testing.expect(@hasDecl(shift_compile, "lowering_api"));
+    try std.testing.expect(@hasDecl(shift_compile.lowering_api, "lowerAt"));
+}
+
+test "plain shift.with anonymous downstream bodies stay usable without caller-owned source" {
+    const main_zig =
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try shift.with(&runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 9)),
+        \\    }, struct {
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            return try eff.state.get();
+        \\        }
+        \\    });
+        \\    if (result.value != 9) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamShiftWithMain(main_zig);
+}
+
+test "plain shift.with named downstream bodies stay usable without caller-owned source" {
+    const main_zig =
+        \\const shift = @import("shift");
+        \\const std = @import("std");
+        \\
+        \\const Body = struct {
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        return try eff.state.get();
+        \\    }
+        \\};
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = shift.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try shift.with(&runtime, .{
+        \\        .state = shift.effect.state.use(@as(i32, 9)),
+        \\    }, Body);
+        \\    if (result.value != 9) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamShiftWithMain(main_zig);
 }

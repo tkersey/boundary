@@ -961,7 +961,9 @@ fn pathExistsAtRoot(root_dir: std.Io.Dir, io: std.Io, path: []const u8) bool {
 }
 
 fn repoRootContainsGitMetadata(root_dir: std.Io.Dir, io: std.Io) bool {
-    root_dir.access(io, ".git", .{}) catch return false;
+    if (pathExistsAtRoot(root_dir, io, ".git")) return true;
+    var git_dir = root_dir.openDir(io, ".git", .{}) catch return false;
+    git_dir.close(io);
     return true;
 }
 
@@ -2247,7 +2249,7 @@ fn collectFilesystemRepoZigPaths(
         std.process.fatal("unable to open repo root for build input walk '{s}': {s}", .{ repo_root, @errorName(err) });
     defer root_dir.close(io);
 
-    var walker = root_dir.walk(allocator) catch
+    var walker = root_dir.walkSelectively(allocator) catch
         std.process.fatal("unable to walk repo root for build inputs", .{});
     defer walker.deinit();
 
@@ -2255,6 +2257,11 @@ fn collectFilesystemRepoZigPaths(
         std.process.fatal("unable to iterate repo build input walk", .{}))) |entry|
     {
         if (pathIsIgnoredBuildInput(entry.path)) continue;
+        if (entry.kind == .directory) {
+            walker.enter(io, entry) catch
+                std.process.fatal("unable to enter repo build input directory '{s}'", .{entry.path});
+            continue;
+        }
         if (!(entry.kind == .file or entry.kind == .sym_link)) continue;
         if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
         appendOwnedPathIfMissing(allocator, paths, path_set, entry.path) catch
@@ -2523,9 +2530,9 @@ fn zigLintPathExcluded(path: []const u8) bool {
     if (std.mem.startsWith(u8, path, "zig-cache/")) return true;
     if (std.mem.startsWith(u8, path, ".zig-global-cache/")) return true;
     if (std.mem.startsWith(u8, path, "zig-global-cache/")) return true;
+    if (std.mem.startsWith(u8, path, "tmp.")) return true;
+    if (std.mem.startsWith(u8, path, "zig-pkg/")) return true;
     if (std.mem.eql(u8, path, "src/error_witness.zig")) return true;
-    if (std.mem.eql(u8, path, "src/public_ir.zig")) return true;
-    if (std.mem.eql(u8, path, "src/public_lowering.zig")) return true;
     if (std.mem.eql(u8, path, "src/ir_api.zig")) return true;
     if (std.mem.eql(u8, path, "src/lowering_api.zig")) return true;
     if (std.mem.eql(u8, path, "src/root.zig")) return true;
@@ -2544,6 +2551,29 @@ fn repoZigLintIncludePaths(b: *std.Build) []const std.Build.LazyPath {
     }
     return includes.toOwnedSlice(b.allocator) catch
         std.process.fatal("unable to allocate repo Zig lint path list", .{});
+}
+
+fn repoZigLintCliArgsFromRegistryAlloc(
+    allocator: std.mem.Allocator,
+    registry: []const u8,
+    tail_args: []const []const u8,
+) ![]const []const u8 {
+    var args = std.ArrayList([]const u8).empty;
+    errdefer args.deinit(allocator);
+    var lines = std.mem.tokenizeScalar(u8, registry, '\n');
+    while (lines.next()) |line| {
+        if (!std.mem.endsWith(u8, line, ".zig")) continue;
+        if (zigLintPathExcluded(line)) continue;
+        try args.append(allocator, "--include");
+        try args.append(allocator, line);
+    }
+    for (tail_args) |arg| try args.append(allocator, arg);
+    return args.toOwnedSlice(allocator);
+}
+
+fn repoZigLintCliArgsAlloc(b: *std.Build, tail_args: []const []const u8) []const []const u8 {
+    return repoZigLintCliArgsFromRegistryAlloc(b.allocator, repoZigPathRegistry(b), tail_args) catch
+        std.process.fatal("unable to allocate repo Zig lint command args", .{});
 }
 
 const PackageRootAlias = struct {
@@ -3220,9 +3250,52 @@ test "repo Zig path registry matches tracked Zig files in the working checkout" 
     const tracked_registry = repoZigPathRegistryAlloc(std.testing.allocator, repo_root);
     defer std.testing.allocator.free(tracked_registry);
 
+    const tracked = try std.process.run(std.testing.allocator, childProcessIo(), .{
+        .argv = &.{ "git", "-C", repo_root, "ls-files", "--cached", "--", "*.zig" },
+        .stdout_limit = .limited(512 * 1024),
+        .stderr_limit = .limited(512 * 1024),
+    });
+    defer std.testing.allocator.free(tracked.stdout);
+    defer std.testing.allocator.free(tracked.stderr);
+
+    switch (tracked.term) {
+        .exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.GitLsFilesFailed,
+    }
+
     try std.testing.expect(tracked_registry.len != 0);
     try std.testing.expect(std.mem.find(u8, tracked_registry, "build.zig\n") != null);
     try std.testing.expect(std.mem.find(u8, tracked_registry, "source_graph_embed.zig\n") != null);
+    var registry_lines = std.mem.tokenizeScalar(u8, tracked_registry, '\n');
+    while (registry_lines.next()) |line| {
+        try std.testing.expect(std.mem.findScalar(u8, line, '\n') == null);
+        try std.testing.expect(std.mem.findScalar(u8, line, '\r') == null);
+        const line_with_separator = try std.mem.concat(std.testing.allocator, u8, &.{ line, "\n" });
+        defer std.testing.allocator.free(line_with_separator);
+        try std.testing.expect(std.mem.find(u8, tracked.stdout, line_with_separator) != null);
+    }
+}
+
+test "repo Zig lint CLI args include tracked files explicitly" {
+    const args = try repoZigLintCliArgsFromRegistryAlloc(
+        std.testing.allocator,
+        \\build.zig
+        \\src/error_witness.zig
+        \\src/with_api.zig
+        \\tmp.scratch/main.zig
+        \\
+    ,
+        &.{ "--max-warnings", "0" },
+    );
+    defer std.testing.allocator.free(args);
+
+    try std.testing.expectEqual(@as(usize, 6), args.len);
+    try std.testing.expectEqualStrings("--include", args[0]);
+    try std.testing.expectEqualStrings("build.zig", args[1]);
+    try std.testing.expectEqualStrings("--include", args[2]);
+    try std.testing.expectEqualStrings("src/with_api.zig", args[3]);
+    try std.testing.expectEqualStrings("--max-warnings", args[4]);
+    try std.testing.expectEqualStrings("0", args[5]);
 }
 
 test "test suite selection accepts trimmed multi-suite lists" {
@@ -4025,18 +4098,18 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const synthetic_shift_mod = b.createModule(.{
+        .root_source_file = b.path("src/internal/synthetic_shift_root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const synthetic_lowering_host_mod = b.createModule(.{
+        .root_source_file = b.path("src/internal/synthetic_lowering_host.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const artifact_api_mod = b.createModule(.{
         .root_source_file = b.path("src/private_modules/agent_vm_artifact_build.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const public_ir_mod = b.addModule("public_ir", .{
-        .root_source_file = b.path("src/public_ir.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const public_lowering_mod = b.addModule("public_lowering", .{
-        .root_source_file = b.path("src/public_lowering.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -4105,11 +4178,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const lexical_witness_runners_mod = b.createModule(.{
-        .root_source_file = b.path("test/lexical_witness_support.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
     const parity_scenarios_mod = b.createModule(.{
         .root_source_file = b.path("src/parity_scenarios.zig"),
         .target = target,
@@ -4122,13 +4190,22 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     lowered_machine_mod.addImport("portable_core", portable_core_mod);
+    synthetic_shift_mod.addImport("lowered_machine", lowered_machine_mod);
+    synthetic_shift_mod.addImport("shift_shared", shift_shared_mod);
+    synthetic_lowering_host_mod.addImport("synthetic_shift", synthetic_shift_mod);
     const effect_ir_mod = b.createModule(.{
         .root_source_file = b.path("src/effect_ir.zig"),
         .target = target,
         .optimize = optimize,
     });
+    synthetic_lowering_host_mod.addImport("effect_ir", effect_ir_mod);
     const helper_body_ir_mod = b.createModule(.{
         .root_source_file = b.path("src/private_modules/helper_body_ir_build.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const admitted_body_v1_mod = b.createModule(.{
+        .root_source_file = b.path("src/internal/admitted_body_v1.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -4151,6 +4228,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     source_graph_comptime_mod.addImport("source_graph_engine", source_graph_engine_mod);
+    source_graph_engine_mod.addImport("admitted_body_v1", admitted_body_v1_mod);
     const source_graph_embed_mod = b.createModule(.{
         .root_source_file = b.path("source_graph_embed.zig"),
         .target = target,
@@ -4267,7 +4345,6 @@ pub fn build(b: *std.Build) void {
     frontend_support_mod.addImport("lowered_machine", lowered_machine_mod);
     shift_mod.addImport("effect_ir", effect_ir_mod);
     shift_mod.addImport("lowered_machine", lowered_machine_mod);
-    witnesses_mod.addImport("lexical_witness_support", lexical_witness_runners_mod);
     const prompt_support_mod = b.createModule(.{
         .root_source_file = b.path("src/internal/prompt_support.zig"),
         .target = target,
@@ -4281,6 +4358,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     with_api_mod.addImport("portable_core", portable_core_mod);
+    with_api_mod.addImport("synthetic_shift", synthetic_shift_mod);
+    with_api_mod.addImport("synthetic_lowering_host", synthetic_lowering_host_mod);
     with_api_mod.addImport("frontend_support", frontend_support_mod);
     with_api_mod.addImport("lowered_machine", lowered_machine_mod);
     with_api_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
@@ -4377,6 +4456,8 @@ pub fn build(b: *std.Build) void {
     source_lowering_mod.addImport("error_witness", error_witness_mod);
     source_lowering_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
     source_lowering_mod.addImport("shipped_open_row_corpus_registry", shipped_open_row_corpus_mod);
+    synthetic_lowering_host_mod.addImport("lowering_api", lowering_api_mod);
+    synthetic_lowering_host_mod.addImport("source_lowering", source_lowering_mod);
     lowering_api_mod.addImport("authoring_build_options", authoring_build_options_mod);
     lowering_api_mod.addImport("effect_ir", effect_ir_mod);
     lowering_api_mod.addImport("lowered_machine", lowered_machine_mod);
@@ -4385,15 +4466,15 @@ pub fn build(b: *std.Build) void {
     lowering_api_mod.addImport("source_graph_embed", source_graph_embed_mod);
     lowering_api_mod.addImport("source_graph_comptime", source_graph_comptime_mod);
     lowering_api_mod.addImport("source_graph_engine", source_graph_engine_mod);
+    lowering_api_mod.addImport("admitted_body_v1", admitted_body_v1_mod);
     lowering_api_mod.addImport("source_lowering", source_lowering_mod);
-    public_lowering_mod.addImport("lowering_api", lowering_api_mod);
-    public_ir_mod.addImport("effect_ir", effect_ir_mod);
-    public_ir_mod.addImport("public_lowering", public_lowering_mod);
     ir_api_mod.addImport("effect_ir", effect_ir_mod);
     ir_api_mod.addImport("lowering_api", lowering_api_mod);
     shift_compile_api_mod.addImport("lowering_api", lowering_api_mod);
     shift_mod.addImport("source_lowering", source_lowering_mod);
     shift_shared_mod.addImport("artifact_api", artifact_api_mod);
+    shift_shared_mod.addImport("synthetic_shift", synthetic_shift_mod);
+    shift_shared_mod.addImport("synthetic_lowering_host", synthetic_lowering_host_mod);
     shift_shared_mod.addImport("portable_core", portable_core_mod);
     shift_shared_mod.addImport("prompt_contract_support", prompt_contract_support_mod);
     shift_shared_mod.addImport("frontend_support", frontend_support_mod);
@@ -4411,8 +4492,6 @@ pub fn build(b: *std.Build) void {
     shift_shared_mod.addImport("source_graph_embed", source_graph_embed_mod);
     shift_shared_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
     shift_shared_mod.addImport("source_lowering", source_lowering_mod);
-    shift_shared_mod.addImport("public_ir", public_ir_mod);
-    shift_shared_mod.addImport("public_lowering", public_lowering_mod);
     shift_shared_mod.addImport("ir_api", ir_api_mod);
     shift_shared_mod.addImport("lowering_api", lowering_api_mod);
     witnesses_mod.addImport("private_lowered_runtime", private_lowered_runtime_mod);
@@ -4494,29 +4573,8 @@ pub fn build(b: *std.Build) void {
     root_tests.root_module.addImport("error_witness", error_witness_mod);
     root_tests.root_module.addImport("prompt_contract_support", prompt_contract_support_mod);
     root_tests.root_module.addImport("frontend_support", frontend_support_mod);
-    root_tests.root_module.addImport("public_ir", public_ir_mod);
-    root_tests.root_module.addImport("public_lowering", public_lowering_mod);
     const run_root_tests = addRunArtifactWithArgs(b, root_tests, test_runner_args.passthrough.items);
     const test_step = b.step("test", "Run the default shift proof surface.");
-
-    const pub_ir_path_mod = b.createModule(.{
-        .root_source_file = b.path("src/public_ir_path_compatibility_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    pub_ir_path_mod.addImport("effect_ir", effect_ir_mod);
-    pub_ir_path_mod.addImport("public_lowering", public_lowering_mod);
-    const pub_ir_path_tests = addFilteredTest(b, pub_ir_path_mod, test_runner_args.filters.items);
-    const run_pub_ir_path = addRunArtifactWithArgs(b, pub_ir_path_tests, test_runner_args.passthrough.items);
-
-    const pub_lowering_path_mod = b.createModule(.{
-        .root_source_file = b.path("src/public_lowering_path_compatibility_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    pub_lowering_path_mod.addImport("lowering_api", lowering_api_mod);
-    const pub_lowering_path_tests = addFilteredTest(b, pub_lowering_path_mod, test_runner_args.filters.items);
-    const run_pub_lowering_path = addRunArtifactWithArgs(b, pub_lowering_path_tests, test_runner_args.passthrough.items);
 
     const shift_agent_vm_consumer_mod = b.createModule(.{
         .root_source_file = b.path("shift_agent_vm_source_path_consumer.zig"),
@@ -4591,8 +4649,6 @@ pub fn build(b: *std.Build) void {
         "published-module-contract",
         "Run the retained published-module source-path and shift_agent_vm package contract suite.",
     );
-    published_module_contract_step.dependOn(&run_pub_ir_path.step);
-    published_module_contract_step.dependOn(&run_pub_lowering_path.step);
     const shift_agent_vm_compat_step = b.step(
         "shift-agent-vm-compat",
         "Run retained shift_agent_vm ordinary-consumer, runtime-smoke, and downstream export witnesses.",
@@ -4616,6 +4672,9 @@ pub fn build(b: *std.Build) void {
     frontend_internal_tests.root_module.addImport("prompt_contract_support", prompt_contract_support_mod);
     const run_frontend_internal_tests = addRunArtifactWithArgs(b, frontend_internal_tests, test_runner_args.passthrough.items);
 
+    const admitted_body_v1_tests = addFilteredTest(b, admitted_body_v1_mod, test_runner_args.filters.items);
+    const run_admitted_body_v1_tests = addRunArtifactWithArgs(b, admitted_body_v1_tests, test_runner_args.passthrough.items);
+
     const internal_program_plan_tests = addFilteredTest(
         b,
         b.createModule(.{
@@ -4627,6 +4686,8 @@ pub fn build(b: *std.Build) void {
     );
     internal_program_plan_tests.root_module.addImport("internal_program_plan", internal_program_plan_mod);
     internal_program_plan_tests.root_module.addImport("effect_ir", effect_ir_mod);
+    internal_program_plan_tests.root_module.addImport("lowered_machine", lowered_machine_mod);
+    internal_program_plan_tests.root_module.addImport("lowering_api", lowering_api_mod);
     const run_plan_review_tests = addRunArtifactWithArgs(b, internal_program_plan_tests, test_runner_args.passthrough.items);
 
     const witness_mod = b.createModule(.{
@@ -4688,7 +4749,7 @@ pub fn build(b: *std.Build) void {
     runtime_stack_baseline_mod.addImport("example_open_row_abortive_validation", createShiftConsumerModule(b, "examples/open_row_abortive_validation.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     runtime_stack_baseline_mod.addImport("example_open_row_artifact_search", createShiftConsumerModule(b, "examples/open_row_artifact_search.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     runtime_stack_baseline_mod.addImport("example_open_row_generator", createShiftConsumerModule(b, "examples/open_row_generator.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
-    runtime_stack_baseline_mod.addImport("witnesses_src", witnesses_mod);
+    runtime_stack_baseline_mod.addImport("parity_scenarios", parity_scenarios_mod);
     runtime_stack_baseline_mod.addImport("example_early_exit", createShiftConsumerModule(b, "examples/early_exit.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     runtime_stack_baseline_mod.addImport("example_exception_basic", createShiftConsumerModule(b, "examples/exception_basic.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
     runtime_stack_baseline_mod.addImport("example_nested_workflow", createShiftConsumerModule(b, "examples/nested_workflow.zig", target, optimize, .{ .shift_mod = shift_mod, .shift_compile_mod = shift_compile_mod, .lowered_runtime_mod = private_lowered_runtime_mod }));
@@ -4816,18 +4877,92 @@ pub fn build(b: *std.Build) void {
     source_lowering_tool_step.dependOn(&source_lowering_tool_exe.step);
     source_lowering_tool_step.dependOn(&source_lowering_tool_install.step);
 
-    lexical_witness_runners_mod.addImport("shift", shift_mod);
-
-    const lexical_witness_mod = b.createModule(.{
-        .root_source_file = b.path("test/lexical_witness_test.zig"),
+    // zlinter-disable declaration_naming - lexical witness module/test handles mirror suite ids for traceable proof receipts.
+    const lexical_witness_direct_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_witness/direct_return_test.zig"),
         .target = target,
         .optimize = optimize,
     });
-    lexical_witness_mod.addImport("shift", shift_mod);
-    lexical_witness_mod.addImport("parity_scenarios", parity_scenarios_mod);
-    lexical_witness_mod.addImport("lexical_witness_runners", lexical_witness_runners_mod);
-    const lexical_witness_tests = addFilteredTest(b, lexical_witness_mod, test_runner_args.filters.items);
-    const run_lexical_witness_tests = addRunArtifactWithArgs(b, lexical_witness_tests, test_runner_args.passthrough.items);
+    lexical_witness_direct_mod.addImport("shift", shift_mod);
+    lexical_witness_direct_mod.addImport("synthetic_shift", synthetic_shift_mod);
+    lexical_witness_direct_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    const lexical_witness_direct_tests = addFilteredTest(b, lexical_witness_direct_mod, test_runner_args.filters.items);
+    const run_lexical_witness_direct = addRunArtifactWithArgs(b, lexical_witness_direct_tests, test_runner_args.passthrough.items);
+
+    const lexical_witness_return_now_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_witness/resume_or_return_return_now_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_witness_return_now_mod.addImport("shift", shift_mod);
+    lexical_witness_return_now_mod.addImport("synthetic_shift", synthetic_shift_mod);
+    lexical_witness_return_now_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    const lexical_witness_return_now_tests = addFilteredTest(b, lexical_witness_return_now_mod, test_runner_args.filters.items);
+    const run_lexical_witness_return_now = addRunArtifactWithArgs(b, lexical_witness_return_now_tests, test_runner_args.passthrough.items);
+
+    const lexical_witness_resume_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_witness/resume_or_return_resume_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_witness_resume_mod.addImport("shift", shift_mod);
+    lexical_witness_resume_mod.addImport("synthetic_shift", synthetic_shift_mod);
+    lexical_witness_resume_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    const lexical_witness_resume_tests = addFilteredTest(b, lexical_witness_resume_mod, test_runner_args.filters.items);
+    const run_lexical_witness_resume = addRunArtifactWithArgs(b, lexical_witness_resume_tests, test_runner_args.passthrough.items);
+
+    const lexical_witness_generator_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_witness/generator_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_witness_generator_mod.addImport("shift", shift_mod);
+    lexical_witness_generator_mod.addImport("synthetic_shift", synthetic_shift_mod);
+    lexical_witness_generator_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    const lexical_witness_generator_tests = addFilteredTest(b, lexical_witness_generator_mod, test_runner_args.filters.items);
+    const run_lexical_witness_generator = addRunArtifactWithArgs(b, lexical_witness_generator_tests, test_runner_args.passthrough.items);
+
+    const lexical_witness_atm_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_witness/atm_resume_transform_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_witness_atm_mod.addImport("shift", shift_mod);
+    lexical_witness_atm_mod.addImport("synthetic_shift", synthetic_shift_mod);
+    lexical_witness_atm_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    const lexical_witness_atm_tests = addFilteredTest(b, lexical_witness_atm_mod, test_runner_args.filters.items);
+    const run_lexical_witness_atm = addRunArtifactWithArgs(b, lexical_witness_atm_tests, test_runner_args.passthrough.items);
+
+    const lexical_witness_static_redelim_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_witness/static_redelim_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_witness_static_redelim_mod.addImport("shift", shift_mod);
+    lexical_witness_static_redelim_mod.addImport("synthetic_shift", synthetic_shift_mod);
+    lexical_witness_static_redelim_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    const lexical_witness_static_redelim_tests = addFilteredTest(b, lexical_witness_static_redelim_mod, test_runner_args.filters.items);
+    const run_lexical_witness_static_redelim = addRunArtifactWithArgs(b, lexical_witness_static_redelim_tests, test_runner_args.passthrough.items);
+
+    const lexical_witness_multi_prompt_mod = b.createModule(.{
+        .root_source_file = b.path("test/lexical_witness/multi_prompt_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexical_witness_multi_prompt_mod.addImport("shift", shift_mod);
+    lexical_witness_multi_prompt_mod.addImport("synthetic_shift", synthetic_shift_mod);
+    lexical_witness_multi_prompt_mod.addImport("parity_scenarios", parity_scenarios_mod);
+    const lexical_witness_multi_prompt_tests = addFilteredTest(b, lexical_witness_multi_prompt_mod, test_runner_args.filters.items);
+    const run_lexical_witness_multi_prompt = addRunArtifactWithArgs(b, lexical_witness_multi_prompt_tests, test_runner_args.passthrough.items);
+
+    const run_lexical_witness_tests = b.step("lexical-witness", "Run the lexical witness suite.");
+    run_lexical_witness_tests.dependOn(&run_lexical_witness_atm.step);
+    run_lexical_witness_tests.dependOn(&run_lexical_witness_direct.step);
+    run_lexical_witness_tests.dependOn(&run_lexical_witness_multi_prompt.step);
+    run_lexical_witness_tests.dependOn(&run_lexical_witness_return_now.step);
+    run_lexical_witness_tests.dependOn(&run_lexical_witness_resume.step);
+    run_lexical_witness_tests.dependOn(&run_lexical_witness_static_redelim.step);
+    run_lexical_witness_tests.dependOn(&run_lexical_witness_generator.step);
 
     const lexical_with_mod = b.createModule(.{
         .root_source_file = b.path("test/lexical_with_test.zig"),
@@ -4921,6 +5056,7 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "published-module-contract", .description = "Retained published-module source-path and package contract suite", .run_step = published_module_contract_step },
         .{ .suite_id = "shift-agent-vm-compat", .description = "Retained shift_agent_vm compatibility suite", .run_step = shift_agent_vm_compat_step },
         .{ .suite_id = "frontend", .description = "Frontend internal module", .run_step = &run_frontend_internal_tests.step },
+        .{ .suite_id = "admitted-body-v1", .description = "Admitted body parser suite", .run_step = &run_admitted_body_v1_tests.step },
         .{ .suite_id = "program-plan-review", .description = "ProgramPlan regression suite", .run_step = &run_plan_review_tests.step },
         .{ .suite_id = "program-bridge", .description = "Program bridge suite", .run_step = &run_program_bridge_tests.step },
         .{ .suite_id = "witness-corpus", .description = "Core witness corpus", .run_step = &run_witness_tests.step },
@@ -4935,7 +5071,7 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "open-row-lowering", .description = "Open-row lowering suite", .run_step = &run_open_row_lowering_tests.step },
         .{ .suite_id = "source-ownership-probe", .description = "Source ownership probe suite", .run_step = &run_src_ownership_probe_tests.step },
         .{ .suite_id = "source-lowering-witness", .description = "Source lowering witness completion suite", .run_step = &run_src_lower_witness_tests.step },
-        .{ .suite_id = "lexical-witness", .description = "Lexical witness suite", .run_step = &run_lexical_witness_tests.step },
+        .{ .suite_id = "lexical-witness", .description = "Lexical witness suite", .run_step = run_lexical_witness_tests },
         .{ .suite_id = "lexical-with", .description = "Lexical with suite", .run_step = run_lexical_with_tests },
     };
     const test_suite_selection = resolveTestSuiteSelection(b, test_suites_raw, &test_suites, test_requested) orelse return;
@@ -5040,6 +5176,7 @@ pub fn build(b: *std.Build) void {
     shift_bench_mod.addImport("source_graph_embed", source_graph_embed_mod);
     shift_bench_mod.addImport("authoring_lowerer", authoring_lowerer_mod);
     shift_bench_mod.addImport("source_lowering", source_lowering_mod);
+    shift_bench_mod.addImport("lowering_api", lowering_api_mod);
     const bench_specs = [_]struct {
         name: []const u8,
         src: []const u8,
@@ -5084,9 +5221,13 @@ pub fn build(b: *std.Build) void {
             .name = bench_spec.name,
             .root_module = bench_mod,
         });
-        const bench_run = b.addRunArtifact(bench_exe);
         const bench_step = b.step(bench_spec.step_name, bench_spec.step_desc);
-        bench_step.dependOn(&bench_run.step);
+        if (target.query.isNative()) {
+            const bench_run = b.addRunArtifact(bench_exe);
+            bench_step.dependOn(&bench_run.step);
+        } else {
+            bench_step.dependOn(&bench_exe.step);
+        }
     }
 
     const runtime_backend_bench_mod = b.createModule(.{
@@ -5129,8 +5270,10 @@ pub fn build(b: *std.Build) void {
     lint_step.dependOn(step: {
         const saved_verbose = b.verbose;
         const saved_args = b.args;
+        const lint_args = repoZigLintCliArgsAlloc(b, lint_shared_tail_args);
+        defer b.allocator.free(lint_args);
         b.verbose = true;
-        b.args = lint_shared_tail_args;
+        b.args = lint_args;
         defer {
             b.verbose = saved_verbose;
             b.args = saved_args;
