@@ -13,12 +13,8 @@ const Sample = struct {
     elapsed_ns: u64,
 };
 
-fn monotonicNowNs() u64 {
-    var timespec_value: std.c.timespec = std.mem.zeroes(std.c.timespec);
-    if (std.c.clock_gettime(std.c.CLOCK.MONOTONIC, &timespec_value) != 0) return 0;
-    const sec = if (@hasField(std.c.timespec, "tv_sec")) timespec_value.tv_sec else timespec_value.sec;
-    const nsec = if (@hasField(std.c.timespec, "tv_nsec")) timespec_value.tv_nsec else timespec_value.nsec;
-    return @as(u64, @intCast(sec)) * std.time.ns_per_s + @as(u64, @intCast(nsec));
+fn elapsedNsSince(io: std.Io, start: std.Io.Timestamp) u64 {
+    return @intCast(start.durationTo(std.Io.Timestamp.now(io, .boot)).toNanoseconds());
 }
 
 fn preserveValue(value: anytype) @TypeOf(value) {
@@ -113,13 +109,13 @@ fn sortAscending(values: []u64) void {
     }
 }
 
-fn runRawSample(runtime: *shift.Runtime, prompt: *RawPrompt, iterations: usize) !Sample {
+fn runRawSample(io: std.Io, runtime: *shift.Runtime, prompt: *RawPrompt, iterations: usize) !Sample {
     _ = prompt;
-    return try runEffectSample(runtime, &StateInstance.init(), iterations);
+    return try runEffectSample(io, runtime, &StateInstance.init(), iterations);
 }
 
-fn runRawResetOnlySample(runtime: *shift.Runtime, prompt: *RawPrompt, iterations: usize) !Sample {
-    const start_ns = monotonicNowNs();
+fn runRawResetOnlySample(io: std.Io, runtime: *shift.Runtime, prompt: *RawPrompt, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
 
     var index: usize = 0;
@@ -130,12 +126,12 @@ fn runRawResetOnlySample(runtime: *shift.Runtime, prompt: *RawPrompt, iterations
 
     return .{
         .checksum = checksum,
-        .elapsed_ns = monotonicNowNs() - start_ns,
+        .elapsed_ns = elapsedNsSince(io, start),
     };
 }
 
-fn runEffectSample(runtime: *shift.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
-    const start_ns = monotonicNowNs();
+fn runEffectSample(io: std.Io, runtime: *shift.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
 
     var index: usize = 0;
@@ -146,12 +142,12 @@ fn runEffectSample(runtime: *shift.Runtime, instance: *const StateInstance, iter
 
     return .{
         .checksum = checksum,
-        .elapsed_ns = monotonicNowNs() - start_ns,
+        .elapsed_ns = elapsedNsSince(io, start),
     };
 }
 
-fn runEffectPassthroughSample(runtime: *shift.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
-    const start_ns = monotonicNowNs();
+fn runEffectPassthroughSample(io: std.Io, runtime: *shift.Runtime, instance: *const StateInstance, iterations: usize) !Sample {
+    const start = std.Io.Timestamp.now(io, .boot);
     var checksum: usize = 0;
 
     var index: usize = 0;
@@ -162,7 +158,7 @@ fn runEffectPassthroughSample(runtime: *shift.Runtime, instance: *const StateIns
 
     return .{
         .checksum = checksum,
-        .elapsed_ns = monotonicNowNs() - start_ns,
+        .elapsed_ns = elapsedNsSince(io, start),
     };
 }
 
@@ -187,10 +183,10 @@ pub fn main(init: std.process.Init) anyerror!void {
     defer effect_runtime.deinit();
     var effect_instance = StateInstance.init();
 
-    _ = try runRawSample(&raw_runtime, &raw_prompt, warmup_iterations);
-    _ = try runRawResetOnlySample(&raw_runtime, &raw_prompt, warmup_iterations);
-    _ = try runEffectSample(&effect_runtime, &effect_instance, warmup_iterations);
-    _ = try runEffectPassthroughSample(&effect_runtime, &effect_instance, warmup_iterations);
+    _ = try runRawSample(init.io, &raw_runtime, &raw_prompt, warmup_iterations);
+    _ = try runRawResetOnlySample(init.io, &raw_runtime, &raw_prompt, warmup_iterations);
+    _ = try runEffectSample(init.io, &effect_runtime, &effect_instance, warmup_iterations);
+    _ = try runEffectPassthroughSample(init.io, &effect_runtime, &effect_instance, warmup_iterations);
 
     var raw_samples = [_]u64{0} ** samples_per_run;
     var raw_reset_only_samples = [_]u64{0} ** samples_per_run;
@@ -203,10 +199,10 @@ pub fn main(init: std.process.Init) anyerror!void {
 
     var index: usize = 0;
     while (index < samples_per_run) : (index += 1) {
-        const raw_sample = try runRawSample(&raw_runtime, &raw_prompt, timed_iterations);
-        const raw_reset_only_sample = try runRawResetOnlySample(&raw_runtime, &raw_prompt, timed_iterations);
-        const effect_sample = try runEffectSample(&effect_runtime, &effect_instance, timed_iterations);
-        const effect_passthrough_sample = try runEffectPassthroughSample(&effect_runtime, &effect_instance, timed_iterations);
+        const raw_sample = try runRawSample(init.io, &raw_runtime, &raw_prompt, timed_iterations);
+        const raw_reset_only_sample = try runRawResetOnlySample(init.io, &raw_runtime, &raw_prompt, timed_iterations);
+        const effect_sample = try runEffectSample(init.io, &effect_runtime, &effect_instance, timed_iterations);
+        const effect_passthrough_sample = try runEffectPassthroughSample(init.io, &effect_runtime, &effect_instance, timed_iterations);
 
         if (raw_checksum) |checksum| {
             if (checksum != raw_sample.checksum) return error.RawChecksumMismatch;

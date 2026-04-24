@@ -5216,9 +5216,13 @@ pub fn build(b: *std.Build) void {
             .name = bench_spec.name,
             .root_module = bench_mod,
         });
-        const bench_run = b.addRunArtifact(bench_exe);
         const bench_step = b.step(bench_spec.step_name, bench_spec.step_desc);
-        bench_step.dependOn(&bench_run.step);
+        if (target.query.isNative()) {
+            const bench_run = b.addRunArtifact(bench_exe);
+            bench_step.dependOn(&bench_run.step);
+        } else {
+            bench_step.dependOn(&bench_exe.step);
+        }
     }
 
     const runtime_backend_bench_mod = b.createModule(.{
