@@ -74,8 +74,15 @@ fn sourceModulePath(comptime source_path_value: []const u8) []const u8 {
 }
 
 fn sourceBaseModuleName(comptime source_path_value: []const u8) []const u8 {
-    const basename = std.fs.path.stem(source_path_value);
-    return basename;
+    var start: usize = 0;
+    var end: usize = source_path_value.len;
+    for (source_path_value, 0..) |char, index| {
+        if (char == '/' or char == '\\') start = index + 1;
+    }
+    if (std.mem.endsWith(u8, source_path_value[start..end], ".zig")) {
+        end -= ".zig".len;
+    }
+    return source_path_value[start..end];
 }
 
 fn isTestModulePath(comptime module_path: []const u8) bool {
@@ -271,6 +278,29 @@ fn fallbackResolvedRepoPathForIdentity(
     }
     if (match_count != 1) return null;
     return matched_path;
+}
+
+pub fn repoOwnedCandidateCount(comptime Body: type) usize {
+    const identity = bodyIdentity(Body) orelse return 0;
+    const lookup_module = canonicalLookupModulePath(identity.module_path);
+    comptime {
+        @setEvalBranchQuota(10_000_000);
+    }
+    var match_count: usize = 0;
+    var start: usize = 0;
+    while (start < build_options.repo_zig_paths.len) {
+        var end = start;
+        while (end < build_options.repo_zig_paths.len and build_options.repo_zig_paths[end] != '\n') : (end += 1) {}
+        const candidate = build_options.repo_zig_paths[start..end];
+        start = end + 1;
+        if (candidate.len == 0) continue;
+        if (candidateScoreForLookupModule(lookup_module, candidate) != null) match_count += 1;
+    }
+    return match_count;
+}
+
+pub fn hasRepoOwnedCandidate(comptime Body: type) bool {
+    return repoOwnedCandidateCount(Body) != 0;
 }
 
 fn callName(comptime kind: CompilationKind) ?[]const u8 {

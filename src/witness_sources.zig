@@ -66,6 +66,8 @@ fn witnessStaticRedelimInnerBody(inner_eff: anytype) anyerror!i32 {
 }
 
 const static_redelim_inner_body = struct {
+    /// Test-only witness bodies exercise source-level semantics outside ProgramPlan coverage.
+    pub const shift_with_interpreted_witness = true;
     /// Source path for the named nested carrier used by compiled witness lowering.
     pub const source_path = "src/witness_sources.zig";
     /// Entry symbol for the named nested carrier used by compiled witness lowering.
@@ -172,6 +174,9 @@ pub fn runDirectReturn(writer: anytype) anyerror!void {
     const result = try lexical_runtime.with(&runtime, .{
         .exception = lexical_runtime.effect.exception.use([]const u8, catch_policy),
     }, struct {
+        /// Test-only witness bodies exercise source-level semantics outside ProgramPlan coverage.
+        pub const shift_with_interpreted_witness = true;
+
         /// Run the direct-return witness through the plain lexical surface.
         pub fn body(eff: anytype) anyerror![]const u8 {
             return witnessDirectReturnBody(eff);
@@ -211,6 +216,9 @@ pub fn runResumeOrReturnReturnNow(writer: anytype) anyerror!void {
     const result = try lexical_runtime.with(&runtime, .{
         .optional = lexical_runtime.effect.optional.use(i32, policy),
     }, struct {
+        /// Test-only witness bodies exercise source-level semantics outside ProgramPlan coverage.
+        pub const shift_with_interpreted_witness = true;
+
         /// Run the return-now witness through the plain lexical surface.
         pub fn body(eff: anytype) anyerror![]const u8 {
             return witnessResumeOrReturnReturnNowBody(eff);
@@ -252,6 +260,9 @@ pub fn runResumeOrReturnResume(writer: anytype) anyerror!void {
     const result = try lexical_runtime.with(&runtime, .{
         .optional = lexical_runtime.effect.optional.use(i32, policy),
     }, struct {
+        /// Test-only witness bodies exercise source-level semantics outside ProgramPlan coverage.
+        pub const shift_with_interpreted_witness = true;
+
         /// Keep the witness payload-sensitive so wrong resume values change the result.
         pub fn body(eff: anytype) anyerror![]const u8 {
             return try eff.optional.request(struct {
@@ -277,6 +288,9 @@ pub fn runGenerator(writer: anytype) anyerror!void {
         .writer = lexical_runtime.effect.writer.use([]const u8, output_fba.allocator()),
         .state = lexical_runtime.effect.state.use(@as(i32, 0)),
     }, struct {
+        /// Test-only witness bodies exercise source-level semantics outside ProgramPlan coverage.
+        pub const shift_with_interpreted_witness = true;
+
         /// Run the generator witness through the plain lexical surface.
         pub fn body(eff: anytype) anyerror!i32 {
             return witnessGeneratorBody(eff);
@@ -320,6 +334,9 @@ pub fn runAtmResumeTransform(writer: anytype) anyerror!void {
     const result = try lexical_runtime.with(&runtime, .{
         .atm = ResumeWitness.use(.{ .handler = Handler{} }),
     }, struct {
+        /// Test-only witness bodies exercise source-level semantics outside ProgramPlan coverage.
+        pub const shift_with_interpreted_witness = true;
+
         /// Run the ATM witness through the plain lexical surface.
         pub fn body(eff: anytype) anyerror![]const u8 {
             return witnessAtmBody(eff);
@@ -338,6 +355,9 @@ pub fn runStaticRedelim(writer: anytype) anyerror!void {
     const result = try lexical_runtime.with(&runtime, .{
         .outer = ResumeWitness.use(.{ .handler = transcript_static_redelim.OuterHandler{} }),
     }, struct {
+        /// Test-only witness bodies exercise source-level semantics outside ProgramPlan coverage.
+        pub const shift_with_interpreted_witness = true;
+
         /// Keep the nested-prompt semantic witness on the canonical witness source-lowering path.
         pub fn body(outer_eff: anytype) anyerror!i32 {
             return witnessStaticRedelimOuterBody(outer_eff);
@@ -384,6 +404,9 @@ pub fn runMultiPrompt(writer: anytype) anyerror!void {
         .outer = ResumeWitness.use(.{ .handler = OuterHandler{} }),
         .inner = ResumeWitness.use(.{ .handler = InnerHandler{} }),
     }, struct {
+        /// Test-only witness bodies exercise source-level semantics outside ProgramPlan coverage.
+        pub const shift_with_interpreted_witness = true;
+
         /// Keep the multi-prompt separation witness on the canonical witness source-lowering path.
         pub fn body(eff: anytype) anyerror!i32 {
             return witnessMultiPromptBody(eff);

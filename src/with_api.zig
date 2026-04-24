@@ -1015,6 +1015,13 @@ fn compiledBodyReturnSyntax(comptime HandlersType: type, comptime Body: type) ?[
     return anonymous_body_synthesis.canonicalReturnTypeSyntax(BodyReturnType(Body, PreviewBodyEffType(HandlersType)));
 }
 
+fn failRepoOwnedAnonymousSource(comptime Body: type) noreturn {
+    @compileError(std.fmt.comptimePrint(
+        "shift.with repo-owned anonymous body requires a unique synthetic source before compiled execution: body={s}",
+        .{@typeName(Body)},
+    ));
+}
+
 fn tryCallerOwnedAnonymousCompiledWith(
     comptime caller: std.builtin.SourceLocation,
     comptime caller_source: []const u8,
@@ -1056,7 +1063,7 @@ fn tryCallerOwnedAnonymousCompiledWith(
         synthetic,
         entry_symbol,
     ) == null) {
-        return try runInterpretedLexicalWith(HandlersType, Body, runtime, handlers_ptr, outputs_ptr);
+        return null;
     }
     const lowered_program = comptime lowering_api.lower(
         source_ref,
@@ -1096,16 +1103,13 @@ fn tryRepoOwnedAnonymousCompiledWith(
     else if (maybe_fallback) |fallback|
         fallback
     else
-        return try runInterpretedLexicalWith(HandlersType, Body, runtime, handlers_ptr, outputs_ptr);
+        failRepoOwnedAnonymousSource(Body);
     const synthetic_path = comptime syntheticLoweringSourcePath(synthesized.entry_symbol);
     const source_ref = comptime lowering_api.sourceWithContent(
         synthetic_path,
         syntheticSourceLocation(synthetic_path, synthesized.entry_symbol),
         synthesized.source,
     );
-    if (comptime std.mem.startsWith(u8, synthesized.source_path, "test/lexical_with_fixture")) {
-        return try runInterpretedLexicalWith(HandlersType, Body, runtime, handlers_ptr, outputs_ptr);
-    }
     if (comptime anonymous_body_synthesis.maybeLowerSyntheticLexicalBody(
         HandlersType,
         BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
@@ -1113,7 +1117,10 @@ fn tryRepoOwnedAnonymousCompiledWith(
         synthesized.source,
         synthesized.entry_symbol,
     ) == null) {
-        return try runInterpretedLexicalWith(HandlersType, Body, runtime, handlers_ptr, outputs_ptr);
+        @compileError(std.fmt.comptimePrint(
+            "shift.with repo-owned anonymous body must lower to ProgramPlan: source={s} entry={s}",
+            .{ synthesized.source_path, synthesized.entry_symbol },
+        ));
     }
     const lowered_program = comptime lowering_api.lower(
         source_ref,
@@ -1167,7 +1174,10 @@ fn tryRepoOwnedNamedCompiledWith(
         synthetic_source,
         entry_symbol,
     ) == null) {
-        return try runInterpretedLexicalWith(HandlersType, Body, runtime, handlers_ptr, outputs_ptr);
+        @compileError(std.fmt.comptimePrint(
+            "shift.with repo-owned named body must lower to ProgramPlan: source={s} entry={s}",
+            .{ source_path, entry_symbol },
+        ));
     }
     const lowered_program = comptime lowering_api.lower(
         source_ref,
@@ -1195,8 +1205,19 @@ fn supportsNamedBodyLowering(comptime Body: type) bool {
 
 fn preferInterpretedAnonymousWith(comptime Body: type) bool {
     if (comptime anonymous_body_synthesis.bodyIdentity(Body) == null) return false;
-    const repo_path = comptime anonymous_body_synthesis.resolvedRepoPath(Body) orelse return true;
+    const repo_path = comptime anonymous_body_synthesis.resolvedRepoPath(Body) orelse return false;
     return std.mem.startsWith(u8, repo_path, "test/lexical_with_");
+}
+
+fn allowsTestOnlyInterpretedWitness(comptime Body: type) bool {
+    if (!builtin.is_test) return false;
+    if (!@hasDecl(Body, "shift_with_interpreted_witness")) return false;
+    if (Body.shift_with_interpreted_witness != true) return false;
+    const source_path = comptime if (bodyDeclSourcePath(Body)) |decl_path|
+        decl_path
+    else
+        anonymous_body_synthesis.resolvedRepoPath(Body) orelse return false;
+    return std.mem.eql(u8, source_path, "src/witness_sources.zig");
 }
 
 /// Build the public With metadata type.
@@ -1229,6 +1250,13 @@ fn withImpl(
 
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
+    if (comptime allowsTestOnlyInterpretedWitness(Body)) {
+        const value = try runInterpretedLexicalWith(HandlersType, Body, runtime, &handler_state, &outputs);
+        return .{
+            .outputs = outputs,
+            .value = value,
+        };
+    }
     if (comptime preferInterpretedAnonymousWith(Body)) {
         const value = try runInterpretedLexicalWith(HandlersType, Body, runtime, &handler_state, &outputs);
         return .{
@@ -1237,6 +1265,13 @@ fn withImpl(
         };
     }
     if (comptime anonymous_body_synthesis.bodyIdentity(Body) == null and !supportsNamedBodyLowering(Body)) {
+        const value = try runInterpretedLexicalWith(HandlersType, Body, runtime, &handler_state, &outputs);
+        return .{
+            .outputs = outputs,
+            .value = value,
+        };
+    }
+    if (comptime anonymous_body_synthesis.bodyIdentity(Body) != null and !anonymous_body_synthesis.hasRepoOwnedCandidate(Body)) {
         const value = try runInterpretedLexicalWith(HandlersType, Body, runtime, &handler_state, &outputs);
         return .{
             .outputs = outputs,
