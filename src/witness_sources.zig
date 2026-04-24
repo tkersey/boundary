@@ -54,11 +54,15 @@ fn witnessAtmBody(eff: anytype) anyerror![]const u8 {
     return "answer=42";
 }
 
-fn witnessStaticRedelimInnerBody(inner_eff: anytype) anyerror!i32 {
+fn witnessStaticRedelimInnerHelper(inner_eff: anytype) anyerror!i32 {
     const inner_value = try inner_eff.inner.step.perform();
     transcript_static_redelim.note("after-inner-shift");
     transcript_static_redelim.note("inner-handler-exit");
     return inner_value + 9 + transcript_static_redelim.outer_value;
+}
+
+fn witnessStaticRedelimInnerBody(inner_eff: anytype) anyerror!i32 {
+    return witnessStaticRedelimInnerHelper(inner_eff);
 }
 
 const static_redelim_inner_body = struct {

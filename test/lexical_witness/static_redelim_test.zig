@@ -54,9 +54,13 @@ pub const transcript = struct {
     };
 };
 
-pub fn staticRedelimInnerBody(inner_eff: anytype) anyerror!i32 {
+fn staticRedelimInnerHelper(inner_eff: anytype) anyerror!i32 {
     const inner_value = try inner_eff.inner.step.perform();
     return inner_value;
+}
+
+pub fn staticRedelimInnerBody(inner_eff: anytype) anyerror!i32 {
+    return staticRedelimInnerHelper(inner_eff);
 }
 
 const static_redelim_inner_body_carrier = struct {

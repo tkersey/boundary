@@ -190,8 +190,22 @@ fn buildFunctionsForGraph(
     return comptime blk: {
         var buffer: [function_count]effect_ir.Function = undefined;
         var index: usize = 0;
+
+        const entry_function = graph.functions[graph.entry_index];
+        buffer[index] = .{
+            .symbol = .{
+                .module_path = cloneBytes(entry_function.module_path),
+                .symbol_name = cloneBytes(entry_function.name),
+            },
+            .row = row,
+            .parameter_codecs = parameterCodecs(entry_function),
+            .ValueType = ValueTypeForShape(entry_function.return_shape),
+            .outputs = &.{},
+        };
+        index += 1;
+
         for (graph.functions, 0..) |function, function_index| {
-            if (!reachable[function_index]) continue;
+            if (!reachable[function_index] or function_index == graph.entry_index) continue;
             buffer[index] = .{
                 .symbol = .{
                     .module_path = cloneBytes(function.module_path),
