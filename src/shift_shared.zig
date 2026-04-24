@@ -54,7 +54,7 @@ test "lexical manifest adapter stays buildable under the shared harness" {
     };
     const manifest_shape = lexical_manifest.Manifest(Handlers);
 
-    try std.testing.expectEqual(@as(usize, 1), manifest_shape.row.requirements.len);
+    try std.testing.expectEqual(@as(usize, 1), manifest_shape.row().requirements.len);
 }
 
 test "anonymous body synthesis helper stays buildable under the shared harness" {

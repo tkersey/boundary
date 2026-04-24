@@ -2249,7 +2249,7 @@ fn collectFilesystemRepoZigPaths(
         std.process.fatal("unable to open repo root for build input walk '{s}': {s}", .{ repo_root, @errorName(err) });
     defer root_dir.close(io);
 
-    var walker = root_dir.walk(allocator) catch
+    var walker = root_dir.walkSelectively(allocator) catch
         std.process.fatal("unable to walk repo root for build inputs", .{});
     defer walker.deinit();
 
@@ -2257,6 +2257,11 @@ fn collectFilesystemRepoZigPaths(
         std.process.fatal("unable to iterate repo build input walk", .{}))) |entry|
     {
         if (pathIsIgnoredBuildInput(entry.path)) continue;
+        if (entry.kind == .directory) {
+            walker.enter(io, entry) catch
+                std.process.fatal("unable to enter repo build input directory '{s}'", .{entry.path});
+            continue;
+        }
         if (!(entry.kind == .file or entry.kind == .sym_link)) continue;
         if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
         appendOwnedPathIfMissing(allocator, paths, path_set, entry.path) catch
