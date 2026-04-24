@@ -222,7 +222,9 @@ fn executeLoweredDispatch(
     function_index: u16,
     args: []const lowered_machine.ProgramValue,
 ) anyerror!LoweredFunctionResult {
-    return program_plan_interpreter.executeDispatch(compiled_plan, handlers_ptr, function_index, args);
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    return program_plan_interpreter.executeDispatch(&runtime, compiled_plan, handlers_ptr, function_index, args);
 }
 
 fn cloneBytes(comptime bytes: []const u8) []const u8 {

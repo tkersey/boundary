@@ -734,8 +734,8 @@ fn continueFunction(
                 .return_error => return executeReturnErrorAtInstruction(compiled_plan, instruction_index),
                 .return_value => return_local = instruction.operand,
                 .sub_one => setLocal(locals, instruction.dst, switch (getLocal(locals, instruction.operand)) {
-                    .i32 => |typed| .{ .i32 = typed - 1 },
-                    .usize => |typed| .{ .usize = typed - 1 },
+                    .i32 => |typed| .{ .i32 = try checkedSubI32(typed, 1) },
+                    .usize => |typed| .{ .usize = try checkedSubUsize(typed, 1) },
                     else => unreachable,
                 }),
             }
@@ -926,6 +926,14 @@ fn checkedAddI32(left: i32, right: i32) anyerror!i32 {
     return std.math.add(i32, left, right) catch return error.ProgramContractViolation;
 }
 
+fn checkedSubI32(left: i32, right: i32) anyerror!i32 {
+    return std.math.sub(i32, left, right) catch return error.ProgramContractViolation;
+}
+
+fn checkedSubUsize(left: usize, right: usize) anyerror!usize {
+    return std.math.sub(usize, left, right) catch return error.ProgramContractViolation;
+}
+
 /// Execute the entry function of one ProgramPlan and finalize its outputs.
 pub fn runEntryInSource(
     runtime: *lowered_machine.Runtime,
@@ -1081,4 +1089,82 @@ test "program plan interpreter rejects invalid call_nested_with aux codecs" {
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     try std.testing.expectError(error.ProgramContractViolation, executeDispatch(&runtime, compiled_plan, &handlers, 0, &.{}));
+}
+
+test "program plan interpreter returns ProgramContractViolation on i32 sub_one overflow" {
+    const compiled_plan: program_plan.ProgramPlan = .{
+        .label = "interpreter.invalid.sub_one_i32_overflow",
+        .ir_hash = 0x307,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .i32,
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .i32 }},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .sub_one, .dst = 0, .operand = 0 },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+
+    var handlers = struct {}{};
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, executeDispatch(&runtime, compiled_plan, &handlers, 0, &.{.{ .i32 = std.math.minInt(i32) }}));
+}
+
+test "program plan interpreter returns ProgramContractViolation on usize sub_one underflow" {
+    const compiled_plan: program_plan.ProgramPlan = .{
+        .label = "interpreter.invalid.sub_one_usize_underflow",
+        .ir_hash = 0x308,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .usize,
+            .parameter_count = 1,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .usize }},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .sub_one, .dst = 0, .operand = 0 },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+
+    var handlers = struct {}{};
+    var runtime = lowered_machine.Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
+    try std.testing.expectError(error.ProgramContractViolation, executeDispatch(&runtime, compiled_plan, &handlers, 0, &.{.{ .usize = 0 }}));
 }
