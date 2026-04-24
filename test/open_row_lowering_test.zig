@@ -79,11 +79,10 @@ fn symLinkAbsolute(target_path: []const u8, sym_link_path: []const u8) !void {
     try std.Io.Dir.symLinkAbsolute(compatIo(), target_path, sym_link_path, .{});
 }
 
-var unique_suffix_counter: u64 = 0;
+var unique_suffix_counter = std.atomic.Value(u64).init(0);
 
 fn uniqueSuffix() u64 {
-    unique_suffix_counter += 1;
-    return unique_suffix_counter;
+    return unique_suffix_counter.fetchAdd(1, .monotonic) + 1;
 }
 
 fn symlinkAliasPath(
