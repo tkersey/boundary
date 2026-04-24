@@ -498,6 +498,7 @@ fn parseBoundLocalFromHelperCall(effect_param: ?[]const u8, aliases: []const Ali
 }
 
 fn parseBoundLocalFromNestedWith(
+    imports: anytype,
     statement: []const Token,
 ) ?struct {
     local_name: []const u8,
@@ -513,7 +514,7 @@ fn parseBoundLocalFromNestedWith(
     if (tokens.len < 25) return null;
     if (tokens[0].tag != .keyword_const or tokens[1].tag != .identifier or tokens[2].tag != .equal) return null;
     if (tokens[3].tag != .l_paren or tokens[4].tag != .keyword_try) return null;
-    if (!(tokens[5].tag == .identifier and std.mem.eql(u8, tokens[5].lexeme, "lexical_runtime"))) return null;
+    if (!(tokens[5].tag == .identifier and nestedWithCalleeIsAdmitted(imports, tokens[5].lexeme))) return null;
     if (tokens[6].tag != .period or tokens[7].tag != .identifier or !std.mem.eql(u8, tokens[7].lexeme, "with")) return null;
     if (tokens[8].tag != .l_paren) return null;
 
@@ -594,6 +595,12 @@ fn parseBoundLocalFromNestedWith(
         .handler_name = handler_name,
         .carrier_name = carrier_name,
     };
+}
+
+fn nestedWithCalleeIsAdmitted(imports: anytype, name: []const u8) bool {
+    const import_path = findImportAlias(imports, name) orelse return false;
+    return std.mem.eql(u8, import_path, "shift") or
+        std.mem.eql(u8, import_path, "synthetic_shift");
 }
 
 fn nestedHandlerInitializerIsExactEmpty(handlers: []const Token) bool {
@@ -1039,7 +1046,7 @@ pub fn parseFunctionBody(
         if (body.step_count >= body.steps.len) return null;
 
         _ = module_path;
-        if (parseBoundLocalFromNestedWith(statement)) |nested_with| {
+        if (parseBoundLocalFromNestedWith(imports, statement)) |nested_with| {
             body.steps[body.step_count] = .{ .bind_local_from_nested_with = .{
                 .local_name = nested_with.local_name,
                 .runtime_container_name = nested_with.runtime_container_name,
@@ -1165,7 +1172,10 @@ test "parseFunctionBody admits nested with only for named carrier and empty hand
     ;
     const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
     const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
-    const body = parseFunctionBody(source, "test/nested_default.zig", body_start, body_end, null, &.{}) orelse return error.TestUnexpectedResult;
+    const imports = [_]struct { name: []const u8, import_path: []const u8 }{
+        .{ .name = "lexical_runtime", .import_path = "shift" },
+    };
+    const body = parseFunctionBody(source, "test/nested_default.zig", body_start, body_end, null, imports[0..]) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(usize, 2), body.step_count);
     try std.testing.expect(body.steps[0] == .bind_local_from_nested_with);
     try std.testing.expectEqualStrings("nested_result", body.steps[0].bind_local_from_nested_with.local_name);
@@ -1174,6 +1184,45 @@ test "parseFunctionBody admits nested with only for named carrier and empty hand
     try std.testing.expectEqualStrings("nested", body.steps[0].bind_local_from_nested_with.container_name);
     try std.testing.expectEqualStrings("InnerHandler", body.steps[0].bind_local_from_nested_with.handler_name);
     try std.testing.expectEqualStrings("static_redelim_inner_body_carrier", body.steps[0].bind_local_from_nested_with.carrier_name.?);
+}
+
+test "parseFunctionBody admits public shift nested with callee" {
+    const source =
+        \\pub fn run() i32 {
+        \\    const nested_result = (try shift.with(runtime_transcript.runtime_ptr.?, .{
+        \\        .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
+        \\    }, static_redelim_inner_body_carrier)).value;
+        \\    return nested_result;
+        \\}
+    ;
+    const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
+    const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
+    const imports = [_]struct { name: []const u8, import_path: []const u8 }{
+        .{ .name = "shift", .import_path = "shift" },
+    };
+    const body = parseFunctionBody(source, "test/nested_public_shift.zig", body_start, body_end, null, imports[0..]) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(usize, 2), body.step_count);
+    try std.testing.expect(body.steps[0] == .bind_local_from_nested_with);
+    try std.testing.expectEqualStrings("nested_result", body.steps[0].bind_local_from_nested_with.local_name);
+    try std.testing.expectEqualStrings("inner", body.steps[0].bind_local_from_nested_with.requirement_label);
+    try std.testing.expectEqualStrings("static_redelim_inner_body_carrier", body.steps[0].bind_local_from_nested_with.carrier_name.?);
+}
+
+test "parseFunctionBody rejects public shift nested with without shift import evidence" {
+    const source =
+        \\pub fn run() i32 {
+        \\    const nested_result = (try shift.with(runtime_transcript.runtime_ptr.?, .{
+        \\        .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
+        \\    }, static_redelim_inner_body_carrier)).value;
+        \\    return nested_result;
+        \\}
+    ;
+    const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
+    const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
+    const imports = [_]struct { name: []const u8, import_path: []const u8 }{
+        .{ .name = "shift", .import_path = "not_shift.zig" },
+    };
+    try std.testing.expect(parseFunctionBody(source, "test/nested_shadowed_shift.zig", body_start, body_end, null, imports[0..]) == null);
 }
 
 test "parseFunctionBody rejects nested with inline struct body until lowered" {

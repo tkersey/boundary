@@ -1386,6 +1386,27 @@ fn maybeTopLevelImportAlias(token_window: *const TokenWindow) ?TopLevelImportMat
     };
 }
 
+fn maybeTopLevelImportForwardAlias(
+    imports: []const ImportAlias,
+    token_window: *const TokenWindow,
+) ?TopLevelImportMatch {
+    if (token_window.count < 5) return null;
+    const tail = token_window.items[token_window.count - 5 .. token_window.count];
+    if (!((tail[0].tag == .keyword_const or tail[0].tag == .keyword_var) and
+        tail[1].tag == .identifier and
+        tail[2].tag == .equal and
+        tail[3].tag == .identifier and
+        tail[4].tag == .semicolon))
+    {
+        return null;
+    }
+    const import_alias = findImportAlias(imports, tail[3].lexeme) orelse return null;
+    return .{
+        .name = tail[1].lexeme,
+        .import_path = import_alias.import_path,
+    };
+}
+
 fn maybeQualifiedHelperUse(
     imports: []const ImportAlias,
     token_window: *const TokenWindow,
@@ -1797,6 +1818,11 @@ fn scanSource(source: [:0]const u8, collector: anytype, options: AnalyzeOptions)
                         .name = import_alias.name,
                         .import_path = import_alias.import_path,
                     });
+                } else if (maybeTopLevelImportForwardAlias(collector.importsSlice(), &top_level_window)) |import_alias| {
+                    try collector.pushImport(.{
+                        .name = import_alias.name,
+                        .import_path = import_alias.import_path,
+                    });
                 }
             }
         }
@@ -2017,6 +2043,88 @@ test "shared engine keeps bool literal continuation request bodies in the loweri
     try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
     try std.testing.expectEqualStrings("optional", graph.direct_op_uses[0].requirement_label);
     try std.testing.expectEqualStrings("request", graph.direct_op_uses[0].op_name);
+}
+
+test "shared engine admits public shift nested with only through shift import evidence" {
+    const graph = try analyzeComptime(
+        \\const shift = @import("shift");
+        \\pub fn runBody() anyerror!i32 {
+        \\    const nested_result = (try shift.with(runtime_holder.ptr.?, .{
+        \\        .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
+        \\    }, static_redelim_inner_body_carrier)).value;
+        \\    return nested_result;
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
+}
+
+test "shared engine rejects public shift nested with through shadow import" {
+    const graph = try analyzeComptime(
+        \\const shift = @import("shadow.zig");
+        \\pub fn runBody() anyerror!i32 {
+        \\    const nested_result = (try shift.with(runtime_holder.ptr.?, .{
+        \\        .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
+        \\    }, static_redelim_inner_body_carrier)).value;
+        \\    return nested_result;
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expect(!graph.functions[graph.entry_index.?].body_lowering_supported);
+}
+
+test "shared engine admits forwarded shift import alias for nested with" {
+    const graph = try analyzeComptime(
+        \\const shift = @import("shift");
+        \\const lexical_runtime = shift;
+        \\pub fn runBody() anyerror!i32 {
+        \\    const nested_result = (try lexical_runtime.with(runtime_holder.ptr.?, .{
+        \\        .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
+        \\    }, static_redelim_inner_body_carrier)).value;
+        \\    return nested_result;
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
+}
+
+test "shared engine admits forwarded synthetic shift import alias for nested with" {
+    const graph = try analyzeComptime(
+        \\const shift = @import("synthetic_shift");
+        \\const lexical_runtime = shift;
+        \\pub fn runBody() anyerror!i32 {
+        \\    const nested_result = (try lexical_runtime.with(runtime_holder.ptr.?, .{
+        \\        .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
+        \\    }, static_redelim_inner_body_carrier)).value;
+        \\    return nested_result;
+        \\}
+    ,
+        .{
+            .entry_symbol = "runBody",
+            .reject_recursive_helpers = true,
+            .reject_indirect_effect_access = true,
+        },
+    );
+
+    try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
 }
 
 test "shared engine rejects negative payload literals from the lowering subset" {
