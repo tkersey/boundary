@@ -748,6 +748,11 @@ pub fn entryBodyHasBareFunctionCall(
     var previous_tag: std.zig.Token.Tag = .invalid;
     var previous_previous_tag: std.zig.Token.Tag = .invalid;
     var token_window = EntryBodyTokenWindow{};
+    var aliases = [_]EntryBodyAlias{.{
+        .name = "",
+        .kind = .effect_root,
+    }} ** 32;
+    var alias_count: usize = 0;
 
     while (true) {
         const token = tokenizer.next();
@@ -762,12 +767,27 @@ pub fn entryBodyHasBareFunctionCall(
             previous_previous_tag != .keyword_fn)
         {
             if (previous_previous_tag != .period) return true;
-            if (!qualifiedCallRootIsEntryEffectParam(params_source, &token_window)) return true;
+            if (!qualifiedCallRootIsSupportedEffectAccess(params_source, aliases[0..alias_count], &token_window)) return true;
+        }
+        if (token.tag == .semicolon) {
+            if (maybeEntryBodyAliasFromDeclaration(params_source, aliases[0..alias_count], &token_window)) |alias| {
+                if (!upsertEntryBodyAlias(aliases[0..], &alias_count, alias.name, alias.kind)) return true;
+            }
         }
         previous_previous_tag = previous_tag;
         previous_tag = token.tag;
     }
 }
+
+const EntryBodyAliasKind = union(enum) {
+    effect_root,
+    requirement: []const u8,
+};
+
+const EntryBodyAlias = struct {
+    name: []const u8,
+    kind: EntryBodyAliasKind,
+};
 
 const EntryBodyToken = struct {
     tag: std.zig.Token.Tag,
@@ -813,12 +833,93 @@ fn qualifiedCallRoot(window: *const EntryBodyTokenWindow) ?[]const u8 {
     return window.items[root_index].lexeme;
 }
 
-fn qualifiedCallRootIsEntryEffectParam(
+fn qualifiedCallRootIsSupportedEffectAccess(
     comptime params_source: []const u8,
+    comptime aliases: []const EntryBodyAlias,
     window: *const EntryBodyTokenWindow,
 ) bool {
     const root = qualifiedCallRoot(window) orelse return false;
-    return entryParamsContainAnytypeParamNamed(params_source, root);
+    return entryBodyAliasKind(params_source, aliases, root) != null;
+}
+
+fn entryBodyAliasKind(
+    comptime params_source: []const u8,
+    comptime aliases: []const EntryBodyAlias,
+    comptime name: []const u8,
+) ?EntryBodyAliasKind {
+    if (entryParamsContainAnytypeParamNamed(params_source, name)) return .effect_root;
+    for (aliases) |alias| {
+        if (std.mem.eql(u8, alias.name, name)) return alias.kind;
+    }
+    return null;
+}
+
+fn upsertEntryBodyAlias(
+    aliases: []EntryBodyAlias,
+    alias_count: *usize,
+    comptime name: []const u8,
+    comptime kind: EntryBodyAliasKind,
+) bool {
+    for (aliases[0..alias_count.*]) |*alias| {
+        if (!std.mem.eql(u8, alias.name, name)) continue;
+        alias.kind = kind;
+        return true;
+    }
+    if (alias_count.* >= aliases.len) return false;
+    aliases[alias_count.*] = .{
+        .name = name,
+        .kind = kind,
+    };
+    alias_count.* += 1;
+    return true;
+}
+
+fn maybeEntryBodyAliasFromDeclaration(
+    comptime params_source: []const u8,
+    comptime aliases: []const EntryBodyAlias,
+    window: *const EntryBodyTokenWindow,
+) ?struct {
+    name: []const u8,
+    kind: EntryBodyAliasKind,
+} {
+    if (window.count >= 5) {
+        const tail = window.items[window.count - 5 .. window.count];
+        if ((tail[0].tag == .keyword_const or tail[0].tag == .keyword_var) and
+            tail[1].tag == .identifier and
+            tail[2].tag == .equal and
+            tail[3].tag == .identifier and
+            tail[4].tag == .semicolon)
+        {
+            const source_kind = entryBodyAliasKind(params_source, aliases, tail[3].lexeme) orelse return null;
+            return .{
+                .name = tail[1].lexeme,
+                .kind = source_kind,
+            };
+        }
+    }
+
+    if (window.count >= 7) {
+        const tail = window.items[window.count - 7 .. window.count];
+        if ((tail[0].tag == .keyword_const or tail[0].tag == .keyword_var) and
+            tail[1].tag == .identifier and
+            tail[2].tag == .equal and
+            tail[3].tag == .identifier and
+            tail[4].tag == .period and
+            tail[5].tag == .identifier and
+            tail[6].tag == .semicolon)
+        {
+            const source_kind = entryBodyAliasKind(params_source, aliases, tail[3].lexeme) orelse return null;
+            return switch (source_kind) {
+                .effect_root => .{
+                    .name = tail[1].lexeme,
+                    .kind = .{ .requirement = tail[5].lexeme },
+                },
+                .requirement => null,
+            };
+        }
+    }
+
+    return null;
 }
 
 fn entryParamsContainAnytypeParamNamed(comptime params_source: []const u8, root: []const u8) bool {
@@ -1645,6 +1746,16 @@ test "caller-owned entry scan admits effect-qualified calls" {
         \\}
     ;
     try std.testing.expect(!entryBodyHasBareFunctionCall(ctx_source, "__ability_with_entry_l1_c1"));
+}
+
+test "caller-owned entry scan admits requirement-alias effect calls" {
+    const requirement_alias_source =
+        \\pub fn __ability_with_entry_l1_c1(eff: anytype) anyerror!i32 {
+        \\    const state = eff.state;
+        \\    return try state.get();
+        \\}
+    ;
+    try std.testing.expect(!entryBodyHasBareFunctionCall(requirement_alias_source, "__ability_with_entry_l1_c1"));
 }
 
 test "caller-owned entry scan rejects qualified helper calls" {

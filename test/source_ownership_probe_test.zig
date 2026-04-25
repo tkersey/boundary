@@ -544,6 +544,30 @@ test "public withCallerSource admits anonymous downstream bodies without interpr
     try runDownstreamAbilityWithMain(main_zig);
 }
 
+test "public withCallerSource admits anonymous downstream requirement aliases" {
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), &runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, struct {
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            const state = eff.state;
+        \\            return try state.get();
+        \\        }
+        \\    });
+        \\    if (result.value != 9) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMain(main_zig);
+}
+
 test "public withCallerSource admits named downstream bodies without interpreted fallback" {
     const main_zig =
         \\const ability = @import("ability");
@@ -552,6 +576,32 @@ test "public withCallerSource admits named downstream bodies without interpreted
         \\const Body = struct {
         \\    pub fn body(eff: anytype) anyerror!i32 {
         \\        return try eff.state.get();
+        \\    }
+        \\};
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), &runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, Body);
+        \\    if (result.value != 9) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMain(main_zig);
+}
+
+test "public withCallerSource admits named downstream requirement aliases" {
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\const Body = struct {
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        const state = eff.state;
+        \\        return try state.get();
         \\    }
         \\};
         \\
