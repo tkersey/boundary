@@ -7,15 +7,10 @@ const NoError = error{};
 const profile_iterations: usize = 2_000;
 const writer_items_per_body: usize = 64;
 const resource_items_per_body: usize = 32;
+const preserveValue = ability.preserveValue;
 
 const WriterInstance = ability.effect.writer.Instance(usize, NoError);
 const ResourceInstance = ability.effect.resource.Instance(usize, NoError);
-
-fn preserveValue(value: anytype) @TypeOf(value) {
-    const preserved = value;
-    std.mem.doNotOptimizeAway(preserved);
-    return preserved;
-}
 
 fn printProfileLine(writer: anytype, label: []const u8, checksum: usize, profiler: anytype) !void {
     try writer.print(

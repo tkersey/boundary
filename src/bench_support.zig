@@ -5,6 +5,7 @@ const internal_algebraic = @import("internal/algebraic_engine.zig");
 const lowered_machine = @import("lowered_machine");
 const lowering_api = @import("lowering_api");
 const prompt_support = @import("internal/prompt_support.zig");
+const std = @import("std");
 
 /// Benchmark-visible runtime shell.
 pub const Runtime = lowered_machine.Runtime;
@@ -35,6 +36,13 @@ pub const abortProgram = prompt_support.abortProgram;
 pub const perform = prompt_support.perform;
 /// Benchmark-visible explicit run helper.
 pub const reset = prompt_support.run;
+
+/// Preserve benchmark values across optimizer passes without changing the value.
+pub fn preserveValue(value: anytype) @TypeOf(value) {
+    const preserved = value;
+    std.mem.doNotOptimizeAway(preserved);
+    return preserved;
+}
 
 /// Benchmark-visible reset error helper.
 pub fn ResetError(comptime ErrorSetType: type) type {

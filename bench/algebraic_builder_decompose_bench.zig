@@ -5,6 +5,7 @@ const NoError = error{};
 const timed_iterations: usize = 50_000;
 const warmup_iterations: usize = 20_000;
 const samples_per_run: usize = 5;
+const preserveValue = ability.preserveValue;
 
 const RawTransformPrompt = ability.Prompt(.resume_then_transform, usize, usize, NoError);
 const AlgebraicTransformOp = ability.algebraic.TransformOp("algebraic_decompose", usize, usize);
@@ -13,12 +14,6 @@ const Sample = struct {
     checksum: usize,
     elapsed_ns: u64,
 };
-
-fn preserveValue(value: anytype) @TypeOf(value) {
-    const preserved = value;
-    std.mem.doNotOptimizeAway(preserved);
-    return preserved;
-}
 
 fn sortAscending(values: []u64) void {
     var index: usize = 1;

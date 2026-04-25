@@ -7,6 +7,7 @@ const StateInstance = ability.effect.state.Instance(usize, NoError);
 const timed_iterations: usize = 50_000;
 const warmup_iterations: usize = 20_000;
 const samples_per_run: usize = 5;
+const preserveValue = ability.preserveValue;
 
 const Sample = struct {
     checksum: usize,
@@ -15,12 +16,6 @@ const Sample = struct {
 
 fn elapsedNsSince(io: std.Io, start: std.Io.Timestamp) u64 {
     return @intCast(start.durationTo(std.Io.Timestamp.now(io, .boot)).toNanoseconds());
-}
-
-fn preserveValue(value: anytype) @TypeOf(value) {
-    const preserved = value;
-    std.mem.doNotOptimizeAway(preserved);
-    return preserved;
 }
 
 fn rawProgram(comptime PromptType: type, body: anytype) ability.frontend.Program(PromptType) {

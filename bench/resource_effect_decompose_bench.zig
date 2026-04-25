@@ -5,6 +5,7 @@ const NoError = error{};
 const timed_iterations: usize = 50_000;
 const warmup_iterations: usize = 20_000;
 const samples_per_run: usize = 5;
+const preserveValue = ability.preserveValue;
 
 const ResourceInstance = ability.effect.resource.Instance(usize, NoError);
 
@@ -14,12 +15,6 @@ const Sample = struct {
 };
 
 const resource_inline_capacity = 4;
-
-fn preserveValue(value: anytype) @TypeOf(value) {
-    const preserved = value;
-    std.mem.doNotOptimizeAway(preserved);
-    return preserved;
-}
 
 const LaneReport = struct {
     items_per_body: usize,
