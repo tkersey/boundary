@@ -879,9 +879,50 @@ fn failRepoOwnedAnonymousSource(comptime Body: type) noreturn {
 
 fn failUnsupportedBody(comptime Body: type) noreturn {
     @compileError(std.fmt.comptimePrint(
-        "ability.with bodies must lower to ProgramPlan; unsupported body has no repo-owned source witness: body={s}",
+        "ability.with bodies must lower to ProgramPlan; unsupported body has no repo-owned source witness: body={s}; downstream callers should use ability.withCallerSource(@src(), @embedFile(@src().file), ...)",
         .{@typeName(Body)},
     ));
+}
+
+fn isAnonymousBodyType(comptime Body: type) bool {
+    const name = @typeName(Body);
+    return std.mem.find(u8, name, "__struct_") != null;
+}
+
+fn callerFileModuleStem(comptime caller: std.builtin.SourceLocation) []const u8 {
+    const file = caller.file;
+    var start: usize = 0;
+    for (file, 0..) |char, index| {
+        if (char == '/' or char == '\\') start = index + 1;
+    }
+    var end: usize = file.len;
+    for (file[start..], start..) |char, index| {
+        if (char == '.') end = index;
+    }
+    return file[start..end];
+}
+
+fn callerOwnedNamedBodySymbol(comptime caller: std.builtin.SourceLocation, comptime Body: type) ?[]const u8 {
+    const name = @typeName(Body);
+    if (isAnonymousBodyType(Body)) return null;
+
+    var start: usize = 0;
+    for (name, 0..) |char, index| {
+        if (char == '.') start = index + 1;
+    }
+    const symbol = name[start..];
+    if (symbol.len == 0) return null;
+    if (!(std.ascii.isAlphabetic(symbol[0]) or symbol[0] == '_')) return null;
+    for (symbol[1..]) |char| {
+        if (!(std.ascii.isAlphanumeric(char) or char == '_')) return null;
+    }
+
+    const module_stem = callerFileModuleStem(caller);
+    if (module_stem.len == 0) return null;
+    const module_prefix = std.fmt.comptimePrint("{s}.", .{module_stem});
+    if (!std.mem.startsWith(u8, name, module_prefix)) return null;
+    if (!std.mem.eql(u8, name[module_prefix.len..], symbol)) return null;
+    return symbol;
 }
 
 // zlinter-disable max_positional_args - caller-owned synthesis needs the exact caller source plus the same runtime state bundle as repo-owned compilation.
@@ -893,7 +934,7 @@ fn tryCallerOwnedAnonymousCompiledWith(
     runtime: *lowered_machine.Runtime,
     handlers_ptr: *HandlersType,
     outputs_ptr: *OutputBundleType(HandlersType),
-) ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
+) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
     const entry_symbol = comptime anonymous_body_synthesis.callerEntryName(caller);
     const return_syntax = comptime compiledBodyReturnSyntax(HandlersType, Body);
     const maybe_synthetic = comptime anonymous_body_synthesis.syntheticSourceWithEntry(
@@ -914,30 +955,60 @@ fn tryCallerOwnedAnonymousCompiledWith(
         },
     ));
     const synthetic_path = comptime syntheticLoweringSourcePath(entry_symbol);
-    const source_ref = comptime lowering_api.sourceWithContent(
-        synthetic_path,
-        syntheticSourceLocation(synthetic_path, entry_symbol),
-        synthetic,
-    );
-    if (comptime anonymous_body_synthesis.maybeLowerSyntheticLexicalBody(
+    if (comptime anonymous_body_synthesis.entryBodyHasBareFunctionCall(synthetic, entry_symbol)) {
+        @compileError("ability.withCallerSource caller-owned anonymous body must lower to ProgramPlan without unsupported syntax");
+    }
+    const lowered = comptime anonymous_body_synthesis.maybeLowerSyntheticLexicalBody(
         HandlersType,
         BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
         synthetic_path,
         synthetic,
         entry_symbol,
-    ) == null) {
-        return null;
+    ) orelse @compileError("ability.withCallerSource caller-owned anonymous body must lower to ProgramPlan without unsupported syntax");
+    const lowered_program = comptime lowering_api.planFromOpenRowGenerated("ability.with caller-owned lexical body", lowered);
+    return try runCompiledLexicalPlan(
+        HandlersType,
+        Body,
+        runtime,
+        handlers_ptr,
+        outputs_ptr,
+        lowered_program,
+    );
+}
+
+// zlinter-disable max_positional_args - caller-owned named synthesis needs the exact caller source plus the same runtime state bundle as anonymous compilation.
+fn tryCallerOwnedNamedCompiledWith(
+    comptime caller: std.builtin.SourceLocation,
+    comptime caller_source: []const u8,
+    comptime HandlersType: type,
+    comptime Body: type,
+    runtime: *lowered_machine.Runtime,
+    handlers_ptr: *HandlersType,
+    outputs_ptr: *OutputBundleType(HandlersType),
+) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
+    const body_symbol = comptime callerOwnedNamedBodySymbol(caller, Body) orelse
+        @compileError("ability.withCallerSource named body must be declared as a top-level const in the caller source file");
+    const entry_symbol = comptime std.fmt.comptimePrint("__ability_with_named_{s}", .{body_symbol});
+    const synthetic_source = comptime anonymous_body_synthesis.syntheticSourceForNamedTypeWithEntry(
+        Body,
+        caller,
+        caller_source,
+        body_symbol,
+        entry_symbol,
+        compiledBodyReturnSyntax(HandlersType, Body),
+    ) orelse @compileError("ability.withCallerSource named body source witness did not contain a matching const Body = struct declaration");
+    const synthetic_path = comptime syntheticLoweringSourcePath(entry_symbol);
+    if (comptime anonymous_body_synthesis.entryBodyHasBareFunctionCall(synthetic_source, entry_symbol)) {
+        @compileError("ability.withCallerSource caller-owned named body must lower to ProgramPlan without unsupported syntax");
     }
-    const lowered_program = comptime lowering_api.lower(
-        source_ref,
-        .{
-            .label = "ability.with caller-owned lexical body",
-            .entry_symbol = entry_symbol,
-            .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
-            .row = lexical_manifest.Manifest(HandlersType).row(),
-            .outputs = lexical_manifest.Manifest(HandlersType).outputs(),
-        },
-    ).runtime_plan;
+    const lowered = comptime anonymous_body_synthesis.maybeLowerSyntheticLexicalBody(
+        HandlersType,
+        BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+        synthetic_path,
+        synthetic_source,
+        entry_symbol,
+    ) orelse @compileError("ability.withCallerSource caller-owned named body must lower to ProgramPlan without unsupported syntax");
+    const lowered_program = comptime lowering_api.planFromOpenRowGenerated("ability.with caller-owned named lexical body", lowered);
     return try runCompiledLexicalPlan(
         HandlersType,
         Body,
@@ -1131,8 +1202,14 @@ pub fn withCallerSource(
 
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
-    const compiled = tryCallerOwnedAnonymousCompiledWith(caller, caller_source, HandlersType, Body, runtime, &handler_state, &outputs) orelse
-        @compileError("ability.with caller-owned anonymous body did not lower to ProgramPlan");
+    const compiled = if (comptime supportsNamedBodyLowering(Body))
+        tryRepoOwnedNamedCompiledWith(HandlersType, Body, runtime, &handler_state, &outputs)
+    else if (comptime callerOwnedNamedBodySymbol(caller, Body) != null)
+        tryCallerOwnedNamedCompiledWith(caller, caller_source, HandlersType, Body, runtime, &handler_state, &outputs)
+    else if (comptime !isAnonymousBodyType(Body))
+        @compileError("ability.withCallerSource named body must be declared as a top-level const in the caller source file")
+    else
+        tryCallerOwnedAnonymousCompiledWith(caller, caller_source, HandlersType, Body, runtime, &handler_state, &outputs);
     const value = try compiled;
     return .{
         .outputs = outputs,

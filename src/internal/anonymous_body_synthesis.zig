@@ -490,6 +490,54 @@ fn bodyExpressionBounds(
     }
 }
 
+fn namedStructExpressionBounds(
+    comptime source: []const u8,
+    comptime body_symbol: []const u8,
+) ?Bounds {
+    comptime {
+        @setEvalBranchQuota(2_000_000);
+    }
+    const sentinel = std.fmt.comptimePrint("{s}\x00", .{source});
+    var tokenizer = std.zig.Tokenizer.init(sentinel[0..source.len :0]);
+    var matches = [_]Bounds{.{ .start = 0, .end = 0 }} ** 8;
+    var match_count: usize = 0;
+
+    while (true) {
+        const first = tokenizer.next();
+        if (first.tag == .eof) break;
+        if (isIgnorableToken(first.tag)) continue;
+
+        var name = first;
+        if (first.tag == .keyword_pub) {
+            const const_token = tokenizer.next();
+            if (const_token.tag != .keyword_const) continue;
+            name = tokenizer.next();
+        } else if (first.tag != .keyword_const) {
+            continue;
+        } else {
+            name = tokenizer.next();
+        }
+
+        if (name.tag != .identifier) continue;
+        if (!std.mem.eql(u8, sentinel[name.loc.start..name.loc.end], body_symbol)) continue;
+
+        const eq = tokenizer.next();
+        if (eq.tag != .equal) continue;
+        const struct_token = tokenizer.next();
+        if (struct_token.tag != .keyword_struct) continue;
+        const open = tokenizer.next();
+        if (open.tag != .l_brace) continue;
+
+        const close = findMatchingDelimiter(source, open.loc.start, '{', '}') orelse return null;
+        if (match_count >= matches.len) return null;
+        matches[match_count] = .{ .start = struct_token.loc.start, .end = close + 1 };
+        match_count += 1;
+    }
+
+    if (match_count != 1) return null;
+    return matches[0];
+}
+
 pub fn uniqueBodyExpressionBoundsInRange(
     comptime source: [:0]const u8,
     comptime range_start: usize,
@@ -647,6 +695,32 @@ fn hasSelfDiscardStatement(comptime body_source: []const u8, comptime identifier
     return std.mem.indexOf(u8, body_source, discard_pattern) != null;
 }
 
+pub fn entryBodyHasBareFunctionCall(
+    comptime source: []const u8,
+    comptime entry_symbol: []const u8,
+) bool {
+    const marker = std.fmt.comptimePrint("fn {s}(", .{entry_symbol});
+    const fn_index = std.mem.indexOf(u8, source, marker) orelse return true;
+    const params_start = fn_index + marker.len - 1;
+    const params_end = findMatchingDelimiter(source, params_start, '(', ')') orelse return true;
+    const body_start = std.mem.indexOfScalarPos(u8, source, params_end, '{') orelse return true;
+    const body_end = findMatchingDelimiter(source, body_start, '{', '}') orelse return true;
+    const body_source = source[body_start..body_end];
+    const sentinel = std.fmt.comptimePrint("{s}\x00", .{body_source});
+    var tokenizer = std.zig.Tokenizer.init(sentinel[0..body_source.len :0]);
+    var previous_tag: std.zig.Token.Tag = .invalid;
+    var previous_previous_tag: std.zig.Token.Tag = .invalid;
+
+    while (true) {
+        const token = tokenizer.next();
+        if (token.tag == .eof) return false;
+        if (isIgnorableToken(token.tag)) continue;
+        if (token.tag == .l_paren and previous_tag == .identifier and previous_previous_tag != .period) return true;
+        previous_previous_tag = previous_tag;
+        previous_tag = token.tag;
+    }
+}
+
 fn trimAsciiWhitespace(comptime source: []const u8) []const u8 {
     var start: usize = 0;
     var end: usize = source.len;
@@ -686,6 +760,27 @@ fn sanitizedCallerSourceForBounds(comptime caller_source: []const u8, comptime b
             caller_source[bounds.end..],
         },
     );
+}
+
+fn callerOwnedSyntheticCallerSource(
+    comptime caller: std.builtin.SourceLocation,
+    comptime caller_source: []const u8,
+) []const u8 {
+    const target_offset = comptime offsetForLineColumn(caller_source, caller.line, caller.column) orelse return caller_source;
+    const sentinel = std.fmt.comptimePrint("{s}\x00", .{caller_source});
+    const maybe_decl_start = if (source_graph_engine.analyzeComptime(sentinel[0..caller_source.len :0], .{})) |graph| blk: {
+        const function = functionContainingOffset(graph.functions, target_offset) orelse break :blk null;
+        break :blk functionDeclStart(caller_source, function);
+    } else |_| blk: {
+        const search = caller_source[0..target_offset];
+        const fn_index = std.mem.lastIndexOf(u8, search, "fn ") orelse break :blk null;
+        var start = fn_index;
+        while (start > 0 and std.ascii.isWhitespace(caller_source[start - 1])) : (start -= 1) {}
+        if (start >= 3 and std.mem.eql(u8, caller_source[start - 3 .. start], "pub")) break :blk start - 3;
+        break :blk fn_index;
+    };
+    const decl_start = maybe_decl_start orelse return caller_source;
+    return caller_source[0..decl_start];
 }
 
 fn functionContainingOffset(
@@ -959,11 +1054,34 @@ pub fn syntheticSourceWithEntry(
     comptime override_return_syntax: ?[]const u8,
 ) ?[:0]const u8 {
     const bounds = comptime bodyExpressionBounds(caller, caller_source, kind) orelse return null;
+    const synthetic_caller_source = switch (kind) {
+        .explicit_location, .explicit_location_and_content => callerOwnedSyntheticCallerSource(caller, caller_source),
+        else => sanitizedCallerSourceForBounds(caller_source, bounds),
+    };
     return syntheticSourceForBounds(
         Body,
         bounds,
         caller_source,
-        sanitizedCallerSourceForBounds(caller_source, bounds),
+        synthetic_caller_source,
+        generated_entry_name,
+        override_return_syntax,
+    );
+}
+
+pub fn syntheticSourceForNamedTypeWithEntry(
+    comptime Body: type,
+    comptime caller: std.builtin.SourceLocation,
+    comptime caller_source: []const u8,
+    comptime body_symbol: []const u8,
+    comptime generated_entry_name: []const u8,
+    comptime override_return_syntax: ?[]const u8,
+) ?[:0]const u8 {
+    const bounds = comptime namedStructExpressionBounds(caller_source, body_symbol) orelse return null;
+    return syntheticSourceForBounds(
+        Body,
+        bounds,
+        caller_source,
+        callerOwnedSyntheticCallerSource(caller, caller_source),
         generated_entry_name,
         override_return_syntax,
     );

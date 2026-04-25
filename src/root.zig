@@ -15,9 +15,21 @@ pub fn with(
     return shared.with(runtime, handlers, Body);
 }
 
+/// Run the public lexical handler entrypoint with caller-owned source bytes.
+pub fn withCallerSource(
+    comptime caller: @import("std").builtin.SourceLocation,
+    comptime caller_source: []const u8,
+    runtime: *Runtime,
+    handlers: anytype,
+    comptime Body: type,
+) shared.WithFnReturnType(@TypeOf(handlers), Body) {
+    return shared.withCallerSource(caller, caller_source, runtime, handlers, Body);
+}
+
 test {
     _ = Runtime;
     _ = RuntimeError;
     _ = effect;
     _ = with;
+    _ = withCallerSource;
 }
