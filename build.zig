@@ -4621,7 +4621,6 @@ pub fn build(b: *std.Build) void {
         ability_agent_vm_smoke_tests,
         test_runner_args.passthrough.items,
     );
-    run_ability_agent_vm_smoke.step.dependOn(&run_ability_agent_vm_fixture.step);
 
     const ability_vm_export_opts = b.addOptions();
     ability_vm_export_opts.addOption([:0]const u8, "zig_exe", b.graph.zig_exe);
