@@ -879,7 +879,7 @@ fn failRepoOwnedAnonymousSource(comptime Body: type) noreturn {
 
 fn failUnsupportedBody(comptime Body: type) noreturn {
     @compileError(std.fmt.comptimePrint(
-        "ability.with bodies must lower to ProgramPlan; unsupported body has no repo-owned source witness: body={s}; downstream callers should use ability.withCallerSource(@src(), @embedFile(@src().file), ...)",
+        "ability.with bodies must lower to ProgramPlan; unsupported body has no repo-owned source witness: body={s}; downstream callers should use ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), ...)",
         .{@typeName(Body)},
     ));
 }
@@ -889,17 +889,25 @@ fn isAnonymousBodyType(comptime Body: type) bool {
     return std.mem.find(u8, name, "__struct_") != null;
 }
 
-fn callerFileModuleStem(comptime caller: std.builtin.SourceLocation) []const u8 {
-    const file = caller.file;
-    var start: usize = 0;
-    for (file, 0..) |char, index| {
-        if (char == '/' or char == '\\') start = index + 1;
+fn callerFileModulePathLen(comptime caller: std.builtin.SourceLocation) usize {
+    if (std.mem.endsWith(u8, caller.file, ".zig")) return caller.file.len - ".zig".len;
+    return caller.file.len;
+}
+
+fn typeNameStartsWithCallerModulePath(
+    comptime caller: std.builtin.SourceLocation,
+    comptime name: []const u8,
+) bool {
+    const module_path_len = callerFileModulePathLen(caller);
+    if (module_path_len == 0 or name.len <= module_path_len or name[module_path_len] != '.') return false;
+    for (caller.file[0..module_path_len], 0..) |char, index| {
+        const expected: u8 = switch (char) {
+            '/', '\\' => '.',
+            else => char,
+        };
+        if (name[index] != expected) return false;
     }
-    var end: usize = file.len;
-    for (file[start..], start..) |char, index| {
-        if (char == '.') end = index;
-    }
-    return file[start..end];
+    return true;
 }
 
 fn callerOwnedNamedBodySymbol(comptime caller: std.builtin.SourceLocation, comptime Body: type) ?[]const u8 {
@@ -917,11 +925,9 @@ fn callerOwnedNamedBodySymbol(comptime caller: std.builtin.SourceLocation, compt
         if (!(std.ascii.isAlphanumeric(char) or char == '_')) return null;
     }
 
-    const module_stem = callerFileModuleStem(caller);
-    if (module_stem.len == 0) return null;
-    const module_prefix = std.fmt.comptimePrint("{s}.", .{module_stem});
-    if (!std.mem.startsWith(u8, name, module_prefix)) return null;
-    if (!std.mem.eql(u8, name[module_prefix.len..], symbol)) return null;
+    const module_path_len = callerFileModulePathLen(caller);
+    if (!typeNameStartsWithCallerModulePath(caller, name)) return null;
+    if (!std.mem.eql(u8, name[module_path_len + 1 ..], symbol)) return null;
     return symbol;
 }
 
