@@ -546,8 +546,16 @@ fn namedStructExpressionBounds(
         if (name.tag != .identifier) continue;
         if (!std.mem.eql(u8, sentinel[name.loc.start..name.loc.end], body_symbol)) continue;
 
-        const eq = tokenizer.next();
+        var eq = tokenizer.next();
         if (!updateBraceDepthForTopLevelScan(&brace_depth, eq)) return null;
+        if (eq.tag == .colon) {
+            const type_token = tokenizer.next();
+            if (!updateBraceDepthForTopLevelScan(&brace_depth, type_token)) return null;
+            if (type_token.tag != .identifier) continue;
+            if (!std.mem.eql(u8, sentinel[type_token.loc.start..type_token.loc.end], "type")) continue;
+            eq = tokenizer.next();
+            if (!updateBraceDepthForTopLevelScan(&brace_depth, eq)) return null;
+        }
         if (eq.tag != .equal) continue;
         const struct_token = tokenizer.next();
         if (!updateBraceDepthForTopLevelScan(&brace_depth, struct_token)) return null;
