@@ -555,6 +555,52 @@ test "public withCallerSource admits named downstream body with nested same-name
     try runDownstreamAbilityWithMain(main_zig);
 }
 
+test "public withCallerSource admits downstream choice continuations" {
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\const PickerHandler = struct {
+        \\    pub fn pick(_: *@This(), payload: i32) !ability.effect.choice.Decision(i32, []const u8) {
+        \\        return ability.effect.choice.Decision(i32, []const u8).resumeWith(payload);
+        \\    }
+        \\
+        \\    pub fn afterPick(_: *@This(), answer: []const u8) ![]const u8 {
+        \\        return answer;
+        \\    }
+        \\};
+        \\
+        \\const Picker = ability.effect.Define(.{
+        \\    .state_type = void,
+        \\    .ops = .{
+        \\        ability.effect.ops.Choice("pick", i32, i32),
+        \\    },
+        \\});
+        \\
+        \\const Body = struct {
+        \\    pub fn body(eff: anytype) anyerror![]const u8 {
+        \\        return try eff.picker.pick.perform(41, struct {
+        \\            pub fn apply(_: i32, _: anytype) anyerror![]const u8 {
+        \\                return "answer=42";
+        \\            }
+        \\        });
+        \\    }
+        \\};
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.withCallerSource(@src(), @embedFile(@src().file), &runtime, .{
+        \\        .picker = Picker.use(.{ .handler = PickerHandler{} }),
+        \\    }, Body);
+        \\    if (!std.mem.eql(u8, result.value, "answer=42")) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMain(main_zig);
+}
+
 test "public withCallerSource rejects unsupported named downstream helper calls" {
     const main_zig =
         \\const ability = @import("ability");

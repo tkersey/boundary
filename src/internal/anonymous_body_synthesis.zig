@@ -751,7 +751,10 @@ pub fn entryBodyHasBareFunctionCall(
         const token = tokenizer.next();
         if (token.tag == .eof) return false;
         if (isIgnorableToken(token.tag)) continue;
-        if (token.tag == .l_paren and previous_tag == .identifier and previous_previous_tag != .period) return true;
+        if (token.tag == .l_paren and
+            previous_tag == .identifier and
+            previous_previous_tag != .period and
+            previous_previous_tag != .keyword_fn) return true;
         previous_previous_tag = previous_tag;
         previous_tag = token.tag;
     }
