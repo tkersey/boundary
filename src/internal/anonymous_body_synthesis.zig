@@ -739,6 +739,7 @@ pub fn entryBodyHasBareFunctionCall(
     const fn_index = std.mem.indexOf(u8, source, marker) orelse return true;
     const params_start = fn_index + marker.len - 1;
     const params_end = findMatchingDelimiter(source, params_start, '(', ')') orelse return true;
+    const params_source = source[params_start .. params_end + 1];
     const body_start = std.mem.indexOfScalarPos(u8, source, params_end, '{') orelse return true;
     const body_end = findMatchingDelimiter(source, body_start, '{', '}') orelse return true;
     const body_source = source[body_start..body_end];
@@ -746,18 +747,125 @@ pub fn entryBodyHasBareFunctionCall(
     var tokenizer = std.zig.Tokenizer.init(sentinel[0..body_source.len :0]);
     var previous_tag: std.zig.Token.Tag = .invalid;
     var previous_previous_tag: std.zig.Token.Tag = .invalid;
+    var token_window = EntryBodyTokenWindow{};
 
     while (true) {
         const token = tokenizer.next();
         if (token.tag == .eof) return false;
         if (isIgnorableToken(token.tag)) continue;
+        token_window.push(.{
+            .tag = token.tag,
+            .lexeme = body_source[token.loc.start..token.loc.end],
+        });
         if (token.tag == .l_paren and
             previous_tag == .identifier and
-            previous_previous_tag != .period and
-            previous_previous_tag != .keyword_fn) return true;
+            previous_previous_tag != .keyword_fn)
+        {
+            if (previous_previous_tag != .period) return true;
+            if (!qualifiedCallRootIsEntryEffectParam(params_source, &token_window)) return true;
+        }
         previous_previous_tag = previous_tag;
         previous_tag = token.tag;
     }
+}
+
+const EntryBodyToken = struct {
+    tag: std.zig.Token.Tag,
+    lexeme: []const u8,
+};
+
+const EntryBodyTokenWindow = struct {
+    items: [32]EntryBodyToken = [_]EntryBodyToken{.{
+        .tag = .invalid,
+        .lexeme = "",
+    }} ** 32,
+    count: usize = 0,
+
+    fn push(self: *@This(), item: EntryBodyToken) void {
+        if (self.count < self.items.len) {
+            self.items[self.count] = item;
+            self.count += 1;
+            return;
+        }
+        for (self.items[0 .. self.items.len - 1], 0..) |_, index| {
+            self.items[index] = self.items[index + 1];
+        }
+        self.items[self.items.len - 1] = item;
+    }
+};
+
+fn qualifiedCallRoot(window: *const EntryBodyTokenWindow) ?[]const u8 {
+    if (window.count < 4) return null;
+    if (window.items[window.count - 1].tag != .l_paren or
+        window.items[window.count - 2].tag != .identifier or
+        window.items[window.count - 3].tag != .period) return null;
+
+    var root_index = window.count - 2;
+    var consumed_qualified_segment = false;
+    while (root_index >= 2 and
+        window.items[root_index - 1].tag == .period and
+        window.items[root_index - 2].tag == .identifier)
+    {
+        root_index -= 2;
+        consumed_qualified_segment = true;
+    }
+    if (!consumed_qualified_segment) return null;
+    return window.items[root_index].lexeme;
+}
+
+fn qualifiedCallRootIsEntryEffectParam(
+    comptime params_source: []const u8,
+    window: *const EntryBodyTokenWindow,
+) bool {
+    const root = qualifiedCallRoot(window) orelse return false;
+    return entryParamsContainAnytypeParamNamed(params_source, root);
+}
+
+fn entryParamsContainAnytypeParamNamed(comptime params_source: []const u8, root: []const u8) bool {
+    if (params_source.len < 2 or params_source[0] != '(' or params_source[params_source.len - 1] != ')') return false;
+    const inner = params_source[1 .. params_source.len - 1];
+    var start: usize = 0;
+    var paren_depth: usize = 0;
+    var brace_depth: usize = 0;
+    var bracket_depth: usize = 0;
+    var index: usize = 0;
+    while (index <= inner.len) : (index += 1) {
+        if (index == inner.len or
+            (inner[index] == ',' and paren_depth == 0 and brace_depth == 0 and bracket_depth == 0))
+        {
+            if (paramSegmentIsAnytypeParamNamed(inner[start..index], root)) return true;
+            start = index + 1;
+            continue;
+        }
+        switch (inner[index]) {
+            '(' => paren_depth += 1,
+            ')' => {
+                if (paren_depth > 0) paren_depth -= 1;
+            },
+            '{' => brace_depth += 1,
+            '}' => {
+                if (brace_depth > 0) brace_depth -= 1;
+            },
+            '[' => bracket_depth += 1,
+            ']' => {
+                if (bracket_depth > 0) bracket_depth -= 1;
+            },
+            else => {},
+        }
+    }
+    return false;
+}
+
+fn paramSegmentIsAnytypeParamNamed(comptime segment: []const u8, root: []const u8) bool {
+    const trimmed = trimAsciiWhitespace(segment);
+    const colon_index = std.mem.indexOfScalar(u8, trimmed, ':') orelse return false;
+    var name = trimAsciiWhitespace(trimmed[0..colon_index]);
+    if (std.mem.startsWith(u8, name, "comptime ")) {
+        name = trimAsciiWhitespace(name["comptime ".len..]);
+    }
+    if (!std.mem.eql(u8, name, root)) return false;
+    if (!source_graph_engine.isEffectParamName(name)) return false;
+    return std.mem.eql(u8, trimAsciiWhitespace(trimmed[colon_index + 1 ..]), "anytype");
 }
 
 fn trimAsciiWhitespace(comptime source: []const u8) []const u8 {
@@ -1521,6 +1629,45 @@ test "synthetic plain with helper-call body stays lowerable" {
         },
     );
     try std.testing.expect(lowered != null);
+}
+
+test "caller-owned entry scan admits effect-qualified calls" {
+    const source =
+        \\pub fn __ability_with_entry_l1_c1(eff: anytype) anyerror!i32 {
+        \\    return try eff.state.get();
+        \\}
+    ;
+    try std.testing.expect(!entryBodyHasBareFunctionCall(source, "__ability_with_entry_l1_c1"));
+
+    const ctx_source =
+        \\pub fn __ability_with_entry_l1_c1(ctx: anytype) anyerror!i32 {
+        \\    return try ctx.state.get();
+        \\}
+    ;
+    try std.testing.expect(!entryBodyHasBareFunctionCall(ctx_source, "__ability_with_entry_l1_c1"));
+}
+
+test "caller-owned entry scan rejects qualified helper calls" {
+    const this_source =
+        \\pub fn __ability_with_entry_l1_c1(eff: anytype) anyerror!i32 {
+        \\    return try eff.state.get() + @This().helper();
+        \\}
+    ;
+    try std.testing.expect(entryBodyHasBareFunctionCall(this_source, "__ability_with_entry_l1_c1"));
+
+    const namespace_source =
+        \\pub fn __ability_with_entry_l1_c1(eff: anytype) anyerror!i32 {
+        \\    return try eff.state.get() + Helpers.foo();
+        \\}
+    ;
+    try std.testing.expect(entryBodyHasBareFunctionCall(namespace_source, "__ability_with_entry_l1_c1"));
+
+    const arbitrary_anytype_source =
+        \\pub fn __ability_with_entry_l1_c1(helper_ns: anytype) anyerror!i32 {
+        \\    return helper_ns.foo();
+        \\}
+    ;
+    try std.testing.expect(entryBodyHasBareFunctionCall(arbitrary_anytype_source, "__ability_with_entry_l1_c1"));
 }
 
 test "synthetic plain with run(self, eff) lowers when self is unused" {

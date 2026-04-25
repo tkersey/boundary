@@ -627,7 +627,8 @@ fn isAllowedRequirementAliasFollowTag(tag: std.zig.Token.Tag) bool {
     return tag == .period or tag == .semicolon or tag == .equal;
 }
 
-fn isEffectParamName(name: []const u8) bool {
+/// Return whether a function parameter name is treated as the lexical effect root.
+pub fn isEffectParamName(name: []const u8) bool {
     return std.mem.eql(u8, name, "eff") or
         std.mem.eql(u8, name, "_") or
         std.mem.eql(u8, name, "_eff") or

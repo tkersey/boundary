@@ -633,6 +633,70 @@ test "public withCallerSource rejects unsupported named downstream helper calls"
     );
 }
 
+test "public withCallerSource rejects caller-owned @This qualified helper calls" {
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\const Body = struct {
+        \\    fn helper() i32 {
+        \\        return 1;
+        \\    }
+        \\
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        return try eff.state.get() + @This().helper();
+        \\    }
+        \\};
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.withCallerSource(@src(), @embedFile(@src().file), &runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, Body);
+        \\    if (result.value != 10) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMainExpectFailure(
+        main_zig,
+        "ability.withCallerSource caller-owned named body must lower to ProgramPlan without unsupported syntax",
+    );
+}
+
+test "public withCallerSource rejects caller-owned namespace qualified helper calls" {
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\const Helpers = struct {
+        \\    pub fn foo() i32 {
+        \\        return 1;
+        \\    }
+        \\};
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.withCallerSource(@src(), @embedFile(@src().file), &runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, struct {
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            return try eff.state.get() + Helpers.foo();
+        \\        }
+        \\    });
+        \\    if (result.value != 10) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMainExpectFailure(
+        main_zig,
+        "ability.withCallerSource caller-owned anonymous body must lower to ProgramPlan without unsupported syntax",
+    );
+}
+
 test "public withCallerSource rejects imported named bodies with caller-local symbol collision" {
     const imported_zig =
         \\pub const Body = struct {
