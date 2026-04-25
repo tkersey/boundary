@@ -352,6 +352,18 @@ fn isIgnorableToken(tag: std.zig.Token.Tag) bool {
     };
 }
 
+fn updateBraceDepthForTopLevelScan(depth: *usize, token: std.zig.Token) bool {
+    switch (token.tag) {
+        .l_brace => depth.* += 1,
+        .r_brace => {
+            if (depth.* == 0) return false;
+            depth.* -= 1;
+        },
+        else => {},
+    }
+    return true;
+}
+
 fn bodyMethodName(comptime Body: type) ?[]const u8 {
     if (@hasDecl(Body, "run")) return "run";
     if (@hasDecl(Body, "body")) return "body";
@@ -501,31 +513,47 @@ fn namedStructExpressionBounds(
     var tokenizer = std.zig.Tokenizer.init(sentinel[0..source.len :0]);
     var matches = [_]Bounds{.{ .start = 0, .end = 0 }} ** 8;
     var match_count: usize = 0;
+    var brace_depth: usize = 0;
 
     while (true) {
         const first = tokenizer.next();
         if (first.tag == .eof) break;
         if (isIgnorableToken(first.tag)) continue;
+        if (brace_depth != 0) {
+            if (!updateBraceDepthForTopLevelScan(&brace_depth, first)) return null;
+            continue;
+        }
+
+        if (first.tag == .l_brace or first.tag == .r_brace) {
+            if (!updateBraceDepthForTopLevelScan(&brace_depth, first)) return null;
+            continue;
+        }
 
         var name = first;
         if (first.tag == .keyword_pub) {
             const const_token = tokenizer.next();
+            if (!updateBraceDepthForTopLevelScan(&brace_depth, const_token)) return null;
             if (const_token.tag != .keyword_const) continue;
             name = tokenizer.next();
+            if (!updateBraceDepthForTopLevelScan(&brace_depth, name)) return null;
         } else if (first.tag != .keyword_const) {
             continue;
         } else {
             name = tokenizer.next();
+            if (!updateBraceDepthForTopLevelScan(&brace_depth, name)) return null;
         }
 
         if (name.tag != .identifier) continue;
         if (!std.mem.eql(u8, sentinel[name.loc.start..name.loc.end], body_symbol)) continue;
 
         const eq = tokenizer.next();
+        if (!updateBraceDepthForTopLevelScan(&brace_depth, eq)) return null;
         if (eq.tag != .equal) continue;
         const struct_token = tokenizer.next();
+        if (!updateBraceDepthForTopLevelScan(&brace_depth, struct_token)) return null;
         if (struct_token.tag != .keyword_struct) continue;
         const open = tokenizer.next();
+        if (!updateBraceDepthForTopLevelScan(&brace_depth, open)) return null;
         if (open.tag != .l_brace) continue;
 
         const close = findMatchingDelimiter(source, open.loc.start, '{', '}') orelse return null;

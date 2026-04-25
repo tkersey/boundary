@@ -496,6 +496,40 @@ test "public withCallerSource admits named downstream bodies without interpreted
     try runDownstreamAbilityWithMain(main_zig);
 }
 
+test "public withCallerSource admits named downstream body with nested same-name declaration" {
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\const Wrapper = struct {
+        \\    const Body = struct {
+        \\        pub fn body(_: anytype) anyerror!i32 {
+        \\            return 0;
+        \\        }
+        \\    };
+        \\};
+        \\
+        \\const Body = struct {
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        return try eff.state.get();
+        \\    }
+        \\};
+        \\
+        \\pub fn main() !void {
+        \\    _ = Wrapper;
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.withCallerSource(@src(), @embedFile(@src().file), &runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, Body);
+        \\    if (result.value != 9) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMain(main_zig);
+}
+
 test "public withCallerSource rejects unsupported named downstream helper calls" {
     const main_zig =
         \\const ability = @import("ability");
