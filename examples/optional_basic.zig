@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const ability = @import("ability");
 const std = @import("std");
 
 const transcript = struct {
@@ -13,9 +13,9 @@ const transcript = struct {
 
 const return_now_policy = struct {
     /// Choose the direct-return branch for the front-door optional example.
-    pub fn resumeOrReturn() shift.effect.choice.Decision(i32, []const u8) {
+    pub fn resumeOrReturn() ability.effect.choice.Decision(i32, []const u8) {
         transcript.note("policy-return-now");
-        return shift.effect.choice.Decision(i32, []const u8).returnNow("result=early");
+        return ability.effect.choice.Decision(i32, []const u8).returnNow("result=early");
     }
 
     /// Preserve the early answer unchanged in the return-now branch.
@@ -26,9 +26,9 @@ const return_now_policy = struct {
 
 const resume_policy = struct {
     /// Resume the front-door optional request with the canonical value.
-    pub fn resumeOrReturn() shift.effect.choice.Decision(i32, []const u8) {
+    pub fn resumeOrReturn() ability.effect.choice.Decision(i32, []const u8) {
         transcript.note("policy-resume");
-        return shift.effect.choice.Decision(i32, []const u8).resumeWith(41);
+        return ability.effect.choice.Decision(i32, []const u8).resumeWith(41);
     }
 
     /// Finalize the resumed front-door optional answer.
@@ -57,9 +57,9 @@ fn optionalResumeBody(eff: anytype) anyerror![]const u8 {
     });
 }
 
-fn runReturnNow(runtime: *shift.Runtime) ![]const u8 {
-    const early_result = try shift.with(runtime, .{
-        .optional = shift.effect.optional.use(i32, return_now_policy),
+fn runReturnNow(runtime: *ability.Runtime) ![]const u8 {
+    const early_result = try ability.with(runtime, .{
+        .optional = ability.effect.optional.use(i32, return_now_policy),
     }, struct {
         /// Run the return-now optional example body.
         pub fn body(eff: anytype) @TypeOf(optionalReturnNowBody(eff)) {
@@ -69,9 +69,9 @@ fn runReturnNow(runtime: *shift.Runtime) ![]const u8 {
     return early_result.value;
 }
 
-fn runResume(runtime: *shift.Runtime) ![]const u8 {
-    const resumed = try shift.with(runtime, .{
-        .optional = shift.effect.optional.use(i32, resume_policy),
+fn runResume(runtime: *ability.Runtime) ![]const u8 {
+    const resumed = try ability.with(runtime, .{
+        .optional = ability.effect.optional.use(i32, resume_policy),
     }, struct {
         /// Run the resumed optional example body.
         pub fn body(eff: anytype) @TypeOf(optionalResumeBody(eff)) {
@@ -83,7 +83,7 @@ fn runResume(runtime: *shift.Runtime) ![]const u8 {
 
 /// Write the optional-family transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    var runtime = ability.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
     try writer.writeAll("branch=return_now\n");

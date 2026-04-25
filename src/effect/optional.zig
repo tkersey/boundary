@@ -5,7 +5,7 @@ const frontend = @import("frontend_support");
 const lexical_with = @import("../with_api.zig");
 const lowered_machine = @import("lowered_machine");
 const prompt_contract = @import("prompt_contract_support");
-const shift = lowered_machine;
+const ability = lowered_machine;
 const std = @import("std");
 
 fn ReturnTypeErrorSet(comptime ReturnType: type) type {
@@ -25,7 +25,7 @@ pub fn Instance(comptime ResumeType: type, comptime ErrorSetType: type) type {
     return family.InstanceWithMode(.resume_or_return, ResumeType, ErrorSetType);
 }
 
-/// Lexical optional handle used by `shift.with(...)`.
+/// Lexical optional handle used by `ability.with(...)`.
 pub fn LexicalHandle(
     comptime Cap: type,
     comptime ContextPtrType: type,
@@ -38,7 +38,7 @@ pub fn LexicalHandle(
         /// Caller source location preserved across optional lexical continuation re-entry.
         pub const caller_source = family.contextCallerSource(ContextPtrType);
         ctx: ?ContextPtrType,
-        runtime: ?*shift.Runtime,
+        runtime: ?*ability.Runtime,
         handlers_ptr: ?*HandlersType,
         previous_eff: PreviousEffType,
         outputs_ptr: ?*lexical_with.OutputBundleType(HandlersType),
@@ -59,7 +59,7 @@ pub fn LexicalHandle(
                     const frame = struct {
                         /// Caller source location forwarded into the rebuilt continuation chain.
                         pub const caller_source = Handle.caller_source;
-                        runtime: *shift.Runtime,
+                        runtime: *ability.Runtime,
                         handlers_ptr: *HandlersType,
                         previous_eff: PreviousEffType,
                         current_handle: Handle,
@@ -93,7 +93,7 @@ pub fn LexicalHandle(
     };
 }
 
-/// Descriptor value used by `shift.with(...)` for the built-in optional family.
+/// Descriptor value used by `ability.with(...)` for the built-in optional family.
 pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type, comptime Policy: type) type {
     return struct {
         /// Shared error set carried by the lexical optional descriptor.
@@ -162,7 +162,7 @@ pub fn LexicalDescriptor(comptime ResumeType: type, comptime ErrorSetType: type,
     };
 }
 
-/// Create one lexical optional descriptor for `shift.with(...)`.
+/// Create one lexical optional descriptor for `ability.with(...)`.
 pub fn use(comptime ResumeType: type, comptime Policy: type) LexicalDescriptor(ResumeType, PolicyErrorSet(Policy), Policy) {
     return .{};
 }
@@ -220,7 +220,7 @@ pub inline fn computeProgram(
 /// Run an optional-resumption effect body and return the final handler answer.
 pub fn handle(
     comptime AnswerType: type,
-    runtime: *shift.Runtime,
+    runtime: *ability.Runtime,
     instance: anytype,
     comptime Policy: type,
     comptime Body: type,
@@ -233,7 +233,7 @@ pub fn handle(
 pub fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
-    runtime: *shift.Runtime,
+    runtime: *ability.Runtime,
     instance: anytype,
     comptime Policy: type,
     comptime Body: type,
@@ -280,7 +280,7 @@ test "optional handle can return now without resuming the body tail" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = OptionalInstance.init();
     demo.after_request = false;
@@ -326,7 +326,7 @@ test "optional requestProgram stays on the explicit frontend.Program surface" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = OptionalInstance.init();
     const result = try handle([]const u8, &runtime, &instance, policy, demo);
@@ -380,7 +380,7 @@ test "optional handle can resume and transform the resumed answer" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = OptionalInstance.init();
     const result = try handle([]const u8, &runtime, &instance, policy, demo);
@@ -403,7 +403,7 @@ test "public optional handleWithErrorSet leaves caller provenance absent by defa
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = OptionalInstance.init();
 
@@ -433,7 +433,7 @@ test "nested same-shaped optional handles get distinct capability types" {
         }
     };
     const demo = struct {
-        var runtime_ptr: ?*shift.Runtime = null;
+        var runtime_ptr: ?*ability.Runtime = null;
         var inner_ptr: ?*const OptionalInstance = null;
 
         /// Open an inner optional handle and compare its capability type.
@@ -460,7 +460,7 @@ test "nested same-shaped optional handles get distinct capability types" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var outer_instance = OptionalInstance.init();
     var inner_instance = OptionalInstance.init();

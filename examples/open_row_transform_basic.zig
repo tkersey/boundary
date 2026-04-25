@@ -1,11 +1,11 @@
-const shift = @import("shift");
+const ability = @import("ability");
 const std = @import("std");
 
-const Counter = shift.effect.Define(.{
+const Counter = ability.effect.Define(.{
     .state_type = i32,
     .ops = .{
-        shift.effect.ops.Transform("get", void, i32),
-        shift.effect.ops.Transform("set", i32, void),
+        ability.effect.ops.Transform("get", void, i32),
+        ability.effect.ops.Transform("set", i32, void),
     },
 });
 
@@ -40,8 +40,8 @@ fn counterBody(eff: anytype) anyerror!i32 {
     return after;
 }
 
-fn runCounter(runtime: *shift.Runtime) anyerror!i32 {
-    const result = try shift.with(runtime, .{
+fn runCounter(runtime: *ability.Runtime) anyerror!i32 {
+    const result = try ability.with(runtime, .{
         .counter = Counter.use(.{ .handler = CounterHandler{ .state = 5 } }),
     }, struct {
         /// Run the transform example body through the lexical front door.
@@ -54,7 +54,7 @@ fn runCounter(runtime: *shift.Runtime) anyerror!i32 {
 
 /// Render the transform example transcript.
 pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    var runtime = ability.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     try writer.print("counter={d}\n", .{try runCounter(&runtime)});
 }

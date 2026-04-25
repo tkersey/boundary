@@ -1,10 +1,10 @@
-const shared = @import("shift_shared");
+const shared = @import("ability_shared");
 
 /// Public lexical effect namespace.
 pub const effect = shared.effect;
 /// Canonical runtime handle for lexical execution.
 pub const Runtime = shared.Runtime;
-/// Public runtime misuse and semantic-contract errors surfaced by `shift`.
+/// Public runtime misuse and semantic-contract errors surfaced by `ability`.
 pub const RuntimeError = shared.RuntimeError;
 /// Run the public lexical handler entrypoint.
 pub fn with(

@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const ability = @import("ability");
 const std = @import("std");
 
 const NoError = error{};
@@ -6,7 +6,7 @@ const timed_iterations: usize = 50_000;
 const warmup_iterations: usize = 20_000;
 const samples_per_run: usize = 5;
 
-const ResourceInstance = shift.effect.resource.Instance(usize, NoError);
+const ResourceInstance = ability.effect.resource.Instance(usize, NoError);
 
 const Sample = struct {
     checksum: usize,
@@ -98,11 +98,11 @@ const effect_resource = struct {
         }
     };
 
-    fn body(comptime Cap: type, ctx: anytype, comptime items_per_body: usize) shift.ResetError(NoError)!usize {
+    fn body(comptime Cap: type, ctx: anytype, comptime items_per_body: usize) ability.ResetError(NoError)!usize {
         var checksum: usize = 0;
         var items_remaining = items_per_body;
         while (items_remaining != 0) : (items_remaining -= 1) {
-            checksum += try shift.effect.resource.acquire(Cap, ctx);
+            checksum += try ability.effect.resource.acquire(Cap, ctx);
         }
         return checksum;
     }
@@ -182,7 +182,7 @@ fn runResourceRawSample(allocator: std.mem.Allocator, comptime items_per_body: u
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
 
-fn runResourceEffectSample(runtime: *shift.Runtime, instance: *const ResourceInstance, comptime items_per_body: usize, iterations: usize) !Sample {
+fn runResourceEffectSample(runtime: *ability.Runtime, instance: *const ResourceInstance, comptime items_per_body: usize, iterations: usize) !Sample {
     var timer = try std.time.Timer.start();
     var checksum: usize = 0;
     var index: usize = 0;
@@ -191,11 +191,11 @@ fn runResourceEffectSample(runtime: *shift.Runtime, instance: *const ResourceIns
         raw_resource.acquire_count = 0;
         const body = struct {
             /// Re-enter the current resource handle with a fixed acquire count.
-            pub fn body(comptime Cap: type, ctx: anytype) shift.ResetError(NoError)!usize {
+            pub fn body(comptime Cap: type, ctx: anytype) ability.ResetError(NoError)!usize {
                 return try effect_resource.body(Cap, ctx, items_per_body);
             }
         };
-        checksum += preserveValue(try shift.effect.resource.handle(usize, runtime, instance, effect_resource.manager, body));
+        checksum += preserveValue(try ability.effect.resource.handle(usize, runtime, instance, effect_resource.manager, body));
     }
     return .{ .checksum = checksum, .elapsed_ns = timer.read() };
 }
@@ -233,7 +233,7 @@ fn printLine(writer: anytype, report: *const LaneReport) !void {
     );
 }
 
-fn runLane(runtime: *shift.Runtime, instance: *const ResourceInstance, allocator: std.mem.Allocator, comptime items_per_body: usize) !LaneReport {
+fn runLane(runtime: *ability.Runtime, instance: *const ResourceInstance, allocator: std.mem.Allocator, comptime items_per_body: usize) !LaneReport {
     _ = try runResourceRawSample(allocator, items_per_body, warmup_iterations);
     _ = try runResourceEffectSample(runtime, instance, items_per_body, warmup_iterations);
     _ = try runResourceCleanupOnlySample(allocator, items_per_body, warmup_iterations);
@@ -279,7 +279,7 @@ fn runLane(runtime: *shift.Runtime, instance: *const ResourceInstance, allocator
 
 /// Decompose resource-effect acquire and cleanup costs for representative stack depths.
 pub fn main(init: std.process.Init) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.smp_allocator);
+    var runtime = ability.Runtime.init(std.heap.smp_allocator);
     defer runtime.deinit();
     var instance = ResourceInstance.init();
 

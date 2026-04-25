@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const ability = @import("ability");
 const std = @import("std");
 
 const transcript = struct {
@@ -15,15 +15,15 @@ const PickerHandler = struct {
     branch: enum { resume_with, return_now },
 
     /// Choose the configured branch.
-    pub fn pick(self: *@This(), payload: i32) !shift.effect.choice.Decision(i32, []const u8) {
+    pub fn pick(self: *@This(), payload: i32) !ability.effect.choice.Decision(i32, []const u8) {
         return switch (self.branch) {
             .return_now => blk: {
                 transcript.note("policy-return-now");
-                break :blk shift.effect.choice.Decision(i32, []const u8).returnNow("result=early");
+                break :blk ability.effect.choice.Decision(i32, []const u8).returnNow("result=early");
             },
             .resume_with => blk: {
                 transcript.note("policy-resume");
-                break :blk shift.effect.choice.Decision(i32, []const u8).resumeWith(payload);
+                break :blk ability.effect.choice.Decision(i32, []const u8).resumeWith(payload);
             },
         };
     }
@@ -38,10 +38,10 @@ const PickerHandler = struct {
     }
 };
 
-const Picker = shift.effect.Define(.{
+const Picker = ability.effect.Define(.{
     .state_type = void,
     .ops = .{
-        shift.effect.ops.Choice("pick", i32, i32),
+        ability.effect.ops.Choice("pick", i32, i32),
     },
 });
 
@@ -63,8 +63,8 @@ fn choiceResumeBody(eff: anytype) anyerror![]const u8 {
     });
 }
 
-fn runReturnNow(runtime: *shift.Runtime) ![]const u8 {
-    const early = try shift.with(runtime, .{
+fn runReturnNow(runtime: *ability.Runtime) ![]const u8 {
+    const early = try ability.with(runtime, .{
         .picker = Picker.use(.{ .handler = PickerHandler{ .branch = .return_now } }),
     }, struct {
         /// Run the return-now choice example body.
@@ -75,8 +75,8 @@ fn runReturnNow(runtime: *shift.Runtime) ![]const u8 {
     return early.value;
 }
 
-fn runResume(runtime: *shift.Runtime) ![]const u8 {
-    const resumed = try shift.with(runtime, .{
+fn runResume(runtime: *ability.Runtime) ![]const u8 {
+    const resumed = try ability.with(runtime, .{
         .picker = Picker.use(.{ .handler = PickerHandler{ .branch = .resume_with } }),
     }, struct {
         /// Run the resumed choice example body.
@@ -89,7 +89,7 @@ fn runResume(runtime: *shift.Runtime) ![]const u8 {
 
 /// Render the choice example transcript.
 pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    var runtime = ability.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
     try writer.writeAll("branch=return_now\n");

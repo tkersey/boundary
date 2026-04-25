@@ -1,13 +1,13 @@
-const shift = @import("shift");
+const ability = @import("ability");
 const std = @import("std");
 
 test "open-row state plus writer workflow yields the canonical result shape" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
-        .state = shift.effect.state.use(@as(i32, 5)),
-        .writer = shift.effect.writer.use([]const u8, std.testing.allocator),
+    const result = try ability.with(&runtime, .{
+        .state = ability.effect.state.use(@as(i32, 5)),
+        .writer = ability.effect.writer.use([]const u8, std.testing.allocator),
     }, struct {
         /// Run the state-writer slice through the lexical public surface.
         pub fn body(eff: anytype) ![]const u8 {
@@ -26,12 +26,12 @@ test "open-row state plus writer workflow yields the canonical result shape" {
 }
 
 test "README minimal example yields the canonical result shape" {
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
-        .state = shift.effect.state.use(@as(i32, 5)),
-        .writer = shift.effect.writer.use([]const u8, std.testing.allocator),
+    const result = try ability.with(&runtime, .{
+        .state = ability.effect.state.use(@as(i32, 5)),
+        .writer = ability.effect.writer.use([]const u8, std.testing.allocator),
     }, struct {
         /// Mirror the README workflow exactly so the documented front door stays compiled.
         pub fn body(eff: anytype) ![]const u8 {
@@ -49,11 +49,11 @@ test "README minimal example yields the canonical result shape" {
     try std.testing.expectEqualStrings("done", result.value);
 }
 
-test "shift.with omits outputs for stateless transform handlers" {
-    const Search = shift.effect.Define(.{
+test "ability.with omits outputs for stateless transform handlers" {
+    const Search = ability.effect.Define(.{
         .state_type = struct {},
         .ops = .{
-            shift.effect.ops.Transform("query", []const u8, i32),
+            ability.effect.ops.Transform("query", []const u8, i32),
         },
     });
     const search_handler = struct {
@@ -63,10 +63,10 @@ test "shift.with omits outputs for stateless transform handlers" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
+    const result = try ability.with(&runtime, .{
         .search = Search.use(.{ .handler = search_handler{} }),
     }, struct {
         /// Trigger the stateless search op once through the public root surface.

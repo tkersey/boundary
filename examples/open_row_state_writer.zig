@@ -1,7 +1,7 @@
-const shift = @import("shift");
-const shift_compile = @import("shift_compile");
+const ability = @import("ability");
+const ability_compile = @import("ability_compile");
 const std = @import("std");
-const runtime_support = shift_compile.lowering_api.runtime_support;
+const runtime_support = ability_compile.lowering_api.runtime_support;
 
 fn queueQuery(eff: anytype) !void {
     const writer = eff.writer;
@@ -23,20 +23,20 @@ pub fn runBody(eff: anytype) ![]const u8 {
 }
 
 /// Return the additive public lowering spec for this workflow.
-pub fn loweringSpec() shift_compile.lowering_api.LowerSpec {
+pub fn loweringSpec() ability_compile.lowering_api.LowerSpec {
     return .{
         .label = "example.open_row_state_writer",
         .entry_symbol = "runBody",
-        .row = shift_compile.effect_ir.mergeRows(.{
-            shift_compile.effect_ir.rowFromSpec(.{
+        .row = ability_compile.effect_ir.mergeRows(.{
+            ability_compile.effect_ir.rowFromSpec(.{
                 .state = .{
-                    .get = shift_compile.effect_ir.Transform(void, i32),
-                    .set = shift_compile.effect_ir.Transform(i32, void),
+                    .get = ability_compile.effect_ir.Transform(void, i32),
+                    .set = ability_compile.effect_ir.Transform(i32, void),
                 },
             }),
-            shift_compile.effect_ir.rowFromSpec(.{
+            ability_compile.effect_ir.rowFromSpec(.{
                 .writer = .{
-                    .tell = shift_compile.effect_ir.Transform([]const u8, void),
+                    .tell = ability_compile.effect_ir.Transform([]const u8, void),
                 },
             }),
         }),
@@ -49,13 +49,13 @@ pub fn loweringSpec() shift_compile.lowering_api.LowerSpec {
 }
 
 /// Return the additive public lowered artifact for this workflow.
-pub fn loweredProgram() @TypeOf(shift_compile.lowering_api.lowerOpenRowAt(loweringSourcePath(), loweringSpec())) {
-    return try shift_compile.lowering_api.lowerOpenRowAt(loweringSourcePath(), loweringSpec());
+pub fn loweredProgram() @TypeOf(ability_compile.lowering_api.lowerOpenRowAt(loweringSourcePath(), loweringSpec())) {
+    return try ability_compile.lowering_api.lowerOpenRowAt(loweringSourcePath(), loweringSpec());
 }
 
 /// Return the explicit IR view paired with this same-module lowering request.
-pub fn irProgram() shift_compile.effect_ir.Program {
-    return shift_compile.lowering_api.irProgramAt(loweringSourcePath(), loweringSpec());
+pub fn irProgram() ability_compile.effect_ir.Program {
+    return ability_compile.lowering_api.irProgramAt(loweringSourcePath(), loweringSpec());
 }
 
 /// Return the source path captured by this example module.
@@ -75,8 +75,8 @@ fn explicitLoweringCaller() std.builtin.SourceLocation {
 }
 
 /// Return the explicit caller-owned lowering provenance witness for this module.
-pub fn loweringSource() shift_compile.lowering_api.SourceRef {
-    return shift_compile.lowering_api.sourceWithContent(loweringSourcePath(), explicitLoweringCaller(), @embedFile(@src().file));
+pub fn loweringSource() ability_compile.lowering_api.SourceRef {
+    return ability_compile.lowering_api.sourceWithContent(loweringSourcePath(), explicitLoweringCaller(), @embedFile(@src().file));
 }
 
 /// Return the raw caller file string reported by `@src()` inside this module.
@@ -85,14 +85,14 @@ pub fn callerSourceFile() []const u8 {
 }
 
 fn CompiledProgramType() type {
-    return shift_compile.lower(loweringSource(), loweringSpec());
+    return ability_compile.lower(loweringSource(), loweringSpec());
 }
 
 /// Generated additive program type exposing the runtime-owned plan bridge.
 pub const CompiledProgram = CompiledProgramType();
 
 fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
-    var runtime = shift.Runtime.init(allocator);
+    var runtime = ability.Runtime.init(allocator);
     defer runtime.deinit();
 
     var handlers: runtime_support.StateWriterHandlers = .{

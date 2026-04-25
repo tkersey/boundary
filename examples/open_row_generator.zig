@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const ability = @import("ability");
 const std = @import("std");
 
 fn emitThird(eff: anytype) anyerror!void {
@@ -25,12 +25,12 @@ fn generatorBody(eff: anytype) anyerror!i32 {
 }
 
 fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
-    var runtime = shift.Runtime.init(allocator);
+    var runtime = ability.Runtime.init(allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
-        .state = shift.effect.state.use(@as(i32, 0)),
-        .writer = shift.effect.writer.use([]const u8, allocator),
+    const result = try ability.with(&runtime, .{
+        .state = ability.effect.state.use(@as(i32, 0)),
+        .writer = ability.effect.writer.use([]const u8, allocator),
     }, struct {
         /// Run the generator example body through the lexical front door.
         pub fn body(eff: anytype) @TypeOf(generatorBody(eff)) {

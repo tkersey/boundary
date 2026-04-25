@@ -3,7 +3,7 @@ const effect_schema = @import("../effect_schema.zig");
 const family = @import("family.zig");
 const lexical_with = @import("../with_api.zig");
 const lowered_machine = @import("lowered_machine");
-const shift = lowered_machine;
+const ability = lowered_machine;
 const std = @import("std");
 
 /// Prompt-backed effect instance for a state family.
@@ -12,7 +12,7 @@ pub const Instance = family.Instance;
 /// Final state plus body answer returned from a handled state program.
 pub const HandleResult = family.HandleResult;
 
-/// Lexical state handle used by `shift.with(...)`.
+/// Lexical state handle used by `ability.with(...)`.
 pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     return struct {
         ctx: ?ContextPtrType,
@@ -29,7 +29,7 @@ pub fn LexicalHandle(comptime Cap: type, comptime ContextPtrType: type) type {
     };
 }
 
-/// Descriptor value used by `shift.with(...)` for the built-in state family.
+/// Descriptor value used by `ability.with(...)` for the built-in state family.
 pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) type {
     return struct {
         /// Shared error set carried by the lexical state descriptor.
@@ -74,7 +74,7 @@ pub fn LexicalDescriptor(comptime StateType: type, comptime ErrorSetType: type) 
     };
 }
 
-/// Create one lexical state descriptor for `shift.with(...)`.
+/// Create one lexical state descriptor for `ability.with(...)`.
 pub fn use(initial_state: anytype) LexicalDescriptor(@TypeOf(initial_state), error{}) {
     return .{ .initial_state = initial_state };
 }
@@ -113,7 +113,7 @@ pub inline fn computeProgram(
 /// Run a state effect body and return the final state plus the body answer.
 pub fn handle(
     comptime AnswerType: type,
-    runtime: *shift.Runtime,
+    runtime: *ability.Runtime,
     instance: anytype,
     initial_state: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
@@ -129,7 +129,7 @@ pub fn handle(
 pub fn handleWithErrorSet(
     comptime AnswerType: type,
     comptime RunErrorSetType: type,
-    runtime: *shift.Runtime,
+    runtime: *ability.Runtime,
     instance: anytype,
     initial_state: family.InstanceStateType(@TypeOf(instance)),
     comptime Body: type,
@@ -176,7 +176,7 @@ test "state handle threads value and final state" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = StateInstance.init();
     const result = try handle(i32, &runtime, &instance, 5, demo);
@@ -188,7 +188,7 @@ test "nested same-shaped state handles get distinct capability types" {
     const NoError = error{};
     const StateInstance = Instance(i32, NoError);
     const demo = struct {
-        var runtime_ptr: ?*shift.Runtime = null;
+        var runtime_ptr: ?*ability.Runtime = null;
         var inner_ptr: ?*const StateInstance = null;
 
         /// Open an inner handle and prove its capability type differs from the outer one.
@@ -216,7 +216,7 @@ test "nested same-shaped state handles get distinct capability types" {
         }
     };
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var outer_instance = StateInstance.init();
     var inner_instance = StateInstance.init();
@@ -245,7 +245,7 @@ test "public state handleWithErrorSet leaves caller provenance absent by default
     const NoError = error{};
     const StateInstance = Instance(i32, NoError);
 
-    var runtime = shift.Runtime.init(std.testing.allocator);
+    var runtime = ability.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
     var instance = StateInstance.init();
 

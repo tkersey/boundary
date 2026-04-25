@@ -2045,11 +2045,11 @@ test "shared engine keeps bool literal continuation request bodies in the loweri
     try std.testing.expectEqualStrings("request", graph.direct_op_uses[0].op_name);
 }
 
-test "shared engine admits public shift nested with only through shift import evidence" {
+test "shared engine admits public ability nested with only through ability import evidence" {
     const graph = try analyzeComptime(
-        \\const shift = @import("shift");
+        \\const ability = @import("ability");
         \\pub fn runBody() anyerror!i32 {
-        \\    const nested_result = (try shift.with(runtime_holder.ptr.?, .{
+        \\    const nested_result = (try ability.with(runtime_holder.ptr.?, .{
         \\        .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
         \\    }, static_redelim_inner_body_carrier)).value;
         \\    return nested_result;
@@ -2065,11 +2065,11 @@ test "shared engine admits public shift nested with only through shift import ev
     try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
 }
 
-test "shared engine rejects public shift nested with through shadow import" {
+test "shared engine rejects public ability nested with through shadow import" {
     const graph = try analyzeComptime(
-        \\const shift = @import("shadow.zig");
+        \\const ability = @import("shadow.zig");
         \\pub fn runBody() anyerror!i32 {
-        \\    const nested_result = (try shift.with(runtime_holder.ptr.?, .{
+        \\    const nested_result = (try ability.with(runtime_holder.ptr.?, .{
         \\        .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
         \\    }, static_redelim_inner_body_carrier)).value;
         \\    return nested_result;
@@ -2085,10 +2085,10 @@ test "shared engine rejects public shift nested with through shadow import" {
     try std.testing.expect(!graph.functions[graph.entry_index.?].body_lowering_supported);
 }
 
-test "shared engine admits forwarded shift import alias for nested with" {
+test "shared engine admits forwarded ability import alias for nested with" {
     const graph = try analyzeComptime(
-        \\const shift = @import("shift");
-        \\const lexical_runtime = shift;
+        \\const ability = @import("ability");
+        \\const lexical_runtime = ability;
         \\pub fn runBody() anyerror!i32 {
         \\    const nested_result = (try lexical_runtime.with(runtime_holder.ptr.?, .{
         \\        .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
@@ -2106,10 +2106,10 @@ test "shared engine admits forwarded shift import alias for nested with" {
     try std.testing.expect(graph.functions[graph.entry_index.?].body_lowering_supported);
 }
 
-test "shared engine admits forwarded synthetic shift import alias for nested with" {
+test "shared engine admits forwarded synthetic ability import alias for nested with" {
     const graph = try analyzeComptime(
-        \\const shift = @import("synthetic_shift");
-        \\const lexical_runtime = shift;
+        \\const ability = @import("synthetic_ability");
+        \\const lexical_runtime = ability;
         \\pub fn runBody() anyerror!i32 {
         \\    const nested_result = (try lexical_runtime.with(runtime_holder.ptr.?, .{
         \\        .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
@@ -2295,7 +2295,7 @@ test "shared engine finds appended entry after top-level const struct declaratio
         \\pub const Nested = struct {
         \\    pub const InnerHandler = transcript.InnerHandler;
         \\};
-        \\pub fn __shift_with_entry_demo(outer_eff: anytype) anyerror!i32 {
+        \\pub fn __ability_with_entry_demo(outer_eff: anytype) anyerror!i32 {
         \\    _ = try outer_eff.outer.step.perform();
         \\    const nested = (try lexical_runtime.with(transcript.runtime_ptr.?, .{
         \\        .inner = NestedResumeWitness.use(.{ .handler = Nested.InnerHandler{} }),
@@ -2304,12 +2304,12 @@ test "shared engine finds appended entry after top-level const struct declaratio
         \\}
     ,
         .{
-            .entry_symbol = "__shift_with_entry_demo",
+            .entry_symbol = "__ability_with_entry_demo",
             .reject_recursive_helpers = false,
             .reject_indirect_effect_access = true,
             .reject_malformed_statements = true,
         },
     );
 
-    try std.testing.expectEqualStrings("__shift_with_entry_demo", graph.functions[graph.entry_index.?].name);
+    try std.testing.expectEqualStrings("__ability_with_entry_demo", graph.functions[graph.entry_index.?].name);
 }

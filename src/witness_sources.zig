@@ -1,4 +1,4 @@
-const lexical_runtime = @import("shift");
+const lexical_runtime = @import("ability");
 const std = @import("std");
 const ResumeWitness = lexical_runtime.effect.Define(.{
     .state_type = void,

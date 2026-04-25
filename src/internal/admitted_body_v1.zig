@@ -599,8 +599,8 @@ fn parseBoundLocalFromNestedWith(
 
 fn nestedWithCalleeIsAdmitted(imports: anytype, name: []const u8) bool {
     const import_path = findImportAlias(imports, name) orelse return false;
-    return std.mem.eql(u8, import_path, "shift") or
-        std.mem.eql(u8, import_path, "synthetic_shift");
+    return std.mem.eql(u8, import_path, "ability") or
+        std.mem.eql(u8, import_path, "synthetic_ability");
 }
 
 fn nestedHandlerInitializerIsExactEmpty(handlers: []const Token) bool {
@@ -1173,7 +1173,7 @@ test "parseFunctionBody admits nested with only for named carrier and empty hand
     const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
     const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
     const imports = [_]struct { name: []const u8, import_path: []const u8 }{
-        .{ .name = "lexical_runtime", .import_path = "shift" },
+        .{ .name = "lexical_runtime", .import_path = "ability" },
     };
     const body = parseFunctionBody(source, "test/nested_default.zig", body_start, body_end, null, imports[0..]) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(usize, 2), body.step_count);
@@ -1186,10 +1186,10 @@ test "parseFunctionBody admits nested with only for named carrier and empty hand
     try std.testing.expectEqualStrings("static_redelim_inner_body_carrier", body.steps[0].bind_local_from_nested_with.carrier_name.?);
 }
 
-test "parseFunctionBody admits public shift nested with callee" {
+test "parseFunctionBody admits public ability nested with callee" {
     const source =
         \\pub fn run() i32 {
-        \\    const nested_result = (try shift.with(runtime_transcript.runtime_ptr.?, .{
+        \\    const nested_result = (try ability.with(runtime_transcript.runtime_ptr.?, .{
         \\        .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
         \\    }, static_redelim_inner_body_carrier)).value;
         \\    return nested_result;
@@ -1198,7 +1198,7 @@ test "parseFunctionBody admits public shift nested with callee" {
     const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
     const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
     const imports = [_]struct { name: []const u8, import_path: []const u8 }{
-        .{ .name = "shift", .import_path = "shift" },
+        .{ .name = "ability", .import_path = "ability" },
     };
     const body = parseFunctionBody(source, "test/nested_public_shift.zig", body_start, body_end, null, imports[0..]) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(usize, 2), body.step_count);
@@ -1208,10 +1208,10 @@ test "parseFunctionBody admits public shift nested with callee" {
     try std.testing.expectEqualStrings("static_redelim_inner_body_carrier", body.steps[0].bind_local_from_nested_with.carrier_name.?);
 }
 
-test "parseFunctionBody rejects public shift nested with without shift import evidence" {
+test "parseFunctionBody rejects public ability nested with without ability import evidence" {
     const source =
         \\pub fn run() i32 {
-        \\    const nested_result = (try shift.with(runtime_transcript.runtime_ptr.?, .{
+        \\    const nested_result = (try ability.with(runtime_transcript.runtime_ptr.?, .{
         \\        .inner = NestedResumeWitness.use(.{ .handler = nested.InnerHandler{} }),
         \\    }, static_redelim_inner_body_carrier)).value;
         \\    return nested_result;
@@ -1220,7 +1220,7 @@ test "parseFunctionBody rejects public shift nested with without shift import ev
     const body_start = comptime std.mem.findScalar(u8, source, '{').? + 1;
     const body_end = comptime std.mem.findScalarLast(u8, source, '}').?;
     const imports = [_]struct { name: []const u8, import_path: []const u8 }{
-        .{ .name = "shift", .import_path = "not_shift.zig" },
+        .{ .name = "ability", .import_path = "not_shift.zig" },
     };
     try std.testing.expect(parseFunctionBody(source, "test/nested_shadowed_shift.zig", body_start, body_end, null, imports[0..]) == null);
 }

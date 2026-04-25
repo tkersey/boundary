@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const ability = @import("ability");
 const std = @import("std");
 
 fn writerBody(eff: anytype) anyerror![]const u8 {
@@ -8,11 +8,11 @@ fn writerBody(eff: anytype) anyerror![]const u8 {
 }
 
 fn runWithAllocator(writer: anytype, allocator: std.mem.Allocator) anyerror!void {
-    var runtime = shift.Runtime.init(allocator);
+    var runtime = ability.Runtime.init(allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
-        .writer = shift.effect.writer.use([]const u8, allocator),
+    const result = try ability.with(&runtime, .{
+        .writer = ability.effect.writer.use([]const u8, allocator),
     }, struct {
         /// Run the writer example body through the plain lexical surface.
         pub fn body(eff: anytype) anyerror![]const u8 {

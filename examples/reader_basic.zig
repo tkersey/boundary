@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const ability = @import("ability");
 const std = @import("std");
 
 fn readerBody(eff: anytype) anyerror!i32 {
@@ -8,11 +8,11 @@ fn readerBody(eff: anytype) anyerror!i32 {
 
 /// Write the reader-effect transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    var runtime = ability.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
-    const result = try shift.with(&runtime, .{
-        .reader = shift.effect.reader.use(@as(i32, 21)),
+    const result = try ability.with(&runtime, .{
+        .reader = ability.effect.reader.use(@as(i32, 21)),
     }, struct {
         /// Run the reader example body through the lexical front door.
         pub fn body(eff: anytype) @TypeOf(readerBody(eff)) {

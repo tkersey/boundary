@@ -1,5 +1,5 @@
-const fixture = @import("shift_agent_vm_fixture_spec.zig");
-const shift_agent_vm = @import("shift_agent_vm");
+const ability_agent_vm = @import("ability_agent_vm");
+const fixture = @import("ability_agent_vm_fixture_spec.zig");
 const std = @import("std");
 
 const SeenRequest = struct {
@@ -17,20 +17,20 @@ fn loadFixtureBytes(allocator: std.mem.Allocator) ![]u8 {
     );
 }
 
-test "shift_agent_vm public smoke executes artifact bytes through the supported runtime module" {
+test "ability_agent_vm public smoke executes artifact bytes through the supported runtime module" {
     const allocator = std.testing.allocator;
     const bytes = try loadFixtureBytes(allocator);
     defer allocator.free(bytes);
 
     var seen = SeenRequest{};
-    const adapter: shift_agent_vm.host.Adapter = .{
+    const adapter: ability_agent_vm.host.Adapter = .{
         .ctx = &seen,
         .dispatchFn = struct {
             fn dispatch(
                 ctx_ptr: ?*anyopaque,
                 allocator_inner: std.mem.Allocator,
-                request: shift_agent_vm.host.Request,
-            ) anyerror!shift_agent_vm.host.Response {
+                request: ability_agent_vm.host.Request,
+            ) anyerror!ability_agent_vm.host.Response {
                 const seen_ptr: *SeenRequest = @ptrCast(@alignCast(ctx_ptr.?));
                 switch (request) {
                     .call => |tool_call| {
@@ -54,7 +54,7 @@ test "shift_agent_vm public smoke executes artifact bytes through the supported 
         }.dispatch,
     };
 
-    var result = try shift_agent_vm.runtime.runArtifact(allocator, bytes, adapter);
+    var result = try ability_agent_vm.runtime.runArtifact(allocator, bytes, adapter);
     defer result.deinit(allocator);
 
     switch (result) {
@@ -87,20 +87,20 @@ test "shift_agent_vm public smoke executes artifact bytes through the supported 
     }
 }
 
-test "shift_agent_vm public smoke rejects mismatched success request ids" {
+test "ability_agent_vm public smoke rejects mismatched success request ids" {
     const allocator = std.testing.allocator;
     const bytes = try loadFixtureBytes(allocator);
     defer allocator.free(bytes);
 
     var seen_calls: usize = 0;
-    const adapter: shift_agent_vm.host.Adapter = .{
+    const adapter: ability_agent_vm.host.Adapter = .{
         .ctx = &seen_calls,
         .dispatchFn = struct {
             fn dispatch(
                 ctx_ptr: ?*anyopaque,
                 allocator_inner: std.mem.Allocator,
-                request: shift_agent_vm.host.Request,
-            ) anyerror!shift_agent_vm.host.Response {
+                request: ability_agent_vm.host.Request,
+            ) anyerror!ability_agent_vm.host.Response {
                 const seen_calls_ptr: *usize = @ptrCast(@alignCast(ctx_ptr.?));
                 switch (request) {
                     .call => |tool_call| {
@@ -119,7 +119,7 @@ test "shift_agent_vm public smoke rejects mismatched success request ids" {
         }.dispatch,
     };
 
-    var result = try shift_agent_vm.runtime.runArtifact(allocator, bytes, adapter);
+    var result = try ability_agent_vm.runtime.runArtifact(allocator, bytes, adapter);
     defer result.deinit(allocator);
 
     switch (result) {

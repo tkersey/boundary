@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const ability = @import("ability");
 const std = @import("std");
 
 const transcript = struct {
@@ -13,12 +13,12 @@ const transcript = struct {
 
 const approval_policy = struct {
     /// Approve publication through the program optional surface.
-    pub fn resumeOrReturn() shift.effect.choice.Decision([]const u8, []const u8) {
+    pub fn resumeOrReturn() ability.effect.choice.Decision([]const u8, []const u8) {
         transcript.note("workflow=queued");
         transcript.note("audit=entered");
         transcript.note("audit=after");
         transcript.note("approval=publish");
-        return shift.effect.choice.Decision([]const u8, []const u8).returnNow("completed");
+        return ability.effect.choice.Decision([]const u8, []const u8).returnNow("completed");
     }
 
     /// Preserve the workflow answer unchanged.
@@ -38,12 +38,12 @@ fn nestedWorkflowBody(eff: anytype) anyerror![]const u8 {
 
 /// Write the nested workflow transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    var runtime = ability.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.len = 0;
 
-    const result = try shift.with(&runtime, .{
-        .optional = shift.effect.optional.use([]const u8, approval_policy),
+    const result = try ability.with(&runtime, .{
+        .optional = ability.effect.optional.use([]const u8, approval_policy),
     }, struct {
         /// Run the nested workflow example body through the lexical front door.
         pub fn body(eff: anytype) @TypeOf(nestedWorkflowBody(eff)) {

@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const ability = @import("ability");
 const std = @import("std");
 
 const transcript = struct {
@@ -19,12 +19,12 @@ fn earlyExitBody(eff: anytype) anyerror![]const u8 {
 
 /// Write the direct-return transcript through the lexical front door.
 pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    var runtime = ability.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
     transcript.handler_line = "";
 
-    const result = try shift.with(&runtime, .{
-        .exception = shift.effect.exception.use([]const u8, catch_policy),
+    const result = try ability.with(&runtime, .{
+        .exception = ability.effect.exception.use([]const u8, catch_policy),
     }, struct {
         /// Run the early-exit example body through the lexical front door.
         pub fn body(eff: anytype) @TypeOf(earlyExitBody(eff)) {

@@ -15,7 +15,7 @@ const FrameBase = struct {
 fn PromptTypeFromPtr(comptime PromptPtrType: type) type {
     return switch (@typeInfo(PromptPtrType)) {
         .pointer => |pointer| pointer.child,
-        else => @compileError("expected a pointer to shift.Prompt(...)"),
+        else => @compileError("expected a pointer to ability.Prompt(...)"),
     };
 }
 

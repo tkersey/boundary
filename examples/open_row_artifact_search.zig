@@ -1,4 +1,4 @@
-const shift = @import("shift");
+const ability = @import("ability");
 const std = @import("std");
 
 const transcript = struct {
@@ -29,10 +29,10 @@ const search_handler = struct {
     }
 };
 
-const Search = shift.effect.Define(.{
+const Search = ability.effect.Define(.{
     .state_type = struct {},
     .ops = .{
-        shift.effect.ops.Transform("search", []const u8, i32),
+        ability.effect.ops.Transform("search", []const u8, i32),
     },
 });
 
@@ -43,11 +43,11 @@ fn artifactSearchBody(eff: anytype) anyerror!i32 {
 
 /// Render the artifact-search transcript.
 pub fn run(writer: anytype) anyerror!void {
-    var runtime = shift.Runtime.init(std.heap.page_allocator);
+    var runtime = ability.Runtime.init(std.heap.page_allocator);
     defer runtime.deinit();
 
     transcript.len = 0;
-    const result = try shift.with(&runtime, .{
+    const result = try ability.with(&runtime, .{
         .search = Search.use(.{ .handler = search_handler{} }),
     }, struct {
         /// Run the artifact-search example body through the lexical front door.
