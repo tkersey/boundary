@@ -11,9 +11,10 @@ fn writeTmpFile(dir: std.Io.Dir, sub_path: []const u8, contents: []const u8) !vo
     });
 }
 
-fn runChildAtPathExpectSuccess(
+fn runChildAtPathExpectFailureContains(
     cwd_path: []const u8,
     argv: []const []const u8,
+    expected_stderr: []const u8,
 ) !void {
     const result = try std.process.run(std.testing.allocator, std.testing.io, .{
         .argv = argv,
@@ -25,10 +26,10 @@ fn runChildAtPathExpectSuccess(
     defer std.testing.allocator.free(result.stderr);
 
     switch (result.term) {
-        .exited => |code| if (code == 0) return,
+        .exited => |code| if (code != 0 and std.mem.find(u8, result.stderr, expected_stderr) != null) return,
         else => {},
     }
-    std.debug.print("child command failed unexpectedly: {s}\n{s}\n", .{ argv[0], result.stderr });
+    std.debug.print("child command did not fail as expected: {s}\n{s}\n", .{ argv[0], result.stderr });
     return error.UnexpectedChildCommandFailure;
 }
 
@@ -82,7 +83,10 @@ fn callerSourceIsAbsent(comptime ContextType: type) bool {
     };
 }
 
-fn runDownstreamAbilityWithMain(comptime main_zig: []const u8) !void {
+fn runDownstreamAbilityWithMainExpectFailure(
+    comptime main_zig: []const u8,
+    expected_stderr: []const u8,
+) !void {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -137,7 +141,7 @@ fn runDownstreamAbilityWithMain(comptime main_zig: []const u8) !void {
     defer std.testing.allocator.free(fingerprint_probe.stderr);
 
     switch (fingerprint_probe.term) {
-        .exited => |code| if (code == 0) return,
+        .exited => |code| if (code != 0 and std.mem.find(u8, fingerprint_probe.stderr, expected_stderr) != null) return,
         else => {},
     }
     const fingerprint = suggestedFingerprint(fingerprint_probe.stderr) orelse {
@@ -145,7 +149,7 @@ fn runDownstreamAbilityWithMain(comptime main_zig: []const u8) !void {
         return error.UnexpectedChildCommandFailure;
     };
     try writeDownstreamBuildZon(tmp.dir, fingerprint);
-    try runChildAtPathExpectSuccess(consumer_root, build_args);
+    try runChildAtPathExpectFailureContains(consumer_root, build_args, expected_stderr);
 }
 
 test "wrapper-local source capture stays callee-owned across realistic zero-argument wrapper forms" {
@@ -237,7 +241,7 @@ test "public root drops compile entrypoints while ability_compile keeps provenan
     try std.testing.expect(@hasDecl(ability_compile.lowering_api, "lowerAt"));
 }
 
-test "plain ability.with anonymous downstream bodies stay usable without caller-owned source" {
+test "plain ability.with anonymous downstream bodies fail closed without caller-owned source" {
     const main_zig =
         \\const ability = @import("ability");
         \\const std = @import("std");
@@ -257,10 +261,10 @@ test "plain ability.with anonymous downstream bodies stay usable without caller-
         \\}
         \\
     ;
-    try runDownstreamAbilityWithMain(main_zig);
+    try runDownstreamAbilityWithMainExpectFailure(main_zig, "ability.with bodies must lower to ProgramPlan");
 }
 
-test "plain ability.with named downstream bodies stay usable without caller-owned source" {
+test "plain ability.with named downstream bodies fail closed without caller-owned source" {
     const main_zig =
         \\const ability = @import("ability");
         \\const std = @import("std");
@@ -282,5 +286,5 @@ test "plain ability.with named downstream bodies stay usable without caller-owne
         \\}
         \\
     ;
-    try runDownstreamAbilityWithMain(main_zig);
+    try runDownstreamAbilityWithMainExpectFailure(main_zig, "ability.with bodies must lower to ProgramPlan");
 }

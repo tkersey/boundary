@@ -1283,7 +1283,7 @@ test "repo-owned plain with examples classify unique vs ambiguous bodies" {
     ) == null);
 }
 
-test "state_basic synthesized anonymous body lowers through public_lowering" {
+test "state_basic synthesized anonymous body lowers through lowering_api" {
     const state = @import("../effect/state.zig");
     const source_path = "examples/state_basic.zig";
     const body_type = struct {
