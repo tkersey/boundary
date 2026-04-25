@@ -4621,6 +4621,22 @@ pub fn build(b: *std.Build) void {
         ability_agent_vm_smoke_tests,
         test_runner_args.passthrough.items,
     );
+    const ability_vm_fresh_mod = b.createModule(.{
+        .root_source_file = b.path("test/ability_agent_vm_fixture_freshness_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ability_vm_fresh_mod.addImport("ability_compile", ability_compile_mod);
+    const ability_vm_fresh_tests = addFilteredTest(
+        b,
+        ability_vm_fresh_mod,
+        test_runner_args.filters.items,
+    );
+    const run_ability_vm_fresh = addRunArtifactWithArgs(
+        b,
+        ability_vm_fresh_tests,
+        test_runner_args.passthrough.items,
+    );
 
     const ability_vm_export_opts = b.addOptions();
     ability_vm_export_opts.addOption([:0]const u8, "zig_exe", b.graph.zig_exe);
@@ -4653,6 +4669,7 @@ pub fn build(b: *std.Build) void {
         "Run retained ability_agent_vm ordinary-consumer, runtime-smoke, and downstream export witnesses.",
     );
     ability_agent_vm_compat_step.dependOn(&ability_agent_vm_consumer_exe.step);
+    ability_agent_vm_compat_step.dependOn(&run_ability_vm_fresh.step);
     ability_agent_vm_compat_step.dependOn(&run_ability_agent_vm_smoke.step);
     ability_agent_vm_compat_step.dependOn(&run_ability_vm_export.step);
     published_module_contract_step.dependOn(ability_agent_vm_compat_step);
