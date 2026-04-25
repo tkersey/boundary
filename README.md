@@ -19,6 +19,42 @@ Everything else in the repo is outside the `@import("ability")` root contract.
 That includes sibling modules such as `ability_agent_vm` along with maintainer-facing
 lowering and interpreter scaffolding.
 
+## Dependency
+
+Pin a release tag or exact commit rather than an unqualified branch:
+
+```bash
+zig fetch --save-exact=ability git+https://github.com/tkersey/ability.git#v0.0.1
+```
+
+That command writes a dependency entry with the package hash into the consuming
+project's `build.zig.zon`:
+
+```zig
+.dependencies = .{
+    .ability = .{
+        .url = "git+https://github.com/tkersey/ability.git#v0.0.1",
+        .hash = "<hash emitted by zig fetch>",
+    },
+}
+```
+
+Then import the package module from the consumer build:
+
+```zig
+const ability_dep = b.dependency("ability", .{
+    .target = target,
+    .optimize = optimize,
+});
+const ability_mod = ability_dep.module("ability");
+```
+
+For local dependency development, prefer Zig's package override flag:
+
+```bash
+zig build --fork=/absolute/path/to/ability
+```
+
 ## Examples
 
 The ordinary user-facing examples live under `examples/`.
