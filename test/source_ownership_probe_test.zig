@@ -657,7 +657,7 @@ test "ability.with admits typed named downstream bodies with Body.source" {
         \\const Body: type = struct {
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    pub const source = sourceBytes();
-        \\    pub const source_identity = "source_ownership_probe.Body";
+        \\    pub const source_identity: []const u8 = "source_ownership_probe.Body";
         \\    pub fn body(eff: anytype) anyerror!i32 {
         \\        return try eff.state.get();
         \\    }

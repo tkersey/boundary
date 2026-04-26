@@ -606,6 +606,48 @@ fn identityLiteralToken(comptime source_identity: []const u8) []const u8 {
     return std.fmt.comptimePrint("\"{s}\"", .{source_identity});
 }
 
+fn nextNonIgnorableToken(tokenizer: *std.zig.Tokenizer) std.zig.Token {
+    var token = tokenizer.next();
+    while (isIgnorableToken(token.tag)) token = tokenizer.next();
+    return token;
+}
+
+fn skipOptionalTypeAnnotationToInitializer(
+    tokenizer: *std.zig.Tokenizer,
+    first_token_after_name: std.zig.Token,
+) ?std.zig.Token {
+    if (first_token_after_name.tag != .colon) return first_token_after_name;
+
+    var paren_depth: usize = 0;
+    var bracket_depth: usize = 0;
+    var brace_depth: usize = 0;
+    while (true) {
+        const token = nextNonIgnorableToken(tokenizer);
+        switch (token.tag) {
+            .eof, .semicolon => return null,
+            .l_paren => paren_depth += 1,
+            .r_paren => {
+                if (paren_depth == 0) return null;
+                paren_depth -= 1;
+            },
+            .l_bracket => bracket_depth += 1,
+            .r_bracket => {
+                if (bracket_depth == 0) return null;
+                bracket_depth -= 1;
+            },
+            .l_brace => brace_depth += 1,
+            .r_brace => {
+                if (brace_depth == 0) return null;
+                brace_depth -= 1;
+            },
+            .equal => {
+                if (paren_depth == 0 and bracket_depth == 0 and brace_depth == 0) return token;
+            },
+            else => {},
+        }
+    }
+}
+
 fn structExpressionHasSourceIdentity(
     comptime expr_source: []const u8,
     comptime source_identity: []const u8,
@@ -643,6 +685,7 @@ fn structExpressionHasSourceIdentity(
 
         var eq = tokenizer.next();
         while (isIgnorableToken(eq.tag)) eq = tokenizer.next();
+        eq = skipOptionalTypeAnnotationToInitializer(&tokenizer, eq) orelse return false;
         if (eq.tag != .equal) continue;
         var literal = tokenizer.next();
         while (isIgnorableToken(literal.tag)) literal = tokenizer.next();
@@ -1630,6 +1673,16 @@ test "named source identity matches only the selected top-level declaration" {
 
     try std.testing.expect(comptime namedStructSourceIdentityMatches(source, "Body", "main.Body"));
     try std.testing.expect(!comptime namedStructSourceIdentityMatches(source, "Body", "nested.Body"));
+
+    const typed_identity_source =
+        \\const Body = struct {
+        \\    pub const source_identity: []const u8 = "main.Body";
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        return try eff.state.get();
+        \\    }
+        \\};
+    ;
+    try std.testing.expect(comptime namedStructSourceIdentityMatches(typed_identity_source, "Body", "main.Body"));
 
     const private_source =
         \\const Body = struct {
