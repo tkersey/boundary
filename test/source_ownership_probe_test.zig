@@ -966,3 +966,49 @@ test "ability.with rejects source-backed named bodies whose source has a mismatc
         "ability.with source-backed named body source_identity/source_location did not match the selected top-level declaration",
     );
 }
+
+test "ability.with rejects source-backed named bodies whose source witness names a different file at the same location" {
+    const imported_zig =
+        \\pub const Body = struct {
+        \\    fn sourceLocation() @import("std").builtin.SourceLocation { return @src(); }
+        \\    pub const source = @embedFile("main.zig");
+        \\    pub const source_location = sourceLocation();
+        \\    pub const source_identity = "main.Body";
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        return try eff.state.get();
+        \\    }
+        \\};
+        \\
+    ;
+    const main_zig =
+        \\const Body = struct {
+        \\    fn sourceLocation() @import("std").builtin.SourceLocation { return @src(); }
+        \\    pub const source_location = sourceLocation();
+        \\    pub const source_identity = "main.Body";
+        \\    pub fn body(_: anytype) anyerror!i32 {
+        \\        return 0;
+        \\    }
+        \\};
+        \\
+        \\const ability = @import("ability");
+        \\const imported = @import("imported.zig");
+        \\const std = @import("std");
+        \\
+        \\pub fn main() !void {
+        \\    _ = Body;
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.with(&runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, imported.Body);
+        \\    if (result.value != 9) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMainAndImportExpectFailure(
+        main_zig,
+        imported_zig,
+        "ability.with source-backed named body source_identity/source_location did not match the selected top-level declaration",
+    );
+}

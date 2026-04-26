@@ -999,6 +999,45 @@ fn sourceBackedNamedBodyLocation(comptime Body: type) std.builtin.SourceLocation
     );
 }
 
+fn sourceIdentityModuleLeaf(comptime source_identity: []const u8) ?[]const u8 {
+    var body_sep: ?usize = null;
+    for (source_identity, 0..) |char, index| {
+        if (char == '.') body_sep = index;
+    }
+    const end = body_sep orelse return null;
+    if (end == 0) return null;
+
+    var start: usize = 0;
+    for (source_identity[0..end], 0..) |char, index| {
+        if (char == '.') start = index + 1;
+    }
+    if (start == end) return null;
+    return source_identity[start..end];
+}
+
+fn sourceLocationFileStem(comptime file: []const u8) []const u8 {
+    var start: usize = 0;
+    for (file, 0..) |char, index| {
+        if (char == '/' or char == '\\') start = index + 1;
+    }
+    var end = file.len;
+    if (std.mem.endsWith(u8, file[start..end], ".zig")) {
+        end -= ".zig".len;
+    }
+    return file[start..end];
+}
+
+fn sourceBackedNamedBodyWitnessMatches(
+    comptime Body: type,
+    comptime source_identity: []const u8,
+    comptime source_location: std.builtin.SourceLocation,
+) bool {
+    if (!std.mem.eql(u8, source_identity, @typeName(Body))) return false;
+    const identity_module = comptime sourceIdentityModuleLeaf(source_identity) orelse return false;
+    const location_file = comptime sourceLocationFileStem(source_location.file);
+    return std.mem.eql(u8, identity_module, location_file);
+}
+
 fn sourceBackedSyntheticCaller(
     comptime source_path: []const u8,
     comptime entry_symbol: []const u8,
@@ -1202,6 +1241,9 @@ fn trySourceBackedNamedCompiledWith(
         entry_symbol,
         compiledBodyReturnSyntax(HandlersType, Body),
     ) orelse @compileError("ability.with source-backed named body source did not contain a matching top-level struct declaration");
+    if (!comptime sourceBackedNamedBodyWitnessMatches(Body, source_identity, source_location)) {
+        @compileError("ability.with source-backed named body source_identity/source_location did not match the selected top-level declaration");
+    }
     if (!comptime anonymous_body_synthesis.namedStructSourceIdentityContainsLocationMatches(caller_source, body_symbol, source_identity, source_location.line, source_location.column)) {
         @compileError("ability.with source-backed named body source_identity/source_location did not match the selected top-level declaration");
     }
