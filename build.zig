@@ -1540,6 +1540,7 @@ fn appendResolvedEmbedPathIfPresent(
 
     const repo_relative = try tryRepoRelativePathFromAbsoluteAlloc(allocator, repo_root, resolved) orelse return;
     defer allocator.free(repo_relative);
+    if (pathIsGeneratedArtifactBuildOutput(repo_relative)) return;
 
     const io = compatIo();
     var root_dir = std.Io.Dir.openDirAbsolute(io, repo_root, .{}) catch |err|
@@ -1547,6 +1548,33 @@ fn appendResolvedEmbedPathIfPresent(
     defer root_dir.close(io);
     if (!pathExistsAtRoot(root_dir, io, repo_relative)) return;
     try appendOwnedPathIfMissing(allocator, collector.paths, collector.path_set, repo_relative);
+}
+
+const agent_vm_artifact_path = "test/fixtures/ability_agent_vm_smoke.artifact";
+
+fn repoRelativePathEqlWithSeparator(
+    path: []const u8,
+    expected_posix: []const u8,
+    separator: u8,
+) bool {
+    if (path.len != expected_posix.len) return false;
+    for (expected_posix, 0..) |expected_byte, index| {
+        const path_byte = path[index];
+        if (expected_byte == '/') {
+            if (path_byte != '/' and path_byte != separator) return false;
+            continue;
+        }
+        if (path_byte != expected_byte) return false;
+    }
+    return true;
+}
+
+fn pathIsGeneratedArtifactBuildOutput(path: []const u8) bool {
+    return repoRelativePathEqlWithSeparator(
+        path,
+        agent_vm_artifact_path,
+        std.Io.Dir.path.sep,
+    );
 }
 
 fn resolveRepoRelativeImportPathAlloc(
@@ -2819,6 +2847,45 @@ test "artifact build fingerprint includes embedded non-Zig inputs and excludes u
     );
     const after_untracked_zig = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
     try std.testing.expectEqualSlices(u8, &before_untracked_zig, &after_untracked_zig);
+}
+
+test "artifact build fingerprint excludes generated ability_agent_vm artifact self-input" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try tmp.dir.realPathFileAlloc(compatIo(), ".", std.testing.allocator);
+    defer std.testing.allocator.free(repo_root);
+
+    try tmp.dir.createDirPath(compatIo(), "test/fixtures");
+    try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
+    try writeTmpFile(tmp.dir, "probe.zig",
+        \\pub fn main() void {
+        \\    const artifact = @embedFile("test/fixtures/ability_agent_vm_smoke.artifact");
+        \\    _ = artifact;
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "test/fixtures/ability_agent_vm_smoke.artifact", "artifact-v1\n");
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "init", "-q" });
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "add", "probe.zig", "build.zig.zon" });
+
+    const before = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try writeTmpFile(tmp.dir, "test/fixtures/ability_agent_vm_smoke.artifact", "artifact-v2\n");
+    const after = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try std.testing.expectEqualSlices(u8, &before, &after);
+}
+
+test "generated ability_agent_vm artifact exclusion matches native separator spelling" {
+    try std.testing.expect(repoRelativePathEqlWithSeparator(
+        "test\\fixtures\\ability_agent_vm_smoke.artifact",
+        agent_vm_artifact_path,
+        '\\',
+    ));
+    try std.testing.expect(!repoRelativePathEqlWithSeparator(
+        "test\\fixtures\\other.artifact",
+        agent_vm_artifact_path,
+        '\\',
+    ));
 }
 
 test "artifact build fingerprint includes embedded inputs larger than 16 MiB" {

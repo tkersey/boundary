@@ -17,8 +17,6 @@ const std = @import("std");
 
 /// Call-site families supported by anonymous-body source synthesis.
 pub const CompilationKind = enum {
-    explicit_location,
-    explicit_location_and_content,
     none,
     owned_source,
     plain_with,
@@ -33,6 +31,12 @@ const AnonymousBodyIdentity = struct {
     module_path: []const u8,
     enclosing_function: []const u8,
     struct_suffix: []const u8,
+};
+
+const SourceWitnessBoundsSelection = union(enum) {
+    ambiguous,
+    none,
+    selected: Bounds,
 };
 
 fn registryContainsLine(comptime registry: []const u8, comptime candidate: []const u8) bool {
@@ -248,6 +252,33 @@ fn candidateBoundsForIdentity(
     );
 }
 
+fn candidateBoundsForIdentityInSource(
+    comptime caller_source: [:0]const u8,
+    comptime identity: AnonymousBodyIdentity,
+    comptime kind: CompilationKind,
+) ?[]const Bounds {
+    if (isTestModulePath(identity.module_path)) {
+        const test_block = testBlockBounds(caller_source, identity.enclosing_function) orelse return null;
+        return bodyExpressionBoundsInRangeCandidates(
+            caller_source,
+            test_block.start,
+            test_block.end,
+            kind,
+        );
+    }
+    const graph = source_graph_engine.analyzeComptime(caller_source, .{}) catch return null;
+    const function_name = canonicalEnclosingFunctionName(identity.enclosing_function);
+    const function_node = for (graph.functions) |function| {
+        if (std.mem.eql(u8, function.name, function_name)) break function;
+    } else return null;
+    return bodyExpressionBoundsInRangeCandidates(
+        caller_source,
+        function_node.body_start_offset,
+        function_node.body_end_offset,
+        kind,
+    );
+}
+
 fn fallbackResolvedRepoPathForIdentity(
     comptime identity: AnonymousBodyIdentity,
     comptime kind: CompilationKind,
@@ -306,8 +337,6 @@ pub fn hasRepoOwnedCandidate(comptime Body: type) bool {
 fn callName(comptime kind: CompilationKind) ?[]const u8 {
     return switch (kind) {
         .none => null,
-        .explicit_location => "withCallerSource",
-        .explicit_location_and_content => "withCallerSourceAndContent",
         .owned_source => "withOwnedSource",
         .plain_with => "with",
     };
@@ -316,8 +345,6 @@ fn callName(comptime kind: CompilationKind) ?[]const u8 {
 fn bodyArgIndex(comptime kind: CompilationKind) ?usize {
     return switch (kind) {
         .none => null,
-        .explicit_location => 4,
-        .explicit_location_and_content => 4,
         .owned_source => 5,
         .plain_with => 2,
     };
@@ -572,6 +599,224 @@ fn namedStructExpressionBounds(
 
     if (match_count != 1) return null;
     return matches[0];
+}
+
+fn simpleStringLiteralToken(comptime value: []const u8) []const u8 {
+    if (value.len == 0) return "";
+    for (value) |char| {
+        switch (char) {
+            'A'...'Z', 'a'...'z', '0'...'9', '_', '.', '/', '-', ':' => {},
+            else => return "",
+        }
+    }
+    return std.fmt.comptimePrint("\"{s}\"", .{value});
+}
+
+fn nextNonIgnorableToken(tokenizer: *std.zig.Tokenizer) std.zig.Token {
+    var token = tokenizer.next();
+    while (isIgnorableToken(token.tag)) token = tokenizer.next();
+    return token;
+}
+
+fn skipOptionalTypeAnnotationToInitializer(
+    tokenizer: *std.zig.Tokenizer,
+    first_token_after_name: std.zig.Token,
+) ?std.zig.Token {
+    if (first_token_after_name.tag != .colon) return first_token_after_name;
+
+    var paren_depth: usize = 0;
+    var bracket_depth: usize = 0;
+    var brace_depth: usize = 0;
+    while (true) {
+        const token = nextNonIgnorableToken(tokenizer);
+        switch (token.tag) {
+            .eof, .semicolon => return null,
+            .l_paren => paren_depth += 1,
+            .r_paren => {
+                if (paren_depth == 0) return null;
+                paren_depth -= 1;
+            },
+            .l_bracket => bracket_depth += 1,
+            .r_bracket => {
+                if (bracket_depth == 0) return null;
+                bracket_depth -= 1;
+            },
+            .l_brace => brace_depth += 1,
+            .r_brace => {
+                if (brace_depth == 0) return null;
+                brace_depth -= 1;
+            },
+            .equal => {
+                if (paren_depth == 0 and bracket_depth == 0 and brace_depth == 0) return token;
+            },
+            else => {},
+        }
+    }
+}
+
+fn structExpressionHasPublicStringConst(
+    comptime expr_source: []const u8,
+    comptime decl_name: []const u8,
+    comptime expected_value: []const u8,
+) bool {
+    const expected_literal = comptime simpleStringLiteralToken(expected_value);
+    if (expected_literal.len == 0) return false;
+    const sentinel = std.fmt.comptimePrint("{s}\x00", .{expr_source});
+    var tokenizer = std.zig.Tokenizer.init(sentinel[0..expr_source.len :0]);
+    var brace_depth: usize = 0;
+
+    while (true) {
+        const token = tokenizer.next();
+        if (token.tag == .eof) return false;
+        switch (token.tag) {
+            .l_brace => {
+                brace_depth += 1;
+                continue;
+            },
+            .r_brace => {
+                if (brace_depth == 0) return false;
+                brace_depth -= 1;
+                continue;
+            },
+            else => {},
+        }
+        if (brace_depth != 1 or token.tag != .keyword_pub) continue;
+
+        var const_token = tokenizer.next();
+        while (isIgnorableToken(const_token.tag)) const_token = tokenizer.next();
+        if (const_token.tag != .keyword_const) continue;
+        var name = tokenizer.next();
+        while (isIgnorableToken(name.tag)) name = tokenizer.next();
+        if (name.tag != .identifier) continue;
+        if (!std.mem.eql(u8, sentinel[name.loc.start..name.loc.end], decl_name)) continue;
+
+        var eq = tokenizer.next();
+        while (isIgnorableToken(eq.tag)) eq = tokenizer.next();
+        eq = skipOptionalTypeAnnotationToInitializer(&tokenizer, eq) orelse return false;
+        if (eq.tag != .equal) continue;
+        var literal = tokenizer.next();
+        while (isIgnorableToken(literal.tag)) literal = tokenizer.next();
+        if (literal.tag != .string_literal) continue;
+        if (std.mem.eql(u8, sentinel[literal.loc.start..literal.loc.end], expected_literal)) return true;
+    }
+}
+
+fn structExpressionHasSourceIdentity(
+    comptime expr_source: []const u8,
+    comptime source_identity: []const u8,
+) bool {
+    return structExpressionHasPublicStringConst(expr_source, "source_identity", source_identity);
+}
+
+fn structExpressionHasSourceFile(
+    comptime expr_source: []const u8,
+    comptime source_file: []const u8,
+) bool {
+    return structExpressionHasPublicStringConst(expr_source, "source_file", source_file);
+}
+
+pub fn namedStructSourceIdentityMatches(
+    comptime source: []const u8,
+    comptime body_symbol: []const u8,
+    comptime source_identity: []const u8,
+) bool {
+    const bounds = comptime namedStructExpressionBounds(source, body_symbol) orelse return false;
+    return comptime structExpressionHasSourceIdentity(source[bounds.start..bounds.end], source_identity);
+}
+
+fn boundsSourceFileContainsLocationMatches(
+    comptime source: []const u8,
+    comptime bounds: Bounds,
+    comptime source_file: []const u8,
+    comptime source_line: u32,
+    comptime source_column: u32,
+) bool {
+    if (!comptime structExpressionHasSourceFile(source[bounds.start..bounds.end], source_file)) return false;
+    const location = comptime lineColumnOffset(source, source_line, source_column) orelse return false;
+    return location >= bounds.start and
+        location < bounds.end and
+        std.mem.startsWith(u8, source[location..], "@src()");
+}
+
+fn lineStartOffset(comptime source: []const u8, comptime line: u32) ?usize {
+    if (line == 0) return null;
+    if (line == 1) return 0;
+    var current_line: u32 = 1;
+    for (source, 0..) |char, index| {
+        if (char != '\n') continue;
+        current_line += 1;
+        if (current_line == line) return index + 1;
+    }
+    return null;
+}
+
+fn lineColumnOffset(
+    comptime source: []const u8,
+    comptime line: u32,
+    comptime column: u32,
+) ?usize {
+    if (column == 0) return null;
+    const line_start = comptime lineStartOffset(source, line) orelse return null;
+    const offset = line_start + column - 1;
+    if (offset >= source.len) return null;
+    var line_end = line_start;
+    while (line_end < source.len and source[line_end] != '\n') : (line_end += 1) {}
+    if (offset >= line_end) return null;
+    return offset;
+}
+
+pub fn namedStructSourceIdentityContainsLocationMatches(
+    comptime source: []const u8,
+    comptime body_symbol: []const u8,
+    comptime source_identity: []const u8,
+    comptime source_line: u32,
+    comptime source_column: u32,
+) bool {
+    const bounds = comptime namedStructExpressionBounds(source, body_symbol) orelse return false;
+    if (!comptime structExpressionHasSourceIdentity(source[bounds.start..bounds.end], source_identity)) return false;
+    const location = comptime lineColumnOffset(source, source_line, source_column) orelse return false;
+    return location >= bounds.start and
+        location < bounds.end and
+        std.mem.startsWith(u8, source[location..], "@src()");
+}
+
+pub fn namedStructSourceWitnessMatches(
+    comptime source: []const u8,
+    comptime body_symbol: []const u8,
+    comptime source_identity: []const u8,
+    comptime source_file: []const u8,
+    comptime source_line: u32,
+    comptime source_column: u32,
+) bool {
+    const bounds = comptime namedStructExpressionBounds(source, body_symbol) orelse return false;
+    if (!comptime structExpressionHasSourceIdentity(source[bounds.start..bounds.end], source_identity)) return false;
+    return comptime boundsSourceFileContainsLocationMatches(source, bounds, source_file, source_line, source_column);
+}
+
+pub fn bodyExpressionSourceWitnessMatches(
+    comptime source: []const u8,
+    comptime bounds: Bounds,
+    comptime source_file: []const u8,
+    comptime source_line: u32,
+    comptime source_column: u32,
+) bool {
+    return comptime boundsSourceFileContainsLocationMatches(source, bounds, source_file, source_line, source_column);
+}
+
+fn sourceWitnessSelectedBounds(
+    comptime source: []const u8,
+    comptime candidates: []const Bounds,
+    comptime source_file: []const u8,
+    comptime source_line: u32,
+    comptime source_column: u32,
+) SourceWitnessBoundsSelection {
+    var selected: ?Bounds = null;
+    inline for (candidates) |candidate| {
+        if (!comptime bodyExpressionSourceWitnessMatches(source, candidate, source_file, source_line, source_column)) continue;
+        if (selected != null) return .ambiguous;
+        selected = candidate;
+    }
+    return if (selected) |bounds| .{ .selected = bounds } else .none;
 }
 
 pub fn uniqueBodyExpressionBoundsInRange(
@@ -1302,10 +1547,7 @@ pub fn syntheticSourceWithEntry(
     comptime override_return_syntax: ?[]const u8,
 ) ?[:0]const u8 {
     const bounds = comptime bodyExpressionBounds(caller, caller_source, kind) orelse return null;
-    const synthetic_caller_source = switch (kind) {
-        .explicit_location, .explicit_location_and_content => callerOwnedSyntheticCallerSource(caller, caller_source),
-        else => sanitizedCallerSourceForBounds(caller_source, bounds),
-    };
+    const synthetic_caller_source = sanitizedCallerSourceForBounds(caller_source, bounds);
     return syntheticSourceForBounds(
         Body,
         bounds,
@@ -1340,6 +1582,7 @@ pub const RepoOwnedAnonymousSource = struct {
     source_path: []const u8,
     entry_symbol: [:0]const u8,
     source: [:0]const u8,
+    body_bounds: Bounds,
 };
 
 pub fn maybeLowerSyntheticLexicalBody(
@@ -1450,6 +1693,67 @@ pub fn uniqueRepoOwnedAnonymousSourceWithReturnSyntax(
             entry_symbol,
             override_return_syntax,
         ) orelse return null,
+        .body_bounds = selected_bounds,
+    };
+}
+
+/// Return one source-backed anonymous body from caller-owned bytes. Duplicate
+/// same-shaped candidates are disambiguated by the body's source-location
+/// witness before falling back to the first equivalent candidate.
+pub fn uniqueSourceBackedAnonymousSourceWithReturnSyntax(
+    comptime Body: type,
+    comptime caller_source: []const u8,
+    comptime kind: CompilationKind,
+    comptime source_file: []const u8,
+    comptime source_location: std.builtin.SourceLocation,
+    comptime override_return_syntax: ?[]const u8,
+) ?RepoOwnedAnonymousSource {
+    const identity = bodyIdentity(Body) orelse return null;
+    const source = std.fmt.comptimePrint("{s}\x00", .{caller_source});
+    const candidate_bounds = candidateBoundsForIdentityInSource(source[0..caller_source.len :0], identity, kind) orelse return null;
+    const entry_symbol = entryNameFromIdentity(identity);
+    if (candidate_bounds.len == 0) return null;
+    const selected_bounds: Bounds = if (candidate_bounds.len == 1)
+        candidate_bounds[0]
+    else blk: {
+        switch (comptime sourceWitnessSelectedBounds(source[0..caller_source.len], candidate_bounds, source_file, source_location.line, source_location.column)) {
+            .selected => |bounds| break :blk @as(Bounds, bounds),
+            .ambiguous => return null,
+            .none => {},
+        }
+        const first_source = comptime syntheticSourceForBounds(
+            Body,
+            candidate_bounds[0],
+            caller_source,
+            repoOwnedSyntheticCallerSource(caller_source, candidate_bounds[0], identity),
+            entry_symbol,
+            override_return_syntax,
+        ) orelse return null;
+        inline for (candidate_bounds[1..]) |candidate| {
+            const candidate_source = comptime syntheticSourceForBounds(
+                Body,
+                candidate,
+                caller_source,
+                repoOwnedSyntheticCallerSource(caller_source, candidate, identity),
+                entry_symbol,
+                override_return_syntax,
+            ) orelse return null;
+            if (!std.mem.eql(u8, first_source, candidate_source)) return null;
+        }
+        break :blk candidate_bounds[0];
+    };
+    return .{
+        .source_path = "source-backed-body.zig",
+        .entry_symbol = entry_symbol,
+        .source = comptime syntheticSourceForBounds(
+            Body,
+            selected_bounds,
+            caller_source,
+            repoOwnedSyntheticCallerSource(caller_source, selected_bounds, identity),
+            entry_symbol,
+            override_return_syntax,
+        ) orelse return null,
+        .body_bounds = selected_bounds,
     };
 }
 
@@ -1476,6 +1780,54 @@ test "bodyExpressionBounds finds the anonymous withOwnedSource body argument" {
     ;
     const bounds = comptime bodyExpressionBounds(caller, source, .owned_source).?;
     try std.testing.expect(std.mem.eql(u8, source[bounds.start..bounds.end], "struct {\n        pub fn body(eff: anytype) anyerror!void { _ = eff; }\n    }"));
+}
+
+test "named source identity matches only the selected top-level declaration" {
+    const source =
+        \\const Wrapper = struct {
+        \\    const Body = struct {
+        \\        pub const source_identity = "nested.Body";
+        \\    };
+        \\};
+        \\
+        \\const Body = struct {
+        \\    pub const source_identity = "main.Body";
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        return try eff.state.get();
+        \\    }
+        \\};
+    ;
+
+    try std.testing.expect(comptime namedStructSourceIdentityMatches(source, "Body", "main.Body"));
+    try std.testing.expect(!comptime namedStructSourceIdentityMatches(source, "Body", "nested.Body"));
+
+    const typed_identity_source =
+        \\const Body = struct {
+        \\    pub const source_identity: []const u8 = "main.Body";
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        return try eff.state.get();
+        \\    }
+        \\};
+    ;
+    try std.testing.expect(comptime namedStructSourceIdentityMatches(typed_identity_source, "Body", "main.Body"));
+
+    const private_source =
+        \\const Body = struct {
+        \\    const source_identity = "main.Body";
+        \\};
+    ;
+    try std.testing.expect(!comptime namedStructSourceIdentityMatches(private_source, "Body", "main.Body"));
+
+    const location_source =
+        \\const Body = struct {
+        \\    fn sourceLocation() @import("std").builtin.SourceLocation { return @src(); }
+        \\    pub const source_location = sourceLocation();
+        \\    pub const source_identity = "main.Body";
+        \\};
+    ;
+    try std.testing.expect(comptime namedStructSourceIdentityContainsLocationMatches(location_source, "Body", "main.Body", 2, 72));
+    try std.testing.expect(!comptime namedStructSourceIdentityContainsLocationMatches(location_source, "Body", "main.Body", 2, 71));
+    try std.testing.expect(!comptime namedStructSourceIdentityContainsLocationMatches(location_source, "Body", "nested.Body", 2, 72));
 }
 
 test "syntheticSourceWithEntry appends one renamed entry function" {
