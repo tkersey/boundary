@@ -113,6 +113,7 @@ test "ability_agent_vm package module is exported to downstream dependency consu
     try env_map.put("PATH", consumer_root);
     try copyCurrentEnvIfPresent(&env_map, "HOME");
     try copyCurrentEnvIfPresent(&env_map, "XDG_CACHE_HOME");
+    try copyCurrentEnvIfPresent(&env_map, "ZIG_GLOBAL_CACHE_DIR");
 
     try runChildAtPathExpectSuccess(
         consumer_root,
