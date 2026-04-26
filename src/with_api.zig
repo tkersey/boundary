@@ -1,7 +1,6 @@
 const anonymous_body_synthesis = @import("internal/anonymous_body_synthesis.zig");
 const builtin = @import("builtin");
 const family = @import("effect/family.zig");
-const frontend = @import("frontend_support");
 const lexical_manifest = @import("internal/lexical_manifest.zig");
 const lowered_machine = @import("lowered_machine");
 const lowering_api = @import("lowering_api");
@@ -241,6 +240,81 @@ fn ExplicitProgramContinuationErrorSet(comptime Continuation: anytype, comptime 
     return ReturnTypeErrorSet(ExplicitProgramContinuationReturnType(Continuation, ResumeType));
 }
 
+fn ExplicitProgramContinuationReturnTypeWithContext(
+    comptime ContextPtrType: type,
+    comptime Continuation: type,
+    comptime ResumeType: type,
+) type {
+    return @TypeOf(Continuation.apply(dummyValue(ContextPtrType), dummyValue(ResumeType)));
+}
+
+fn ExplicitProgramContinuationAnswerTypeWithContext(
+    comptime ContextPtrType: type,
+    comptime Continuation: type,
+    comptime ResumeType: type,
+) type {
+    const ReturnType = ExplicitProgramContinuationReturnTypeWithContext(ContextPtrType, Continuation, ResumeType);
+    return switch (@typeInfo(ReturnType)) {
+        .error_union => |err_union| err_union.payload,
+        else => ReturnType,
+    };
+}
+
+fn ExplicitProgramContinuationErrorSetWithContext(
+    comptime ContextPtrType: type,
+    comptime Continuation: type,
+    comptime ResumeType: type,
+) type {
+    return ReturnTypeErrorSet(ExplicitProgramContinuationReturnTypeWithContext(ContextPtrType, Continuation, ResumeType));
+}
+
+fn PreviewCompiledProgram(
+    comptime Op: type,
+    comptime Continuation: anytype,
+    comptime ErrorSet: type,
+) type {
+    const PromptType = prompt_contract.Prompt(
+        Op.mode,
+        Op.Resume,
+        ExplicitProgramContinuationAnswerType(Continuation, Op.Resume),
+        ErrorSet || ExplicitProgramContinuationErrorSet(Continuation, Op.Resume),
+    );
+    return struct {
+        /// Preview witness that mirrors runtime authored carriers during type inference.
+        pub const has_compiled_plan = true;
+        prompt: *const PromptType,
+
+        /// Type-only preview of compiled authored execution.
+        pub fn runCompiled(_: @This(), _: *lowered_machine.Runtime) lowered_machine.ResetError(ErrorSet || ExplicitProgramContinuationErrorSet(Continuation, Op.Resume))!ExplicitProgramContinuationAnswerType(Continuation, Op.Resume) {
+            unreachable;
+        }
+    };
+}
+
+fn PreviewCompiledProgramWithContext(
+    comptime Op: type,
+    comptime ContextPtrType: type,
+    comptime Continuation: type,
+    comptime ErrorSet: type,
+) type {
+    const PromptType = prompt_contract.Prompt(
+        Op.mode,
+        Op.Resume,
+        ExplicitProgramContinuationAnswerTypeWithContext(ContextPtrType, Continuation, Op.Resume),
+        ErrorSet || ExplicitProgramContinuationErrorSetWithContext(ContextPtrType, Continuation, Op.Resume),
+    );
+    return struct {
+        /// Preview witness that mirrors runtime authored carriers during contextual type inference.
+        pub const has_compiled_plan = true;
+        prompt: *const PromptType,
+
+        /// Type-only preview of compiled contextual authored execution.
+        pub fn runCompiled(_: @This(), _: *lowered_machine.Runtime) lowered_machine.ResetError(ErrorSet || ExplicitProgramContinuationErrorSetWithContext(ContextPtrType, Continuation, Op.Resume))!ExplicitProgramContinuationAnswerTypeWithContext(ContextPtrType, Continuation, Op.Resume) {
+            unreachable;
+        }
+    };
+}
+
 fn PreviewEngineContext(comptime ErrorSet: type) type {
     return struct {
         /// Perform this public operation.
@@ -254,12 +328,7 @@ fn PreviewEngineContext(comptime ErrorSet: type) type {
             comptime Op: type,
             _: Op.Payload,
             comptime Continuation: anytype,
-        ) frontend.BoundProgram(prompt_contract.Prompt(
-            Op.mode,
-            Op.Resume,
-            ExplicitProgramContinuationAnswerType(Continuation, Op.Resume),
-            ErrorSet || ExplicitProgramContinuationErrorSet(Continuation, Op.Resume),
-        )) {
+        ) PreviewCompiledProgram(Op, Continuation, ErrorSet) {
             unreachable;
         }
 
@@ -268,17 +337,9 @@ fn PreviewEngineContext(comptime ErrorSet: type) type {
             _: *@This(),
             comptime Op: type,
             _: Op.Payload,
-            _: anytype,
+            continuation_ctx: anytype,
             comptime Continuation: type,
-        ) frontend.BoundProgram(prompt_contract.Prompt(
-            Op.mode,
-            Op.Resume,
-            switch (@typeInfo(@TypeOf(Continuation.apply(dummyValue(@typeInfo(@TypeOf(Continuation.apply)).@"fn".params[0].type.?), dummyValue(Op.Resume))))) {
-                .error_union => |err_union| err_union.payload,
-                else => @TypeOf(Continuation.apply(dummyValue(@typeInfo(@TypeOf(Continuation.apply)).@"fn".params[0].type.?), dummyValue(Op.Resume))),
-            },
-            ErrorSet || ReturnTypeErrorSet(@TypeOf(Continuation.apply(dummyValue(@typeInfo(@TypeOf(Continuation.apply)).@"fn".params[0].type.?), dummyValue(Op.Resume)))),
-        )) {
+        ) PreviewCompiledProgramWithContext(Op, @TypeOf(continuation_ctx), Continuation, ErrorSet) {
             unreachable;
         }
     };

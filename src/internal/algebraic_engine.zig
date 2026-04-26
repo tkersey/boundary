@@ -273,7 +273,10 @@ fn contextualContinuationCanUseCompiledChoicePath(
     comptime Continuation: type,
     comptime ResumeType: type,
 ) bool {
-    return @typeInfo(ExplicitContinuationReturnTypeWithContext(ContextPtrType, Continuation, ResumeType)) != .error_union;
+    _ = ContextPtrType;
+    _ = Continuation;
+    _ = ResumeType;
+    return true;
 }
 
 fn callExplicitContinuation(
@@ -1275,14 +1278,10 @@ pub fn Program(
                     var ctx = Context{ .bindings = &bindings };
                     if (comptime @hasDecl(Body, "program")) {
                         var authored = Body.program(&ctx);
-                        if (@hasDecl(@TypeOf(authored), "has_compiled_plan") and
-                            @TypeOf(authored).has_compiled_plan)
-                        {
-                            return try authored.runCompiled(runtime);
+                        if (comptime !(@hasDecl(@TypeOf(authored), "has_compiled_plan") and @TypeOf(authored).has_compiled_plan)) {
+                            @compileError("algebraic authored programs must lower to a compiled ProgramPlan; interpreted frontend fallback is unsupported");
                         }
-                        authored.activate();
-                        defer authored.deactivate();
-                        return try frontend.run(runtime, authored.prompt, authored.program);
+                        return try authored.runCompiled(runtime);
                     }
 
                     const PromptType = BodyPromptType();

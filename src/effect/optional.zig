@@ -83,12 +83,10 @@ pub fn LexicalHandle(
 
             var current_handle = self;
             var authored = algebraic.activeEngineContext(Cap, self.ctx.?).performProgramWithContext(Cap.RequestOp(), {}, &current_handle, request_state);
-            if (@hasDecl(@TypeOf(authored), "has_compiled_plan") and @TypeOf(authored).has_compiled_plan) {
-                return try authored.runCompiled(self.runtime.?);
+            if (comptime !(@hasDecl(@TypeOf(authored), "has_compiled_plan") and @TypeOf(authored).has_compiled_plan)) {
+                @compileError("optional lexical choice continuations must lower to a compiled ProgramPlan; interpreted frontend fallback is unsupported");
             }
-            authored.activate();
-            defer authored.deactivate();
-            return try frontend.run(self.runtime.?, authored.prompt, authored.program);
+            return try authored.runCompiled(self.runtime.?);
         }
     };
 }
