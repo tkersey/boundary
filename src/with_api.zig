@@ -1027,12 +1027,22 @@ fn sourceLocationFileStem(comptime file: []const u8) []const u8 {
     return file[start..end];
 }
 
+fn sourceBackedTypeNameContainsIdentity(
+    comptime type_name: []const u8,
+    comptime source_identity: []const u8,
+) bool {
+    if (std.mem.eql(u8, type_name, source_identity)) return true;
+    if (!std.mem.endsWith(u8, type_name, source_identity)) return false;
+    const prefix_len = type_name.len - source_identity.len;
+    return prefix_len > 0 and type_name[prefix_len - 1] == '.';
+}
+
 fn sourceBackedNamedBodyWitnessMatches(
     comptime Body: type,
     comptime source_identity: []const u8,
     comptime source_location: std.builtin.SourceLocation,
 ) bool {
-    if (!std.mem.eql(u8, source_identity, @typeName(Body))) return false;
+    if (!comptime sourceBackedTypeNameContainsIdentity(@typeName(Body), source_identity)) return false;
     const identity_module = comptime sourceIdentityModuleLeaf(source_identity) orelse return false;
     const location_file = comptime sourceLocationFileStem(source_location.file);
     return std.mem.eql(u8, identity_module, location_file);
@@ -1484,6 +1494,25 @@ test "plain repo-owned ability.with uses the compiled lexical fast path when the
     try std.testing.expect(compiled_plain_with_witness);
     try std.testing.expectEqual(@as(i32, 6), result.value);
     try std.testing.expectEqual(@as(i32, 6), result.outputs.state);
+}
+
+test "source-backed named body type identity admits import-root prefixes only at segment boundary" {
+    try std.testing.expect(comptime sourceBackedTypeNameContainsIdentity(
+        "foo.Body",
+        "foo.Body",
+    ));
+    try std.testing.expect(comptime sourceBackedTypeNameContainsIdentity(
+        "root.foo.Body",
+        "foo.Body",
+    ));
+    try std.testing.expect(!comptime sourceBackedTypeNameContainsIdentity(
+        "not_foo.Body",
+        "foo.Body",
+    ));
+    try std.testing.expect(!comptime sourceBackedTypeNameContainsIdentity(
+        "root.bar.Body",
+        "foo.Body",
+    ));
 }
 
 const source_backed_witness_body = struct {
