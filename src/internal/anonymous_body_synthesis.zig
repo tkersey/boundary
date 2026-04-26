@@ -17,8 +17,6 @@ const std = @import("std");
 
 /// Call-site families supported by anonymous-body source synthesis.
 pub const CompilationKind = enum {
-    explicit_location,
-    explicit_location_and_content,
     none,
     owned_source,
     plain_with,
@@ -248,6 +246,33 @@ fn candidateBoundsForIdentity(
     );
 }
 
+fn candidateBoundsForIdentityInSource(
+    comptime caller_source: [:0]const u8,
+    comptime identity: AnonymousBodyIdentity,
+    comptime kind: CompilationKind,
+) ?[]const Bounds {
+    if (isTestModulePath(identity.module_path)) {
+        const test_block = testBlockBounds(caller_source, identity.enclosing_function) orelse return null;
+        return bodyExpressionBoundsInRangeCandidates(
+            caller_source,
+            test_block.start,
+            test_block.end,
+            kind,
+        );
+    }
+    const graph = source_graph_engine.analyzeComptime(caller_source, .{}) catch return null;
+    const function_name = canonicalEnclosingFunctionName(identity.enclosing_function);
+    const function_node = for (graph.functions) |function| {
+        if (std.mem.eql(u8, function.name, function_name)) break function;
+    } else return null;
+    return bodyExpressionBoundsInRangeCandidates(
+        caller_source,
+        function_node.body_start_offset,
+        function_node.body_end_offset,
+        kind,
+    );
+}
+
 fn fallbackResolvedRepoPathForIdentity(
     comptime identity: AnonymousBodyIdentity,
     comptime kind: CompilationKind,
@@ -306,8 +331,6 @@ pub fn hasRepoOwnedCandidate(comptime Body: type) bool {
 fn callName(comptime kind: CompilationKind) ?[]const u8 {
     return switch (kind) {
         .none => null,
-        .explicit_location => "withCallerSource",
-        .explicit_location_and_content => "withCallerSourceAndContent",
         .owned_source => "withOwnedSource",
         .plain_with => "with",
     };
@@ -316,8 +339,6 @@ fn callName(comptime kind: CompilationKind) ?[]const u8 {
 fn bodyArgIndex(comptime kind: CompilationKind) ?usize {
     return switch (kind) {
         .none => null,
-        .explicit_location => 4,
-        .explicit_location_and_content => 4,
         .owned_source => 5,
         .plain_with => 2,
     };
@@ -1302,10 +1323,7 @@ pub fn syntheticSourceWithEntry(
     comptime override_return_syntax: ?[]const u8,
 ) ?[:0]const u8 {
     const bounds = comptime bodyExpressionBounds(caller, caller_source, kind) orelse return null;
-    const synthetic_caller_source = switch (kind) {
-        .explicit_location, .explicit_location_and_content => callerOwnedSyntheticCallerSource(caller, caller_source),
-        else => sanitizedCallerSourceForBounds(caller_source, bounds),
-    };
+    const synthetic_caller_source = sanitizedCallerSourceForBounds(caller_source, bounds);
     return syntheticSourceForBounds(
         Body,
         bounds,
@@ -1441,6 +1459,57 @@ pub fn uniqueRepoOwnedAnonymousSourceWithReturnSyntax(
     };
     return .{
         .source_path = source_path,
+        .entry_symbol = entry_symbol,
+        .source = comptime syntheticSourceForBounds(
+            Body,
+            selected_bounds,
+            caller_source,
+            repoOwnedSyntheticCallerSource(caller_source, selected_bounds, identity),
+            entry_symbol,
+            override_return_syntax,
+        ) orelse return null,
+    };
+}
+
+/// Return one source-backed anonymous body from caller-owned bytes only when the
+/// source contains a unique matching `ability.with(..., Body)` candidate.
+pub fn uniqueSourceBackedAnonymousSourceWithReturnSyntax(
+    comptime Body: type,
+    comptime caller_source: []const u8,
+    comptime kind: CompilationKind,
+    comptime override_return_syntax: ?[]const u8,
+) ?RepoOwnedAnonymousSource {
+    const identity = bodyIdentity(Body) orelse return null;
+    const source = std.fmt.comptimePrint("{s}\x00", .{caller_source});
+    const candidate_bounds = candidateBoundsForIdentityInSource(source[0..caller_source.len :0], identity, kind) orelse return null;
+    const entry_symbol = entryNameFromIdentity(identity);
+    if (candidate_bounds.len == 0) return null;
+    const selected_bounds = if (candidate_bounds.len == 1)
+        candidate_bounds[0]
+    else blk: {
+        const first_source = comptime syntheticSourceForBounds(
+            Body,
+            candidate_bounds[0],
+            caller_source,
+            repoOwnedSyntheticCallerSource(caller_source, candidate_bounds[0], identity),
+            entry_symbol,
+            override_return_syntax,
+        ) orelse return null;
+        inline for (candidate_bounds[1..]) |candidate| {
+            const candidate_source = comptime syntheticSourceForBounds(
+                Body,
+                candidate,
+                caller_source,
+                repoOwnedSyntheticCallerSource(caller_source, candidate, identity),
+                entry_symbol,
+                override_return_syntax,
+            ) orelse return null;
+            if (!std.mem.eql(u8, first_source, candidate_source)) return null;
+        }
+        break :blk candidate_bounds[0];
+    };
+    return .{
+        .source_path = "source-backed-body.zig",
         .entry_symbol = entry_symbol,
         .source = comptime syntheticSourceForBounds(
             Body,

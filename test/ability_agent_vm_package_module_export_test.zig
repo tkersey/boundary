@@ -42,6 +42,12 @@ fn writeFakeZigOnPath(tmp_dir: std.Io.Dir) !void {
     try fake_zig.setPermissions(std.testing.io, .fromMode(0o755));
 }
 
+fn copyCurrentEnvIfPresent(env_map: *std.process.Environ.Map, comptime name: [:0]const u8) !void {
+    if (std.c.getenv(name.ptr)) |value| {
+        try env_map.put(name[0..name.len], std.mem.span(value));
+    }
+}
+
 test "ability_agent_vm package module is exported to downstream dependency consumers" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -105,6 +111,8 @@ test "ability_agent_vm package module is exported to downstream dependency consu
     defer env_map.deinit();
     try writeFakeZigOnPath(tmp.dir);
     try env_map.put("PATH", consumer_root);
+    try copyCurrentEnvIfPresent(&env_map, "HOME");
+    try copyCurrentEnvIfPresent(&env_map, "XDG_CACHE_HOME");
 
     try runChildAtPathExpectSuccess(
         consumer_root,
@@ -115,8 +123,6 @@ test "ability_agent_vm package module is exported to downstream dependency consu
             "none",
             "--cache-dir",
             ".zig-cache",
-            "--global-cache-dir",
-            "zig-global-cache",
         },
         &env_map,
     );

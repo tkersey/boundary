@@ -22,8 +22,6 @@ pub const With = with_api.With;
 pub const WithFnReturnType = with_api.WithFnReturnType;
 /// Lower-level `with(...)` helper retained for sibling wrappers.
 pub const with = with_api.with;
-/// Explicit caller-owned `with(...)` helper retained for root wrappers.
-pub const withCallerSource = with_api.withCallerSource;
 
 /// Interpreter namespace retained for compatibility surfaces.
 pub const interpreter = interpreter_api;

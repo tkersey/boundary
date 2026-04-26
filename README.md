@@ -14,19 +14,42 @@ The public root export set is intentionally narrow:
 - `ability.Runtime`
 - `ability.RuntimeError`
 - `ability.with`
-- `ability.withCallerSource`
 
 Everything else in the repo is outside the `@import("ability")` root contract.
 That includes sibling modules such as `ability_agent_vm` along with maintainer-facing
 lowering and interpreter scaffolding.
 
-`ability.with` is the source-compatible entrypoint for repo-owned examples and
-body types that already carry provenance metadata. Downstream packages that want
-compiled lexical execution for ordinary local body structs should use
-`ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), ...)`
-so the package owner provides the source witness explicitly. The basename form
-keeps the embedded file path relative to the file making the call, so it works
-from both root files and imported submodules.
+`ability.with` is the only public lexical entrypoint. Downstream packages that
+want compiled lexical execution for ordinary local body structs must make the
+source witness part of the body type itself:
+
+```zig
+const Body = struct {
+    fn sourceBytes() []const u8 {
+        return @embedFile(std.Io.Dir.path.basename(@src().file));
+    }
+
+    pub const source = sourceBytes();
+
+    pub fn body(eff: anytype) anyerror!i32 {
+        return try eff.state.get();
+    }
+};
+
+const result = try ability.with(&runtime, .{
+    .state = ability.effect.state.use(@as(i32, 9)),
+}, Body);
+```
+
+The source witness is raw file bytes, not a path or symbol contract. For
+source-backed external bodies, those bytes are the authoritative program text:
+keep the witness generated from the same file rather than hand-writing it or
+importing bytes from a different same-named body. `@src()` must be evaluated
+from a function scope, so examples use a tiny comptime helper to keep the public
+witness as `pub const source`. Bodies without a source witness, bodies whose
+source does not contain the matching body declaration, and unsupported
+helper/import shapes fail at compile time instead of falling back to interpreted
+execution.
 
 ## Dependency
 

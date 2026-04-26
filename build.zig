@@ -1540,6 +1540,7 @@ fn appendResolvedEmbedPathIfPresent(
 
     const repo_relative = try tryRepoRelativePathFromAbsoluteAlloc(allocator, repo_root, resolved) orelse return;
     defer allocator.free(repo_relative);
+    if (pathIsGeneratedArtifactBuildOutput(repo_relative)) return;
 
     const io = compatIo();
     var root_dir = std.Io.Dir.openDirAbsolute(io, repo_root, .{}) catch |err|
@@ -1547,6 +1548,10 @@ fn appendResolvedEmbedPathIfPresent(
     defer root_dir.close(io);
     if (!pathExistsAtRoot(root_dir, io, repo_relative)) return;
     try appendOwnedPathIfMissing(allocator, collector.paths, collector.path_set, repo_relative);
+}
+
+fn pathIsGeneratedArtifactBuildOutput(path: []const u8) bool {
+    return std.mem.eql(u8, path, "test/fixtures/ability_agent_vm_smoke.artifact");
 }
 
 fn resolveRepoRelativeImportPathAlloc(
@@ -2819,6 +2824,32 @@ test "artifact build fingerprint includes embedded non-Zig inputs and excludes u
     );
     const after_untracked_zig = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
     try std.testing.expectEqualSlices(u8, &before_untracked_zig, &after_untracked_zig);
+}
+
+test "artifact build fingerprint excludes generated ability_agent_vm artifact self-input" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_root = try tmp.dir.realPathFileAlloc(compatIo(), ".", std.testing.allocator);
+    defer std.testing.allocator.free(repo_root);
+
+    try tmp.dir.makePath(compatIo(), "test/fixtures");
+    try writeTmpFile(tmp.dir, "build.zig.zon", ".{ .name = \"fingerprint-probe\", .version = \"0.0.0\" }\n");
+    try writeTmpFile(tmp.dir, "probe.zig",
+        \\pub fn main() void {
+        \\    const artifact = @embedFile("test/fixtures/ability_agent_vm_smoke.artifact");
+        \\    _ = artifact;
+        \\}
+        \\
+    );
+    try writeTmpFile(tmp.dir, "test/fixtures/ability_agent_vm_smoke.artifact", "artifact-v1\n");
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "init", "-q" });
+    try runChildExpectSuccess(std.testing.allocator, &.{ "git", "-C", repo_root, "add", "probe.zig", "build.zig.zon" });
+
+    const before = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try writeTmpFile(tmp.dir, "test/fixtures/ability_agent_vm_smoke.artifact", "artifact-v2\n");
+    const after = artifactBuildInputFingerprint(std.testing.allocator, repo_root);
+    try std.testing.expectEqualSlices(u8, &before, &after);
 }
 
 test "artifact build fingerprint includes embedded inputs larger than 16 MiB" {
