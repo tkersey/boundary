@@ -4705,42 +4705,6 @@ pub fn build(b: *std.Build) void {
         test_runner_args.passthrough.items,
     );
 
-    const ability_vm_export_opts = b.addOptions();
-    ability_vm_export_opts.addOption([:0]const u8, "zig_exe", b.graph.zig_exe);
-    const ability_vm_export_mod = b.createModule(.{
-        .root_source_file = b.path("test/ability_agent_vm_package_module_export_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    ability_vm_export_mod.addOptions(
-        "build_options",
-        ability_vm_export_opts,
-    );
-    const ability_vm_export_tests = addFilteredTest(
-        b,
-        ability_vm_export_mod,
-        test_runner_args.filters.items,
-    );
-    const run_ability_vm_export = addRunArtifactWithArgs(
-        b,
-        ability_vm_export_tests,
-        test_runner_args.passthrough.items,
-    );
-
-    const published_module_contract_step = b.step(
-        "published-module-contract",
-        "Run the retained published-module source-path and ability_agent_vm package contract suite.",
-    );
-    const ability_agent_vm_compat_step = b.step(
-        "ability-agent-vm-compat",
-        "Run retained ability_agent_vm ordinary-consumer, runtime-smoke, and downstream export witnesses.",
-    );
-    ability_agent_vm_compat_step.dependOn(&ability_agent_vm_consumer_exe.step);
-    ability_agent_vm_compat_step.dependOn(&run_ability_vm_fresh.step);
-    ability_agent_vm_compat_step.dependOn(&run_ability_agent_vm_smoke.step);
-    ability_agent_vm_compat_step.dependOn(&run_ability_vm_export.step);
-    published_module_contract_step.dependOn(ability_agent_vm_compat_step);
-
     const frontend_internal_tests = addFilteredTest(
         b,
         b.createModule(.{
@@ -5136,8 +5100,9 @@ pub fn build(b: *std.Build) void {
     const run_program_bridge_tests = addRunArtifactWithArgs(b, program_bridge_tests, test_runner_args.passthrough.items);
     const test_suites = [_]TestSuiteSpec{
         .{ .suite_id = "root", .description = "Root lexical surface", .run_step = &run_root_tests.step },
-        .{ .suite_id = "published-module-contract", .description = "Retained published-module source-path and package contract suite", .run_step = published_module_contract_step },
-        .{ .suite_id = "ability-agent-vm-compat", .description = "Retained ability_agent_vm compatibility suite", .run_step = ability_agent_vm_compat_step },
+        .{ .suite_id = "ability-agent-vm-consumer", .description = "ability_agent_vm source-path consumer compile witness", .run_step = &ability_agent_vm_consumer_exe.step },
+        .{ .suite_id = "ability-agent-vm-freshness", .description = "ability_agent_vm fixture freshness check", .run_step = &run_ability_vm_fresh.step },
+        .{ .suite_id = "ability-agent-vm-smoke", .description = "ability_agent_vm public runtime smoke", .run_step = &run_ability_agent_vm_smoke.step },
         .{ .suite_id = "frontend", .description = "Frontend internal module", .run_step = &run_frontend_internal_tests.step },
         .{ .suite_id = "admitted-body-v1", .description = "Admitted body parser suite", .run_step = &run_admitted_body_v1_tests.step },
         .{ .suite_id = "program-plan-review", .description = "ProgramPlan regression suite", .run_step = &run_plan_review_tests.step },

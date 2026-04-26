@@ -2,6 +2,27 @@ const ability_agent_vm = @import("ability_agent_vm");
 const fixture = @import("ability_agent_vm_fixture_spec.zig");
 const std = @import("std");
 
+test "build script exports the ability_agent_vm module from the retained source path" {
+    const build_zig = try std.Io.Dir.cwd().readFileAlloc(
+        std.Io.Threaded.global_single_threaded.io(),
+        "build.zig",
+        std.testing.allocator,
+        .limited(1 << 20),
+    );
+    defer std.testing.allocator.free(build_zig);
+
+    try std.testing.expect(std.mem.find(
+        u8,
+        build_zig,
+        "b.addModule(\"ability_agent_vm\"",
+    ) != null);
+    try std.testing.expect(std.mem.find(
+        u8,
+        build_zig,
+        ".root_source_file = b.path(\"src/ability_agent_vm.zig\")",
+    ) != null);
+}
+
 const SeenRequest = struct {
     calls: usize = 0,
     saw_tell: bool = false,

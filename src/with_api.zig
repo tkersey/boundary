@@ -1557,6 +1557,54 @@ test "source-backed named body type identity admits import-root prefixes only at
     ));
 }
 
+test "source-backed body hash witness rejects mismatched source bytes" {
+    const source = @embedFile("with_api.zig");
+    const correct_hash = sourceHash(source);
+
+    try std.testing.expect(comptime sourceBackedBodySourceHashMatches(source, correct_hash));
+    try std.testing.expect(!comptime sourceBackedBodySourceHashMatches(source, correct_hash + 1));
+}
+
+test "source-backed named body witness rejects mismatched identity and file" {
+    const source = @embedFile("with_api.zig");
+    const location = source_backed_witness_body.source_location;
+
+    try std.testing.expect(comptime sourceBackedNamedBodyWitnessMatches(
+        source_backed_witness_body,
+        "with_api.source_backed_witness_body",
+        "src/with_api.zig",
+        location,
+    ));
+    try std.testing.expect(!comptime sourceBackedNamedBodyWitnessMatches(
+        source_backed_witness_body,
+        "with_api.other_body",
+        "src/with_api.zig",
+        location,
+    ));
+    try std.testing.expect(!comptime sourceBackedNamedBodyWitnessMatches(
+        source_backed_witness_body,
+        "with_api.source_backed_witness_body",
+        "test/with_api.zig",
+        location,
+    ));
+    try std.testing.expect(comptime anonymous_body_synthesis.namedStructSourceWitnessMatches(
+        source,
+        "source_backed_witness_body",
+        "with_api.source_backed_witness_body",
+        "src/with_api.zig",
+        location.line,
+        location.column,
+    ));
+    try std.testing.expect(!comptime anonymous_body_synthesis.namedStructSourceWitnessMatches(
+        source,
+        "source_backed_witness_body",
+        "with_api.other_body",
+        "src/with_api.zig",
+        location.line,
+        location.column,
+    ));
+}
+
 const source_backed_witness_body = struct {
     fn sourceLocation() std.builtin.SourceLocation {
         return @src();
