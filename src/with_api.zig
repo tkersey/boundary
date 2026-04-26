@@ -520,6 +520,11 @@ fn bodyDeclSource(comptime Body: type) ?[]const u8 {
     return null;
 }
 
+fn bodyDeclSourceHash(comptime Body: type) ?u64 {
+    if (hasDeclSafe(Body, "source_hash")) return Body.source_hash;
+    return null;
+}
+
 fn bodyDeclSourceIdentity(comptime Body: type) ?[]const u8 {
     if (hasDeclSafe(Body, "source_identity")) return Body.source_identity;
     return null;
@@ -992,6 +997,27 @@ fn sourceBackedBodySource(comptime Body: type) []const u8 {
     );
 }
 
+fn sourceBackedBodySourceHash(comptime Body: type) u64 {
+    return bodyDeclSourceHash(Body) orelse @compileError(
+        "ability.with source-backed body must declare pub const source_hash matching the owning source bytes",
+    );
+}
+
+/// Return the stable source-content hash used by source-backed `ability.with` bodies.
+pub fn sourceHash(comptime source: []const u8) u64 {
+    comptime {
+        @setEvalBranchQuota(1_000_000);
+    }
+    return std.hash.Wyhash.hash(0, source);
+}
+
+fn sourceBackedBodySourceHashMatches(
+    comptime source: []const u8,
+    comptime source_hash: u64,
+) bool {
+    return sourceHash(source) == source_hash;
+}
+
 fn sourceBackedNamedBodyIdentity(comptime Body: type) []const u8 {
     return bodyDeclSourceIdentity(Body) orelse @compileError(
         "ability.with source-backed named body must declare pub const source_identity matching the selected source declaration",
@@ -1125,8 +1151,12 @@ fn trySourceBackedAnonymousCompiledWith(
     outputs_ptr: *OutputBundleType(HandlersType),
 ) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
     const caller_source = comptime sourceBackedBodySource(Body);
+    const source_hash = comptime sourceBackedBodySourceHash(Body);
     const source_file = comptime sourceBackedBodyFile(Body);
     const source_location = comptime sourceBackedBodyLocation(Body);
+    if (!comptime sourceBackedBodySourceHashMatches(caller_source, source_hash)) {
+        @compileError("ability.with source-backed body source/source_hash did not match the owning source bytes");
+    }
     const synthesized = comptime anonymous_body_synthesis.uniqueSourceBackedAnonymousSourceWithReturnSyntax(
         Body,
         caller_source,
@@ -1246,9 +1276,13 @@ fn trySourceBackedNamedCompiledWith(
     const body_symbol = comptime sourceBackedNamedBodySymbol(Body) orelse
         @compileError("ability.with source-backed named body must have a simple top-level type name");
     const caller_source = comptime sourceBackedBodySource(Body);
+    const source_hash = comptime sourceBackedBodySourceHash(Body);
     const source_identity = comptime sourceBackedNamedBodyIdentity(Body);
     const source_file = comptime sourceBackedBodyFile(Body);
     const source_location = comptime sourceBackedBodyLocation(Body);
+    if (!comptime sourceBackedBodySourceHashMatches(caller_source, source_hash)) {
+        @compileError("ability.with source-backed body source/source_hash did not match the owning source bytes");
+    }
     const entry_symbol = comptime std.fmt.comptimePrint("__ability_with_named_{s}", .{body_symbol});
     const synthetic_path = comptime syntheticLoweringSourcePath(entry_symbol);
     const synthetic_source = comptime anonymous_body_synthesis.syntheticSourceForNamedTypeWithEntry(
@@ -1536,6 +1570,8 @@ const source_backed_witness_body = struct {
     pub const source_location = sourceLocation();
     /// Authoritative source bytes for this named body witness.
     pub const source = @embedFile("with_api.zig");
+    /// Hash witness for the owning source bytes.
+    pub const source_hash = sourceHash(source);
 
     /// Source-backed body used by the compiled lexical fast path test.
     pub fn body(eff: anytype) anyerror!i32 {
