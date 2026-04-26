@@ -703,6 +703,48 @@ pub fn namedStructSourceIdentityMatches(
     return comptime structExpressionHasSourceIdentity(source[bounds.start..bounds.end], source_identity);
 }
 
+fn lineStartOffset(comptime source: []const u8, comptime line: u32) ?usize {
+    if (line == 0) return null;
+    if (line == 1) return 0;
+    var current_line: u32 = 1;
+    for (source, 0..) |char, index| {
+        if (char != '\n') continue;
+        current_line += 1;
+        if (current_line == line) return index + 1;
+    }
+    return null;
+}
+
+fn lineColumnOffset(
+    comptime source: []const u8,
+    comptime line: u32,
+    comptime column: u32,
+) ?usize {
+    if (column == 0) return null;
+    const line_start = comptime lineStartOffset(source, line) orelse return null;
+    const offset = line_start + column - 1;
+    if (offset >= source.len) return null;
+    var line_end = line_start;
+    while (line_end < source.len and source[line_end] != '\n') : (line_end += 1) {}
+    if (offset >= line_end) return null;
+    return offset;
+}
+
+pub fn namedStructSourceIdentityContainsLocationMatches(
+    comptime source: []const u8,
+    comptime body_symbol: []const u8,
+    comptime source_identity: []const u8,
+    comptime source_line: u32,
+    comptime source_column: u32,
+) bool {
+    const bounds = comptime namedStructExpressionBounds(source, body_symbol) orelse return false;
+    if (!comptime structExpressionHasSourceIdentity(source[bounds.start..bounds.end], source_identity)) return false;
+    const location = comptime lineColumnOffset(source, source_line, source_column) orelse return false;
+    return location >= bounds.start and
+        location < bounds.end and
+        std.mem.startsWith(u8, source[location..], "@src()");
+}
+
 pub fn uniqueBodyExpressionBoundsInRange(
     comptime source: [:0]const u8,
     comptime range_start: usize,
@@ -1690,6 +1732,17 @@ test "named source identity matches only the selected top-level declaration" {
         \\};
     ;
     try std.testing.expect(!comptime namedStructSourceIdentityMatches(private_source, "Body", "main.Body"));
+
+    const location_source =
+        \\const Body = struct {
+        \\    fn sourceLocation() @import("std").builtin.SourceLocation { return @src(); }
+        \\    pub const source_location = sourceLocation();
+        \\    pub const source_identity = "main.Body";
+        \\};
+    ;
+    try std.testing.expect(comptime namedStructSourceIdentityContainsLocationMatches(location_source, "Body", "main.Body", 2, 72));
+    try std.testing.expect(!comptime namedStructSourceIdentityContainsLocationMatches(location_source, "Body", "main.Body", 2, 71));
+    try std.testing.expect(!comptime namedStructSourceIdentityContainsLocationMatches(location_source, "Body", "nested.Body", 2, 72));
 }
 
 test "syntheticSourceWithEntry appends one renamed entry function" {

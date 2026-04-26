@@ -29,7 +29,12 @@ const Body = struct {
         return @embedFile(std.Io.Dir.path.basename(@src().file));
     }
 
+    fn sourceLocation() std.builtin.SourceLocation {
+        return @src();
+    }
+
     pub const source = sourceBytes();
+    pub const source_location = sourceLocation();
     pub const source_identity = "main.Body";
 
     pub fn body(eff: anytype) anyerror!i32 {
@@ -48,10 +53,11 @@ keep the witness generated from the same file rather than hand-writing it or
 importing bytes from a different same-named body. `@src()` must be evaluated
 from a function scope, so examples use a tiny comptime helper to keep the public
 witness as `pub const source`. Named body structs also declare
+`pub const source_location` from a function inside the body declaration and
 `pub const source_identity` matching the top-level declaration selected from
 those bytes. Bodies without a source witness, bodies whose source does not
-contain the matching body declaration, and unsupported helper/import shapes fail
-at compile time instead of falling back to interpreted execution.
+contain the matching body declaration and location, and unsupported helper/import
+shapes fail at compile time instead of falling back to interpreted execution.
 
 ## Dependency
 
