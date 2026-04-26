@@ -14,10 +14,19 @@ The public root export set is intentionally narrow:
 - `ability.Runtime`
 - `ability.RuntimeError`
 - `ability.with`
+- `ability.withCallerSource`
 
 Everything else in the repo is outside the `@import("ability")` root contract.
 That includes sibling modules such as `ability_agent_vm` along with maintainer-facing
 lowering and interpreter scaffolding.
+
+`ability.with` is the source-compatible entrypoint for repo-owned examples and
+body types that already carry provenance metadata. Downstream packages that want
+compiled lexical execution for ordinary local body structs should use
+`ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), ...)`
+so the package owner provides the source witness explicitly. The basename form
+keeps the embedded file path relative to the file making the call, so it works
+from both root files and imported submodules.
 
 ## Dependency
 

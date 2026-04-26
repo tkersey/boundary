@@ -6,6 +6,7 @@ const timed_iterations: usize = 50_000;
 const warmup_iterations: usize = 20_000;
 const samples_per_run: usize = 5;
 const prelude_items_per_body: usize = 32;
+const preserveValue = ability.preserveValue;
 
 const OptionalReturnPrompt = ability.Prompt(.resume_or_return, usize, usize, NoError);
 const OptionalResumePrompt = ability.Prompt(.resume_or_return, usize, usize, NoError);
@@ -18,12 +19,6 @@ const Sample = struct {
     checksum: usize,
     elapsed_ns: u64,
 };
-
-fn preserveValue(value: anytype) @TypeOf(value) {
-    const preserved = value;
-    std.mem.doNotOptimizeAway(preserved);
-    return preserved;
-}
 
 fn sortAscending(values: []u64) void {
     var index: usize = 1;

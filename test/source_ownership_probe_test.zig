@@ -4,11 +4,36 @@ const probe = @import("source_ownership_probe_helper.zig");
 const std = @import("std");
 
 fn writeTmpFile(dir: std.Io.Dir, sub_path: []const u8, contents: []const u8) !void {
+    if (std.Io.Dir.path.dirname(sub_path)) |dir_path| {
+        try dir.createDirPath(std.testing.io, dir_path);
+    }
     try dir.writeFile(std.testing.io, .{
         .sub_path = sub_path,
         .data = contents,
         .flags = .{ .truncate = true },
     });
+}
+
+fn runChildAtPathExpectFailureContains(
+    cwd_path: []const u8,
+    argv: []const []const u8,
+    expected_stderr: []const u8,
+) !void {
+    const result = try std.process.run(std.testing.allocator, std.testing.io, .{
+        .argv = argv,
+        .cwd = .{ .path = cwd_path },
+        .stderr_limit = .limited(1024 * 1024),
+        .stdout_limit = .limited(1024 * 1024),
+    });
+    defer std.testing.allocator.free(result.stdout);
+    defer std.testing.allocator.free(result.stderr);
+
+    switch (result.term) {
+        .exited => |code| if (code != 0 and std.mem.find(u8, result.stderr, expected_stderr) != null) return,
+        else => {},
+    }
+    std.debug.print("child command did not fail as expected: {s}\n{s}\n", .{ argv[0], result.stderr });
+    return error.UnexpectedChildCommandFailure;
 }
 
 fn runChildAtPathExpectSuccess(
@@ -82,6 +107,146 @@ fn callerSourceIsAbsent(comptime ContextType: type) bool {
     };
 }
 
+fn runDownstreamAbilityWithMainExpectFailure(
+    comptime main_zig: []const u8,
+    expected_stderr: []const u8,
+) !void {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const consumer_root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(consumer_root);
+
+    const build_zig =
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const dep = b.dependency("ability", .{ .target = target, .optimize = optimize });
+        \\
+        \\    const root = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    root.addImport("ability", dep.module("ability"));
+        \\
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "downstream-ability-with",
+        \\        .root_module = root,
+        \\    });
+        \\    const run = b.addRunArtifact(exe);
+        \\    b.default_step.dependOn(&run.step);
+        \\}
+        \\
+    ;
+    try writeTmpFile(tmp.dir, "build.zig", build_zig);
+    try writeDownstreamBuildZon(tmp.dir, null);
+    try writeTmpFile(tmp.dir, "main.zig", main_zig);
+
+    const build_args = &.{
+        "zig",
+        "build",
+        "--summary",
+        "none",
+        "--cache-dir",
+        ".zig-cache",
+        "--global-cache-dir",
+        "zig-global-cache",
+    };
+    const fingerprint_probe = try std.process.run(std.testing.allocator, std.testing.io, .{
+        .argv = build_args,
+        .cwd = .{ .path = consumer_root },
+        .stderr_limit = .limited(1024 * 1024),
+        .stdout_limit = .limited(1024 * 1024),
+    });
+    defer std.testing.allocator.free(fingerprint_probe.stdout);
+    defer std.testing.allocator.free(fingerprint_probe.stderr);
+
+    switch (fingerprint_probe.term) {
+        .exited => |code| if (code != 0 and std.mem.find(u8, fingerprint_probe.stderr, expected_stderr) != null) return,
+        else => {},
+    }
+    const fingerprint = suggestedFingerprint(fingerprint_probe.stderr) orelse {
+        std.debug.print("downstream fingerprint probe failed unexpectedly:\n{s}\n", .{fingerprint_probe.stderr});
+        return error.UnexpectedChildCommandFailure;
+    };
+    try writeDownstreamBuildZon(tmp.dir, fingerprint);
+    try runChildAtPathExpectFailureContains(consumer_root, build_args, expected_stderr);
+}
+
+fn runDownstreamAbilityWithMainAndImportExpectFailure(
+    comptime main_zig: []const u8,
+    comptime imported_zig: []const u8,
+    expected_stderr: []const u8,
+) !void {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const consumer_root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(consumer_root);
+
+    const build_zig =
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const dep = b.dependency("ability", .{ .target = target, .optimize = optimize });
+        \\
+        \\    const root = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    root.addImport("ability", dep.module("ability"));
+        \\
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "downstream-ability-with",
+        \\        .root_module = root,
+        \\    });
+        \\    const run = b.addRunArtifact(exe);
+        \\    b.default_step.dependOn(&run.step);
+        \\}
+        \\
+    ;
+    try writeTmpFile(tmp.dir, "build.zig", build_zig);
+    try writeDownstreamBuildZon(tmp.dir, null);
+    try writeTmpFile(tmp.dir, "main.zig", main_zig);
+    try writeTmpFile(tmp.dir, "imported.zig", imported_zig);
+
+    const build_args = &.{
+        "zig",
+        "build",
+        "--summary",
+        "none",
+        "--cache-dir",
+        ".zig-cache",
+        "--global-cache-dir",
+        "zig-global-cache",
+    };
+    const fingerprint_probe = try std.process.run(std.testing.allocator, std.testing.io, .{
+        .argv = build_args,
+        .cwd = .{ .path = consumer_root },
+        .stderr_limit = .limited(1024 * 1024),
+        .stdout_limit = .limited(1024 * 1024),
+    });
+    defer std.testing.allocator.free(fingerprint_probe.stdout);
+    defer std.testing.allocator.free(fingerprint_probe.stderr);
+
+    switch (fingerprint_probe.term) {
+        .exited => |code| if (code != 0 and std.mem.find(u8, fingerprint_probe.stderr, expected_stderr) != null) return,
+        else => {},
+    }
+    const fingerprint = suggestedFingerprint(fingerprint_probe.stderr) orelse {
+        std.debug.print("downstream fingerprint probe failed unexpectedly:\n{s}\n", .{fingerprint_probe.stderr});
+        return error.UnexpectedChildCommandFailure;
+    };
+    try writeDownstreamBuildZon(tmp.dir, fingerprint);
+    try runChildAtPathExpectFailureContains(consumer_root, build_args, expected_stderr);
+}
+
 fn runDownstreamAbilityWithMain(comptime main_zig: []const u8) !void {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -116,6 +281,76 @@ fn runDownstreamAbilityWithMain(comptime main_zig: []const u8) !void {
     try writeTmpFile(tmp.dir, "build.zig", build_zig);
     try writeDownstreamBuildZon(tmp.dir, null);
     try writeTmpFile(tmp.dir, "main.zig", main_zig);
+
+    const build_args = &.{
+        "zig",
+        "build",
+        "--summary",
+        "none",
+        "--cache-dir",
+        ".zig-cache",
+        "--global-cache-dir",
+        "zig-global-cache",
+    };
+    const fingerprint_probe = try std.process.run(std.testing.allocator, std.testing.io, .{
+        .argv = build_args,
+        .cwd = .{ .path = consumer_root },
+        .stderr_limit = .limited(1024 * 1024),
+        .stdout_limit = .limited(1024 * 1024),
+    });
+    defer std.testing.allocator.free(fingerprint_probe.stdout);
+    defer std.testing.allocator.free(fingerprint_probe.stderr);
+
+    switch (fingerprint_probe.term) {
+        .exited => |code| if (code == 0) return,
+        else => {},
+    }
+    const fingerprint = suggestedFingerprint(fingerprint_probe.stderr) orelse {
+        std.debug.print("downstream fingerprint probe failed unexpectedly:\n{s}\n", .{fingerprint_probe.stderr});
+        return error.UnexpectedChildCommandFailure;
+    };
+    try writeDownstreamBuildZon(tmp.dir, fingerprint);
+    try runChildAtPathExpectSuccess(consumer_root, build_args);
+}
+
+fn runDownstreamAbilityWithMainAndSubmodule(
+    comptime main_zig: []const u8,
+    comptime submodule_zig: []const u8,
+) !void {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const consumer_root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(consumer_root);
+
+    const build_zig =
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const dep = b.dependency("ability", .{ .target = target, .optimize = optimize });
+        \\
+        \\    const root = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    root.addImport("ability", dep.module("ability"));
+        \\
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "downstream-ability-with",
+        \\        .root_module = root,
+        \\    });
+        \\    const run = b.addRunArtifact(exe);
+        \\    b.default_step.dependOn(&run.step);
+        \\}
+        \\
+    ;
+    try writeTmpFile(tmp.dir, "build.zig", build_zig);
+    try writeDownstreamBuildZon(tmp.dir, null);
+    try writeTmpFile(tmp.dir, "main.zig", main_zig);
+    try writeTmpFile(tmp.dir, "sub/foo.zig", submodule_zig);
 
     const build_args = &.{
         "zig",
@@ -231,13 +466,14 @@ test "public root drops compile entrypoints while ability_compile keeps provenan
     try std.testing.expect(!@hasDecl(ability, "interpreter"));
     try std.testing.expect(!@hasDecl(ability, "ir"));
     try std.testing.expect(!@hasDecl(ability, "lowering"));
+    try std.testing.expect(@hasDecl(ability, "withCallerSource"));
     try std.testing.expect(@hasDecl(ability_compile, "lower"));
     try std.testing.expect(@hasDecl(ability_compile, "effect_ir"));
     try std.testing.expect(@hasDecl(ability_compile, "lowering_api"));
     try std.testing.expect(@hasDecl(ability_compile.lowering_api, "lowerAt"));
 }
 
-test "plain ability.with anonymous downstream bodies stay usable without caller-owned source" {
+test "plain ability.with anonymous downstream bodies fail closed without caller-owned source" {
     const main_zig =
         \\const ability = @import("ability");
         \\const std = @import("std");
@@ -257,10 +493,10 @@ test "plain ability.with anonymous downstream bodies stay usable without caller-
         \\}
         \\
     ;
-    try runDownstreamAbilityWithMain(main_zig);
+    try runDownstreamAbilityWithMainExpectFailure(main_zig, "ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), ...)");
 }
 
-test "plain ability.with named downstream bodies stay usable without caller-owned source" {
+test "plain ability.with named downstream bodies fail closed without caller-owned source" {
     const main_zig =
         \\const ability = @import("ability");
         \\const std = @import("std");
@@ -282,5 +518,379 @@ test "plain ability.with named downstream bodies stay usable without caller-owne
         \\}
         \\
     ;
+    try runDownstreamAbilityWithMainExpectFailure(main_zig, "ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), ...)");
+}
+
+test "public withCallerSource admits anonymous downstream bodies without interpreted fallback" {
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), &runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, struct {
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            return try eff.state.get();
+        \\        }
+        \\    });
+        \\    if (result.value != 9) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
     try runDownstreamAbilityWithMain(main_zig);
+}
+
+test "public withCallerSource admits anonymous downstream requirement aliases" {
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), &runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, struct {
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            const state = eff.state;
+        \\            return try state.get();
+        \\        }
+        \\    });
+        \\    if (result.value != 9) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMain(main_zig);
+}
+
+test "public withCallerSource admits named downstream bodies without interpreted fallback" {
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\const Body = struct {
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        return try eff.state.get();
+        \\    }
+        \\};
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), &runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, Body);
+        \\    if (result.value != 9) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMain(main_zig);
+}
+
+test "public withCallerSource admits named downstream requirement aliases" {
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\const Body = struct {
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        const state = eff.state;
+        \\        return try state.get();
+        \\    }
+        \\};
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), &runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, Body);
+        \\    if (result.value != 9) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMain(main_zig);
+}
+
+test "public withCallerSource admits typed named downstream bodies" {
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\const Body: type = struct {
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        return try eff.state.get();
+        \\    }
+        \\};
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), &runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, Body);
+        \\    if (result.value != 9) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMain(main_zig);
+}
+
+test "public withCallerSource admits named body from nested downstream module" {
+    const main_zig =
+        \\const foo = @import("sub/foo.zig");
+        \\
+        \\pub fn main() !void {
+        \\    try foo.run();
+        \\}
+        \\
+    ;
+    const submodule_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\const Body = struct {
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        return try eff.state.get();
+        \\    }
+        \\};
+        \\
+        \\pub fn run() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.withCallerSource(
+        \\        @src(),
+        \\        @embedFile(std.Io.Dir.path.basename(@src().file)),
+        \\        &runtime,
+        \\        .{ .state = ability.effect.state.use(@as(i32, 9)) },
+        \\        Body,
+        \\    );
+        \\    if (result.value != 9) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMainAndSubmodule(main_zig, submodule_zig);
+}
+
+test "public withCallerSource admits named downstream body with nested same-name declaration" {
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\const Wrapper = struct {
+        \\    const Body = struct {
+        \\        pub fn body(_: anytype) anyerror!i32 {
+        \\            return 0;
+        \\        }
+        \\    };
+        \\};
+        \\
+        \\const Body = struct {
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        return try eff.state.get();
+        \\    }
+        \\};
+        \\
+        \\pub fn main() !void {
+        \\    _ = Wrapper;
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), &runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, Body);
+        \\    if (result.value != 9) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMain(main_zig);
+}
+
+test "public withCallerSource admits downstream choice continuations" {
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\const PickerHandler = struct {
+        \\    pub fn pick(_: *@This(), payload: i32) !ability.effect.choice.Decision(i32, []const u8) {
+        \\        return ability.effect.choice.Decision(i32, []const u8).resumeWith(payload);
+        \\    }
+        \\
+        \\    pub fn afterPick(_: *@This(), answer: []const u8) ![]const u8 {
+        \\        return answer;
+        \\    }
+        \\};
+        \\
+        \\const Picker = ability.effect.Define(.{
+        \\    .state_type = void,
+        \\    .ops = .{
+        \\        ability.effect.ops.Choice("pick", i32, i32),
+        \\    },
+        \\});
+        \\
+        \\const Body = struct {
+        \\    pub fn body(eff: anytype) anyerror![]const u8 {
+        \\        return try eff.picker.pick.perform(41, struct {
+        \\            pub fn apply(_: i32, _: anytype) anyerror![]const u8 {
+        \\                return "answer=42";
+        \\            }
+        \\        });
+        \\    }
+        \\};
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), &runtime, .{
+        \\        .picker = Picker.use(.{ .handler = PickerHandler{} }),
+        \\    }, Body);
+        \\    if (!std.mem.eql(u8, result.value, "answer=42")) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMain(main_zig);
+}
+
+test "public withCallerSource rejects unsupported named downstream helper calls" {
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\fn helper() i32 {
+        \\    return 1;
+        \\}
+        \\
+        \\const Body = struct {
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        return try eff.state.get() + helper();
+        \\    }
+        \\};
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), &runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, Body);
+        \\    if (result.value != 10) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMainExpectFailure(
+        main_zig,
+        "ability.withCallerSource caller-owned named body must lower to ProgramPlan without unsupported syntax",
+    );
+}
+
+test "public withCallerSource rejects caller-owned @This qualified helper calls" {
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\const Body = struct {
+        \\    fn helper() i32 {
+        \\        return 1;
+        \\    }
+        \\
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        return try eff.state.get() + @This().helper();
+        \\    }
+        \\};
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), &runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, Body);
+        \\    if (result.value != 10) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMainExpectFailure(
+        main_zig,
+        "ability.withCallerSource caller-owned named body must lower to ProgramPlan without unsupported syntax",
+    );
+}
+
+test "public withCallerSource rejects caller-owned namespace qualified helper calls" {
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\const Helpers = struct {
+        \\    pub fn foo() i32 {
+        \\        return 1;
+        \\    }
+        \\};
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), &runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, struct {
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            return try eff.state.get() + Helpers.foo();
+        \\        }
+        \\    });
+        \\    if (result.value != 10) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMainExpectFailure(
+        main_zig,
+        "ability.withCallerSource caller-owned anonymous body must lower to ProgramPlan without unsupported syntax",
+    );
+}
+
+test "public withCallerSource rejects imported named bodies with caller-local symbol collision" {
+    const imported_zig =
+        \\pub const Body = struct {
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        return try eff.state.get();
+        \\    }
+        \\};
+        \\
+    ;
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const imported = @import("imported.zig");
+        \\const std = @import("std");
+        \\
+        \\const Body = struct {
+        \\    pub fn body(_: anytype) anyerror!i32 {
+        \\        return 0;
+        \\    }
+        \\};
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), &runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, imported.Body);
+        \\    if (result.value != 9) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMainAndImportExpectFailure(
+        main_zig,
+        imported_zig,
+        "ability.withCallerSource named body must be declared as a top-level const in the caller source file",
+    );
 }

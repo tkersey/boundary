@@ -1,7 +1,6 @@
 const anonymous_body_synthesis = @import("internal/anonymous_body_synthesis.zig");
 const builtin = @import("builtin");
 const family = @import("effect/family.zig");
-const frontend = @import("frontend_support");
 const lexical_manifest = @import("internal/lexical_manifest.zig");
 const lowered_machine = @import("lowered_machine");
 const lowering_api = @import("lowering_api");
@@ -241,6 +240,81 @@ fn ExplicitProgramContinuationErrorSet(comptime Continuation: anytype, comptime 
     return ReturnTypeErrorSet(ExplicitProgramContinuationReturnType(Continuation, ResumeType));
 }
 
+fn ExplicitProgramContinuationReturnTypeWithContext(
+    comptime ContextPtrType: type,
+    comptime Continuation: type,
+    comptime ResumeType: type,
+) type {
+    return @TypeOf(Continuation.apply(dummyValue(ContextPtrType), dummyValue(ResumeType)));
+}
+
+fn ExplicitProgramContinuationAnswerTypeWithContext(
+    comptime ContextPtrType: type,
+    comptime Continuation: type,
+    comptime ResumeType: type,
+) type {
+    const ReturnType = ExplicitProgramContinuationReturnTypeWithContext(ContextPtrType, Continuation, ResumeType);
+    return switch (@typeInfo(ReturnType)) {
+        .error_union => |err_union| err_union.payload,
+        else => ReturnType,
+    };
+}
+
+fn ExplicitProgramContinuationErrorSetWithContext(
+    comptime ContextPtrType: type,
+    comptime Continuation: type,
+    comptime ResumeType: type,
+) type {
+    return ReturnTypeErrorSet(ExplicitProgramContinuationReturnTypeWithContext(ContextPtrType, Continuation, ResumeType));
+}
+
+fn PreviewCompiledProgram(
+    comptime Op: type,
+    comptime Continuation: anytype,
+    comptime ErrorSet: type,
+) type {
+    const PromptType = prompt_contract.Prompt(
+        Op.mode,
+        Op.Resume,
+        ExplicitProgramContinuationAnswerType(Continuation, Op.Resume),
+        ErrorSet || ExplicitProgramContinuationErrorSet(Continuation, Op.Resume),
+    );
+    return struct {
+        /// Preview witness that mirrors runtime authored carriers during type inference.
+        pub const has_compiled_plan = true;
+        prompt: *const PromptType,
+
+        /// Type-only preview of compiled authored execution.
+        pub fn runCompiled(_: @This(), _: *lowered_machine.Runtime) lowered_machine.ResetError(ErrorSet || ExplicitProgramContinuationErrorSet(Continuation, Op.Resume))!ExplicitProgramContinuationAnswerType(Continuation, Op.Resume) {
+            unreachable;
+        }
+    };
+}
+
+fn PreviewCompiledProgramWithContext(
+    comptime Op: type,
+    comptime ContextPtrType: type,
+    comptime Continuation: type,
+    comptime ErrorSet: type,
+) type {
+    const PromptType = prompt_contract.Prompt(
+        Op.mode,
+        Op.Resume,
+        ExplicitProgramContinuationAnswerTypeWithContext(ContextPtrType, Continuation, Op.Resume),
+        ErrorSet || ExplicitProgramContinuationErrorSetWithContext(ContextPtrType, Continuation, Op.Resume),
+    );
+    return struct {
+        /// Preview witness that mirrors runtime authored carriers during contextual type inference.
+        pub const has_compiled_plan = true;
+        prompt: *const PromptType,
+
+        /// Type-only preview of compiled contextual authored execution.
+        pub fn runCompiled(_: @This(), _: *lowered_machine.Runtime) lowered_machine.ResetError(ErrorSet || ExplicitProgramContinuationErrorSetWithContext(ContextPtrType, Continuation, Op.Resume))!ExplicitProgramContinuationAnswerTypeWithContext(ContextPtrType, Continuation, Op.Resume) {
+            unreachable;
+        }
+    };
+}
+
 fn PreviewEngineContext(comptime ErrorSet: type) type {
     return struct {
         /// Perform this public operation.
@@ -254,12 +328,7 @@ fn PreviewEngineContext(comptime ErrorSet: type) type {
             comptime Op: type,
             _: Op.Payload,
             comptime Continuation: anytype,
-        ) frontend.BoundProgram(prompt_contract.Prompt(
-            Op.mode,
-            Op.Resume,
-            ExplicitProgramContinuationAnswerType(Continuation, Op.Resume),
-            ErrorSet || ExplicitProgramContinuationErrorSet(Continuation, Op.Resume),
-        )) {
+        ) PreviewCompiledProgram(Op, Continuation, ErrorSet) {
             unreachable;
         }
 
@@ -268,17 +337,9 @@ fn PreviewEngineContext(comptime ErrorSet: type) type {
             _: *@This(),
             comptime Op: type,
             _: Op.Payload,
-            _: anytype,
+            continuation_ctx: anytype,
             comptime Continuation: type,
-        ) frontend.BoundProgram(prompt_contract.Prompt(
-            Op.mode,
-            Op.Resume,
-            switch (@typeInfo(@TypeOf(Continuation.apply(dummyValue(@typeInfo(@TypeOf(Continuation.apply)).@"fn".params[0].type.?), dummyValue(Op.Resume))))) {
-                .error_union => |err_union| err_union.payload,
-                else => @TypeOf(Continuation.apply(dummyValue(@typeInfo(@TypeOf(Continuation.apply)).@"fn".params[0].type.?), dummyValue(Op.Resume))),
-            },
-            ErrorSet || ReturnTypeErrorSet(@TypeOf(Continuation.apply(dummyValue(@typeInfo(@TypeOf(Continuation.apply)).@"fn".params[0].type.?), dummyValue(Op.Resume)))),
-        )) {
+        ) PreviewCompiledProgramWithContext(Op, @TypeOf(continuation_ctx), Continuation, ErrorSet) {
             unreachable;
         }
     };
@@ -513,23 +574,6 @@ fn BodyErrorSet(comptime Body: type, comptime EffType: type) type {
     return ReturnTypeErrorSet(BodyReturnType(Body, EffType));
 }
 
-fn callBody(comptime Body: type, eff: anytype) BodyReturnType(Body, @TypeOf(eff)) {
-    if (@hasDecl(Body, "body")) return Body.body(eff);
-    if (@hasDecl(Body, "run")) {
-        const params = @typeInfo(BodyRunFnType(Body)).@"fn".params;
-        if (params.len == 1) return Body.run(eff);
-        const FirstParam = params[0].type orelse @compileError("ability.with body run must type every parameter");
-        if (FirstParam == type) return Body.run(Body, eff);
-        if (FirstParam == Body) return Body.run(bodyRunSelfValue(Body), eff);
-        if (FirstParam == *Body or FirstParam == *const Body) {
-            var self = bodyRunSelfValue(Body);
-            return Body.run(&self, eff);
-        }
-        @compileError("ability.with body run must accept either (eff), (self, eff), (*self, eff), or (BodyType, eff)");
-    }
-    return Body(eff);
-}
-
 fn ContinuationFnType(comptime Continuation: anytype) type {
     const Carrier = ContinuationCarrierType(Continuation);
     if (continuationHasApply(Continuation)) return @TypeOf(Continuation.apply);
@@ -752,69 +796,6 @@ fn runChoiceChain(
     return result.value;
 }
 
-fn runBodyChain(
-    comptime HandlersType: type,
-    comptime index: usize,
-    comptime EffType: type,
-    comptime caller: anytype,
-    state: ChoiceRunState(HandlersType, EffType, caller),
-    comptime Body: type,
-) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
-    const ErrorSet = HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType));
-    const AnswerType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType));
-    const fields = @typeInfo(HandlersType).@"struct".fields;
-
-    if (index == fields.len) {
-        const ReturnType = BodyReturnType(Body, EffType);
-        if (@typeInfo(ReturnType) == .error_union) {
-            return callBody(Body, state.eff_value) catch |err| return @errorCast(err);
-        }
-        return callBody(Body, state.eff_value);
-    }
-
-    const field = fields[index];
-    const DescriptorType = field.type;
-    const desc_value: DescriptorType = @field(state.handlers_ptr.*, field.name);
-
-    const step_ctx = struct {
-        /// Extend the lexical bundle for the initial body entry and continue inward.
-        pub fn body(comptime Cap: type, ctx: anytype) lowered_machine.ResetError(ErrorSet)!AnswerType {
-            const lexical_state = activeLexicalState(ctx, HandlersType, EffType);
-            const current_desc: DescriptorType = @field(lexical_state.handlers_ptr.*, field.name);
-            const handle = blk: {
-                const BindFn = @TypeOf(DescriptorType.bindLexical);
-                const params = @typeInfo(BindFn).@"fn".params;
-                switch (params.len) {
-                    3 => break :blk current_desc.bindLexical(Cap, ctx),
-                    6 => break :blk current_desc.bindLexical(Cap, ctx, HandlersType, EffType, index),
-                    else => @compileError("ability.with descriptor bindLexical must accept either (self, Cap, ctx) or (self, Cap, ctx, HandlersType, PreviousEffType, index)"),
-                }
-            };
-            const next_eff = extendBundle(EffType, lexical_state.eff_value, field.name, handle);
-            return try runBodyChain(HandlersType, index + 1, @TypeOf(next_eff), caller, .{
-                .runtime = lexical_state.runtime,
-                .handlers_ptr = lexical_state.handlers_ptr,
-                .eff_value = next_eff,
-                .outputs_ptr = lexical_state.outputs_ptr,
-            }, Body);
-        }
-    };
-
-    const result = blk: {
-        const RunFn = @TypeOf(DescriptorType.run);
-        const params = @typeInfo(RunFn).@"fn".params;
-        switch (params.len) {
-            5 => break :blk desc_value.run(AnswerType, ErrorSet, descriptorRunContext(caller, state.runtime, &state), step_ctx),
-            6 => break :blk desc_value.run(AnswerType, ErrorSet, state.runtime, &state, step_ctx),
-            else => @compileError("ability.with descriptor run must accept either (self, AnswerType, RunErrorSetType, run_ctx, Body) or the legacy runtime/lexical_state form"),
-        }
-    } catch |err| return @errorCast(err);
-    if (DescriptorType.Output != void) {
-        @field(state.outputs_ptr.*, field.name) = result.output;
-    }
-    return result.value;
-}
-
 /// Continue one lexical choice continuation by rebuilding the remaining `eff` bundle from the current handler slot onward.
 pub fn continueChoice(
     comptime HandlersType: type,
@@ -946,21 +927,6 @@ fn runCompiledLexicalPlan(
 
 threadlocal var compiled_plain_with_witness = false;
 
-fn runInterpretedLexicalWith(
-    comptime HandlersType: type,
-    comptime Body: type,
-    runtime: *lowered_machine.Runtime,
-    handlers_ptr: *HandlersType,
-    outputs_ptr: *OutputBundleType(HandlersType),
-) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
-    return try runBodyChain(HandlersType, 0, struct {}, null, .{
-        .runtime = runtime,
-        .handlers_ptr = handlers_ptr,
-        .eff_value = .{},
-        .outputs_ptr = outputs_ptr,
-    }, Body);
-}
-
 fn compiledBodyReturnSyntax(comptime HandlersType: type, comptime Body: type) ?[]const u8 {
     return anonymous_body_synthesis.canonicalReturnTypeSyntax(BodyReturnType(Body, PreviewBodyEffType(HandlersType)));
 }
@@ -972,6 +938,60 @@ fn failRepoOwnedAnonymousSource(comptime Body: type) noreturn {
     ));
 }
 
+fn failUnsupportedBody(comptime Body: type) noreturn {
+    @compileError(std.fmt.comptimePrint(
+        "ability.with bodies must lower to ProgramPlan; unsupported body has no repo-owned source witness: body={s}; downstream callers should use ability.withCallerSource(@src(), @embedFile(std.Io.Dir.path.basename(@src().file)), ...)",
+        .{@typeName(Body)},
+    ));
+}
+
+fn isAnonymousBodyType(comptime Body: type) bool {
+    const name = @typeName(Body);
+    return std.mem.find(u8, name, "__struct_") != null;
+}
+
+fn callerFileModulePathLen(comptime caller: std.builtin.SourceLocation) usize {
+    if (std.mem.endsWith(u8, caller.file, ".zig")) return caller.file.len - ".zig".len;
+    return caller.file.len;
+}
+
+fn typeNameStartsWithCallerModulePath(
+    comptime caller: std.builtin.SourceLocation,
+    comptime name: []const u8,
+) bool {
+    const module_path_len = callerFileModulePathLen(caller);
+    if (module_path_len == 0 or name.len <= module_path_len or name[module_path_len] != '.') return false;
+    for (caller.file[0..module_path_len], 0..) |char, index| {
+        const expected: u8 = switch (char) {
+            '/', '\\' => '.',
+            else => char,
+        };
+        if (name[index] != expected) return false;
+    }
+    return true;
+}
+
+fn callerOwnedNamedBodySymbol(comptime caller: std.builtin.SourceLocation, comptime Body: type) ?[]const u8 {
+    const name = @typeName(Body);
+    if (isAnonymousBodyType(Body)) return null;
+
+    var start: usize = 0;
+    for (name, 0..) |char, index| {
+        if (char == '.') start = index + 1;
+    }
+    const symbol = name[start..];
+    if (symbol.len == 0) return null;
+    if (!(std.ascii.isAlphabetic(symbol[0]) or symbol[0] == '_')) return null;
+    for (symbol[1..]) |char| {
+        if (!(std.ascii.isAlphanumeric(char) or char == '_')) return null;
+    }
+
+    const module_path_len = callerFileModulePathLen(caller);
+    if (!typeNameStartsWithCallerModulePath(caller, name)) return null;
+    if (!std.mem.eql(u8, name[module_path_len + 1 ..], symbol)) return null;
+    return symbol;
+}
+
 // zlinter-disable max_positional_args - caller-owned synthesis needs the exact caller source plus the same runtime state bundle as repo-owned compilation.
 fn tryCallerOwnedAnonymousCompiledWith(
     comptime caller: std.builtin.SourceLocation,
@@ -981,7 +1001,7 @@ fn tryCallerOwnedAnonymousCompiledWith(
     runtime: *lowered_machine.Runtime,
     handlers_ptr: *HandlersType,
     outputs_ptr: *OutputBundleType(HandlersType),
-) ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
+) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
     const entry_symbol = comptime anonymous_body_synthesis.callerEntryName(caller);
     const return_syntax = comptime compiledBodyReturnSyntax(HandlersType, Body);
     const maybe_synthetic = comptime anonymous_body_synthesis.syntheticSourceWithEntry(
@@ -1002,30 +1022,60 @@ fn tryCallerOwnedAnonymousCompiledWith(
         },
     ));
     const synthetic_path = comptime syntheticLoweringSourcePath(entry_symbol);
-    const source_ref = comptime lowering_api.sourceWithContent(
-        synthetic_path,
-        syntheticSourceLocation(synthetic_path, entry_symbol),
-        synthetic,
-    );
-    if (comptime anonymous_body_synthesis.maybeLowerSyntheticLexicalBody(
+    if (comptime anonymous_body_synthesis.entryBodyHasBareFunctionCall(synthetic, entry_symbol)) {
+        @compileError("ability.withCallerSource caller-owned anonymous body must lower to ProgramPlan without unsupported syntax");
+    }
+    const lowered = comptime anonymous_body_synthesis.maybeLowerSyntheticLexicalBody(
         HandlersType,
         BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
         synthetic_path,
         synthetic,
         entry_symbol,
-    ) == null) {
-        return null;
+    ) orelse @compileError("ability.withCallerSource caller-owned anonymous body must lower to ProgramPlan without unsupported syntax");
+    const lowered_program = comptime lowering_api.planFromOpenRowGenerated("ability.with caller-owned lexical body", lowered);
+    return try runCompiledLexicalPlan(
+        HandlersType,
+        Body,
+        runtime,
+        handlers_ptr,
+        outputs_ptr,
+        lowered_program,
+    );
+}
+
+// zlinter-disable max_positional_args - caller-owned named synthesis needs the exact caller source plus the same runtime state bundle as anonymous compilation.
+fn tryCallerOwnedNamedCompiledWith(
+    comptime caller: std.builtin.SourceLocation,
+    comptime caller_source: []const u8,
+    comptime HandlersType: type,
+    comptime Body: type,
+    runtime: *lowered_machine.Runtime,
+    handlers_ptr: *HandlersType,
+    outputs_ptr: *OutputBundleType(HandlersType),
+) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
+    const body_symbol = comptime callerOwnedNamedBodySymbol(caller, Body) orelse
+        @compileError("ability.withCallerSource named body must be declared as a top-level const in the caller source file");
+    const entry_symbol = comptime std.fmt.comptimePrint("__ability_with_named_{s}", .{body_symbol});
+    const synthetic_source = comptime anonymous_body_synthesis.syntheticSourceForNamedTypeWithEntry(
+        Body,
+        caller,
+        caller_source,
+        body_symbol,
+        entry_symbol,
+        compiledBodyReturnSyntax(HandlersType, Body),
+    ) orelse @compileError("ability.withCallerSource named body source witness did not contain a matching const Body = struct declaration");
+    const synthetic_path = comptime syntheticLoweringSourcePath(entry_symbol);
+    if (comptime anonymous_body_synthesis.entryBodyHasBareFunctionCall(synthetic_source, entry_symbol)) {
+        @compileError("ability.withCallerSource caller-owned named body must lower to ProgramPlan without unsupported syntax");
     }
-    const lowered_program = comptime lowering_api.lower(
-        source_ref,
-        .{
-            .label = "ability.with caller-owned lexical body",
-            .entry_symbol = entry_symbol,
-            .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
-            .row = lexical_manifest.Manifest(HandlersType).row(),
-            .outputs = lexical_manifest.Manifest(HandlersType).outputs(),
-        },
-    ).runtime_plan;
+    const lowered = comptime anonymous_body_synthesis.maybeLowerSyntheticLexicalBody(
+        HandlersType,
+        BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+        synthetic_path,
+        synthetic_source,
+        entry_symbol,
+    ) orelse @compileError("ability.withCallerSource caller-owned named body must lower to ProgramPlan without unsupported syntax");
+    const lowered_program = comptime lowering_api.planFromOpenRowGenerated("ability.with caller-owned named lexical body", lowered);
     return try runCompiledLexicalPlan(
         HandlersType,
         Body,
@@ -1189,7 +1239,7 @@ fn withImpl(
     else if (comptime anonymous_body_synthesis.hasRepoOwnedCandidate(Body))
         tryRepoOwnedAnonymousCompiledWith(HandlersType, Body, runtime, &handler_state, &outputs)
     else
-        runInterpretedLexicalWith(HandlersType, Body, runtime, &handler_state, &outputs);
+        failUnsupportedBody(Body);
     const value = try compiled;
     return .{
         .outputs = outputs,
@@ -1219,8 +1269,14 @@ pub fn withCallerSource(
 
     var handler_state = handlers;
     var outputs = std.mem.zeroInit(OutputBundleType(HandlersType), .{});
-    const compiled = tryCallerOwnedAnonymousCompiledWith(caller, caller_source, HandlersType, Body, runtime, &handler_state, &outputs) orelse
-        @compileError("ability.with caller-owned anonymous body did not lower to ProgramPlan");
+    const compiled = if (comptime supportsNamedBodyLowering(Body))
+        tryRepoOwnedNamedCompiledWith(HandlersType, Body, runtime, &handler_state, &outputs)
+    else if (comptime callerOwnedNamedBodySymbol(caller, Body) != null)
+        tryCallerOwnedNamedCompiledWith(caller, caller_source, HandlersType, Body, runtime, &handler_state, &outputs)
+    else if (comptime !isAnonymousBodyType(Body))
+        @compileError("ability.withCallerSource named body must be declared as a top-level const in the caller source file")
+    else
+        tryCallerOwnedAnonymousCompiledWith(caller, caller_source, HandlersType, Body, runtime, &handler_state, &outputs);
     const value = try compiled;
     return .{
         .outputs = outputs,

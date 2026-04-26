@@ -866,12 +866,10 @@ pub fn Build(comptime spec: anytype) type {
 
                         var current_handle = self;
                         var authored = activeEngineContext(Config.Capability, self.ctx.?).performProgramWithContext(OpTypeValue, {}, &current_handle, request_state);
-                        if (@hasDecl(@TypeOf(authored), "has_compiled_plan") and @TypeOf(authored).has_compiled_plan) {
-                            return try authored.runCompiled(self.runtime.?);
+                        if (comptime !(@hasDecl(@TypeOf(authored), "has_compiled_plan") and @TypeOf(authored).has_compiled_plan)) {
+                            @compileError("generated lexical choice continuations must lower to a compiled ProgramPlan; interpreted frontend fallback is unsupported");
                         }
-                        authored.activate();
-                        defer authored.deactivate();
-                        return try frontend.run(self.runtime.?, authored.prompt, authored.program);
+                        return try authored.runCompiled(self.runtime.?);
                     }
                 } else struct {
                     const Handle = @This();
@@ -919,12 +917,10 @@ pub fn Build(comptime spec: anytype) type {
 
                         var current_handle = self;
                         var authored = activeEngineContext(Config.Capability, self.ctx.?).performProgramWithContext(OpTypeValue, payload, &current_handle, request_state);
-                        if (@hasDecl(@TypeOf(authored), "has_compiled_plan") and @TypeOf(authored).has_compiled_plan) {
-                            return try authored.runCompiled(self.runtime.?);
+                        if (comptime !(@hasDecl(@TypeOf(authored), "has_compiled_plan") and @TypeOf(authored).has_compiled_plan)) {
+                            @compileError("generated lexical choice continuations must lower to a compiled ProgramPlan; interpreted frontend fallback is unsupported");
                         }
-                        authored.activate();
-                        defer authored.deactivate();
-                        return try frontend.run(self.runtime.?, authored.prompt, authored.program);
+                        return try authored.runCompiled(self.runtime.?);
                     }
                 },
                 .direct_return => if (OpPayloadType(OpTypeValue) == void) struct {

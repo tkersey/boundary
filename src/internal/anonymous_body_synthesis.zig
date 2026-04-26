@@ -352,6 +352,18 @@ fn isIgnorableToken(tag: std.zig.Token.Tag) bool {
     };
 }
 
+fn updateBraceDepthForTopLevelScan(depth: *usize, token: std.zig.Token) bool {
+    switch (token.tag) {
+        .l_brace => depth.* += 1,
+        .r_brace => {
+            if (depth.* == 0) return false;
+            depth.* -= 1;
+        },
+        else => {},
+    }
+    return true;
+}
+
 fn bodyMethodName(comptime Body: type) ?[]const u8 {
     if (@hasDecl(Body, "run")) return "run";
     if (@hasDecl(Body, "body")) return "body";
@@ -488,6 +500,78 @@ fn bodyExpressionBounds(
             }
         }
     }
+}
+
+fn namedStructExpressionBounds(
+    comptime source: []const u8,
+    comptime body_symbol: []const u8,
+) ?Bounds {
+    comptime {
+        @setEvalBranchQuota(2_000_000);
+    }
+    const sentinel = std.fmt.comptimePrint("{s}\x00", .{source});
+    var tokenizer = std.zig.Tokenizer.init(sentinel[0..source.len :0]);
+    var matches = [_]Bounds{.{ .start = 0, .end = 0 }} ** 8;
+    var match_count: usize = 0;
+    var brace_depth: usize = 0;
+
+    while (true) {
+        const first = tokenizer.next();
+        if (first.tag == .eof) break;
+        if (isIgnorableToken(first.tag)) continue;
+        if (brace_depth != 0) {
+            if (!updateBraceDepthForTopLevelScan(&brace_depth, first)) return null;
+            continue;
+        }
+
+        if (first.tag == .l_brace or first.tag == .r_brace) {
+            if (!updateBraceDepthForTopLevelScan(&brace_depth, first)) return null;
+            continue;
+        }
+
+        var name = first;
+        if (first.tag == .keyword_pub) {
+            const const_token = tokenizer.next();
+            if (!updateBraceDepthForTopLevelScan(&brace_depth, const_token)) return null;
+            if (const_token.tag != .keyword_const) continue;
+            name = tokenizer.next();
+            if (!updateBraceDepthForTopLevelScan(&brace_depth, name)) return null;
+        } else if (first.tag != .keyword_const) {
+            continue;
+        } else {
+            name = tokenizer.next();
+            if (!updateBraceDepthForTopLevelScan(&brace_depth, name)) return null;
+        }
+
+        if (name.tag != .identifier) continue;
+        if (!std.mem.eql(u8, sentinel[name.loc.start..name.loc.end], body_symbol)) continue;
+
+        var eq = tokenizer.next();
+        if (!updateBraceDepthForTopLevelScan(&brace_depth, eq)) return null;
+        if (eq.tag == .colon) {
+            const type_token = tokenizer.next();
+            if (!updateBraceDepthForTopLevelScan(&brace_depth, type_token)) return null;
+            if (type_token.tag != .identifier) continue;
+            if (!std.mem.eql(u8, sentinel[type_token.loc.start..type_token.loc.end], "type")) continue;
+            eq = tokenizer.next();
+            if (!updateBraceDepthForTopLevelScan(&brace_depth, eq)) return null;
+        }
+        if (eq.tag != .equal) continue;
+        const struct_token = tokenizer.next();
+        if (!updateBraceDepthForTopLevelScan(&brace_depth, struct_token)) return null;
+        if (struct_token.tag != .keyword_struct) continue;
+        const open = tokenizer.next();
+        if (!updateBraceDepthForTopLevelScan(&brace_depth, open)) return null;
+        if (open.tag != .l_brace) continue;
+
+        const close = findMatchingDelimiter(source, open.loc.start, '{', '}') orelse return null;
+        if (match_count >= matches.len) return null;
+        matches[match_count] = .{ .start = struct_token.loc.start, .end = close + 1 };
+        match_count += 1;
+    }
+
+    if (match_count != 1) return null;
+    return matches[0];
 }
 
 pub fn uniqueBodyExpressionBoundsInRange(
@@ -647,6 +731,244 @@ fn hasSelfDiscardStatement(comptime body_source: []const u8, comptime identifier
     return std.mem.indexOf(u8, body_source, discard_pattern) != null;
 }
 
+pub fn entryBodyHasBareFunctionCall(
+    comptime source: []const u8,
+    comptime entry_symbol: []const u8,
+) bool {
+    const marker = std.fmt.comptimePrint("fn {s}(", .{entry_symbol});
+    const fn_index = std.mem.indexOf(u8, source, marker) orelse return true;
+    const params_start = fn_index + marker.len - 1;
+    const params_end = findMatchingDelimiter(source, params_start, '(', ')') orelse return true;
+    const params_source = source[params_start .. params_end + 1];
+    const body_start = std.mem.indexOfScalarPos(u8, source, params_end, '{') orelse return true;
+    const body_end = findMatchingDelimiter(source, body_start, '{', '}') orelse return true;
+    const body_source = source[body_start..body_end];
+    const sentinel = std.fmt.comptimePrint("{s}\x00", .{body_source});
+    var tokenizer = std.zig.Tokenizer.init(sentinel[0..body_source.len :0]);
+    var previous_tag: std.zig.Token.Tag = .invalid;
+    var previous_previous_tag: std.zig.Token.Tag = .invalid;
+    var token_window = EntryBodyTokenWindow{};
+    var aliases = [_]EntryBodyAlias{.{
+        .name = "",
+        .kind = .effect_root,
+    }} ** 32;
+    var alias_count: usize = 0;
+
+    while (true) {
+        const token = tokenizer.next();
+        if (token.tag == .eof) return false;
+        if (isIgnorableToken(token.tag)) continue;
+        token_window.push(.{
+            .tag = token.tag,
+            .lexeme = body_source[token.loc.start..token.loc.end],
+        });
+        if (token.tag == .l_paren and
+            previous_tag == .identifier and
+            previous_previous_tag != .keyword_fn)
+        {
+            if (previous_previous_tag != .period) return true;
+            if (!qualifiedCallRootIsSupportedEffectAccess(params_source, aliases[0..alias_count], &token_window)) return true;
+        }
+        if (token.tag == .semicolon) {
+            if (maybeEntryBodyAliasFromDeclaration(params_source, aliases[0..alias_count], &token_window)) |alias| {
+                if (!upsertEntryBodyAlias(aliases[0..], &alias_count, alias.name, alias.kind)) return true;
+            }
+        }
+        previous_previous_tag = previous_tag;
+        previous_tag = token.tag;
+    }
+}
+
+const EntryBodyAliasKind = union(enum) {
+    effect_root,
+    requirement: []const u8,
+};
+
+const EntryBodyAlias = struct {
+    name: []const u8,
+    kind: EntryBodyAliasKind,
+};
+
+const EntryBodyToken = struct {
+    tag: std.zig.Token.Tag,
+    lexeme: []const u8,
+};
+
+const EntryBodyTokenWindow = struct {
+    items: [32]EntryBodyToken = [_]EntryBodyToken{.{
+        .tag = .invalid,
+        .lexeme = "",
+    }} ** 32,
+    count: usize = 0,
+
+    fn push(self: *@This(), item: EntryBodyToken) void {
+        if (self.count < self.items.len) {
+            self.items[self.count] = item;
+            self.count += 1;
+            return;
+        }
+        for (self.items[0 .. self.items.len - 1], 0..) |_, index| {
+            self.items[index] = self.items[index + 1];
+        }
+        self.items[self.items.len - 1] = item;
+    }
+};
+
+fn qualifiedCallRoot(window: *const EntryBodyTokenWindow) ?[]const u8 {
+    if (window.count < 4) return null;
+    if (window.items[window.count - 1].tag != .l_paren or
+        window.items[window.count - 2].tag != .identifier or
+        window.items[window.count - 3].tag != .period) return null;
+
+    var root_index = window.count - 2;
+    var consumed_qualified_segment = false;
+    while (root_index >= 2 and
+        window.items[root_index - 1].tag == .period and
+        window.items[root_index - 2].tag == .identifier)
+    {
+        root_index -= 2;
+        consumed_qualified_segment = true;
+    }
+    if (!consumed_qualified_segment) return null;
+    return window.items[root_index].lexeme;
+}
+
+fn qualifiedCallRootIsSupportedEffectAccess(
+    comptime params_source: []const u8,
+    comptime aliases: []const EntryBodyAlias,
+    window: *const EntryBodyTokenWindow,
+) bool {
+    const root = qualifiedCallRoot(window) orelse return false;
+    return entryBodyAliasKind(params_source, aliases, root) != null;
+}
+
+fn entryBodyAliasKind(
+    comptime params_source: []const u8,
+    comptime aliases: []const EntryBodyAlias,
+    comptime name: []const u8,
+) ?EntryBodyAliasKind {
+    if (entryParamsContainAnytypeParamNamed(params_source, name)) return .effect_root;
+    for (aliases) |alias| {
+        if (std.mem.eql(u8, alias.name, name)) return alias.kind;
+    }
+    return null;
+}
+
+fn upsertEntryBodyAlias(
+    aliases: []EntryBodyAlias,
+    alias_count: *usize,
+    comptime name: []const u8,
+    comptime kind: EntryBodyAliasKind,
+) bool {
+    for (aliases[0..alias_count.*]) |*alias| {
+        if (!std.mem.eql(u8, alias.name, name)) continue;
+        alias.kind = kind;
+        return true;
+    }
+    if (alias_count.* >= aliases.len) return false;
+    aliases[alias_count.*] = .{
+        .name = name,
+        .kind = kind,
+    };
+    alias_count.* += 1;
+    return true;
+}
+
+fn maybeEntryBodyAliasFromDeclaration(
+    comptime params_source: []const u8,
+    comptime aliases: []const EntryBodyAlias,
+    window: *const EntryBodyTokenWindow,
+) ?struct {
+    name: []const u8,
+    kind: EntryBodyAliasKind,
+} {
+    if (window.count >= 5) {
+        const tail = window.items[window.count - 5 .. window.count];
+        if ((tail[0].tag == .keyword_const or tail[0].tag == .keyword_var) and
+            tail[1].tag == .identifier and
+            tail[2].tag == .equal and
+            tail[3].tag == .identifier and
+            tail[4].tag == .semicolon)
+        {
+            const source_kind = entryBodyAliasKind(params_source, aliases, tail[3].lexeme) orelse return null;
+            return .{
+                .name = tail[1].lexeme,
+                .kind = source_kind,
+            };
+        }
+    }
+
+    if (window.count >= 7) {
+        const tail = window.items[window.count - 7 .. window.count];
+        if ((tail[0].tag == .keyword_const or tail[0].tag == .keyword_var) and
+            tail[1].tag == .identifier and
+            tail[2].tag == .equal and
+            tail[3].tag == .identifier and
+            tail[4].tag == .period and
+            tail[5].tag == .identifier and
+            tail[6].tag == .semicolon)
+        {
+            const source_kind = entryBodyAliasKind(params_source, aliases, tail[3].lexeme) orelse return null;
+            return switch (source_kind) {
+                .effect_root => .{
+                    .name = tail[1].lexeme,
+                    .kind = .{ .requirement = tail[5].lexeme },
+                },
+                .requirement => null,
+            };
+        }
+    }
+
+    return null;
+}
+
+fn entryParamsContainAnytypeParamNamed(comptime params_source: []const u8, root: []const u8) bool {
+    if (params_source.len < 2 or params_source[0] != '(' or params_source[params_source.len - 1] != ')') return false;
+    const inner = params_source[1 .. params_source.len - 1];
+    var start: usize = 0;
+    var paren_depth: usize = 0;
+    var brace_depth: usize = 0;
+    var bracket_depth: usize = 0;
+    var index: usize = 0;
+    while (index <= inner.len) : (index += 1) {
+        if (index == inner.len or
+            (inner[index] == ',' and paren_depth == 0 and brace_depth == 0 and bracket_depth == 0))
+        {
+            if (paramSegmentIsAnytypeParamNamed(inner[start..index], root)) return true;
+            start = index + 1;
+            continue;
+        }
+        switch (inner[index]) {
+            '(' => paren_depth += 1,
+            ')' => {
+                if (paren_depth > 0) paren_depth -= 1;
+            },
+            '{' => brace_depth += 1,
+            '}' => {
+                if (brace_depth > 0) brace_depth -= 1;
+            },
+            '[' => bracket_depth += 1,
+            ']' => {
+                if (bracket_depth > 0) bracket_depth -= 1;
+            },
+            else => {},
+        }
+    }
+    return false;
+}
+
+fn paramSegmentIsAnytypeParamNamed(comptime segment: []const u8, root: []const u8) bool {
+    const trimmed = trimAsciiWhitespace(segment);
+    const colon_index = std.mem.indexOfScalar(u8, trimmed, ':') orelse return false;
+    var name = trimAsciiWhitespace(trimmed[0..colon_index]);
+    if (std.mem.startsWith(u8, name, "comptime ")) {
+        name = trimAsciiWhitespace(name["comptime ".len..]);
+    }
+    if (!std.mem.eql(u8, name, root)) return false;
+    if (!source_graph_engine.isEffectParamName(name)) return false;
+    return std.mem.eql(u8, trimAsciiWhitespace(trimmed[colon_index + 1 ..]), "anytype");
+}
+
 fn trimAsciiWhitespace(comptime source: []const u8) []const u8 {
     var start: usize = 0;
     var end: usize = source.len;
@@ -686,6 +1008,27 @@ fn sanitizedCallerSourceForBounds(comptime caller_source: []const u8, comptime b
             caller_source[bounds.end..],
         },
     );
+}
+
+fn callerOwnedSyntheticCallerSource(
+    comptime caller: std.builtin.SourceLocation,
+    comptime caller_source: []const u8,
+) []const u8 {
+    const target_offset = comptime offsetForLineColumn(caller_source, caller.line, caller.column) orelse return caller_source;
+    const sentinel = std.fmt.comptimePrint("{s}\x00", .{caller_source});
+    const maybe_decl_start = if (source_graph_engine.analyzeComptime(sentinel[0..caller_source.len :0], .{})) |graph| blk: {
+        const function = functionContainingOffset(graph.functions, target_offset) orelse break :blk null;
+        break :blk functionDeclStart(caller_source, function);
+    } else |_| blk: {
+        const search = caller_source[0..target_offset];
+        const fn_index = std.mem.lastIndexOf(u8, search, "fn ") orelse break :blk null;
+        var start = fn_index;
+        while (start > 0 and std.ascii.isWhitespace(caller_source[start - 1])) : (start -= 1) {}
+        if (start >= 3 and std.mem.eql(u8, caller_source[start - 3 .. start], "pub")) break :blk start - 3;
+        break :blk fn_index;
+    };
+    const decl_start = maybe_decl_start orelse return caller_source;
+    return caller_source[0..decl_start];
 }
 
 fn functionContainingOffset(
@@ -959,11 +1302,34 @@ pub fn syntheticSourceWithEntry(
     comptime override_return_syntax: ?[]const u8,
 ) ?[:0]const u8 {
     const bounds = comptime bodyExpressionBounds(caller, caller_source, kind) orelse return null;
+    const synthetic_caller_source = switch (kind) {
+        .explicit_location, .explicit_location_and_content => callerOwnedSyntheticCallerSource(caller, caller_source),
+        else => sanitizedCallerSourceForBounds(caller_source, bounds),
+    };
     return syntheticSourceForBounds(
         Body,
         bounds,
         caller_source,
-        sanitizedCallerSourceForBounds(caller_source, bounds),
+        synthetic_caller_source,
+        generated_entry_name,
+        override_return_syntax,
+    );
+}
+
+pub fn syntheticSourceForNamedTypeWithEntry(
+    comptime Body: type,
+    comptime caller: std.builtin.SourceLocation,
+    comptime caller_source: []const u8,
+    comptime body_symbol: []const u8,
+    comptime generated_entry_name: []const u8,
+    comptime override_return_syntax: ?[]const u8,
+) ?[:0]const u8 {
+    const bounds = comptime namedStructExpressionBounds(caller_source, body_symbol) orelse return null;
+    return syntheticSourceForBounds(
+        Body,
+        bounds,
+        caller_source,
+        callerOwnedSyntheticCallerSource(caller, caller_source),
         generated_entry_name,
         override_return_syntax,
     );
@@ -1283,7 +1649,7 @@ test "repo-owned plain with examples classify unique vs ambiguous bodies" {
     ) == null);
 }
 
-test "state_basic synthesized anonymous body lowers through public_lowering" {
+test "state_basic synthesized anonymous body lowers through lowering_api" {
     const state = @import("../effect/state.zig");
     const source_path = "examples/state_basic.zig";
     const body_type = struct {
@@ -1364,6 +1730,55 @@ test "synthetic plain with helper-call body stays lowerable" {
         },
     );
     try std.testing.expect(lowered != null);
+}
+
+test "caller-owned entry scan admits effect-qualified calls" {
+    const source =
+        \\pub fn __ability_with_entry_l1_c1(eff: anytype) anyerror!i32 {
+        \\    return try eff.state.get();
+        \\}
+    ;
+    try std.testing.expect(!entryBodyHasBareFunctionCall(source, "__ability_with_entry_l1_c1"));
+
+    const ctx_source =
+        \\pub fn __ability_with_entry_l1_c1(ctx: anytype) anyerror!i32 {
+        \\    return try ctx.state.get();
+        \\}
+    ;
+    try std.testing.expect(!entryBodyHasBareFunctionCall(ctx_source, "__ability_with_entry_l1_c1"));
+}
+
+test "caller-owned entry scan admits requirement-alias effect calls" {
+    const requirement_alias_source =
+        \\pub fn __ability_with_entry_l1_c1(eff: anytype) anyerror!i32 {
+        \\    const state = eff.state;
+        \\    return try state.get();
+        \\}
+    ;
+    try std.testing.expect(!entryBodyHasBareFunctionCall(requirement_alias_source, "__ability_with_entry_l1_c1"));
+}
+
+test "caller-owned entry scan rejects qualified helper calls" {
+    const this_source =
+        \\pub fn __ability_with_entry_l1_c1(eff: anytype) anyerror!i32 {
+        \\    return try eff.state.get() + @This().helper();
+        \\}
+    ;
+    try std.testing.expect(entryBodyHasBareFunctionCall(this_source, "__ability_with_entry_l1_c1"));
+
+    const namespace_source =
+        \\pub fn __ability_with_entry_l1_c1(eff: anytype) anyerror!i32 {
+        \\    return try eff.state.get() + Helpers.foo();
+        \\}
+    ;
+    try std.testing.expect(entryBodyHasBareFunctionCall(namespace_source, "__ability_with_entry_l1_c1"));
+
+    const arbitrary_anytype_source =
+        \\pub fn __ability_with_entry_l1_c1(helper_ns: anytype) anyerror!i32 {
+        \\    return helper_ns.foo();
+        \\}
+    ;
+    try std.testing.expect(entryBodyHasBareFunctionCall(arbitrary_anytype_source, "__ability_with_entry_l1_c1"));
 }
 
 test "synthetic plain with run(self, eff) lowers when self is unused" {
