@@ -33,6 +33,12 @@ const AnonymousBodyIdentity = struct {
     struct_suffix: []const u8,
 };
 
+const SourceWitnessBoundsSelection = union(enum) {
+    ambiguous,
+    none,
+    selected: Bounds,
+};
+
 fn registryContainsLine(comptime registry: []const u8, comptime candidate: []const u8) bool {
     comptime {
         @setEvalBranchQuota(2_000_000);
@@ -795,6 +801,22 @@ pub fn bodyExpressionSourceWitnessMatches(
     comptime source_column: u32,
 ) bool {
     return comptime boundsSourceFileContainsLocationMatches(source, bounds, source_file, source_line, source_column);
+}
+
+fn sourceWitnessSelectedBounds(
+    comptime source: []const u8,
+    comptime candidates: []const Bounds,
+    comptime source_file: []const u8,
+    comptime source_line: u32,
+    comptime source_column: u32,
+) SourceWitnessBoundsSelection {
+    var selected: ?Bounds = null;
+    inline for (candidates) |candidate| {
+        if (!comptime bodyExpressionSourceWitnessMatches(source, candidate, source_file, source_line, source_column)) continue;
+        if (selected != null) return .ambiguous;
+        selected = candidate;
+    }
+    return if (selected) |bounds| .{ .selected = bounds } else .none;
 }
 
 pub fn uniqueBodyExpressionBoundsInRange(
@@ -1675,12 +1697,15 @@ pub fn uniqueRepoOwnedAnonymousSourceWithReturnSyntax(
     };
 }
 
-/// Return one source-backed anonymous body from caller-owned bytes only when the
-/// source contains a unique matching `ability.with(..., Body)` candidate.
+/// Return one source-backed anonymous body from caller-owned bytes. Duplicate
+/// same-shaped candidates are disambiguated by the body's source-location
+/// witness before falling back to the first equivalent candidate.
 pub fn uniqueSourceBackedAnonymousSourceWithReturnSyntax(
     comptime Body: type,
     comptime caller_source: []const u8,
     comptime kind: CompilationKind,
+    comptime source_file: []const u8,
+    comptime source_location: std.builtin.SourceLocation,
     comptime override_return_syntax: ?[]const u8,
 ) ?RepoOwnedAnonymousSource {
     const identity = bodyIdentity(Body) orelse return null;
@@ -1688,9 +1713,14 @@ pub fn uniqueSourceBackedAnonymousSourceWithReturnSyntax(
     const candidate_bounds = candidateBoundsForIdentityInSource(source[0..caller_source.len :0], identity, kind) orelse return null;
     const entry_symbol = entryNameFromIdentity(identity);
     if (candidate_bounds.len == 0) return null;
-    const selected_bounds = if (candidate_bounds.len == 1)
+    const selected_bounds: Bounds = if (candidate_bounds.len == 1)
         candidate_bounds[0]
     else blk: {
+        switch (comptime sourceWitnessSelectedBounds(source[0..caller_source.len], candidate_bounds, source_file, source_location.line, source_location.column)) {
+            .selected => |bounds| break :blk @as(Bounds, bounds),
+            .ambiguous => return null,
+            .none => {},
+        }
         const first_source = comptime syntheticSourceForBounds(
             Body,
             candidate_bounds[0],

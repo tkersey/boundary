@@ -1131,6 +1131,8 @@ fn trySourceBackedAnonymousCompiledWith(
         Body,
         caller_source,
         .plain_with,
+        source_file,
+        source_location,
         compiledBodyReturnSyntax(HandlersType, Body),
     ) orelse @compileError("ability.with source-backed anonymous body source did not contain a unique matching ability.with body");
     if (!comptime sourceFileMatchesLocation(source_file, source_location)) {

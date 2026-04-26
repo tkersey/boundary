@@ -612,6 +612,91 @@ test "ability.with admits anonymous downstream bodies with Body.source" {
     try runDownstreamAbilityWithMain(main_zig);
 }
 
+test "ability.with admits duplicate source-backed anonymous bodies by source witness" {
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const first = try ability.with(&runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, struct {
+        \\        fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
+        \\        fn sourceLocation() std.builtin.SourceLocation { return @src(); }
+        \\        pub const source = sourceBytes();
+        \\        pub const source_file = "main.zig";
+        \\        pub const source_location = sourceLocation();
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            return try eff.state.get();
+        \\        }
+        \\    });
+        \\    if (first.value != 9) return error.UnexpectedValue;
+        \\
+        \\    const second = try ability.with(&runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 19)),
+        \\    }, struct {
+        \\        fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
+        \\        fn sourceLocation() std.builtin.SourceLocation { return @src(); }
+        \\        pub const source = sourceBytes();
+        \\        pub const source_file = "main.zig";
+        \\        pub const source_location = sourceLocation();
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            return try eff.state.get();
+        \\        }
+        \\    });
+        \\    if (second.value != 19) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMain(main_zig);
+}
+
+test "ability.with admits distinct source-backed anonymous bodies by source witness" {
+    const main_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\pub fn main() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const first = try ability.with(&runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, struct {
+        \\        fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
+        \\        fn sourceLocation() std.builtin.SourceLocation { return @src(); }
+        \\        pub const source = sourceBytes();
+        \\        pub const source_file = "main.zig";
+        \\        pub const source_location = sourceLocation();
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            const state = eff.state;
+        \\            return try state.get();
+        \\        }
+        \\    });
+        \\    if (first.value != 9) return error.UnexpectedValue;
+        \\
+        \\    const second = try ability.with(&runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 19)),
+        \\    }, struct {
+        \\        fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
+        \\        fn sourceLocation() std.builtin.SourceLocation { return @src(); }
+        \\        pub const source = sourceBytes();
+        \\        pub const source_file = "main.zig";
+        \\        pub const source_location = sourceLocation();
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            return try eff.state.get();
+        \\        }
+        \\    });
+        \\    if (second.value != 19) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMain(main_zig);
+}
+
 test "ability.with admits anonymous downstream requirement aliases with Body.source" {
     const main_zig =
         \\const ability = @import("ability");
