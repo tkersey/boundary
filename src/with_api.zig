@@ -525,6 +525,11 @@ fn bodyDeclSourceIdentity(comptime Body: type) ?[]const u8 {
     return null;
 }
 
+fn bodyDeclSourceFile(comptime Body: type) ?[]const u8 {
+    if (hasDeclSafe(Body, "source_file")) return Body.source_file;
+    return null;
+}
+
 fn bodyDeclSourceLocation(comptime Body: type) ?std.builtin.SourceLocation {
     if (hasDeclSafe(Body, "source_location")) return Body.source_location;
     return null;
@@ -993,38 +998,31 @@ fn sourceBackedNamedBodyIdentity(comptime Body: type) []const u8 {
     );
 }
 
-fn sourceBackedNamedBodyLocation(comptime Body: type) std.builtin.SourceLocation {
-    return bodyDeclSourceLocation(Body) orelse @compileError(
-        "ability.with source-backed named body must declare pub const source_location from a function inside the body declaration",
+fn sourceBackedBodyFile(comptime Body: type) []const u8 {
+    return bodyDeclSourceFile(Body) orelse @compileError(
+        "ability.with source-backed body must declare pub const source_file matching @src().file from the source owner",
     );
 }
 
-fn sourceIdentityModuleLeaf(comptime source_identity: []const u8) ?[]const u8 {
-    var body_sep: ?usize = null;
-    for (source_identity, 0..) |char, index| {
-        if (char == '.') body_sep = index;
-    }
-    const end = body_sep orelse return null;
-    if (end == 0) return null;
-
-    var start: usize = 0;
-    for (source_identity[0..end], 0..) |char, index| {
-        if (char == '.') start = index + 1;
-    }
-    if (start == end) return null;
-    return source_identity[start..end];
+fn sourceBackedBodyLocation(comptime Body: type) std.builtin.SourceLocation {
+    return bodyDeclSourceLocation(Body) orelse @compileError(
+        "ability.with source-backed body must declare pub const source_location from a function inside the body declaration",
+    );
 }
 
-fn sourceLocationFileStem(comptime file: []const u8) []const u8 {
-    var start: usize = 0;
-    for (file, 0..) |char, index| {
-        if (char == '/' or char == '\\') start = index + 1;
+fn sourceFileMatchesLocation(
+    comptime source_file: []const u8,
+    comptime source_location: std.builtin.SourceLocation,
+) bool {
+    if (source_file.len == 0 or source_location.file.len == 0) return false;
+    if (source_file.len != source_location.file.len) return false;
+    for (source_file, 0..) |char, index| {
+        const location_char = source_location.file[index];
+        if (char == location_char) continue;
+        if ((char == '/' or char == '\\') and (location_char == '/' or location_char == '\\')) continue;
+        return false;
     }
-    var end = file.len;
-    if (std.mem.endsWith(u8, file[start..end], ".zig")) {
-        end -= ".zig".len;
-    }
-    return file[start..end];
+    return true;
 }
 
 fn sourceBackedTypeNameContainsIdentity(
@@ -1040,12 +1038,11 @@ fn sourceBackedTypeNameContainsIdentity(
 fn sourceBackedNamedBodyWitnessMatches(
     comptime Body: type,
     comptime source_identity: []const u8,
+    comptime source_file: []const u8,
     comptime source_location: std.builtin.SourceLocation,
 ) bool {
     if (!comptime sourceBackedTypeNameContainsIdentity(@typeName(Body), source_identity)) return false;
-    const identity_module = comptime sourceIdentityModuleLeaf(source_identity) orelse return false;
-    const location_file = comptime sourceLocationFileStem(source_location.file);
-    return std.mem.eql(u8, identity_module, location_file);
+    return comptime sourceFileMatchesLocation(source_file, source_location);
 }
 
 fn sourceBackedSyntheticCaller(
@@ -1128,12 +1125,20 @@ fn trySourceBackedAnonymousCompiledWith(
     outputs_ptr: *OutputBundleType(HandlersType),
 ) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
     const caller_source = comptime sourceBackedBodySource(Body);
+    const source_file = comptime sourceBackedBodyFile(Body);
+    const source_location = comptime sourceBackedBodyLocation(Body);
     const synthesized = comptime anonymous_body_synthesis.uniqueSourceBackedAnonymousSourceWithReturnSyntax(
         Body,
         caller_source,
         .plain_with,
         compiledBodyReturnSyntax(HandlersType, Body),
     ) orelse @compileError("ability.with source-backed anonymous body source did not contain a unique matching ability.with body");
+    if (!comptime sourceFileMatchesLocation(source_file, source_location)) {
+        @compileError("ability.with source-backed body source_file/source_location did not match the selected source declaration");
+    }
+    if (!comptime anonymous_body_synthesis.bodyExpressionSourceWitnessMatches(caller_source, synthesized.body_bounds, source_file, source_location.line, source_location.column)) {
+        @compileError("ability.with source-backed body source_file/source_location did not match the selected source declaration");
+    }
     const synthetic_path = comptime syntheticLoweringSourcePath(synthesized.entry_symbol);
     const source_ref = comptime lowering_api.sourceWithContent(
         synthetic_path,
@@ -1240,7 +1245,8 @@ fn trySourceBackedNamedCompiledWith(
         @compileError("ability.with source-backed named body must have a simple top-level type name");
     const caller_source = comptime sourceBackedBodySource(Body);
     const source_identity = comptime sourceBackedNamedBodyIdentity(Body);
-    const source_location = comptime sourceBackedNamedBodyLocation(Body);
+    const source_file = comptime sourceBackedBodyFile(Body);
+    const source_location = comptime sourceBackedBodyLocation(Body);
     const entry_symbol = comptime std.fmt.comptimePrint("__ability_with_named_{s}", .{body_symbol});
     const synthetic_path = comptime syntheticLoweringSourcePath(entry_symbol);
     const synthetic_source = comptime anonymous_body_synthesis.syntheticSourceForNamedTypeWithEntry(
@@ -1251,11 +1257,11 @@ fn trySourceBackedNamedCompiledWith(
         entry_symbol,
         compiledBodyReturnSyntax(HandlersType, Body),
     ) orelse @compileError("ability.with source-backed named body source did not contain a matching top-level struct declaration");
-    if (!comptime sourceBackedNamedBodyWitnessMatches(Body, source_identity, source_location)) {
-        @compileError("ability.with source-backed named body source_identity/source_location did not match the selected top-level declaration");
+    if (!comptime sourceBackedNamedBodyWitnessMatches(Body, source_identity, source_file, source_location)) {
+        @compileError("ability.with source-backed named body source_identity/source_file/source_location did not match the selected top-level declaration");
     }
-    if (!comptime anonymous_body_synthesis.namedStructSourceIdentityContainsLocationMatches(caller_source, body_symbol, source_identity, source_location.line, source_location.column)) {
-        @compileError("ability.with source-backed named body source_identity/source_location did not match the selected top-level declaration");
+    if (!comptime anonymous_body_synthesis.namedStructSourceWitnessMatches(caller_source, body_symbol, source_identity, source_file, source_location.line, source_location.column)) {
+        @compileError("ability.with source-backed named body source_identity/source_file/source_location did not match the selected top-level declaration");
     }
     const source_ref = comptime lowering_api.sourceWithContent(
         synthetic_path,
@@ -1522,6 +1528,8 @@ const source_backed_witness_body = struct {
 
     /// Stable identity witness for the source-backed named-body test declaration.
     pub const source_identity = "with_api.source_backed_witness_body";
+    /// Stable file witness for the source-backed named-body test declaration.
+    pub const source_file = "src/with_api.zig";
     /// Compiler-owned location witness for the declaration that owns `source`.
     pub const source_location = sourceLocation();
     /// Authoritative source bytes for this named body witness.

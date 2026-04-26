@@ -375,6 +375,77 @@ fn runDownstreamAbilityWithMainAndSubmodule(
     try runChildAtPathExpectSuccess(consumer_root, build_args);
 }
 
+fn runDownstreamAbilityWithMainAndTwoSubmodulesExpectFailure(
+    comptime main_zig: []const u8,
+    comptime a_zig: []const u8,
+    comptime b_zig: []const u8,
+    expected_stderr: []const u8,
+) !void {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const consumer_root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(consumer_root);
+
+    const build_zig =
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) void {
+        \\    const target = b.standardTargetOptions(.{});
+        \\    const optimize = b.standardOptimizeOption(.{});
+        \\    const dep = b.dependency("ability", .{ .target = target, .optimize = optimize });
+        \\
+        \\    const root = b.createModule(.{
+        \\        .root_source_file = b.path("main.zig"),
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\    });
+        \\    root.addImport("ability", dep.module("ability"));
+        \\
+        \\    const exe = b.addExecutable(.{
+        \\        .name = "downstream-ability-with",
+        \\        .root_module = root,
+        \\    });
+        \\    const run = b.addRunArtifact(exe);
+        \\    b.default_step.dependOn(&run.step);
+        \\}
+        \\
+    ;
+    try writeTmpFile(tmp.dir, "build.zig", build_zig);
+    try writeDownstreamBuildZon(tmp.dir, null);
+    try writeTmpFile(tmp.dir, "main.zig", main_zig);
+    try writeTmpFile(tmp.dir, "a/foo.zig", a_zig);
+    try writeTmpFile(tmp.dir, "b/foo.zig", b_zig);
+
+    const build_args = &.{
+        "zig",
+        "build",
+        "--summary",
+        "none",
+        "--cache-dir",
+        ".zig-cache",
+    };
+    const fingerprint_probe = try std.process.run(std.testing.allocator, std.testing.io, .{
+        .argv = build_args,
+        .cwd = .{ .path = consumer_root },
+        .stderr_limit = .limited(1024 * 1024),
+        .stdout_limit = .limited(1024 * 1024),
+    });
+    defer std.testing.allocator.free(fingerprint_probe.stdout);
+    defer std.testing.allocator.free(fingerprint_probe.stderr);
+
+    switch (fingerprint_probe.term) {
+        .exited => |code| if (code != 0 and std.mem.find(u8, fingerprint_probe.stderr, expected_stderr) != null) return,
+        else => {},
+    }
+    const fingerprint = suggestedFingerprint(fingerprint_probe.stderr) orelse {
+        std.debug.print("downstream fingerprint probe failed unexpectedly:\n{s}\n", .{fingerprint_probe.stderr});
+        return error.UnexpectedChildCommandFailure;
+    };
+    try writeDownstreamBuildZon(tmp.dir, fingerprint);
+    try runChildAtPathExpectFailureContains(consumer_root, build_args, expected_stderr);
+}
+
 test "wrapper-local source capture stays callee-owned across realistic zero-argument wrapper forms" {
     const caller_source = @src().file;
     const helper_source = probe.helperSourceFile();
@@ -526,7 +597,10 @@ test "ability.with admits anonymous downstream bodies with Body.source" {
         \\        .state = ability.effect.state.use(@as(i32, 9)),
         \\    }, struct {
         \\        fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
-        \\    pub const source = sourceBytes();
+        \\        fn sourceLocation() std.builtin.SourceLocation { return @src(); }
+        \\        pub const source = sourceBytes();
+        \\        pub const source_file = "main.zig";
+        \\        pub const source_location = sourceLocation();
         \\        pub fn body(eff: anytype) anyerror!i32 {
         \\            return try eff.state.get();
         \\        }
@@ -551,7 +625,10 @@ test "ability.with admits anonymous downstream requirement aliases with Body.sou
         \\        .state = ability.effect.state.use(@as(i32, 9)),
         \\    }, struct {
         \\        fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
-        \\    pub const source = sourceBytes();
+        \\        fn sourceLocation() std.builtin.SourceLocation { return @src(); }
+        \\        pub const source = sourceBytes();
+        \\        pub const source_file = "main.zig";
+        \\        pub const source_location = sourceLocation();
         \\        pub fn body(eff: anytype) anyerror!i32 {
         \\            const state = eff.state;
         \\            return try state.get();
@@ -573,6 +650,7 @@ test "ability.with admits named downstream bodies with Body.source" {
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    fn sourceLocation() std.builtin.SourceLocation { return @src(); }
         \\    pub const source = sourceBytes();
+        \\    pub const source_file = "main.zig";
         \\    pub const source_location = sourceLocation();
         \\    pub const source_identity = "main.Body";
         \\    pub fn body(eff: anytype) anyerror!i32 {
@@ -603,6 +681,7 @@ test "ability.with admits named downstream run bodies with Body.source" {
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    fn sourceLocation() std.builtin.SourceLocation { return @src(); }
         \\    pub const source = sourceBytes();
+        \\    pub const source_file = "main.zig";
         \\    pub const source_location = sourceLocation();
         \\    pub const source_identity = "main.Body";
         \\    pub fn run(eff: anytype) anyerror!i32 {
@@ -633,6 +712,7 @@ test "ability.with admits named downstream requirement aliases with Body.source"
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    fn sourceLocation() std.builtin.SourceLocation { return @src(); }
         \\    pub const source = sourceBytes();
+        \\    pub const source_file = "main.zig";
         \\    pub const source_location = sourceLocation();
         \\    pub const source_identity = "main.Body";
         \\    pub fn body(eff: anytype) anyerror!i32 {
@@ -664,6 +744,7 @@ test "ability.with admits typed named downstream bodies with Body.source" {
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    fn sourceLocation() std.builtin.SourceLocation { return @src(); }
         \\    pub const source = sourceBytes();
+        \\    pub const source_file = "main.zig";
         \\    pub const source_location = sourceLocation();
         \\    pub const source_identity: []const u8 = "main.Body";
         \\    pub fn body(eff: anytype) anyerror!i32 {
@@ -702,6 +783,7 @@ test "ability.with admits named body from nested downstream module with Body.sou
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    fn sourceLocation() std.builtin.SourceLocation { return @src(); }
         \\    pub const source = sourceBytes();
+        \\    pub const source_file = "sub/foo.zig";
         \\    pub const source_location = sourceLocation();
         \\    pub const source_identity = "foo.Body";
         \\    pub fn body(eff: anytype) anyerror!i32 {
@@ -742,6 +824,7 @@ test "ability.with admits named downstream body with nested same-name declaratio
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    fn sourceLocation() std.builtin.SourceLocation { return @src(); }
         \\    pub const source = sourceBytes();
+        \\    pub const source_file = "main.zig";
         \\    pub const source_location = sourceLocation();
         \\    pub const source_identity = "main.Body";
         \\    pub fn body(eff: anytype) anyerror!i32 {
@@ -790,6 +873,7 @@ test "ability.with admits downstream choice continuations with Body.source" {
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    fn sourceLocation() std.builtin.SourceLocation { return @src(); }
         \\    pub const source = sourceBytes();
+        \\    pub const source_file = "main.zig";
         \\    pub const source_location = sourceLocation();
         \\    pub const source_identity = "main.Body";
         \\    pub fn body(eff: anytype) anyerror![]const u8 {
@@ -828,6 +912,7 @@ test "ability.with rejects unsupported named downstream helper calls with Body.s
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    fn sourceLocation() std.builtin.SourceLocation { return @src(); }
         \\    pub const source = sourceBytes();
+        \\    pub const source_file = "main.zig";
         \\    pub const source_location = sourceLocation();
         \\    pub const source_identity = "main.Body";
         \\    pub fn body(eff: anytype) anyerror!i32 {
@@ -861,6 +946,7 @@ test "ability.with rejects source-backed @This qualified helper calls" {
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    fn sourceLocation() std.builtin.SourceLocation { return @src(); }
         \\    pub const source = sourceBytes();
+        \\    pub const source_file = "main.zig";
         \\    pub const source_location = sourceLocation();
         \\    pub const source_identity = "main.Body";
         \\    fn helper() i32 {
@@ -908,7 +994,10 @@ test "ability.with rejects source-backed namespace qualified helper calls" {
         \\        .state = ability.effect.state.use(@as(i32, 9)),
         \\    }, struct {
         \\        fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
-        \\    pub const source = sourceBytes();
+        \\        fn sourceLocation() std.builtin.SourceLocation { return @src(); }
+        \\        pub const source = sourceBytes();
+        \\        pub const source_file = "main.zig";
+        \\        pub const source_location = sourceLocation();
         \\        pub fn body(eff: anytype) anyerror!i32 {
         \\            return try eff.state.get() + Helpers.foo();
         \\        }
@@ -928,6 +1017,7 @@ test "ability.with rejects source-backed named bodies whose source has a mismatc
         \\pub const Body = struct {
         \\    fn sourceLocation() @import("std").builtin.SourceLocation { return @src(); }
         \\    pub const source = @embedFile("main.zig");
+        \\    pub const source_file = "imported.zig";
         \\    pub const source_location = sourceLocation();
         \\    pub const source_identity = "imported.Body";
         \\    pub fn body(eff: anytype) anyerror!i32 {
@@ -938,6 +1028,7 @@ test "ability.with rejects source-backed named bodies whose source has a mismatc
     ;
     const main_zig =
         \\const Body = struct {
+        \\    pub const source_file = "main.zig";
         \\    pub const source_identity = "imported.Body";
         \\    pub fn body(_: anytype) anyerror!i32 {
         \\        return 0;
@@ -963,7 +1054,7 @@ test "ability.with rejects source-backed named bodies whose source has a mismatc
     try runDownstreamAbilityWithMainAndImportExpectFailure(
         main_zig,
         imported_zig,
-        "ability.with source-backed named body source_identity/source_location did not match the selected top-level declaration",
+        "ability.with source-backed named body source_identity/source_file/source_location did not match the selected top-level declaration",
     );
 }
 
@@ -972,6 +1063,7 @@ test "ability.with rejects source-backed named bodies whose source witness names
         \\pub const Body = struct {
         \\    fn sourceLocation() @import("std").builtin.SourceLocation { return @src(); }
         \\    pub const source = @embedFile("main.zig");
+        \\    pub const source_file = "imported.zig";
         \\    pub const source_location = sourceLocation();
         \\    pub const source_identity = "main.Body";
         \\    pub fn body(eff: anytype) anyerror!i32 {
@@ -983,6 +1075,7 @@ test "ability.with rejects source-backed named bodies whose source witness names
     const main_zig =
         \\const Body = struct {
         \\    fn sourceLocation() @import("std").builtin.SourceLocation { return @src(); }
+        \\    pub const source_file = "main.zig";
         \\    pub const source_location = sourceLocation();
         \\    pub const source_identity = "main.Body";
         \\    pub fn body(_: anytype) anyerror!i32 {
@@ -1009,6 +1102,138 @@ test "ability.with rejects source-backed named bodies whose source witness names
     try runDownstreamAbilityWithMainAndImportExpectFailure(
         main_zig,
         imported_zig,
-        "ability.with source-backed named body source_identity/source_location did not match the selected top-level declaration",
+        "ability.with source-backed named body source_identity/source_file/source_location did not match the selected top-level declaration",
+    );
+}
+
+test "ability.with rejects source-backed anonymous bodies whose source witness names a different same-shaped file" {
+    const main_zig =
+        \\const a = @import("a/foo.zig");
+        \\
+        \\pub fn main() !void {
+        \\    try a.run();
+        \\}
+        \\
+    ;
+    const a_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\pub fn run() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.with(&runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, struct {
+        \\        fn sourceLocation() std.builtin.SourceLocation { return @src(); }
+        \\        pub const source = @embedFile("../b/foo.zig");
+        \\        pub const source_file = "a/foo.zig";
+        \\        pub const source_location = sourceLocation();
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            return try eff.state.get();
+        \\        }
+        \\    });
+        \\    if (result.value != 9) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    const b_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\pub fn run() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.with(&runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 19)),
+        \\    }, struct {
+        \\        fn sourceLocation() std.builtin.SourceLocation { return @src(); }
+        \\        pub const source = @embedFile(std.Io.Dir.path.basename(@src().file));
+        \\        pub const source_file = "b/foo.zig";
+        \\        pub const source_location = sourceLocation();
+        \\        pub fn body(eff: anytype) anyerror!i32 {
+        \\            return try eff.state.get();
+        \\        }
+        \\    });
+        \\    if (result.value != 19) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMainAndTwoSubmodulesExpectFailure(
+        main_zig,
+        a_zig,
+        b_zig,
+        "ability.with source-backed body source_file/source_location did not match the selected source declaration",
+    );
+}
+
+test "ability.with rejects source-backed named bodies whose source witness names a different same-shaped file" {
+    const main_zig =
+        \\const a = @import("a/foo.zig");
+        \\
+        \\pub fn main() !void {
+        \\    try a.run();
+        \\}
+        \\
+    ;
+    const a_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\pub const Body = struct {
+        \\    fn sourceLocation() std.builtin.SourceLocation { return @src(); }
+        \\    pub const source = @embedFile("../b/foo.zig");
+        \\    pub const source_file = "a/foo.zig";
+        \\    pub const source_location = sourceLocation();
+        \\    pub const source_identity = "a.foo.Body";
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        return try eff.state.get();
+        \\    }
+        \\};
+        \\
+        \\pub fn run() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.with(&runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 9)),
+        \\    }, Body);
+        \\    if (result.value != 9) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    const b_zig =
+        \\const ability = @import("ability");
+        \\const std = @import("std");
+        \\
+        \\pub const Body = struct {
+        \\    fn sourceLocation() std.builtin.SourceLocation { return @src(); }
+        \\    pub const source = @embedFile(std.Io.Dir.path.basename(@src().file));
+        \\    pub const source_file = "b/foo.zig";
+        \\    pub const source_location = sourceLocation();
+        \\    pub const source_identity = "a.foo.Body";
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        return try eff.state.get();
+        \\    }
+        \\};
+        \\
+        \\pub fn run() !void {
+        \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
+        \\    defer runtime.deinit();
+        \\
+        \\    const result = try ability.with(&runtime, .{
+        \\        .state = ability.effect.state.use(@as(i32, 19)),
+        \\    }, Body);
+        \\    if (result.value != 19) return error.UnexpectedValue;
+        \\}
+        \\
+    ;
+    try runDownstreamAbilityWithMainAndTwoSubmodulesExpectFailure(
+        main_zig,
+        a_zig,
+        b_zig,
+        "ability.with source-backed named body source_identity/source_file/source_location did not match the selected top-level declaration",
     );
 }
