@@ -123,20 +123,25 @@ zig build test
 zig build lint -- --max-warnings 0
 ```
 
-`zig build test` is the required executable guardrail bar. It keeps coverage on:
+`zig build test` is the required executable test contract. Retained test
+coverage must live under that default lane rather than under extra executable
+test aliases. It keeps coverage on:
 
 - the public lexical root
 - the core semantic witness set
+- fast source-ownership and source-backed body witnesses
+- retained `ability_agent_vm` source-path consumer, fixture-freshness, and smoke checks
 - source-lowering validation and execution
 - interpreter behavior where it still underpins the lexical stack
 
-It no longer proves downstream package-boundary publication, retired/public-root
-export bans, or compile-time misuse fixtures as part of the default contract.
+Deleted child-build and package-export probes are not hidden behind opt-in test
+steps; coverage that remains valuable is represented by fast default tests.
 
-Manual run, tool, and benchmark surfaces still exist for local iteration:
+Manual run, tool, generator, and benchmark surfaces still exist for local
+iteration, but they are not additional test contracts:
 
 - `zig build run-*` for retained examples
-- `zig build published-module-contract` for retained sibling-module/package checks
 - `zig build source-lower`
+- `zig build generate-ability-agent-vm-fixture`
 - `zig build bench*`
 - `zig build zprof-hotspots`
