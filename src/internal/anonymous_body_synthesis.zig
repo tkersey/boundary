@@ -595,6 +595,71 @@ fn namedStructExpressionBounds(
     return matches[0];
 }
 
+fn identityLiteralToken(comptime source_identity: []const u8) []const u8 {
+    if (source_identity.len == 0) return "";
+    for (source_identity) |char| {
+        switch (char) {
+            'A'...'Z', 'a'...'z', '0'...'9', '_', '.', '/', '-', ':' => {},
+            else => return "",
+        }
+    }
+    return std.fmt.comptimePrint("\"{s}\"", .{source_identity});
+}
+
+fn structExpressionHasSourceIdentity(
+    comptime expr_source: []const u8,
+    comptime source_identity: []const u8,
+) bool {
+    const expected_literal = comptime identityLiteralToken(source_identity);
+    if (expected_literal.len == 0) return false;
+    const sentinel = std.fmt.comptimePrint("{s}\x00", .{expr_source});
+    var tokenizer = std.zig.Tokenizer.init(sentinel[0..expr_source.len :0]);
+    var brace_depth: usize = 0;
+
+    while (true) {
+        const token = tokenizer.next();
+        if (token.tag == .eof) return false;
+        switch (token.tag) {
+            .l_brace => {
+                brace_depth += 1;
+                continue;
+            },
+            .r_brace => {
+                if (brace_depth == 0) return false;
+                brace_depth -= 1;
+                continue;
+            },
+            else => {},
+        }
+        if (brace_depth != 1 or token.tag != .keyword_pub) continue;
+
+        var const_token = tokenizer.next();
+        while (isIgnorableToken(const_token.tag)) const_token = tokenizer.next();
+        if (const_token.tag != .keyword_const) continue;
+        var name = tokenizer.next();
+        while (isIgnorableToken(name.tag)) name = tokenizer.next();
+        if (name.tag != .identifier) continue;
+        if (!std.mem.eql(u8, sentinel[name.loc.start..name.loc.end], "source_identity")) continue;
+
+        var eq = tokenizer.next();
+        while (isIgnorableToken(eq.tag)) eq = tokenizer.next();
+        if (eq.tag != .equal) continue;
+        var literal = tokenizer.next();
+        while (isIgnorableToken(literal.tag)) literal = tokenizer.next();
+        if (literal.tag != .string_literal) continue;
+        if (std.mem.eql(u8, sentinel[literal.loc.start..literal.loc.end], expected_literal)) return true;
+    }
+}
+
+pub fn namedStructSourceIdentityMatches(
+    comptime source: []const u8,
+    comptime body_symbol: []const u8,
+    comptime source_identity: []const u8,
+) bool {
+    const bounds = comptime namedStructExpressionBounds(source, body_symbol) orelse return false;
+    return comptime structExpressionHasSourceIdentity(source[bounds.start..bounds.end], source_identity);
+}
+
 pub fn uniqueBodyExpressionBoundsInRange(
     comptime source: [:0]const u8,
     comptime range_start: usize,
@@ -1545,6 +1610,33 @@ test "bodyExpressionBounds finds the anonymous withOwnedSource body argument" {
     ;
     const bounds = comptime bodyExpressionBounds(caller, source, .owned_source).?;
     try std.testing.expect(std.mem.eql(u8, source[bounds.start..bounds.end], "struct {\n        pub fn body(eff: anytype) anyerror!void { _ = eff; }\n    }"));
+}
+
+test "named source identity matches only the selected top-level declaration" {
+    const source =
+        \\const Wrapper = struct {
+        \\    const Body = struct {
+        \\        pub const source_identity = "nested.Body";
+        \\    };
+        \\};
+        \\
+        \\const Body = struct {
+        \\    pub const source_identity = "main.Body";
+        \\    pub fn body(eff: anytype) anyerror!i32 {
+        \\        return try eff.state.get();
+        \\    }
+        \\};
+    ;
+
+    try std.testing.expect(comptime namedStructSourceIdentityMatches(source, "Body", "main.Body"));
+    try std.testing.expect(!comptime namedStructSourceIdentityMatches(source, "Body", "nested.Body"));
+
+    const private_source =
+        \\const Body = struct {
+        \\    const source_identity = "main.Body";
+        \\};
+    ;
+    try std.testing.expect(!comptime namedStructSourceIdentityMatches(private_source, "Body", "main.Body"));
 }
 
 test "syntheticSourceWithEntry appends one renamed entry function" {

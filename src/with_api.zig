@@ -520,6 +520,11 @@ fn bodyDeclSource(comptime Body: type) ?[]const u8 {
     return null;
 }
 
+fn bodyDeclSourceIdentity(comptime Body: type) ?[]const u8 {
+    if (hasDeclSafe(Body, "source_identity")) return Body.source_identity;
+    return null;
+}
+
 /// Return the public continuation effect type.
 pub fn ContinuationEffType(
     comptime HandlersType: type,
@@ -977,6 +982,12 @@ fn sourceBackedBodySource(comptime Body: type) []const u8 {
     );
 }
 
+fn sourceBackedNamedBodyIdentity(comptime Body: type) []const u8 {
+    return bodyDeclSourceIdentity(Body) orelse @compileError(
+        "ability.with source-backed named body must declare pub const source_identity matching the selected source declaration",
+    );
+}
+
 fn sourceBackedSyntheticCaller(
     comptime source_path: []const u8,
     comptime entry_symbol: []const u8,
@@ -1168,6 +1179,7 @@ fn trySourceBackedNamedCompiledWith(
     const body_symbol = comptime sourceBackedNamedBodySymbol(Body) orelse
         @compileError("ability.with source-backed named body must have a simple top-level type name");
     const caller_source = comptime sourceBackedBodySource(Body);
+    const source_identity = comptime sourceBackedNamedBodyIdentity(Body);
     const entry_symbol = comptime std.fmt.comptimePrint("__ability_with_named_{s}", .{body_symbol});
     const synthetic_path = comptime syntheticLoweringSourcePath(entry_symbol);
     const synthetic_source = comptime anonymous_body_synthesis.syntheticSourceForNamedTypeWithEntry(
@@ -1178,6 +1190,9 @@ fn trySourceBackedNamedCompiledWith(
         entry_symbol,
         compiledBodyReturnSyntax(HandlersType, Body),
     ) orelse @compileError("ability.with source-backed named body source did not contain a matching top-level struct declaration");
+    if (!comptime anonymous_body_synthesis.namedStructSourceIdentityMatches(caller_source, body_symbol, source_identity)) {
+        @compileError("ability.with source-backed named body source_identity did not match the selected top-level declaration");
+    }
     const source_ref = comptime lowering_api.sourceWithContent(
         synthetic_path,
         syntheticSourceLocation(synthetic_path, entry_symbol),
@@ -1417,27 +1432,22 @@ test "plain repo-owned ability.with uses the compiled lexical fast path when the
     try std.testing.expectEqual(@as(i32, 6), result.outputs.state);
 }
 
+const source_backed_witness_body = struct {
+    /// Stable identity witness for the source-backed named-body test declaration.
+    pub const source_identity = "with_api.source_backed_witness_body";
+    /// Authoritative source bytes for this named body witness.
+    pub const source = @embedFile("with_api.zig");
+
+    /// Source-backed body used by the compiled lexical fast path test.
+    pub fn body(eff: anytype) anyerror!i32 {
+        const before = try eff.state.get();
+        try eff.state.set(before + 3);
+        return try eff.state.get();
+    }
+};
+
 test "source-backed ability.with uses the compiled lexical fast path from Body.source" {
     const state = @import("effect/state.zig");
-
-    const source_backed_witness_body = struct {
-        /// Source-backed program text used as the authoritative compiled body.
-        pub const source =
-            \\const source_backed_witness_body = struct {
-            \\    pub fn body(eff: anytype) anyerror!i32 {
-            \\        const before = try eff.state.get();
-            \\        try eff.state.set(before + 3);
-            \\        return try eff.state.get();
-            \\    }
-            \\};
-            \\
-        ;
-
-        /// This fallback body must not run; source-backed bodies compile from `source`.
-        pub fn body(_: anytype) anyerror!i32 {
-            return 99;
-        }
-    };
 
     compiled_plain_with_witness = false;
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);

@@ -572,6 +572,7 @@ test "ability.with admits named downstream bodies with Body.source" {
         \\const Body = struct {
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    pub const source = sourceBytes();
+        \\    pub const source_identity = "source_ownership_probe.Body";
         \\    pub fn body(eff: anytype) anyerror!i32 {
         \\        return try eff.state.get();
         \\    }
@@ -599,6 +600,7 @@ test "ability.with admits named downstream run bodies with Body.source" {
         \\const Body = struct {
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    pub const source = sourceBytes();
+        \\    pub const source_identity = "source_ownership_probe.Body";
         \\    pub fn run(eff: anytype) anyerror!i32 {
         \\        return try eff.state.get();
         \\    }
@@ -626,6 +628,7 @@ test "ability.with admits named downstream requirement aliases with Body.source"
         \\const Body = struct {
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    pub const source = sourceBytes();
+        \\    pub const source_identity = "source_ownership_probe.Body";
         \\    pub fn body(eff: anytype) anyerror!i32 {
         \\        const state = eff.state;
         \\        return try state.get();
@@ -654,6 +657,7 @@ test "ability.with admits typed named downstream bodies with Body.source" {
         \\const Body: type = struct {
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    pub const source = sourceBytes();
+        \\    pub const source_identity = "source_ownership_probe.Body";
         \\    pub fn body(eff: anytype) anyerror!i32 {
         \\        return try eff.state.get();
         \\    }
@@ -689,6 +693,7 @@ test "ability.with admits named body from nested downstream module with Body.sou
         \\const Body = struct {
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    pub const source = sourceBytes();
+        \\    pub const source_identity = "source_ownership_probe.Body";
         \\    pub fn body(eff: anytype) anyerror!i32 {
         \\        return try eff.state.get();
         \\    }
@@ -726,6 +731,7 @@ test "ability.with admits named downstream body with nested same-name declaratio
         \\const Body = struct {
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    pub const source = sourceBytes();
+        \\    pub const source_identity = "source_ownership_probe.Body";
         \\    pub fn body(eff: anytype) anyerror!i32 {
         \\        return try eff.state.get();
         \\    }
@@ -771,6 +777,7 @@ test "ability.with admits downstream choice continuations with Body.source" {
         \\const Body = struct {
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    pub const source = sourceBytes();
+        \\    pub const source_identity = "source_ownership_probe.Body";
         \\    pub fn body(eff: anytype) anyerror![]const u8 {
         \\        return try eff.picker.pick.perform(41, struct {
         \\            pub fn apply(_: i32, _: anytype) anyerror![]const u8 {
@@ -806,6 +813,7 @@ test "ability.with rejects unsupported named downstream helper calls with Body.s
         \\const Body = struct {
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    pub const source = sourceBytes();
+        \\    pub const source_identity = "source_ownership_probe.Body";
         \\    pub fn body(eff: anytype) anyerror!i32 {
         \\        return try eff.state.get() + helper();
         \\    }
@@ -836,6 +844,7 @@ test "ability.with rejects source-backed @This qualified helper calls" {
         \\const Body = struct {
         \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
         \\    pub const source = sourceBytes();
+        \\    pub const source_identity = "source_ownership_probe.Body";
         \\    fn helper() i32 {
         \\        return 1;
         \\    }
@@ -896,10 +905,11 @@ test "ability.with rejects source-backed namespace qualified helper calls" {
     );
 }
 
-test "ability.with rejects source-backed named bodies whose source lacks the matching declaration" {
+test "ability.with rejects source-backed named bodies whose source has a mismatched same-name declaration" {
     const imported_zig =
         \\pub const Body = struct {
         \\    pub const source = @embedFile("main.zig");
+        \\    pub const source_identity = "imported.Body";
         \\    pub fn body(eff: anytype) anyerror!i32 {
         \\        return try eff.state.get();
         \\    }
@@ -911,16 +921,15 @@ test "ability.with rejects source-backed named bodies whose source lacks the mat
         \\const imported = @import("imported.zig");
         \\const std = @import("std");
         \\
-        \\const NotBody = struct {
-        \\    fn sourceBytes() []const u8 { return @embedFile(std.Io.Dir.path.basename(@src().file)); }
-        \\    pub const source = sourceBytes();
+        \\const Body = struct {
+        \\    pub const source_identity = "main.Body";
         \\    pub fn body(_: anytype) anyerror!i32 {
         \\        return 0;
         \\    }
         \\};
         \\
         \\pub fn main() !void {
-        \\    _ = NotBody;
+        \\    _ = Body;
         \\    var runtime = ability.Runtime.init(std.heap.page_allocator);
         \\    defer runtime.deinit();
         \\
@@ -934,6 +943,6 @@ test "ability.with rejects source-backed named bodies whose source lacks the mat
     try runDownstreamAbilityWithMainAndImportExpectFailure(
         main_zig,
         imported_zig,
-        "ability.with source-backed named body source did not contain a matching top-level struct declaration",
+        "ability.with source-backed named body source_identity did not match the selected top-level declaration",
     );
 }
