@@ -67,6 +67,7 @@ pub const ValidationError = error{
 pub const LowerError = effect_ir.NormalizeError || ValidationError;
 
 const max_validation_source_bytes = 1 << 20;
+const validation_source_read_limit = max_validation_source_bytes + 1;
 
 fn sentinelBytes(comptime bytes: []const u8) [:0]const u8 {
     const raw = std.fmt.comptimePrint("{s}\x00", .{bytes});
@@ -1756,7 +1757,7 @@ fn validationOwnedSourceContent(
         io,
         disk_path,
         allocator,
-        .limited(max_validation_source_bytes),
+        .limited(validation_source_read_limit),
     ) catch |err| switch (err) {
         error.StreamTooLong => return error.SourceTooLarge,
         else => return error.SourceUnreadable,
@@ -3305,6 +3306,26 @@ test "validation owned source content rejects oversized file-backed witnesses" {
         error.SourceTooLarge,
         validationOwnedSourceContent(std.testing.allocator, source_path, ""),
     );
+}
+
+test "validation owned source content accepts file-backed witnesses exactly at the size limit" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const exact_size = try std.testing.allocator.allocSentinel(u8, max_validation_source_bytes, 0);
+    defer std.testing.allocator.free(exact_size);
+    @memset(exact_size[0..], 'x');
+
+    try tmp.dir.writeFile(.{
+        .sub_path = "exact_size.zig",
+        .data = exact_size,
+    });
+    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "exact_size.zig");
+    defer std.testing.allocator.free(source_path);
+
+    const validated = try validationOwnedSourceContent(std.testing.allocator, source_path, exact_size);
+    try std.testing.expectEqual(@as(usize, max_validation_source_bytes), validated.len);
+    try std.testing.expect(std.mem.eql(u8, exact_size, validated));
 }
 
 test "importedSource preserves parent-directory helpers for absolute caller-owned roots" {
