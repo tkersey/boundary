@@ -902,55 +902,85 @@ fn NestedSourceModuleForBody(comptime Body: type) type {
     return Body;
 }
 
-// zlinter-disable max_positional_args - compiled execution must carry exact body, runtime, handler, output, and plan witnesses across a comptime boundary.
-fn runCompiledLexicalPlan(
+fn CompiledLexicalProgram(
     comptime HandlersType: type,
     comptime Body: type,
-    runtime: *lowered_machine.Runtime,
-    handlers_ptr: *HandlersType,
-    outputs_ptr: *OutputBundleType(HandlersType),
-    comptime compiled_plan: lowering_api.ProgramPlan,
-) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
-    if (builtin.is_test) compiled_plain_with_witness = true;
-    lowering_api.assertExecutablePlanCodecSupport(compiled_plan);
-
-    const lexical_state = struct {
-        runtime: *lowered_machine.Runtime,
-        handlers_ptr: *HandlersType,
-    }{
-        .runtime = runtime,
-        .handlers_ptr = handlers_ptr,
-    };
-
-    var executable_bundle = lexical_manifest.Manifest(HandlersType).fromLexicalState(lexical_state);
-    var run_error: ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType))) = null;
-    const result = lowering_api.runExecutablePlanInSource(
-        runtime,
-        compiled_plan,
-        NestedSourceModuleForBody(Body),
-        &executable_bundle,
-    ) catch |err| blk: {
-        run_error = @errorCast(err);
-        break :blk null;
-    };
-
-    var cleanup_error: ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType))) = null;
-    lexical_manifest.Manifest(HandlersType).deinitBundle(&executable_bundle) catch |err| {
-        cleanup_error = @errorCast(err);
-    };
-
-    if (run_error) |err| return err;
-    if (cleanup_error) |err| return err;
-
-    inline for (std.meta.fields(OutputBundleType(HandlersType))) |field| {
-        if (@hasField(@TypeOf(result.?.outputs), field.name)) {
-            @field(outputs_ptr.*, field.name) = @field(result.?.outputs, field.name);
-        }
+    comptime source_ref: anytype,
+    comptime label: []const u8,
+    comptime entry_symbol: []const u8,
+) type {
+    const compiled_plan = comptime lowering_api.lower(
+        source_ref,
+        .{
+            .label = label,
+            .entry_symbol = entry_symbol,
+            .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
+            .row = lexical_manifest.Manifest(HandlersType).row(),
+            .outputs = lexical_manifest.Manifest(HandlersType).outputs(),
+        },
+    ).runtime_plan;
+    comptime {
+        lowering_api.assertExecutablePlanCodecSupport(compiled_plan);
     }
-    return result.?.value;
+    const program_type = struct {
+        fn run(
+            runtime: *lowered_machine.Runtime,
+            handlers_ptr: *HandlersType,
+            outputs_ptr: *OutputBundleType(HandlersType),
+        ) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
+            if (builtin.is_test) compiled_token_witness = true;
+
+            const lexical_state = struct {
+                runtime: *lowered_machine.Runtime,
+                handlers_ptr: *HandlersType,
+            }{
+                .runtime = runtime,
+                .handlers_ptr = handlers_ptr,
+            };
+
+            var executable_bundle = lexical_manifest.Manifest(HandlersType).fromLexicalState(lexical_state);
+            var run_error: ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType))) = null;
+            const result = lowering_api.runExecutablePlanInSource(
+                runtime,
+                compiled_plan,
+                NestedSourceModuleForBody(Body),
+                &executable_bundle,
+            ) catch |err| blk: {
+                run_error = @errorCast(err);
+                break :blk null;
+            };
+
+            var cleanup_error: ?lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType))) = null;
+            lexical_manifest.Manifest(HandlersType).deinitBundle(&executable_bundle) catch |err| {
+                cleanup_error = @errorCast(err);
+            };
+
+            if (run_error) |err| return err;
+            if (cleanup_error) |err| return err;
+
+            inline for (std.meta.fields(OutputBundleType(HandlersType))) |field| {
+                if (@hasField(@TypeOf(result.?.outputs), field.name)) {
+                    @field(outputs_ptr.*, field.name) = @field(result.?.outputs, field.name);
+                }
+            }
+            return result.?.value;
+        }
+    };
+    comptime assertCompiledLexicalProgramHasNoStoredFields(program_type);
+    return program_type;
 }
 
-threadlocal var compiled_plain_with_witness = false;
+fn assertCompiledLexicalProgramHasNoStoredFields(comptime Program: type) void {
+    const info = @typeInfo(Program);
+    if (info != .@"struct") {
+        @compileError("compiled lexical program token must be a private struct namespace");
+    }
+    if (info.@"struct".fields.len != 0) {
+        @compileError("compiled lexical program token must not expose stored plan fields");
+    }
+}
+
+threadlocal var compiled_token_witness = false;
 
 fn compiledBodyReturnSyntax(comptime HandlersType: type, comptime Body: type) ?[]const u8 {
     return anonymous_body_synthesis.canonicalReturnTypeSyntax(BodyReturnType(Body, PreviewBodyEffType(HandlersType)));
@@ -1094,6 +1124,7 @@ const SourceBackedAnonAdmission = struct {
     selection: anonymous_body_synthesis.SourceBackedAnonymousSelection,
 };
 
+// zlinter-disable max_positional_args - source-backed witnesses must compare all source identity dimensions at one boundary.
 fn sourceBackedNamedBodyWitnessVerdict(
     comptime Body: type,
     comptime source: []const u8,
@@ -1234,6 +1265,7 @@ fn sourceBackedBodyWitnessSelection(
     );
 }
 
+// zlinter-disable max_positional_args - source-backed witnesses must compare all source identity dimensions at one boundary.
 fn sourceBackedNamedBodyWitnessMatches(
     comptime Body: type,
     comptime source: []const u8,
@@ -1322,23 +1354,17 @@ fn tryRepoOwnedAnonymousCompiledWith(
             .{ synthesized.source_path, synthesized.entry_symbol },
         ));
     }
-    const lowered_program = comptime lowering_api.lower(
-        source_ref,
-        .{
-            .label = "ability.with repo-owned lexical body",
-            .entry_symbol = synthesized.entry_symbol,
-            .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
-            .row = lexical_manifest.Manifest(HandlersType).row(),
-            .outputs = lexical_manifest.Manifest(HandlersType).outputs(),
-        },
-    ).runtime_plan;
-    return try runCompiledLexicalPlan(
+    const program_type = CompiledLexicalProgram(
         HandlersType,
         Body,
+        source_ref,
+        "ability.with repo-owned lexical body",
+        synthesized.entry_symbol,
+    );
+    return try program_type.run(
         runtime,
         handlers_ptr,
         outputs_ptr,
-        lowered_program,
     );
 }
 
@@ -1375,23 +1401,17 @@ fn trySourceBackedAnonymousCompiledWith(
     ) == null) {
         @compileError("ability.with source-backed anonymous body must lower to ProgramPlan without unsupported syntax");
     }
-    const lowered_program = comptime lowering_api.lower(
-        source_ref,
-        .{
-            .label = "ability.with source-backed anonymous body",
-            .entry_symbol = synthesized.entry_symbol,
-            .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
-            .row = lexical_manifest.Manifest(HandlersType).row(),
-            .outputs = lexical_manifest.Manifest(HandlersType).outputs(),
-        },
-    ).runtime_plan;
-    return try runCompiledLexicalPlan(
+    const program_type = CompiledLexicalProgram(
         HandlersType,
         Body,
+        source_ref,
+        "ability.with source-backed anonymous body",
+        synthesized.entry_symbol,
+    );
+    return try program_type.run(
         runtime,
         handlers_ptr,
         outputs_ptr,
-        lowered_program,
     );
 }
 
@@ -1432,23 +1452,17 @@ fn tryRepoOwnedNamedCompiledWith(
             .{ source_path, entry_symbol },
         ));
     }
-    const lowered_program = comptime lowering_api.lower(
-        source_ref,
-        .{
-            .label = "ability.with repo-owned named body",
-            .entry_symbol = entry_symbol,
-            .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
-            .row = lexical_manifest.Manifest(HandlersType).row(),
-            .outputs = lexical_manifest.Manifest(HandlersType).outputs(),
-        },
-    ).runtime_plan;
-    return try runCompiledLexicalPlan(
+    const program_type = CompiledLexicalProgram(
         HandlersType,
         Body,
+        source_ref,
+        "ability.with repo-owned named body",
+        entry_symbol,
+    );
+    return try program_type.run(
         runtime,
         handlers_ptr,
         outputs_ptr,
-        lowered_program,
     );
 }
 
@@ -1487,23 +1501,17 @@ fn trySourceBackedNamedCompiledWith(
     ) == null) {
         @compileError("ability.with source-backed named body must lower to ProgramPlan without unsupported syntax");
     }
-    const lowered_program = comptime lowering_api.lower(
-        source_ref,
-        .{
-            .label = "ability.with source-backed named body",
-            .entry_symbol = entry_symbol,
-            .ValueType = BodyAnswerType(Body, PreviewBodyEffType(HandlersType)),
-            .row = lexical_manifest.Manifest(HandlersType).row(),
-            .outputs = lexical_manifest.Manifest(HandlersType).outputs(),
-        },
-    ).runtime_plan;
-    return try runCompiledLexicalPlan(
+    const program_type = CompiledLexicalProgram(
         HandlersType,
         Body,
+        source_ref,
+        "ability.with source-backed named body",
+        entry_symbol,
+    );
+    return try program_type.run(
         runtime,
         handlers_ptr,
         outputs_ptr,
-        lowered_program,
     );
 }
 
@@ -1686,10 +1694,10 @@ test "collectClosedOutputs preserves const handler pointers for const-safe finis
     try std.testing.expectEqual(@as(i32, 9), outputs.reader);
 }
 
-test "plain repo-owned ability.with uses the compiled lexical fast path when the body is unique" {
+test "plain repo-owned ability.with uses the compiled lexical program token when the body is unique" {
     const state = @import("effect/state.zig");
 
-    compiled_plain_with_witness = false;
+    compiled_token_witness = false;
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
@@ -1704,7 +1712,7 @@ test "plain repo-owned ability.with uses the compiled lexical fast path when the
         }
     });
 
-    try std.testing.expect(compiled_plain_with_witness);
+    try std.testing.expect(compiled_token_witness);
     try std.testing.expectEqual(@as(i32, 6), result.value);
     try std.testing.expectEqual(@as(i32, 6), result.outputs.state);
 }
@@ -1905,10 +1913,10 @@ const source_backed_witness_body = struct {
     }
 };
 
-test "source-backed ability.with uses the compiled lexical fast path from Body.source" {
+test "source-backed ability.with uses the compiled lexical program token from Body.source" {
     const state = @import("effect/state.zig");
 
-    compiled_plain_with_witness = false;
+    compiled_token_witness = false;
     var runtime = lowered_machine.Runtime.init(std.testing.allocator);
     defer runtime.deinit();
 
@@ -1916,7 +1924,7 @@ test "source-backed ability.with uses the compiled lexical fast path from Body.s
         .state = state.use(@as(i32, 5)),
     }, source_backed_witness_body);
 
-    try std.testing.expect(compiled_plain_with_witness);
+    try std.testing.expect(compiled_token_witness);
     try std.testing.expectEqual(@as(i32, 8), result.value);
     try std.testing.expectEqual(@as(i32, 8), result.outputs.state);
 }
