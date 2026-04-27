@@ -206,6 +206,7 @@ pub const DecodeError = error{
     DuplicateCapabilityOpId,
     DuplicateDirectorySection,
     InvalidToolId,
+    InvalidBuildFingerprint,
     InvalidDirectoryBounds,
     InvalidEntryFunctionIndex,
     InvalidHashKind,
@@ -942,7 +943,7 @@ fn validateManifest(build_fingerprint: [32]u8, capabilities: []const CapabilityV
         has_non_zero = true;
         break;
     };
-    if (!has_non_zero) return error.NonZeroReserved;
+    if (!has_non_zero) return error.InvalidBuildFingerprint;
 
     for (capabilities, 0..) |capability, index| {
         for (capabilities[(index + 1)..]) |other| {
@@ -964,6 +965,13 @@ fn validateManifest(build_fingerprint: [32]u8, capabilities: []const CapabilityV
             }
         }
     }
+}
+
+test "ArtifactV1 manifest rejects all-zero build fingerprints with a specific error" {
+    try std.testing.expectError(
+        error.InvalidBuildFingerprint,
+        validateManifest(std.mem.zeroes([32]u8), &.{}),
+    );
 }
 
 fn validateExecutableCodecSupport(plan: program_plan.ProgramPlan) !void {

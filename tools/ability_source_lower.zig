@@ -10,6 +10,14 @@ const EmitMode = enum {
 };
 
 const usage_text = "usage: ability-source-lower --id <source.case> --source <path> --entry <symbol> --surface <source_case|example|effect|user_defined_effect|witness> --emit <json|zig> --out <path>\n";
+const expected_flag_value_pair_count = 6;
+const expected_arg_count = 1 + expected_flag_value_pair_count * 2;
+
+const CliShapeIssue = union(enum) {
+    missing_value: []const u8,
+    unexpected_arg_count: usize,
+    unknown_flag: []const u8,
+};
 
 fn usage() noreturn {
     std.debug.print(usage_text, .{});
@@ -23,6 +31,26 @@ fn usageError(comptime fmt: []const u8, args: anytype) noreturn {
 
 fn writeUsage(writer: anytype) !void {
     try writer.writeAll(usage_text);
+}
+
+fn isKnownFlag(flag: []const u8) bool {
+    return std.mem.eql(u8, flag, "--id") or
+        std.mem.eql(u8, flag, "--source") or
+        std.mem.eql(u8, flag, "--entry") or
+        std.mem.eql(u8, flag, "--surface") or
+        std.mem.eql(u8, flag, "--emit") or
+        std.mem.eql(u8, flag, "--out");
+}
+
+fn cliShapeIssue(args: []const []const u8) ?CliShapeIssue {
+    var idx: usize = 1;
+    while (idx < args.len) : (idx += 2) {
+        const flag = args[idx];
+        if (!isKnownFlag(flag)) return .{ .unknown_flag = flag };
+        if (idx + 1 >= args.len) return .{ .missing_value = flag };
+    }
+    if (args.len != expected_arg_count) return .{ .unexpected_arg_count = args.len - 1 };
+    return null;
 }
 
 fn parseSurface(value: []const u8) ?source_lowering.SurfaceKind {
@@ -425,8 +453,12 @@ pub fn main(init: std.process.Init) anyerror!void {
             return;
         }
     }
-    if (args.len != 13) {
-        usageError("expected exactly six flag/value pairs, got {d} argument(s)", .{args.len - 1});
+    if (cliShapeIssue(args)) |issue| {
+        switch (issue) {
+            .missing_value => |flag| usageError("missing value for flag '{s}'", .{flag}),
+            .unexpected_arg_count => |count| usageError("expected exactly six flag/value pairs, got {d} argument(s)", .{count}),
+            .unknown_flag => |flag| usageError("unknown flag '{s}'", .{flag}),
+        }
     }
 
     var program_id: ?[]const u8 = null;
@@ -498,6 +530,18 @@ test "json output escapes feature flags" {
     defer std.testing.allocator.free(bytes);
 
     try std.testing.expect(std.mem.find(u8, bytes, "\"feature_flags\":[\"plain\",\"quote\\\"slash\\\\newline\\n\"]") != null);
+}
+
+test "cli shape reports unknown flags before arity" {
+    const args = [_][]const u8{ "ability-source-lower", "--bad-flag" };
+    const issue = cliShapeIssue(&args).?;
+    try std.testing.expectEqualStrings("--bad-flag", issue.unknown_flag);
+}
+
+test "cli shape reports missing values before arity" {
+    const args = [_][]const u8{ "ability-source-lower", "--id" };
+    const issue = cliShapeIssue(&args).?;
+    try std.testing.expectEqualStrings("--id", issue.missing_value);
 }
 
 test "rejected source-lower programs remove stale output artifacts" {
