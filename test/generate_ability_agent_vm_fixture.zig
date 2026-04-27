@@ -2,6 +2,8 @@ const ability_compile = @import("ability_compile");
 const fixture = @import("ability_agent_vm_fixture_spec.zig");
 const std = @import("std");
 
+const max_fixture_bytes = 1 << 20;
+
 const Mode = enum {
     check,
     write,
@@ -13,6 +15,48 @@ fn modeFromArgs(args: []const [:0]const u8) !Mode {
     return error.InvalidAbilityAgentVmFixtureGeneratorArgs;
 }
 
+fn compatIo() std.Io {
+    return std.Io.Threaded.global_single_threaded.io();
+}
+
+fn generateFixtureBytes(allocator: std.mem.Allocator) ![]u8 {
+    return try ability_compile.compileAndEncode(
+        allocator,
+        fixture.source_path,
+        fixture.FixtureSpec,
+        .{},
+    );
+}
+
+fn readCommittedFixtureBytes(io: std.Io, allocator: std.mem.Allocator) ![]u8 {
+    return try std.Io.Dir.cwd().readFileAlloc(
+        io,
+        fixture.artifact_path,
+        allocator,
+        .limited(max_fixture_bytes),
+    );
+}
+
+fn checkCommittedFixtureFreshness(
+    io: std.Io,
+    generated_allocator: std.mem.Allocator,
+    committed_allocator: std.mem.Allocator,
+) !void {
+    const bytes = try generateFixtureBytes(generated_allocator);
+    defer generated_allocator.free(bytes);
+
+    const fixture_bytes = try readCommittedFixtureBytes(io, committed_allocator);
+    defer committed_allocator.free(fixture_bytes);
+
+    if (!std.mem.eql(u8, bytes, fixture_bytes)) {
+        std.log.err(
+            "stale {s}; regenerate with `zig build generate-ability-agent-vm-fixture`",
+            .{fixture.artifact_path},
+        );
+        return error.StaleAbilityAgentVmFixture;
+    }
+}
+
 /// Regenerate the committed public agent-vm artifact fixture.
 pub fn main(init: std.process.Init) anyerror!void {
     var arena_buffer: [1 << 20]u8 = undefined;
@@ -20,33 +64,24 @@ pub fn main(init: std.process.Init) anyerror!void {
     const allocator = fixed_buffer_allocator.allocator();
 
     const mode = try modeFromArgs(try init.minimal.args.toSlice(allocator));
-    const bytes = try ability_compile.compileAndEncode(
-        allocator,
-        fixture.source_path,
-        fixture.FixtureSpec,
-        .{},
-    );
 
     switch (mode) {
-        .write => try std.Io.Dir.cwd().writeFile(init.io, .{
-            .sub_path = fixture.artifact_path,
-            .data = bytes,
-            .flags = .{ .truncate = true },
-        }),
-        .check => {
-            const fixture_bytes = try std.Io.Dir.cwd().readFileAlloc(
-                init.io,
-                fixture.artifact_path,
-                allocator,
-                .limited(1 << 20),
-            );
-            if (!std.mem.eql(u8, bytes, fixture_bytes)) {
-                std.log.err(
-                    "stale {s}; regenerate with `zig build generate-ability-agent-vm-fixture`",
-                    .{fixture.artifact_path},
-                );
-                return error.StaleAbilityAgentVmFixture;
-            }
+        .write => {
+            const bytes = try generateFixtureBytes(allocator);
+            try std.Io.Dir.cwd().writeFile(init.io, .{
+                .sub_path = fixture.artifact_path,
+                .data = bytes,
+                .flags = .{ .truncate = true },
+            });
         },
+        .check => try checkCommittedFixtureFreshness(init.io, allocator, std.heap.page_allocator),
     }
+}
+
+test "ability_agent_vm fixture freshness check matches committed artifact" {
+    try checkCommittedFixtureFreshness(
+        compatIo(),
+        std.testing.allocator,
+        std.testing.allocator,
+    );
 }
