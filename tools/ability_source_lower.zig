@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const error_witness = @import("error_witness");
 const lowered_machine = @import("lowered_machine");
 const source_lowering = @import("source_lowering");
@@ -12,6 +13,11 @@ const EmitMode = enum {
 const usage_text = "usage: ability-source-lower --id <source.case> --source <path> --entry <symbol> --surface <source_case|example|effect|user_defined_effect|witness> --emit <json|zig> --out <path>\n";
 const expected_flag_value_pair_count = 6;
 const expected_arg_count = 1 + expected_flag_value_pair_count * 2;
+const generated_output_roots = [_][]const u8{
+    "zig-out/",
+    ".zig-cache/",
+    "zig-cache/",
+};
 
 const CliShapeIssue = union(enum) {
     missing_value: []const u8,
@@ -66,6 +72,52 @@ fn parseEmit(value: []const u8) ?EmitMode {
     if (std.mem.eql(u8, value, "json")) return .json;
     if (std.mem.eql(u8, value, "zig")) return .zig;
     return null;
+}
+
+fn pathIsAbsoluteCrossPlatform(path: []const u8) bool {
+    if (std.Io.Dir.path.isAbsolute(path)) return true;
+    if (std.mem.startsWith(u8, path, "/") or std.mem.startsWith(u8, path, "\\")) return true;
+    return path.len >= 3 and
+        std.ascii.isAlphabetic(path[0]) and
+        path[1] == ':' and
+        (path[2] == '/' or path[2] == '\\');
+}
+
+fn generatedOutputPathAllowed(path: []const u8) bool {
+    if (path.len == 0 or pathIsAbsoluteCrossPlatform(path)) return false;
+    if (generatedOutputRoot(path) == null) return false;
+
+    var start: usize = 0;
+    var index: usize = 0;
+    while (index <= path.len) : (index += 1) {
+        if (index != path.len and path[index] != '/' and path[index] != '\\') continue;
+        const segment = path[start..index];
+        start = index + 1;
+        if (segment.len == 0 or std.mem.eql(u8, segment, ".") or std.mem.eql(u8, segment, "..")) return false;
+    }
+    return true;
+}
+
+fn generatedOutputRoot(path: []const u8) ?[]const u8 {
+    for (generated_output_roots) |root| {
+        if (std.mem.startsWith(u8, path, root) and path.len > root.len) {
+            return root[0 .. root.len - 1];
+        }
+    }
+    return null;
+}
+
+fn generatedOutputRootBound(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !bool {
+    const root = generatedOutputRoot(path) orelse return false;
+    std.Io.Dir.cwd().createDirPath(io, root) catch return false;
+
+    const root_real = std.Io.Dir.cwd().realPathFileAlloc(io, root, allocator) catch return false;
+    defer allocator.free(root_real);
+    const cwd_real = std.Io.Dir.cwd().realPathFileAlloc(io, ".", allocator) catch return false;
+    defer allocator.free(cwd_real);
+    const expected_root = try std.Io.Dir.path.join(allocator, &.{ cwd_real, root });
+    defer allocator.free(expected_root);
+    return std.mem.eql(u8, root_real, expected_root);
 }
 
 fn writeZigStringLiteral(writer: anytype, value: []const u8) !void {
@@ -489,6 +541,14 @@ pub fn main(init: std.process.Init) anyerror!void {
         }
     }
 
+    const output_path = out_path orelse usageError("missing required --out", .{});
+    if (!generatedOutputPathAllowed(output_path)) {
+        usageError("--out must be a generated relative path under zig-out/, .zig-cache/, or zig-cache/: '{s}'", .{output_path});
+    }
+    if (!(try generatedOutputRootBound(allocator, init.io, output_path))) {
+        usageError("--out generated root must be a real directory owned by the current checkout: '{s}'", .{output_path});
+    }
+
     var program = try source_lowering.inspectSource(allocator, .{
         .case_id = program_id orelse usageError("missing required --id", .{}),
         .source_path = source_path orelse usageError("missing required --source", .{}),
@@ -502,7 +562,7 @@ pub fn main(init: std.process.Init) anyerror!void {
         .io = init.io,
         .allocator = allocator,
         .emit_mode = emit orelse usageError("missing required --emit", .{}),
-        .out_path = out_path orelse usageError("missing required --out", .{}),
+        .out_path = output_path,
         .program = &program,
     });
 }
@@ -542,6 +602,47 @@ test "cli shape reports missing values before arity" {
     const args = [_][]const u8{ "ability-source-lower", "--id" };
     const issue = cliShapeIssue(&args).?;
     try std.testing.expectEqualStrings("--id", issue.missing_value);
+}
+
+test "cli output path guard admits only generated relative paths" {
+    try std.testing.expect(generatedOutputPathAllowed("zig-out/source-lower/out.json"));
+    try std.testing.expect(generatedOutputPathAllowed(".zig-cache/ability-source-lower/out.zig"));
+    try std.testing.expect(generatedOutputPathAllowed("zig-cache/ability-source-lower/out.zig"));
+
+    try std.testing.expect(!generatedOutputPathAllowed(""));
+    try std.testing.expect(!generatedOutputPathAllowed("out.json"));
+    try std.testing.expect(!generatedOutputPathAllowed("README.md"));
+    try std.testing.expect(!generatedOutputPathAllowed("/tmp/ability-source-lower.json"));
+    try std.testing.expect(!generatedOutputPathAllowed("C:\\tmp\\ability-source-lower.json"));
+    try std.testing.expect(!generatedOutputPathAllowed("zig-out/../README.md"));
+    try std.testing.expect(!generatedOutputPathAllowed("zig-out//out.json"));
+}
+
+test "cli output root guard rejects symlinked generated root" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const original_cwd = try std.process.currentPathAlloc(std.testing.io, std.testing.allocator);
+    defer std.testing.allocator.free(original_cwd);
+    const tmp_path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(tmp_path);
+
+    try tmp.dir.createDirPath(std.testing.io, "outside");
+    const outside_path = try tmp.dir.realPathFileAlloc(std.testing.io, "outside", std.testing.allocator);
+    defer std.testing.allocator.free(outside_path);
+    const link_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ tmp_path, "zig-out" });
+    defer std.testing.allocator.free(link_path);
+    try std.Io.Dir.symLinkAbsolute(std.testing.io, outside_path, link_path, .{});
+
+    try std.process.setCurrentPath(std.testing.io, tmp_path);
+    defer std.process.setCurrentPath(std.testing.io, original_cwd) catch unreachable;
+
+    try std.testing.expect(!try generatedOutputRootBound(
+        std.testing.allocator,
+        std.testing.io,
+        "zig-out/source-lower/out.json",
+    ));
 }
 
 test "rejected source-lower programs remove stale output artifacts" {

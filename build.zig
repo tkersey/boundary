@@ -75,6 +75,8 @@ const TestRunnerArgParseMode = enum {
     strict,
 };
 
+const max_cmdline_bytes = 4 * 1024 * 1024;
+
 fn emptyArgs(allocator: std.mem.Allocator) !TestFilterArgs {
     return .{
         .allocator = allocator,
@@ -161,7 +163,7 @@ fn buildInvocationArgsAllocLinux(allocator: std.mem.Allocator) ![]const []const 
         compatIo(),
         "/proc/self/cmdline",
         allocator,
-        .limited(std.math.maxInt(usize)),
+        .limited(max_cmdline_bytes),
     );
 
     if (bytes.len == 0) return error.InvalidBuildInvocationArgVector;
@@ -3892,6 +3894,11 @@ test "build invocation step detection keeps build-runner-visible --system from s
         "--seed=123",
     };
     try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
+}
+
+test "build invocation Linux cmdline read limit stays explicit and bounded" {
+    try std.testing.expect(max_cmdline_bytes >= 4096);
+    try std.testing.expect(max_cmdline_bytes < std.math.maxInt(usize));
 }
 
 test "build invocation step detection still finds test in mixed-step invocations" {
