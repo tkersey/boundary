@@ -412,6 +412,33 @@ fn childProcessIo() std.Io {
     return if (builtin.is_test) std.testing.io else compatIo();
 }
 
+const PackageManifest = struct {
+    version: []const u8,
+};
+
+fn packageVersionAlloc(b: *std.Build) []const u8 {
+    const bytes = std.Io.Dir.cwd().readFileAlloc(
+        compatIo(),
+        b.pathFromRoot("build.zig.zon"),
+        b.allocator,
+        .limited(1 << 20),
+    ) catch |err| std.process.fatal("unable to read build.zig.zon for package version: {s}", .{@errorName(err)});
+    defer b.allocator.free(bytes);
+
+    const source_z = b.allocator.dupeSentinel(u8, bytes, 0) catch
+        std.process.fatal("unable to prepare build.zig.zon for package version parsing", .{});
+    defer b.allocator.free(source_z);
+
+    const manifest = std.zon.parse.fromSliceAlloc(
+        PackageManifest,
+        b.allocator,
+        source_z,
+        null,
+        .{ .ignore_unknown_fields = true },
+    ) catch |err| std.process.fatal("unable to parse build.zig.zon package version: {s}", .{@errorName(err)});
+    return manifest.version;
+}
+
 fn findTestSuiteIndex(id: []const u8, specs: []const TestSuiteSpec) ?usize {
     for (specs, 0..) |spec, index| {
         if (std.mem.eql(u8, spec.suite_id, id)) return index;
@@ -4913,6 +4940,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const source_lowering_tool_options = b.addOptions();
+    source_lowering_tool_options.addOption([]const u8, "version", packageVersionAlloc(b));
+    source_lowering_tool_mod.addOptions("tool_build_options", source_lowering_tool_options);
     source_lowering_tool_mod.addImport("source_lowering", source_lowering_mod);
     source_lowering_tool_mod.addImport("lowered_machine", lowered_machine_mod);
     source_lowering_tool_mod.addImport("error_witness", error_witness_mod);
