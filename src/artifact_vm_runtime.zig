@@ -69,16 +69,39 @@ pub const RunArtifactResultV1 = union(enum) {
     }
 };
 
+/// Resource envelope for synchronous ArtifactV1 execution.
+pub const RunOptionsV1 = struct {
+    max_block_steps: usize = 100_000,
+    max_instruction_steps: usize = 1_000_000,
+    max_host_calls: usize = 100_000,
+    max_call_depth: usize = 256,
+    max_after_frames: usize = 100_000,
+    max_log_entries: usize = 100_000,
+    data_value_bounds: host.DataValueBoundsV1 = .{},
+};
+
 /// Decode ArtifactV1 bytes, execute the entry function, and capture the host-effect transcript.
 pub fn runArtifact(
     allocator: std.mem.Allocator,
     bytes: []const u8,
     adapter: host.HostAdapterV1,
 ) anyerror!RunArtifactResultV1 {
+    return try runArtifactWithOptions(allocator, bytes, adapter, .{});
+}
+
+/// Decode ArtifactV1 bytes, execute the entry function, and capture the host-effect transcript with explicit resource bounds.
+pub fn runArtifactWithOptions(
+    allocator: std.mem.Allocator,
+    bytes: []const u8,
+    adapter: host.HostAdapterV1,
+    options: RunOptionsV1,
+) anyerror!RunArtifactResultV1 {
     var decoded = try artifact.decode(allocator, bytes);
     defer decoded.deinit(allocator);
     const plan = try decoded.toProgramPlan(allocator);
     defer deepFreeProgramPlan(allocator, plan);
+    var dispatch_table = try DispatchTable.init(allocator, decoded, plan);
+    defer dispatch_table.deinit(allocator);
 
     var logs = std.ArrayList(host.HostLogEntryV1).empty;
     errdefer {
@@ -94,6 +117,8 @@ pub fn runArtifact(
         .adapter = adapter,
         .logs = &logs,
         .next_request_id = &next_request_id,
+        .dispatch_table = &dispatch_table,
+        .options = options,
     };
     const result = try executeFunction(
         &execution,
@@ -189,6 +214,13 @@ const AfterFrame = struct {
     call_id: u64,
 };
 
+const ExecutionBudget = struct {
+    block_steps: usize = 0,
+    instruction_steps: usize = 0,
+    host_calls: usize = 0,
+    active_call_depth: usize = 0,
+};
+
 const ExecutionContext = struct {
     allocator: std.mem.Allocator,
     decoded: *const artifact.ArtifactV1,
@@ -196,6 +228,36 @@ const ExecutionContext = struct {
     adapter: host.HostAdapterV1,
     logs: *std.ArrayList(host.HostLogEntryV1),
     next_request_id: *u64,
+    dispatch_table: ?*const DispatchTable = null,
+    options: RunOptionsV1 = .{},
+    budget: ExecutionBudget = .{},
+};
+
+const DispatchTable = struct {
+    call_ops: []?ResolvedCapabilityOp,
+    after_ops: []?ResolvedCapabilityOp,
+
+    fn init(allocator: std.mem.Allocator, decoded: artifact.ArtifactV1, plan: program_plan.ProgramPlan) !@This() {
+        const call_ops = try allocator.alloc(?ResolvedCapabilityOp, plan.ops.len);
+        errdefer allocator.free(call_ops);
+        const after_ops = try allocator.alloc(?ResolvedCapabilityOp, plan.ops.len);
+        errdefer allocator.free(after_ops);
+        for (plan.ops, 0..) |_, index| {
+            const op_index: u16 = @intCast(index);
+            call_ops[index] = resolveCapabilityOp(decoded.capabilities, decoded.requirement_capability_ids, plan, op_index);
+            after_ops[index] = resolveAfterCapabilityOp(decoded.capabilities, decoded.requirement_capability_ids, plan, op_index);
+        }
+        return .{
+            .call_ops = call_ops,
+            .after_ops = after_ops,
+        };
+    }
+
+    fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        allocator.free(self.call_ops);
+        allocator.free(self.after_ops);
+        self.* = undefined;
+    }
 };
 
 fn entryOutputs(plan: program_plan.ProgramPlan) []const program_plan.OutputPlan {
@@ -262,6 +324,88 @@ fn providerFailureFailure(allocator: std.mem.Allocator, message: []const u8) !ho
     };
 }
 
+fn resourceExhaustedFailure(allocator: std.mem.Allocator, message: []const u8) !host.FailureV1 {
+    return .{
+        .code = try allocator.dupe(u8, "resource_exhausted"),
+        .message = try allocator.dupe(u8, message),
+        .owns_code = true,
+        .owns_message = true,
+    };
+}
+
+fn chargeBlockStep(ctx: *ExecutionContext) !?host.FailureV1 {
+    ctx.budget.block_steps = std.math.add(usize, ctx.budget.block_steps, 1) catch
+        return try resourceExhaustedFailure(ctx.allocator, "artifact block budget exceeded");
+    if (ctx.budget.block_steps > ctx.options.max_block_steps) {
+        return try resourceExhaustedFailure(ctx.allocator, "artifact block budget exceeded");
+    }
+    return null;
+}
+
+fn chargeInstructionStep(ctx: *ExecutionContext) !?host.FailureV1 {
+    ctx.budget.instruction_steps = std.math.add(usize, ctx.budget.instruction_steps, 1) catch
+        return try resourceExhaustedFailure(ctx.allocator, "artifact instruction budget exceeded");
+    if (ctx.budget.instruction_steps > ctx.options.max_instruction_steps) {
+        return try resourceExhaustedFailure(ctx.allocator, "artifact instruction budget exceeded");
+    }
+    return null;
+}
+
+fn enterFunctionCall(ctx: *ExecutionContext) !?host.FailureV1 {
+    ctx.budget.active_call_depth = std.math.add(usize, ctx.budget.active_call_depth, 1) catch
+        return try resourceExhaustedFailure(ctx.allocator, "artifact call-depth budget exceeded");
+    if (ctx.budget.active_call_depth > ctx.options.max_call_depth) {
+        ctx.budget.active_call_depth -= 1;
+        return try resourceExhaustedFailure(ctx.allocator, "artifact call-depth budget exceeded");
+    }
+    return null;
+}
+
+fn leaveFunctionCall(ctx: *ExecutionContext) void {
+    ctx.budget.active_call_depth -= 1;
+}
+
+fn chargeHostCall(ctx: *ExecutionContext) !?host.FailureV1 {
+    ctx.budget.host_calls = std.math.add(usize, ctx.budget.host_calls, 1) catch
+        return try resourceExhaustedFailure(ctx.allocator, "artifact host-call budget exceeded");
+    if (ctx.budget.host_calls > ctx.options.max_host_calls) {
+        return try resourceExhaustedFailure(ctx.allocator, "artifact host-call budget exceeded");
+    }
+    return null;
+}
+
+fn appendHostLog(ctx: *ExecutionContext, request: host.HostEffectRequestV1, response: host.HostEffectResultV1) !?host.FailureV1 {
+    if (ctx.logs.items.len >= ctx.options.max_log_entries) {
+        return try resourceExhaustedFailure(ctx.allocator, "artifact host-log budget exceeded");
+    }
+    var log_entry: host.HostLogEntryV1 = blk: {
+        var request_clone = request.cloneBounded(ctx.allocator, ctx.options.data_value_bounds) catch |err| switch (err) {
+            error.DataValueTooDeep, error.DataValueTooManyNodes, error.DataValueTooManyBytes => {
+                return try resourceExhaustedFailure(ctx.allocator, "artifact host-log payload budget exceeded");
+            },
+            else => return err,
+        };
+        errdefer request_clone.deinit(ctx.allocator);
+        var response_clone = response.cloneBounded(ctx.allocator, ctx.options.data_value_bounds) catch |err| switch (err) {
+            error.DataValueTooDeep, error.DataValueTooManyNodes, error.DataValueTooManyBytes => {
+                request_clone.deinit(ctx.allocator);
+                return try resourceExhaustedFailure(ctx.allocator, "artifact host-log payload budget exceeded");
+            },
+            else => return err,
+        };
+        errdefer response_clone.deinit(ctx.allocator);
+        break :blk .{
+            .request = request_clone,
+            .result = response_clone,
+        };
+    };
+    var logged = false;
+    errdefer if (!logged) log_entry.deinit(ctx.allocator);
+    try ctx.logs.append(ctx.allocator, log_entry);
+    logged = true;
+    return null;
+}
+
 fn materializeExecutionOutputs(ctx: *ExecutionContext) anyerror!OutputMaterializationResult {
     const declared = entryOutputs(ctx.plan);
     if (declared.len == 0) return .{ .outputs = try ctx.allocator.alloc(ExecutionOutputV1, 0) };
@@ -279,9 +423,12 @@ fn materializeExecutionOutputs(ctx: *ExecutionContext) anyerror!OutputMaterializ
         error.MissingOutputSnapshot => {
             return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host adapter must collect declared outputs") };
         },
+        error.DataValueTooDeep, error.DataValueTooManyNodes, error.DataValueTooManyBytes => {
+            return .{ .failed = try resourceExhaustedFailure(ctx.allocator, "artifact output snapshot payload budget exceeded") };
+        },
         else => return .{ .failed = try providerFailureFailure(ctx.allocator, @errorName(err)) },
     };
-    errdefer deinitCollectedOutputValues(ctx.allocator, values);
+    defer deinitCollectedOutputValues(ctx.allocator, values);
     if (values.len != declared.len) {
         return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host output snapshot count must match the declared outputs") };
     }
@@ -292,6 +439,7 @@ fn materializeExecutionOutputs(ctx: *ExecutionContext) anyerror!OutputMaterializ
     for (declared, values, 0..) |declared_output, value, index| {
         const codec = outputCodecFromPlanCodec(declared_output.codec);
         if (!dataValueMatchesOutputCodec(codec, value)) {
+            deinitExecutionOutputsPrefix(ctx.allocator, outputs, initialized);
             return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host output snapshot value does not match the declared codec") };
         }
         outputs[index] = .{
@@ -302,7 +450,6 @@ fn materializeExecutionOutputs(ctx: *ExecutionContext) anyerror!OutputMaterializ
         values[index] = .null;
         initialized += 1;
     }
-    ctx.allocator.free(values);
     return .{ .outputs = outputs };
 }
 
@@ -311,6 +458,9 @@ fn executeFunction(
     function_index: u16,
     args: []const lowered_machine.ProgramValue,
 ) anyerror!FunctionResult {
+    if (try enterFunctionCall(ctx)) |failure| return .{ .failed = failure };
+    defer leaveFunctionCall(ctx);
+
     const function = ctx.plan.functions[function_index];
     const function_result_codec = program_plan.functionResultCodec(function);
     var locals = try ctx.allocator.alloc(lowered_machine.ProgramValue, function.local_count);
@@ -338,9 +488,13 @@ fn executeFunction(
     defer after_stack.deinit(ctx.allocator);
 
     while (true) {
+        if (try chargeBlockStep(ctx)) |failure| return .{ .failed = failure };
+
         const block = ctx.plan.blocks[current_block_index];
         const instruction_end = block.first_instruction + block.instruction_count;
         while (instruction_index < instruction_end) : (instruction_index += 1) {
+            if (try chargeInstructionStep(ctx)) |failure| return .{ .failed = failure };
+
             const instruction = ctx.plan.instructions[instruction_index];
             switch (instruction.kind) {
                 .add_i32 => setLocal(
@@ -400,7 +554,10 @@ fn executeFunction(
                     switch (op_result) {
                         .resumed => |resumed| {
                             if (plan_op.resume_codec != .unit) setLocal(ctx.allocator, locals, local_owns_value, instruction.dst, resumed.value);
-                            if (hasAfterCapabilityOp(ctx.decoded.capabilities, ctx.decoded.requirement_capability_ids, ctx.plan, instruction.operand)) {
+                            if (hasAfterCapabilityOp(ctx, instruction.operand)) {
+                                if (after_stack.items.len >= ctx.options.max_after_frames) {
+                                    return .{ .failed = try resourceExhaustedFailure(ctx.allocator, "artifact after-frame budget exceeded") };
+                                }
                                 try after_stack.append(ctx.allocator, .{
                                     .op_index = instruction.operand,
                                     .call_id = resumed.call_id,
@@ -529,7 +686,8 @@ fn callHostOp(
     payload: lowered_machine.ProgramValue,
 ) anyerror!OpDispatchResult {
     const plan_op = ctx.plan.ops[op_index];
-    const resolved = resolveCapabilityOp(ctx.decoded.capabilities, ctx.decoded.requirement_capability_ids, ctx.plan, op_index) orelse return error.ProgramContractViolation;
+    if (try chargeHostCall(ctx)) |failure| return .{ .failed = failure };
+    const resolved = resolvedCapabilityOp(ctx, op_index) orelse return error.ProgramContractViolation;
     var request: host.HostEffectRequestV1 = blk: {
         const tool_id = try ctx.allocator.dupe(u8, resolved.capability.label);
         errdefer ctx.allocator.free(tool_id);
@@ -562,20 +720,7 @@ fn callHostOp(
         try providerFailureResult(ctx.allocator, request.request_id, @errorName(err));
     defer response.deinit(ctx.allocator);
 
-    var log_entry: host.HostLogEntryV1 = blk: {
-        var request_clone = try request.clone(ctx.allocator);
-        errdefer request_clone.deinit(ctx.allocator);
-        var response_clone = try response.clone(ctx.allocator);
-        errdefer response_clone.deinit(ctx.allocator);
-        break :blk .{
-            .request = request_clone,
-            .result = response_clone,
-        };
-    };
-    var logged = false;
-    errdefer if (!logged) log_entry.deinit(ctx.allocator);
-    try ctx.logs.append(ctx.allocator, log_entry);
-    logged = true;
+    if (try appendHostLog(ctx, request, response)) |failure| return .{ .failed = failure };
 
     if (response.schema_version != 1) return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply schema_version must be 1") };
     if (response.request_id != request.request_id) return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply request_id must echo the request") };
@@ -623,8 +768,8 @@ fn callHostOp(
                 },
             };
         },
-        .rejected => |failure| .{ .rejected = try failure.clone(ctx.allocator) },
-        .failed => |failure| .{ .failed = try failure.clone(ctx.allocator) },
+        .rejected => |failure| .{ .rejected = try failure.cloneBounded(ctx.allocator, ctx.options.data_value_bounds) },
+        .failed => |failure| .{ .failed = try failure.cloneBounded(ctx.allocator, ctx.options.data_value_bounds) },
     };
 }
 
@@ -726,13 +871,24 @@ fn findCapabilityOpByPlanOrdinalAndGlobalName(
     return null;
 }
 
-fn hasAfterCapabilityOp(
-    capabilities: []const artifact.CapabilityV1,
-    requirement_capability_ids: []const u16,
-    plan: program_plan.ProgramPlan,
-    op_index: u16,
-) bool {
-    return resolveAfterCapabilityOp(capabilities, requirement_capability_ids, plan, op_index) != null;
+fn resolvedCapabilityOp(ctx: *ExecutionContext, op_index: u16) ?ResolvedCapabilityOp {
+    if (ctx.dispatch_table) |table| {
+        if (op_index >= table.call_ops.len) return null;
+        return table.call_ops[op_index];
+    }
+    return resolveCapabilityOp(ctx.decoded.capabilities, ctx.decoded.requirement_capability_ids, ctx.plan, op_index);
+}
+
+fn resolvedAfterCapabilityOp(ctx: *ExecutionContext, op_index: u16) ?ResolvedCapabilityOp {
+    if (ctx.dispatch_table) |table| {
+        if (op_index >= table.after_ops.len) return null;
+        return table.after_ops[op_index];
+    }
+    return resolveAfterCapabilityOp(ctx.decoded.capabilities, ctx.decoded.requirement_capability_ids, ctx.plan, op_index);
+}
+
+fn hasAfterCapabilityOp(ctx: *ExecutionContext, op_index: u16) bool {
+    return resolvedAfterCapabilityOp(ctx, op_index) != null;
 }
 
 fn afterMethodNameAlloc(allocator: std.mem.Allocator, op_name: []const u8) ![]u8 {
@@ -810,7 +966,8 @@ fn callHostAfterOp(
     call_id: u64,
     answer: RuntimeValue,
 ) anyerror!FunctionResult {
-    const resolved = resolveAfterCapabilityOp(ctx.decoded.capabilities, ctx.decoded.requirement_capability_ids, ctx.plan, op_index) orelse return error.ProgramContractViolation;
+    if (try chargeHostCall(ctx)) |failure| return .{ .failed = failure };
+    const resolved = resolvedAfterCapabilityOp(ctx, op_index) orelse return error.ProgramContractViolation;
     const plan_op = ctx.plan.ops[op_index];
     const op_name = try afterMethodNameAlloc(ctx.allocator, plan_op.op_name);
     defer ctx.allocator.free(op_name);
@@ -846,20 +1003,7 @@ fn callHostAfterOp(
         try providerFailureResult(ctx.allocator, request.request_id, @errorName(err));
     defer response.deinit(ctx.allocator);
 
-    var log_entry: host.HostLogEntryV1 = blk: {
-        var request_clone = try request.clone(ctx.allocator);
-        errdefer request_clone.deinit(ctx.allocator);
-        var response_clone = try response.clone(ctx.allocator);
-        errdefer response_clone.deinit(ctx.allocator);
-        break :blk .{
-            .request = request_clone,
-            .result = response_clone,
-        };
-    };
-    var logged = false;
-    errdefer if (!logged) log_entry.deinit(ctx.allocator);
-    try ctx.logs.append(ctx.allocator, log_entry);
-    logged = true;
+    if (try appendHostLog(ctx, request, response)) |failure| return .{ .failed = failure };
 
     if (response.schema_version != 1) return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply schema_version must be 1") };
     if (response.request_id != request.request_id) return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply request_id must echo the request") };
@@ -884,8 +1028,8 @@ fn callHostAfterOp(
                 },
             };
         },
-        .rejected => |failure| return .{ .rejected = try failure.clone(ctx.allocator) },
-        .failed => |failure| return .{ .failed = try failure.clone(ctx.allocator) },
+        .rejected => |failure| return .{ .rejected = try failure.cloneBounded(ctx.allocator, ctx.options.data_value_bounds) },
+        .failed => |failure| return .{ .failed = try failure.cloneBounded(ctx.allocator, ctx.options.data_value_bounds) },
     }
 }
 
@@ -1027,6 +1171,168 @@ fn materializeExecutionValue(allocator: std.mem.Allocator, value: *RuntimeValue)
 fn deinitRuntimeValue(allocator: std.mem.Allocator, value: *RuntimeValue) void {
     if (value.owned) deinitProgramValue(allocator, &value.value);
     value.* = .{ .value = .none, .owned = false };
+}
+
+test "artifact runtime fails closed when block budget is exhausted" {
+    const allocator = std.testing.allocator;
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "entry",
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_instruction = 0,
+        .instruction_count = 0,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+    }};
+    const blocks = [_]program_plan.BlockPlan{.{
+        .first_instruction = 0,
+        .instruction_count = 0,
+        .terminator_index = 0,
+    }};
+    const terminators = [_]program_plan.Terminator{.{
+        .kind = .jump,
+        .primary = 0,
+    }};
+    const plan: program_plan.ProgramPlan = .{
+        .label = "budget-loop",
+        .ir_hash = 0,
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &.{},
+    };
+    var artifact_value: artifact.ArtifactV1 = undefined;
+    var logs = std.ArrayList(host.HostLogEntryV1).empty;
+    defer logs.deinit(allocator);
+    var next_request_id: u64 = 1;
+    var ctx: ExecutionContext = .{
+        .allocator = allocator,
+        .decoded = &artifact_value,
+        .plan = plan,
+        .adapter = .{
+            .ctx = null,
+            .dispatchFn = struct {
+                fn dispatch(
+                    _: ?*anyopaque,
+                    _: std.mem.Allocator,
+                    _: host.HostEffectRequestV1,
+                ) anyerror!host.HostEffectResultV1 {
+                    return error.TestUnexpectedDispatch;
+                }
+            }.dispatch,
+        },
+        .logs = &logs,
+        .next_request_id = &next_request_id,
+        .options = .{ .max_block_steps = 2 },
+    };
+
+    var result = try executeFunction(&ctx, 0, &.{});
+    switch (result) {
+        .failed => |*failure| {
+            defer failure.deinit(allocator);
+            try std.testing.expectEqualStrings("resource_exhausted", failure.code);
+            try std.testing.expectEqualStrings("artifact block budget exceeded", failure.message);
+        },
+        else => return error.TestUnexpectedRuntimeResult,
+    }
+}
+
+test "artifact runtime releases invalid output snapshots on structured failure" {
+    const allocator = std.testing.allocator;
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "entry",
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 1,
+        .first_instruction = 0,
+        .instruction_count = 0,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+    }};
+    const outputs = [_]program_plan.OutputPlan{.{
+        .label = "answer",
+        .codec = .i32,
+    }};
+    const blocks = [_]program_plan.BlockPlan{.{
+        .first_instruction = 0,
+        .instruction_count = 0,
+        .terminator_index = 0,
+    }};
+    const terminators = [_]program_plan.Terminator{.{ .kind = .return_unit }};
+    const plan: program_plan.ProgramPlan = .{
+        .label = "invalid-output",
+        .ir_hash = 0,
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &outputs,
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &.{},
+    };
+    var artifact_value: artifact.ArtifactV1 = undefined;
+    var logs = std.ArrayList(host.HostLogEntryV1).empty;
+    defer logs.deinit(allocator);
+    var next_request_id: u64 = 1;
+    var ctx: ExecutionContext = .{
+        .allocator = allocator,
+        .decoded = &artifact_value,
+        .plan = plan,
+        .adapter = .{
+            .ctx = null,
+            .dispatchFn = struct {
+                fn dispatch(
+                    _: ?*anyopaque,
+                    _: std.mem.Allocator,
+                    _: host.HostEffectRequestV1,
+                ) anyerror!host.HostEffectResultV1 {
+                    return error.TestUnexpectedDispatch;
+                }
+            }.dispatch,
+            .collectOutputsFn = struct {
+                fn collect(
+                    _: ?*anyopaque,
+                    allocator_inner: std.mem.Allocator,
+                    declared_outputs: []const host.OutputDescriptorV1,
+                ) anyerror![]host.DataValueV1 {
+                    try std.testing.expectEqual(@as(usize, 1), declared_outputs.len);
+                    const values = try allocator_inner.alloc(host.DataValueV1, 1);
+                    errdefer allocator_inner.free(values);
+                    values[0] = .{ .string = try allocator_inner.dupe(u8, "wrong codec") };
+                    return values;
+                }
+            }.collect,
+        },
+        .logs = &logs,
+        .next_request_id = &next_request_id,
+    };
+
+    var result = try materializeExecutionOutputs(&ctx);
+    switch (result) {
+        .failed => |*failure| {
+            defer failure.deinit(allocator);
+            try std.testing.expectEqualStrings("invalid_host_reply", failure.code);
+            try std.testing.expectEqualStrings("host output snapshot value does not match the declared codec", failure.message);
+        },
+        .outputs => |outputs_slice| {
+            defer deinitExecutionOutputs(allocator, outputs_slice);
+            return error.TestUnexpectedRuntimeResult;
+        },
+    }
 }
 
 test "runtime local overwrites free replaced owned strings and transfer returned ownership" {

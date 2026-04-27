@@ -153,3 +153,134 @@ test "ability_agent_vm public smoke rejects mismatched success request ids" {
         else => return error.TestUnexpectedRuntimeResult,
     }
 }
+
+test "ability_agent_vm public options expose host-call budget failures" {
+    const allocator = std.testing.allocator;
+    const bytes = try loadFixtureBytes(allocator);
+    defer allocator.free(bytes);
+
+    const adapter: ability_agent_vm.host.Adapter = .{
+        .ctx = null,
+        .dispatchFn = struct {
+            fn dispatch(
+                _: ?*anyopaque,
+                _: std.mem.Allocator,
+                _: ability_agent_vm.host.Request,
+            ) anyerror!ability_agent_vm.host.Response {
+                return error.TestUnexpectedDispatch;
+            }
+        }.dispatch,
+    };
+
+    var result = try ability_agent_vm.runtime.runArtifactWithOptions(
+        allocator,
+        bytes,
+        adapter,
+        .{ .max_host_calls = 0 },
+    );
+    defer result.deinit(allocator);
+
+    switch (result) {
+        .failed => |failure| {
+            try std.testing.expectEqualStrings("resource_exhausted", failure.failure.code);
+            try std.testing.expectEqualStrings("artifact host-call budget exceeded", failure.failure.message);
+            try std.testing.expectEqual(@as(usize, 0), failure.logs.len);
+        },
+        else => return error.TestUnexpectedRuntimeResult,
+    }
+}
+
+test "ability_agent_vm public options bound response payload conversion" {
+    const allocator = std.testing.allocator;
+    const bytes = try loadFixtureBytes(allocator);
+    defer allocator.free(bytes);
+
+    const adapter: ability_agent_vm.host.Adapter = .{
+        .ctx = null,
+        .dispatchFn = struct {
+            fn dispatch(
+                _: ?*anyopaque,
+                _: std.mem.Allocator,
+                request: ability_agent_vm.host.Request,
+            ) anyerror!ability_agent_vm.host.Response {
+                return switch (request) {
+                    .call => |tool_call| .{ .resumed = .{
+                        .request_id = tool_call.request_id,
+                        .tool_id = tool_call.tool_id,
+                        .call_id = tool_call.request_id,
+                        .value = .{ .string = "this payload is too large for the configured host bridge budget and should be rejected before runtime materialization" },
+                    } },
+                    else => return error.TestUnexpectedRequestKind,
+                };
+            }
+        }.dispatch,
+    };
+
+    var result = try ability_agent_vm.runtime.runArtifactWithOptions(
+        allocator,
+        bytes,
+        adapter,
+        .{ .data_value_bounds = .{
+            .max_depth = 4,
+            .max_nodes = 8,
+            .max_bytes = 80,
+        } },
+    );
+    defer result.deinit(allocator);
+
+    switch (result) {
+        .failed => |failure| {
+            try std.testing.expectEqualStrings("resource_exhausted", failure.failure.code);
+            try std.testing.expectEqualStrings("artifact host payload budget exceeded", failure.failure.message);
+            try std.testing.expectEqual(@as(usize, 1), failure.logs.len);
+        },
+        else => return error.TestUnexpectedRuntimeResult,
+    }
+}
+
+test "ability_agent_vm public output snapshots carry explicit borrowed ownership" {
+    const allocator = std.testing.allocator;
+    const adapter: ability_agent_vm.host.Adapter = .{
+        .ctx = null,
+        .dispatchFn = struct {
+            fn dispatch(
+                _: ?*anyopaque,
+                _: std.mem.Allocator,
+                _: ability_agent_vm.host.Request,
+            ) anyerror!ability_agent_vm.host.Response {
+                return error.TestUnexpectedDispatch;
+            }
+        }.dispatch,
+        .collectOutputSnapshotsFn = struct {
+            fn collect(
+                _: ?*anyopaque,
+                allocator_inner: std.mem.Allocator,
+                declared_outputs: []const ability_agent_vm.host.OutputDescriptor,
+            ) anyerror![]ability_agent_vm.host.OutputSnapshot {
+                try std.testing.expectEqual(@as(usize, 1), declared_outputs.len);
+                const snapshots = try allocator_inner.alloc(ability_agent_vm.host.OutputSnapshot, 1);
+                snapshots[0] = .{
+                    .value = .{ .string = "borrowed" },
+                    .value_ownership = .borrowed,
+                };
+                return snapshots;
+            }
+        }.collect,
+    };
+    const descriptors = [_]ability_agent_vm.host.OutputDescriptor{.{
+        .label = "answer",
+        .codec = .string,
+    }};
+
+    const snapshots = try adapter.collectOutputSnapshots(allocator, &descriptors);
+    defer {
+        for (snapshots) |*snapshot| snapshot.deinit(allocator);
+        allocator.free(snapshots);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), snapshots.len);
+    switch (snapshots[0].value) {
+        .string => |value| try std.testing.expectEqualStrings("borrowed", value),
+        else => return error.TestUnexpectedOutputSnapshot,
+    }
+}
