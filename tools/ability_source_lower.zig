@@ -14,9 +14,9 @@ const usage_text = "usage: ability-source-lower --id <source.case> --source <pat
 const expected_flag_value_pair_count = 6;
 const expected_arg_count = 1 + expected_flag_value_pair_count * 2;
 const generated_output_roots = [_][]const u8{
-    "zig-out/",
-    ".zig-cache/",
-    "zig-cache/",
+    "zig-out",
+    ".zig-cache",
+    "zig-cache",
 };
 
 const CliShapeIssue = union(enum) {
@@ -100,8 +100,11 @@ fn generatedOutputPathAllowed(path: []const u8) bool {
 
 fn generatedOutputRoot(path: []const u8) ?[]const u8 {
     for (generated_output_roots) |root| {
-        if (std.mem.startsWith(u8, path, root) and path.len > root.len) {
-            return root[0 .. root.len - 1];
+        if (path.len > root.len and
+            std.mem.startsWith(u8, path, root) and
+            isPathSeparator(path[root.len]))
+        {
+            return root;
         }
     }
     return null;
@@ -677,16 +680,22 @@ test "cli shape reports missing values before arity" {
 
 test "cli output path guard admits only generated relative paths" {
     try std.testing.expect(generatedOutputPathAllowed("zig-out/source-lower/out.json"));
+    try std.testing.expect(generatedOutputPathAllowed("zig-out\\source-lower\\out.json"));
     try std.testing.expect(generatedOutputPathAllowed(".zig-cache/ability-source-lower/out.zig"));
+    try std.testing.expect(generatedOutputPathAllowed(".zig-cache\\ability-source-lower\\out.zig"));
     try std.testing.expect(generatedOutputPathAllowed("zig-cache/ability-source-lower/out.zig"));
+    try std.testing.expect(generatedOutputPathAllowed("zig-cache\\ability-source-lower\\out.zig"));
 
     try std.testing.expect(!generatedOutputPathAllowed(""));
     try std.testing.expect(!generatedOutputPathAllowed("out.json"));
     try std.testing.expect(!generatedOutputPathAllowed("README.md"));
     try std.testing.expect(!generatedOutputPathAllowed("/tmp/ability-source-lower.json"));
     try std.testing.expect(!generatedOutputPathAllowed("C:\\tmp\\ability-source-lower.json"));
+    try std.testing.expect(!generatedOutputPathAllowed("zig-outsource-lower\\out.json"));
     try std.testing.expect(!generatedOutputPathAllowed("zig-out/../README.md"));
+    try std.testing.expect(!generatedOutputPathAllowed("zig-out\\..\\README.md"));
     try std.testing.expect(!generatedOutputPathAllowed("zig-out//out.json"));
+    try std.testing.expect(!generatedOutputPathAllowed("zig-out\\\\out.json"));
 }
 
 test "cli output root guard rejects symlinked generated root" {
@@ -714,6 +723,37 @@ test "cli output root guard rejects symlinked generated root" {
         std.testing.io,
         "zig-out/source-lower/out.json",
     ));
+}
+
+test "cli output path binder accepts native separators under generated roots" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const original_cwd = try std.process.currentPathAlloc(std.testing.io, std.testing.allocator);
+    defer std.testing.allocator.free(original_cwd);
+    const tmp_path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(tmp_path);
+
+    try tmp.dir.createDirPath(std.testing.io, "zig-out/source-lower");
+
+    try std.process.setCurrentPath(std.testing.io, tmp_path);
+    defer std.process.setCurrentPath(std.testing.io, original_cwd) catch unreachable;
+
+    try std.testing.expect(try generatedOutputRootBound(
+        std.testing.allocator,
+        std.testing.io,
+        "zig-out\\source-lower\\out.json",
+    ));
+
+    var bound_output_path = try bindGeneratedOutputPath(std.testing.io, "zig-out\\source-lower\\out.json");
+    defer bound_output_path.close();
+    try bound_output_path.dir.writeFile(std.testing.io, .{
+        .sub_path = bound_output_path.basename,
+        .data = "ok",
+    });
+
+    const generated_bytes = try tmp.dir.readFileAlloc(std.testing.io, "zig-out/source-lower/out.json", std.testing.allocator, .limited(16));
+    defer std.testing.allocator.free(generated_bytes);
+    try std.testing.expectEqualStrings("ok", generated_bytes);
 }
 
 test "cli output path binder rejects symlinked child directories" {
