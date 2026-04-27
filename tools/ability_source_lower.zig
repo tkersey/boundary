@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const error_witness = @import("error_witness");
 const lowered_machine = @import("lowered_machine");
 const source_lowering = @import("source_lowering");
@@ -12,6 +13,11 @@ const EmitMode = enum {
 const usage_text = "usage: ability-source-lower --id <source.case> --source <path> --entry <symbol> --surface <source_case|example|effect|user_defined_effect|witness> --emit <json|zig> --out <path>\n";
 const expected_flag_value_pair_count = 6;
 const expected_arg_count = 1 + expected_flag_value_pair_count * 2;
+const generated_output_roots = [_][]const u8{
+    "zig-out",
+    ".zig-cache",
+    "zig-cache",
+};
 
 const CliShapeIssue = union(enum) {
     missing_value: []const u8,
@@ -66,6 +72,121 @@ fn parseEmit(value: []const u8) ?EmitMode {
     if (std.mem.eql(u8, value, "json")) return .json;
     if (std.mem.eql(u8, value, "zig")) return .zig;
     return null;
+}
+
+fn pathIsAbsoluteCrossPlatform(path: []const u8) bool {
+    if (std.Io.Dir.path.isAbsolute(path)) return true;
+    if (std.mem.startsWith(u8, path, "/") or std.mem.startsWith(u8, path, "\\")) return true;
+    return path.len >= 3 and
+        std.ascii.isAlphabetic(path[0]) and
+        path[1] == ':' and
+        (path[2] == '/' or path[2] == '\\');
+}
+
+fn generatedOutputPathAllowed(path: []const u8) bool {
+    if (path.len == 0 or pathIsAbsoluteCrossPlatform(path)) return false;
+    if (generatedOutputRoot(path) == null) return false;
+
+    var start: usize = 0;
+    var index: usize = 0;
+    while (index <= path.len) : (index += 1) {
+        if (index != path.len and path[index] != '/' and path[index] != '\\') continue;
+        const segment = path[start..index];
+        start = index + 1;
+        if (segment.len == 0 or std.mem.eql(u8, segment, ".") or std.mem.eql(u8, segment, "..")) return false;
+    }
+    return true;
+}
+
+fn generatedOutputRoot(path: []const u8) ?[]const u8 {
+    for (generated_output_roots) |root| {
+        if (path.len > root.len and
+            std.mem.startsWith(u8, path, root) and
+            isPathSeparator(path[root.len]))
+        {
+            return root;
+        }
+    }
+    return null;
+}
+
+fn isPathSeparator(byte: u8) bool {
+    return byte == '/' or byte == '\\';
+}
+
+fn containsPathSeparator(path: []const u8) bool {
+    for (path) |byte| {
+        if (isPathSeparator(byte)) return true;
+    }
+    return false;
+}
+
+fn lastPathSeparatorIndex(path: []const u8) ?usize {
+    var index = path.len;
+    while (index > 0) {
+        index -= 1;
+        if (isPathSeparator(path[index])) return index;
+    }
+    return null;
+}
+
+fn generatedOutputRootBound(allocator: std.mem.Allocator, io: std.Io, package_root: []const u8, path: []const u8) !bool {
+    const root = generatedOutputRoot(path) orelse return false;
+    var package_dir = std.Io.Dir.openDirAbsolute(io, package_root, .{}) catch return false;
+    defer package_dir.close(io);
+    package_dir.createDirPath(io, root) catch return false;
+
+    const root_real = package_dir.realPathFileAlloc(io, root, allocator) catch return false;
+    defer allocator.free(root_real);
+    const package_root_real = std.Io.Dir.realPathFileAbsoluteAlloc(io, package_root, allocator) catch return false;
+    defer allocator.free(package_root_real);
+    const expected_root = try std.Io.Dir.path.join(allocator, &.{ package_root_real, root });
+    defer allocator.free(expected_root);
+    return std.mem.eql(u8, root_real, expected_root);
+}
+
+const BoundOutputPath = struct {
+    dir: std.Io.Dir,
+    io: std.Io,
+    basename: []const u8,
+
+    fn close(self: *BoundOutputPath) void {
+        self.dir.close(self.io);
+    }
+};
+
+fn bindGeneratedOutputPath(io: std.Io, package_root: []const u8, path: []const u8) !BoundOutputPath {
+    const root = generatedOutputRoot(path) orelse return error.BadPathName;
+    const file_separator = lastPathSeparatorIndex(path) orelse return error.BadPathName;
+    if (file_separator < root.len) return error.BadPathName;
+
+    const basename = path[file_separator + 1 ..];
+    if (basename.len == 0 or containsPathSeparator(basename)) return error.BadPathName;
+
+    var current = current: {
+        var package_dir = try std.Io.Dir.openDirAbsolute(io, package_root, .{});
+        defer package_dir.close(io);
+        break :current try package_dir.openDir(io, root, .{ .follow_symlinks = false });
+    };
+    errdefer current.close(io);
+
+    var segment_start: usize = root.len + 1;
+    while (segment_start < file_separator) {
+        var segment_end = segment_start;
+        while (segment_end < file_separator and !isPathSeparator(path[segment_end])) : (segment_end += 1) {}
+
+        const segment = path[segment_start..segment_end];
+        const next = try current.openDir(io, segment, .{ .follow_symlinks = false });
+        current.close(io);
+        current = next;
+        segment_start = segment_end + 1;
+    }
+
+    return .{
+        .dir = current,
+        .io = io,
+        .basename = basename,
+    };
 }
 
 fn writeZigStringLiteral(writer: anytype, value: []const u8) !void {
@@ -406,6 +527,8 @@ fn writeAcceptedProgramOutput(spec: OutputWriteSpec) !void {
     const out_path = spec.out_path;
     const program = spec.program;
 
+    if (containsPathSeparator(out_path)) return error.BadPathName;
+
     if (!program.isAccepted()) {
         dir.deleteFile(io, out_path) catch |err| switch (err) {
             error.FileNotFound => {},
@@ -422,9 +545,14 @@ fn writeAcceptedProgramOutput(spec: OutputWriteSpec) !void {
     }
     const bytes = try output.toOwnedSlice();
     defer allocator.free(bytes);
+    dir.deleteFile(io, out_path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
     try dir.writeFile(io, .{
         .sub_path = out_path,
         .data = bytes,
+        .flags = .{ .exclusive = true },
     });
 }
 
@@ -489,6 +617,18 @@ pub fn main(init: std.process.Init) anyerror!void {
         }
     }
 
+    const output_path = out_path orelse usageError("missing required --out", .{});
+    if (!generatedOutputPathAllowed(output_path)) {
+        usageError("--out must be a generated relative path under zig-out/, .zig-cache/, or zig-cache/: '{s}'", .{output_path});
+    }
+    if (!(try generatedOutputRootBound(allocator, init.io, tool_build_options.package_root, output_path))) {
+        usageError("--out generated root must be a real directory owned by the current checkout: '{s}'", .{output_path});
+    }
+    var bound_output_path = bindGeneratedOutputPath(init.io, tool_build_options.package_root, output_path) catch {
+        usageError("--out parent path must stay inside real generated directories: '{s}'", .{output_path});
+    };
+    defer bound_output_path.close();
+
     var program = try source_lowering.inspectSource(allocator, .{
         .case_id = program_id orelse usageError("missing required --id", .{}),
         .source_path = source_path orelse usageError("missing required --source", .{}),
@@ -498,11 +638,11 @@ pub fn main(init: std.process.Init) anyerror!void {
     defer program.deinit(allocator);
 
     try writeAcceptedProgramOutput(.{
-        .dir = std.Io.Dir.cwd(),
+        .dir = bound_output_path.dir,
         .io = init.io,
         .allocator = allocator,
         .emit_mode = emit orelse usageError("missing required --emit", .{}),
-        .out_path = out_path orelse usageError("missing required --out", .{}),
+        .out_path = bound_output_path.basename,
         .program = &program,
     });
 }
@@ -542,6 +682,225 @@ test "cli shape reports missing values before arity" {
     const args = [_][]const u8{ "ability-source-lower", "--id" };
     const issue = cliShapeIssue(&args).?;
     try std.testing.expectEqualStrings("--id", issue.missing_value);
+}
+
+test "cli output path guard admits only generated relative paths" {
+    try std.testing.expect(generatedOutputPathAllowed("zig-out/source-lower/out.json"));
+    try std.testing.expect(generatedOutputPathAllowed("zig-out\\source-lower\\out.json"));
+    try std.testing.expect(generatedOutputPathAllowed(".zig-cache/ability-source-lower/out.zig"));
+    try std.testing.expect(generatedOutputPathAllowed(".zig-cache\\ability-source-lower\\out.zig"));
+    try std.testing.expect(generatedOutputPathAllowed("zig-cache/ability-source-lower/out.zig"));
+    try std.testing.expect(generatedOutputPathAllowed("zig-cache\\ability-source-lower\\out.zig"));
+
+    try std.testing.expect(!generatedOutputPathAllowed(""));
+    try std.testing.expect(!generatedOutputPathAllowed("out.json"));
+    try std.testing.expect(!generatedOutputPathAllowed("README.md"));
+    try std.testing.expect(!generatedOutputPathAllowed("/tmp/ability-source-lower.json"));
+    try std.testing.expect(!generatedOutputPathAllowed("C:\\tmp\\ability-source-lower.json"));
+    try std.testing.expect(!generatedOutputPathAllowed("zig-outsource-lower\\out.json"));
+    try std.testing.expect(!generatedOutputPathAllowed("zig-out/../README.md"));
+    try std.testing.expect(!generatedOutputPathAllowed("zig-out\\..\\README.md"));
+    try std.testing.expect(!generatedOutputPathAllowed("zig-out//out.json"));
+    try std.testing.expect(!generatedOutputPathAllowed("zig-out\\\\out.json"));
+}
+
+test "cli output root guard rejects symlinked generated root" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const original_cwd = try std.process.currentPathAlloc(std.testing.io, std.testing.allocator);
+    defer std.testing.allocator.free(original_cwd);
+    const tmp_path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(tmp_path);
+
+    try tmp.dir.createDirPath(std.testing.io, "outside");
+    const outside_path = try tmp.dir.realPathFileAlloc(std.testing.io, "outside", std.testing.allocator);
+    defer std.testing.allocator.free(outside_path);
+    const link_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ tmp_path, "zig-out" });
+    defer std.testing.allocator.free(link_path);
+    try std.Io.Dir.symLinkAbsolute(std.testing.io, outside_path, link_path, .{});
+
+    try std.process.setCurrentPath(std.testing.io, tmp_path);
+    defer std.process.setCurrentPath(std.testing.io, original_cwd) catch unreachable;
+
+    try std.testing.expect(!try generatedOutputRootBound(
+        std.testing.allocator,
+        std.testing.io,
+        tmp_path,
+        "zig-out/source-lower/out.json",
+    ));
+}
+
+test "cli output path binder accepts native separators under generated roots" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const original_cwd = try std.process.currentPathAlloc(std.testing.io, std.testing.allocator);
+    defer std.testing.allocator.free(original_cwd);
+    const tmp_path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(tmp_path);
+
+    try tmp.dir.createDirPath(std.testing.io, "zig-out/source-lower");
+
+    try std.process.setCurrentPath(std.testing.io, tmp_path);
+    defer std.process.setCurrentPath(std.testing.io, original_cwd) catch unreachable;
+
+    try std.testing.expect(try generatedOutputRootBound(
+        std.testing.allocator,
+        std.testing.io,
+        tmp_path,
+        "zig-out\\source-lower\\out.json",
+    ));
+
+    var bound_output_path = try bindGeneratedOutputPath(std.testing.io, tmp_path, "zig-out\\source-lower\\out.json");
+    defer bound_output_path.close();
+    try bound_output_path.dir.writeFile(std.testing.io, .{
+        .sub_path = bound_output_path.basename,
+        .data = "ok",
+    });
+
+    const generated_bytes = try tmp.dir.readFileAlloc(std.testing.io, "zig-out/source-lower/out.json", std.testing.allocator, .limited(16));
+    defer std.testing.allocator.free(generated_bytes);
+    try std.testing.expectEqualStrings("ok", generated_bytes);
+}
+
+test "cli output path binder anchors generated roots to package root from subdirectories" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const original_cwd = try std.process.currentPathAlloc(std.testing.io, std.testing.allocator);
+    defer std.testing.allocator.free(original_cwd);
+    const tmp_path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(tmp_path);
+
+    try tmp.dir.createDirPath(std.testing.io, "examples");
+    const examples_path = try tmp.dir.realPathFileAlloc(std.testing.io, "examples", std.testing.allocator);
+    defer std.testing.allocator.free(examples_path);
+
+    try std.process.setCurrentPath(std.testing.io, examples_path);
+    defer std.process.setCurrentPath(std.testing.io, original_cwd) catch unreachable;
+
+    try std.testing.expect(try generatedOutputRootBound(
+        std.testing.allocator,
+        std.testing.io,
+        tmp_path,
+        "zig-out/out.json",
+    ));
+
+    var bound_output_path = try bindGeneratedOutputPath(std.testing.io, tmp_path, "zig-out/out.json");
+    defer bound_output_path.close();
+    try bound_output_path.dir.writeFile(std.testing.io, .{
+        .sub_path = bound_output_path.basename,
+        .data = "root",
+    });
+
+    const root_generated_bytes = try tmp.dir.readFileAlloc(std.testing.io, "zig-out/out.json", std.testing.allocator, .limited(16));
+    defer std.testing.allocator.free(root_generated_bytes);
+    try std.testing.expectEqualStrings("root", root_generated_bytes);
+    try std.testing.expectError(
+        error.FileNotFound,
+        tmp.dir.readFileAlloc(std.testing.io, "examples/zig-out/out.json", std.testing.allocator, .limited(16)),
+    );
+}
+
+test "cli output path binder rejects symlinked child directories" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const original_cwd = try std.process.currentPathAlloc(std.testing.io, std.testing.allocator);
+    defer std.testing.allocator.free(original_cwd);
+    const tmp_path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(tmp_path);
+
+    try tmp.dir.createDirPath(std.testing.io, "zig-out");
+    try tmp.dir.createDirPath(std.testing.io, "outside");
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "outside/out.json",
+        .data = "outside",
+    });
+    const outside_path = try tmp.dir.realPathFileAlloc(std.testing.io, "outside", std.testing.allocator);
+    defer std.testing.allocator.free(outside_path);
+    const link_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ tmp_path, "zig-out", "hop" });
+    defer std.testing.allocator.free(link_path);
+    try std.Io.Dir.symLinkAbsolute(std.testing.io, outside_path, link_path, .{});
+
+    try std.process.setCurrentPath(std.testing.io, tmp_path);
+    defer std.process.setCurrentPath(std.testing.io, original_cwd) catch unreachable;
+
+    try std.testing.expect(try generatedOutputRootBound(
+        std.testing.allocator,
+        std.testing.io,
+        tmp_path,
+        "zig-out/hop/out.json",
+    ));
+    const rejected = if (bindGeneratedOutputPath(std.testing.io, tmp_path, "zig-out/hop/out.json")) |bound_value| rejected: {
+        var bound = bound_value;
+        bound.close();
+        break :rejected false;
+    } else |_| true;
+    try std.testing.expect(rejected);
+
+    const outside_bytes = try tmp.dir.readFileAlloc(std.testing.io, "outside/out.json", std.testing.allocator, .limited(32));
+    defer std.testing.allocator.free(outside_bytes);
+    try std.testing.expectEqualStrings("outside", outside_bytes);
+}
+
+test "accepted source-lower output replaces final symlink instead of following it" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const original_cwd = try std.process.currentPathAlloc(std.testing.io, std.testing.allocator);
+    defer std.testing.allocator.free(original_cwd);
+    const tmp_path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(tmp_path);
+
+    try tmp.dir.createDirPath(std.testing.io, "zig-out/safe");
+    try tmp.dir.createDirPath(std.testing.io, "outside");
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "outside/out.json",
+        .data = "outside",
+    });
+    const outside_file_path = try tmp.dir.realPathFileAlloc(std.testing.io, "outside/out.json", std.testing.allocator);
+    defer std.testing.allocator.free(outside_file_path);
+    const link_path = try std.Io.Dir.path.join(std.testing.allocator, &.{ tmp_path, "zig-out", "safe", "out.json" });
+    defer std.testing.allocator.free(link_path);
+    try std.Io.Dir.symLinkAbsolute(std.testing.io, outside_file_path, link_path, .{});
+
+    try std.process.setCurrentPath(std.testing.io, tmp_path);
+    defer std.process.setCurrentPath(std.testing.io, original_cwd) catch unreachable;
+
+    var bound_output_path = try bindGeneratedOutputPath(std.testing.io, tmp_path, "zig-out/safe/out.json");
+    defer bound_output_path.close();
+    const program = source_lowering.GeneratedProgram{
+        .case_id = "source.test",
+        .label = "source.test",
+        .source_path = "test.zig",
+        .surface_kind = .source_case,
+        .status = .canonical,
+        .canonical_scenario_id = null,
+        .expected_transcript = "",
+        .steps = &.{},
+        .feature_flags = &.{},
+        .diagnostics = &.{},
+        .error_witness = error_witness.ErrorWitnessV1.empty(.ordinary),
+    };
+    try writeAcceptedProgramOutput(.{
+        .dir = bound_output_path.dir,
+        .io = std.testing.io,
+        .allocator = std.testing.allocator,
+        .emit_mode = .json,
+        .out_path = bound_output_path.basename,
+        .program = &program,
+    });
+
+    const outside_bytes = try tmp.dir.readFileAlloc(std.testing.io, "outside/out.json", std.testing.allocator, .limited(32));
+    defer std.testing.allocator.free(outside_bytes);
+    try std.testing.expectEqualStrings("outside", outside_bytes);
+
+    const generated_bytes = try tmp.dir.readFileAlloc(std.testing.io, "zig-out/safe/out.json", std.testing.allocator, .limited(1024));
+    defer std.testing.allocator.free(generated_bytes);
+    try std.testing.expect(std.mem.find(u8, generated_bytes, "\"case_id\":\"source.test\"") != null);
 }
 
 test "rejected source-lower programs remove stale output artifacts" {

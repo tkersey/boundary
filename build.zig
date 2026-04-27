@@ -75,6 +75,11 @@ const TestRunnerArgParseMode = enum {
     strict,
 };
 
+// Linux caps argv+env at 3/4 of the 8 MiB _STK_LIM ceiling. Io.Limit is
+// exclusive, so keep one byte of headroom for a cmdline at the platform cap.
+const linux_max_argv_env_bytes = 6 * 1024 * 1024;
+const max_cmdline_bytes = linux_max_argv_env_bytes + 1;
+
 fn emptyArgs(allocator: std.mem.Allocator) !TestFilterArgs {
     return .{
         .allocator = allocator,
@@ -161,7 +166,7 @@ fn buildInvocationArgsAllocLinux(allocator: std.mem.Allocator) ![]const []const 
         compatIo(),
         "/proc/self/cmdline",
         allocator,
-        .limited(std.math.maxInt(usize)),
+        .limited(max_cmdline_bytes),
     );
 
     if (bytes.len == 0) return error.InvalidBuildInvocationArgVector;
@@ -223,8 +228,8 @@ fn sharedTailHasLintSignal(args: []const []const u8) bool {
 fn inferBuildInvocationFromSharedTail(args: ?[]const []const u8) SharedTailInvocationInference {
     const raw_args = args orelse
         return .{
-            .test_requested = false,
-            .lint_requested = false,
+            .test_requested = null,
+            .lint_requested = null,
         };
 
     const test_signal = sharedTailHasTestSignal(raw_args);
@@ -402,6 +407,13 @@ fn buildInvocationRequestsRunnableStep(step_name: []const u8) ?bool {
 
 fn buildInvocationRequestsStep(step_name: []const u8) ?bool {
     return buildInvocationRequestsStepFromArgsResult(step_name, buildInvocationArgsAlloc());
+}
+
+fn hostBuildInvocationArgsSupported() bool {
+    return switch (builtin.os.tag) {
+        .macos, .ios, .tvos, .watchos, .visionos, .linux, .windows => true,
+        else => false,
+    };
 }
 
 fn compatIo() std.Io {
@@ -3894,6 +3906,13 @@ test "build invocation step detection keeps build-runner-visible --system from s
     try std.testing.expect(buildInvocationRequestsStepInArgs(&args, "test"));
 }
 
+test "build invocation Linux cmdline read limit stays explicit and bounded" {
+    try std.testing.expect(max_cmdline_bytes >= 4096);
+    try std.testing.expect(max_cmdline_bytes > 4 * 1024 * 1024);
+    try std.testing.expect(max_cmdline_bytes > linux_max_argv_env_bytes);
+    try std.testing.expect(max_cmdline_bytes < std.math.maxInt(usize));
+}
+
 test "build invocation step detection still finds test in mixed-step invocations" {
     const args = [_][]const u8{
         "build-helper",
@@ -4033,6 +4052,12 @@ test "build invocation detection reports unavailable when argv inspection is una
     ) == null);
 }
 
+test "shared-tail invocation inference stays unknown when no shared-tail args are visible" {
+    const inference = inferBuildInvocationFromSharedTail(null);
+    try std.testing.expectEqual(@as(?bool, null), inference.test_requested);
+    try std.testing.expectEqual(@as(?bool, null), inference.lint_requested);
+}
+
 test "shared-tail invocation inference recovers documented test args without argv inspection" {
     const inference = inferBuildInvocationFromSharedTail(&.{ "--seed", "123", "--test-filter=alpha" });
     try std.testing.expectEqual(@as(?bool, true), inference.test_requested);
@@ -4145,9 +4170,9 @@ pub fn build(b: *std.Build) void {
     const test_requested_opt = test_requested_from_argv orelse inferred_shared_tail.test_requested;
     const lint_requested_opt = lint_requested_from_argv orelse inferred_shared_tail.lint_requested;
     const invocation_args_unknown = test_requested_opt == null or lint_requested_opt == null;
-    if (invocation_args_unknown and b.args != null) {
+    if (invocation_args_unknown and (b.args != null or hostBuildInvocationArgsSupported())) {
         std.process.fatal(
-            "unable to attribute build runner post-`--` args on this host; rerun without shared-tail args or use a supported host",
+            "unable to attribute requested build steps or build runner post-`--` args on this host; rerun without shared-tail args or use a supported host",
             .{},
         );
     }
@@ -4941,6 +4966,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const source_lowering_tool_options = b.addOptions();
+    source_lowering_tool_options.addOption([]const u8, "package_root", b.pathFromRoot("."));
     source_lowering_tool_options.addOption([]const u8, "version", packageVersionAlloc(b));
     source_lowering_tool_mod.addOptions("tool_build_options", source_lowering_tool_options);
     source_lowering_tool_mod.addImport("source_lowering", source_lowering_mod);
