@@ -1585,6 +1585,13 @@ pub const RepoOwnedAnonymousSource = struct {
     body_bounds: Bounds,
 };
 
+/// Source-backed anonymous body candidate selected by source witness before synthetic source is built.
+pub const SourceBackedAnonymousSelection = struct {
+    source_path: []const u8,
+    entry_symbol: [:0]const u8,
+    body_bounds: Bounds,
+};
+
 pub fn maybeLowerSyntheticLexicalBody(
     comptime HandlersType: type,
     comptime ValueType: type,
@@ -1697,17 +1704,15 @@ pub fn uniqueRepoOwnedAnonymousSourceWithReturnSyntax(
     };
 }
 
-/// Return one source-backed anonymous body from caller-owned bytes. Duplicate
-/// same-shaped candidates are disambiguated by the body's source-location
-/// witness before falling back to the first equivalent candidate.
-pub fn uniqueSourceBackedAnonymousSourceWithReturnSyntax(
+/// Select one source-backed anonymous body from caller-owned bytes before synthetic source is built.
+pub fn uniqueSourceBackedAnonymousSelectionWithReturnSyntax(
     comptime Body: type,
     comptime caller_source: []const u8,
     comptime kind: CompilationKind,
     comptime source_file: []const u8,
     comptime source_location: std.builtin.SourceLocation,
     comptime override_return_syntax: ?[]const u8,
-) ?RepoOwnedAnonymousSource {
+) ?SourceBackedAnonymousSelection {
     const identity = bodyIdentity(Body) orelse return null;
     const source = std.fmt.comptimePrint("{s}\x00", .{caller_source});
     const candidate_bounds = candidateBoundsForIdentityInSource(source[0..caller_source.len :0], identity, kind) orelse return null;
@@ -1745,16 +1750,53 @@ pub fn uniqueSourceBackedAnonymousSourceWithReturnSyntax(
     return .{
         .source_path = "source-backed-body.zig",
         .entry_symbol = entry_symbol,
-        .source = comptime syntheticSourceForBounds(
-            Body,
-            selected_bounds,
-            caller_source,
-            repoOwnedSyntheticCallerSource(caller_source, selected_bounds, identity),
-            entry_symbol,
-            override_return_syntax,
-        ) orelse return null,
         .body_bounds = selected_bounds,
     };
+}
+
+/// Return one source-backed anonymous body from an already admitted source witness selection.
+pub fn sourceBackedAnonymousSourceFromSelection(
+    comptime Body: type,
+    comptime caller_source: []const u8,
+    comptime selection: SourceBackedAnonymousSelection,
+    comptime override_return_syntax: ?[]const u8,
+) ?RepoOwnedAnonymousSource {
+    const identity = bodyIdentity(Body) orelse return null;
+    return .{
+        .source_path = selection.source_path,
+        .entry_symbol = selection.entry_symbol,
+        .source = comptime syntheticSourceForBounds(
+            Body,
+            selection.body_bounds,
+            caller_source,
+            repoOwnedSyntheticCallerSource(caller_source, selection.body_bounds, identity),
+            selection.entry_symbol,
+            override_return_syntax,
+        ) orelse return null,
+        .body_bounds = selection.body_bounds,
+    };
+}
+
+/// Return one source-backed anonymous body from caller-owned bytes. Duplicate
+/// same-shaped candidates are disambiguated by the body's source-location
+/// witness before falling back to the first equivalent candidate.
+pub fn uniqueSourceBackedAnonymousSourceWithReturnSyntax(
+    comptime Body: type,
+    comptime caller_source: []const u8,
+    comptime kind: CompilationKind,
+    comptime source_file: []const u8,
+    comptime source_location: std.builtin.SourceLocation,
+    comptime override_return_syntax: ?[]const u8,
+) ?RepoOwnedAnonymousSource {
+    const selection = comptime uniqueSourceBackedAnonymousSelectionWithReturnSyntax(
+        Body,
+        caller_source,
+        kind,
+        source_file,
+        source_location,
+        override_return_syntax,
+    ) orelse return null;
+    return comptime sourceBackedAnonymousSourceFromSelection(Body, caller_source, selection, override_return_syntax);
 }
 
 pub fn uniqueRepoOwnedAnonymousSource(comptime Body: type, comptime kind: CompilationKind) ?RepoOwnedAnonymousSource {

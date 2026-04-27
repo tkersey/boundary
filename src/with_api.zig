@@ -1077,6 +1077,23 @@ const SourceBackedBodyWitnessVerdict = enum {
     matches,
 };
 
+const SourceBackedNamedAdmission = struct {
+    source: []const u8,
+    source_hash: u64,
+    source_identity: []const u8,
+    source_file: []const u8,
+    source_location: std.builtin.SourceLocation,
+    body_symbol: []const u8,
+};
+
+const SourceBackedAnonAdmission = struct {
+    source: []const u8,
+    source_hash: u64,
+    source_file: []const u8,
+    source_location: std.builtin.SourceLocation,
+    selection: anonymous_body_synthesis.SourceBackedAnonymousSelection,
+};
+
 fn sourceBackedNamedBodyWitnessVerdict(
     comptime Body: type,
     comptime source: []const u8,
@@ -1117,6 +1134,104 @@ fn sourceBackedAnonymousBodyWitnessVerdict(
         source_location.column,
     )) return .location_mismatch;
     return .matches;
+}
+
+fn failSourceBackedNamedBodyWitness(comptime verdict: SourceBackedBodyWitnessVerdict) noreturn {
+    switch (verdict) {
+        .matches => unreachable,
+        .hash_mismatch => @compileError("ability.with source-backed body source/source_hash did not match the owning source bytes"),
+        .identity_location_mismatch,
+        .location_mismatch,
+        => @compileError("ability.with source-backed named body source_identity/source_file/source_location did not match the selected top-level declaration"),
+    }
+}
+
+fn failSourceBackedAnonymousBodyWitness(comptime verdict: SourceBackedBodyWitnessVerdict) noreturn {
+    switch (verdict) {
+        .matches => unreachable,
+        .hash_mismatch => @compileError("ability.with source-backed body source/source_hash did not match the owning source bytes"),
+        .identity_location_mismatch,
+        .location_mismatch,
+        => @compileError("ability.with source-backed body source_file/source_location did not match the selected source declaration"),
+    }
+}
+
+fn sourceBackedNamedBodyAdmission(comptime Body: type) SourceBackedNamedAdmission {
+    const body_symbol = comptime sourceBackedNamedBodySymbol(Body) orelse
+        @compileError("ability.with source-backed named body must have a simple top-level type name");
+    const source = comptime sourceBackedBodySource(Body);
+    const source_hash = comptime sourceBackedBodySourceHash(Body);
+    const source_identity = comptime sourceBackedNamedBodyIdentity(Body);
+    const source_file = comptime sourceBackedBodyFile(Body);
+    const source_location = comptime sourceBackedBodyLocation(Body);
+    switch (comptime sourceBackedNamedBodyWitnessVerdict(
+        Body,
+        source,
+        body_symbol,
+        source_hash,
+        source_identity,
+        source_file,
+        source_location,
+    )) {
+        .matches => {},
+        .hash_mismatch,
+        .identity_location_mismatch,
+        .location_mismatch,
+        => |verdict| failSourceBackedNamedBodyWitness(verdict),
+    }
+    return .{
+        .source = source,
+        .source_hash = source_hash,
+        .source_identity = source_identity,
+        .source_file = source_file,
+        .source_location = source_location,
+        .body_symbol = body_symbol,
+    };
+}
+
+fn sourceBackedAnonymousBodyAdmission(
+    comptime Body: type,
+    comptime return_syntax: ?[]const u8,
+) SourceBackedAnonAdmission {
+    const source = comptime sourceBackedBodySource(Body);
+    const source_hash = comptime sourceBackedBodySourceHash(Body);
+    comptime requireSourceBackedBodySourceHashMatch(source, source_hash);
+    const source_file = comptime sourceBackedBodyFile(Body);
+    const source_location = comptime sourceBackedBodyLocation(Body);
+    if (comptime sourceBackedBodyWitnessSelection(Body, source, source_file, source_location, return_syntax)) |selection| {
+        switch (comptime sourceBackedAnonymousBodyWitnessVerdict(source, source_hash, source_file, source_location, selection.body_bounds)) {
+            .matches => {},
+            .hash_mismatch,
+            .identity_location_mismatch,
+            .location_mismatch,
+            => |verdict| failSourceBackedAnonymousBodyWitness(verdict),
+        }
+        return .{
+            .source = source,
+            .source_hash = source_hash,
+            .source_file = source_file,
+            .source_location = source_location,
+            .selection = selection,
+        };
+    }
+    @compileError("ability.with source-backed anonymous body source did not contain a unique matching ability.with body");
+}
+
+fn sourceBackedBodyWitnessSelection(
+    comptime Body: type,
+    comptime source: []const u8,
+    comptime source_file: []const u8,
+    comptime source_location: std.builtin.SourceLocation,
+    comptime return_syntax: ?[]const u8,
+) ?anonymous_body_synthesis.SourceBackedAnonymousSelection {
+    return anonymous_body_synthesis.uniqueSourceBackedAnonymousSelectionWithReturnSyntax(
+        Body,
+        source,
+        .plain_with,
+        source_file,
+        source_location,
+        return_syntax,
+    );
 }
 
 fn sourceBackedNamedBodyWitnessMatches(
@@ -1234,26 +1349,14 @@ fn trySourceBackedAnonymousCompiledWith(
     handlers_ptr: *HandlersType,
     outputs_ptr: *OutputBundleType(HandlersType),
 ) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
-    const caller_source = comptime sourceBackedBodySource(Body);
-    const source_hash = comptime sourceBackedBodySourceHash(Body);
-    const source_file = comptime sourceBackedBodyFile(Body);
-    const source_location = comptime sourceBackedBodyLocation(Body);
-    comptime requireSourceBackedBodySourceHashMatch(caller_source, source_hash);
-    const synthesized = comptime anonymous_body_synthesis.uniqueSourceBackedAnonymousSourceWithReturnSyntax(
+    const return_syntax = compiledBodyReturnSyntax(HandlersType, Body);
+    const admission = comptime sourceBackedAnonymousBodyAdmission(Body, return_syntax);
+    const synthesized = comptime anonymous_body_synthesis.sourceBackedAnonymousSourceFromSelection(
         Body,
-        caller_source,
-        .plain_with,
-        source_file,
-        source_location,
-        compiledBodyReturnSyntax(HandlersType, Body),
+        admission.source,
+        admission.selection,
+        return_syntax,
     ) orelse @compileError("ability.with source-backed anonymous body source did not contain a unique matching ability.with body");
-    switch (comptime sourceBackedAnonymousBodyWitnessVerdict(caller_source, source_hash, source_file, source_location, synthesized.body_bounds)) {
-        .matches => {},
-        .hash_mismatch => @compileError("ability.with source-backed body source/source_hash did not match the owning source bytes"),
-        .identity_location_mismatch,
-        .location_mismatch,
-        => @compileError("ability.with source-backed body source_file/source_location did not match the selected source declaration"),
-    }
     const synthetic_path = comptime syntheticLoweringSourcePath(synthesized.entry_symbol);
     const source_ref = comptime lowering_api.sourceWithContent(
         synthetic_path,
@@ -1356,31 +1459,17 @@ fn trySourceBackedNamedCompiledWith(
     handlers_ptr: *HandlersType,
     outputs_ptr: *OutputBundleType(HandlersType),
 ) lowered_machine.ResetError(HandlerErrorSet(HandlersType) || BodyErrorSet(Body, PreviewBodyEffType(HandlersType)))!BodyAnswerType(Body, PreviewBodyEffType(HandlersType)) {
-    const body_symbol = comptime sourceBackedNamedBodySymbol(Body) orelse
-        @compileError("ability.with source-backed named body must have a simple top-level type name");
-    const caller_source = comptime sourceBackedBodySource(Body);
-    const source_hash = comptime sourceBackedBodySourceHash(Body);
-    const source_identity = comptime sourceBackedNamedBodyIdentity(Body);
-    const source_file = comptime sourceBackedBodyFile(Body);
-    const source_location = comptime sourceBackedBodyLocation(Body);
-    comptime requireSourceBackedBodySourceHashMatch(caller_source, source_hash);
-    const entry_symbol = comptime std.fmt.comptimePrint("__ability_with_named_{s}", .{body_symbol});
+    const admission = comptime sourceBackedNamedBodyAdmission(Body);
+    const entry_symbol = comptime std.fmt.comptimePrint("__ability_with_named_{s}", .{admission.body_symbol});
     const synthetic_path = comptime syntheticLoweringSourcePath(entry_symbol);
     const synthetic_source = comptime anonymous_body_synthesis.syntheticSourceForNamedTypeWithEntry(
         Body,
         sourceBackedSyntheticCaller(synthetic_path, entry_symbol),
-        caller_source,
-        body_symbol,
+        admission.source,
+        admission.body_symbol,
         entry_symbol,
         compiledBodyReturnSyntax(HandlersType, Body),
     ) orelse @compileError("ability.with source-backed named body source did not contain a matching top-level struct declaration");
-    switch (comptime sourceBackedNamedBodyWitnessVerdict(Body, caller_source, body_symbol, source_hash, source_identity, source_file, source_location)) {
-        .matches => {},
-        .hash_mismatch => @compileError("ability.with source-backed body source/source_hash did not match the owning source bytes"),
-        .identity_location_mismatch,
-        .location_mismatch,
-        => @compileError("ability.with source-backed named body source_identity/source_file/source_location did not match the selected top-level declaration"),
-    }
     const source_ref = comptime lowering_api.sourceWithContent(
         synthetic_path,
         syntheticSourceLocation(synthetic_path, entry_symbol),
