@@ -446,7 +446,7 @@ pub fn main(init: std.process.Init) anyerror!void {
     });
 }
 
-test "rejected source-lower programs do not overwrite output artifacts" {
+test "rejected source-lower programs remove stale output artifacts" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
