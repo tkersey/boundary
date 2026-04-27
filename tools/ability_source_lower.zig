@@ -2,18 +2,22 @@ const error_witness = @import("error_witness");
 const lowered_machine = @import("lowered_machine");
 const source_lowering = @import("source_lowering");
 const std = @import("std");
+const tool_build_options = @import("tool_build_options");
 
 const EmitMode = enum {
     json,
     zig,
 };
 
+const usage_text = "usage: ability-source-lower --id <source.case> --source <path> --entry <symbol> --surface <source_case|example|effect|user_defined_effect|witness> --emit <json|zig> --out <path>\n";
+
 fn usage() noreturn {
-    std.debug.print(
-        "usage: ability-source-lower --id <source.case> --source <path> --entry <symbol> --surface <source_case|example|effect|user_defined_effect|witness> --emit <json|zig> --out <path>\n",
-        .{},
-    );
+    std.debug.print(usage_text, .{});
     std.process.exit(1);
+}
+
+fn writeUsage(writer: anytype) !void {
+    try writer.writeAll(usage_text);
 }
 
 fn parseSurface(value: []const u8) ?source_lowering.SurfaceKind {
@@ -398,6 +402,24 @@ pub fn main(init: std.process.Init) anyerror!void {
     const allocator = arena.allocator();
 
     const args = try init.minimal.args.toSlice(allocator);
+    if (args.len == 2) {
+        if (std.mem.eql(u8, args[1], "--help") or std.mem.eql(u8, args[1], "-h")) {
+            var stdout_buffer: [512]u8 = undefined;
+            var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+            const stdout = &stdout_writer.interface;
+            try writeUsage(stdout);
+            try stdout.flush();
+            return;
+        }
+        if (std.mem.eql(u8, args[1], "--version")) {
+            var stdout_buffer: [64]u8 = undefined;
+            var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+            const stdout = &stdout_writer.interface;
+            try stdout.print("ability-source-lower {s}\n", .{tool_build_options.version});
+            try stdout.flush();
+            return;
+        }
+    }
     if (args.len != 13) usage();
 
     var program_id: ?[]const u8 = null;

@@ -567,11 +567,8 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
     const directory_end = checkedSectionEnd(directory_offset, directory_bytes_len) orelse return error.InvalidDirectoryBounds;
     if (directory_end > bytes_len_u64) return error.InvalidDirectoryBounds;
 
-    var hash_input = try allocator.dupe(u8, bytes);
-    defer allocator.free(hash_input);
-    @memset(hash_input[40..72], 0);
     var actual_hash = std.mem.zeroes([32]u8);
-    std.crypto.hash.Blake3.hash(hash_input, &actual_hash, .{});
+    artifactHashWithZeroedDigest(bytes, &actual_hash);
     if (!std.mem.eql(u8, expected_hash, &actual_hash)) return error.ArtifactHashMismatch;
 
     var required_seen = std.EnumSet(SectionId).empty;
@@ -613,6 +610,13 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
         };
         if (required_seen.contains(section_id)) return error.DuplicateDirectorySection;
         required_seen.insert(section_id);
+        try validateDirectoryEntryCount(.{
+            .section_id = section_id,
+            .flags = flags,
+            .offset = offset,
+            .size = size,
+            .entry_count = entry_count,
+        }, bytes);
         try directories.append(allocator, .{
             .section_id = section_id,
             .flags = flags,
@@ -625,6 +629,7 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
     inline for (std.meta.fields(SectionId)) |field| {
         if (!required_seen.contains(@field(SectionId, field.name))) return error.InvalidRequiredSection;
     }
+    try validateStringTableEntryCount(allocator, directories.items, bytes, artifact_version);
 
     const string_bytes = sectionBytes(bytes, directories.items, .string_table);
     const decoded_manifest = try decodeCapabilityManifest(
@@ -707,6 +712,142 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!Artifact
     if (artifact.entry_function_index >= artifact.functions.len) return error.InvalidEntryFunctionIndex;
     try artifact.validate(allocator);
     return artifact;
+}
+
+fn artifactHashWithZeroedDigest(bytes: []const u8, out: *[32]u8) void {
+    var hasher = std.crypto.hash.Blake3.init(.{});
+    hasher.update(bytes[0..40]);
+    var zero_digest = std.mem.zeroes([32]u8);
+    hasher.update(&zero_digest);
+    hasher.update(bytes[72..]);
+    hasher.final(out);
+}
+
+fn validateDirectoryEntryCount(directory: SectionDirectoryEntryV1, artifact_bytes: []const u8) !void {
+    const payload = sectionBytesUnchecked(artifact_bytes, directory.offset, directory.size) orelse
+        return error.InvalidDirectoryBounds;
+    switch (directory.section_id) {
+        .capability_manifest => {
+            if (payload.len < 52) return error.InvalidDirectoryBounds;
+            if (@as(u32, readU16(payload, 36)) != directory.entry_count) {
+                return error.InvalidDirectoryBounds;
+            }
+        },
+        .string_table => {},
+        .requirement_table,
+        .op_table,
+        .output_table,
+        .local_table,
+        .call_arg_table,
+        .function_table,
+        .block_table,
+        .terminator_table,
+        .instruction_table,
+        => try validateFixedWidthDirectoryEntryCount(directory, payload.len),
+    }
+}
+
+fn validateFixedWidthDirectoryEntryCount(directory: SectionDirectoryEntryV1, byte_len: usize) !void {
+    const row_size: usize = switch (directory.section_id) {
+        .requirement_table, .op_table, .output_table, .instruction_table => 16,
+        .local_table, .block_table, .terminator_table => 8,
+        .call_arg_table => 2,
+        .function_table => 36,
+        .capability_manifest, .string_table => unreachable,
+    };
+    const expected = std.math.mul(usize, @as(usize, directory.entry_count), row_size) catch
+        return error.InvalidDirectoryBounds;
+    if (byte_len != expected) return error.InvalidDirectoryBounds;
+}
+
+fn validateStringTableEntryCount(
+    allocator: std.mem.Allocator,
+    directories: []const SectionDirectoryEntryV1,
+    artifact_bytes: []const u8,
+    artifact_version: u16,
+) !void {
+    const string_bytes = sectionBytes(artifact_bytes, directories, .string_table);
+    const string_directory = findDirectoryEntry(directories, .string_table).?;
+
+    var refs = std.ArrayList(StringRef).empty;
+    defer refs.deinit(allocator);
+    var covered_bytes: usize = 0;
+    var collector = StringRefCollector{
+        .allocator = allocator,
+        .refs = &refs,
+        .string_bytes = string_bytes,
+        .covered_bytes = &covered_bytes,
+    };
+
+    const capability_manifest = sectionBytes(artifact_bytes, directories, .capability_manifest);
+    if (capability_manifest.len < 52) return error.InvalidDirectoryBounds;
+    const capability_count = readU16(capability_manifest, 36);
+    const capability_op_count = readU16(capability_manifest, 38);
+    const capability_bytes_len = @as(usize, capability_count) * 16;
+    if (52 + capability_bytes_len > capability_manifest.len) return error.InvalidDirectoryBounds;
+    const capability_bytes = capability_manifest[52 .. 52 + capability_bytes_len];
+    const capability_op_bytes = capability_manifest[52 + capability_bytes_len ..];
+    if (capability_op_bytes.len != @as(usize, capability_op_count) * 16) return error.InvalidDirectoryBounds;
+    var capability_cursor: usize = 0;
+    while (capability_cursor < capability_bytes.len) : (capability_cursor += 16) {
+        try collectStringRef(&collector, capability_bytes[capability_cursor + 4 ..][0..8]);
+    }
+    if (artifact_version == artifact_format_version_v1 or artifact_version == artifact_format_version_v2) {
+        var op_cursor: usize = 0;
+        while (op_cursor < capability_op_bytes.len) : (op_cursor += 16) {
+            try collectStringRef(&collector, capability_op_bytes[op_cursor + 4 ..][0..8]);
+        }
+    }
+
+    try collectSectionStringRefs(&collector, sectionBytes(artifact_bytes, directories, .requirement_table), 16, 0);
+    try collectSectionStringRefs(&collector, sectionBytes(artifact_bytes, directories, .op_table), 16, 8);
+    try collectSectionStringRefs(&collector, sectionBytes(artifact_bytes, directories, .output_table), 16, 0);
+    try collectSectionStringRefs(&collector, sectionBytes(artifact_bytes, directories, .function_table), 36, 0);
+    try collectSectionStringRefs(&collector, sectionBytes(artifact_bytes, directories, .instruction_table), 16, 8);
+
+    if (refs.items.len != @as(usize, string_directory.entry_count)) return error.InvalidDirectoryBounds;
+    if (covered_bytes != string_bytes.len) return error.InvalidDirectoryBounds;
+}
+
+const StringRefCollector = struct {
+    allocator: std.mem.Allocator,
+    refs: *std.ArrayList(StringRef),
+    string_bytes: []const u8,
+    covered_bytes: *usize,
+};
+
+fn collectSectionStringRefs(
+    collector: *StringRefCollector,
+    bytes: []const u8,
+    row_size: usize,
+    string_ref_offset: usize,
+) !void {
+    var cursor: usize = 0;
+    while (cursor < bytes.len) : (cursor += row_size) {
+        try collectStringRef(collector, bytes[cursor + string_ref_offset ..][0..8]);
+    }
+}
+
+fn collectStringRef(
+    collector: *StringRefCollector,
+    bytes: []const u8,
+) !void {
+    const ref = StringRef{
+        .offset = readU32(bytes, 0),
+        .len = readU32(bytes, 4),
+    };
+    const ref_start = std.math.cast(usize, ref.offset) orelse return error.StringRefOutOfBounds;
+    const ref_end = checkedStringRefEnd(ref.offset, ref.len) orelse return error.StringRefOutOfBounds;
+    if (ref_end > collector.string_bytes.len) return error.StringRefOutOfBounds;
+    for (collector.refs.items) |existing| {
+        if (existing.offset == ref.offset and existing.len == ref.len) return;
+        const existing_start = std.math.cast(usize, existing.offset) orelse return error.StringRefOutOfBounds;
+        const existing_end = checkedStringRefEnd(existing.offset, existing.len) orelse return error.StringRefOutOfBounds;
+        if (ref_start < existing_end and existing_start < ref_end) return error.InvalidDirectoryBounds;
+    }
+    collector.covered_bytes.* = std.math.add(usize, collector.covered_bytes.*, ref_end - ref_start) catch
+        return error.InvalidDirectoryBounds;
+    try collector.refs.append(collector.allocator, ref);
 }
 
 /// Render one readable ArtifactV1 disassembly into allocator-owned text.
@@ -1815,10 +1956,25 @@ fn checkedStringRefEnd(offset: u32, len: u32) ?usize {
 fn sectionBytes(bytes: []const u8, directories: []const SectionDirectoryEntryV1, wanted: SectionId) []const u8 {
     for (directories) |directory| {
         if (directory.section_id == wanted) {
-            return bytes[@intCast(directory.offset)..][0..@intCast(directory.size)];
+            return sectionBytesUnchecked(bytes, directory.offset, directory.size).?;
         }
     }
     unreachable;
+}
+
+fn findDirectoryEntry(directories: []const SectionDirectoryEntryV1, wanted: SectionId) ?SectionDirectoryEntryV1 {
+    for (directories) |directory| {
+        if (directory.section_id == wanted) return directory;
+    }
+    return null;
+}
+
+fn sectionBytesUnchecked(bytes: []const u8, offset: u64, size: u64) ?[]const u8 {
+    const start = std.math.cast(usize, offset) orelse return null;
+    const len = std.math.cast(usize, size) orelse return null;
+    const end = std.math.add(usize, start, len) catch return null;
+    if (end > bytes.len) return null;
+    return bytes[start..end];
 }
 
 const StringTable = struct {
@@ -2091,6 +2247,19 @@ fn patchDirectoryEntryBounds(bytes: []u8, section_id: SectionId, offset: u64, si
         if (readU16(bytes, cursor) != @intFromEnum(section_id)) continue;
         std.mem.writeInt(u64, bytes[cursor + 8 ..][0..8], offset, .little);
         std.mem.writeInt(u64, bytes[cursor + 16 ..][0..8], size, .little);
+        recomputeEncodedArtifactHash(bytes);
+        return;
+    }
+    unreachable;
+}
+
+fn patchDirectoryEntryCount(bytes: []u8, section_id: SectionId, entry_count: u32) void {
+    const directory_offset: usize = 72;
+    const directory_count = readU16(bytes, 20);
+    var cursor: usize = directory_offset;
+    while (cursor < directory_offset + @as(usize, directory_count) * 32) : (cursor += 32) {
+        if (readU16(bytes, cursor) != @intFromEnum(section_id)) continue;
+        std.mem.writeInt(u32, bytes[cursor + 24 ..][0..4], entry_count, .little);
         recomputeEncodedArtifactHash(bytes);
         return;
     }
@@ -5162,5 +5331,85 @@ test "ArtifactV1 decode rejects overlapping directory sections" {
     defer std.testing.allocator.free(encoded);
 
     patchDirectoryEntryBounds(encoded, .requirement_table, sectionPayloadOffset(encoded, .string_table), 0);
+    try std.testing.expectError(error.InvalidDirectoryBounds, decode(std.testing.allocator, encoded));
+}
+
+test "ArtifactV1 decode rejects mismatched directory entry counts" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.directory_entry_count_mismatch",
+        .ir_hash = 0xb4,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = buildFingerprintFromSeed("artifact-directory-entry-count"),
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(encoded);
+
+    patchDirectoryEntryCount(encoded, .function_table, 2);
+    try std.testing.expectError(error.InvalidDirectoryBounds, decode(std.testing.allocator, encoded));
+}
+
+test "ArtifactV1 decode rejects mismatched string table entry counts" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.string_entry_count_mismatch",
+        .ir_hash = 0xb5,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = buildFingerprintFromSeed("artifact-string-entry-count"),
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(encoded);
+
+    patchDirectoryEntryCount(encoded, .string_table, 2);
     try std.testing.expectError(error.InvalidDirectoryBounds, decode(std.testing.allocator, encoded));
 }
