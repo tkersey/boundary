@@ -1061,14 +1061,89 @@ fn sourceBackedTypeNameContainsIdentity(
     return prefix_len > 0 and type_name[prefix_len - 1] == '.';
 }
 
+const SourceBackedBodyWitnessVerdict = enum {
+    hash_mismatch,
+    identity_location_mismatch,
+    location_mismatch,
+    matches,
+};
+
+fn sourceBackedNamedBodyWitnessVerdict(
+    comptime Body: type,
+    comptime source: []const u8,
+    comptime body_symbol: []const u8,
+    comptime source_hash: u64,
+    comptime source_identity: []const u8,
+    comptime source_file: []const u8,
+    comptime source_location: std.builtin.SourceLocation,
+) SourceBackedBodyWitnessVerdict {
+    if (!comptime sourceBackedBodySourceHashMatches(source, source_hash)) return .hash_mismatch;
+    if (!comptime sourceBackedTypeNameContainsIdentity(@typeName(Body), source_identity)) return .identity_location_mismatch;
+    if (!comptime sourceFileMatchesLocation(source_file, source_location)) return .identity_location_mismatch;
+    if (!comptime anonymous_body_synthesis.namedStructSourceWitnessMatches(
+        source,
+        body_symbol,
+        source_identity,
+        source_file,
+        source_location.line,
+        source_location.column,
+    )) return .identity_location_mismatch;
+    return .matches;
+}
+
+fn sourceBackedAnonymousBodyWitnessVerdict(
+    comptime source: []const u8,
+    comptime source_hash: u64,
+    comptime source_file: []const u8,
+    comptime source_location: std.builtin.SourceLocation,
+    comptime body_bounds: anytype,
+) SourceBackedBodyWitnessVerdict {
+    if (!comptime sourceBackedBodySourceHashMatches(source, source_hash)) return .hash_mismatch;
+    if (!comptime sourceFileMatchesLocation(source_file, source_location)) return .location_mismatch;
+    if (!comptime anonymous_body_synthesis.bodyExpressionSourceWitnessMatches(
+        source,
+        body_bounds,
+        source_file,
+        source_location.line,
+        source_location.column,
+    )) return .location_mismatch;
+    return .matches;
+}
+
 fn sourceBackedNamedBodyWitnessMatches(
     comptime Body: type,
+    comptime source: []const u8,
+    comptime body_symbol: []const u8,
+    comptime source_hash: u64,
     comptime source_identity: []const u8,
     comptime source_file: []const u8,
     comptime source_location: std.builtin.SourceLocation,
 ) bool {
-    if (!comptime sourceBackedTypeNameContainsIdentity(@typeName(Body), source_identity)) return false;
-    return comptime sourceFileMatchesLocation(source_file, source_location);
+    return comptime sourceBackedNamedBodyWitnessVerdict(
+        Body,
+        source,
+        body_symbol,
+        source_hash,
+        source_identity,
+        source_file,
+        source_location,
+    ) == .matches;
+}
+
+fn sourceBackedAnonymousBodyWitnessMatches(
+    comptime source: []const u8,
+    comptime source_hash: u64,
+    comptime source_file: []const u8,
+    comptime source_location: std.builtin.SourceLocation,
+    comptime body_bounds: anytype,
+) bool {
+    return comptime sourceBackedAnonymousBodyWitnessVerdict(
+        source,
+        source_hash,
+        source_file,
+        source_location,
+        body_bounds,
+    ) == .matches;
 }
 
 fn sourceBackedSyntheticCaller(
@@ -1154,9 +1229,6 @@ fn trySourceBackedAnonymousCompiledWith(
     const source_hash = comptime sourceBackedBodySourceHash(Body);
     const source_file = comptime sourceBackedBodyFile(Body);
     const source_location = comptime sourceBackedBodyLocation(Body);
-    if (!comptime sourceBackedBodySourceHashMatches(caller_source, source_hash)) {
-        @compileError("ability.with source-backed body source/source_hash did not match the owning source bytes");
-    }
     const synthesized = comptime anonymous_body_synthesis.uniqueSourceBackedAnonymousSourceWithReturnSyntax(
         Body,
         caller_source,
@@ -1165,11 +1237,12 @@ fn trySourceBackedAnonymousCompiledWith(
         source_location,
         compiledBodyReturnSyntax(HandlersType, Body),
     ) orelse @compileError("ability.with source-backed anonymous body source did not contain a unique matching ability.with body");
-    if (!comptime sourceFileMatchesLocation(source_file, source_location)) {
-        @compileError("ability.with source-backed body source_file/source_location did not match the selected source declaration");
-    }
-    if (!comptime anonymous_body_synthesis.bodyExpressionSourceWitnessMatches(caller_source, synthesized.body_bounds, source_file, source_location.line, source_location.column)) {
-        @compileError("ability.with source-backed body source_file/source_location did not match the selected source declaration");
+    switch (comptime sourceBackedAnonymousBodyWitnessVerdict(caller_source, source_hash, source_file, source_location, synthesized.body_bounds)) {
+        .matches => {},
+        .hash_mismatch => @compileError("ability.with source-backed body source/source_hash did not match the owning source bytes"),
+        .identity_location_mismatch,
+        .location_mismatch,
+        => @compileError("ability.with source-backed body source_file/source_location did not match the selected source declaration"),
     }
     const synthetic_path = comptime syntheticLoweringSourcePath(synthesized.entry_symbol);
     const source_ref = comptime lowering_api.sourceWithContent(
@@ -1280,9 +1353,6 @@ fn trySourceBackedNamedCompiledWith(
     const source_identity = comptime sourceBackedNamedBodyIdentity(Body);
     const source_file = comptime sourceBackedBodyFile(Body);
     const source_location = comptime sourceBackedBodyLocation(Body);
-    if (!comptime sourceBackedBodySourceHashMatches(caller_source, source_hash)) {
-        @compileError("ability.with source-backed body source/source_hash did not match the owning source bytes");
-    }
     const entry_symbol = comptime std.fmt.comptimePrint("__ability_with_named_{s}", .{body_symbol});
     const synthetic_path = comptime syntheticLoweringSourcePath(entry_symbol);
     const synthetic_source = comptime anonymous_body_synthesis.syntheticSourceForNamedTypeWithEntry(
@@ -1293,11 +1363,12 @@ fn trySourceBackedNamedCompiledWith(
         entry_symbol,
         compiledBodyReturnSyntax(HandlersType, Body),
     ) orelse @compileError("ability.with source-backed named body source did not contain a matching top-level struct declaration");
-    if (!comptime sourceBackedNamedBodyWitnessMatches(Body, source_identity, source_file, source_location)) {
-        @compileError("ability.with source-backed named body source_identity/source_file/source_location did not match the selected top-level declaration");
-    }
-    if (!comptime anonymous_body_synthesis.namedStructSourceWitnessMatches(caller_source, body_symbol, source_identity, source_file, source_location.line, source_location.column)) {
-        @compileError("ability.with source-backed named body source_identity/source_file/source_location did not match the selected top-level declaration");
+    switch (comptime sourceBackedNamedBodyWitnessVerdict(Body, caller_source, body_symbol, source_hash, source_identity, source_file, source_location)) {
+        .matches => {},
+        .hash_mismatch => @compileError("ability.with source-backed body source/source_hash did not match the owning source bytes"),
+        .identity_location_mismatch,
+        .location_mismatch,
+        => @compileError("ability.with source-backed named body source_identity/source_file/source_location did not match the selected top-level declaration"),
     }
     const source_ref = comptime lowering_api.sourceWithContent(
         synthetic_path,
@@ -1565,43 +1636,147 @@ test "source-backed body hash witness rejects mismatched source bytes" {
     try std.testing.expect(!comptime sourceBackedBodySourceHashMatches(source, correct_hash + 1));
 }
 
-test "source-backed named body witness rejects mismatched identity and file" {
+fn testSourceLocationForMarker(
+    comptime source: []const u8,
+    comptime file: [:0]const u8,
+    comptime marker: []const u8,
+) std.builtin.SourceLocation {
+    const marker_offset = std.mem.find(u8, source, marker).?;
+    comptime var line: u32 = 1;
+    comptime var column: u32 = 1;
+    inline for (source[0..marker_offset]) |char| {
+        if (char == '\n') {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+    }
+    return .{
+        .module = @src().module,
+        .file = file,
+        .line = line,
+        .column = column,
+        .fn_name = "sourceLocation",
+    };
+}
+
+test "source-backed anonymous body verifier rejects every mismatched witness dimension" {
+    const source =
+        \\const ability = @import("ability");
+        \\
+        \\test "first" {
+        \\    _ = try ability.with(undefined, .{}, struct {
+        \\        fn sourceLocation() @import("std").builtin.SourceLocation { return @src(); }
+        \\        pub const source_file = "anon.zig";
+        \\        pub const source_location = sourceLocation();
+        \\        pub fn body(eff: anytype) anyerror!void { _ = eff; }
+        \\    });
+        \\}
+        \\
+        \\test "second" {
+        \\    _ = try ability.with(undefined, .{}, struct {
+        \\        fn sourceLocation() @import("std").builtin.SourceLocation { return @src(); }
+        \\        pub const source_file = "anon.zig";
+        \\        pub const source_location = sourceLocation();
+        \\        pub fn body(eff: anytype) anyerror!void { _ = eff; }
+        \\    });
+        \\}
+    ;
+    const first_block = comptime anonymous_body_synthesis.testBlockBounds(source, "first").?;
+    const second_block = comptime anonymous_body_synthesis.testBlockBounds(source, "second").?;
+    const first_bounds = comptime anonymous_body_synthesis.uniqueBodyExpressionBoundsInRange(
+        source,
+        first_block.start,
+        first_block.end,
+        .plain_with,
+    ).?;
+    const second_bounds = comptime anonymous_body_synthesis.uniqueBodyExpressionBoundsInRange(
+        source,
+        second_block.start,
+        second_block.end,
+        .plain_with,
+    ).?;
+    const location = comptime testSourceLocationForMarker(source, "anon.zig", "@src()");
+    const source_hash = comptime sourceHash(source);
+
+    try std.testing.expect(comptime sourceBackedAnonymousBodyWitnessMatches(source, source_hash, "anon.zig", location, first_bounds));
+    try std.testing.expect(!comptime sourceBackedAnonymousBodyWitnessMatches(source, source_hash + 1, "anon.zig", location, first_bounds));
+    try std.testing.expect(!comptime sourceBackedAnonymousBodyWitnessMatches(source, source_hash, "wrong.zig", location, first_bounds));
+    try std.testing.expect(!comptime sourceBackedAnonymousBodyWitnessMatches(source, source_hash, "anon.zig", .{
+        .module = location.module,
+        .file = location.file,
+        .line = location.line,
+        .column = location.column - 1,
+        .fn_name = location.fn_name,
+    }, first_bounds));
+    try std.testing.expect(!comptime sourceBackedAnonymousBodyWitnessMatches(source, source_hash, "anon.zig", location, second_bounds));
+}
+
+test "source-backed named body verifier rejects every mismatched witness dimension" {
     const source = @embedFile("with_api.zig");
     const location = source_backed_witness_body.source_location;
+    const correct_hash = sourceHash(source);
 
     try std.testing.expect(comptime sourceBackedNamedBodyWitnessMatches(
         source_backed_witness_body,
+        source,
+        "source_backed_witness_body",
+        correct_hash,
         "with_api.source_backed_witness_body",
         "src/with_api.zig",
         location,
     ));
     try std.testing.expect(!comptime sourceBackedNamedBodyWitnessMatches(
         source_backed_witness_body,
+        source,
+        "source_backed_witness_body",
+        correct_hash + 1,
+        "with_api.source_backed_witness_body",
+        "src/with_api.zig",
+        location,
+    ));
+    try std.testing.expect(!comptime sourceBackedNamedBodyWitnessMatches(
+        source_backed_witness_body,
+        source,
+        "source_backed_witness_body",
+        correct_hash,
         "with_api.other_body",
         "src/with_api.zig",
         location,
     ));
     try std.testing.expect(!comptime sourceBackedNamedBodyWitnessMatches(
         source_backed_witness_body,
+        source,
+        "source_backed_witness_body",
+        correct_hash,
         "with_api.source_backed_witness_body",
         "test/with_api.zig",
         location,
     ));
-    try std.testing.expect(comptime anonymous_body_synthesis.namedStructSourceWitnessMatches(
+    try std.testing.expect(!comptime sourceBackedNamedBodyWitnessMatches(
+        source_backed_witness_body,
         source,
         "source_backed_witness_body",
+        correct_hash,
         "with_api.source_backed_witness_body",
         "src/with_api.zig",
-        location.line,
-        location.column,
+        .{
+            .module = location.module,
+            .file = location.file,
+            .line = location.line,
+            .column = location.column - 1,
+            .fn_name = location.fn_name,
+        },
     ));
-    try std.testing.expect(!comptime anonymous_body_synthesis.namedStructSourceWitnessMatches(
+    try std.testing.expect(!comptime sourceBackedNamedBodyWitnessMatches(
+        source_backed_witness_body,
         source,
-        "source_backed_witness_body",
-        "with_api.other_body",
+        "missing_body",
+        correct_hash,
+        "with_api.source_backed_witness_body",
         "src/with_api.zig",
-        location.line,
-        location.column,
+        location,
     ));
 }
 
