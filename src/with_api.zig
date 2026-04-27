@@ -1195,6 +1195,7 @@ fn sourceBackedAnonymousBodyAdmission(
 ) SourceBackedAnonAdmission {
     const source = comptime sourceBackedBodySource(Body);
     const source_hash = comptime sourceBackedBodySourceHash(Body);
+    comptime requireSourceBackedBodySourceHashMatch(source, source_hash);
     const source_file = comptime sourceBackedBodyFile(Body);
     const source_location = comptime sourceBackedBodyLocation(Body);
     if (comptime sourceBackedBodyWitnessSelection(Body, source, source_file, source_location, return_syntax)) |selection| {
@@ -1213,7 +1214,6 @@ fn sourceBackedAnonymousBodyAdmission(
             .selection = selection,
         };
     }
-    if (!comptime sourceBackedBodySourceHashMatches(source, source_hash)) failSourceBackedAnonymousBodyWitness(.hash_mismatch);
     @compileError("ability.with source-backed anonymous body source did not contain a unique matching ability.with body");
 }
 
