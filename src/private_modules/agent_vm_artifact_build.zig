@@ -771,12 +771,10 @@ fn validateStringTableEntryCount(
 
     var refs = std.ArrayList(StringRef).empty;
     defer refs.deinit(allocator);
-    var covered_bytes: usize = 0;
     var collector = StringRefCollector{
         .allocator = allocator,
         .refs = &refs,
         .string_bytes = string_bytes,
-        .covered_bytes = &covered_bytes,
     };
 
     const capability_manifest = sectionBytes(artifact_bytes, directories, .capability_manifest);
@@ -805,15 +803,20 @@ fn validateStringTableEntryCount(
     try collectSectionStringRefs(&collector, sectionBytes(artifact_bytes, directories, .function_table), 36, 0);
     try collectSectionStringRefs(&collector, sectionBytes(artifact_bytes, directories, .instruction_table), 16, 8);
 
-    if (refs.items.len != @as(usize, string_directory.entry_count)) return error.InvalidDirectoryBounds;
-    if (covered_bytes != string_bytes.len) return error.InvalidDirectoryBounds;
+    const coverage = try validateCollectedStringRefs(refs.items);
+    if (coverage.unique_count != @as(usize, string_directory.entry_count)) return error.InvalidDirectoryBounds;
+    if (coverage.covered_bytes != string_bytes.len) return error.InvalidDirectoryBounds;
 }
 
 const StringRefCollector = struct {
     allocator: std.mem.Allocator,
     refs: *std.ArrayList(StringRef),
     string_bytes: []const u8,
-    covered_bytes: *usize,
+};
+
+const StringRefCoverage = struct {
+    unique_count: usize,
+    covered_bytes: usize,
 };
 
 fn collectSectionStringRefs(
@@ -836,18 +839,54 @@ fn collectStringRef(
         .offset = readU32(bytes, 0),
         .len = readU32(bytes, 4),
     };
-    const ref_start = std.math.cast(usize, ref.offset) orelse return error.StringRefOutOfBounds;
     const ref_end = checkedStringRefEnd(ref.offset, ref.len) orelse return error.StringRefOutOfBounds;
     if (ref_end > collector.string_bytes.len) return error.StringRefOutOfBounds;
-    for (collector.refs.items) |existing| {
-        if (existing.offset == ref.offset and existing.len == ref.len) return;
-        const existing_start = std.math.cast(usize, existing.offset) orelse return error.StringRefOutOfBounds;
-        const existing_end = checkedStringRefEnd(existing.offset, existing.len) orelse return error.StringRefOutOfBounds;
-        if (ref_start < existing_end and existing_start < ref_end) return error.InvalidDirectoryBounds;
-    }
-    collector.covered_bytes.* = std.math.add(usize, collector.covered_bytes.*, ref_end - ref_start) catch
-        return error.InvalidDirectoryBounds;
     try collector.refs.append(collector.allocator, ref);
+}
+
+fn validateCollectedStringRefs(refs: []StringRef) !StringRefCoverage {
+    std.mem.sort(StringRef, refs, {}, stringRefLessThan);
+
+    var coverage: StringRefCoverage = .{
+        .unique_count = 0,
+        .covered_bytes = 0,
+    };
+    var previous: ?StringRef = null;
+    var have_active = false;
+    var active_start: usize = 0;
+    var active_end: usize = 0;
+
+    for (refs) |ref| {
+        if (previous) |existing| {
+            if (existing.offset == ref.offset and existing.len == ref.len) continue;
+        }
+        previous = ref;
+
+        const ref_start = std.math.cast(usize, ref.offset) orelse return error.StringRefOutOfBounds;
+        const ref_end = checkedStringRefEnd(ref.offset, ref.len) orelse return error.StringRefOutOfBounds;
+        const ref_len = ref_end - ref_start;
+
+        if (have_active and ref_start < active_end) {
+            if (ref_len != 0 or active_start < ref_start) return error.InvalidDirectoryBounds;
+        }
+
+        coverage.covered_bytes = std.math.add(usize, coverage.covered_bytes, ref_len) catch
+            return error.InvalidDirectoryBounds;
+        coverage.unique_count += 1;
+
+        if (!have_active or ref_end > active_end) {
+            active_start = ref_start;
+            active_end = ref_end;
+            have_active = true;
+        }
+    }
+
+    return coverage;
+}
+
+fn stringRefLessThan(_: void, lhs: StringRef, rhs: StringRef) bool {
+    if (lhs.offset != rhs.offset) return lhs.offset < rhs.offset;
+    return lhs.len < rhs.len;
 }
 
 /// Render one readable ArtifactV1 disassembly into allocator-owned text.
@@ -2337,6 +2376,14 @@ fn patchInstructionStringRefFromRow(bytes: []u8, target_row_index: usize, source
     recomputeEncodedArtifactHash(bytes);
 }
 
+fn patchInstructionStringRef(bytes: []u8, row_index: usize, offset: u32, len: u32) void {
+    const instruction_table_offset = sectionPayloadOffset(bytes, .instruction_table);
+    const row_offset = instruction_table_offset + row_index * 16;
+    std.mem.writeInt(u32, bytes[row_offset + 8 ..][0..4], offset, .little);
+    std.mem.writeInt(u32, bytes[row_offset + 12 ..][0..4], len, .little);
+    recomputeEncodedArtifactHash(bytes);
+}
+
 fn patchTerminatorKind(bytes: []u8, row_index: usize, kind: program_plan.TerminatorKind) void {
     const terminator_table_offset = sectionPayloadOffset(bytes, .terminator_table);
     bytes[terminator_table_offset + row_index * 8] = @intFromEnum(kind);
@@ -3470,6 +3517,30 @@ test "ArtifactV1 decode frees partially decoded string-bearing tables on malform
 
 test "ArtifactV1 checked string ref ends reject u32 overflow" {
     try std.testing.expect(checkedStringRefEnd(std.math.maxInt(u32), 1) == null);
+}
+
+test "ArtifactV1 string ref coverage sorts refs and ignores exact duplicates" {
+    var refs = [_]StringRef{
+        .{ .offset = 8, .len = 2 },
+        .{ .offset = 0, .len = 4 },
+        .{ .offset = 4, .len = 4 },
+        .{ .offset = 0, .len = 4 },
+        .{ .offset = 10, .len = 0 },
+        .{ .offset = 8, .len = 0 },
+    };
+
+    const coverage = try validateCollectedStringRefs(&refs);
+    try std.testing.expectEqual(@as(usize, 5), coverage.unique_count);
+    try std.testing.expectEqual(@as(usize, 10), coverage.covered_bytes);
+}
+
+test "ArtifactV1 string ref coverage rejects overlaps after sorting" {
+    var refs = [_]StringRef{
+        .{ .offset = 2, .len = 1 },
+        .{ .offset = 0, .len = 5 },
+    };
+
+    try std.testing.expectError(error.InvalidDirectoryBounds, validateCollectedStringRefs(&refs));
 }
 
 test "ArtifactV1 decode accepts reserved optional sections" {
@@ -5411,5 +5482,54 @@ test "ArtifactV1 decode rejects mismatched string table entry counts" {
     defer std.testing.allocator.free(encoded);
 
     patchDirectoryEntryCount(encoded, .string_table, 2);
+    try std.testing.expectError(error.InvalidDirectoryBounds, decode(std.testing.allocator, encoded));
+}
+
+test "ArtifactV1 decode rejects overlapping collected string refs" {
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.string_ref_overlap",
+        .ir_hash = 0xb6,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .string,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 2,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 3,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .string }, .{ .codec = .string } },
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 3, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{ .kind = .const_string, .dst = 0, .string_literal = "first" },
+            .{ .kind = .const_string, .dst = 1, .string_literal = "second" },
+            .{ .kind = .return_value, .operand = 0 },
+        },
+    };
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = buildFingerprintFromSeed("artifact-string-ref-overlap"),
+        .capabilities = &.{},
+    });
+    defer std.testing.allocator.free(encoded);
+
+    const string_ref_offset = sectionPayloadOffset(encoded, .instruction_table) + 8;
+    const first_string_offset = readU32(encoded, string_ref_offset);
+    const first_string_len = readU32(encoded, string_ref_offset + 4);
+    try std.testing.expect(first_string_len > 1);
+    patchInstructionStringRef(encoded, 1, first_string_offset + 1, first_string_len);
+
     try std.testing.expectError(error.InvalidDirectoryBounds, decode(std.testing.allocator, encoded));
 }
