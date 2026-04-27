@@ -13,6 +13,7 @@ The public root export set is intentionally narrow:
 - `ability.effect`
 - `ability.Runtime`
 - `ability.RuntimeError`
+- `ability.sourceHash`
 - `ability.with`
 
 Everything else in the repo is outside the `@import("ability")` root contract.
