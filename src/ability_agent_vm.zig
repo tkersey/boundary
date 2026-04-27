@@ -342,6 +342,7 @@ fn bridgeCollectOutputs(
         for (snapshots) |*snapshot| snapshot.deinit(allocator);
         allocator.free(snapshots);
     }
+    if (snapshots.len != declared_outputs.len) return error.OutputSnapshotCountMismatch;
 
     const values = try allocator.alloc(host_api.DataValueV1, snapshots.len);
     var initialized: usize = 0;
@@ -891,6 +892,57 @@ test "response bridge frees duplicated tool ids on allocation failure" {
         std.testing.allocator,
         expectResponseBridgeClonesToolIdWithoutLeaksOnAllocationFailure,
         .{},
+    );
+}
+
+test "output bridge validates snapshot count before cloning payloads" {
+    const allocator = std.testing.allocator;
+    const descriptors = [_]host_api.OutputDescriptorV1{.{
+        .label = "answer",
+        .codec = .string,
+    }};
+    var bridge_context: BridgeContext = .{
+        .adapter = .{
+            .ctx = null,
+            .dispatchFn = struct {
+                fn dispatch(
+                    _: ?*anyopaque,
+                    _: std.mem.Allocator,
+                    _: host.Request,
+                ) anyerror!host.Response {
+                    return error.TestUnexpectedDispatch;
+                }
+            }.dispatch,
+            .collectOutputSnapshotsFn = struct {
+                fn collect(
+                    _: ?*anyopaque,
+                    allocator_inner: std.mem.Allocator,
+                    declared_outputs: []const host.OutputDescriptor,
+                ) anyerror![]host.OutputSnapshot {
+                    try std.testing.expectEqual(@as(usize, 1), declared_outputs.len);
+                    const snapshots = try allocator_inner.alloc(host.OutputSnapshot, 2);
+                    snapshots[0] = .{
+                        .value = .{ .string = "this payload exceeds the configured clone byte limit" },
+                        .value_ownership = .borrowed,
+                    };
+                    snapshots[1] = .{
+                        .value = .null,
+                        .value_ownership = .borrowed,
+                    };
+                    return snapshots;
+                }
+            }.collect,
+        },
+        .data_value_bounds = .{
+            .max_depth = 4,
+            .max_nodes = 8,
+            .max_bytes = 1,
+        },
+    };
+
+    try std.testing.expectError(
+        error.OutputSnapshotCountMismatch,
+        bridgeCollectOutputs(&bridge_context, allocator, &descriptors),
     );
 }
 

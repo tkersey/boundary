@@ -426,6 +426,9 @@ fn materializeExecutionOutputs(ctx: *ExecutionContext) anyerror!OutputMaterializ
         error.DataValueTooDeep, error.DataValueTooManyNodes, error.DataValueTooManyBytes => {
             return .{ .failed = try resourceExhaustedFailure(ctx.allocator, "artifact output snapshot payload budget exceeded") };
         },
+        error.OutputSnapshotCountMismatch => {
+            return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host output snapshot count must match the declared outputs") };
+        },
         else => return .{ .failed = try providerFailureFailure(ctx.allocator, @errorName(err)) },
     };
     defer deinitCollectedOutputValues(ctx.allocator, values);

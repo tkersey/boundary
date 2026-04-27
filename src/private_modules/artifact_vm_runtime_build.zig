@@ -1,7 +1,7 @@
-const artifact = @import("./agent_vm_artifact.zig");
-const host = @import("./host_adapter_v1.zig");
-const lowered_machine = @import("./lowered_machine.zig");
-const program_plan = @import("./internal/program_plan.zig");
+const artifact = @import("artifact_api");
+const host = @import("host_adapter_v1");
+const lowered_machine = @import("lowered_machine");
+const program_plan = @import("internal_program_plan");
 const std = @import("std");
 
 /// Result of executing ArtifactV1 bytes through the synchronous HostAdapterV1 runtime.
@@ -425,6 +425,9 @@ fn materializeExecutionOutputs(ctx: *ExecutionContext) anyerror!OutputMaterializ
         },
         error.DataValueTooDeep, error.DataValueTooManyNodes, error.DataValueTooManyBytes => {
             return .{ .failed = try resourceExhaustedFailure(ctx.allocator, "artifact output snapshot payload budget exceeded") };
+        },
+        error.OutputSnapshotCountMismatch => {
+            return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host output snapshot count must match the declared outputs") };
         },
         else => return .{ .failed = try providerFailureFailure(ctx.allocator, @errorName(err)) },
     };
