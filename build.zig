@@ -4671,6 +4671,23 @@ pub fn build(b: *std.Build) void {
         "Generate the committed ability_agent_vm compatibility artifact fixture.",
     );
     ability_agent_vm_fixture_step.dependOn(&run_ability_agent_vm_fixture.step);
+    const ability_agent_vm_fixture_tests = addFilteredTest(
+        b,
+        ability_agent_vm_fixture_mod,
+        test_runner_args.filters.items,
+    );
+    const run_agent_vm_fixture_tests = addRunArtifactWithArgs(
+        b,
+        ability_agent_vm_fixture_tests,
+        test_runner_args.passthrough.items,
+    );
+    const run_fixture_check = b.addRunArtifact(ability_agent_vm_fixture_exe);
+    run_fixture_check.addArg("--check");
+    const fixture_check_step = b.step(
+        "check-ability-agent-vm-fixture",
+        "Verify the committed ability_agent_vm compatibility artifact fixture is current.",
+    );
+    fixture_check_step.dependOn(&run_fixture_check.step);
 
     const ability_agent_vm_smoke_mod = b.createModule(.{
         .root_source_file = b.path("test/ability_agent_vm_public_smoke_test.zig"),
@@ -4686,22 +4703,6 @@ pub fn build(b: *std.Build) void {
     const run_ability_agent_vm_smoke = addRunArtifactWithArgs(
         b,
         ability_agent_vm_smoke_tests,
-        test_runner_args.passthrough.items,
-    );
-    const ability_vm_fresh_mod = b.createModule(.{
-        .root_source_file = b.path("test/ability_agent_vm_fixture_freshness_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    ability_vm_fresh_mod.addImport("ability_compile", ability_compile_mod);
-    const ability_vm_fresh_tests = addFilteredTest(
-        b,
-        ability_vm_fresh_mod,
-        test_runner_args.filters.items,
-    );
-    const run_ability_vm_fresh = addRunArtifactWithArgs(
-        b,
-        ability_vm_fresh_tests,
         test_runner_args.passthrough.items,
     );
 
@@ -5101,7 +5102,7 @@ pub fn build(b: *std.Build) void {
     const test_suites = [_]TestSuiteSpec{
         .{ .suite_id = "root", .description = "Root lexical surface", .run_step = &run_root_tests.step },
         .{ .suite_id = "ability-agent-vm-consumer", .description = "ability_agent_vm source-path consumer compile witness", .run_step = &ability_agent_vm_consumer_exe.step },
-        .{ .suite_id = "ability-agent-vm-freshness", .description = "ability_agent_vm fixture freshness check", .run_step = &run_ability_vm_fresh.step },
+        .{ .suite_id = "ability-agent-vm-freshness", .description = "ability_agent_vm fixture freshness check", .run_step = &run_agent_vm_fixture_tests.step },
         .{ .suite_id = "ability-agent-vm-smoke", .description = "ability_agent_vm public runtime smoke", .run_step = &run_ability_agent_vm_smoke.step },
         .{ .suite_id = "frontend", .description = "Frontend internal module", .run_step = &run_frontend_internal_tests.step },
         .{ .suite_id = "admitted-body-v1", .description = "Admitted body parser suite", .run_step = &run_admitted_body_v1_tests.step },
