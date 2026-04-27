@@ -1018,6 +1018,15 @@ fn sourceBackedBodySourceHashMatches(
     return sourceHash(source) == source_hash;
 }
 
+fn requireSourceBackedBodySourceHashMatch(
+    comptime source: []const u8,
+    comptime source_hash: u64,
+) void {
+    if (!comptime sourceBackedBodySourceHashMatches(source, source_hash)) {
+        @compileError("ability.with source-backed body source/source_hash did not match the owning source bytes");
+    }
+}
+
 fn sourceBackedNamedBodyIdentity(comptime Body: type) []const u8 {
     return bodyDeclSourceIdentity(Body) orelse @compileError(
         "ability.with source-backed named body must declare pub const source_identity matching the selected source declaration",
@@ -1229,6 +1238,7 @@ fn trySourceBackedAnonymousCompiledWith(
     const source_hash = comptime sourceBackedBodySourceHash(Body);
     const source_file = comptime sourceBackedBodyFile(Body);
     const source_location = comptime sourceBackedBodyLocation(Body);
+    comptime requireSourceBackedBodySourceHashMatch(caller_source, source_hash);
     const synthesized = comptime anonymous_body_synthesis.uniqueSourceBackedAnonymousSourceWithReturnSyntax(
         Body,
         caller_source,
@@ -1353,6 +1363,7 @@ fn trySourceBackedNamedCompiledWith(
     const source_identity = comptime sourceBackedNamedBodyIdentity(Body);
     const source_file = comptime sourceBackedBodyFile(Body);
     const source_location = comptime sourceBackedBodyLocation(Body);
+    comptime requireSourceBackedBodySourceHashMatch(caller_source, source_hash);
     const entry_symbol = comptime std.fmt.comptimePrint("__ability_with_named_{s}", .{body_symbol});
     const synthetic_path = comptime syntheticLoweringSourcePath(entry_symbol);
     const synthetic_source = comptime anonymous_body_synthesis.syntheticSourceForNamedTypeWithEntry(
@@ -1634,6 +1645,7 @@ test "source-backed body hash witness rejects mismatched source bytes" {
 
     try std.testing.expect(comptime sourceBackedBodySourceHashMatches(source, correct_hash));
     try std.testing.expect(!comptime sourceBackedBodySourceHashMatches(source, correct_hash + 1));
+    comptime requireSourceBackedBodySourceHashMatch(source, correct_hash);
 }
 
 fn testSourceLocationForMarker(

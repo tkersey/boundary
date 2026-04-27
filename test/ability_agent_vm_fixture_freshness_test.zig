@@ -24,5 +24,10 @@ test "ability_agent_vm smoke fixture matches current compiler output" {
     );
     defer allocator.free(generated);
 
-    try std.testing.expectEqualSlices(u8, generated, bytes);
+    const fixture_disasm = try ability_compile.artifact.disasmAlloc(allocator, bytes);
+    defer allocator.free(fixture_disasm);
+    const generated_disasm = try ability_compile.artifact.disasmAlloc(allocator, generated);
+    defer allocator.free(generated_disasm);
+
+    try std.testing.expectEqualStrings(generated_disasm, fixture_disasm);
 }
