@@ -16,8 +16,13 @@ The public root export set is intentionally narrow:
 - `ability.with`
 
 Everything else in the repo is outside the `@import("ability")` root contract.
-That includes sibling modules such as `ability_agent_vm` along with maintainer-facing
-lowering and interpreter scaffolding.
+Maintainer-facing lowering and interpreter scaffolding are not a second public
+front door.
+
+The package also exports a retained `ability_agent_vm` module for compatibility
+artifact execution. It is source-path stable and covered by smoke/freshness
+tests, but it is a separate package module rather than part of the
+`@import("ability")` root API.
 
 `ability.with` is the only public lexical entrypoint. Downstream packages that
 want compiled lexical execution for ordinary local body structs must make the
@@ -132,6 +137,7 @@ test aliases. It keeps coverage on:
 - fast source-ownership and source-backed body witnesses
 - retained `ability_agent_vm` source-path consumer, fixture-freshness, and smoke checks
 - source-lowering validation and execution
+- source-lowering CLI safety checks
 - interpreter behavior where it still underpins the lexical stack
 
 Deleted child-build and package-export probes are not hidden behind opt-in test
