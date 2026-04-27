@@ -434,6 +434,13 @@ fn appendHostLog(ctx: *ExecutionContext, request: host.HostEffectRequestV1, resp
     return null;
 }
 
+fn cloneHostDispatchRequest(ctx: *ExecutionContext, request: host.HostEffectRequestV1) !host.HostEffectRequestV1 {
+    return request.cloneBounded(ctx.allocator, ctx.options.data_value_bounds) catch |err| switch (err) {
+        error.DataValueTooDeep, error.DataValueTooManyNodes, error.DataValueTooManyBytes => error.HostRequestPayloadBudgetExceeded,
+        else => err,
+    };
+}
+
 fn materializeExecutionOutputs(ctx: *ExecutionContext) anyerror!OutputMaterializationResult {
     const declared = entryOutputs(ctx.plan);
     if (declared.len == 0) return .{ .outputs = try ctx.allocator.alloc(ExecutionOutputV1, 0) };
@@ -766,20 +773,26 @@ fn callHostOp(
             } },
         };
     };
-    ctx.next_request_id.* += 1;
     defer request.deinit(ctx.allocator);
 
-    var response: host.HostEffectResultV1 = ctx.adapter.dispatch(ctx.allocator, request) catch |err|
-        try providerFailureResult(ctx.allocator, request.request_id, @errorName(err));
+    var dispatch_request = cloneHostDispatchRequest(ctx, request) catch |err| switch (err) {
+        error.HostRequestPayloadBudgetExceeded => return .{ .failed = try resourceExhaustedFailure(ctx.allocator, "artifact host-request payload budget exceeded") },
+        else => return err,
+    };
+    defer dispatch_request.deinit(ctx.allocator);
+    ctx.next_request_id.* += 1;
+
+    var response: host.HostEffectResultV1 = ctx.adapter.dispatch(ctx.allocator, dispatch_request) catch |err|
+        try providerFailureResult(ctx.allocator, dispatch_request.request_id, @errorName(err));
     defer response.deinit(ctx.allocator);
 
-    if (try appendHostLog(ctx, request, response)) |failure| return .{ .failed = failure };
+    if (try appendHostLog(ctx, dispatch_request, response)) |failure| return .{ .failed = failure };
 
     if (response.schema_version != 1) return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply schema_version must be 1") };
-    if (response.request_id != request.request_id) return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply request_id must echo the request") };
+    if (response.request_id != dispatch_request.request_id) return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply request_id must echo the request") };
     switch (response.body) {
         .success => |tool_result| {
-            const tool_call = request.body.tool_call;
+            const tool_call = dispatch_request.body.tool_call;
             if (!std.mem.eql(u8, tool_result.tool_id, tool_call.tool_id)) {
                 return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply tool_id must echo the request") };
             }
@@ -804,7 +817,7 @@ fn callHostOp(
                             },
                             else => return err,
                         },
-                        .call_id = request.body.tool_call.call_id,
+                        .call_id = dispatch_request.body.tool_call.call_id,
                     },
                 },
                 .return_now, .abort => .{
@@ -1051,20 +1064,26 @@ fn callHostAfterOp(
             } },
         };
     };
-    ctx.next_request_id.* += 1;
     defer request.deinit(ctx.allocator);
 
-    var response: host.HostEffectResultV1 = ctx.adapter.dispatch(ctx.allocator, request) catch |err|
-        try providerFailureResult(ctx.allocator, request.request_id, @errorName(err));
+    var dispatch_request = cloneHostDispatchRequest(ctx, request) catch |err| switch (err) {
+        error.HostRequestPayloadBudgetExceeded => return .{ .failed = try resourceExhaustedFailure(ctx.allocator, "artifact host-request payload budget exceeded") },
+        else => return err,
+    };
+    defer dispatch_request.deinit(ctx.allocator);
+    ctx.next_request_id.* += 1;
+
+    var response: host.HostEffectResultV1 = ctx.adapter.dispatch(ctx.allocator, dispatch_request) catch |err|
+        try providerFailureResult(ctx.allocator, dispatch_request.request_id, @errorName(err));
     defer response.deinit(ctx.allocator);
 
-    if (try appendHostLog(ctx, request, response)) |failure| return .{ .failed = failure };
+    if (try appendHostLog(ctx, dispatch_request, response)) |failure| return .{ .failed = failure };
 
     if (response.schema_version != 1) return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply schema_version must be 1") };
-    if (response.request_id != request.request_id) return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply request_id must echo the request") };
+    if (response.request_id != dispatch_request.request_id) return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply request_id must echo the request") };
     switch (response.body) {
         .success => |tool_result| {
-            const tool_call = request.body.tool_call;
+            const tool_call = dispatch_request.body.tool_call;
             if (!std.mem.eql(u8, tool_result.tool_id, tool_call.tool_id)) {
                 return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host reply tool_id must echo the request") };
             }
@@ -1387,6 +1406,197 @@ test "artifact runtime checks host-log budget before dispatch" {
             defer failure.deinit(allocator);
             try std.testing.expectEqualStrings("resource_exhausted", failure.code);
             try std.testing.expectEqualStrings("artifact host-log budget exceeded", failure.message);
+        },
+        else => return error.TestUnexpectedRuntimeResult,
+    }
+    try std.testing.expectEqual(@as(usize, 0), dispatch_calls);
+    try std.testing.expectEqual(@as(usize, 0), logs.items.len);
+    try std.testing.expectEqual(@as(u64, 1), next_request_id);
+}
+
+test "artifact runtime bounds tool-call request payload before dispatch" {
+    const allocator = std.testing.allocator;
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.host_request_payload_pre_dispatch",
+        .ir_hash = 0x313,
+        .entry_index = 0,
+        .functions = &.{},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "dispatch", .mode = .transform, .payload_codec = .string, .resume_codec = .unit }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{},
+        .terminators = &.{},
+        .instructions = &.{},
+    };
+    const capabilities = [_]artifact.CapabilityV1{.{
+        .capability_id = 0,
+        .kind = .tool,
+        .label = "generated/tooling@v1",
+        .ops = &.{.{
+            .capability_id = 0,
+            .op_id = 0,
+            .host_op_kind = .call,
+            .payload_codec = .string,
+            .result_codec = .unit,
+            .plan_op_ordinal = 0,
+        }},
+    }};
+    const decoded = artifact.ArtifactV1{
+        .semantic_ir_hash64 = plan.ir_hash,
+        .manifest_build_fingerprint = std.mem.zeroes([32]u8),
+        .build_fingerprint_blake3_256 = std.mem.zeroes([32]u8),
+        .capabilities = &capabilities,
+        .requirement_capability_ids = &.{0},
+        .functions = plan.functions,
+        .requirements = plan.requirements,
+        .ops = plan.ops,
+        .outputs = plan.outputs,
+        .locals = plan.locals,
+        .call_args = plan.call_args,
+        .blocks = plan.blocks,
+        .terminators = plan.terminators,
+        .instructions = plan.instructions,
+    };
+
+    var dispatch_calls: usize = 0;
+    var logs = std.ArrayList(host.HostLogEntryV1).empty;
+    defer logs.deinit(allocator);
+    var next_request_id: u64 = 1;
+    var ctx: ExecutionContext = .{
+        .allocator = allocator,
+        .decoded = &decoded,
+        .plan = plan,
+        .adapter = .{
+            .ctx = &dispatch_calls,
+            .dispatchFn = struct {
+                fn dispatch(ctx_ptr: ?*anyopaque, _: std.mem.Allocator, _: host.HostEffectRequestV1) anyerror!host.HostEffectResultV1 {
+                    const counter: *usize = @ptrCast(@alignCast(ctx_ptr.?));
+                    counter.* += 1;
+                    return error.UnexpectedHostDispatch;
+                }
+            }.dispatch,
+        },
+        .logs = &logs,
+        .next_request_id = &next_request_id,
+        .options = .{ .data_value_bounds = .{
+            .max_depth = 4,
+            .max_nodes = 8,
+            .max_bytes = 4,
+        } },
+    };
+
+    var result = try callHostOp(&ctx, 0, .{ .string = "oversized" });
+    switch (result) {
+        .failed => |*failure| {
+            defer failure.deinit(allocator);
+            try std.testing.expectEqualStrings("resource_exhausted", failure.code);
+            try std.testing.expectEqualStrings("artifact host-request payload budget exceeded", failure.message);
+        },
+        else => return error.TestUnexpectedRuntimeResult,
+    }
+    try std.testing.expectEqual(@as(usize, 0), dispatch_calls);
+    try std.testing.expectEqual(@as(usize, 0), logs.items.len);
+    try std.testing.expectEqual(@as(u64, 1), next_request_id);
+}
+
+test "artifact runtime bounds after-call request payload before dispatch" {
+    const allocator = std.testing.allocator;
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.after_request_payload_pre_dispatch",
+        .ir_hash = 0x314,
+        .entry_index = 0,
+        .functions = &.{},
+        .requirements = &.{.{ .label = "tooling", .first_op = 0, .op_count = 1 }},
+        .ops = &.{.{ .requirement_index = 0, .op_name = "dispatch", .mode = .transform, .payload_codec = .unit, .resume_codec = .unit, .has_after = true }},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{},
+        .terminators = &.{},
+        .instructions = &.{},
+    };
+    const capabilities = [_]artifact.CapabilityV1{.{
+        .capability_id = 0,
+        .kind = .tool,
+        .label = "generated/tooling@v1",
+        .ops = &.{
+            .{
+                .capability_id = 0,
+                .op_id = 0,
+                .host_op_kind = .call,
+                .payload_codec = .unit,
+                .result_codec = .unit,
+                .plan_op_ordinal = 0,
+            },
+            .{
+                .capability_id = 0,
+                .op_id = 1,
+                .host_op_kind = .after_call,
+                .payload_codec = .string,
+                .result_codec = .unit,
+                .plan_op_ordinal = 0,
+            },
+        },
+    }};
+    const decoded = artifact.ArtifactV1{
+        .semantic_ir_hash64 = plan.ir_hash,
+        .manifest_build_fingerprint = std.mem.zeroes([32]u8),
+        .build_fingerprint_blake3_256 = std.mem.zeroes([32]u8),
+        .capabilities = &capabilities,
+        .requirement_capability_ids = &.{0},
+        .functions = plan.functions,
+        .requirements = plan.requirements,
+        .ops = plan.ops,
+        .outputs = plan.outputs,
+        .locals = plan.locals,
+        .call_args = plan.call_args,
+        .blocks = plan.blocks,
+        .terminators = plan.terminators,
+        .instructions = plan.instructions,
+    };
+
+    var dispatch_calls: usize = 0;
+    var logs = std.ArrayList(host.HostLogEntryV1).empty;
+    defer logs.deinit(allocator);
+    var next_request_id: u64 = 1;
+    var ctx: ExecutionContext = .{
+        .allocator = allocator,
+        .decoded = &decoded,
+        .plan = plan,
+        .adapter = .{
+            .ctx = &dispatch_calls,
+            .dispatchFn = struct {
+                fn dispatch(ctx_ptr: ?*anyopaque, _: std.mem.Allocator, _: host.HostEffectRequestV1) anyerror!host.HostEffectResultV1 {
+                    const counter: *usize = @ptrCast(@alignCast(ctx_ptr.?));
+                    counter.* += 1;
+                    return error.UnexpectedHostDispatch;
+                }
+            }.dispatch,
+        },
+        .logs = &logs,
+        .next_request_id = &next_request_id,
+        .options = .{ .data_value_bounds = .{
+            .max_depth = 4,
+            .max_nodes = 8,
+            .max_bytes = 4,
+        } },
+    };
+
+    var result = try callHostAfterOp(
+        &ctx,
+        .string,
+        .unit,
+        0,
+        7,
+        .{ .value = .{ .string = "oversized" } },
+    );
+    switch (result) {
+        .failed => |*failure| {
+            defer failure.deinit(allocator);
+            try std.testing.expectEqualStrings("resource_exhausted", failure.code);
+            try std.testing.expectEqualStrings("artifact host-request payload budget exceeded", failure.message);
         },
         else => return error.TestUnexpectedRuntimeResult,
     }
