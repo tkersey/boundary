@@ -16,6 +16,11 @@ fn usage() noreturn {
     std.process.exit(1);
 }
 
+fn usageError(comptime fmt: []const u8, args: anytype) noreturn {
+    std.debug.print("ability-source-lower: " ++ fmt ++ "\n", args);
+    usage();
+}
+
 fn writeUsage(writer: anytype) !void {
     try writer.writeAll(usage_text);
 }
@@ -160,7 +165,7 @@ fn writeJson(program: source_lowering.GeneratedProgram, writer: anytype) !void {
     try writer.writeAll(",\"feature_flags\":[");
     for (artifact.feature_flags, 0..) |flag, idx| {
         if (idx != 0) try writer.writeAll(",");
-        try writer.print("\"{s}\"", .{flag});
+        try writeJsonStringLiteral(writer, flag);
     }
     try writer.writeAll("],\"kernel_program_artifact\":");
     try writeJsonKernelProgramArtifact(writer, artifact);
@@ -420,7 +425,9 @@ pub fn main(init: std.process.Init) anyerror!void {
             return;
         }
     }
-    if (args.len != 13) usage();
+    if (args.len != 13) {
+        usageError("expected exactly six flag/value pairs, got {d} argument(s)", .{args.len - 1});
+    }
 
     var program_id: ?[]const u8 = null;
     var source_path: ?[]const u8 = null;
@@ -440,21 +447,21 @@ pub fn main(init: std.process.Init) anyerror!void {
         } else if (std.mem.eql(u8, flag, "--entry")) {
             entry_symbol = value;
         } else if (std.mem.eql(u8, flag, "--surface")) {
-            surface_kind = parseSurface(value) orelse usage();
+            surface_kind = parseSurface(value) orelse usageError("unsupported --surface value '{s}'", .{value});
         } else if (std.mem.eql(u8, flag, "--emit")) {
-            emit = parseEmit(value) orelse usage();
+            emit = parseEmit(value) orelse usageError("unsupported --emit value '{s}'", .{value});
         } else if (std.mem.eql(u8, flag, "--out")) {
             out_path = value;
         } else {
-            usage();
+            usageError("unknown flag '{s}'", .{flag});
         }
     }
 
     var program = try source_lowering.inspectSource(allocator, .{
-        .case_id = program_id orelse usage(),
-        .source_path = source_path orelse usage(),
-        .entry_symbol = entry_symbol orelse usage(),
-        .surface_kind = surface_kind orelse usage(),
+        .case_id = program_id orelse usageError("missing required --id", .{}),
+        .source_path = source_path orelse usageError("missing required --source", .{}),
+        .entry_symbol = entry_symbol orelse usageError("missing required --entry", .{}),
+        .surface_kind = surface_kind orelse usageError("missing required --surface", .{}),
     });
     defer program.deinit(allocator);
 
@@ -462,10 +469,35 @@ pub fn main(init: std.process.Init) anyerror!void {
         .dir = std.Io.Dir.cwd(),
         .io = init.io,
         .allocator = allocator,
-        .emit_mode = emit orelse usage(),
-        .out_path = out_path orelse usage(),
+        .emit_mode = emit orelse usageError("missing required --emit", .{}),
+        .out_path = out_path orelse usageError("missing required --out", .{}),
         .program = &program,
     });
+}
+
+test "json output escapes feature flags" {
+    const feature_flags = [_][]const u8{ "plain", "quote\"slash\\newline\n" };
+    const program = source_lowering.GeneratedProgram{
+        .case_id = "source.test",
+        .label = "source.test",
+        .source_path = "test.zig",
+        .surface_kind = .source_case,
+        .status = .canonical,
+        .canonical_scenario_id = null,
+        .expected_transcript = "",
+        .steps = &.{},
+        .feature_flags = &feature_flags,
+        .diagnostics = &.{},
+        .error_witness = error_witness.ErrorWitnessV1.empty(.ordinary),
+    };
+
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try writeJson(program, &output.writer);
+    const bytes = try output.toOwnedSlice();
+    defer std.testing.allocator.free(bytes);
+
+    try std.testing.expect(std.mem.find(u8, bytes, "\"feature_flags\":[\"plain\",\"quote\\\"slash\\\\newline\\n\"]") != null);
 }
 
 test "rejected source-lower programs remove stale output artifacts" {
