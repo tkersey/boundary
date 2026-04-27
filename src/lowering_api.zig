@@ -58,12 +58,16 @@ pub const ValidationError = error{
     OutOfMemory,
     ParseError,
     SourceDrifted,
+    SourceTooLarge,
     SourceUnreadable,
     UnsupportedHelperGraph,
     UnsupportedEffectAccess,
 };
 /// Public additive lowering error surface.
 pub const LowerError = effect_ir.NormalizeError || ValidationError;
+
+const max_validation_source_bytes = 1 << 20;
+const validation_source_read_limit = max_validation_source_bytes + 1;
 
 fn sentinelBytes(comptime bytes: []const u8) [:0]const u8 {
     const raw = std.fmt.comptimePrint("{s}\x00", .{bytes});
@@ -1749,9 +1753,15 @@ fn validationOwnedSourceContent(
         return source_content;
 
     const io = std.Io.Threaded.global_single_threaded.io();
-    const repo_file = std.Io.Dir.openFileAbsolute(io, disk_path, .{}) catch return error.SourceUnreadable;
-    defer repo_file.close(std.Io.Threaded.global_single_threaded.io());
-    const repo_source = std.Io.Dir.cwd().readFileAlloc(io, disk_path, allocator, .limited(std.math.maxInt(usize))) catch return error.SourceUnreadable;
+    const repo_source = std.Io.Dir.cwd().readFileAlloc(
+        io,
+        disk_path,
+        allocator,
+        .limited(validation_source_read_limit),
+    ) catch |err| switch (err) {
+        error.StreamTooLong => return error.SourceTooLarge,
+        else => return error.SourceUnreadable,
+    };
     defer allocator.free(repo_source);
     if (!std.mem.eql(u8, repo_source, source_content)) {
         return error.SourceDrifted;
@@ -3275,6 +3285,47 @@ test "validation owned source content reports SourceDrifted for repo-owned witne
             \\pub fn runBody() void {}
         ),
     );
+}
+
+test "validation owned source content rejects oversized file-backed witnesses" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const oversized = try std.testing.allocator.alloc(u8, max_validation_source_bytes + 1);
+    defer std.testing.allocator.free(oversized);
+    @memset(oversized, 'x');
+
+    try tmp.dir.writeFile(.{
+        .sub_path = "oversized.zig",
+        .data = oversized,
+    });
+    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "oversized.zig");
+    defer std.testing.allocator.free(source_path);
+
+    try std.testing.expectError(
+        error.SourceTooLarge,
+        validationOwnedSourceContent(std.testing.allocator, source_path, ""),
+    );
+}
+
+test "validation owned source content accepts file-backed witnesses exactly at the size limit" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const exact_size = try std.testing.allocator.allocSentinel(u8, max_validation_source_bytes, 0);
+    defer std.testing.allocator.free(exact_size);
+    @memset(exact_size[0..], 'x');
+
+    try tmp.dir.writeFile(.{
+        .sub_path = "exact_size.zig",
+        .data = exact_size,
+    });
+    const source_path = try tmp.dir.realpathAlloc(std.testing.allocator, "exact_size.zig");
+    defer std.testing.allocator.free(source_path);
+
+    const validated = try validationOwnedSourceContent(std.testing.allocator, source_path, exact_size);
+    try std.testing.expectEqual(@as(usize, max_validation_source_bytes), validated.len);
+    try std.testing.expect(std.mem.eql(u8, exact_size, validated));
 }
 
 test "importedSource preserves parent-directory helpers for absolute caller-owned roots" {

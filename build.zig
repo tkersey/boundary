@@ -4924,6 +4924,12 @@ pub fn build(b: *std.Build) void {
     const source_lowering_tool_step = b.step("source-lower", "Build the internal source-lowering tool.");
     source_lowering_tool_step.dependOn(&source_lowering_tool_exe.step);
     source_lowering_tool_step.dependOn(&source_lowering_tool_install.step);
+    const source_lowering_tool_tests = addFilteredTest(b, source_lowering_tool_mod, test_runner_args.filters.items);
+    const run_source_lowering_tool_tests = addRunArtifactWithArgs(
+        b,
+        source_lowering_tool_tests,
+        test_runner_args.passthrough.items,
+    );
 
     // zlinter-disable declaration_naming - lexical witness module/test handles mirror suite ids for traceable proof receipts.
     const lexical_witness_direct_mod = b.createModule(.{
@@ -5117,6 +5123,7 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "source-lowering-boundary", .description = "Source lowering boundary suite", .run_step = &run_src_lower_boundary_tests.step },
         .{ .suite_id = "source-lowering-promoted", .description = "Promoted source lowering cohort", .run_step = &run_src_lower_promoted_tests.step },
         .{ .suite_id = "source-lowering-completion", .description = "Source lowering completion suite", .run_step = &run_src_lower_completion_tests.step },
+        .{ .suite_id = "source-lowering-tool", .description = "Source lowering CLI tool suite", .run_step = &run_source_lowering_tool_tests.step },
         .{ .suite_id = "open-row-lowering", .description = "Open-row lowering suite", .run_step = &run_open_row_lowering_tests.step },
         .{ .suite_id = "source-ownership-probe", .description = "Source ownership probe suite", .run_step = &run_src_ownership_probe_tests.step },
         .{ .suite_id = "source-lowering-witness", .description = "Source lowering witness completion suite", .run_step = &run_src_lower_witness_tests.step },

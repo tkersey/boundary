@@ -289,6 +289,21 @@ fn writeZig(program: source_lowering.GeneratedProgram, writer: anytype) !void {
     }
     try writer.writeAll("};\n\n");
     try writer.writeAll("pub fn initGeneratedProgram(allocator: std.mem.Allocator) !source_lowering.GeneratedProgram {\n");
+    try writer.writeAll("    const source_path = try allocator.dupe(u8, ");
+    try writeZigStringLiteral(writer, program.source_path);
+    try writer.writeAll(");\n");
+    try writer.writeAll("    errdefer allocator.free(source_path);\n");
+    try writer.writeAll("    const steps = try allocator.dupe(source_lowering.Step, &generated_program_steps);\n");
+    try writer.writeAll("    errdefer allocator.free(steps);\n");
+    try writer.writeAll("    const feature_flags = try allocator.dupe([]const u8, &generated_program_feature_flags);\n");
+    try writer.writeAll("    errdefer allocator.free(feature_flags);\n");
+    try writer.writeAll("    const diagnostics = try allocator.dupe(source_lowering.Diagnostic, &generated_program_diagnostics);\n");
+    try writer.writeAll("    errdefer allocator.free(diagnostics);\n");
+    try writer.writeAll("    const witness_diagnostics: []const WitnessDiagnostic = if (generated_program_witness_diagnostics.len == 0)\n");
+    try writer.writeAll("        &.{}\n");
+    try writer.writeAll("    else\n");
+    try writer.writeAll("        try allocator.dupe(WitnessDiagnostic, &generated_program_witness_diagnostics);\n");
+    try writer.writeAll("    errdefer if (witness_diagnostics.len != 0) allocator.free(witness_diagnostics);\n\n");
     try writer.writeAll("    return .{\n");
     try writer.writeAll("        .case_id = ");
     try writeZigStringLiteral(writer, program.case_id);
@@ -296,9 +311,7 @@ fn writeZig(program: source_lowering.GeneratedProgram, writer: anytype) !void {
     try writer.writeAll("        .label = ");
     try writeZigStringLiteral(writer, program.label);
     try writer.writeAll(",\n");
-    try writer.writeAll("        .source_path = try allocator.dupe(u8, ");
-    try writeZigStringLiteral(writer, program.source_path);
-    try writer.writeAll("),\n");
+    try writer.writeAll("        .source_path = source_path,\n");
     try writer.print("        .surface_kind = .{s},\n", .{@tagName(program.surface_kind)});
     try writer.print("        .status = .{s},\n", .{@tagName(artifact.status)});
     if (artifact.canonical_scenario_id) |id| {
@@ -309,9 +322,9 @@ fn writeZig(program: source_lowering.GeneratedProgram, writer: anytype) !void {
     try writer.writeAll("        .expected_transcript = ");
     try writeZigStringLiteral(writer, artifact.expected_transcript);
     try writer.writeAll(",\n");
-    try writer.writeAll("        .steps = try allocator.dupe(source_lowering.Step, &generated_program_steps),\n");
-    try writer.writeAll("        .feature_flags = try allocator.dupe([]const u8, &generated_program_feature_flags),\n");
-    try writer.writeAll("        .diagnostics = try allocator.dupe(source_lowering.Diagnostic, &generated_program_diagnostics),\n");
+    try writer.writeAll("        .steps = steps,\n");
+    try writer.writeAll("        .feature_flags = feature_flags,\n");
+    try writer.writeAll("        .diagnostics = diagnostics,\n");
     try writer.print("        .error_witness = .{{ .schema_version = {d}, .surface = .{s}, .support_status = .{s}, .public_runtime_errors = &.{{", .{
         program.error_witness.schema_version,
         @tagName(program.error_witness.surface),
@@ -326,11 +339,7 @@ fn writeZig(program: source_lowering.GeneratedProgram, writer: anytype) !void {
     try writeZigStringArray(writer, program.error_witness.semantic_error_names);
     try writer.writeAll(", .contributors = ");
     try writeZigContributors(writer, program.error_witness.contributors);
-    if (program.error_witness.diagnostics.len == 0) {
-        try writer.writeAll(", .diagnostics = &.{}");
-    } else {
-        try writer.writeAll(", .diagnostics = try allocator.dupe(WitnessDiagnostic, &generated_program_witness_diagnostics)");
-    }
+    try writer.writeAll(", .diagnostics = witness_diagnostics");
     try writer.writeAll(" },\n");
     try writer.writeAll("    };\n");
     try writer.writeAll("}\n\n");
@@ -342,6 +351,44 @@ fn writeZig(program: source_lowering.GeneratedProgram, writer: anytype) !void {
             "    try source_lowering.runLowered(writer, &generated_program);\n" ++
             "}\n",
     );
+}
+
+const OutputWriteSpec = struct {
+    dir: std.Io.Dir,
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    emit_mode: EmitMode,
+    out_path: []const u8,
+    program: *const source_lowering.GeneratedProgram,
+};
+
+fn writeAcceptedProgramOutput(spec: OutputWriteSpec) !void {
+    const dir = spec.dir;
+    const io = spec.io;
+    const allocator = spec.allocator;
+    const out_path = spec.out_path;
+    const program = spec.program;
+
+    if (!program.isAccepted()) {
+        dir.deleteFile(io, out_path) catch |err| switch (err) {
+            error.FileNotFound => {},
+            else => return err,
+        };
+        return error.RejectedGeneratedProgram;
+    }
+
+    var output: std.Io.Writer.Allocating = .init(allocator);
+    defer output.deinit();
+    switch (spec.emit_mode) {
+        .json => try writeJson(program.*, &output.writer),
+        .zig => try writeZig(program.*, &output.writer),
+    }
+    const bytes = try output.toOwnedSlice();
+    defer allocator.free(bytes);
+    try dir.writeFile(io, .{
+        .sub_path = out_path,
+        .data = bytes,
+    });
 }
 
 /// Build or inspect one internal source-lowering kernel program artifact.
@@ -389,18 +436,48 @@ pub fn main(init: std.process.Init) anyerror!void {
     });
     defer program.deinit(allocator);
 
-    var output: std.Io.Writer.Allocating = .init(allocator);
-    defer output.deinit();
-    switch (emit orelse usage()) {
-        .json => try writeJson(program, &output.writer),
-        .zig => try writeZig(program, &output.writer),
-    }
-    const bytes = try output.toOwnedSlice();
-    defer allocator.free(bytes);
-    try std.Io.Dir.cwd().writeFile(init.io, .{
-        .sub_path = out_path orelse usage(),
-        .data = bytes,
+    try writeAcceptedProgramOutput(.{
+        .dir = std.Io.Dir.cwd(),
+        .io = init.io,
+        .allocator = allocator,
+        .emit_mode = emit orelse usage(),
+        .out_path = out_path orelse usage(),
+        .program = &program,
+    });
+}
+
+test "rejected source-lower programs remove stale output artifacts" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "out.json",
+        .data = "keep",
     });
 
-    if (!program.isAccepted()) return error.RejectedGeneratedProgram;
+    var program = try source_lowering.inspectSource(std.testing.allocator, .{
+        .case_id = "source.branch_resume",
+        .source_path = "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        .entry_symbol = "wrong",
+        .surface_kind = .source_case,
+    });
+    defer program.deinit(std.testing.allocator);
+    try std.testing.expect(!program.isAccepted());
+
+    try std.testing.expectError(
+        error.RejectedGeneratedProgram,
+        writeAcceptedProgramOutput(.{
+            .dir = tmp.dir,
+            .io = std.testing.io,
+            .allocator = std.testing.allocator,
+            .emit_mode = .json,
+            .out_path = "out.json",
+            .program = &program,
+        }),
+    );
+
+    try std.testing.expectError(
+        error.FileNotFound,
+        tmp.dir.readFileAlloc(std.testing.io, "out.json", std.testing.allocator, .limited(16)),
+    );
 }
