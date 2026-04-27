@@ -4966,6 +4966,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const source_lowering_tool_options = b.addOptions();
+    source_lowering_tool_options.addOption([]const u8, "package_root", b.pathFromRoot("."));
     source_lowering_tool_options.addOption([]const u8, "version", packageVersionAlloc(b));
     source_lowering_tool_mod.addOptions("tool_build_options", source_lowering_tool_options);
     source_lowering_tool_mod.addImport("source_lowering", source_lowering_mod);

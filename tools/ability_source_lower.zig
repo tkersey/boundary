@@ -130,15 +130,17 @@ fn lastPathSeparatorIndex(path: []const u8) ?usize {
     return null;
 }
 
-fn generatedOutputRootBound(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !bool {
+fn generatedOutputRootBound(allocator: std.mem.Allocator, io: std.Io, package_root: []const u8, path: []const u8) !bool {
     const root = generatedOutputRoot(path) orelse return false;
-    std.Io.Dir.cwd().createDirPath(io, root) catch return false;
+    var package_dir = std.Io.Dir.openDirAbsolute(io, package_root, .{}) catch return false;
+    defer package_dir.close(io);
+    package_dir.createDirPath(io, root) catch return false;
 
-    const root_real = std.Io.Dir.cwd().realPathFileAlloc(io, root, allocator) catch return false;
+    const root_real = package_dir.realPathFileAlloc(io, root, allocator) catch return false;
     defer allocator.free(root_real);
-    const cwd_real = std.Io.Dir.cwd().realPathFileAlloc(io, ".", allocator) catch return false;
-    defer allocator.free(cwd_real);
-    const expected_root = try std.Io.Dir.path.join(allocator, &.{ cwd_real, root });
+    const package_root_real = std.Io.Dir.realPathFileAbsoluteAlloc(io, package_root, allocator) catch return false;
+    defer allocator.free(package_root_real);
+    const expected_root = try std.Io.Dir.path.join(allocator, &.{ package_root_real, root });
     defer allocator.free(expected_root);
     return std.mem.eql(u8, root_real, expected_root);
 }
@@ -153,7 +155,7 @@ const BoundOutputPath = struct {
     }
 };
 
-fn bindGeneratedOutputPath(io: std.Io, path: []const u8) !BoundOutputPath {
+fn bindGeneratedOutputPath(io: std.Io, package_root: []const u8, path: []const u8) !BoundOutputPath {
     const root = generatedOutputRoot(path) orelse return error.BadPathName;
     const file_separator = lastPathSeparatorIndex(path) orelse return error.BadPathName;
     if (file_separator < root.len) return error.BadPathName;
@@ -161,7 +163,11 @@ fn bindGeneratedOutputPath(io: std.Io, path: []const u8) !BoundOutputPath {
     const basename = path[file_separator + 1 ..];
     if (basename.len == 0 or containsPathSeparator(basename)) return error.BadPathName;
 
-    var current = try std.Io.Dir.cwd().openDir(io, root, .{ .follow_symlinks = false });
+    var current = current: {
+        var package_dir = try std.Io.Dir.openDirAbsolute(io, package_root, .{});
+        defer package_dir.close(io);
+        break :current try package_dir.openDir(io, root, .{ .follow_symlinks = false });
+    };
     errdefer current.close(io);
 
     var segment_start: usize = root.len + 1;
@@ -615,10 +621,10 @@ pub fn main(init: std.process.Init) anyerror!void {
     if (!generatedOutputPathAllowed(output_path)) {
         usageError("--out must be a generated relative path under zig-out/, .zig-cache/, or zig-cache/: '{s}'", .{output_path});
     }
-    if (!(try generatedOutputRootBound(allocator, init.io, output_path))) {
+    if (!(try generatedOutputRootBound(allocator, init.io, tool_build_options.package_root, output_path))) {
         usageError("--out generated root must be a real directory owned by the current checkout: '{s}'", .{output_path});
     }
-    var bound_output_path = bindGeneratedOutputPath(init.io, output_path) catch {
+    var bound_output_path = bindGeneratedOutputPath(init.io, tool_build_options.package_root, output_path) catch {
         usageError("--out parent path must stay inside real generated directories: '{s}'", .{output_path});
     };
     defer bound_output_path.close();
@@ -721,6 +727,7 @@ test "cli output root guard rejects symlinked generated root" {
     try std.testing.expect(!try generatedOutputRootBound(
         std.testing.allocator,
         std.testing.io,
+        tmp_path,
         "zig-out/source-lower/out.json",
     ));
 }
@@ -741,10 +748,11 @@ test "cli output path binder accepts native separators under generated roots" {
     try std.testing.expect(try generatedOutputRootBound(
         std.testing.allocator,
         std.testing.io,
+        tmp_path,
         "zig-out\\source-lower\\out.json",
     ));
 
-    var bound_output_path = try bindGeneratedOutputPath(std.testing.io, "zig-out\\source-lower\\out.json");
+    var bound_output_path = try bindGeneratedOutputPath(std.testing.io, tmp_path, "zig-out\\source-lower\\out.json");
     defer bound_output_path.close();
     try bound_output_path.dir.writeFile(std.testing.io, .{
         .sub_path = bound_output_path.basename,
@@ -754,6 +762,44 @@ test "cli output path binder accepts native separators under generated roots" {
     const generated_bytes = try tmp.dir.readFileAlloc(std.testing.io, "zig-out/source-lower/out.json", std.testing.allocator, .limited(16));
     defer std.testing.allocator.free(generated_bytes);
     try std.testing.expectEqualStrings("ok", generated_bytes);
+}
+
+test "cli output path binder anchors generated roots to package root from subdirectories" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const original_cwd = try std.process.currentPathAlloc(std.testing.io, std.testing.allocator);
+    defer std.testing.allocator.free(original_cwd);
+    const tmp_path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(tmp_path);
+
+    try tmp.dir.createDirPath(std.testing.io, "examples");
+    const examples_path = try tmp.dir.realPathFileAlloc(std.testing.io, "examples", std.testing.allocator);
+    defer std.testing.allocator.free(examples_path);
+
+    try std.process.setCurrentPath(std.testing.io, examples_path);
+    defer std.process.setCurrentPath(std.testing.io, original_cwd) catch unreachable;
+
+    try std.testing.expect(try generatedOutputRootBound(
+        std.testing.allocator,
+        std.testing.io,
+        tmp_path,
+        "zig-out/out.json",
+    ));
+
+    var bound_output_path = try bindGeneratedOutputPath(std.testing.io, tmp_path, "zig-out/out.json");
+    defer bound_output_path.close();
+    try bound_output_path.dir.writeFile(std.testing.io, .{
+        .sub_path = bound_output_path.basename,
+        .data = "root",
+    });
+
+    const root_generated_bytes = try tmp.dir.readFileAlloc(std.testing.io, "zig-out/out.json", std.testing.allocator, .limited(16));
+    defer std.testing.allocator.free(root_generated_bytes);
+    try std.testing.expectEqualStrings("root", root_generated_bytes);
+    try std.testing.expectError(
+        error.FileNotFound,
+        tmp.dir.readFileAlloc(std.testing.io, "examples/zig-out/out.json", std.testing.allocator, .limited(16)),
+    );
 }
 
 test "cli output path binder rejects symlinked child directories" {
@@ -784,9 +830,10 @@ test "cli output path binder rejects symlinked child directories" {
     try std.testing.expect(try generatedOutputRootBound(
         std.testing.allocator,
         std.testing.io,
+        tmp_path,
         "zig-out/hop/out.json",
     ));
-    const rejected = if (bindGeneratedOutputPath(std.testing.io, "zig-out/hop/out.json")) |bound_value| rejected: {
+    const rejected = if (bindGeneratedOutputPath(std.testing.io, tmp_path, "zig-out/hop/out.json")) |bound_value| rejected: {
         var bound = bound_value;
         bound.close();
         break :rejected false;
@@ -823,7 +870,7 @@ test "accepted source-lower output replaces final symlink instead of following i
     try std.process.setCurrentPath(std.testing.io, tmp_path);
     defer std.process.setCurrentPath(std.testing.io, original_cwd) catch unreachable;
 
-    var bound_output_path = try bindGeneratedOutputPath(std.testing.io, "zig-out/safe/out.json");
+    var bound_output_path = try bindGeneratedOutputPath(std.testing.io, tmp_path, "zig-out/safe/out.json");
     defer bound_output_path.close();
     const program = source_lowering.GeneratedProgram{
         .case_id = "source.test",
