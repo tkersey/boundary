@@ -1390,7 +1390,7 @@ fn trySourceBackedAnonymousCompiledWith(
         synthesized.source,
     );
     if (comptime anonymous_body_synthesis.entryBodyHasBareFunctionCall(synthesized.source, synthesized.entry_symbol)) {
-        @compileError("ability.with source-backed anonymous body must lower to ProgramPlan without unsupported syntax");
+        @compileError("ability.with source-backed anonymous body uses a helper-call pattern this lowering path cannot compile; inline the effect operation or use a supported source-backed helper shape");
     }
     if (comptime anonymous_body_synthesis.maybeLowerSyntheticLexicalBody(
         HandlersType,
@@ -1399,7 +1399,7 @@ fn trySourceBackedAnonymousCompiledWith(
         synthesized.source,
         synthesized.entry_symbol,
     ) == null) {
-        @compileError("ability.with source-backed anonymous body must lower to ProgramPlan without unsupported syntax");
+        @compileError("ability.with source-backed anonymous body could not be compiled by the source-backed lowering path; simplify the body to supported effect operations, locals, branches, and helper shapes");
     }
     const program_type = CompiledLexicalProgram(
         HandlersType,
@@ -1490,7 +1490,7 @@ fn trySourceBackedNamedCompiledWith(
         synthetic_source,
     );
     if (comptime anonymous_body_synthesis.entryBodyHasBareFunctionCall(synthetic_source, entry_symbol)) {
-        @compileError("ability.with source-backed named body must lower to ProgramPlan without unsupported syntax");
+        @compileError("ability.with source-backed named body uses a helper-call pattern this lowering path cannot compile; inline the effect operation or use a supported source-backed helper shape");
     }
     if (comptime anonymous_body_synthesis.maybeLowerSyntheticLexicalBody(
         HandlersType,
@@ -1499,7 +1499,7 @@ fn trySourceBackedNamedCompiledWith(
         synthetic_source,
         entry_symbol,
     ) == null) {
-        @compileError("ability.with source-backed named body must lower to ProgramPlan without unsupported syntax");
+        @compileError("ability.with source-backed named body could not be compiled by the source-backed lowering path; simplify the body to supported effect operations, locals, branches, and helper shapes");
     }
     const program_type = CompiledLexicalProgram(
         HandlersType,

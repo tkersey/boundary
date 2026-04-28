@@ -725,13 +725,13 @@ fn findMismatch(actual: []const NormalizedToken, canonical: []const NormalizedTo
         if (std.mem.eql(u8, actual[index].value, canonical[index].value)) continue;
         return .{
             .token_index = actual[index].token_index,
-            .message = "source no longer matches the supported structural lowering shape for this case",
+            .message = "source differs from the supported lowering pattern for this case; use the canonical fixture shape or update the admitted case baseline",
         };
     }
     if (actual.len != canonical.len) {
         return .{
             .token_index = if (actual.len == 0) null else actual[actual.len - 1].token_index,
-            .message = "source token stream no longer matches the supported structural lowering shape for this case",
+            .message = "source token stream differs from the supported lowering pattern for this case; use the canonical fixture shape or update the admitted case baseline",
         };
     }
     return null;
@@ -808,7 +808,7 @@ pub fn lowerFileBackedSourceText(input: LowerFileBackedSourceTextInput) anyerror
             .allocator = allocator,
             .display_path = display_path,
             .code = "non_canonical_source_path",
-            .message = "source path does not match the canonical repo-owned path for this case",
+            .message = "source path is not the expected path for this case; pass the canonical repo file or an alias that resolves to it",
             .line = 1,
             .column = 1,
         }));
@@ -909,7 +909,7 @@ pub fn lowerSourceText(
             .allocator = allocator,
             .display_path = input.display_path,
             .code = "non_canonical_source_path",
-            .message = "source path does not match the canonical repo-owned path for this case",
+            .message = "source path is not the expected path for this case; pass the canonical repo file or an alias that resolves to it",
             .line = 1,
             .column = 1,
         }));
@@ -936,7 +936,7 @@ fn lowerAnalyzedSourceText(
             .allocator = allocator,
             .display_path = input.display_path,
             .code = "non_canonical_source_path",
-            .message = "source path does not match the canonical repo-owned path for this case",
+            .message = "source path is not the expected path for this case; pass the canonical repo file or an alias that resolves to it",
             .line = 1,
             .column = 1,
         }));
@@ -978,7 +978,7 @@ fn lowerAnalyzedSourceText(
             .allocator = allocator,
             .display_path = case.source_path,
             .code = "canonical_source_drift",
-            .message = "canonical source on disk no longer matches the frozen admitted baseline for this case",
+            .message = "canonical source on disk differs from the admitted case baseline; regenerate or update the baseline before lowering",
             .line = 1,
             .column = 1,
         }));
@@ -1031,7 +1031,7 @@ pub fn lowerSourceFile(
             .allocator = allocator,
             .display_path = display_path,
             .code = "non_canonical_source_path",
-            .message = "source path does not match the canonical repo-owned path for this case",
+            .message = "source path is not the expected path for this case; pass the canonical repo file or an alias that resolves to it",
             .line = 1,
             .column = 1,
         }));
