@@ -532,6 +532,9 @@ fn materializeExecutionOutputs(ctx: *ExecutionContext) anyerror!OutputMaterializ
         error.OutputSnapshotCountMismatch => {
             return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host output snapshot count must match the declared outputs") };
         },
+        error.OutputSnapshotLabelMismatch => {
+            return .{ .failed = try invalidHostReplyFailure(ctx.allocator, "host output snapshot labels must match the declared outputs") };
+        },
         else => return .{ .failed = try providerFailureFailure(ctx.allocator, @errorName(err)) },
     };
     defer deinitCollectedOutputValues(ctx.allocator, values);
@@ -2349,6 +2352,92 @@ test "artifact runtime releases invalid output snapshots on structured failure" 
             defer failure.deinit(allocator);
             try std.testing.expectEqualStrings("invalid_host_reply", failure.code);
             try std.testing.expectEqualStrings("host output snapshot value does not match the declared codec", failure.message);
+        },
+        .outputs => |outputs_slice| {
+            defer deinitExecutionOutputs(allocator, outputs_slice);
+            return error.TestUnexpectedRuntimeResult;
+        },
+    }
+}
+
+test "artifact runtime maps output snapshot label mismatch to invalid host reply" {
+    const allocator = std.testing.allocator;
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "entry",
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 1,
+        .first_instruction = 0,
+        .instruction_count = 0,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+    }};
+    const outputs = [_]program_plan.OutputPlan{.{
+        .label = "answer",
+        .codec = .i32,
+    }};
+    const blocks = [_]program_plan.BlockPlan{.{
+        .first_instruction = 0,
+        .instruction_count = 0,
+        .terminator_index = 0,
+    }};
+    const terminators = [_]program_plan.Terminator{.{ .kind = .return_unit }};
+    const plan: program_plan.ProgramPlan = .{
+        .label = "label-mismatch-output",
+        .ir_hash = 0,
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &outputs,
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &.{},
+    };
+    var artifact_value = std.mem.zeroes(artifact.ArtifactV1);
+    var logs = std.ArrayList(host.HostLogEntryV1).empty;
+    defer logs.deinit(allocator);
+    var next_request_id: u64 = 1;
+    var ctx: ExecutionContext = .{
+        .allocator = allocator,
+        .decoded = &artifact_value,
+        .plan = plan,
+        .adapter = .{
+            .ctx = null,
+            .dispatchFn = struct {
+                fn dispatch(
+                    _: ?*anyopaque,
+                    _: std.mem.Allocator,
+                    _: host.HostEffectRequestV1,
+                ) anyerror!host.HostEffectResultV1 {
+                    return error.TestUnexpectedDispatch;
+                }
+            }.dispatch,
+            .collectOutputsFn = struct {
+                fn collect(
+                    _: ?*anyopaque,
+                    _: std.mem.Allocator,
+                    declared_outputs: []const host.OutputDescriptorV1,
+                ) anyerror![]host.DataValueV1 {
+                    try std.testing.expectEqual(@as(usize, 1), declared_outputs.len);
+                    return error.OutputSnapshotLabelMismatch;
+                }
+            }.collect,
+        },
+        .logs = &logs,
+        .next_request_id = &next_request_id,
+    };
+
+    var result = try materializeExecutionOutputs(&ctx);
+    switch (result) {
+        .failed => |*failure| {
+            defer failure.deinit(allocator);
+            try std.testing.expectEqualStrings("invalid_host_reply", failure.code);
+            try std.testing.expectEqualStrings("host output snapshot labels must match the declared outputs", failure.message);
         },
         .outputs => |outputs_slice| {
             defer deinitExecutionOutputs(allocator, outputs_slice);

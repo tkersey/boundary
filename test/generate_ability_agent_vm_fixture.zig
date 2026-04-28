@@ -10,11 +10,27 @@ const Mode = enum {
     write,
 };
 
+fn isModeArg(arg: []const u8) bool {
+    return std.mem.eql(u8, arg, "--help") or
+        std.mem.eql(u8, arg, "-h") or
+        std.mem.eql(u8, arg, "--check");
+}
+
 fn modeFromArgs(args: []const [:0]const u8) !Mode {
     if (args.len == 1) return .write;
-    if (args.len == 2 and (std.mem.eql(u8, args[1], "--help") or std.mem.eql(u8, args[1], "-h"))) return .help;
-    if (args.len == 2 and std.mem.eql(u8, args[1], "--check")) return .check;
+    if (args.len == 2 and isModeArg(args[1])) {
+        if (std.mem.eql(u8, args[1], "--check")) return .check;
+        return .help;
+    }
     return error.InvalidAbilityAgentVmFixtureGeneratorArgs;
+}
+
+fn invalidArg(args: []const [:0]const u8) ?[]const u8 {
+    if (args.len == 2) return args[1];
+    if (args.len > 2) {
+        return if (isModeArg(args[1])) args[2] else args[1];
+    }
+    return null;
 }
 
 fn writeUsage(writer: anytype) !void {
@@ -80,7 +96,11 @@ pub fn main(init: std.process.Init) anyerror!void {
         var stderr_buffer: [256]u8 = undefined;
         var stderr_writer = std.Io.File.stderr().writerStreaming(init.io, &stderr_buffer);
         const stderr = &stderr_writer.interface;
-        try stderr.writeAll("generate-ability-agent-vm-fixture: invalid arguments\n");
+        if (invalidArg(args)) |arg| {
+            try stderr.print("generate-ability-agent-vm-fixture: invalid argument '{s}'\n", .{arg});
+        } else {
+            try stderr.writeAll("generate-ability-agent-vm-fixture: invalid arguments\n");
+        }
         try writeUsage(stderr);
         try stderr.flush();
         std.process.exit(1);
@@ -115,6 +135,10 @@ test "ability_agent_vm fixture generator args expose help and reject unknowns" {
         error.InvalidAbilityAgentVmFixtureGeneratorArgs,
         modeFromArgs(&.{ "generate-ability-agent-vm-fixture", "--bad" }),
     );
+    try std.testing.expectEqualStrings("--bad", invalidArg(&.{ "generate-ability-agent-vm-fixture", "--bad" }).?);
+    try std.testing.expectEqualStrings("--bad", invalidArg(&.{ "generate-ability-agent-vm-fixture", "--bad", "extra" }).?);
+    try std.testing.expectEqualStrings("extra", invalidArg(&.{ "generate-ability-agent-vm-fixture", "--check", "extra" }).?);
+    try std.testing.expectEqualStrings("extra", invalidArg(&.{ "generate-ability-agent-vm-fixture", "--help", "extra" }).?);
 }
 
 test "ability_agent_vm fixture freshness check matches committed artifact" {

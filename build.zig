@@ -5404,6 +5404,12 @@ pub fn build(b: *std.Build) void {
             .step_desc = "Run the optional-resumption effect example.",
         },
         .{
+            .name = "reader_basic",
+            .src = "examples/reader_basic.zig",
+            .step_name = "run-reader-basic",
+            .step_desc = "Run the reader-effect example.",
+        },
+        .{
             .name = "resource_basic",
             .src = "examples/resource_basic.zig",
             .step_name = "run-resource-basic",
@@ -5414,6 +5420,12 @@ pub fn build(b: *std.Build) void {
             .src = "examples/state_basic.zig",
             .step_name = "run-state-basic",
             .step_desc = "Run the additive state-effect example.",
+        },
+        .{
+            .name = "writer_basic",
+            .src = "examples/writer_basic.zig",
+            .step_name = "run-writer-basic",
+            .step_desc = "Run the writer-effect example.",
         },
     };
 

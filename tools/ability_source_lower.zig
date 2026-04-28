@@ -14,9 +14,18 @@ const usage_text =
     "usage: ability-source-lower --id <source.case> --source <path> --entry <symbol> --surface <source_case|example|effect|user_defined_effect|witness> --emit <json|zig> --out <path>\n" ++
     "\n" ++
     "flags:\n" ++
+    "  --id <case>      source-lowering case id, for example source.branch_resume or example.state_basic\n" ++
+    "  --source <path>  source file for the case; use the canonical repo-relative fixture/example path\n" ++
+    "  --entry <symbol> entry function for the case, usually run or main\n" ++
+    "  --surface <kind> one of source_case, example, effect, user_defined_effect, witness\n" ++
+    "  --emit <format>  one of json or zig\n" ++
+    "  --out <path>     write only under zig-out, .zig-cache, or zig-cache\n" ++
     "  --version        print the tool version\n" ++
     "  --help, -h       print this help\n" ++
-    "  --out <path>     write only under zig-out, .zig-cache, or zig-cache\n";
+    "\n" ++
+    "examples:\n" ++
+    "  ability-source-lower --id source.branch_resume --source test/source_lowering_corpus/fixtures/branch_resume.zig --entry run --surface source_case --emit json --out zig-out/source-lower/branch.json\n" ++
+    "  ability-source-lower --id example.state_basic --source examples/state_basic.zig --entry main --surface example --emit zig --out zig-out/source-lower/state.zig\n";
 const expected_flag_value_pair_count = 6;
 const expected_arg_count = 1 + expected_flag_value_pair_count * 2;
 const generated_output_roots = [_][]const u8{
@@ -737,7 +746,7 @@ pub fn main(init: std.process.Init) anyerror!void {
         .surface_kind = cli_options.surface_kind,
     }) catch |err| switch (err) {
         error.UnsupportedSourceCase => usageError(
-            "unsupported --id '{s}' for --surface '{s}'; choose a case id registered for that surface in src/source_lowering.zig or test/source_lowering_corpus",
+            "unsupported --id '{s}' for --surface '{s}'; try --id source.branch_resume with --surface source_case or --id example.state_basic with --surface example",
             .{ cli_options.program_id, @tagName(cli_options.surface_kind) },
         ),
         else => return err,
@@ -793,6 +802,16 @@ test "cli shape reports unknown flags before arity" {
     const args = [_][]const u8{ "ability-source-lower", "--bad-flag" };
     const issue = cliShapeIssue(&args).?;
     try std.testing.expectEqualStrings("--bad-flag", issue.unknown_flag);
+}
+
+test "usage text documents required flags and recovery examples" {
+    try std.testing.expect(std.mem.find(u8, usage_text, "--id <case>") != null);
+    try std.testing.expect(std.mem.find(u8, usage_text, "--source <path>") != null);
+    try std.testing.expect(std.mem.find(u8, usage_text, "--entry <symbol>") != null);
+    try std.testing.expect(std.mem.find(u8, usage_text, "--surface <kind>") != null);
+    try std.testing.expect(std.mem.find(u8, usage_text, "--emit <format>") != null);
+    try std.testing.expect(std.mem.find(u8, usage_text, "source.branch_resume") != null);
+    try std.testing.expect(std.mem.find(u8, usage_text, "example.state_basic") != null);
 }
 
 test "cli shape reports missing values before arity" {

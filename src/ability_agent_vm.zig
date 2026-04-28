@@ -19,6 +19,10 @@ pub const host = struct {
 
     /// One completed output snapshot with explicit payload ownership.
     pub const OutputSnapshot = struct {
+        /// Optional declared-output label echoed by the adapter.
+        /// Multi-output snapshots must carry the matching label so same-codec
+        /// values cannot be silently associated with the wrong output.
+        label: ?[]const u8 = null,
         value: DataValue,
         value_ownership: DataValueOwnership = .borrowed,
 
@@ -188,13 +192,19 @@ pub const host = struct {
         ) anyerror![]OutputSnapshot {
             if (declared_outputs.len == 0) return allocator.alloc(OutputSnapshot, 0);
             if (self.collectOutputSnapshotsFn) |collect_snapshots| {
-                return collect_snapshots(self.ctx, allocator, declared_outputs);
+                const snapshots = try collect_snapshots(self.ctx, allocator, declared_outputs);
+                validateOutputSnapshotLabels(declared_outputs, snapshots, .require_explicit_multi_output) catch |err| {
+                    deinitOutputSnapshots(allocator, snapshots);
+                    return err;
+                };
+                return snapshots;
             }
 
             const collect = self.collectOutputsFn orelse return error.MissingOutputSnapshot;
             var values = try collect(self.ctx, allocator, declared_outputs);
             defer allocator.free(values);
             errdefer for (values) |*value| value.deinit(allocator);
+            if (values.len != declared_outputs.len) return error.OutputSnapshotCountMismatch;
 
             const snapshots = try allocator.alloc(OutputSnapshot, values.len);
             var initialized: usize = 0;
@@ -205,6 +215,7 @@ pub const host = struct {
 
             for (values, 0..) |value, index| {
                 snapshots[index] = .{
+                    .label = declared_outputs[index].label,
                     .value = value,
                     .value_ownership = .deep,
                 };
@@ -215,6 +226,36 @@ pub const host = struct {
         }
     };
 };
+
+fn deinitOutputSnapshots(allocator: std.mem.Allocator, snapshots: []host.OutputSnapshot) void {
+    for (snapshots) |*snapshot| snapshot.deinit(allocator);
+    allocator.free(snapshots);
+}
+
+const SnapshotLabelPolicy = enum {
+    allow_positional_single_output,
+    require_explicit_multi_output,
+};
+
+fn validateOutputSnapshotLabels(
+    declared_outputs: []const host_api.OutputDescriptorV1,
+    snapshots: []const host.OutputSnapshot,
+    label_policy: SnapshotLabelPolicy,
+) !void {
+    if (snapshots.len != declared_outputs.len) return error.OutputSnapshotCountMismatch;
+
+    const require_labels = switch (label_policy) {
+        .allow_positional_single_output => false,
+        .require_explicit_multi_output => declared_outputs.len > 1,
+    };
+    for (snapshots, 0..) |snapshot, index| {
+        if (snapshot.label) |label| {
+            if (!std.mem.eql(u8, label, declared_outputs[index].label)) return error.OutputSnapshotLabelMismatch;
+        } else if (require_labels) {
+            return error.OutputSnapshotLabelMismatch;
+        }
+    }
+}
 
 /// Supported synchronous runtime surface for agent-vm execution.
 pub const runtime = struct {
@@ -338,12 +379,9 @@ fn bridgeCollectOutputs(
 ) anyerror![]host_api.DataValueV1 {
     const bridge_context: *BridgeContext = @ptrCast(@alignCast(ctx_ptr.?));
     const snapshots = try bridge_context.adapter.collectOutputSnapshots(allocator, declared_outputs);
-    defer {
-        for (snapshots) |*snapshot| snapshot.deinit(allocator);
-        allocator.free(snapshots);
-    }
-    if (snapshots.len != declared_outputs.len) return error.OutputSnapshotCountMismatch;
+    defer deinitOutputSnapshots(allocator, snapshots);
 
+    try validateOutputSnapshotLabels(declared_outputs, snapshots, .allow_positional_single_output);
     const values = try allocator.alloc(host_api.DataValueV1, snapshots.len);
     var initialized: usize = 0;
     errdefer {
