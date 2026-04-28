@@ -735,7 +735,7 @@ pub fn main(init: std.process.Init) anyerror!void {
     if (!program.isAccepted()) {
         try deleteRejectedProgramOutput(bound_output_path.dir, init.io, bound_output_path.basename);
         var stderr_buffer: [1024]u8 = undefined;
-        var stderr_writer = std.Io.File.stderr().writer(init.io, &stderr_buffer);
+        var stderr_writer = std.Io.File.stderr().writerStreaming(init.io, &stderr_buffer);
         const stderr = &stderr_writer.interface;
         try writeRejectedProgramDiagnostics(stderr, program);
         try stderr.flush();

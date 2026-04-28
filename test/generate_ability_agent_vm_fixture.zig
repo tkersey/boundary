@@ -72,7 +72,7 @@ pub fn main(init: std.process.Init) anyerror!void {
     const args = try init.minimal.args.toSlice(allocator);
     const mode = modeFromArgs(args) catch |err| {
         var stderr_buffer: [256]u8 = undefined;
-        var stderr_writer = std.Io.File.stderr().writer(init.io, &stderr_buffer);
+        var stderr_writer = std.Io.File.stderr().writerStreaming(init.io, &stderr_buffer);
         const stderr = &stderr_writer.interface;
         try stderr.writeAll("generate-ability-agent-vm-fixture: invalid arguments\n");
         try writeUsage(stderr);
