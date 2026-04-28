@@ -737,7 +737,7 @@ pub fn main(init: std.process.Init) anyerror!void {
         .surface_kind = cli_options.surface_kind,
     }) catch |err| switch (err) {
         error.UnsupportedSourceCase => usageError(
-            "unsupported --id '{s}' for --surface '{s}'",
+            "unsupported --id '{s}' for --surface '{s}'; choose a case id registered for that surface in src/source_lowering.zig or test/source_lowering_corpus",
             .{ cli_options.program_id, @tagName(cli_options.surface_kind) },
         ),
         else => return err,
@@ -751,7 +751,7 @@ pub fn main(init: std.process.Init) anyerror!void {
         const stderr = &stderr_writer.interface;
         try writeRejectedProgramDiagnostics(stderr, program);
         try stderr.flush();
-        return error.RejectedGeneratedProgram;
+        std.process.exit(1);
     }
 
     try writeAcceptedProgramOutput(.{

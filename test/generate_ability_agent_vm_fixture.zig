@@ -18,7 +18,13 @@ fn modeFromArgs(args: []const [:0]const u8) !Mode {
 }
 
 fn writeUsage(writer: anytype) !void {
-    try writer.writeAll("usage: generate-ability-agent-vm-fixture [--check]\n");
+    try writer.writeAll(
+        "usage: generate-ability-agent-vm-fixture [--check|--help]\n" ++
+            "\n" ++
+            "flags:\n" ++
+            "  --check        verify the committed fixture is current\n" ++
+            "  --help, -h     print this help\n",
+    );
 }
 
 fn compatIo() std.Io {
@@ -70,14 +76,14 @@ pub fn main(init: std.process.Init) anyerror!void {
     const allocator = fixed_buffer_allocator.allocator();
 
     const args = try init.minimal.args.toSlice(allocator);
-    const mode = modeFromArgs(args) catch |err| {
+    const mode = modeFromArgs(args) catch {
         var stderr_buffer: [256]u8 = undefined;
         var stderr_writer = std.Io.File.stderr().writerStreaming(init.io, &stderr_buffer);
         const stderr = &stderr_writer.interface;
         try stderr.writeAll("generate-ability-agent-vm-fixture: invalid arguments\n");
         try writeUsage(stderr);
         try stderr.flush();
-        return err;
+        std.process.exit(1);
     };
 
     switch (mode) {
