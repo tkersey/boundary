@@ -17,6 +17,101 @@ pub const SurfaceKind = enum {
     witness,
 };
 
+const source_case_ids = [_][]const u8{
+    "source.local_mutation_resume",
+    "source.branch_resume",
+    "source.loop_resume",
+    "source.helper_call_resume",
+    "source.nested_prompt_static_redelim",
+    "source.typed_error_try",
+    "source.defer_resume",
+    "source.errdefer_error",
+};
+
+const example_case_ids = [_][]const u8{
+    "example.open_row_transform_basic",
+    "example.open_row_choice_basic",
+    "example.open_row_abort_basic",
+    "example.open_row_workflow",
+    "example.open_row_abortive_validation",
+    "example.open_row_artifact_search",
+    "example.open_row_generator",
+    "example.early_exit",
+    "example.resume_or_return",
+    "example.nested_workflow",
+    "example.state_basic",
+    "example.reader_basic",
+    "example.optional_basic",
+    "example.exception_basic",
+    "example.resource_basic",
+    "example.writer_basic",
+};
+
+const effect_case_ids = [_][]const u8{
+    "effect.state_basic",
+    "effect.reader_basic",
+    "effect.optional_basic",
+    "effect.exception_basic",
+    "effect.resource_basic",
+    "effect.writer_basic",
+};
+
+const user_defined_case_ids = [_][]const u8{
+    "user_defined.transform",
+    "user_defined.choice",
+    "user_defined.abort",
+};
+
+const witness_case_ids = [_][]const u8{
+    "witness.atm_resume_transform",
+    "witness.direct_return",
+    "witness.multi_prompt",
+    "witness.resume_or_return_return_now",
+    "witness.resume_or_return_resume",
+    "witness.static_redelim",
+    "witness.generator",
+};
+
+/// Return supported source-lowering case ids for one CLI surface.
+pub fn supportedCaseIds(surface_kind: SurfaceKind) []const []const u8 {
+    return switch (surface_kind) {
+        .source_case => source_case_ids[0..],
+        .example => example_case_ids[0..],
+        .effect => effect_case_ids[0..],
+        .user_defined_effect => user_defined_case_ids[0..],
+        .witness => witness_case_ids[0..],
+    };
+}
+
+fn caseIdListContains(ids: []const []const u8, needle: []const u8) bool {
+    for (ids) |id| {
+        if (std.mem.eql(u8, id, needle)) return true;
+    }
+    return false;
+}
+
+test "supported case-id listings stay aligned with admitted cases" {
+    for (source_registry.cases) |case| {
+        try std.testing.expect(caseIdListContains(supportedCaseIds(.source_case), case.case_id));
+    }
+    for (shipped_open_row_corpus.custom_examples) |row| {
+        try std.testing.expect(caseIdListContains(supportedCaseIds(.example), row.example_case_id));
+        if (row.user_defined_case_id) |case_id| {
+            try std.testing.expect(caseIdListContains(supportedCaseIds(.user_defined_effect), case_id));
+        }
+    }
+    inline for (@typeInfo(SurfaceKind).@"enum".fields) |field| {
+        const surface_kind: SurfaceKind = @enumFromInt(field.value);
+        for (supportedCaseIds(surface_kind)) |case_id| {
+            const supported = switch (surface_kind) {
+                .source_case => source_registry.find(case_id) != null,
+                .example, .effect, .user_defined_effect, .witness => promotedSupportedCase(case_id, surface_kind) != null,
+            };
+            try std.testing.expect(supported);
+        }
+    }
+}
+
 /// Progress state for one source-lowering result.
 pub const LowerStatus = authoring_lowerer.LowerStatus;
 
@@ -856,6 +951,25 @@ fn generatedEntrySymbolMismatchProgram(
     return program;
 }
 
+fn generatedCanonicalSourceDriftProgram(
+    allocator: std.mem.Allocator,
+    spec: Spec,
+    case: SupportedCase,
+) std.mem.Allocator.Error!GeneratedProgram {
+    const message = try std.fmt.allocPrint(
+        allocator,
+        "source differs from the registered artifact layout for this case; rerun with --source {s}, or update the case registry and baseline before rerunning",
+        .{case.source_path},
+    );
+    errdefer allocator.free(message);
+    const owned_messages = try allocator.alloc([]const u8, 1);
+    errdefer allocator.free(owned_messages);
+    owned_messages[0] = message;
+    var program = try generatedRejectedProgram(allocator, spec, case, "canonical_source_drift", message);
+    program.owned_diagnostic_messages = owned_messages;
+    return program;
+}
+
 fn inspectSourceText(
     allocator: std.mem.Allocator,
     spec: Spec,
@@ -887,7 +1001,7 @@ fn inspectSourceText(
     if (lowered.status != .rejected and !(try sourceMatchesCanonicalLayout(allocator, case, source_text))) {
         lowered.deinit(allocator);
         lowered_owned = false;
-        return generatedRejectedProgram(allocator, spec, case, "canonical_source_drift", "source differs from the registered artifact layout for this case; use the registered source file or update the case registry and baseline before rerunning");
+        return generatedCanonicalSourceDriftProgram(allocator, spec, case);
     }
     const program = try generatedProgramFromLowered(allocator, spec, case, lowered);
     lowered_owned = false;
@@ -921,7 +1035,7 @@ fn inspectFileBackedSourceText(
     if (lowered.status != .rejected and !(try sourceMatchesCanonicalLayout(allocator, case, source_text))) {
         lowered.deinit(allocator);
         lowered_owned = false;
-        return generatedRejectedProgram(allocator, spec, case, "canonical_source_drift", "source differs from the registered artifact layout for this case; use the registered source file or update the case registry and baseline before rerunning");
+        return generatedCanonicalSourceDriftProgram(allocator, spec, case);
     }
     const program = try generatedProgramFromLowered(allocator, spec, case, lowered);
     lowered_owned = false;
@@ -967,7 +1081,7 @@ pub fn inspectSource(allocator: std.mem.Allocator, spec: Spec) LowerError!Genera
         if (!(try sourceMatchesCanonicalLayout(allocator, case, source))) {
             lowered.deinit(allocator);
             lowered_owned = false;
-            return generatedRejectedProgram(allocator, spec, case, "canonical_source_drift", "source differs from the registered artifact layout for this case; use the registered source file or update the case registry and baseline before rerunning");
+            return generatedCanonicalSourceDriftProgram(allocator, spec, case);
         }
     }
     const program = try generatedProgramFromLowered(allocator, spec, case, lowered);

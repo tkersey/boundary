@@ -458,6 +458,11 @@ test "inline source lowering rejects whitespace drift after accepted authoring a
 
     try std.testing.expect(!lowered.isAccepted());
     try std.testing.expectEqualStrings("canonical_source_drift", lowered.diagnostics[0].code);
+    try std.testing.expect(std.mem.find(
+        u8,
+        lowered.diagnostics[0].message,
+        "rerun with --source test/source_lowering_corpus/fixtures/branch_resume.zig",
+    ) != null);
 }
 
 test "file-backed inline source lowering accepts canonical repo-relative paths from subdirectories" {
@@ -540,6 +545,11 @@ test "file-backed inline source lowering rejects whitespace drift after accepted
 
     try std.testing.expect(!lowered.isAccepted());
     try std.testing.expectEqualStrings("canonical_source_drift", lowered.diagnostics[0].code);
+    try std.testing.expect(std.mem.find(
+        u8,
+        lowered.diagnostics[0].message,
+        "rerun with --source test/source_lowering_corpus/fixtures/branch_resume.zig",
+    ) != null);
 }
 
 test "file-backed inline source lowering preserves parse-error locations" {

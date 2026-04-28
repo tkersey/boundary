@@ -12,6 +12,7 @@ const EmitMode = enum {
 
 const usage_text =
     "usage: ability-source-lower --id <source.case> --source <path> --entry <symbol> --surface <source_case|example|effect|user_defined_effect|witness> --emit <json|zig> --out <path>\n" ++
+    "       ability-source-lower --list-cases [--surface <source_case|example|effect|user_defined_effect|witness>]\n" ++
     "\n" ++
     "flags:\n" ++
     "  --id <case>      source-lowering case id, for example source.branch_resume or example.state_basic\n" ++
@@ -20,13 +21,15 @@ const usage_text =
     "  --surface <kind> one of source_case, example, effect, user_defined_effect, witness\n" ++
     "  --emit <format>  one of json or zig\n" ++
     "  --out <path>     write only under zig-out, .zig-cache, or zig-cache; parent directories must already exist\n" ++
+    "  --list-cases     print supported case ids, optionally restricted by --surface\n" ++
     "  --version        print the tool version\n" ++
     "  --help, -h       print this help\n" ++
     "\n" ++
     "examples:\n" ++
     "  mkdir -p zig-out/source-lower\n" ++
-    "  ability-source-lower --id source.branch_resume --source test/source_lowering_corpus/fixtures/branch_resume.zig --entry run --surface source_case --emit json --out zig-out/source-lower/branch.json\n" ++
-    "  ability-source-lower --id example.state_basic --source examples/state_basic.zig --entry main --surface example --emit zig --out zig-out/source-lower/state.zig\n";
+    "  ./zig-out/bin/ability-source-lower --list-cases --surface example\n" ++
+    "  ./zig-out/bin/ability-source-lower --id source.branch_resume --source test/source_lowering_corpus/fixtures/branch_resume.zig --entry run --surface source_case --emit json --out zig-out/source-lower/branch.json\n" ++
+    "  ./zig-out/bin/ability-source-lower --id example.state_basic --source examples/state_basic.zig --entry main --surface example --emit zig --out zig-out/source-lower/state.zig\n";
 const expected_flag_value_pair_count = 6;
 const expected_arg_count = 1 + expected_flag_value_pair_count * 2;
 const generated_output_roots = [_][]const u8{
@@ -85,6 +88,35 @@ fn usageError(comptime fmt: []const u8, args: anytype) noreturn {
 
 fn writeUsage(writer: anytype) !void {
     try writer.writeAll(usage_text);
+}
+
+fn writeSupportedCaseIds(writer: anytype, surface_kind: source_lowering.SurfaceKind) !void {
+    try writer.print("{s}:\n", .{@tagName(surface_kind)});
+    for (source_lowering.supportedCaseIds(surface_kind)) |case_id| {
+        try writer.print("  {s}\n", .{case_id});
+    }
+}
+
+fn listCases(allocator: std.mem.Allocator, io: std.Io, args: []const []const u8) !void {
+    _ = allocator;
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    if (args.len == 2) {
+        inline for (@typeInfo(source_lowering.SurfaceKind).@"enum".fields, 0..) |field, index| {
+            if (index != 0) try stdout.writeByte('\n');
+            try writeSupportedCaseIds(stdout, @enumFromInt(field.value));
+        }
+        try stdout.flush();
+        return;
+    }
+    if (args.len == 4 and std.mem.eql(u8, args[2], "--surface")) {
+        const surface_kind = parseSurface(args[3]) orelse usageError("unsupported --surface value '{s}'", .{args[3]});
+        try writeSupportedCaseIds(stdout, surface_kind);
+        try stdout.flush();
+        return;
+    }
+    usageError("expected --list-cases or --list-cases --surface <kind>", .{});
 }
 
 fn isKnownFlag(flag: []const u8) bool {
@@ -686,6 +718,10 @@ pub fn main(init: std.process.Init) anyerror!void {
             return;
         }
     }
+    if (args.len >= 2 and std.mem.eql(u8, args[1], "--list-cases")) {
+        try listCases(allocator, init.io, args);
+        return;
+    }
     if (cliShapeIssue(args)) |issue| {
         switch (issue) {
             .missing_value => |flag| usageError("missing value for flag '{s}'", .{flag}),
@@ -745,8 +781,8 @@ pub fn main(init: std.process.Init) anyerror!void {
         .surface_kind = cli_options.surface_kind,
     }) catch |err| switch (err) {
         error.UnsupportedSourceCase => usageError(
-            "unsupported --id '{s}' for --surface '{s}'; try --id source.branch_resume with --surface source_case or --id example.state_basic with --surface example",
-            .{ cli_options.program_id, @tagName(cli_options.surface_kind) },
+            "unsupported --id '{s}' for --surface '{s}'; run `ability-source-lower --list-cases --surface {s}` to see valid ids",
+            .{ cli_options.program_id, @tagName(cli_options.surface_kind), @tagName(cli_options.surface_kind) },
         ),
         else => return err,
     };
@@ -809,8 +845,23 @@ test "usage text documents required flags and recovery examples" {
     try std.testing.expect(std.mem.find(u8, usage_text, "--entry <symbol>") != null);
     try std.testing.expect(std.mem.find(u8, usage_text, "--surface <kind>") != null);
     try std.testing.expect(std.mem.find(u8, usage_text, "--emit <format>") != null);
+    try std.testing.expect(std.mem.find(u8, usage_text, "--list-cases") != null);
+    try std.testing.expect(std.mem.find(u8, usage_text, "./zig-out/bin/ability-source-lower") != null);
     try std.testing.expect(std.mem.find(u8, usage_text, "source.branch_resume") != null);
     try std.testing.expect(std.mem.find(u8, usage_text, "example.state_basic") != null);
+}
+
+test "case listing prints supported ids for a selected surface" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+
+    try writeSupportedCaseIds(&output.writer, .example);
+    const bytes = try output.toOwnedSlice();
+    defer std.testing.allocator.free(bytes);
+
+    try std.testing.expect(std.mem.find(u8, bytes, "example:\n") != null);
+    try std.testing.expect(std.mem.find(u8, bytes, "example.state_basic") != null);
+    try std.testing.expect(std.mem.find(u8, bytes, "example.open_row_transform_basic") != null);
 }
 
 test "cli shape reports missing values before arity" {

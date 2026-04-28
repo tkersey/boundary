@@ -4323,6 +4323,11 @@ pub fn build(b: *std.Build) void {
         "test-suites",
         "Restrict `zig build test` to exact suite ids; README lists ids and invalid ids print them.",
     );
+    const lint_verbose = b.option(
+        bool,
+        "lint-verbose",
+        "Print verbose zlinter command output during `zig build lint`.",
+    ) orelse false;
     const test_requested_from_argv = buildInvocationRequestsRunnableStep("test");
     const lint_requested_from_argv = buildInvocationRequestsStep("lint");
     const inferred_shared_tail = inferBuildInvocationFromSharedTail(b.args);
@@ -4890,6 +4895,8 @@ pub fn build(b: *std.Build) void {
     const run_ability_agent_vm_fixture = b.addRunArtifact(ability_agent_vm_fixture_exe);
     if (fixture_tail_args.len != 0) {
         run_ability_agent_vm_fixture.addArgs(fixture_tail_args);
+    } else {
+        run_ability_agent_vm_fixture.addArg("--write");
     }
     const ability_agent_vm_fixture_step = b.step(
         "generate-ability-agent-vm-fixture",
@@ -5596,7 +5603,7 @@ pub fn build(b: *std.Build) void {
         const saved_args = b.args;
         const lint_args = repoZigLintCliArgsAlloc(b, lint_shared_tail_args);
         defer b.allocator.free(lint_args);
-        b.verbose = true;
+        b.verbose = saved_verbose or lint_verbose;
         b.args = lint_args;
         defer {
             b.verbose = saved_verbose;
