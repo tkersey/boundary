@@ -1,10 +1,9 @@
 # ability
 
-`ability` is a Zig library for generalized algebraic effects over a typed
-`shift/reset` substrate. The longer-term direction is still a defunctionalized,
-data-oriented interpreter model for agentic systems and other programmable
-control systems, but the shipped surface today is smaller and simpler than the
-repo's historical proof scaffolding suggested.
+`ability` is a Zig library for writing typed effect handlers through the
+`ability.with` lexical entrypoint. The supported package surface is intentionally
+small: effect bindings, runtime execution, source-backed lexical bodies, and a
+retained compatibility module for ArtifactV1 execution.
 
 ## Shipped Surface
 
@@ -117,9 +116,11 @@ zig build --fork=/absolute/path/to/ability
 The ordinary user-facing examples live under `examples/`.
 
 - `zig build run-state-basic`
+- `zig build run-reader-basic`
 - `zig build run-optional-basic`
 - `zig build run-exception-basic`
 - `zig build run-resource-basic`
+- `zig build run-writer-basic`
 
 Retained lowering, hosted-runtime, and proof fixtures also live under `examples/`
 for maintainer workflows. Those files are executable and tested, but they are not

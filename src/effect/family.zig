@@ -75,7 +75,7 @@ pub fn Context(comptime Cap: type, comptime StateTypeParam: type, comptime Answe
 pub fn ContextTypeFromPtr(comptime ContextPtrType: type) type {
     return switch (@typeInfo(ContextPtrType)) {
         .pointer => |pointer| pointer.child,
-        else => @compileError("expected a pointer to a ability.effect context"),
+        else => @compileError("expected a pointer to an ability.effect context"),
     };
 }
 
@@ -91,7 +91,7 @@ pub fn hasDeclSafe(comptime T: type, comptime name: []const u8) bool {
 pub fn assertContextType(comptime Cap: type, comptime ContextPtrType: type) void {
     const ContextType = ContextTypeFromPtr(ContextPtrType);
     if (!hasDeclSafe(ContextType, "capability") or !hasDeclSafe(ContextType, "StateType") or !hasDeclSafe(ContextType, "AnswerType") or !hasDeclSafe(ContextType, "ErrorSetType")) {
-        @compileError("expected a ability.effect context");
+        @compileError("expected an ability.effect context");
     }
     if (ContextType.capability != Cap) {
         @compileError("context capability does not match supplied capability");

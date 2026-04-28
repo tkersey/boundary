@@ -393,3 +393,161 @@ test "ability_agent_vm public output snapshots carry explicit borrowed ownership
         else => return error.TestUnexpectedOutputSnapshot,
     }
 }
+
+test "ability_agent_vm public output snapshot fallback echoes declared labels" {
+    const allocator = std.testing.allocator;
+    const adapter: ability_agent_vm.host.Adapter = .{
+        .ctx = null,
+        .dispatchFn = struct {
+            fn dispatch(
+                _: ?*anyopaque,
+                _: std.mem.Allocator,
+                _: ability_agent_vm.host.Request,
+            ) anyerror!ability_agent_vm.host.Response {
+                return error.TestUnexpectedDispatch;
+            }
+        }.dispatch,
+        .collectOutputsFn = struct {
+            fn collect(
+                _: ?*anyopaque,
+                allocator_inner: std.mem.Allocator,
+                declared_outputs: []const ability_agent_vm.host.OutputDescriptor,
+            ) anyerror![]ability_agent_vm.host.DataValue {
+                try std.testing.expectEqual(@as(usize, 2), declared_outputs.len);
+                const values = try allocator_inner.alloc(ability_agent_vm.host.DataValue, 2);
+                var initialized: usize = 0;
+                errdefer {
+                    for (values[0..initialized]) |*value| value.deinit(allocator_inner);
+                    allocator_inner.free(values);
+                }
+                values[0] = .{ .string = try allocator_inner.dupe(u8, "a") };
+                initialized += 1;
+                values[1] = .{ .string = try allocator_inner.dupe(u8, "b") };
+                initialized += 1;
+                return values;
+            }
+        }.collect,
+    };
+    const descriptors = [_]ability_agent_vm.host.OutputDescriptor{
+        .{
+            .label = "first",
+            .codec = .string,
+        },
+        .{
+            .label = "second",
+            .codec = .string,
+        },
+    };
+
+    const snapshots = try adapter.collectOutputSnapshots(allocator, &descriptors);
+    defer {
+        for (snapshots) |*snapshot| snapshot.deinit(allocator);
+        allocator.free(snapshots);
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), snapshots.len);
+    try std.testing.expectEqualStrings("first", snapshots[0].label.?);
+    try std.testing.expectEqualStrings("second", snapshots[1].label.?);
+}
+
+test "ability_agent_vm public output snapshots reject ambiguous multi-output labels" {
+    const allocator = std.testing.allocator;
+    const descriptors = [_]ability_agent_vm.host.OutputDescriptor{
+        .{
+            .label = "first",
+            .codec = .string,
+        },
+        .{
+            .label = "second",
+            .codec = .string,
+        },
+    };
+    const adapter: ability_agent_vm.host.Adapter = .{
+        .ctx = null,
+        .dispatchFn = struct {
+            fn dispatch(
+                _: ?*anyopaque,
+                _: std.mem.Allocator,
+                _: ability_agent_vm.host.Request,
+            ) anyerror!ability_agent_vm.host.Response {
+                return error.TestUnexpectedDispatch;
+            }
+        }.dispatch,
+        .collectOutputSnapshotsFn = struct {
+            fn collect(
+                _: ?*anyopaque,
+                allocator_inner: std.mem.Allocator,
+                declared_outputs: []const ability_agent_vm.host.OutputDescriptor,
+            ) anyerror![]ability_agent_vm.host.OutputSnapshot {
+                try std.testing.expectEqual(@as(usize, 2), declared_outputs.len);
+                const snapshots = try allocator_inner.alloc(ability_agent_vm.host.OutputSnapshot, 2);
+                snapshots[0] = .{
+                    .value = .{ .string = "a" },
+                    .value_ownership = .borrowed,
+                };
+                snapshots[1] = .{
+                    .value = .{ .string = "b" },
+                    .value_ownership = .borrowed,
+                };
+                return snapshots;
+            }
+        }.collect,
+    };
+
+    try std.testing.expectError(
+        error.OutputSnapshotLabelMismatch,
+        adapter.collectOutputSnapshots(allocator, &descriptors),
+    );
+}
+
+test "ability_agent_vm public output snapshots reject mismatched labels" {
+    const allocator = std.testing.allocator;
+    const descriptors = [_]ability_agent_vm.host.OutputDescriptor{
+        .{
+            .label = "first",
+            .codec = .string,
+        },
+        .{
+            .label = "second",
+            .codec = .string,
+        },
+    };
+    const adapter: ability_agent_vm.host.Adapter = .{
+        .ctx = null,
+        .dispatchFn = struct {
+            fn dispatch(
+                _: ?*anyopaque,
+                _: std.mem.Allocator,
+                _: ability_agent_vm.host.Request,
+            ) anyerror!ability_agent_vm.host.Response {
+                return error.TestUnexpectedDispatch;
+            }
+        }.dispatch,
+        .collectOutputSnapshotsFn = struct {
+            fn collect(
+                _: ?*anyopaque,
+                allocator_inner: std.mem.Allocator,
+                declared_outputs: []const ability_agent_vm.host.OutputDescriptor,
+            ) anyerror![]ability_agent_vm.host.OutputSnapshot {
+                try std.testing.expectEqual(@as(usize, 2), declared_outputs.len);
+                const snapshots = try allocator_inner.alloc(ability_agent_vm.host.OutputSnapshot, 2);
+                snapshots[0] = .{
+                    .label = "second",
+                    .value = .{ .string = "b" },
+                    .value_ownership = .borrowed,
+                };
+                snapshots[1] = .{
+                    .label = "first",
+                    .value = .{ .string = "a" },
+                    .value_ownership = .borrowed,
+                };
+                return snapshots;
+            }
+        }.collect,
+    };
+
+    try std.testing.expectError(
+        error.OutputSnapshotLabelMismatch,
+        adapter.collectOutputSnapshots(allocator, &descriptors),
+    );
+}
