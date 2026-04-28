@@ -204,6 +204,7 @@ pub const host = struct {
             var values = try collect(self.ctx, allocator, declared_outputs);
             defer allocator.free(values);
             errdefer for (values) |*value| value.deinit(allocator);
+            if (values.len != declared_outputs.len) return error.OutputSnapshotCountMismatch;
 
             const snapshots = try allocator.alloc(OutputSnapshot, values.len);
             var initialized: usize = 0;

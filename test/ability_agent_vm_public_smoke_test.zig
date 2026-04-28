@@ -450,6 +450,51 @@ test "ability_agent_vm public output snapshot fallback echoes declared labels" {
     try std.testing.expectEqualStrings("second", snapshots[1].label.?);
 }
 
+test "ability_agent_vm public output snapshot fallback rejects count mismatch before labeling" {
+    const allocator = std.testing.allocator;
+    const adapter: ability_agent_vm.host.Adapter = .{
+        .ctx = null,
+        .dispatchFn = struct {
+            fn dispatch(
+                _: ?*anyopaque,
+                _: std.mem.Allocator,
+                _: ability_agent_vm.host.Request,
+            ) anyerror!ability_agent_vm.host.Response {
+                return error.TestUnexpectedDispatch;
+            }
+        }.dispatch,
+        .collectOutputsFn = struct {
+            fn collect(
+                _: ?*anyopaque,
+                allocator_inner: std.mem.Allocator,
+                declared_outputs: []const ability_agent_vm.host.OutputDescriptor,
+            ) anyerror![]ability_agent_vm.host.DataValue {
+                try std.testing.expectEqual(@as(usize, 1), declared_outputs.len);
+                const values = try allocator_inner.alloc(ability_agent_vm.host.DataValue, 2);
+                var initialized: usize = 0;
+                errdefer {
+                    for (values[0..initialized]) |*value| value.deinit(allocator_inner);
+                    allocator_inner.free(values);
+                }
+                values[0] = .{ .string = try allocator_inner.dupe(u8, "a") };
+                initialized += 1;
+                values[1] = .{ .string = try allocator_inner.dupe(u8, "b") };
+                initialized += 1;
+                return values;
+            }
+        }.collect,
+    };
+    const descriptors = [_]ability_agent_vm.host.OutputDescriptor{.{
+        .label = "only",
+        .codec = .string,
+    }};
+
+    try std.testing.expectError(
+        error.OutputSnapshotCountMismatch,
+        adapter.collectOutputSnapshots(allocator, &descriptors),
+    );
+}
+
 test "ability_agent_vm public output snapshots reject ambiguous multi-output labels" {
     const allocator = std.testing.allocator;
     const descriptors = [_]ability_agent_vm.host.OutputDescriptor{
