@@ -69,10 +69,12 @@ pub const RunArtifactResultV1 = union(enum) {
     }
 };
 
+const default_max_artifact_bytes = 16 * 1024 * 1024;
 const default_max_log_bytes = 16 * 1024 * 1024;
 
 /// Resource envelope for synchronous ArtifactV1 execution.
 pub const RunOptionsV1 = struct {
+    max_artifact_bytes: usize = default_max_artifact_bytes,
     max_block_steps: usize = 100_000,
     max_instruction_steps: usize = 1_000_000,
     max_host_calls: usize = 100_000,
@@ -99,6 +101,7 @@ pub fn runArtifactWithOptions(
     adapter: host.HostAdapterV1,
     options: RunOptionsV1,
 ) anyerror!RunArtifactResultV1 {
+    if (bytes.len > options.max_artifact_bytes) return try invalidArtifactResult(allocator, error.ArtifactTooLarge);
     var decoded_with_plan = artifact.decodeWithProgramPlan(allocator, bytes) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return try invalidArtifactResult(allocator, err),
@@ -1435,6 +1438,37 @@ test "artifact runtime fails closed when block budget is exhausted" {
             defer failure.deinit(allocator);
             try std.testing.expectEqualStrings("resource_exhausted", failure.code);
             try std.testing.expectEqualStrings("artifact block budget exceeded", failure.message);
+        },
+        else => return error.TestUnexpectedRuntimeResult,
+    }
+}
+
+test "artifact runtime rejects artifacts above configured decode byte budget before dispatch" {
+    const allocator = std.testing.allocator;
+    const bytes = [_]u8{0} ** 2;
+    const adapter = host.HostAdapterV1{
+        .ctx = null,
+        .dispatchFn = struct {
+            fn dispatch(
+                _: ?*anyopaque,
+                _: std.mem.Allocator,
+                _: host.HostEffectRequestV1,
+            ) anyerror!host.HostEffectResultV1 {
+                return error.TestUnexpectedDispatch;
+            }
+        }.dispatch,
+    };
+
+    var result = try runArtifactWithOptions(allocator, &bytes, adapter, .{
+        .max_artifact_bytes = 1,
+    });
+    defer result.deinit(allocator);
+
+    switch (result) {
+        .rejected => |rejected| {
+            try std.testing.expectEqualStrings("invalid_artifact", rejected.failure.code);
+            try std.testing.expectEqualStrings("ArtifactTooLarge", rejected.failure.message);
+            try std.testing.expectEqual(@as(usize, 0), rejected.logs.len);
         },
         else => return error.TestUnexpectedRuntimeResult,
     }

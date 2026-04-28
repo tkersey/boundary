@@ -573,18 +573,16 @@ fn cloneResumedResponse(
     value: host_api.ToolCallResultV1,
     bounds: host_api.DataValueBoundsV1,
 ) !host.Resumed {
-    const tool_id = try allocator.dupe(u8, value.tool_id);
-    errdefer allocator.free(tool_id);
-    const cloned_value = try value.value.cloneBounded(allocator, bounds);
+    const cloned = try value.cloneBounded(allocator, bounds);
     errdefer {
-        var owned_value = cloned_value;
-        owned_value.deinit(allocator);
+        var owned = cloned;
+        owned.deinit(allocator);
     }
     return .{
         .request_id = request_id,
-        .tool_id = tool_id,
-        .call_id = value.call_id,
-        .value = cloned_value,
+        .tool_id = cloned.tool_id,
+        .call_id = cloned.call_id,
+        .value = cloned.value,
         .owns_tool_id = true,
         .value_ownership = .deep,
     };
@@ -596,18 +594,16 @@ fn cloneTerminalResponse(
     value: host_api.ToolCallResultV1,
     bounds: host_api.DataValueBoundsV1,
 ) !host.Terminal {
-    const tool_id = try allocator.dupe(u8, value.tool_id);
-    errdefer allocator.free(tool_id);
-    const cloned_value = try value.value.cloneBounded(allocator, bounds);
+    const cloned = try value.cloneBounded(allocator, bounds);
     errdefer {
-        var owned_value = cloned_value;
-        owned_value.deinit(allocator);
+        var owned = cloned;
+        owned.deinit(allocator);
     }
     return .{
         .request_id = request_id,
-        .tool_id = tool_id,
-        .call_id = value.call_id,
-        .value = cloned_value,
+        .tool_id = cloned.tool_id,
+        .call_id = cloned.call_id,
+        .value = cloned.value,
         .owns_tool_id = true,
         .value_ownership = .deep,
     };
@@ -638,25 +634,28 @@ fn cloneSuccessResult(
     if (value.request_id != request_id) {
         return invalidHostReplyResult(allocator, request_id, "host reply request_id must echo the request");
     }
-    const cloned_value = value.value.cloneBounded(allocator, bounds) catch |err| switch (err) {
+    const cloned = (host_api.ToolCallResultV1{
+        .tool_id = value.tool_id,
+        .call_id = value.call_id,
+        .control = control,
+        .value = value.value,
+    }).cloneBounded(allocator, bounds) catch |err| switch (err) {
         error.DataValueTooDeep, error.DataValueTooManyNodes, error.DataValueTooManyBytes => {
             return resourceExhaustedResult(allocator, request_id, "artifact host payload budget exceeded");
         },
         else => return err,
     };
     errdefer {
-        var owned_value = cloned_value;
-        owned_value.deinit(allocator);
+        var owned = cloned;
+        owned.deinit(allocator);
     }
-    const tool_id = try allocator.dupe(u8, value.tool_id);
-    errdefer allocator.free(tool_id);
     return .{
         .request_id = request_id,
         .body = .{ .success = .{
-            .tool_id = tool_id,
-            .call_id = value.call_id,
-            .control = control,
-            .value = cloned_value,
+            .tool_id = cloned.tool_id,
+            .call_id = cloned.call_id,
+            .control = cloned.control,
+            .value = cloned.value,
             .owns_tool_id = true,
             .value_ownership = .deep,
         } },
@@ -960,6 +959,29 @@ test "response bridge frees duplicated tool ids on allocation failure" {
         expectResponseBridgeClonesToolIdWithoutLeaksOnAllocationFailure,
         .{},
     );
+}
+
+test "response bridge charges success tool ids against payload byte bounds" {
+    var response: host.Response = .{ .resumed = .{
+        .request_id = 41,
+        .tool_id = "generated/tooling@v1",
+        .call_id = 7,
+        .value = .null,
+    } };
+    defer response.deinit(std.testing.allocator);
+
+    var bridged = try responseToInternal(std.testing.allocator, 41, response, .{
+        .max_bytes = 1,
+    });
+    defer bridged.deinit(std.testing.allocator);
+
+    switch (bridged.body) {
+        .failed => |failure| {
+            try std.testing.expectEqualStrings("resource_exhausted", failure.code);
+            try std.testing.expectEqualStrings("artifact host payload budget exceeded", failure.message);
+        },
+        else => return error.TestUnexpectedResponseKind,
+    }
 }
 
 test "output bridge validates snapshot count before cloning payloads" {

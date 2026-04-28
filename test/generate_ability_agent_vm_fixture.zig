@@ -16,13 +16,15 @@ fn isModeArg(arg: []const u8) bool {
     return std.mem.eql(u8, arg, "--help") or
         std.mem.eql(u8, arg, "-h") or
         std.mem.eql(u8, arg, "--check") or
+        std.mem.eql(u8, arg, "--write") or
         std.mem.eql(u8, arg, "--version");
 }
 
 fn modeFromArgs(args: []const [:0]const u8) !Mode {
-    if (args.len == 1) return .write;
+    if (args.len == 1) return .check;
     if (args.len == 2 and isModeArg(args[1])) {
         if (std.mem.eql(u8, args[1], "--check")) return .check;
+        if (std.mem.eql(u8, args[1], "--write")) return .write;
         if (std.mem.eql(u8, args[1], "--version")) return .version;
         return .help;
     }
@@ -39,10 +41,11 @@ fn invalidArg(args: []const [:0]const u8) ?[]const u8 {
 
 fn writeUsage(writer: anytype) !void {
     try writer.writeAll(
-        "usage: generate-ability-agent-vm-fixture [--check|--version|--help]\n" ++
+        "usage: generate-ability-agent-vm-fixture [--check|--write|--version|--help]\n" ++
             "\n" ++
             "flags:\n" ++
             "  --check        verify the committed fixture is current\n" ++
+            "  --write        regenerate the committed fixture\n" ++
             "  --version      print the tool version\n" ++
             "  --help, -h     print this help\n",
     );
@@ -139,8 +142,9 @@ pub fn main(init: std.process.Init) anyerror!void {
 }
 
 test "ability_agent_vm fixture generator args expose help and reject unknowns" {
-    try std.testing.expectEqual(Mode.write, try modeFromArgs(&.{"generate-ability-agent-vm-fixture"}));
+    try std.testing.expectEqual(Mode.check, try modeFromArgs(&.{"generate-ability-agent-vm-fixture"}));
     try std.testing.expectEqual(Mode.check, try modeFromArgs(&.{ "generate-ability-agent-vm-fixture", "--check" }));
+    try std.testing.expectEqual(Mode.write, try modeFromArgs(&.{ "generate-ability-agent-vm-fixture", "--write" }));
     try std.testing.expectEqual(Mode.version, try modeFromArgs(&.{ "generate-ability-agent-vm-fixture", "--version" }));
     try std.testing.expectEqual(Mode.help, try modeFromArgs(&.{ "generate-ability-agent-vm-fixture", "--help" }));
     try std.testing.expectEqual(Mode.help, try modeFromArgs(&.{ "generate-ability-agent-vm-fixture", "-h" }));
