@@ -238,6 +238,72 @@ test "ability_agent_vm public options bound response payload conversion" {
     }
 }
 
+test "ability_agent_vm public result conversion honors expanded data value bounds" {
+    const allocator = std.testing.allocator;
+    const bytes = try loadFixtureBytes(allocator);
+    defer allocator.free(bytes);
+
+    const large_message = try allocator.alloc(u8, (1 << 20) + 1);
+    defer allocator.free(large_message);
+    @memset(large_message, 'x');
+
+    const FailureContext = struct {
+        calls: usize = 0,
+        message: []const u8,
+    };
+    var context: FailureContext = .{ .message = large_message };
+    const adapter: ability_agent_vm.host.Adapter = .{
+        .ctx = &context,
+        .dispatchFn = struct {
+            fn dispatch(
+                ctx_ptr: ?*anyopaque,
+                _: std.mem.Allocator,
+                request: ability_agent_vm.host.Request,
+            ) anyerror!ability_agent_vm.host.Response {
+                const context_ptr: *FailureContext = @ptrCast(@alignCast(ctx_ptr.?));
+                context_ptr.calls += 1;
+                switch (request) {
+                    .call => return .{ .failed = .{
+                        .code = "provider_failure",
+                        .message = context_ptr.message,
+                    } },
+                    else => return error.TestUnexpectedRequestKind,
+                }
+            }
+        }.dispatch,
+    };
+
+    var result = try ability_agent_vm.runtime.runArtifactWithOptions(
+        allocator,
+        bytes,
+        adapter,
+        .{ .data_value_bounds = .{
+            .max_depth = 8,
+            .max_nodes = 16,
+            .max_bytes = large_message.len + 1024,
+        } },
+    );
+    defer result.deinit(allocator);
+
+    switch (result) {
+        .failed => |failure| {
+            try std.testing.expectEqual(@as(usize, 1), context.calls);
+            try std.testing.expectEqualStrings("provider_failure", failure.failure.code);
+            try std.testing.expectEqual(large_message.len, failure.failure.message.len);
+            try std.testing.expectEqual(@as(u8, 'x'), failure.failure.message[0]);
+            try std.testing.expectEqual(@as(usize, 1), failure.logs.len);
+            switch (failure.logs[0].response) {
+                .failed => |logged| {
+                    try std.testing.expectEqualStrings("provider_failure", logged.code);
+                    try std.testing.expectEqual(large_message.len, logged.message.len);
+                },
+                else => return error.TestUnexpectedResponseKind,
+            }
+        },
+        else => return error.TestUnexpectedRuntimeResult,
+    }
+}
+
 test "ability_agent_vm public output snapshots carry explicit borrowed ownership" {
     const allocator = std.testing.allocator;
     const adapter: ability_agent_vm.host.Adapter = .{

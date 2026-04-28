@@ -317,18 +317,24 @@ fn deinitCollectedOutputValues(allocator: std.mem.Allocator, values: []host.Data
 }
 
 fn providerFailureFailure(allocator: std.mem.Allocator, message: []const u8) !host.FailureV1 {
+    const code = try allocator.dupe(u8, "provider_failure");
+    errdefer allocator.free(code);
+    const owned_message = try allocator.dupe(u8, message);
     return .{
-        .code = try allocator.dupe(u8, "provider_failure"),
-        .message = try allocator.dupe(u8, message),
+        .code = code,
+        .message = owned_message,
         .owns_code = true,
         .owns_message = true,
     };
 }
 
 fn resourceExhaustedFailure(allocator: std.mem.Allocator, message: []const u8) !host.FailureV1 {
+    const code = try allocator.dupe(u8, "resource_exhausted");
+    errdefer allocator.free(code);
+    const owned_message = try allocator.dupe(u8, message);
     return .{
-        .code = try allocator.dupe(u8, "resource_exhausted"),
-        .message = try allocator.dupe(u8, message),
+        .code = code,
+        .message = owned_message,
         .owns_code = true,
         .owns_message = true,
     };
@@ -844,14 +850,10 @@ fn providerFailureResult(
     request_id: u64,
     message: []const u8,
 ) !host.HostEffectResultV1 {
+    const failure = try providerFailureFailure(allocator, message);
     return .{
         .request_id = request_id,
-        .body = .{ .failed = .{
-            .code = try allocator.dupe(u8, "provider_failure"),
-            .message = try allocator.dupe(u8, message),
-            .owns_code = true,
-            .owns_message = true,
-        } },
+        .body = .{ .failed = failure },
     };
 }
 
@@ -859,9 +861,12 @@ fn invalidHostReplyFailure(
     allocator: std.mem.Allocator,
     message: []const u8,
 ) !host.FailureV1 {
+    const code = try allocator.dupe(u8, "invalid_host_reply");
+    errdefer allocator.free(code);
+    const owned_message = try allocator.dupe(u8, message);
     return .{
-        .code = try allocator.dupe(u8, "invalid_host_reply"),
-        .message = try allocator.dupe(u8, message),
+        .code = code,
+        .message = owned_message,
         .owns_code = true,
         .owns_message = true,
     };
