@@ -52,7 +52,7 @@ fn generateFixtureBytes(allocator: std.mem.Allocator) ![]u8 {
         allocator,
         fixture.source_path,
         fixture.FixtureSpec,
-        .{},
+        .{ .stable_build_fingerprint_seed = "ability-agent-vm-smoke-fixture-v1" },
     );
 }
 

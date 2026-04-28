@@ -7,6 +7,8 @@ pub const CompileOptionsV1 = struct {
     /// Empty uses the current build-derived exact-build fingerprint.
     /// Non-empty folds the seed into that build identity instead of replacing it.
     build_fingerprint_seed: []const u8 = "",
+    /// Non-empty replaces the build-derived identity for deterministic fixture emission.
+    stable_build_fingerprint_seed: []const u8 = "",
     capabilities: []const artifact.CapabilityV1 = &.{},
 };
 
@@ -35,7 +37,9 @@ fn CompileSourceType(
             } else options.capabilities;
 
             const default_fingerprint = artifact.defaultBuildFingerprint();
-            const base_fingerprint = if (options.build_fingerprint_seed.len != 0)
+            const base_fingerprint = if (options.stable_build_fingerprint_seed.len != 0)
+                artifact.buildFingerprintFromSeed(options.stable_build_fingerprint_seed)
+            else if (options.build_fingerprint_seed.len != 0)
                 artifact.buildFingerprintWithSeed(default_fingerprint, options.build_fingerprint_seed)
             else
                 default_fingerprint;
