@@ -1066,6 +1066,7 @@ fn decodeCapabilityManifest(
     const capability_bytes = bytes[52 .. 52 + capability_bytes_len];
     const op_bytes = bytes[52 + capability_bytes_len ..];
     if (op_bytes.len != @as(usize, op_count) * 16) return error.InvalidDirectoryBounds;
+    try validateCapabilityManifestRanges(capability_bytes, capability_count, op_count);
 
     const capabilities = try allocator.alloc(CapabilityV1, capability_count);
     var initialized_capability_count: usize = 0;
@@ -1135,6 +1136,35 @@ fn decodeCapabilityManifest(
         .build_fingerprint_blake3_256 = fingerprint,
         .capabilities = capabilities,
     };
+}
+
+fn validateCapabilityManifestRanges(
+    capability_bytes: []const u8,
+    capability_count: u16,
+    op_count: u16,
+) !void {
+    var covered_ops = std.StaticBitSet(std.math.maxInt(u16) + 1).initEmpty();
+    var covered_count: usize = 0;
+    var capability_cursor: usize = 0;
+    for (0..capability_count) |_| {
+        const first_op = readU16(capability_bytes, capability_cursor + 12);
+        const op_count_for_capability = readU16(capability_bytes, capability_cursor + 14);
+        const op_end = std.math.add(
+            usize,
+            @as(usize, first_op),
+            @as(usize, op_count_for_capability),
+        ) catch return error.InvalidDirectoryBounds;
+        if (op_end > op_count) return error.InvalidDirectoryBounds;
+
+        var op_index: usize = first_op;
+        while (op_index < op_end) : (op_index += 1) {
+            if (covered_ops.isSet(op_index)) return error.InvalidDirectoryBounds;
+            covered_ops.set(op_index);
+        }
+        covered_count += op_count_for_capability;
+        capability_cursor += 16;
+    }
+    if (covered_count != op_count) return error.InvalidDirectoryBounds;
 }
 
 fn encodeCapabilityManifest(allocator: std.mem.Allocator, strings: *StringTable, manifest: CapabilityManifestV1) ![]u8 {
@@ -2330,6 +2360,14 @@ fn patchCapabilityManifestPlanOrdinal(bytes: []u8, capability_op_index: usize, o
     const op_table_offset = capability_manifest_offset + 52 + @as(usize, capability_count) * 16;
     const op_offset = op_table_offset + capability_op_index * 16;
     std.mem.writeInt(u16, bytes[op_offset + 14 ..][0..2], ordinal, .little);
+    recomputeEncodedArtifactHash(bytes);
+}
+
+fn patchCapabilityManifestRange(bytes: []u8, capability_index: usize, first_op: u16, op_count: u16) void {
+    const capability_manifest_offset = sectionPayloadOffset(bytes, .capability_manifest);
+    const capability_offset = capability_manifest_offset + 52 + capability_index * 16;
+    std.mem.writeInt(u16, bytes[capability_offset + 12 ..][0..2], first_op, .little);
+    std.mem.writeInt(u16, bytes[capability_offset + 14 ..][0..2], op_count, .little);
     recomputeEncodedArtifactHash(bytes);
 }
 
@@ -4812,6 +4850,82 @@ test "ArtifactV1 decode accepts reordered capability rows when repeated requirem
 
     try std.testing.expectEqualSlices(u16, &.{ 11, 29 }, decoded.requirement_capability_ids);
     try decoded.validate(std.testing.allocator);
+}
+
+test "ArtifactV1 decode rejects overlapping capability op ranges before per-capability op allocation" {
+    const build_fingerprint = buildFingerprintFromSeed("artifact-capability-overlap-prealloc");
+    const plan: program_plan.ProgramPlan = .{
+        .label = "artifact.capability_overlap_prealloc",
+        .ir_hash = 0xb18,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "entry",
+            .value_codec = .unit,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 2,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 0,
+        }},
+        .requirements = &.{
+            .{ .label = "tooling", .first_op = 0, .op_count = 1 },
+            .{ .label = "tooling", .first_op = 1, .op_count = 1 },
+        },
+        .ops = &.{
+            .{ .requirement_index = 0, .op_name = "first", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+            .{ .requirement_index = 1, .op_name = "second", .mode = .transform, .payload_codec = .unit, .resume_codec = .string },
+        },
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+        .terminators = &.{.{ .kind = .return_unit }},
+        .instructions = &.{},
+    };
+    const capabilities = [_]CapabilityV1{
+        .{
+            .capability_id = 11,
+            .kind = .tool,
+            .label = "generated/tooling@v1",
+            .ops = &.{.{
+                .capability_id = 11,
+                .op_id = 0,
+                .host_op_kind = .call,
+                .payload_codec = .unit,
+                .result_codec = .string,
+                .plan_op_ordinal = 0,
+            }},
+        },
+        .{
+            .capability_id = 29,
+            .kind = .tool,
+            .label = "generated/tooling@v1",
+            .ops = &.{.{
+                .capability_id = 29,
+                .op_id = 1,
+                .host_op_kind = .call,
+                .payload_codec = .unit,
+                .result_codec = .string,
+                .plan_op_ordinal = 0,
+            }},
+        },
+    };
+
+    const encoded = try encodeProgramPlan(std.testing.allocator, plan, .{
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .capabilities = &capabilities,
+    });
+    defer std.testing.allocator.free(encoded);
+
+    patchCapabilityManifestRange(encoded, 1, 0, 1);
+    try std.testing.expectError(error.InvalidDirectoryBounds, decode(std.testing.allocator, encoded));
 }
 
 test "ArtifactV1 encode allows repeated identical requirements to share one capability id" {

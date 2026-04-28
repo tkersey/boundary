@@ -25,6 +25,38 @@ const CliShapeIssue = union(enum) {
     unknown_flag: []const u8,
 };
 
+const ParsedCliOptions = struct {
+    program_id: ?[]const u8 = null,
+    source_path: ?[]const u8 = null,
+    entry_symbol: ?[]const u8 = null,
+    surface_kind: ?source_lowering.SurfaceKind = null,
+    emit_mode: ?EmitMode = null,
+    output_path: ?[]const u8 = null,
+};
+
+const RequiredCliOptions = struct {
+    program_id: []const u8,
+    source_path: []const u8,
+    entry_symbol: []const u8,
+    surface_kind: source_lowering.SurfaceKind,
+    emit_mode: EmitMode,
+    output_path: []const u8,
+};
+
+const MissingRequiredFlag = enum {
+    emit,
+    entry,
+    flag_id,
+    out,
+    source,
+    surface,
+};
+
+const RequiredCliOptionsResult = union(enum) {
+    config: RequiredCliOptions,
+    missing: MissingRequiredFlag,
+};
+
 fn usage() noreturn {
     std.debug.print(usage_text, .{});
     std.process.exit(1);
@@ -55,8 +87,41 @@ fn cliShapeIssue(args: []const []const u8) ?CliShapeIssue {
         if (!isKnownFlag(flag)) return .{ .unknown_flag = flag };
         if (idx + 1 >= args.len) return .{ .missing_value = flag };
     }
-    if (args.len != expected_arg_count) return .{ .unexpected_arg_count = args.len - 1 };
+    if (args.len > expected_arg_count) return .{ .unexpected_arg_count = args.len - 1 };
     return null;
+}
+
+fn requiredCliOptions(options: ParsedCliOptions) RequiredCliOptionsResult {
+    const program_id = options.program_id orelse return .{ .missing = .flag_id };
+    const source_path = options.source_path orelse return .{ .missing = .source };
+    const entry_symbol = options.entry_symbol orelse return .{ .missing = .entry };
+    const surface_kind = options.surface_kind orelse return .{ .missing = .surface };
+    const emit_mode = options.emit_mode orelse return .{ .missing = .emit };
+    const output_path = options.output_path orelse return .{ .missing = .out };
+
+    return .{ .config = .{
+        .program_id = program_id,
+        .source_path = source_path,
+        .entry_symbol = entry_symbol,
+        .surface_kind = surface_kind,
+        .emit_mode = emit_mode,
+        .output_path = output_path,
+    } };
+}
+
+fn missingRequiredFlagName(flag: MissingRequiredFlag) []const u8 {
+    return switch (flag) {
+        .emit => "--emit",
+        .entry => "--entry",
+        .flag_id => "--id",
+        .out => "--out",
+        .source => "--source",
+        .surface => "--surface",
+    };
+}
+
+fn missingRequiredFlag(flag: MissingRequiredFlag) noreturn {
+    usageError("missing required {s}", .{missingRequiredFlagName(flag)});
 }
 
 fn parseSurface(value: []const u8) ?source_lowering.SurfaceKind {
@@ -250,6 +315,35 @@ fn writeJsonContributors(writer: anytype, contributors: anytype) !void {
         try writer.writeByte('}');
     }
     try writer.writeByte(']');
+}
+
+fn writeRejectedProgramDiagnostics(writer: anytype, program: source_lowering.GeneratedProgram) !void {
+    if (program.diagnostics.len == 0) {
+        try writer.print(
+            "ability-source-lower: rejected {s}: no source diagnostic was emitted\n",
+            .{program.case_id},
+        );
+        return;
+    }
+    for (program.diagnostics) |diagnostic| {
+        try writer.print(
+            "ability-source-lower: {s}:{d}:{d}: {s}: {s}\n",
+            .{
+                diagnostic.path,
+                diagnostic.line,
+                diagnostic.column,
+                diagnostic.code,
+                diagnostic.message,
+            },
+        );
+    }
+}
+
+fn deleteRejectedProgramOutput(dir: std.Io.Dir, io: std.Io, out_path: []const u8) !void {
+    dir.deleteFile(io, out_path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
 }
 
 fn writeJsonKernelProgramArtifact(
@@ -530,10 +624,7 @@ fn writeAcceptedProgramOutput(spec: OutputWriteSpec) !void {
     if (containsPathSeparator(out_path)) return error.BadPathName;
 
     if (!program.isAccepted()) {
-        dir.deleteFile(io, out_path) catch |err| switch (err) {
-            error.FileNotFound => {},
-            else => return err,
-        };
+        try deleteRejectedProgramOutput(dir, io, out_path);
         return error.RejectedGeneratedProgram;
     }
 
@@ -589,59 +680,73 @@ pub fn main(init: std.process.Init) anyerror!void {
         }
     }
 
-    var program_id: ?[]const u8 = null;
-    var source_path: ?[]const u8 = null;
-    var entry_symbol: ?[]const u8 = null;
-    var surface_kind: ?source_lowering.SurfaceKind = null;
-    var emit: ?EmitMode = null;
-    var out_path: ?[]const u8 = null;
+    var parsed: ParsedCliOptions = .{};
 
     var idx: usize = 1;
     while (idx < args.len) : (idx += 2) {
         const flag = args[idx];
         const value = args[idx + 1];
         if (std.mem.eql(u8, flag, "--id")) {
-            program_id = value;
+            parsed.program_id = value;
         } else if (std.mem.eql(u8, flag, "--source")) {
-            source_path = value;
+            parsed.source_path = value;
         } else if (std.mem.eql(u8, flag, "--entry")) {
-            entry_symbol = value;
+            parsed.entry_symbol = value;
         } else if (std.mem.eql(u8, flag, "--surface")) {
-            surface_kind = parseSurface(value) orelse usageError("unsupported --surface value '{s}'", .{value});
+            parsed.surface_kind = parseSurface(value) orelse usageError("unsupported --surface value '{s}'", .{value});
         } else if (std.mem.eql(u8, flag, "--emit")) {
-            emit = parseEmit(value) orelse usageError("unsupported --emit value '{s}'", .{value});
+            parsed.emit_mode = parseEmit(value) orelse usageError("unsupported --emit value '{s}'", .{value});
         } else if (std.mem.eql(u8, flag, "--out")) {
-            out_path = value;
+            parsed.output_path = value;
         } else {
             usageError("unknown flag '{s}'", .{flag});
         }
     }
 
-    const output_path = out_path orelse usageError("missing required --out", .{});
+    const cli_options = switch (requiredCliOptions(parsed)) {
+        .config => |config| config,
+        .missing => |flag| missingRequiredFlag(flag),
+    };
+
+    const output_path = cli_options.output_path;
     if (!generatedOutputPathAllowed(output_path)) {
         usageError("--out must be a generated relative path under zig-out/, .zig-cache/, or zig-cache/: '{s}'", .{output_path});
     }
     if (!(try generatedOutputRootBound(allocator, init.io, tool_build_options.package_root, output_path))) {
         usageError("--out generated root must be a real directory owned by the current checkout: '{s}'", .{output_path});
     }
-    var bound_output_path = bindGeneratedOutputPath(init.io, tool_build_options.package_root, output_path) catch {
-        usageError("--out parent path must stay inside real generated directories: '{s}'", .{output_path});
+    var bound_output_path = bindGeneratedOutputPath(init.io, tool_build_options.package_root, output_path) catch |err| {
+        switch (err) {
+            error.FileNotFound => usageError("--out parent directory does not exist under generated root: '{s}'", .{output_path}),
+            error.BadPathName => usageError("--out parent path must stay inside real generated directories: '{s}'", .{output_path}),
+            else => usageError("--out parent path could not be opened ({s}): '{s}'", .{ @errorName(err), output_path }),
+        }
     };
     defer bound_output_path.close();
 
     var program = try source_lowering.inspectSource(allocator, .{
-        .case_id = program_id orelse usageError("missing required --id", .{}),
-        .source_path = source_path orelse usageError("missing required --source", .{}),
-        .entry_symbol = entry_symbol orelse usageError("missing required --entry", .{}),
-        .surface_kind = surface_kind orelse usageError("missing required --surface", .{}),
+        .case_id = cli_options.program_id,
+        .source_path = cli_options.source_path,
+        .entry_symbol = cli_options.entry_symbol,
+        .surface_kind = cli_options.surface_kind,
     });
     defer program.deinit(allocator);
+
+    if (!program.isAccepted()) {
+        try deleteRejectedProgramOutput(bound_output_path.dir, init.io, bound_output_path.basename);
+        var stderr_buffer: [1024]u8 = undefined;
+        var stderr_writer = std.Io.File.stderr().writerStreaming(init.io, &stderr_buffer);
+        const stderr = &stderr_writer.interface;
+        try writeRejectedProgramDiagnostics(stderr, program);
+        try stderr.flush();
+        return error.RejectedGeneratedProgram;
+    }
 
     try writeAcceptedProgramOutput(.{
         .dir = bound_output_path.dir,
         .io = init.io,
         .allocator = allocator,
-        .emit_mode = emit orelse usageError("missing required --emit", .{}),
+        .emit_mode = cli_options.emit_mode,
         .out_path = bound_output_path.basename,
         .program = &program,
     });
@@ -682,6 +787,49 @@ test "cli shape reports missing values before arity" {
     const args = [_][]const u8{ "ability-source-lower", "--id" };
     const issue = cliShapeIssue(&args).?;
     try std.testing.expectEqualStrings("--id", issue.missing_value);
+}
+
+test "cli shape lets missing required flags reach named diagnostics" {
+    const args = [_][]const u8{
+        "ability-source-lower",
+        "--id",
+        "source.branch_resume",
+        "--source",
+        "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        "--entry",
+        "run",
+        "--surface",
+        "source_case",
+        "--emit",
+        "json",
+    };
+    try std.testing.expectEqual(@as(?CliShapeIssue, null), cliShapeIssue(&args));
+}
+
+test "required cli options reports missing emit before output validation" {
+    const result = requiredCliOptions(.{
+        .program_id = "source.branch_resume",
+        .source_path = "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        .entry_symbol = "wrong",
+        .surface_kind = .source_case,
+        .output_path = "zig-out/source-lower/out.json",
+    });
+    try std.testing.expectEqual(MissingRequiredFlag.emit, result.missing);
+}
+
+test "required cli options resolve all required flags before side effects" {
+    const result = requiredCliOptions(.{
+        .program_id = "source.branch_resume",
+        .source_path = "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        .entry_symbol = "run",
+        .surface_kind = .source_case,
+        .emit_mode = .json,
+        .output_path = "zig-out/source-lower/out.json",
+    });
+    const config = result.config;
+    try std.testing.expectEqualStrings("source.branch_resume", config.program_id);
+    try std.testing.expectEqual(EmitMode.json, config.emit_mode);
+    try std.testing.expectEqualStrings("zig-out/source-lower/out.json", config.output_path);
 }
 
 test "cli output path guard admits only generated relative paths" {
@@ -845,6 +993,20 @@ test "cli output path binder rejects symlinked child directories" {
     try std.testing.expectEqualStrings("outside", outside_bytes);
 }
 
+test "cli output path binder distinguishes missing parent directories" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const tmp_path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(tmp_path);
+
+    try tmp.dir.createDirPath(std.testing.io, "zig-out");
+
+    try std.testing.expectError(
+        error.FileNotFound,
+        bindGeneratedOutputPath(std.testing.io, tmp_path, "zig-out/missing/out.json"),
+    );
+}
+
 test "accepted source-lower output replaces final symlink instead of following it" {
     if (builtin.os.tag == .windows) return error.SkipZigTest;
 
@@ -937,4 +1099,25 @@ test "rejected source-lower programs remove stale output artifacts" {
         error.FileNotFound,
         tmp.dir.readFileAlloc(std.testing.io, "out.json", std.testing.allocator, .limited(16)),
     );
+}
+
+test "rejected source-lower programs print structured diagnostics" {
+    var program = try source_lowering.inspectSource(std.testing.allocator, .{
+        .case_id = "source.branch_resume",
+        .source_path = "test/source_lowering_corpus/fixtures/branch_resume.zig",
+        .entry_symbol = "wrong",
+        .surface_kind = .source_case,
+    });
+    defer program.deinit(std.testing.allocator);
+    try std.testing.expect(!program.isAccepted());
+
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try writeRejectedProgramDiagnostics(&output.writer, program);
+    const bytes = try output.toOwnedSlice();
+    defer std.testing.allocator.free(bytes);
+
+    try std.testing.expect(std.mem.find(u8, bytes, "ability-source-lower:") != null);
+    try std.testing.expect(std.mem.find(u8, bytes, "unsupported_shape") != null);
+    try std.testing.expect(std.mem.find(u8, bytes, "canonical entry symbol") != null);
 }
