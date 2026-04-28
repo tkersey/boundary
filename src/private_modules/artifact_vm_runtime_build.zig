@@ -181,7 +181,21 @@ fn completeExecutionResult(
     };
     errdefer deinitExecutionOutputs(allocator, outputs);
 
-    var owned_value = try materializeExecutionValue(allocator, &owned_runtime_value);
+    var owned_value = materializeExecutionValueBounded(allocator, ctx.options.data_value_bounds, &owned_runtime_value) catch |err| switch (err) {
+        error.DataValueTooDeep, error.DataValueTooManyNodes, error.DataValueTooManyBytes => {
+            var failure = try resourceExhaustedFailure(allocator, "artifact completed value payload budget exceeded");
+            errdefer failure.deinit(allocator);
+            const owned_logs = try logs.toOwnedSlice(allocator);
+            deinitExecutionOutputs(allocator, outputs);
+            return .{
+                .failed = .{
+                    .failure = failure,
+                    .logs = owned_logs,
+                },
+            };
+        },
+        else => return err,
+    };
     errdefer deinitProgramValue(allocator, &owned_value);
     return .{
         .completed = .{
@@ -1268,6 +1282,31 @@ fn materializeExecutionValue(allocator: std.mem.Allocator, value: *RuntimeValue)
     return cloneProgramValue(allocator, value.value);
 }
 
+fn materializeExecutionValueBounded(
+    allocator: std.mem.Allocator,
+    bounds: host.DataValueBoundsV1,
+    value: *RuntimeValue,
+) !lowered_machine.ProgramValue {
+    try validateProgramValueDataBounds(allocator, bounds, value.value);
+    return try materializeExecutionValue(allocator, value);
+}
+
+fn validateProgramValueDataBounds(
+    allocator: std.mem.Allocator,
+    bounds: host.DataValueBoundsV1,
+    value: lowered_machine.ProgramValue,
+) !void {
+    const borrowed = switch (value) {
+        .none => try programValueToBorrowedDataValue(.unit, value),
+        .bool => try programValueToBorrowedDataValue(.bool, value),
+        .i32 => try programValueToBorrowedDataValue(.i32, value),
+        .usize => try programValueToBorrowedDataValue(.usize, value),
+        .string => try programValueToBorrowedDataValue(.string, value),
+    };
+    var bounded = try borrowed.cloneBounded(allocator, bounds);
+    defer bounded.deinit(allocator);
+}
+
 fn deinitRuntimeValue(allocator: std.mem.Allocator, value: *RuntimeValue) void {
     if (value.owned) deinitProgramValue(allocator, &value.value);
     value.* = .{ .value = .none, .owned = false };
@@ -1310,7 +1349,7 @@ test "artifact runtime fails closed when block budget is exhausted" {
         .terminators = &terminators,
         .instructions = &.{},
     };
-    var artifact_value: artifact.ArtifactV1 = undefined;
+    var artifact_value = std.mem.zeroes(artifact.ArtifactV1);
     var logs = std.ArrayList(host.HostLogEntryV1).empty;
     defer logs.deinit(allocator);
     var next_request_id: u64 = 1;
@@ -2234,7 +2273,7 @@ test "artifact runtime releases invalid output snapshots on structured failure" 
         .terminators = &terminators,
         .instructions = &.{},
     };
-    var artifact_value: artifact.ArtifactV1 = undefined;
+    var artifact_value = std.mem.zeroes(artifact.ArtifactV1);
     var logs = std.ArrayList(host.HostLogEntryV1).empty;
     defer logs.deinit(allocator);
     var next_request_id: u64 = 1;
@@ -2383,6 +2422,182 @@ test "artifact runtime host-log response budget failure is allocation-failure sa
     try std.testing.checkAllAllocationFailures(
         std.testing.allocator,
         expectHostLogPayloadBudgetFailureNoDoubleFree,
+        .{},
+    );
+}
+
+test "artifact runtime bounds completed value before completion" {
+    const allocator = std.testing.allocator;
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "entry",
+        .value_codec = .string,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_instruction = 0,
+        .instruction_count = 0,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+    }};
+    const blocks = [_]program_plan.BlockPlan{.{
+        .first_instruction = 0,
+        .instruction_count = 0,
+        .terminator_index = 0,
+    }};
+    const terminators = [_]program_plan.Terminator{.{ .kind = .return_value }};
+    const plan: program_plan.ProgramPlan = .{
+        .label = "completed-value-budget",
+        .ir_hash = 0,
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &.{},
+    };
+    var artifact_value = std.mem.zeroes(artifact.ArtifactV1);
+    var logs = std.ArrayList(host.HostLogEntryV1).empty;
+    defer logs.deinit(allocator);
+    var next_request_id: u64 = 1;
+    var ctx: ExecutionContext = .{
+        .allocator = allocator,
+        .decoded = &artifact_value,
+        .plan = plan,
+        .adapter = .{
+            .ctx = null,
+            .dispatchFn = struct {
+                fn dispatch(
+                    _: ?*anyopaque,
+                    _: std.mem.Allocator,
+                    _: host.HostEffectRequestV1,
+                ) anyerror!host.HostEffectResultV1 {
+                    return error.TestUnexpectedDispatch;
+                }
+            }.dispatch,
+        },
+        .logs = &logs,
+        .next_request_id = &next_request_id,
+        .options = .{ .data_value_bounds = .{
+            .max_depth = 4,
+            .max_nodes = 8,
+            .max_bytes = 4,
+        } },
+    };
+
+    var result = try completeExecutionResult(allocator, &ctx, &logs, .{ .value = .{ .string = "oversized" } });
+    defer result.deinit(allocator);
+    switch (result) {
+        .failed => |failure| {
+            try std.testing.expectEqualStrings("resource_exhausted", failure.failure.code);
+            try std.testing.expectEqualStrings("artifact completed value payload budget exceeded", failure.failure.message);
+            try std.testing.expectEqual(@as(usize, 0), failure.logs.len);
+        },
+        else => return error.TestUnexpectedRuntimeResult,
+    }
+}
+
+fn expectCompletedValueBudgetFailureWithOutputsNoDoubleFree(allocator: std.mem.Allocator) !void {
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "entry",
+        .value_codec = .string,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 1,
+        .first_instruction = 0,
+        .instruction_count = 0,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+    }};
+    const outputs = [_]program_plan.OutputPlan{.{
+        .label = "answer",
+        .codec = .string,
+    }};
+    const blocks = [_]program_plan.BlockPlan{.{
+        .first_instruction = 0,
+        .instruction_count = 0,
+        .terminator_index = 0,
+    }};
+    const terminators = [_]program_plan.Terminator{.{ .kind = .return_value }};
+    const plan: program_plan.ProgramPlan = .{
+        .label = "completed-value-budget-with-outputs",
+        .ir_hash = 0,
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &outputs,
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &.{},
+    };
+    var artifact_value = std.mem.zeroes(artifact.ArtifactV1);
+    var logs = std.ArrayList(host.HostLogEntryV1).empty;
+    defer logs.deinit(allocator);
+    var next_request_id: u64 = 1;
+    var ctx: ExecutionContext = .{
+        .allocator = allocator,
+        .decoded = &artifact_value,
+        .plan = plan,
+        .adapter = .{
+            .ctx = null,
+            .dispatchFn = struct {
+                fn dispatch(
+                    _: ?*anyopaque,
+                    _: std.mem.Allocator,
+                    _: host.HostEffectRequestV1,
+                ) anyerror!host.HostEffectResultV1 {
+                    return error.TestUnexpectedDispatch;
+                }
+            }.dispatch,
+            .collectOutputsFn = struct {
+                fn collect(
+                    _: ?*anyopaque,
+                    allocator_inner: std.mem.Allocator,
+                    declared_outputs: []const host.OutputDescriptorV1,
+                ) anyerror![]host.DataValueV1 {
+                    try std.testing.expectEqual(@as(usize, 1), declared_outputs.len);
+                    const values = try allocator_inner.alloc(host.DataValueV1, 1);
+                    errdefer allocator_inner.free(values);
+                    values[0] = .{ .string = try allocator_inner.dupe(u8, "ok") };
+                    return values;
+                }
+            }.collect,
+        },
+        .logs = &logs,
+        .next_request_id = &next_request_id,
+        .options = .{ .data_value_bounds = .{
+            .max_depth = 4,
+            .max_nodes = 8,
+            .max_bytes = 4,
+        } },
+    };
+
+    var result = try completeExecutionResult(allocator, &ctx, &logs, .{ .value = .{ .string = "oversized" } });
+    defer result.deinit(allocator);
+    switch (result) {
+        .failed => |failure| {
+            try std.testing.expectEqualStrings("resource_exhausted", failure.failure.code);
+            try std.testing.expectEqualStrings("artifact completed value payload budget exceeded", failure.failure.message);
+            try std.testing.expectEqual(@as(usize, 0), failure.logs.len);
+        },
+        else => return error.TestUnexpectedRuntimeResult,
+    }
+}
+
+test "artifact runtime completed value budget failure cleans materialized outputs" {
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        expectCompletedValueBudgetFailureWithOutputsNoDoubleFree,
         .{},
     );
 }

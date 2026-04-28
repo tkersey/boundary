@@ -4757,7 +4757,11 @@ pub fn build(b: *std.Build) void {
         ability_agent_vm_smoke_tests,
         test_runner_args.passthrough.items,
     );
-    const vm_build_filters = [_][]const u8{"host-log response budget"};
+    const vm_build_filters = [_][]const u8{
+        "host-log response budget",
+        "bounds completed value",
+        "completed value budget failure cleans",
+    };
     const vm_build_tests = addFilteredTest(
         b,
         private_artifact_vm_core_mod,
