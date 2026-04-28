@@ -19,11 +19,12 @@ const usage_text =
     "  --entry <symbol> entry function for the case, usually run or main\n" ++
     "  --surface <kind> one of source_case, example, effect, user_defined_effect, witness\n" ++
     "  --emit <format>  one of json or zig\n" ++
-    "  --out <path>     write only under zig-out, .zig-cache, or zig-cache\n" ++
+    "  --out <path>     write only under zig-out, .zig-cache, or zig-cache; parent directories must already exist\n" ++
     "  --version        print the tool version\n" ++
     "  --help, -h       print this help\n" ++
     "\n" ++
     "examples:\n" ++
+    "  mkdir -p zig-out/source-lower\n" ++
     "  ability-source-lower --id source.branch_resume --source test/source_lowering_corpus/fixtures/branch_resume.zig --entry run --surface source_case --emit json --out zig-out/source-lower/branch.json\n" ++
     "  ability-source-lower --id example.state_basic --source examples/state_basic.zig --entry main --surface example --emit zig --out zig-out/source-lower/state.zig\n";
 const expected_flag_value_pair_count = 6;
@@ -651,15 +652,13 @@ fn writeAcceptedProgramOutput(spec: OutputWriteSpec) !void {
     }
     const bytes = try output.toOwnedSlice();
     defer allocator.free(bytes);
-    dir.deleteFile(io, out_path) catch |err| switch (err) {
-        error.FileNotFound => {},
-        else => return err,
-    };
-    try dir.writeFile(io, .{
-        .sub_path = out_path,
-        .data = bytes,
-        .flags = .{ .exclusive = true },
-    });
+    var atomic_file = try dir.createFileAtomic(io, out_path, .{ .replace = true });
+    defer atomic_file.deinit(io);
+    var buffer: [1024]u8 = undefined;
+    var file_writer = atomic_file.file.writer(io, &buffer);
+    try file_writer.interface.writeAll(bytes);
+    try file_writer.flush();
+    try atomic_file.replace(io);
 }
 
 /// Build or inspect one internal source-lowering kernel program artifact.
@@ -881,6 +880,11 @@ test "cli output path guard admits only generated relative paths" {
     try std.testing.expect(!generatedOutputPathAllowed("zig-out\\..\\README.md"));
     try std.testing.expect(!generatedOutputPathAllowed("zig-out//out.json"));
     try std.testing.expect(!generatedOutputPathAllowed("zig-out\\\\out.json"));
+}
+
+test "usage text documents generated output parent directory precondition" {
+    try std.testing.expect(std.mem.find(u8, usage_text, "parent directories must already exist") != null);
+    try std.testing.expect(std.mem.find(u8, usage_text, "mkdir -p zig-out/source-lower") != null);
 }
 
 test "cli output root guard rejects symlinked generated root" {
@@ -1150,6 +1154,6 @@ test "rejected source-lower programs print structured diagnostics" {
     defer std.testing.allocator.free(bytes);
 
     try std.testing.expect(std.mem.find(u8, bytes, "ability-source-lower:") != null);
-    try std.testing.expect(std.mem.find(u8, bytes, "unsupported_shape") != null);
-    try std.testing.expect(std.mem.find(u8, bytes, "canonical entry symbol") != null);
+    try std.testing.expect(std.mem.find(u8, bytes, "entry_symbol_mismatch") != null);
+    try std.testing.expect(std.mem.find(u8, bytes, "expected entry symbol 'run'") != null);
 }

@@ -107,7 +107,8 @@ test "source-lowering rejects the wrong entry function for supported examples" {
     defer lowered.deinit(std.testing.allocator);
 
     try std.testing.expect(!lowered.isAccepted());
-    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+    try std.testing.expectEqualStrings("entry_symbol_mismatch", lowered.diagnostics[0].code);
+    try std.testing.expect(std.mem.find(u8, lowered.diagnostics[0].message, "run") != null);
 }
 
 test "source-lowering rejects the wrong witness entry in shared witness sources" {
@@ -120,7 +121,7 @@ test "source-lowering rejects the wrong witness entry in shared witness sources"
     defer lowered.deinit(std.testing.allocator);
 
     try std.testing.expect(!lowered.isAccepted());
-    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+    try std.testing.expectEqualStrings("entry_symbol_mismatch", lowered.diagnostics[0].code);
 }
 
 test "source-lowering rejects return-now witness ids when pointed at the resume witness body" {
@@ -133,7 +134,7 @@ test "source-lowering rejects return-now witness ids when pointed at the resume 
     defer lowered.deinit(std.testing.allocator);
 
     try std.testing.expect(!lowered.isAccepted());
-    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+    try std.testing.expectEqualStrings("entry_symbol_mismatch", lowered.diagnostics[0].code);
 }
 
 test "source-lowering rejects resume witness ids when pointed at the ATM witness body" {
@@ -146,7 +147,7 @@ test "source-lowering rejects resume witness ids when pointed at the ATM witness
     defer lowered.deinit(std.testing.allocator);
 
     try std.testing.expect(!lowered.isAccepted());
-    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+    try std.testing.expectEqualStrings("entry_symbol_mismatch", lowered.diagnostics[0].code);
 }
 
 test "source-lowering rejects altered fixture sources with dead-code canonical snippets" {
@@ -178,7 +179,7 @@ test "source-lowering rejects altered fixture sources with dead-code canonical s
     defer lowered.deinit(std.testing.allocator);
 
     try std.testing.expect(!lowered.isAccepted());
-    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+    try std.testing.expectEqualStrings("structural_mismatch", lowered.diagnostics[0].code);
 }
 
 test "source-lowering accepts comment-only edits to canonical fixtures" {
@@ -431,7 +432,7 @@ test "inline source lowering rejects drifted canonical text even on the canonica
     defer lowered.deinit(std.testing.allocator);
 
     try std.testing.expect(!lowered.isAccepted());
-    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+    try std.testing.expectEqualStrings("structural_mismatch", lowered.diagnostics[0].code);
 }
 
 test "inline source lowering rejects whitespace drift after accepted authoring admission" {
@@ -456,7 +457,7 @@ test "inline source lowering rejects whitespace drift after accepted authoring a
     defer lowered.deinit(std.testing.allocator);
 
     try std.testing.expect(!lowered.isAccepted());
-    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+    try std.testing.expectEqualStrings("canonical_source_drift", lowered.diagnostics[0].code);
 }
 
 test "file-backed inline source lowering accepts canonical repo-relative paths from subdirectories" {
@@ -513,7 +514,7 @@ test "source-lowering rejects drifted canonical files even when the path stays c
     defer lowered.deinit(std.testing.allocator);
 
     try std.testing.expect(!lowered.isAccepted());
-    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+    try std.testing.expectEqualStrings("structural_mismatch", lowered.diagnostics[0].code);
 }
 
 test "file-backed inline source lowering rejects whitespace drift after accepted authoring admission" {
@@ -538,7 +539,7 @@ test "file-backed inline source lowering rejects whitespace drift after accepted
     defer lowered.deinit(std.testing.allocator);
 
     try std.testing.expect(!lowered.isAccepted());
-    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+    try std.testing.expectEqualStrings("canonical_source_drift", lowered.diagnostics[0].code);
 }
 
 test "file-backed inline source lowering preserves parse-error locations" {
@@ -610,7 +611,7 @@ test "shared witness rows reject shared helper edits in the same source file" {
     defer lowered.deinit(allocator);
 
     try std.testing.expect(!lowered.isAccepted());
-    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+    try std.testing.expectEqualStrings("structural_mismatch", lowered.diagnostics[0].code);
 }
 
 test "shared static redelim witness rejects stateful nested handler initializers" {
@@ -637,7 +638,7 @@ test "shared static redelim witness rejects stateful nested handler initializers
     defer lowered.deinit(allocator);
 
     try std.testing.expect(!lowered.isAccepted());
-    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+    try std.testing.expectEqualStrings("structural_mismatch", lowered.diagnostics[0].code);
 }
 
 test "source-lowering owns rejected source paths" {
@@ -707,7 +708,7 @@ test "source-lowering rejects mismatched expected_status values" {
     defer lowered.deinit(std.testing.allocator);
 
     try std.testing.expect(!lowered.isAccepted());
-    try std.testing.expectEqualStrings("unsupported_shape", lowered.diagnostics[0].code);
+    try std.testing.expectEqualStrings("expected_status_mismatch", lowered.diagnostics[0].code);
 }
 
 test "source-lowering no longer exposes a public root surface" {
