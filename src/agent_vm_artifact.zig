@@ -127,7 +127,7 @@ pub const ArtifactV1 = struct {
     }
 
     /// Rebuild one runtime-owned ProgramPlan from this artifact payload.
-    pub fn toProgramPlan(self: @This(), allocator: std.mem.Allocator) anyerror!program_plan.ProgramPlan {
+    pub fn toProgramPlan(self: @This(), allocator: std.mem.Allocator) std.mem.Allocator.Error!program_plan.ProgramPlan {
         const label = try allocator.dupe(u8, "artifact_v1");
         errdefer allocator.free(label);
         const functions = try deepCloneFunctionPlans(allocator, self.functions);
@@ -206,6 +206,7 @@ pub const DecodeError = error{
     InvalidBuildFingerprint,
     InvalidDirectoryBounds,
     InvalidEntryFunctionIndex,
+    InvalidProgramPlan,
     InvalidHashKind,
     InvalidRequiredSection,
     NonZeroReserved,
@@ -217,6 +218,9 @@ pub const DecodeError = error{
     UnsupportedExecutableCodec,
     UnsupportedExecInstruction,
 };
+
+/// Public decode failures plus allocation failure for owned decoded artifacts.
+pub const DecodeResultError = std.mem.Allocator.Error || DecodeError;
 
 fn isReservedOptionalSectionId(raw_section_id: u16) bool {
     return switch (raw_section_id) {
@@ -542,14 +546,14 @@ fn encodeProgramPlanVersioned(
 }
 
 /// Decode canonical ArtifactV1 bytes into the in-memory artifact surface.
-pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) anyerror!ArtifactV1 {
+pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) DecodeResultError!ArtifactV1 {
     const decoded = try decodeWithProgramPlan(allocator, bytes);
     defer deepFreeProgramPlan(allocator, decoded.plan);
     return decoded.artifact;
 }
 
 /// Decode canonical ArtifactV1 bytes and return the validated executable plan.
-pub fn decodeWithProgramPlan(allocator: std.mem.Allocator, bytes: []const u8) anyerror!DecodedProgramPlanV1 {
+pub fn decodeWithProgramPlan(allocator: std.mem.Allocator, bytes: []const u8) DecodeResultError!DecodedProgramPlanV1 {
     if (bytes.len < artifact_header_len) return error.InvalidDirectoryBounds;
     if (!std.mem.eql(u8, bytes[0..8], artifact_magic)) return error.BadMagic;
     if (readU16(bytes, 8) != artifact_header_len) return error.UnsupportedVersion;
@@ -726,7 +730,7 @@ fn validateWithProgramPlan(
     self: ArtifactV1,
     allocator: std.mem.Allocator,
     plan: program_plan.ProgramPlan,
-) anyerror!void {
+) DecodeResultError!void {
     try validateManifest(self.manifest_build_fingerprint, self.capabilities);
     const recomputed_build_fingerprint = try buildFingerprintForCapabilitiesForArtifactVersion(
         allocator,
@@ -739,7 +743,7 @@ fn validateWithProgramPlan(
     }
     if (self.entry_function_index >= self.functions.len) return error.InvalidEntryFunctionIndex;
     if (self.functions[self.entry_function_index].parameter_count != 0) return error.UnsupportedEntryParameters;
-    try plan.validate();
+    plan.validate() catch return error.InvalidProgramPlan;
     try validateExecutableCodecSupport(plan);
     try validateExecutableInstructionSupport(plan);
     try validateRequirementCapabilityMappings(plan, self.requirement_capability_ids, self.capabilities);
@@ -1002,6 +1006,61 @@ test "ArtifactV1 manifest rejects all-zero build fingerprints with a specific er
         error.InvalidBuildFingerprint,
         validateManifest(std.mem.zeroes([32]u8), &.{}),
     );
+}
+
+test "ArtifactV1 validation maps runtime plan errors into the decode domain" {
+    const allocator = std.testing.allocator;
+    const manifest_fingerprint = buildFingerprintFromSeed("invalid-plan-normalization");
+    const build_fingerprint = try buildFingerprintForCapabilitiesForArtifactVersion(
+        allocator,
+        artifact_version_current,
+        manifest_fingerprint,
+        &.{},
+    );
+    var functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "entry",
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_instruction = 0,
+        .instruction_count = 0,
+    }};
+    const artifact: ArtifactV1 = .{
+        .semantic_ir_hash64 = 0,
+        .manifest_build_fingerprint = manifest_fingerprint,
+        .build_fingerprint_blake3_256 = build_fingerprint,
+        .entry_function_index = 0,
+        .capabilities = &.{},
+        .requirement_capability_ids = &.{},
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{},
+        .terminators = &.{},
+        .instructions = &.{},
+    };
+    const invalid_plan: program_plan.ProgramPlan = .{
+        .schema_version = 0,
+        .label = "invalid-plan",
+        .ir_hash = 0,
+        .entry_index = 0,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{},
+        .call_args = &.{},
+        .blocks = &.{},
+        .terminators = &.{},
+        .instructions = &.{},
+    };
+
+    try std.testing.expectError(error.InvalidProgramPlan, validateWithProgramPlan(artifact, allocator, invalid_plan));
 }
 
 fn validateExecutableCodecSupport(plan: program_plan.ProgramPlan) !void {

@@ -8,6 +8,10 @@ pub const CapabilityOpV1 = inner.CapabilityOpV1;
 pub const CapabilityV1 = inner.CapabilityV1;
 /// Re-exported host operation kind.
 pub const HostOpKind = inner.HostOpKind;
+/// Re-exported decode-time failure domain.
+pub const DecodeError = inner.DecodeError;
+/// Re-exported public decode result error set.
+pub const DecodeResultError = inner.DecodeResultError;
 /// Re-exported ArtifactV1 decoder.
 pub const decode = inner.decode;
 /// Re-exported ArtifactV1 decoder that also returns the validated runtime plan.
