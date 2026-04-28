@@ -14,6 +14,33 @@ pub const DataValueOwnershipV1 = enum {
     deep,
 };
 
+/// Defensive bounds for cloning recursive host payload trees.
+pub const DataValueBoundsV1 = struct {
+    max_depth: usize = 64,
+    max_nodes: usize = 4096,
+    max_bytes: usize = 1 << 20,
+};
+
+const DataValueCloneState = struct {
+    nodes: usize = 0,
+    bytes: usize = 0,
+
+    fn chargeNode(self: *@This(), bounds: DataValueBoundsV1) !void {
+        self.nodes = std.math.add(usize, self.nodes, 1) catch return error.DataValueTooManyNodes;
+        if (self.nodes > bounds.max_nodes) return error.DataValueTooManyNodes;
+    }
+
+    fn chargeBytes(self: *@This(), bounds: DataValueBoundsV1, count: usize) !void {
+        self.bytes = std.math.add(usize, self.bytes, count) catch return error.DataValueTooManyBytes;
+        if (self.bytes > bounds.max_bytes) return error.DataValueTooManyBytes;
+    }
+
+    fn canFitNodes(self: @This(), bounds: DataValueBoundsV1, count: usize) bool {
+        if (self.nodes > bounds.max_nodes) return false;
+        return count <= bounds.max_nodes - self.nodes;
+    }
+};
+
 /// Declared output codecs surfaced by the ArtifactV1 runtime completion hook.
 pub const OutputCodecV1 = enum {
     bool,
@@ -43,25 +70,51 @@ pub const DataValueV1 = union(enum) {
 
     /// Clone one typed payload tree into allocator-owned memory.
     pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!DataValueV1 {
+        return try self.cloneBounded(allocator, .{});
+    }
+
+    /// Clone one typed payload tree with explicit recursion and size limits.
+    pub fn cloneBounded(self: @This(), allocator: std.mem.Allocator, bounds: DataValueBoundsV1) anyerror!DataValueV1 {
+        var state = DataValueCloneState{};
+        return try self.cloneBoundedInner(allocator, bounds, &state, 0);
+    }
+
+    fn cloneBoundedInner(
+        self: @This(),
+        allocator: std.mem.Allocator,
+        bounds: DataValueBoundsV1,
+        state: *DataValueCloneState,
+        depth: usize,
+    ) anyerror!DataValueV1 {
+        if (depth > bounds.max_depth) return error.DataValueTooDeep;
+        try state.chargeNode(bounds);
         return switch (self) {
             .null => .null,
             .bool => |value| .{ .bool = value },
             .i64 => |value| .{ .i64 = value },
             .u64 => |value| .{ .u64 = value },
-            .string => |value| .{ .string = try allocator.dupe(u8, value) },
-            .bytes => |value| .{ .bytes = try allocator.dupe(u8, value) },
+            .string => |value| blk: {
+                try state.chargeBytes(bounds, value.len);
+                break :blk .{ .string = try allocator.dupe(u8, value) };
+            },
+            .bytes => |value| blk: {
+                try state.chargeBytes(bounds, value.len);
+                break :blk .{ .bytes = try allocator.dupe(u8, value) };
+            },
             .array => |items| blk: {
+                if (!state.canFitNodes(bounds, items.len)) return error.DataValueTooManyNodes;
                 const cloned = try allocator.alloc(DataValueV1, items.len);
                 errdefer allocator.free(cloned);
                 var cloned_len: usize = 0;
                 errdefer for (cloned[0..cloned_len]) |*item| item.deinit(allocator);
                 for (items, 0..) |item, index| {
-                    cloned[index] = try item.clone(allocator);
+                    cloned[index] = try item.cloneBoundedInner(allocator, bounds, state, depth + 1);
                     cloned_len += 1;
                 }
                 break :blk .{ .array = cloned };
             },
             .object => |fields| blk: {
+                if (!state.canFitNodes(bounds, fields.len)) return error.DataValueTooManyNodes;
                 const cloned = try allocator.alloc(ObjectFieldV1, fields.len);
                 errdefer allocator.free(cloned);
                 var cloned_len: usize = 0;
@@ -72,7 +125,7 @@ pub const DataValueV1 = union(enum) {
                     }
                 }
                 for (fields, 0..) |field, index| {
-                    cloned[index] = try cloneObjectField(field, allocator);
+                    cloned[index] = try cloneObjectFieldBounded(field, allocator, bounds, state, depth + 1);
                     cloned_len += 1;
                 }
                 break :blk .{ .object = cloned };
@@ -145,10 +198,17 @@ pub const ObjectFieldV1 = struct {
     value: DataValueV1,
 };
 
-fn cloneObjectField(field: ObjectFieldV1, allocator: std.mem.Allocator) !ObjectFieldV1 {
+fn cloneObjectFieldBounded(
+    field: ObjectFieldV1,
+    allocator: std.mem.Allocator,
+    bounds: DataValueBoundsV1,
+    state: *DataValueCloneState,
+    depth: usize,
+) !ObjectFieldV1 {
+    try state.chargeBytes(bounds, field.key.len);
     const key = try allocator.dupe(u8, field.key);
     errdefer allocator.free(key);
-    const value = try field.value.clone(allocator);
+    const value = try field.value.cloneBoundedInner(allocator, bounds, state, depth);
     errdefer {
         var owned_value = value;
         owned_value.deinit(allocator);
@@ -172,11 +232,16 @@ pub const ToolCallRequestV1 = struct {
 
     /// Clone one tool-call request into allocator-owned memory.
     pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
+        return try self.cloneBounded(allocator, .{});
+    }
+
+    /// Clone one tool-call request into allocator-owned memory with bounded payload cloning.
+    pub fn cloneBounded(self: @This(), allocator: std.mem.Allocator, bounds: DataValueBoundsV1) anyerror!@This() {
         const tool_id = try allocator.dupe(u8, self.tool_id);
         errdefer allocator.free(tool_id);
         const op_name = try allocator.dupe(u8, self.op_name);
         errdefer allocator.free(op_name);
-        const arguments = try self.arguments.clone(allocator);
+        const arguments = try self.arguments.cloneBounded(allocator, bounds);
         errdefer {
             var owned_arguments = arguments;
             owned_arguments.deinit(allocator);
@@ -212,9 +277,14 @@ pub const ToolCallResultV1 = struct {
 
     /// Clone one tool-call result into allocator-owned memory.
     pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
+        return try self.cloneBounded(allocator, .{});
+    }
+
+    /// Clone one tool-call result into allocator-owned memory with bounded payload cloning.
+    pub fn cloneBounded(self: @This(), allocator: std.mem.Allocator, bounds: DataValueBoundsV1) anyerror!@This() {
         const tool_id = try allocator.dupe(u8, self.tool_id);
         errdefer allocator.free(tool_id);
-        const value = try self.value.clone(allocator);
+        const value = try self.value.cloneBounded(allocator, bounds);
         errdefer {
             var owned_value = value;
             owned_value.deinit(allocator);
@@ -246,6 +316,14 @@ pub const FailureV1 = struct {
 
     /// Clone one failure payload into allocator-owned memory.
     pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
+        return try self.cloneBounded(allocator, .{});
+    }
+
+    /// Clone one failure payload into allocator-owned memory with bounded text size.
+    pub fn cloneBounded(self: @This(), allocator: std.mem.Allocator, bounds: DataValueBoundsV1) anyerror!@This() {
+        var state = DataValueCloneState{};
+        try state.chargeBytes(bounds, self.code.len);
+        try state.chargeBytes(bounds, self.message.len);
         const code = try allocator.dupe(u8, self.code);
         errdefer allocator.free(code);
         return .{
@@ -275,8 +353,13 @@ pub const HostEffectRequestBodyV1 = union(HostEffectKindV1) {
 
     /// Clone one request-body variant into allocator-owned memory.
     pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
+        return try self.cloneBounded(allocator, .{});
+    }
+
+    /// Clone one request-body variant into allocator-owned memory with bounded payload cloning.
+    pub fn cloneBounded(self: @This(), allocator: std.mem.Allocator, bounds: DataValueBoundsV1) anyerror!@This() {
         return switch (self) {
-            .tool_call => |value| .{ .tool_call = try value.clone(allocator) },
+            .tool_call => |value| .{ .tool_call = try value.cloneBounded(allocator, bounds) },
         };
     }
 
@@ -299,12 +382,17 @@ pub const HostEffectRequestV1 = struct {
 
     /// Clone one host-effect request into allocator-owned memory.
     pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
+        return try self.cloneBounded(allocator, .{});
+    }
+
+    /// Clone one host-effect request into allocator-owned memory with bounded payload cloning.
+    pub fn cloneBounded(self: @This(), allocator: std.mem.Allocator, bounds: DataValueBoundsV1) anyerror!@This() {
         return .{
             .schema_version = self.schema_version,
             .request_id = self.request_id,
             .capability_id = self.capability_id,
             .op_id = self.op_id,
-            .body = try self.body.clone(allocator),
+            .body = try self.body.cloneBounded(allocator, bounds),
         };
     }
 
@@ -330,10 +418,15 @@ pub const HostEffectResultBodyV1 = union(HostEffectStatusV1) {
 
     /// Clone one result-body variant into allocator-owned memory.
     pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
+        return try self.cloneBounded(allocator, .{});
+    }
+
+    /// Clone one result-body variant into allocator-owned memory with bounded payload cloning.
+    pub fn cloneBounded(self: @This(), allocator: std.mem.Allocator, bounds: DataValueBoundsV1) anyerror!@This() {
         return switch (self) {
-            .success => |value| .{ .success = try value.clone(allocator) },
-            .rejected => |value| .{ .rejected = try value.clone(allocator) },
-            .failed => |value| .{ .failed = try value.clone(allocator) },
+            .success => |value| .{ .success = try value.cloneBounded(allocator, bounds) },
+            .rejected => |value| .{ .rejected = try value.cloneBounded(allocator, bounds) },
+            .failed => |value| .{ .failed = try value.cloneBounded(allocator, bounds) },
         };
     }
 
@@ -356,10 +449,15 @@ pub const HostEffectResultV1 = struct {
 
     /// Clone one host-effect result into allocator-owned memory.
     pub fn clone(self: @This(), allocator: std.mem.Allocator) anyerror!@This() {
+        return try self.cloneBounded(allocator, .{});
+    }
+
+    /// Clone one host-effect result into allocator-owned memory with bounded payload cloning.
+    pub fn cloneBounded(self: @This(), allocator: std.mem.Allocator, bounds: DataValueBoundsV1) anyerror!@This() {
         return .{
             .schema_version = self.schema_version,
             .request_id = self.request_id,
-            .body = try self.body.clone(allocator),
+            .body = try self.body.cloneBounded(allocator, bounds),
         };
     }
 
@@ -407,3 +505,92 @@ pub const HostAdapterV1 = struct {
         return collect(self.ctx, allocator, declared_outputs);
     }
 };
+
+test "DataValueV1 bounded clone rejects excessive recursion depth" {
+    const allocator = std.testing.allocator;
+    const leaf = [_]DataValueV1{.null};
+    const root: DataValueV1 = .{ .array = &leaf };
+
+    try std.testing.expectError(error.DataValueTooDeep, root.cloneBounded(allocator, .{
+        .max_depth = 0,
+        .max_nodes = 8,
+        .max_bytes = 1024,
+    }));
+}
+
+test "DataValueV1 bounded clone rejects excessive node count" {
+    const CountingAllocator = struct {
+        child: std.mem.Allocator,
+        alloc_calls: usize = 0,
+
+        fn allocator(self: *@This()) std.mem.Allocator {
+            return .{
+                .ptr = self,
+                .vtable = &.{
+                    .alloc = alloc,
+                    .resize = resize,
+                    .remap = remap,
+                    .free = free,
+                },
+            };
+        }
+
+        fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            self.alloc_calls += 1;
+            return self.child.rawAlloc(len, alignment, ret_addr);
+        }
+
+        fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            return self.child.rawResize(memory, alignment, new_len, ret_addr);
+        }
+
+        fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            return self.child.rawRemap(memory, alignment, new_len, ret_addr);
+        }
+
+        fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            self.child.rawFree(memory, alignment, ret_addr);
+        }
+    };
+
+    var counting: CountingAllocator = .{ .child = std.testing.allocator };
+    const allocator = counting.allocator();
+    const values = [_]DataValueV1{ .null, .null };
+    const root: DataValueV1 = .{ .array = &values };
+
+    try std.testing.expectError(error.DataValueTooManyNodes, root.cloneBounded(allocator, .{
+        .max_depth = 4,
+        .max_nodes = 2,
+        .max_bytes = 1024,
+    }));
+    try std.testing.expectEqual(@as(usize, 0), counting.alloc_calls);
+}
+
+test "DataValueV1 bounded clone rejects excessive byte count" {
+    const allocator = std.testing.allocator;
+    const root: DataValueV1 = .{ .string = "oversized" };
+
+    try std.testing.expectError(error.DataValueTooManyBytes, root.cloneBounded(allocator, .{
+        .max_depth = 4,
+        .max_nodes = 8,
+        .max_bytes = 4,
+    }));
+}
+
+test "FailureV1 bounded clone rejects excessive byte count" {
+    const allocator = std.testing.allocator;
+    const failure: FailureV1 = .{
+        .code = "provider_failure",
+        .message = "oversized failure message",
+    };
+
+    try std.testing.expectError(error.DataValueTooManyBytes, failure.cloneBounded(allocator, .{
+        .max_depth = 4,
+        .max_nodes = 8,
+        .max_bytes = 8,
+    }));
+}

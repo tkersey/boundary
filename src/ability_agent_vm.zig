@@ -17,6 +17,18 @@ pub const host = struct {
     /// One declared runtime output descriptor.
     pub const OutputDescriptor = host_api.OutputDescriptorV1;
 
+    /// One completed output snapshot with explicit payload ownership.
+    pub const OutputSnapshot = struct {
+        value: DataValue,
+        value_ownership: DataValueOwnership = .borrowed,
+
+        /// Release allocator-owned output snapshot storage.
+        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+            self.value.deinitWithOwnership(allocator, self.value_ownership);
+            self.* = undefined;
+        }
+    };
+
     /// One host call request for a normal operation dispatch.
     pub const CallRequest = struct {
         request_id: u64,
@@ -147,6 +159,9 @@ pub const host = struct {
     pub const Adapter = struct {
         ctx: ?*anyopaque,
         dispatchFn: *const fn (ctx: ?*anyopaque, allocator: std.mem.Allocator, request: Request) anyerror!Response,
+        collectOutputSnapshotsFn: ?*const fn (ctx: ?*anyopaque, allocator: std.mem.Allocator, declared_outputs: []const OutputDescriptor) anyerror![]OutputSnapshot = null,
+        /// Legacy completion hook for declared ArtifactV1 entry outputs.
+        /// Returned values must be allocator-owned and match the declared outputs exactly.
         collectOutputsFn: ?*const fn (ctx: ?*anyopaque, allocator: std.mem.Allocator, declared_outputs: []const OutputDescriptor) anyerror![]DataValue = null,
 
         /// Dispatch one structural host request.
@@ -164,11 +179,48 @@ pub const host = struct {
             const collect = self.collectOutputsFn orelse return error.MissingOutputSnapshot;
             return collect(self.ctx, allocator, declared_outputs);
         }
+
+        /// Collect the declared output bundle with explicit value ownership.
+        pub fn collectOutputSnapshots(
+            self: @This(),
+            allocator: std.mem.Allocator,
+            declared_outputs: []const OutputDescriptor,
+        ) anyerror![]OutputSnapshot {
+            if (declared_outputs.len == 0) return allocator.alloc(OutputSnapshot, 0);
+            if (self.collectOutputSnapshotsFn) |collect_snapshots| {
+                return collect_snapshots(self.ctx, allocator, declared_outputs);
+            }
+
+            const collect = self.collectOutputsFn orelse return error.MissingOutputSnapshot;
+            var values = try collect(self.ctx, allocator, declared_outputs);
+            defer allocator.free(values);
+            errdefer for (values) |*value| value.deinit(allocator);
+
+            const snapshots = try allocator.alloc(OutputSnapshot, values.len);
+            var initialized: usize = 0;
+            errdefer {
+                for (snapshots[0..initialized]) |*snapshot| snapshot.deinit(allocator);
+                allocator.free(snapshots);
+            }
+
+            for (values, 0..) |value, index| {
+                snapshots[index] = .{
+                    .value = value,
+                    .value_ownership = .deep,
+                };
+                values[index] = .null;
+                initialized += 1;
+            }
+            return snapshots;
+        }
     };
 };
 
 /// Supported synchronous runtime surface for agent-vm execution.
 pub const runtime = struct {
+    /// Resource envelope for synchronous ArtifactV1 execution.
+    pub const RunOptions = runtime_api.RunOptionsV1;
+
     /// One finalized runtime output value.
     pub const ExecutionOutput = struct {
         label: []u8,
@@ -235,15 +287,33 @@ pub const runtime = struct {
         bytes: []const u8,
         adapter: host.Adapter,
     ) anyerror!RunArtifactResult {
-        var bridge_adapter = adapter;
-        var internal_result = try runtime_api.runArtifact(allocator, bytes, .{
-            .ctx = &bridge_adapter,
+        return try runArtifactWithOptions(allocator, bytes, adapter, .{});
+    }
+
+    /// Execute artifact bytes through the supported runtime surface with explicit resource bounds.
+    pub fn runArtifactWithOptions(
+        allocator: std.mem.Allocator,
+        bytes: []const u8,
+        adapter: host.Adapter,
+        options: RunOptions,
+    ) anyerror!RunArtifactResult {
+        var bridge_context: BridgeContext = .{
+            .adapter = adapter,
+            .data_value_bounds = options.data_value_bounds,
+        };
+        var internal_result = try runtime_api.runArtifactWithOptions(allocator, bytes, .{
+            .ctx = &bridge_context,
             .dispatchFn = bridgeDispatch,
             .collectOutputsFn = bridgeCollectOutputs,
-        });
+        }, options);
         defer internal_result.deinit(allocator);
-        return try runArtifactResultFromInternal(allocator, internal_result);
+        return try runArtifactResultFromInternal(allocator, internal_result, options.data_value_bounds);
     }
+};
+
+const BridgeContext = struct {
+    adapter: host.Adapter,
+    data_value_bounds: host_api.DataValueBoundsV1,
 };
 
 fn bridgeDispatch(
@@ -251,14 +321,14 @@ fn bridgeDispatch(
     allocator: std.mem.Allocator,
     request: host_api.HostEffectRequestV1,
 ) anyerror!host_api.HostEffectResultV1 {
-    const adapter: *host.Adapter = @ptrCast(@alignCast(ctx_ptr.?));
-    var public_request = try requestFromInternal(allocator, request);
+    const bridge_context: *BridgeContext = @ptrCast(@alignCast(ctx_ptr.?));
+    var public_request = try requestFromInternal(allocator, request, bridge_context.data_value_bounds);
     defer public_request.deinit(allocator);
 
-    var public_response = try adapter.dispatch(allocator, public_request);
+    var public_response = try bridge_context.adapter.dispatch(allocator, public_request);
     defer public_response.deinit(allocator);
 
-    return try responseToInternal(allocator, request.request_id, public_response);
+    return try responseToInternal(allocator, request.request_id, public_response, bridge_context.data_value_bounds);
 }
 
 fn bridgeCollectOutputs(
@@ -266,30 +336,49 @@ fn bridgeCollectOutputs(
     allocator: std.mem.Allocator,
     declared_outputs: []const host_api.OutputDescriptorV1,
 ) anyerror![]host_api.DataValueV1 {
-    const adapter: *host.Adapter = @ptrCast(@alignCast(ctx_ptr.?));
-    return try adapter.collectOutputs(allocator, declared_outputs);
+    const bridge_context: *BridgeContext = @ptrCast(@alignCast(ctx_ptr.?));
+    const snapshots = try bridge_context.adapter.collectOutputSnapshots(allocator, declared_outputs);
+    defer {
+        for (snapshots) |*snapshot| snapshot.deinit(allocator);
+        allocator.free(snapshots);
+    }
+    if (snapshots.len != declared_outputs.len) return error.OutputSnapshotCountMismatch;
+
+    const values = try allocator.alloc(host_api.DataValueV1, snapshots.len);
+    var initialized: usize = 0;
+    errdefer {
+        for (values[0..initialized]) |*value| value.deinit(allocator);
+        allocator.free(values);
+    }
+    for (snapshots, 0..) |snapshot, index| {
+        values[index] = try snapshot.value.cloneBounded(allocator, bridge_context.data_value_bounds);
+        initialized += 1;
+    }
+    return values;
 }
 
 fn runArtifactResultFromInternal(
     allocator: std.mem.Allocator,
     result: runtime_api.RunArtifactResultV1,
+    bounds: host_api.DataValueBoundsV1,
 ) !runtime.RunArtifactResult {
     return switch (result) {
-        .completed => |completed| .{ .completed = try executionResultFromInternal(allocator, completed) },
-        .failed => |failure| .{ .failed = try hostFailureResultFromInternal(allocator, failure) },
-        .rejected => |failure| .{ .rejected = try hostFailureResultFromInternal(allocator, failure) },
+        .completed => |completed| .{ .completed = try executionResultFromInternal(allocator, completed, bounds) },
+        .failed => |failure| .{ .failed = try hostFailureResultFromInternal(allocator, failure, bounds) },
+        .rejected => |failure| .{ .rejected = try hostFailureResultFromInternal(allocator, failure, bounds) },
     };
 }
 
 fn executionResultFromInternal(
     allocator: std.mem.Allocator,
     result: runtime_api.ExecutionResultV1,
+    bounds: host_api.DataValueBoundsV1,
 ) !runtime.ExecutionResult {
-    var value = try dataValueFromProgramValue(allocator, result.value);
+    var value = try dataValueFromProgramValueBounded(allocator, result.value, bounds);
     errdefer value.deinit(allocator);
-    const outputs = try executionOutputsFromInternal(allocator, result.outputs);
+    const outputs = try executionOutputsFromInternal(allocator, result.outputs, bounds);
     errdefer deinitExecutionOutputs(allocator, outputs);
-    const logs = try hostLogsFromInternal(allocator, result.logs);
+    const logs = try hostLogsFromInternal(allocator, result.logs, bounds);
     errdefer deinitHostLogs(allocator, logs);
     return .{
         .value = value,
@@ -301,10 +390,11 @@ fn executionResultFromInternal(
 fn hostFailureResultFromInternal(
     allocator: std.mem.Allocator,
     result: runtime_api.HostFailureResultV1,
+    bounds: host_api.DataValueBoundsV1,
 ) !runtime.HostFailureResult {
-    var failure = try result.failure.clone(allocator);
+    var failure = try cloneFailureEnvelope(allocator, result.failure);
     errdefer failure.deinit(allocator);
-    const logs = try hostLogsFromInternal(allocator, result.logs);
+    const logs = try hostLogsFromInternal(allocator, result.logs, bounds);
     errdefer deinitHostLogs(allocator, logs);
     return .{
         .failure = failure,
@@ -312,9 +402,21 @@ fn hostFailureResultFromInternal(
     };
 }
 
+fn cloneFailureEnvelope(
+    allocator: std.mem.Allocator,
+    failure: host_api.FailureV1,
+) !host.Failure {
+    return try failure.cloneBounded(allocator, .{
+        .max_depth = std.math.maxInt(usize),
+        .max_nodes = std.math.maxInt(usize),
+        .max_bytes = std.math.maxInt(usize),
+    });
+}
+
 fn executionOutputsFromInternal(
     allocator: std.mem.Allocator,
     outputs: []const runtime_api.ExecutionOutputV1,
+    bounds: host_api.DataValueBoundsV1,
 ) ![]runtime.ExecutionOutput {
     const owned_outputs = try allocator.alloc(runtime.ExecutionOutput, outputs.len);
     var initialized: usize = 0;
@@ -322,7 +424,7 @@ fn executionOutputsFromInternal(
     for (outputs, 0..) |output, index| {
         const label = try allocator.dupe(u8, output.label);
         errdefer allocator.free(label);
-        const value = try output.value.clone(allocator);
+        const value = try output.value.cloneBounded(allocator, bounds);
         errdefer {
             var owned_value = value;
             owned_value.deinit(allocator);
@@ -340,12 +442,13 @@ fn executionOutputsFromInternal(
 fn hostLogsFromInternal(
     allocator: std.mem.Allocator,
     logs: []const host_api.HostLogEntryV1,
+    bounds: host_api.DataValueBoundsV1,
 ) ![]host.LogEntry {
     const owned_logs = try allocator.alloc(host.LogEntry, logs.len);
     var initialized: usize = 0;
     errdefer deinitHostLogsPrefix(allocator, owned_logs, initialized);
     for (logs, 0..) |entry, index| {
-        owned_logs[index] = try hostLogFromInternal(allocator, entry);
+        owned_logs[index] = try hostLogFromInternal(allocator, entry, bounds);
         initialized += 1;
     }
     return owned_logs;
@@ -354,10 +457,11 @@ fn hostLogsFromInternal(
 fn hostLogFromInternal(
     allocator: std.mem.Allocator,
     entry: host_api.HostLogEntryV1,
+    bounds: host_api.DataValueBoundsV1,
 ) !host.LogEntry {
-    var request = try requestFromInternal(allocator, entry.request);
+    var request = try requestFromInternal(allocator, entry.request, bounds);
     errdefer request.deinit(allocator);
-    var response = try responseFromInternal(allocator, entry.result);
+    var response = try responseFromInternal(allocator, entry.result, bounds);
     errdefer response.deinit(allocator);
     return .{
         .request = request,
@@ -365,13 +469,17 @@ fn hostLogFromInternal(
     };
 }
 
-fn requestFromInternal(allocator: std.mem.Allocator, request: host_api.HostEffectRequestV1) !host.Request {
+fn requestFromInternal(
+    allocator: std.mem.Allocator,
+    request: host_api.HostEffectRequestV1,
+    bounds: host_api.DataValueBoundsV1,
+) !host.Request {
     const tool_call = request.body.tool_call;
     const tool_id = try allocator.dupe(u8, tool_call.tool_id);
     errdefer allocator.free(tool_id);
     const op_name = try allocator.dupe(u8, tool_call.op_name);
     errdefer allocator.free(op_name);
-    const payload = try tool_call.arguments.clone(allocator);
+    const payload = try tool_call.arguments.cloneBounded(allocator, bounds);
     errdefer {
         var owned_payload = payload;
         owned_payload.deinit(allocator);
@@ -408,15 +516,16 @@ fn requestFromInternal(allocator: std.mem.Allocator, request: host_api.HostEffec
 fn responseFromInternal(
     allocator: std.mem.Allocator,
     response: host_api.HostEffectResultV1,
+    bounds: host_api.DataValueBoundsV1,
 ) !host.Response {
     return switch (response.body) {
         .success => |value| switch (value.control) {
-            .@"resume" => .{ .resumed = try cloneResumedResponse(allocator, response.request_id, value) },
-            .return_now => .{ .return_now = try cloneTerminalResponse(allocator, response.request_id, value) },
-            .abort => .{ .aborted = try cloneTerminalResponse(allocator, response.request_id, value) },
+            .@"resume" => .{ .resumed = try cloneResumedResponse(allocator, response.request_id, value, bounds) },
+            .return_now => .{ .return_now = try cloneTerminalResponse(allocator, response.request_id, value, bounds) },
+            .abort => .{ .aborted = try cloneTerminalResponse(allocator, response.request_id, value, bounds) },
         },
-        .rejected => |value| .{ .rejected = try value.clone(allocator) },
-        .failed => |value| .{ .failed = try value.clone(allocator) },
+        .rejected => |value| .{ .rejected = try value.cloneBounded(allocator, bounds) },
+        .failed => |value| .{ .failed = try value.cloneBounded(allocator, bounds) },
     };
 }
 
@@ -424,10 +533,11 @@ fn cloneResumedResponse(
     allocator: std.mem.Allocator,
     request_id: u64,
     value: host_api.ToolCallResultV1,
+    bounds: host_api.DataValueBoundsV1,
 ) !host.Resumed {
     const tool_id = try allocator.dupe(u8, value.tool_id);
     errdefer allocator.free(tool_id);
-    const cloned_value = try value.value.clone(allocator);
+    const cloned_value = try value.value.cloneBounded(allocator, bounds);
     errdefer {
         var owned_value = cloned_value;
         owned_value.deinit(allocator);
@@ -446,10 +556,11 @@ fn cloneTerminalResponse(
     allocator: std.mem.Allocator,
     request_id: u64,
     value: host_api.ToolCallResultV1,
+    bounds: host_api.DataValueBoundsV1,
 ) !host.Terminal {
     const tool_id = try allocator.dupe(u8, value.tool_id);
     errdefer allocator.free(tool_id);
-    const cloned_value = try value.value.clone(allocator);
+    const cloned_value = try value.value.cloneBounded(allocator, bounds);
     errdefer {
         var owned_value = cloned_value;
         owned_value.deinit(allocator);
@@ -468,19 +579,14 @@ fn responseToInternal(
     allocator: std.mem.Allocator,
     request_id: u64,
     response: host.Response,
+    bounds: host_api.DataValueBoundsV1,
 ) !host_api.HostEffectResultV1 {
     return switch (response) {
-        .resumed => |value| try cloneSuccessResult(allocator, request_id, .@"resume", value),
-        .return_now => |value| try cloneSuccessResult(allocator, request_id, .return_now, value),
-        .aborted => |value| try cloneSuccessResult(allocator, request_id, .abort, value),
-        .rejected => |value| .{
-            .request_id = request_id,
-            .body = .{ .rejected = try value.clone(allocator) },
-        },
-        .failed => |value| .{
-            .request_id = request_id,
-            .body = .{ .failed = try value.clone(allocator) },
-        },
+        .resumed => |value| try cloneSuccessResult(allocator, request_id, .@"resume", value, bounds),
+        .return_now => |value| try cloneSuccessResult(allocator, request_id, .return_now, value, bounds),
+        .aborted => |value| try cloneSuccessResult(allocator, request_id, .abort, value, bounds),
+        .rejected => |value| cloneFailureResponse(allocator, request_id, .rejected, value, bounds),
+        .failed => |value| cloneFailureResponse(allocator, request_id, .failed, value, bounds),
     };
 }
 
@@ -489,17 +595,23 @@ fn cloneSuccessResult(
     request_id: u64,
     control: host_api.ToolControlV1,
     value: anytype,
+    bounds: host_api.DataValueBoundsV1,
 ) !host_api.HostEffectResultV1 {
     if (value.request_id != request_id) {
         return invalidHostReplyResult(allocator, request_id, "host reply request_id must echo the request");
     }
-    const tool_id = try allocator.dupe(u8, value.tool_id);
-    errdefer allocator.free(tool_id);
-    const cloned_value = try value.value.clone(allocator);
+    const cloned_value = value.value.cloneBounded(allocator, bounds) catch |err| switch (err) {
+        error.DataValueTooDeep, error.DataValueTooManyNodes, error.DataValueTooManyBytes => {
+            return resourceExhaustedResult(allocator, request_id, "artifact host payload budget exceeded");
+        },
+        else => return err,
+    };
     errdefer {
         var owned_value = cloned_value;
         owned_value.deinit(allocator);
     }
+    const tool_id = try allocator.dupe(u8, value.tool_id);
+    errdefer allocator.free(tool_id);
     return .{
         .request_id = request_id,
         .body = .{ .success = .{
@@ -509,6 +621,51 @@ fn cloneSuccessResult(
             .value = cloned_value,
             .owns_tool_id = true,
             .value_ownership = .deep,
+        } },
+    };
+}
+
+fn cloneFailureResponse(
+    allocator: std.mem.Allocator,
+    request_id: u64,
+    comptime status: host_api.HostEffectStatusV1,
+    value: host.Failure,
+    bounds: host_api.DataValueBoundsV1,
+) !host_api.HostEffectResultV1 {
+    const cloned_failure = value.cloneBounded(allocator, bounds) catch |err| switch (err) {
+        error.DataValueTooDeep, error.DataValueTooManyNodes, error.DataValueTooManyBytes => {
+            return resourceExhaustedResult(allocator, request_id, "artifact host payload budget exceeded");
+        },
+        else => return err,
+    };
+    return switch (status) {
+        .rejected => .{
+            .request_id = request_id,
+            .body = .{ .rejected = cloned_failure },
+        },
+        .failed => .{
+            .request_id = request_id,
+            .body = .{ .failed = cloned_failure },
+        },
+        .success => unreachable,
+    };
+}
+
+fn resourceExhaustedResult(
+    allocator: std.mem.Allocator,
+    request_id: u64,
+    message: []const u8,
+) !host_api.HostEffectResultV1 {
+    const code = try allocator.dupe(u8, "resource_exhausted");
+    errdefer allocator.free(code);
+    const owned_message = try allocator.dupe(u8, message);
+    return .{
+        .request_id = request_id,
+        .body = .{ .failed = .{
+            .code = code,
+            .message = owned_message,
+            .owns_code = true,
+            .owns_message = true,
         } },
     };
 }
@@ -532,14 +689,19 @@ fn invalidHostReplyResult(
     };
 }
 
-fn dataValueFromProgramValue(allocator: std.mem.Allocator, value: anytype) !host.DataValue {
-    return switch (value) {
+fn dataValueFromProgramValueBounded(
+    allocator: std.mem.Allocator,
+    value: anytype,
+    bounds: host_api.DataValueBoundsV1,
+) !host.DataValue {
+    const public_value: host.DataValue = switch (value) {
         .none => .null,
         .bool => |typed| .{ .bool = typed },
         .i32 => |typed| .{ .i64 = typed },
         .usize => |typed| .{ .u64 = typed },
-        .string => |typed| .{ .string = try allocator.dupe(u8, typed) },
+        .string => |typed| .{ .string = typed },
     };
+    return try public_value.cloneBounded(allocator, bounds);
 }
 
 fn deinitExecutionOutputs(allocator: std.mem.Allocator, outputs: []runtime.ExecutionOutput) void {
@@ -595,7 +757,7 @@ test "request bridge classifies non-root call ids as after_call" {
         } },
     };
 
-    var bridged = try requestFromInternal(std.testing.allocator, request);
+    var bridged = try requestFromInternal(std.testing.allocator, request, .{});
     defer bridged.deinit(std.testing.allocator);
 
     switch (bridged) {
@@ -619,7 +781,7 @@ test "response bridge preserves request ids for failed responses" {
     } };
     defer response.deinit(std.testing.allocator);
 
-    var bridged = try responseToInternal(std.testing.allocator, 41, response);
+    var bridged = try responseToInternal(std.testing.allocator, 41, response, .{});
     defer bridged.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(@as(u64, 41), bridged.request_id);
@@ -656,7 +818,7 @@ fn expectResponseBridgeSuccessRequiresMatchingRequestId(kind: enum { aborted, re
     };
     defer response.deinit(std.testing.allocator);
 
-    var bridged = try responseToInternal(std.testing.allocator, request_id, response);
+    var bridged = try responseToInternal(std.testing.allocator, request_id, response, .{});
     defer bridged.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(request_id, bridged.request_id);
@@ -709,7 +871,7 @@ fn expectResponseBridgeRejectsMismatchedSuccessRequestId(kind: enum { aborted, r
     };
     defer response.deinit(std.testing.allocator);
 
-    var bridged = try responseToInternal(std.testing.allocator, outer_request_id, response);
+    var bridged = try responseToInternal(std.testing.allocator, outer_request_id, response, .{});
     defer bridged.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(outer_request_id, bridged.request_id);
@@ -737,7 +899,7 @@ fn expectResponseBridgeClonesToolIdWithoutLeaksOnAllocationFailure(allocator: st
     } };
     defer response.deinit(std.testing.allocator);
 
-    var bridged = try responseToInternal(allocator, 41, response);
+    var bridged = try responseToInternal(allocator, 41, response, .{});
     defer bridged.deinit(allocator);
 
     try std.testing.expectEqual(@as(u64, 41), bridged.request_id);
@@ -762,6 +924,57 @@ test "response bridge frees duplicated tool ids on allocation failure" {
     );
 }
 
+test "output bridge validates snapshot count before cloning payloads" {
+    const allocator = std.testing.allocator;
+    const descriptors = [_]host_api.OutputDescriptorV1{.{
+        .label = "answer",
+        .codec = .string,
+    }};
+    var bridge_context: BridgeContext = .{
+        .adapter = .{
+            .ctx = null,
+            .dispatchFn = struct {
+                fn dispatch(
+                    _: ?*anyopaque,
+                    _: std.mem.Allocator,
+                    _: host.Request,
+                ) anyerror!host.Response {
+                    return error.TestUnexpectedDispatch;
+                }
+            }.dispatch,
+            .collectOutputSnapshotsFn = struct {
+                fn collect(
+                    _: ?*anyopaque,
+                    allocator_inner: std.mem.Allocator,
+                    declared_outputs: []const host.OutputDescriptor,
+                ) anyerror![]host.OutputSnapshot {
+                    try std.testing.expectEqual(@as(usize, 1), declared_outputs.len);
+                    const snapshots = try allocator_inner.alloc(host.OutputSnapshot, 2);
+                    snapshots[0] = .{
+                        .value = .{ .string = "this payload exceeds the configured clone byte limit" },
+                        .value_ownership = .borrowed,
+                    };
+                    snapshots[1] = .{
+                        .value = .null,
+                        .value_ownership = .borrowed,
+                    };
+                    return snapshots;
+                }
+            }.collect,
+        },
+        .data_value_bounds = .{
+            .max_depth = 4,
+            .max_nodes = 8,
+            .max_bytes = 1,
+        },
+    };
+
+    try std.testing.expectError(
+        error.OutputSnapshotCountMismatch,
+        bridgeCollectOutputs(&bridge_context, allocator, &descriptors),
+    );
+}
+
 fn expectExecutionOutputsFromInternalCleansUpPartialAllocations(allocator: std.mem.Allocator) !void {
     const outputs = [_]runtime_api.ExecutionOutputV1{
         .{
@@ -771,7 +984,7 @@ fn expectExecutionOutputsFromInternalCleansUpPartialAllocations(allocator: std.m
         },
     };
 
-    const owned_outputs = try executionOutputsFromInternal(allocator, &outputs);
+    const owned_outputs = try executionOutputsFromInternal(allocator, &outputs, .{});
     defer deinitExecutionOutputs(allocator, owned_outputs);
 
     try std.testing.expectEqual(@as(usize, 1), owned_outputs.len);
@@ -801,7 +1014,7 @@ fn expectResponseFromInternalCleansUpDuplicatedToolIds(allocator: std.mem.Alloca
         } },
     };
 
-    var bridged = try responseFromInternal(allocator, response);
+    var bridged = try responseFromInternal(allocator, response, .{});
     defer bridged.deinit(allocator);
 
     switch (bridged) {
