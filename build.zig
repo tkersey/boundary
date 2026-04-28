@@ -833,6 +833,48 @@ fn lintSharedTailArgsAlloc(
     return filtered_args;
 }
 
+fn recognizedLintArgSpan(args: []const []const u8, index: usize) ?usize {
+    const arg = args[index];
+    if (std.mem.startsWith(u8, arg, "--max-warnings=")) return 1;
+    if (std.mem.eql(u8, arg, "--max-warnings")) {
+        if (index + 1 >= args.len) return 1;
+        if (std.mem.startsWith(u8, args[index + 1], "--")) return 1;
+        return 2;
+    }
+    return null;
+}
+
+fn fixtureGeneratorSharedTailArgsAlloc(
+    allocator: std.mem.Allocator,
+    args: ?[]const []const u8,
+    strip_test_runner_args: bool,
+    strip_lint_args: bool,
+) ![]const []const u8 {
+    const raw_args = args orelse &.{};
+
+    var filtered_args = std.ArrayList([]const u8).empty;
+    errdefer filtered_args.deinit(allocator);
+
+    var index: usize = 0;
+    while (index < raw_args.len) {
+        if (strip_test_runner_args) {
+            if (recognizedTestRunnerArgSpan(raw_args, index)) |span| {
+                index += span;
+                continue;
+            }
+        }
+        if (strip_lint_args) {
+            if (recognizedLintArgSpan(raw_args, index)) |span| {
+                index += span;
+                continue;
+            }
+        }
+        try filtered_args.append(allocator, raw_args[index]);
+        index += 1;
+    }
+    return filtered_args.toOwnedSlice(allocator);
+}
+
 fn requireTestRunnerArgs(
     b: *std.Build,
     args: ?[]const []const u8,
@@ -3813,6 +3855,32 @@ test "lint shared-tail args preserve unknown args for fail-closed mixed-step val
     try std.testing.expectEqualStrings("--bogus", filtered_args[2]);
 }
 
+test "fixture generator shared-tail args strip sibling test args in mixed invocations" {
+    const filtered_args = try fixtureGeneratorSharedTailArgsAlloc(
+        std.testing.allocator,
+        &.{ "--test-filter", "host-log", "--seed=123", "--check" },
+        true,
+        false,
+    );
+    defer std.testing.allocator.free(filtered_args);
+
+    try std.testing.expectEqual(@as(usize, 1), filtered_args.len);
+    try std.testing.expectEqualStrings("--check", filtered_args[0]);
+}
+
+test "fixture generator shared-tail args strip sibling lint and test args while preserving unknowns" {
+    const filtered_args = try fixtureGeneratorSharedTailArgsAlloc(
+        std.testing.allocator,
+        &.{ "--max-warnings", "0", "--test-filter=host-log", "--bogus" },
+        true,
+        true,
+    );
+    defer std.testing.allocator.free(filtered_args);
+
+    try std.testing.expectEqual(@as(usize, 1), filtered_args.len);
+    try std.testing.expectEqualStrings("--bogus", filtered_args[0]);
+}
+
 test "build invocation step detection ignores option values" {
     const prefix_args = [_][]const u8{
         "build-helper",
@@ -4283,6 +4351,14 @@ pub fn build(b: *std.Build) void {
         test_requested,
         allow_foreign_shared_tail_args,
     ) orelse return;
+    const fixture_tail_args = fixtureGeneratorSharedTailArgsAlloc(
+        b.allocator,
+        b.args,
+        test_requested,
+        lint_requested_opt orelse false,
+    ) catch |err|
+        std.process.fatal("unable to prepare fixture generator shared-tail args: {s}", .{@errorName(err)});
+    defer b.allocator.free(fixture_tail_args);
     // Compile and run steps retain these slices by reference, so they must live for the build graph lifetime.
     const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
 
@@ -4809,7 +4885,9 @@ pub fn build(b: *std.Build) void {
         .root_module = ability_agent_vm_fixture_mod,
     });
     const run_ability_agent_vm_fixture = b.addRunArtifact(ability_agent_vm_fixture_exe);
-    if (b.args) |args| run_ability_agent_vm_fixture.addArgs(args);
+    if (fixture_tail_args.len != 0) {
+        run_ability_agent_vm_fixture.addArgs(fixture_tail_args);
+    }
     const ability_agent_vm_fixture_step = b.step(
         "generate-ability-agent-vm-fixture",
         "Generate the committed ability_agent_vm compatibility artifact fixture.",
