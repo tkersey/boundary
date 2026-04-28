@@ -4757,6 +4757,17 @@ pub fn build(b: *std.Build) void {
         ability_agent_vm_smoke_tests,
         test_runner_args.passthrough.items,
     );
+    const vm_build_filters = [_][]const u8{"host-log response budget"};
+    const vm_build_tests = addFilteredTest(
+        b,
+        private_artifact_vm_core_mod,
+        &vm_build_filters,
+    );
+    const run_vm_build_tests = addRunArtifactWithArgs(
+        b,
+        vm_build_tests,
+        test_runner_args.passthrough.items,
+    );
 
     const frontend_internal_tests = addFilteredTest(
         b,
@@ -5166,6 +5177,7 @@ pub fn build(b: *std.Build) void {
         .{ .suite_id = "ability-agent-vm-consumer", .description = "ability_agent_vm source-path consumer compile witness", .run_step = &ability_agent_vm_consumer_exe.step },
         .{ .suite_id = "ability-agent-vm-freshness", .description = "ability_agent_vm fixture freshness check", .run_step = &run_agent_vm_fixture_tests.step },
         .{ .suite_id = "ability-agent-vm-smoke", .description = "ability_agent_vm public runtime smoke", .run_step = &run_ability_agent_vm_smoke.step },
+        .{ .suite_id = "artifact-vm-runtime-build-host-log-budget", .description = "Private artifact VM runtime host-log budget regression", .run_step = &run_vm_build_tests.step },
         .{ .suite_id = "frontend", .description = "Frontend internal module", .run_step = &run_frontend_internal_tests.step },
         .{ .suite_id = "admitted-body-v1", .description = "Admitted body parser suite", .run_step = &run_admitted_body_v1_tests.step },
         .{ .suite_id = "program-plan-review", .description = "ProgramPlan regression suite", .run_step = &run_plan_review_tests.step },

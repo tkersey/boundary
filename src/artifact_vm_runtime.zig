@@ -420,7 +420,8 @@ fn appendHostLog(ctx: *ExecutionContext, request: host.HostEffectRequestV1, resp
             },
             else => return err,
         };
-        errdefer request_clone.deinit(ctx.allocator);
+        var request_clone_owned = true;
+        defer if (request_clone_owned) request_clone.deinit(ctx.allocator);
         var response_clone = response.cloneBounded(ctx.allocator, ctx.options.data_value_bounds) catch |err| switch (err) {
             error.DataValueTooDeep, error.DataValueTooManyNodes, error.DataValueTooManyBytes => {
                 return try resourceExhaustedFailure(ctx.allocator, "artifact host-log payload budget exceeded");
@@ -428,6 +429,7 @@ fn appendHostLog(ctx: *ExecutionContext, request: host.HostEffectRequestV1, resp
             else => return err,
         };
         errdefer response_clone.deinit(ctx.allocator);
+        request_clone_owned = false;
         break :blk .{
             .request = request_clone,
             .result = response_clone,

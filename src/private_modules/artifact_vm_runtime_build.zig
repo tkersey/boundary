@@ -420,7 +420,8 @@ fn appendHostLog(ctx: *ExecutionContext, request: host.HostEffectRequestV1, resp
             },
             else => return err,
         };
-        errdefer request_clone.deinit(ctx.allocator);
+        var request_clone_owned = true;
+        defer if (request_clone_owned) request_clone.deinit(ctx.allocator);
         var response_clone = response.cloneBounded(ctx.allocator, ctx.options.data_value_bounds) catch |err| switch (err) {
             error.DataValueTooDeep, error.DataValueTooManyNodes, error.DataValueTooManyBytes => {
                 return try resourceExhaustedFailure(ctx.allocator, "artifact host-log payload budget exceeded");
@@ -428,6 +429,7 @@ fn appendHostLog(ctx: *ExecutionContext, request: host.HostEffectRequestV1, resp
             else => return err,
         };
         errdefer response_clone.deinit(ctx.allocator);
+        request_clone_owned = false;
         break :blk .{
             .request = request_clone,
             .result = response_clone,
@@ -2227,19 +2229,21 @@ fn expectHostLogPayloadBudgetFailureNoDoubleFree(allocator: std.mem.Allocator) !
     };
     const decoded = artifact.ArtifactV1{
         .semantic_ir_hash64 = plan.ir_hash,
+        .artifact_hash_blake3_256 = std.mem.zeroes([32]u8),
         .manifest_build_fingerprint = std.mem.zeroes([32]u8),
         .build_fingerprint_blake3_256 = std.mem.zeroes([32]u8),
-        .capabilities = &.{},
-        .requirement_capability_ids = &.{},
-        .functions = plan.functions,
-        .requirements = plan.requirements,
-        .ops = plan.ops,
-        .outputs = plan.outputs,
-        .locals = plan.locals,
-        .call_args = plan.call_args,
-        .blocks = plan.blocks,
-        .terminators = plan.terminators,
-        .instructions = plan.instructions,
+        .entry_function_index = 0,
+        .capabilities = @constCast(@as([]const artifact.CapabilityV1, &.{})),
+        .requirement_capability_ids = @constCast(@as([]const u16, &.{})),
+        .functions = @constCast(plan.functions),
+        .requirements = @constCast(plan.requirements),
+        .ops = @constCast(plan.ops),
+        .outputs = @constCast(plan.outputs),
+        .locals = @constCast(plan.locals),
+        .call_args = @constCast(plan.call_args),
+        .blocks = @constCast(plan.blocks),
+        .terminators = @constCast(plan.terminators),
+        .instructions = @constCast(plan.instructions),
     };
     var next_request_id: u64 = 1;
     var ctx: ExecutionContext = .{
@@ -2286,7 +2290,8 @@ fn expectHostLogPayloadBudgetFailureNoDoubleFree(allocator: std.mem.Allocator) !
         } },
     };
 
-    if (try appendHostLog(&ctx, request, response)) |*failure| {
+    var maybe_failure = try appendHostLog(&ctx, request, response);
+    if (maybe_failure) |*failure| {
         defer failure.deinit(allocator);
         try std.testing.expectEqualStrings("resource_exhausted", failure.code);
         try std.testing.expectEqualStrings("artifact host-log payload budget exceeded", failure.message);
